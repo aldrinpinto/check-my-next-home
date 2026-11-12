@@ -34,6 +34,11 @@ The fact store is PostgreSQL + PostGIS, run from the recipe in
 It listens on localhost only, and its data survives restarts in a named
 volume.
 
+The shelves themselves are versioned migrations in `db/migrations/`:
+`npm run db:migrate` builds them (PostGIS included), and
+`npm run db:prove` proves the map brain works. See `db/README.md` and
+`docs/schema.md`.
+
 ## House rules
 
 - No scraping of property portals, ever. The future browser extension reads
