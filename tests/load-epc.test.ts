@@ -20,6 +20,11 @@ describe("epc loader", () => {
     expect(loader).toContain("/api/certificate");
     expect(loader).toContain("EPC_API_TOKEN");
     expect(loader).toContain("answers = answers || $1::jsonb");
+    // The assessment type is filed so a predicted (SAP) rating can
+    // be labelled predicted (decision D7), and the dwelling type is
+    // normalised across the register's two shapes.
+    expect(loader).toContain("assessment_type");
+    expect(loader).toContain("dwelling.value");
   });
 
   it("fixture reproduces the golden certificates", () => {

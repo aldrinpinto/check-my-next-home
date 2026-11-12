@@ -47,6 +47,10 @@ const GOLDEN = {
 };
 
 function minimise(stub, doc) {
+  // dwelling_type arrives as a plain string on newer certificates
+  // and as a { value, language } object on older ones — file the
+  // words either way.
+  const dwelling = doc.dwelling_type;
   return {
     certificateNumber: stub.certificateNumber,
     addressLine1: doc.address_line_1 ?? stub.addressLine1 ?? null,
@@ -59,7 +63,13 @@ function minimise(stub, doc) {
     ratingCurrent: doc.energy_rating_current ?? null,
     potentialBand: doc.potential_energy_efficiency_band ?? null,
     totalFloorArea: doc.total_floor_area ?? null,
-    dwellingType: doc.dwelling_type ?? null,
+    dwellingType:
+      typeof dwelling === "object" && dwelling !== null
+        ? (dwelling.value ?? null)
+        : (dwelling ?? null),
+    // Kept so the site can label a predicted (SAP) rating as
+    // predicted, per decision D7 — never shown as a bare fact.
+    assessmentType: doc.assessment_type ?? null,
     registrationDate: doc.registration_date ?? stub.registrationDate ?? null,
   };
 }
