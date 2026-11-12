@@ -123,3 +123,11 @@ jobs:
 
       - name: Runner — fixture pass over all loaders (plan step M4.8)
         run: node loaders/run-loaders.mjs --file tests/fixtures --kind practice --env ci --no-canary --no-email
+
+
+      - name: Load the planning-area fixture (plan step M5.2)
+        run: node loaders/load-planning-areas.mjs --file tests/fixtures/planning-areas
+      - name: Load the green-belt fixture (plan step M5.2)
+        run: node loaders/load-green-belt.mjs --file tests/fixtures/green-belt
+      - name: Load the heritage fixture (plan step M5.2)
+        run: node loaders/load-heritage.mjs --file tests/fixtures/heritage
