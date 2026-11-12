@@ -73,9 +73,158 @@ export function decideExitCode({ items, alertStatus, noEmail }) {
   return 0;
 }
 
+// --- the email a person reads --------------------------------------
+//
+// The run record keeps the loaders' verbatim log lines; the email
+// does not lead with them. It opens with what happened and what
+// (if anything) the operator needs to do, in plain words, then
+// lists each collector as one human sentence, and only then the
+// technical detail. The gap check's test for this email: one
+// person, no dashboard habit, thirty seconds — what broke, what
+// is still serving, what do I have to do?
+
+export const FRIENDLY_NAMES = {
+  "load-postcodes": "Postcode directory",
+  "load-sold-prices": "Sold prices",
+  "load-crime": "Crime",
+  "load-epc": "Energy certificates (EPC)",
+  "load-schools": "Schools",
+  "load-health": "Health — GPs, pharmacies, dentists, hospitals",
+  onspd: "Postcode directory source (canary)",
+  ppd: "Sold prices source (canary)",
+  police: "Crime source (canary)",
+  epc: "EPC source (canary)",
+  "epc-deltas": "EPC changes feed (canary)",
+  gias: "Schools register (canary)",
+  ofsted: "Ofsted source (canary)",
+  ods: "NHS lists source (canary)",
+  "cqc-directory": "CQC directory (canary)",
+  "cqc-ratings": "CQC ratings (canary)",
+};
+
+function shortDetail(item) {
+  const line = item.logLine ?? "";
+  const pick = (re) => line.match(re)?.[1]?.trim();
+  switch (item.item) {
+    case "load-postcodes": {
+      const edition = pick(/edition ([^·(]+)/);
+      return edition ? `edition ${edition}` : "updated";
+    }
+    case "load-crime": {
+      const window = pick(/window ([^·]+)/);
+      return window ? `data window ${window.replace("..", " to ")}` : "updated";
+    }
+    case "load-schools": {
+      const gias = pick(/GIAS (\d{4}-\d{2}-\d{2})/);
+      return gias ? `register dated ${gias}` : "updated";
+    }
+    case "load-health": {
+      const ods = pick(/ODS (\d{4}-\d{2}-\d{2})/);
+      return ods ? `lists dated ${ods}` : "updated";
+    }
+    default:
+      return "updated";
+  }
+}
+
+export function humanLine(item) {
+  const name = FRIENDLY_NAMES[item.item] ?? item.item;
+  if (item.status === "succeeded")
+    return { icon: "OK", text: `${name} — updated fine (${shortDetail(item)}).` };
+  if (item.status === "skipped")
+    return {
+      icon: "SKIP",
+      text: `${name} — skipped: ${(item.logLine ?? "").replace(/^skipped — /, "")}`,
+    };
+  if (item.status === "warning")
+    return { icon: "WARN", text: `${name} — noted, not alerting: ${item.logLine ?? ""}` };
+  const reason = (item.errorMessage ?? "unknown error").split("\n")[0].slice(0, 160);
+  if (item.mode === "probe") {
+    return {
+      icon: "FAIL",
+      text: `${name} — early warning: this source changed shape or went stale, so the next real load may fail. Reason: ${reason}`,
+    };
+  }
+  return {
+    icon: "FAIL",
+    text: `${name} — FAILED. Nothing was filed, so the site keeps showing the previous figures. Reason: ${reason}`,
+  };
+}
+
+export function buildEmailBodies(run, items, recordNote) {
+  const loads = items.filter((i) => i.mode !== "probe");
+  const failed = items.filter((i) => i.status === "failed");
+  const failedLoads = failed.filter((i) => i.mode !== "probe");
+  const skipped = items.filter((i) => i.status === "skipped");
+  const human = items.map(humanLine);
+
+  let happened;
+  if (failedLoads.length > 0) {
+    happened = `${failedLoads.length} of ${loads.length} fact collectors failed (${failedLoads.map((i) => FRIENDLY_NAMES[i.item] ?? i.item).join(", ")}). The rest updated normally.`;
+  } else if (failed.length > 0) {
+    happened = `All ${loads.length} fact collectors updated normally, but ${failed.length} early-warning check(s) failed.`;
+  } else {
+    happened = `All ${loads.length} fact collectors updated normally${skipped.length > 0 ? ` (${skipped.length} not due and skipped)` : ""}.`;
+  }
+
+  let needsYou;
+  if (failedLoads.length > 0) {
+    needsYou =
+      "Nothing urgent — the site is serving the last good figures for anything that failed. When convenient, raise it in the Property Checker implementation chat; the full failure record is in the loader_runs tables (reference below).";
+  } else if (failed.length > 0) {
+    needsYou =
+      "Nothing is broken yet. A source has changed shape or gone stale, which may break the next monthly load — worth raising in the Property Checker implementation chat.";
+  } else {
+    needsYou = "Nothing. This is the regular confirmation that the facts refreshed.";
+  }
+
+  const reference = `Reference: run ${run.id} · ${run.kind} · ${run.environment} · started ${run.startedAt.toISOString()} · ${recordNote ?? "full record in the loader_runs tables."}`;
+  const detailLines = items.map(
+    (i) =>
+      `${i.status.toUpperCase().padEnd(9)} ${i.item} — ${i.logLine ?? i.errorMessage?.split("\n")[0] ?? ""}`,
+  );
+
+  const text = [
+    "WHAT HAPPENED",
+    happened,
+    "",
+    "WHAT YOU NEED TO DO",
+    needsYou,
+    "",
+    "COLLECTOR BY COLLECTOR",
+    ...human.map((h) => `${h.icon.padEnd(4)} ${h.text}`),
+    "",
+    "TECHNICAL DETAIL (the collectors' own log lines)",
+    ...detailLines,
+    "",
+    reference,
+  ].join("\n");
+
+  const esc = (t) => t.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+  const colour = { OK: "#1a7f37", SKIP: "#6e7781", WARN: "#bf8700", FAIL: "#cf222e" };
+  const rows = human
+    .map(
+      (h) =>
+        `<tr><td style="padding:6px 10px 6px 0;font-weight:bold;color:${colour[h.icon]}">${h.icon}</td><td style="padding:6px 0">${esc(h.text)}</td></tr>`,
+    )
+    .join("");
+  const html = `<div style="font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;max-width:640px;margin:0 auto;color:#1f2328;line-height:1.5">
+<h2 style="font-size:18px;margin:0 0 4px">What happened</h2>
+<p style="margin:0 0 16px">${esc(happened)}</p>
+<h2 style="font-size:18px;margin:0 0 4px">What you need to do</h2>
+<p style="margin:0 0 16px">${esc(needsYou)}</p>
+<h2 style="font-size:18px;margin:0 0 4px">Collector by collector</h2>
+<table style="border-collapse:collapse;margin:0 0 16px">${rows}</table>
+<h2 style="font-size:15px;margin:0 0 4px;color:#57606a">Technical detail</h2>
+<pre style="white-space:pre-wrap;font-size:12px;color:#57606a;background:#f6f8fa;padding:12px;border-radius:6px">${esc(detailLines.join("\n"))}</pre>
+<p style="font-size:12px;color:#6e7781">${esc(reference)}</p>
+</div>`;
+  return { text, html };
+}
+
 // --- email ----------------------------------------------------------
 
-async function sendRunEmail(subject, text) {
+async function sendRunEmail(subject, text, html) {
   const key = process.env.RESEND_API_KEY;
   if (!key) return { status: "failed", error: "RESEND_API_KEY is not set" };
   let lastError;
@@ -89,6 +238,7 @@ async function sendRunEmail(subject, text) {
           to: [ALERT_TO],
           subject,
           text,
+          html,
         }),
       });
       if (!response.ok)

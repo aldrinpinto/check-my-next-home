@@ -1,7 +1,12 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { decideExitCode, dueDecision, summariseRun } from "../loaders/run-loaders.mjs";
+import {
+  buildEmailBodies,
+  decideExitCode,
+  dueDecision,
+  summariseRun,
+} from "../loaders/run-loaders.mjs";
 
 // The runner's pure core (plan step M4.8): due-ness, the one-email
 // summary, and the exit-code rule — any failure anywhere,
@@ -92,5 +97,47 @@ describe("sources", () => {
       expect(canary).toContain(probe);
     }
     expect(canary).toContain("warning-grade");
+  });
+});
+
+describe("the email a person reads", () => {
+  const run = {
+    id: "run-1",
+    kind: "practice-break",
+    environment: "ci",
+    startedAt: new Date("2026-11-12T18:29:34Z"),
+  };
+  const bodies = buildEmailBodies(
+    run,
+    [
+      {
+        item: "load-postcodes",
+        mode: "live",
+        status: "succeeded",
+        logLine: "load-postcodes · edition August 2026 (2026-08-01) · 6 live postcodes filed",
+      },
+      {
+        item: "load-crime",
+        mode: "live",
+        status: "failed",
+        errorMessage: "load-crime FAILED: CM3 2JT 2026-05: Police.uk response is not a list",
+      },
+    ],
+    null,
+  );
+
+  it("leads with what happened and what to do, in plain words", () => {
+    expect(bodies.text.indexOf("WHAT HAPPENED")).toBeLessThan(
+      bodies.text.indexOf("load-postcodes · edition"),
+    );
+    expect(bodies.text).toContain("Nothing urgent");
+    expect(bodies.text).toContain("Crime — FAILED. Nothing was filed");
+    expect(bodies.text).toContain("Postcode directory — updated fine (edition August 2026)");
+  });
+
+  it("carries the same structure as HTML for mail clients", () => {
+    expect(bodies.html).toContain("What happened");
+    expect(bodies.html).toContain("What you need to do");
+    expect(bodies.html).toContain("Collector by collector");
   });
 });
