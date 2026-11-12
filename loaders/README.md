@@ -54,3 +54,28 @@ the loader against the real-data fixture in `tests/fixtures/land-registry`
 on every push; the fixture's update file is synthetic (one amendment, one
 deletion, both on category-B rows) so the merge itself is proved without
 disturbing the golden figures.
+
+## Crime counts (plan step M4.3) — `load-crime.mjs`
+
+Police.uk street-level crime counts for the rolling 12 months ending at the
+latest published month, filed into each postcode's cached answers
+(`postcode_cache.answers`, key "crime") — counts only, never a score or a
+verdict, and the merge touches only the crime key. The loader anchors to
+Police.uk's availability endpoint on every run and applies the freshness
+guard: Police.uk publishes with a lag of about two months, so if the newest
+month is more than three months behind today the load fails, files nothing,
+and the previous counts keep serving (step M4.8 turns that failure into an
+alert email).
+
+```bash
+npm run load:crime -- "CM3 2JT" "E16 1GN"          # into the database
+npm run load:crime -- --verify-only "CM3 2JT"     # count + prove only
+npm run load:crime -- --file tests/fixtures/police-uk "CM3 2JT" "E16 1GN"
+```
+
+The plan's check is the maths, not a frozen number — the window rolls as
+new months publish — but at build time the window Oct 2025 – Sep 2026
+reproduces the approved reports exactly: 330 crimes for CM3 2JT and 10,722
+for E16 1GN, summed from the API's own 1-mile responses. Those frozen
+totals are asserted in fixture mode, where the fixture holds the captured
+API responses; CI runs the fixture load on every push.

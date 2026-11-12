@@ -1,0 +1,8 @@
+{
+  "datesFile": "crimes-street-dates.json",
+  "points": {
+    "CM3 2JT": { "lat": 51.776176, "lng": 0.60387, "prefix": "birkdale" },
+    "E16 1GN": { "lat": 51.515224, "lng": 0.021177, "prefix": "exeter" }
+  },
+  "today": "2026-11-12"
+}

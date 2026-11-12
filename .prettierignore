@@ -1,0 +1,5 @@
+# Test fixtures are verbatim captures of official data files and API
+# responses (ONSPD CSVs, Land Registry CSVs, Police.uk JSON). They are
+# evidence, not code — reformatting them would misrepresent the source
+# and bloat the repository, so Prettier leaves them alone.
+tests/fixtures/**
