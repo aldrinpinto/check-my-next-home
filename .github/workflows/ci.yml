@@ -110,3 +110,7 @@ jobs:
         run: npm run db:seed -- --verify
       - name: Load the postcode directory fixture (plan step M4.1)
         run: npm run load:postcodes -- --file tests/fixtures/onspd
+      - name: Load the sold prices fixture (plan step M4.2)
+        run: npm run load:sold-prices -- --file tests/fixtures/land-registry "CM3 2JT" "E16 1GN"
+
+
