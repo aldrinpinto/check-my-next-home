@@ -1,0 +1,8 @@
+{
+  "captured": "2026-11-12",
+  "edition": "2026-11-03",
+  "source": "Environment Agency — Risk of Flooding from Rivers and Sea (OGC API Features collection rofrs_4band, DSP dataset 96ab4342-82c1-4095-87f1-0082e8d84ef1)",
+  "boxes": "Every feature intersecting a box around a golden home (Birkdale ±0.03°, Exeter ±0.02°, Epsom ±0.02°), deduplicated by feature id.",
+  "parts": 2,
+  "features": 143
+}
