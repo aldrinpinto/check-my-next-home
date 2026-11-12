@@ -6,7 +6,10 @@ name: Practice — M4.8 deliberate-break proof
 # or runs with a broken email key — and the job asserts the run
 # record, the alert status and that the last good crime data is
 # untouched. Sends ONE real email to the project address on the
-# scenarios that keep the key intact.
+# scenarios that keep the key intact. Since plan step M5.3 the
+# job also asserts the two nature loaders filed their six layers
+# on the clean pass; since plan step M5.1 it likewise asserts
+# the three flood loaders filed their three layers.
 
 on:
   workflow_dispatch:
@@ -63,6 +66,20 @@ jobs:
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
         run: node loaders/run-loaders.mjs --file tests/fixtures --kind practice --no-canary --no-email
 
+      - name: Assert the nature loaders filed (plan step M5.3)
+        run: |
+          psql "$DATABASE_URL" -Atc "SELECT item, status FROM loader_run_items WHERE run_id = (SELECT id FROM loader_runs ORDER BY started_at DESC LIMIT 1) AND item IN ('load-nature-designations', 'load-priority-habitats') ORDER BY item"
+          psql "$DATABASE_URL" -Atc "SELECT count(*) FROM loader_run_items WHERE run_id = (SELECT id FROM loader_runs ORDER BY started_at DESC LIMIT 1) AND item IN ('load-nature-designations', 'load-priority-habitats') AND status = 'succeeded'" | grep -qx 2
+          psql "$DATABASE_URL" -Atc "SELECT DISTINCT constraint_type FROM planning_layers WHERE constraint_type IN ('sssi', 'sac', 'spa', 'ramsar', 'ancient_woodland', 'priority_habitat') ORDER BY 1"
+          psql "$DATABASE_URL" -Atc "SELECT count(DISTINCT constraint_type) FROM planning_layers WHERE constraint_type IN ('sssi', 'sac', 'spa', 'ramsar', 'ancient_woodland', 'priority_habitat')" | grep -qx 6
+
+      - name: Assert the flood loaders filed (plan step M5.1)
+        run: |
+          psql "$DATABASE_URL" -Atc "SELECT item, status FROM loader_run_items WHERE run_id = (SELECT id FROM loader_runs ORDER BY started_at DESC LIMIT 1) AND item IN ('load-flood-zones', 'load-flood-rivers-sea', 'load-flood-surface-water') ORDER BY item"
+          psql "$DATABASE_URL" -Atc "SELECT count(*) FROM loader_run_items WHERE run_id = (SELECT id FROM loader_runs ORDER BY started_at DESC LIMIT 1) AND item IN ('load-flood-zones', 'load-flood-rivers-sea', 'load-flood-surface-water') AND status = 'succeeded'" | grep -qx 3
+          psql "$DATABASE_URL" -Atc "SELECT DISTINCT layer_type FROM flood_layers WHERE layer_type IN ('flood_zone', 'rofrs', 'rofsw') ORDER BY 1"
+          psql "$DATABASE_URL" -Atc "SELECT count(DISTINCT layer_type) FROM flood_layers WHERE layer_type IN ('flood_zone', 'rofrs', 'rofsw')" | grep -qx 3
+
       - name: Snapshot the filed crime answers
         run: |
           psql "$DATABASE_URL" -Atc "SELECT postcode || '=' || (answers->'crime')::text FROM postcode_cache WHERE answers ? 'crime' ORDER BY postcode" > /tmp/crime-before.txt
@@ -75,6 +92,8 @@ jobs:
           set +e
           if [ "${{ inputs.scenario }}" = "break-crime" ]; then
             cp -r tests/fixtures /tmp/fx
+            # Poison one monthly crime response: an object where
+            # an array belongs.
             echo '{}' > /tmp/fx/police-uk/birkdale-2026-05.json
             node loaders/run-loaders.mjs --file /tmp/fx --kind practice-break --no-canary
           elif [ "${{ inputs.scenario }}" = "break-email" ]; then
