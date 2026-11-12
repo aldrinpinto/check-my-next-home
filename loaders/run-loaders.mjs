@@ -221,14 +221,24 @@ async function main() {
   if (!canaryOnly) {
     if (fixtureRoot) {
       const fx = (name) => join(fixtureRoot, name);
-      items.push(await runLoader("load-postcodes", ["--file", fx("onspd")]));
-      items.push(
-        await runLoader("load-sold-prices", ["--file", fx("land-registry"), ...GOLDEN_POSTCODES]),
-      );
-      items.push(await runLoader("load-crime", ["--file", fx("police-uk"), ...GOLDEN_POSTCODES]));
-      items.push(await runLoader("load-epc", ["--file", fx("epc"), ...GOLDEN_POSTCODES]));
-      items.push(await runLoader("load-schools", ["--file", fx("schools")]));
-      items.push(await runLoader("load-health", ["--file", fx("health")]));
+      const runAndLog = async (name, loaderArgs) => {
+        const outcome = await runLoader(name, loaderArgs);
+        console.log(
+          outcome.logLine ??
+            `${outcome.item} FAILED — ${(outcome.errorMessage ?? "").split("\n")[0]}`,
+        );
+        items.push(outcome);
+      };
+      await runAndLog("load-postcodes", ["--file", fx("onspd")]);
+      await runAndLog("load-sold-prices", ["--file", fx("land-registry"), ...GOLDEN_POSTCODES]);
+      // The crime and EPC fixtures were captured for the two
+      // original golden postcodes (KT17's facts were locked from
+      // live sources, not fixtures), so their fixture runs take
+      // those two; sold prices tolerates all three.
+      await runAndLog("load-crime", ["--file", fx("police-uk"), "CM3 2JT", "E16 1GN"]);
+      await runAndLog("load-epc", ["--file", fx("epc"), "CM3 2JT", "E16 1GN"]);
+      await runAndLog("load-schools", ["--file", fx("schools")]);
+      await runAndLog("load-health", ["--file", fx("health")]);
     } else {
       if (!client) throw new Error("a live run needs the run-record database (DATABASE_URL)");
       const lastSuccess = async (item) => {
@@ -302,7 +312,12 @@ async function main() {
           });
           continue;
         }
-        items.push(await runLoader(step.item, step.args));
+        const outcome = await runLoader(step.item, step.args);
+        console.log(
+          outcome.logLine ??
+            `${outcome.item} FAILED — ${(outcome.errorMessage ?? "").split("\n")[0]}`,
+        );
+        items.push(outcome);
       }
     }
   }
