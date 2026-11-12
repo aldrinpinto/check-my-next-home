@@ -118,3 +118,5 @@ jobs:
         run: npm run load:epc -- --file tests/fixtures/epc "CM3 2JT" "E16 1GN"
       - name: Load the schools fixture (plan step M4.6)
         run: npm run load:schools -- --file tests/fixtures/schools
+      - name: Load the health fixture (plan step M4.7)
+        run: npm run load:health -- --file tests/fixtures/health
