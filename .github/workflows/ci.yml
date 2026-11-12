@@ -1,9 +1,12 @@
 name: CI
 
 # Automatic checks on every change (plan step M2.5).
-# Jobs: tidy-check + lint + type-check + unit tests + build, and a
+# Jobs: tidy-check + lint + type-check + unit tests + build; a
 # secret scan (gitleaks) — the free substitute for GitHub's paid
-# secret scanning, recorded as the M2.4 deviation (test T-SEC-01).
+# secret scanning, recorded as the M2.4 deviation (test T-SEC-01);
+# and a database job that applies the migrations to a real
+# PostgreSQL + PostGIS and runs the map-brain proof (plan steps
+# M3.3 / M3.4 / M3.5).
 
 on:
   push:
@@ -59,3 +62,44 @@ jobs:
           GITLEAKS_VERSION=8.28.0
           curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" | tar -xz gitleaks
           ./gitleaks git --redact --verbose .
+
+  database:
+    name: Database — migrations + PostGIS proof
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:17-3.5
+        env:
+          POSTGRES_USER: cmnh
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: check_my_next_home
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cmnh -d check_my_next_home"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgresql://cmnh:postgres@localhost:5432/check_my_next_home
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies (exact, from the lockfile)
+        run: npm ci
+
+      - name: Apply the migrations (plan steps M3.3 / M3.5)
+        run: npm run db:migrate
+
+      - name: Apply them again — must be a no-op
+        run: npm run db:migrate
+
+      - name: Prove the map brain (plan step M3.4)
+        run: npm run db:prove
