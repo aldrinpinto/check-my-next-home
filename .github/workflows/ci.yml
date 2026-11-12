@@ -130,3 +130,13 @@ jobs:
         run: node loaders/load-green-belt.mjs --file tests/fixtures/green-belt
       - name: Load the heritage fixture (plan step M5.2)
         run: node loaders/load-heritage.mjs --file tests/fixtures/heritage
+      - name: Load the nature designations fixture (plan step M5.3)
+        run: node loaders/load-nature-designations.mjs --file tests/fixtures/nature-designations
+      - name: Load the priority habitats fixture (plan step M5.3)
+        run: node loaders/load-priority-habitats.mjs --file tests/fixtures/priority-habitats
+      - name: Load the flood zones fixture (plan step M5.1)
+        run: node loaders/load-flood-zones.mjs --file tests/fixtures/flood-zones
+      - name: Load the flood rivers and sea fixture (plan step M5.1)
+        run: node loaders/load-flood-rivers-sea.mjs --file tests/fixtures/flood-rivers-sea
+      - name: Load the flood surface water fixture (plan step M5.1)
+        run: node loaders/load-flood-surface-water.mjs --file tests/fixtures/flood-surface-water
