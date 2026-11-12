@@ -105,3 +105,23 @@ the token from EPC_API_TOKEN (Key K9) and never logs it. Certificate
 facts are Crown copyright under the Open Government Licence v3.0; the
 address fields are Ordnance Survey and Royal Mail copyright, used under
 the service's permitted energy-performance purposes.
+
+## Schools loader (plan step M4.6)
+
+`npm run load:schools` files every open establishment from the DfE
+register (GIAS daily extract) with its Ofsted position (the monthly
+management-information latest-inspections file, discovered from the
+gov.uk page each run). Modes mirror the other loaders:
+`--verify-only`, and `--file tests/fixtures/schools` for the
+captured real rows.
+
+Built to the user-seat gap check of 12 Nov 2026: the selective flag
+is the register's own admissions-policy value (blank files as NULL —
+not recorded, never non-selective); schools with no coordinates are
+filed at their own postcode's position, flagged approximate;
+Ofsted outcomes keep the last graded word with its own date, the
+newest inspection event, ungraded outcomes, and report-card area
+judgements as separate facts; every open establishment is filed
+whatever its phase; and each school carries its local authority —
+catchments are not filed (no national dataset exists), so the
+product links out by LA instead.

@@ -30,8 +30,15 @@ The table list is the Technical Plan's Section 2 list, verbatim —
 Family:
 
 5. **schools** — GIAS schools (name, URN, type, phase, age range,
-   address, coordinates). Facts only.
-6. **ofsted_outcomes** — Ofsted rating, date and report link, joined
+   address, coordinates, plus the register detail the product uses:
+   admissions policy — the selective flag — faith character, local
+   authority, gender, sixth form, website, pupil count, and a flag
+   where the position is the school's postcode position because the
+   register gives no coordinates). Facts only.
+6. **ofsted_outcomes** — the last graded Ofsted rating and its date,
+   the newest inspection event of any kind, the ungraded outcome
+   where that is the newest evidence, the report-card judgements
+   where the newest inspection is one, and the report link, joined
    to schools on URN.
 7. **nurseries** — Ofsted childcare, group settings only.
 8. **health_points** — NHS ODS points: GPs, dentists, pharmacies,

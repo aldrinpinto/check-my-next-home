@@ -16,12 +16,14 @@
     "load:epc": "node loaders/load-epc.mjs",
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "load:schools": "node loaders/load-schools.mjs"
   },
   "version": "0.1.0",
   "dependencies": {
     "next": "^16.4.6",
     "pg": "^8.22.0",
+    "proj4": "^2.22.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "yauzl": "^3.4.0"
