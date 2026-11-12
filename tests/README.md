@@ -27,7 +27,16 @@ The golden homes:
    new-build leasehold (transaction
    AE4D86D4-69D9-4619-E053-6C04A8C03CD0). Note the trap it guards:
    Jupiter House also has a "FLAT 4" (£341,000, 10 Sep 2019) — only the
-   PAON + SAON pair identifies the right flat.
+   PAON + SAON pair identifies the right flat. Crime facts, locked
+   12 Nov 2026 from the Police.uk API on the same basis as the other
+   golden homes: 1,956 crimes in the 12 months October 2025 to
+   September 2026 within 1 mile of the flat's position. EPC facts,
+   locked 12 Nov 2026 from the energy-certificate API: 25 certificates
+   at the postcode, all band B, addressed as "Flat N <Building> House";
+   Flat 4 Minerva House's own certificate (8401-7039-6529-6723-9906,
+   registered 7 Nov 2019, SAP assessment) is band B, 70 square metres,
+   mid-floor flat. Juno House and Jupiter House each have a "Flat 4"
+   certificate too — the three-way same-number trap again.
 
 The M3.6 practice seed and the M4.1 postcode proof were built before home 3
 was added and cover homes 1 and 2 only.
