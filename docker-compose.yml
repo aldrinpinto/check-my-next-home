@@ -1,0 +1,41 @@
+# Check My Next Home — the database recipe (plan step M3.1).
+#
+# One service: the fact store — PostgreSQL with PostGIS, the "map brain"
+# (the PostGIS extension itself is switched on and proved in step M3.4).
+# This file is only the recipe: the database is created wherever Docker
+# runs it — a developer machine during the build, the Hetzner server at
+# M12. PostgreSQL + PostGIS is the project's only database (plan rule).
+#
+# The password is never written in this file. Put POSTGRES_PASSWORD (and
+# the matching DATABASE_URL for the app) in .env.local — see
+# .env.example, Key K6 — then:
+#
+#   Start:  docker compose --env-file .env.local up -d db
+#   Stop:   docker compose --env-file .env.local down
+#
+# Stopping keeps the data. Adding -v to the stop command deletes the
+# stored data as well — destructive, use with care.
+
+services:
+  db:
+    image: postgis/postgis:17-3.5
+    container_name: cmnh-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cmnh}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.local (Key K6)}
+      POSTGRES_DB: ${POSTGRES_DB:-check_my_next_home}
+    ports:
+      # Localhost only — the database is never exposed to the network.
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - cmnh-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cmnh} -d ${POSTGRES_DB:-check_my_next_home}"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+volumes:
+  cmnh-pgdata:

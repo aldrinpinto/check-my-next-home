@@ -22,6 +22,18 @@ npm run dev
 
 Then open http://localhost:3000.
 
+## Database (local)
+
+The fact store is PostgreSQL + PostGIS, run from the recipe in
+`docker-compose.yml` (plan step M3.1):
+
+1. Put the database settings in `.env.local` (see `.env.example`, Key K6).
+2. Start it: `docker compose --env-file .env.local up -d db`
+3. Stop it: `docker compose --env-file .env.local down`
+
+It listens on localhost only, and its data survives restarts in a named
+volume.
+
 ## House rules
 
 - No scraping of property portals, ever. The future browser extension reads
