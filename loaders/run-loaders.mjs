@@ -90,6 +90,9 @@ export const FRIENDLY_NAMES = {
   "load-epc": "Energy certificates (EPC)",
   "load-schools": "Schools",
   "load-health": "Health — GPs, pharmacies, dentists, hospitals",
+  "load-planning-areas": "Planning areas — conservation areas and Article 4",
+  "load-green-belt": "Green belt",
+  "load-heritage": "Heritage — listed buildings and monuments",
   onspd: "Postcode directory source (canary)",
   ppd: "Sold prices source (canary)",
   police: "Crime source (canary)",
@@ -100,6 +103,11 @@ export const FRIENDLY_NAMES = {
   ods: "NHS lists source (canary)",
   "cqc-directory": "CQC directory (canary)",
   "cqc-ratings": "CQC ratings (canary)",
+  "conservation-area": "Conservation areas source (canary)",
+  "article-4-direction-area": "Article 4 areas source (canary)",
+  "green-belt": "Green belt source (canary)",
+  "listed-building": "Listed buildings source (canary)",
+  "scheduled-monument": "Scheduled monuments source (canary)",
 };
 
 function shortDetail(item) {
@@ -147,6 +155,18 @@ function shortDetail(item) {
     case "load-health": {
       const ods = pick(/ODS (\d{4}-\d{2}-\d{2})/);
       return ods ? `lists dated ${ods}` : "updated";
+    }
+    case "load-planning-areas": {
+      const areas = pick(/conservation areas: (\d+) filed/);
+      return areas ? `${areas} conservation areas filed` : "updated";
+    }
+    case "load-green-belt": {
+      const pieces = pick(/(\d+) pieces filed/);
+      return pieces ? `${pieces} green belt pieces` : "updated";
+    }
+    case "load-heritage": {
+      const buildings = pick(/listed buildings: (\d+) filed/);
+      return buildings ? `${buildings} listed buildings` : "updated";
     }
     default:
       return "updated";
@@ -415,6 +435,9 @@ async function main() {
       await runAndLog("load-epc", ["--file", fx("epc"), "CM3 2JT", "E16 1GN"]);
       await runAndLog("load-schools", ["--file", fx("schools")]);
       await runAndLog("load-health", ["--file", fx("health")]);
+      await runAndLog("load-planning-areas", ["--file", fx("planning-areas")]);
+      await runAndLog("load-green-belt", ["--file", fx("green-belt")]);
+      await runAndLog("load-heritage", ["--file", fx("heritage")]);
     } else {
       if (!client) throw new Error("a live run needs the run-record database (DATABASE_URL)");
       const lastSuccess = async (item) => {
@@ -466,6 +489,15 @@ async function main() {
         due: dueDecision(await lastSuccess("load-health"), 25),
         args: [],
       });
+      // The M5.2 planning and heritage datasets are quarterly,
+      // on the postcode directory's 70-day rhythm — they file
+      // shapes and points from their own files and never join
+      // onto the directory, so the empty-directory skip below
+      // does not apply to them.
+      for (const item of ["load-planning-areas", "load-green-belt", "load-heritage"]) {
+        plan.push({ item, due: dueDecision(await lastSuccess(item), 70), args: [] });
+      }
+      const DIRECTORY_FREE = new Set(["load-planning-areas", "load-green-belt", "load-heritage"]);
 
       for (const step of plan) {
         if (!step.due.due) {
@@ -478,7 +510,7 @@ async function main() {
           });
           continue;
         }
-        if (step.item !== "load-postcodes" && !hasDirectory) {
+        if (step.item !== "load-postcodes" && !DIRECTORY_FREE.has(step.item) && !hasDirectory) {
           items.push({
             item: step.item,
             mode: "live",

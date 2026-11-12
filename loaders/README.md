@@ -152,6 +152,65 @@ and logged. The emergency-department flag is three-state (see
 migration 0005). Points are positioned from the postcode
 directory — no health source publishes coordinates.
 
+## Planning areas loader (plan step M5.2)
+
+`load-planning-areas.mjs` files conservation areas and Article
+4 direction areas from planning.data.gov.uk's bulk CSVs into
+`planning_layers`, and the Article 4 publication gate into
+`article4_publishers`, in one transaction. Modes mirror the
+other loaders: `--verify-only`, and
+`--file tests/fixtures/planning-areas` for the captured real
+rows.
+
+Built to the user-seat gap check of 12 Nov 2026: the platform's
+Article 4 data is a pilot (116 councils supply current areas),
+and Newham's borough-wide direction exists in law but not in
+the data — so the loader records which organisations
+demonstrably publish, and "none found" may only ever be served
+behind that gate; everywhere else the state is "not published
+by the council to the national dataset". Ended designations are
+excluded and counted; the ~9% of conservation areas with no
+geometry are counted, never silently dropped; the removed-
+rights codes are filed with each Article 4 area. The Article 4
+direction records are validated and counted (proving the file
+was read) but not filed — the rights live on the area rows, and
+the direction records hold no further fact the shelves keep.
+Every count rides in the log line, so an empty answer is
+provable against a layer that demonstrably loaded.
+
+## Green belt loader (plan step M5.2)
+
+`load-green-belt.mjs` files the 181 green belt pieces (an
+annual MHCLG compilation from local authority returns, served
+via planning.data.gov.uk) into `planning_layers`. Pieces are
+named by the belt itself — the file's `green-belt-core` value,
+e.g. "London" — never by the district that compiled the piece
+(the file's own `name` is the district). Absence is
+trustworthy here, unlike Article 4: MHCLG compiles every
+authority, so a district with no piece (Braintree) genuinely
+has no designated green belt. Modes: `--verify-only`,
+`--file tests/fixtures/green-belt`.
+
+## Heritage loader (plan step M5.2)
+
+`load-heritage.mjs` files listed buildings as points into
+`listed_buildings` and scheduled monuments as shapes into
+`planning_layers`, in one transaction. The register of record
+is Historic England's National Heritage List — the platform's
+heritage datasets are that list republished, references are
+NHLE entry numbers, and the source stamp says so. Grades are
+filed exactly as published and validated against
+{I, II*, II} — the file's one anomalous "NL" row is quarantined
+and counted. Buildings are points by the source's own design
+and no source publishes an address, so address fields file as
+NULL: a building is identified by name + NHLE number + grade +
+distance. Ended (delisted/descheduled) rows are excluded and
+counted; current buildings with no published point are counted,
+never placed at a guess. Building distances use the prep's
+haversine basis (earth radius 3956 miles) — the locked golden
+counts turn on it at one boundary building. Modes:
+`--verify-only`, `--file tests/fixtures/heritage`.
+
 ## Loader runner + canary
 
 `run-loaders.mjs` (plan step M4.8; `npm run load:all`) runs the
@@ -159,8 +218,11 @@ contract canary probes (`canary.mjs` — one cheap shape/freshness
 probe per source, filing nothing) and then the due dataset
 loads, records the run in the `loader_runs` tables, and sends
 one email per run: an alert on failure, a short OK heartbeat on
-success. Due-ness: the postcode directory quarterly, the other
-datasets monthly, judged from the last successful run items;
+success. Due-ness: the postcode directory and the M5.2 planning
+and heritage datasets quarterly (70 days — their sources move
+slowly, and the planning loaders never join onto the directory,
+so an empty directory does not skip them), the other datasets
+monthly, judged from the last successful run items;
 per-postcode loaders take their targets from what is already
 filed (the golden three when nothing is). A failed probe alerts
 but never blocks a load. If the database is down the record

@@ -551,6 +551,115 @@ function probeCqcRatings(discovery) {
   })();
 }
 
+// --- planning.data.gov.uk (plan step M5.2) ---------------------
+//
+// One probe per dataset, mirroring what the three M5.2 loaders
+// consume: the bulk CSV is reachable, its size is plausible, its
+// Last-Modified is inside the loader's freshness rhythm, and its
+// header still carries every consumed column. Green belt and
+// listed buildings also get a streamed record count (the files
+// are tens of MB — streamed, never held whole): green belt's
+// piece count in band, and listed buildings' total row count in
+// a band that keeps the current count above 370,000 while ended
+// rows stay in the low thousands (the loader asserts the exact
+// current count; the probe is the early warning).
+
+const PLANNING_BASE = "https://files.planning.data.gov.uk/dataset";
+const PLANNING_CONSUMED_BASE = [
+  "entity",
+  "reference",
+  "name",
+  "organisation-entity",
+  "end-date",
+  "entry-date",
+  "geometry",
+  "point",
+  "quality",
+];
+const PLANNING_DATASETS = {
+  "conservation-area": { extra: [], sizeMB: [30, 80], maxAgeDays: 100 },
+  "article-4-direction-area": {
+    extra: ["article-4-direction", "permitted-development-rights"],
+    sizeMB: [12, 45],
+    maxAgeDays: 100,
+  },
+  "green-belt": {
+    extra: ["green-belt-core", "local-authority-district"],
+    sizeMB: [20, 55],
+    maxAgeDays: 430,
+    count: { needle: "\ngreen-belt,", band: [150, 220], label: "pieces" },
+  },
+  "listed-building": {
+    extra: ["listed-building-grade"],
+    sizeMB: [60, 140],
+    maxAgeDays: 100,
+    count: { needle: "\nlisted-building,", band: [375000, 410000], label: "rows in file" },
+  },
+  "scheduled-monument": { extra: [], sizeMB: [15, 45], maxAgeDays: 100 },
+};
+
+async function streamRecordCount(url, needle) {
+  const response = await fetchRetry(url);
+  if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`);
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let text = "";
+  let count = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (value) text += decoder.decode(value, { stream: !done });
+    let at = text.indexOf(needle);
+    while (at !== -1) {
+      count += 1;
+      text = text.slice(at + needle.length);
+      at = text.indexOf(needle);
+    }
+    if (text.length > 1_000_000) text = text.slice(-needle.length);
+    if (done) break;
+  }
+  return count;
+}
+
+function probePlanningDataset(dataset) {
+  return (async () => {
+    const spec = PLANNING_DATASETS[dataset];
+    const url = `${PLANNING_BASE}/${dataset}.csv`;
+    const headResponse = await fetchRetry(url, { method: "HEAD" });
+    if (!headResponse.ok) throw new Error(`HTTP ${headResponse.status} for the ${dataset} file`);
+    const length = Number(headResponse.headers.get("content-length") ?? "0");
+    const sizeMB = length / 1_000_000;
+    if (sizeMB < spec.sizeMB[0] || sizeMB > spec.sizeMB[1])
+      throw new Error(
+        `the ${dataset} file is ${sizeMB.toFixed(1)} MB — outside the plausible band ${spec.sizeMB[0]}–${spec.sizeMB[1]} MB`,
+      );
+    const modified = headResponse.headers.get("last-modified");
+    const modifiedDate = modified ? new Date(modified).toISOString().slice(0, 10) : null;
+    if (modifiedDate && ageDays(modifiedDate) > spec.maxAgeDays)
+      throw new Error(
+        `the ${dataset} file was last modified ${modifiedDate} — beyond its ${spec.maxAgeDays}-day freshness rhythm`,
+      );
+    const head = await streamHead(url, (t) => t.includes("\n"), { maxBytes: 600_000 });
+    const header = splitCsvLine(head.split("\n")[0].replace(/^﻿/, "")).map((c) => c.trim());
+    const consumed = [...PLANNING_CONSUMED_BASE, ...spec.extra];
+    const missing = consumed.filter((c) => !header.includes(c));
+    if (missing.length > 0)
+      throw new Error(`the ${dataset} file no longer carries: ${missing.join(", ")}`);
+    let countNote = "";
+    if (spec.count) {
+      const n = await streamRecordCount(url, spec.count.needle);
+      if (n < spec.count.band[0] || n > spec.count.band[1])
+        throw new Error(
+          `the ${dataset} file holds ${n} ${spec.count.label} — outside the band ${spec.count.band[0]}–${spec.count.band[1]}`,
+        );
+      countNote = ` · ${n} ${spec.count.label}`;
+    }
+    return {
+      logLine: `canary ${dataset} · file ${sizeMB.toFixed(1)} MB, modified ${modifiedDate ?? "unknown"} · all ${consumed.length} consumed columns present${countNote}`,
+      sourceDate: modifiedDate,
+    };
+  })();
+}
+
 export async function runCanaryProbes() {
   const results = [];
   const run = async (item, fn) => {
@@ -627,5 +736,8 @@ export async function runCanaryProbes() {
   }
   await run("cqc-directory", () => probeCqcDirectory(discovery));
   await run("cqc-ratings", () => probeCqcRatings(discovery));
+  for (const dataset of Object.keys(PLANNING_DATASETS)) {
+    await run(dataset, () => probePlanningDataset(dataset));
+  }
   return results;
 }

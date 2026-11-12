@@ -36,7 +36,29 @@ The golden homes:
    Flat 4 Minerva House's own certificate (8401-7039-6529-6723-9906,
    registered 7 Nov 2019, SAP assessment) is band B, 70 square metres,
    mid-floor flat. Juno House and Jupiter House each have a "Flat 4"
-   certificate too — the three-way same-number trap again.
+   certificate too — the three-way same-number trap again. Planning and
+   heritage facts, locked 12 Nov 2026 from the planning.data.gov.uk
+   files (step M5.2): no golden home falls inside a conservation area,
+   Article 4 area, green belt piece or scheduled monument. Birkdale —
+   nearest conservation area Chelmer and Blackwater Navigation 1.47
+   miles; nearest monument Hatfield Priory (NHLE 1002150) 0.49; 102
+   listed buildings within 2 miles, nearest White Hart Cottage
+   (1123430, II) at 0.19; no green belt piece for Braintree district
+   and no edge within 5 miles; Braintree (organisation 56) publishes
+   no Article 4 areas, so its Article 4 state is "not published".
+   Exeter — nearest conservation area Naval Row 1.13 miles; nearest
+   monument the Beckton gun emplacements (1003473) 0.92; 215 listed
+   buildings within 2 miles on the prep's haversine basis (earth
+   radius 3956 miles — NHLE 1289552 sits at 2.000–2.001 miles and
+   counts), nearest 1406622 at 0.32; Newham (246) publishes no
+   Article 4 areas despite its borough-wide direction in force
+   since 2013 — the gate state is "not published", never "none".
+   Epsom — Ewell Village conservation area and its Article 4 area
+   both 0.099 miles away (rights "1A;1C;1D;1F;2A;2B"); the London
+   green belt edge 0.101 miles away; nearest monument the Ewell
+   church tower (1003721) 0.44, Nonsuch Palace (1017998) 0.45; 315
+   listed buildings within 2 miles, nearest Pit House (1214537) at
+   0.17.
 
 The M3.6 practice seed and the M4.1 postcode proof were built before home 3
 was added and cover homes 1 and 2 only.

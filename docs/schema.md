@@ -69,8 +69,14 @@ Family:
     rivers & sea zones, and surface water. The layer's own date is
     stamped on every load.
 16. **planning_layers** — planning constraint shapes (conservation
-    areas, tree preservation orders, green belt and the rest,
-    including the nature and heritage designation layers).
+    areas, Article 4 areas, green belt, scheduled monuments and
+    the rest, including the nature designation layers). Since
+    migration 0007 each shape also carries its source reference,
+    the supplying organisation's platform entity number and the
+    source quality flag, plus a detail field (for an Article 4
+    area, the permitted-development rights it removes, as
+    published). Green-belt shapes are named by the belt itself
+    ("London"), never by the district that compiled the piece.
 17. **listed_buildings** — listed buildings (NHLE): name, grade,
     position.
 18. **neighbourhood_stats** — Census 2021 + IMD, one row per LSOA,
@@ -87,6 +93,14 @@ Family:
 22. **loader_run_items** — one row per loader or canary probe in
     a run: status, the verbatim log line, the full error, and the
     source edition seen — what ran, when, with what result.
+23. **article4_publishers** — the Article 4 publication gate
+    (migration 0007): one row per organisation that demonstrably
+    supplies current Article 4 areas to the national dataset,
+    recorded by the planning-areas loader on every run. Article 4
+    data is a pilot — most councils publish nothing — so "none
+    found" may only be served for a council present here;
+    everywhere else the recorded state is "not published by the
+    council to the national dataset", never "none".
 
 ## Physical decisions (recorded at build, M3.3)
 
