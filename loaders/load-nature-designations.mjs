@@ -191,7 +191,23 @@ function geojsonPolygons(geometry) {
       }
     }
   }
-  return raw;
+  // Rings are held FLAT — a Float64Array of x,y pairs — not as
+  // arrays of [x, y] arrays. At national scale the two woodland
+  // inventories carry ~30M vertices; pair arrays cost ~70+
+  // bytes a vertex and the first live read died at the 2 GB
+  // heap limit, while flat storage costs 16 bytes a vertex.
+  // Every helper below indexes rings accordingly (point k is
+  // ring[2k], ring[2k+1]).
+  return raw.map((polygon) =>
+    polygon.map((ring) => {
+      const flat = new Float64Array(ring.length * 2);
+      ring.forEach((pair, i) => {
+        flat[2 * i] = pair[0];
+        flat[2 * i + 1] = pair[1];
+      });
+      return flat;
+    }),
+  );
 }
 
 function bboxOf(polygons) {
@@ -201,7 +217,9 @@ function bboxOf(polygons) {
   let y1 = -Infinity;
   for (const polygon of polygons)
     for (const ring of polygon)
-      for (const [x, y] of ring) {
+      for (let i = 0; i < ring.length; i += 2) {
+        const x = ring[i];
+        const y = ring[i + 1];
         if (x < x0) x0 = x;
         if (y < y0) y0 = y;
         if (x > x1) x1 = x;
@@ -212,9 +230,12 @@ function bboxOf(polygons) {
 
 function ringContains(ring, x, y) {
   let inside = false;
-  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-    const [xi, yi] = ring[i];
-    const [xj, yj] = ring[j];
+  const points = ring.length / 2;
+  for (let i = 0, j = points - 1; i < points; j = i++) {
+    const xi = ring[2 * i];
+    const yi = ring[2 * i + 1];
+    const xj = ring[2 * j];
+    const yj = ring[2 * j + 1];
     if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
   }
   return inside;
@@ -249,18 +270,20 @@ function geometryDistanceMiles(polygons, home) {
   const py = home.lat;
   let best = Infinity;
   for (const polygon of polygons)
-    for (const ring of polygon)
-      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    for (const ring of polygon) {
+      const points = ring.length / 2;
+      for (let i = 0, j = points - 1; i < points; j = i++) {
         const d = segmentDistance(
           px,
           py,
-          ring[j][0] * scaleX,
-          ring[j][1],
-          ring[i][0] * scaleX,
-          ring[i][1],
+          ring[2 * j] * scaleX,
+          ring[2 * j + 1],
+          ring[2 * i] * scaleX,
+          ring[2 * i + 1],
         );
         if (d < best) best = d;
       }
+    }
   return best * 69.05;
 }
 
@@ -289,11 +312,11 @@ function nearestEdge(filed, home) {
 function orient(ax, ay, bx, by, cx, cy) {
   return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
 }
-function segmentsCross(a, b, c, d) {
-  const o1 = orient(a[0], a[1], b[0], b[1], c[0], c[1]);
-  const o2 = orient(a[0], a[1], b[0], b[1], d[0], d[1]);
-  const o3 = orient(c[0], c[1], d[0], d[1], a[0], a[1]);
-  const o4 = orient(c[0], c[1], d[0], d[1], b[0], b[1]);
+function segmentsCross(ax, ay, bx, by, cx, cy, dx, dy) {
+  const o1 = orient(ax, ay, bx, by, cx, cy);
+  const o2 = orient(ax, ay, bx, by, dx, dy);
+  const o3 = orient(cx, cy, dx, dy, ax, ay);
+  const o4 = orient(cx, cy, dx, dy, bx, by);
   return o1 > 0 !== o2 > 0 && o3 > 0 !== o4 > 0;
 }
 // True when two polygon sets touch or overlap: any boundary
@@ -302,25 +325,44 @@ function polygonsIntersect(A, B) {
   for (const pa of A) {
     for (const pb of B) {
       for (const ra of pa)
-        for (const rb of pb)
-          for (let i = 0; i < ra.length - 1; i++)
-            for (let j = 0; j < rb.length - 1; j++)
-              if (segmentsCross(ra[i], ra[i + 1], rb[j], rb[j + 1])) return true;
+        for (const rb of pb) {
+          const pointsA = ra.length / 2;
+          const pointsB = rb.length / 2;
+          for (let i = 0; i < pointsA - 1; i++)
+            for (let j = 0; j < pointsB - 1; j++)
+              if (
+                segmentsCross(
+                  ra[2 * i],
+                  ra[2 * i + 1],
+                  ra[2 * i + 2],
+                  ra[2 * i + 3],
+                  rb[2 * j],
+                  rb[2 * j + 1],
+                  rb[2 * j + 2],
+                  rb[2 * j + 3],
+                )
+              )
+                return true;
+        }
     }
   }
-  const bFirst = B[0][0][0];
-  const aFirst = A[0][0][0];
-  if (polygonsContain(A, bFirst[0], bFirst[1])) return true;
-  if (polygonsContain(B, aFirst[0], aFirst[1])) return true;
+  const bRing = B[0][0];
+  const aRing = A[0][0];
+  if (polygonsContain(A, bRing[0], bRing[1])) return true;
+  if (polygonsContain(B, aRing[0], aRing[1])) return true;
   return false;
 }
 
 function polygonsToWkt(polygons) {
   const body = polygons
-    .map(
-      (polygon) =>
-        `(${polygon.map((ring) => `(${ring.map(([x, y]) => `${x} ${y}`).join(",")})`).join(",")})`,
-    )
+    .map((polygon) => {
+      const rings = polygon.map((ring) => {
+        const points = [];
+        for (let i = 0; i < ring.length; i += 2) points.push(`${ring[i]} ${ring[i + 1]}`);
+        return `(${points.join(",")})`;
+      });
+      return `(${rings.join(",")})`;
+    })
     .join(",");
   return `MULTIPOLYGON(${body})`;
 }
@@ -658,31 +700,33 @@ async function main() {
       ? readServiceFixture(SERVICES[key], fixtureDir, captured)
       : readServiceLive(SERVICES[key]);
 
-  const sssiRaw = await read("sssi");
-  const sacRaw = await read("sac");
-  const spaRaw = await read("spa");
-  const ramsarRaw = await read("ramsar");
-  const awiRaw = await read("awi");
-  const awiRevRaw = await read("awiRev");
-
-  const sssi = {
-    ...processStatutory(sssiRaw.features, SERVICES.sssi),
-    sourceDate: sssiRaw.sourceDate,
+  // Each service is read and processed inside its own scope,
+  // so the raw GeoJSON (hundreds of MB across the six) is
+  // released as soon as its flat items exist.
+  const loadStatutoryLayer = async (key) => {
+    const raw = await read(key);
+    return { ...processStatutory(raw.features, SERVICES[key]), sourceDate: raw.sourceDate };
   };
-  const sac = { ...processStatutory(sacRaw.features, SERVICES.sac), sourceDate: sacRaw.sourceDate };
-  const spa = { ...processStatutory(spaRaw.features, SERVICES.spa), sourceDate: spaRaw.sourceDate };
-  const ramsar = {
-    ...processStatutory(ramsarRaw.features, SERVICES.ramsar),
-    sourceDate: ramsarRaw.sourceDate,
+  const sssi = await loadStatutoryLayer("sssi");
+  const sac = await loadStatutoryLayer("sac");
+  const spa = await loadStatutoryLayer("spa");
+  const ramsar = await loadStatutoryLayer("ramsar");
+  const loadWoodland = async (key) => {
+    const raw = await read(key);
+    return {
+      processed: processFeatures(raw.features, SERVICES[key].label),
+      read: raw.features.length,
+      sourceDate: raw.sourceDate,
+    };
   };
-  const awiOrig = processFeatures(awiRaw.features, SERVICES.awi.label);
-  const awiRev = processFeatures(awiRevRaw.features, SERVICES.awiRev.label);
-  const merged = mergeWoodland(awiOrig.items, awiRev.items);
+  const awiOrigLayer = await loadWoodland("awi");
+  const awiRevLayer = await loadWoodland("awiRev");
+  const merged = mergeWoodland(awiOrigLayer.processed.items, awiRevLayer.processed.items);
   const awi = {
-    read: awiRaw.features.length + awiRevRaw.features.length,
-    origRead: awiRaw.features.length,
-    revRead: awiRevRaw.features.length,
-    geoless: awiOrig.geoless + awiRev.geoless,
+    read: awiOrigLayer.read + awiRevLayer.read,
+    origRead: awiOrigLayer.read,
+    revRead: awiRevLayer.read,
+    geoless: awiOrigLayer.processed.geoless + awiRevLayer.processed.geoless,
     replaced: merged.replaced,
     filed: merged.filed,
   };
@@ -754,7 +798,8 @@ async function main() {
         item.inventory === "revised inventory"
           ? "Natural England — Ancient Woodland Inventory, Revised (England)"
           : "Natural England — Ancient Woodland Inventory (England)",
-      sourceDate: item.inventory === "revised inventory" ? awiRevRaw.sourceDate : awiRaw.sourceDate,
+      sourceDate:
+        item.inventory === "revised inventory" ? awiRevLayer.sourceDate : awiOrigLayer.sourceDate,
     });
   }
 
