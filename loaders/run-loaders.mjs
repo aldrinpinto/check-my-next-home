@@ -472,17 +472,11 @@ async function main() {
     }
   }
 
-  const { status, subject, lines } = summariseRun(run.kind, items);
-  const emailBody = [
-    `Run ${run.id} · ${run.kind} · ${run.environment} · started ${run.startedAt.toISOString()}`,
-    "",
-    ...lines,
-    "",
-    recordNote ?? "The full record is in the loader_runs tables.",
-  ].join("\n");
+  const { subject } = summariseRun(run.kind, items);
+  const bodies = buildEmailBodies(run, items, recordNote);
   const alert = noEmail
     ? { status: "not_required", error: null }
-    : await sendRunEmail(subject, emailBody);
+    : await sendRunEmail(subject, bodies.text, bodies.html);
   if (!noEmail && alert.status !== "sent") console.error(`ALERT FAILED: ${alert.error}`);
 
   if (client) {

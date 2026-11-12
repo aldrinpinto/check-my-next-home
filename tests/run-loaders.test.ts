@@ -75,6 +75,14 @@ describe("sources", () => {
     expect(migration).toContain("alert_error");
   });
 
+  it("main() actually sends the human-readable bodies, not the raw lines", () => {
+    // Regression guard: the readable-email builder once existed
+    // and was unit-tested while main() still sent the old body.
+    expect(runner).toContain("buildEmailBodies(run, items, recordNote)");
+    expect(runner).toContain("sendRunEmail(subject, bodies.text, bodies.html)");
+    expect(runner).not.toContain("emailBody");
+  });
+
   it("the runner sends one email via Resend and prints ALERT FAILED when it cannot", () => {
     expect(runner).toContain("api.resend.com/emails");
     expect(runner).toContain("onboarding@resend.dev");
