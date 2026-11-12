@@ -1,0 +1,5 @@
+# Play-site protection (M2.7): every response from the dummy address tells
+# search engines not to index or follow anything here. Cloudflare Pages
+# picks this file up from the build output. The real site does not use it.
+/*
+  X-Robots-Tag: noindex, nofollow
