@@ -41,10 +41,18 @@ Family:
    where the newest inspection is one, and the report link, joined
    to schools on URN.
 7. **nurseries** — Ofsted childcare, group settings only.
-8. **health_points** — NHS ODS points: GPs, dentists, pharmacies,
-   hospitals.
-9. **cqc_ratings** — CQC rating, date and report link, matched to a
-   health point where the matching pass can make the link.
+8. **health_points** — service points: GP practices and their
+   branch surgeries (with the parent practice's code), pharmacies
+   and dental practices from the NHS organisation service, and
+   hospitals from the CQC directory, each with its emergency-
+   department flag (yes / no / no data — three states, never
+   collapsed) and, for hospitals, its CQC service types and
+   provider. Every point sits at its postcode's position; no
+   health source publishes coordinates.
+9. **cqc_ratings** — CQC rating, publication date and report link,
+   joined to a health point by the exact code the ratings file
+   carries (the practice/site code) — never by name. Pharmacies,
+   dentists and Welsh points have no CQC rating by design.
 10. **greenspace_points** — park centre points and access points
     only; the outline shape is deliberately never stored.
 11. **osm_points** — OpenStreetMap places (supermarkets, vets,

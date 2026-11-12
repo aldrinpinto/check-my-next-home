@@ -125,3 +125,28 @@ judgements as separate facts; every open establishment is filed
 whatever its phase; and each school carries its local authority —
 catchments are not filed (no national dataset exists), so the
 product links out by LA instead.
+
+## Health loader
+
+`load-health.mjs` (plan step M4.7) files GP practices and their
+branch surgeries, pharmacies and dental practices from the NHS
+Organisation Data Service's DSE reports, and hospitals from the
+CQC directory, with CQC ratings and the emergency-department flag
+overlaid from CQC's monthly ratings file (its content.xml is
+around 1.1 GB, so it is streamed, never loaded whole).
+
+Register recipes: practices are ACTIVE rows holding the RO76
+role; branches have no status, so openness is read from their
+dates, with COVID vaccination leftovers removed by name and both
+removals counted in the log; pharmacies and dentists are the
+ACTIVE rows of their reports. Rows whose postcode sits outside
+England and Wales are filtered out. A tiny reviewed exclusion
+list inside the loader removes register rows that hold a GP
+prescribing code but are not registerable practices; practices
+with CLINIC in their name are counted in the log for human
+review. Ratings join by exact code under both identifiers the
+file uses (Location ID and Location ODS Code), never by name;
+two different ratings published the same day are both withheld
+and logged. The emergency-department flag is three-state (see
+migration 0005). Points are positioned from the postcode
+directory — no health source publishes coordinates.

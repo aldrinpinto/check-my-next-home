@@ -17,7 +17,8 @@
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "load:schools": "node loaders/load-schools.mjs"
+    "load:schools": "node loaders/load-schools.mjs",
+    "load:health": "node loaders/load-health.mjs"
   },
   "version": "0.1.0",
   "dependencies": {
