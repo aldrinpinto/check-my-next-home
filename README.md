@@ -11,7 +11,7 @@ broadband, leasehold basics and more — with a detailed report per home.
 - `app/` — the pages (Next.js App Router)
 - `lib/` — the brain: shared check logic
 - `loaders/` — the fact fetchers: one per data source, loading the database
-- `tests/` — automated checks, including the two golden test homes
+- `tests/` — automated checks, including the golden test homes
 
 ## Run it locally
 
