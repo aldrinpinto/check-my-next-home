@@ -115,4 +115,4 @@ jobs:
       - name: Load the crime fixture (plan step M4.3)
         run: npm run load:crime -- --file tests/fixtures/police-uk "CM3 2JT" "E16 1GN"
       - name: Load the EPC fixture (plan step M4.5)
-              run: npm run load:epc -- --file tests/fixtures/epc "CM3 2JT" "E16 1GN"
+        run: npm run load:epc -- --file tests/fixtures/epc "CM3 2JT" "E16 1GN"
