@@ -1,0 +1,31 @@
+-- Migration 0008 — flood layers: published detail
+-- (plan step M5.1; added after the user-seat gap check of
+-- 12 Nov 2026, gap L2 — before any flood load, on purpose).
+--
+-- flood_layers could hold the shapes from day one, but not
+-- hold them HONESTLY: it has no column for the published
+-- detail that is part of the answer a mover reads. For a
+-- Flood Map for Planning zone that is `flood_source` ("river",
+-- "sea", "river and sea" — flooding from the sea is a
+-- different conversation from flooding from the river) and
+-- `origin` ("modelled", "modelled and recorded", ...), the
+-- zone's provenance in the Environment Agency's own words.
+-- For the two likelihood-band products (rivers & sea, surface
+-- water) it is the depth basis of the bands as published:
+-- the likelihood of flooding deeper than 0 m (">0 m") — the
+-- per-depth sibling collections (0.2–1.2 m) are a deliberate
+-- omission, recorded in the gap check as O4, and this column
+-- is what stops the filed bands being misread as one of them.
+--
+-- `risk_label` stays the clean vocabulary — FZ2 / FZ3 for the
+-- zones, High / Medium / Low / Very low for rivers & sea,
+-- High / Medium / Low for surface water — because the
+-- loaders' contract check guards exactly that vocabulary;
+-- cramming source and origin into it would corrupt the
+-- check, and dropping them would drop published facts. This
+-- is the same lesson migration 0007 recorded for
+-- planning_layers: provenance cannot be retrofitted, so the
+-- column lands before the first load, not after it.
+
+ALTER TABLE flood_layers
+  ADD COLUMN detail text;
