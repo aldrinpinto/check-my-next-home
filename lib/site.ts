@@ -1,7 +1,7 @@
 // The site's identity, in one place. Pages and tests both read from here,
 // so the name and strapline can never drift apart.
 
-export const SITE_NAME = "Check My Next Home (deliberately broken for the M2.5 check)";
+export const SITE_NAME = "Check My Next Home";
 
 export const SITE_STRAPLINE = "Your family's next home — check what the listing doesn't tell you.";
 
