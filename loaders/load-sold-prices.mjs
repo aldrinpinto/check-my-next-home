@@ -26,7 +26,6 @@
 // The proof reads the filed rows back from price_paid before commit.
 // Any failure exits non-zero and files nothing.
 
-import { createReadStream } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createInterface } from "node:readline";

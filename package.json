@@ -13,6 +13,7 @@
     "load:postcodes": "node loaders/load-postcodes.mjs",
     "load:sold-prices": "node loaders/load-sold-prices.mjs",
     "load:crime": "node loaders/load-crime.mjs",
+    "load:epc": "node loaders/load-epc.mjs",
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"

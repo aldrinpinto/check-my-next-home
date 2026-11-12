@@ -79,3 +79,29 @@ reproduces the approved reports exactly: 330 crimes for CM3 2JT and 10,722
 for E16 1GN, summed from the API's own 1-mile responses. Those frozen
 totals are asserted in fixture mode, where the fixture holds the captured
 API responses; CI runs the fixture load on every push.
+
+## Energy certificates (plan step M4.5) — `load-epc.mjs`
+
+EPC facts per postcode from the Get energy performance of buildings data
+API (the service that replaced the retired EPC open data site in 2026).
+Option A, decided 12 Nov 2026: per-postcode lookups — a paged search plus
+one fetch per certificate — and NO bulk full-load ingest. The refresh of
+filed postcodes uses the API's deltas feed, wired with the loader runner
+in step M4.8.
+
+```bash
+npm run load:epc -- "CM3 2JT" "E16 1GN"          # into the database
+npm run load:epc -- --verify-only "E16 1GN"     # fetch + prove only
+npm run load:epc -- --file tests/fixtures/epc "CM3 2JT" "E16 1GN"
+```
+
+Each certificate is minimised to the fields the product shows before
+filing (address-level EPC data is personal data — we hold only what the
+site uses) and filed into the postcode's answers under the key "epc".
+Every certificate is kept: 6 Exeter Road's two band B certificates
+disagree on floor area (71 and 91 square metres) and both are filed,
+because the disagreement is itself a fact a buyer needs. Live mode reads
+the token from EPC_API_TOKEN (Key K9) and never logs it. Certificate
+facts are Crown copyright under the Open Government Licence v3.0; the
+address fields are Ordnance Survey and Royal Mail copyright, used under
+the service's permitted energy-performance purposes.
