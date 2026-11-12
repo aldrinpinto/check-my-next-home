@@ -11,6 +11,12 @@ single mile of each home — so a smaller box still covers every
 golden fact this layer carries, and keeps the fixture to the
 patches the checks actually read.)
 
+The capture is held as four numbered parts
+(priority-habitats-1 to -4): the single file exceeds the
+GitHub connector's request-size limit, and the parts' feature
+arrays concatenate to the capture, in order — the loader and
+the tests read them that way.
+
 Golden facts these patches must reproduce: no golden home
 inside a patch; nearest patches — Traditional orchard 0.25
 miles (Birkdale), Deciduous woodland 0.14 (Exeter) and 0.18

@@ -66,14 +66,19 @@
 // nearest polygon edge on the longitude-scaled plane (miles =
 // degrees of latitude x 69.05), the prep's basis.
 //
-// Transport, measured live on 12 Nov 2026: the two woodland
-// services slow to 60–70 seconds per 2,000-polygon page at
-// deep offsets and intermittently refuse connections, so
-// pages fetch with retries and backoff and the woodland
-// services page at 1,000. Retries change nothing about the
-// data — the count oracle still has to reconcile exactly.
+// Transport, measured live on 12 Nov 2026: these services
+// intermittently close connections mid-transfer ("other side
+// closed"), and the odds rise with page size and transfer
+// time — a 1,000-feature SSSI page is 56 MB and takes ~27
+// seconds, the woodland services slow to 60–70 seconds per
+// 2,000-polygon page at deep offsets, and one full read died
+// three times before this design settled. So pages stay
+// small (250–1,000 features, roughly 5–15 MB a page) and
+// fetch with patient retries. Retries and page sizes change
+// nothing about the data — the count oracle still has to
+// reconcile exactly.
 
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import pg from "pg";
 
@@ -98,6 +103,7 @@ const SERVICES = {
     codeField: "REF_CODE",
     detailField: "HYPERLINK",
     keepStatus: null,
+    pageCap: 250,
   },
   sac: {
     service: "Special_Areas_of_Conservation_England",
@@ -137,6 +143,7 @@ const SERVICES = {
     statusField: "STATUS",
     keepStatus: "Listed",
     detailField: "STATUS",
+    pageCap: 250,
   },
   awi: {
     service: "Ancient_Woodland_England",
@@ -320,7 +327,8 @@ function polygonsToWkt(polygons) {
 
 // --- fetching ------------------------------------------------------
 
-async function fetchJson(url, what, attempts = 3) {
+const RETRY_DELAYS_MS = [5000, 15000, 30000, 60000];
+async function fetchJson(url, what, attempts = RETRY_DELAYS_MS.length + 1) {
   let lastError = null;
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
@@ -329,7 +337,8 @@ async function fetchJson(url, what, attempts = 3) {
       return await response.json();
     } catch (error) {
       lastError = error;
-      if (attempt < attempts) await new Promise((resolve) => setTimeout(resolve, attempt * 3000));
+      if (attempt < attempts)
+        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS_MS[attempt - 1]));
     }
   }
   throw lastError;
@@ -384,9 +393,27 @@ async function readServiceLive(spec) {
   return { features, sourceDate, expected };
 }
 
+// A fixture file too large for one connector push is held as
+// numbered parts (<stem>-1.geojson, <stem>-2.geojson, ...) whose
+// feature arrays concatenate to the capture, in order.
+async function readFixtureFeatures(fixtureDir, fileName) {
+  const stem = fileName.replace(/\.geojson$/, "");
+  const entries = await readdir(fixtureDir);
+  const partNames = entries
+    .filter((name) => new RegExp(`^${stem}-\\d+\\.geojson$`).test(name))
+    .sort();
+  const names = entries.includes(fileName) ? [fileName] : partNames;
+  if (names.length === 0) throw new Error(`contract failure: no fixture file for ${fileName}`);
+  const features = [];
+  for (const name of names) {
+    const body = JSON.parse(await readFile(join(fixtureDir, name), "utf8"));
+    features.push(...(body.features ?? []));
+  }
+  return features;
+}
+
 async function readServiceFixture(spec, fixtureDir, captured) {
-  const body = JSON.parse(await readFile(join(fixtureDir, spec.file), "utf8"));
-  const features = body.features ?? [];
+  const features = await readFixtureFeatures(fixtureDir, spec.file);
   if (features.length === 0)
     throw new Error(`contract failure: the ${spec.file} fixture has no features`);
   for (const field of spec.fields) {

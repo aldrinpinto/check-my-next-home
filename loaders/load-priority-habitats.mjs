@@ -44,7 +44,7 @@
 // edge on the longitude-scaled plane (miles = degrees of
 // latitude x 69.05), the prep's basis.
 
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import pg from "pg";
 
@@ -227,7 +227,8 @@ function versionAgeMonths(v, now = new Date()) {
 
 // --- the run ---------------------------------------------------------
 
-async function fetchJson(url, what, attempts = 3) {
+const RETRY_DELAYS_MS = [5000, 15000, 30000, 60000];
+async function fetchJson(url, what, attempts = RETRY_DELAYS_MS.length + 1) {
   let lastError = null;
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
@@ -236,7 +237,8 @@ async function fetchJson(url, what, attempts = 3) {
       return await response.json();
     } catch (error) {
       lastError = error;
-      if (attempt < attempts) await new Promise((resolve) => setTimeout(resolve, attempt * 3000));
+      if (attempt < attempts)
+        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS_MS[attempt - 1]));
     }
   }
   throw lastError;
@@ -398,10 +400,22 @@ async function main() {
 
     let expected = null;
     if (fixtureMode) {
-      const body = JSON.parse(
-        await readFile(join(fixtureDir, "priority-habitats.geojson"), "utf8"),
-      );
-      const features = body.features ?? [];
+      // A fixture file too large for one connector push is held
+      // as numbered parts (<stem>-1.geojson, ...) whose feature
+      // arrays concatenate to the capture, in order.
+      const stem = "priority-habitats";
+      const entries = await readdir(fixtureDir);
+      const partNames = entries
+        .filter((name) => new RegExp(`^${stem}-\\d+\\.geojson$`).test(name))
+        .sort();
+      const names = entries.includes(`${stem}.geojson`) ? [`${stem}.geojson`] : partNames;
+      if (names.length === 0)
+        throw new Error("contract failure: no priority-habitats fixture file");
+      const features = [];
+      for (const name of names) {
+        const body = JSON.parse(await readFile(join(fixtureDir, name), "utf8"));
+        features.push(...(body.features ?? []));
+      }
       if (features.length === 0)
         throw new Error("contract failure: the priority-habitats fixture has no features");
       for (const field of FIELDS) {

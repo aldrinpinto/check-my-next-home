@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -26,8 +26,19 @@ type Feature = {
   properties: Record<string, string | number>;
   geometry: { type: string; coordinates: unknown } | null;
 };
-const loadFixture = (name: string): Feature[] =>
-  JSON.parse(readFileSync(join(fixtureDir, `${name}.geojson`), "utf8")).features;
+// Oversized captures are held as numbered parts whose feature
+// arrays concatenate to the capture, in order (see the fixture
+// README) — the helper mirrors the loader's fixture reader.
+const loadFixture = (name: string): Feature[] => {
+  const entries = readdirSync(fixtureDir);
+  const parts = entries
+    .filter((entry) => new RegExp(`^${name}-\\d+\\.geojson$`).test(entry))
+    .sort();
+  const names = entries.includes(`${name}.geojson`) ? [`${name}.geojson`] : parts;
+  return names.flatMap(
+    (entry) => JSON.parse(readFileSync(join(fixtureDir, entry), "utf8")).features,
+  );
+};
 
 const HOMES = {
   birkdale: { lat: 51.776176, lng: 0.60387 },

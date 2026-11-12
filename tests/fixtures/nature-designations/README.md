@@ -14,6 +14,12 @@ SAC features only — the 36 candidate features (6 sites) sit
 outside them and their exclusion is proven by the loader's live
 run record, not by this fixture.
 
+Two captures are held as numbered parts (sssi-1/-2 and
+ancient-woodland-revised-1/-2): the files exceed the GitHub
+connector's request-size limit, and the parts' feature arrays
+concatenate to the capture, in order — the loader and the
+tests read them that way.
+
 Golden facts these features must reproduce: no golden home
 inside any of the six layers; SSSI nearests — Woodham Walter
 Common 2.88 miles (Birkdale), Gilbert's Pit (Charlton) 1.90

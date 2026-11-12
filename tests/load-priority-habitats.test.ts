@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -21,9 +21,13 @@ type Feature = {
   properties: Record<string, string | number>;
   geometry: { type: string; coordinates: unknown } | null;
 };
-const phi: Feature[] = JSON.parse(
-  readFileSync(join(fixtureDir, "priority-habitats.geojson"), "utf8"),
-).features;
+// The capture is held as numbered parts whose feature arrays
+// concatenate to the capture, in order (see the fixture README)
+// — the helper mirrors the loader's fixture reader.
+const phi: Feature[] = readdirSync(fixtureDir)
+  .filter((entry) => /^priority-habitats-\d+\.geojson$/.test(entry))
+  .sort()
+  .flatMap((entry) => JSON.parse(readFileSync(join(fixtureDir, entry), "utf8")).features);
 
 const HOMES = {
   birkdale: { lat: 51.776176, lng: 0.60387 },
