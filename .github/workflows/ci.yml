@@ -103,3 +103,8 @@ jobs:
 
       - name: Prove the map brain (plan step M3.4)
         run: npm run db:prove
+      - name: Seed the practice facts (plan step M3.6)
+        run: npm run db:seed
+
+      - name: Verify the seed landed
+        run: npm run db:seed -- --verify
