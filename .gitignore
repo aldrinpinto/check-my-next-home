@@ -33,3 +33,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Loader runner fallback record (M4.8) — a local safety net, never committed
+loader-runs-fallback.jsonl

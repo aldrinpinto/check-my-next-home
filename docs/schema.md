@@ -81,6 +81,12 @@ Family:
     position, connector and speed where published.
 20. **council_tax_rates** — each council's Band D charge, for the
     council tax estimate.
+21. **loader_runs** — one row per loader-runner invocation: kind,
+    environment, status, and the alert's own status and error, so
+    a failed alert is recorded, never swallowed.
+22. **loader_run_items** — one row per loader or canary probe in
+    a run: status, the verbatim log line, the full error, and the
+    source edition seen — what ran, when, with what result.
 
 ## Physical decisions (recorded at build, M3.3)
 

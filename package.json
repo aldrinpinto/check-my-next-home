@@ -18,7 +18,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "load:schools": "node loaders/load-schools.mjs",
-    "load:health": "node loaders/load-health.mjs"
+    "load:health": "node loaders/load-health.mjs",
+    "load:all": "node loaders/run-loaders.mjs",
+    "canary": "node loaders/run-loaders.mjs --canary-only"
   },
   "version": "0.1.0",
   "dependencies": {

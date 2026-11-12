@@ -86,8 +86,9 @@ EPC facts per postcode from the Get energy performance of buildings data
 API (the service that replaced the retired EPC open data site in 2026).
 Option A, decided 12 Nov 2026: per-postcode lookups — a paged search plus
 one fetch per certificate — and NO bulk full-load ingest. The refresh of
-filed postcodes uses the API's deltas feed, wired with the loader runner
-in step M4.8.
+filed postcodes re-runs the search per filed postcode via the loader
+runner (step M4.8); the API's deltas feed is probed by the canary in
+warning-only mode until characterised, and files nothing.
 
 ```bash
 npm run load:epc -- "CM3 2JT" "E16 1GN"          # into the database
@@ -150,3 +151,18 @@ two different ratings published the same day are both withheld
 and logged. The emergency-department flag is three-state (see
 migration 0005). Points are positioned from the postcode
 directory — no health source publishes coordinates.
+
+## Loader runner + canary
+
+`run-loaders.mjs` (plan step M4.8; `npm run load:all`) runs the
+contract canary probes (`canary.mjs` — one cheap shape/freshness
+probe per source, filing nothing) and then the due dataset
+loads, records the run in the `loader_runs` tables, and sends
+one email per run: an alert on failure, a short OK heartbeat on
+success. Due-ness: the postcode directory quarterly, the other
+datasets monthly, judged from the last successful run items;
+per-postcode loaders take their targets from what is already
+filed (the golden three when nothing is). A failed probe alerts
+but never blocks a load. If the database is down the record
+falls back to a JSON-lines file and the email still goes out.
+`npm run canary` runs the probes only.

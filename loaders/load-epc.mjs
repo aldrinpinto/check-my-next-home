@@ -1,8 +1,10 @@
 // Energy certificates loader (plan step M4.5). Option A, decided
 // 12 Nov 2026: per-postcode lookups against the Get energy
 // performance of buildings data API — no bulk full-load ingest.
-// The monthly refresh of filed postcodes uses the API's deltas
-// feed, which is wired up with the loader runner (step M4.8).
+// The monthly refresh of filed postcodes re-runs this search
+// for each filed postcode (the runner, step M4.8). The API's
+// deltas feed is probed by the canary in warning-only mode
+// until its behaviour is characterised; it files nothing.
 //
 //   npm run load:epc -- "CM3 2JT" "E16 1GN"
 //   npm run load:epc -- --verify-only "E16 1GN"
