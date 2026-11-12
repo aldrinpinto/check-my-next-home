@@ -1,0 +1,43 @@
+name: Canary — monthly contract probes
+
+# The independent canary (plan step M4.8): cheap shape and
+# freshness probes against every data source, run on GitHub's
+# machinery — not the server — mid-month, so an upstream format
+# change warns between loads. Files nothing; sends one email
+# (an OK heartbeat or an alert) to the project address.
+# Timing is best-effort by GitHub's own documentation, so the
+# schedule sits off the hour and the canary is an early-warning
+# layer, never a timed guarantee.
+
+on:
+  schedule:
+    - cron: "37 6 15 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  canary:
+    name: Contract canary probes
+    runs-on: ubuntu-latest
+    env:
+      RUNNER_ENV: ci
+      RUNNER_TRIGGER: schedule
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies (exact, from the lockfile)
+        run: npm ci
+
+      - name: Run the canary
+        env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+        run: npm run canary
