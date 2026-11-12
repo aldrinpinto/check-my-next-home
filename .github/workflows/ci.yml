@@ -108,3 +108,5 @@ jobs:
 
       - name: Verify the seed landed
         run: npm run db:seed -- --verify
+      - name: Load the postcode directory fixture (plan step M4.1)
+        run: npm run load:postcodes -- --file tests/fixtures/onspd
