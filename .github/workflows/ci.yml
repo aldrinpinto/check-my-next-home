@@ -120,3 +120,6 @@ jobs:
         run: npm run load:schools -- --file tests/fixtures/schools
       - name: Load the health fixture (plan step M4.7)
         run: npm run load:health -- --file tests/fixtures/health
+
+      - name: Runner — fixture pass over all loaders (plan step M4.8)
+        run: node loaders/run-loaders.mjs --file tests/fixtures --kind practice --env ci --no-canary --no-email
