@@ -1,0 +1,107 @@
+name: Practice — M4.8 deliberate-break proof
+
+# Manually dispatched proof for plan step M4.8: the runner files
+# the good fixtures, then (per the chosen scenario) either runs
+# clean, re-runs against a poisoned copy of the crime fixture,
+# or runs with a broken email key — and the job asserts the run
+# record, the alert status and that the last good crime data is
+# untouched. Sends ONE real email to the project address on the
+# scenarios that keep the key intact.
+
+on:
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: "Which proof to run"
+        type: choice
+        options: [clean, break-crime, break-email]
+        default: break-crime
+
+permissions:
+  contents: read
+
+jobs:
+  practice:
+    name: Deliberate-break practice run
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:17-3.5
+        env:
+          POSTGRES_USER: cmnh
+          POSTGRES_PASSWORD: practice-password
+          POSTGRES_DB: check_my_next_home
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cmnh -d check_my_next_home"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgres://cmnh:practice-password@localhost:5432/check_my_next_home
+      RUNNER_ENV: ci
+      RUNNER_TRIGGER: manual
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies (exact, from the lockfile)
+        run: npm ci
+
+      - name: Apply the migrations
+        run: npm run db:migrate
+
+      - name: File the last good fixtures (clean runner pass, no email)
+        env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+        run: node loaders/run-loaders.mjs --file tests/fixtures --kind practice --no-canary --no-email
+
+      - name: Snapshot the filed crime answers
+        run: |
+          psql "$DATABASE_URL" -Atc "SELECT postcode || '=' || (answers->'crime')::text FROM postcode_cache WHERE answers ? 'crime' ORDER BY postcode" > /tmp/crime-before.txt
+          cat /tmp/crime-before.txt | head -c 300
+
+      - name: Run the chosen scenario
+        env:
+          RESEND_API_KEY: ${{ inputs.scenario == 'break-email' && 'invalid-key-for-the-proof' || secrets.RESEND_API_KEY }}
+        run: |
+          set +e
+          if [ "${{ inputs.scenario }}" = "break-crime" ]; then
+            cp -r tests/fixtures /tmp/fx
+            echo '{}' > /tmp/fx/police-uk/birkdale-2026-05.json
+            node loaders/run-loaders.mjs --file /tmp/fx --kind practice-break --no-canary
+          elif [ "${{ inputs.scenario }}" = "break-email" ]; then
+            node loaders/run-loaders.mjs --file tests/fixtures --kind practice-break --no-canary
+          else
+            node loaders/run-loaders.mjs --file tests/fixtures --kind practice-break --no-canary
+          fi
+          echo "RUNNER_EXIT=$?" >> "$GITHUB_ENV"
+
+      - name: Assert the outcome
+        run: |
+          echo "runner exit code: $RUNNER_EXIT"
+          psql "$DATABASE_URL" -Atc "SELECT kind, status, alert_status FROM loader_runs ORDER BY started_at DESC LIMIT 1"
+          psql "$DATABASE_URL" -Atc "SELECT item, status FROM loader_run_items WHERE run_id = (SELECT id FROM loader_runs ORDER BY started_at DESC LIMIT 1) ORDER BY item"
+          psql "$DATABASE_URL" -Atc "SELECT postcode || '=' || (answers->'crime')::text FROM postcode_cache WHERE answers ? 'crime' ORDER BY postcode" > /tmp/crime-after.txt
+          if [ "${{ inputs.scenario }}" = "clean" ]; then
+            test "$RUNNER_EXIT" = "0"
+            psql "$DATABASE_URL" -Atc "SELECT status FROM loader_runs ORDER BY started_at DESC LIMIT 1" | grep -qx succeeded
+          fi
+          if [ "${{ inputs.scenario }}" = "break-crime" ]; then
+            test "$RUNNER_EXIT" = "1"
+            psql "$DATABASE_URL" -Atc "SELECT status FROM loader_runs ORDER BY started_at DESC LIMIT 1" | grep -qx failed
+            psql "$DATABASE_URL" -Atc "SELECT alert_status FROM loader_runs ORDER BY started_at DESC LIMIT 1" | grep -qx sent
+            diff /tmp/crime-before.txt /tmp/crime-after.txt && echo "crime answers unchanged — the last good copy kept serving"
+          fi
+          if [ "${{ inputs.scenario }}" = "break-email" ]; then
+            test "$RUNNER_EXIT" = "1"
+            psql "$DATABASE_URL" -Atc "SELECT alert_status FROM loader_runs ORDER BY started_at DESC LIMIT 1" | grep -qx failed
+            psql "$DATABASE_URL" -Atc "SELECT coalesce(alert_error, '') <> '' FROM loader_runs ORDER BY started_at DESC LIMIT 1" | grep -qx t
+          fi
