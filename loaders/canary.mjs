@@ -660,6 +660,173 @@ function probePlanningDataset(dataset) {
   })();
 }
 
+// --- Natural England (plan step M5.3) --------------------------
+//
+// One probe per service the two nature loaders consume: the
+// service's own count inside its band and, where the dataset's
+// rhythm makes freshness meaningful, its data-edit date. The
+// SSSI Units service is deliberately NOT probed — the loaders
+// never read it (gap L4). Freshness follows each dataset's real
+// rhythm: SSSI edits continuously (warn past ~130 days, the
+// ONSPD-style quarter); the woodland inventories move as
+// counties complete (warn when NEITHER has edited in ~9
+// months); PHI versions twice a year (warn past ~9 months).
+// SAC/SPA/Ramsar get NO staleness warning: they change rarely,
+// their source dates are displayed on every row, and a
+// permanent amber would teach the operator to ignore warnings.
+
+const NE_BASE = "https://services.arcgis.com/JJzESW51TqeY9uat/arcgis/rest/services";
+
+async function neLayerMeta(service) {
+  const response = await fetchRetry(`${NE_BASE}/${service}/FeatureServer/0?f=json`);
+  if (!response.ok) throw new Error(`HTTP ${response.status} for the ${service} layer`);
+  const meta = await response.json();
+  const ms = meta.editingInfo?.dataLastEditDate;
+  return { editDate: ms ? new Date(ms).toISOString().slice(0, 10) : null };
+}
+
+async function neCount(service, where = "1=1") {
+  const q = new URLSearchParams({ where, returnCountOnly: "true", f: "json" });
+  const response = await fetchRetry(`${NE_BASE}/${service}/FeatureServer/0/query?${q}`);
+  if (!response.ok) throw new Error(`HTTP ${response.status} for the ${service} count`);
+  const body = await response.json();
+  if (typeof body.count !== "number")
+    throw new Error(`the ${service} count response changed shape`);
+  return body.count;
+}
+
+function neBand(value, lo, hi, what) {
+  if (value < lo || value > hi)
+    throw new Error(`${what} is ${value} — outside the band ${lo}–${hi}`);
+}
+
+function probeSssi() {
+  return (async () => {
+    const n = await neCount("SSSI_England");
+    neBand(n, 3900, 4400, "the SSSI feature count");
+    const { editDate } = await neLayerMeta("SSSI_England");
+    if (!editDate || ageDays(editDate) > 130)
+      throw new Error(`the SSSI data was last edited ${editDate} — beyond its continuous rhythm`);
+    return { logLine: `canary sssi · ${n} features · edited ${editDate}`, sourceDate: editDate };
+  })();
+}
+
+function probeSac() {
+  return (async () => {
+    const total = await neCount("Special_Areas_of_Conservation_England");
+    neBand(total, 1750, 2100, "the SAC feature count");
+    const designated = await neCount(
+      "Special_Areas_of_Conservation_England",
+      "STATUS = 'Designated'",
+    );
+    neBand(designated, 1800, 1950, "the designated SAC feature count");
+    return {
+      logLine: `canary sac · ${total} features, ${designated} designated (${total - designated} candidate) · no staleness alarm by design`,
+    };
+  })();
+}
+
+function probeSpa() {
+  return (async () => {
+    const n = await neCount("Special_Protection_Areas_England");
+    neBand(n, 950, 1250, "the SPA feature count");
+    return { logLine: `canary spa · ${n} features · no staleness alarm by design` };
+  })();
+}
+
+function probeRamsar() {
+  return (async () => {
+    const n = await neCount("Ramsar_England");
+    neBand(n, 1150, 1450, "the Ramsar feature count");
+    return { logLine: `canary ramsar · ${n} features · no staleness alarm by design` };
+  })();
+}
+
+function probeAncientWoodland() {
+  return (async () => {
+    const n = await neCount("Ancient_Woodland_England");
+    neBand(n, 50000, 57500, "the original woodland polygon count");
+    const original = await neLayerMeta("Ancient_Woodland_England");
+    const revised = await neLayerMeta("Ancient_Woodland_Revised_England");
+    const freshest = [original.editDate, revised.editDate].filter(Boolean).sort().at(-1);
+    if (!freshest || ageDays(freshest) > 270)
+      throw new Error(
+        `neither woodland inventory has edited since ${freshest} — the county revision has stalled or the services moved`,
+      );
+    return {
+      logLine: `canary ancient-woodland · ${n} polygons · inventories last edited ${original.editDate} (original) / ${revised.editDate} (revised)`,
+      sourceDate: original.editDate,
+    };
+  })();
+}
+
+function probeAncientWoodlandRevised() {
+  return (async () => {
+    const n = await neCount("Ancient_Woodland_Revised_England");
+    // The revision only ever grows as counties complete: the
+    // count never decreases against the 45,406 polygons of the
+    // 12 Nov 2026 snapshot. A drop means a county was pulled —
+    // exactly what a canary exists to catch.
+    if (n < 45406)
+      throw new Error(
+        `the revised woodland count is ${n} — below the 45,406 floor (the count never decreases; a county may have been pulled)`,
+      );
+    neBand(n, 45406, 70000, "the revised woodland polygon count");
+    const { editDate } = await neLayerMeta("Ancient_Woodland_Revised_England");
+    return {
+      logLine: `canary ancient-woodland-revised · ${n} polygons · edited ${editDate}`,
+      sourceDate: editDate,
+    };
+  })();
+}
+
+const PHI_MONTHS = {
+  Jan: 1,
+  Feb: 2,
+  Mar: 3,
+  Apr: 4,
+  May: 5,
+  Jun: 6,
+  Jul: 7,
+  Aug: 8,
+  Sep: 9,
+  Sept: 9,
+  Oct: 10,
+  Nov: 11,
+  Dec: 12,
+};
+
+function probePriorityHabitats() {
+  return (async () => {
+    const n = await neCount("Priority_Habitats_Inventory_England");
+    neBand(n, 750000, 900000, "the PHI patch count");
+    const q = new URLSearchParams({
+      where: "1=1",
+      outFields: "Version",
+      returnGeometry: "false",
+      resultRecordCount: "1",
+      f: "json",
+    });
+    const response = await fetchRetry(
+      `${NE_BASE}/Priority_Habitats_Inventory_England/FeatureServer/0/query?${q}`,
+    );
+    if (!response.ok) throw new Error(`HTTP ${response.status} for the PHI version sample`);
+    const body = await response.json();
+    const version = body.features?.[0]?.attributes?.Version;
+    const m = String(version ?? "").match(/^([A-Za-z]+)_(\d{2})$/);
+    if (!m || !PHI_MONTHS[m[1]]) throw new Error(`unparseable PHI version "${version}"`);
+    const ageMonths =
+      new Date().getUTCFullYear() * 12 +
+      (new Date().getUTCMonth() + 1) -
+      ((2000 + Number(m[2])) * 12 + PHI_MONTHS[m[1]]);
+    if (ageMonths > 9)
+      throw new Error(
+        `PHI version ${version} is ${ageMonths} months old — the twice-yearly cycle has slipped`,
+      );
+    return { logLine: `canary priority-habitats · ${n} patches · version ${version}` };
+  })();
+}
+
 export async function runCanaryProbes() {
   const results = [];
   const run = async (item, fn) => {
@@ -739,5 +906,12 @@ export async function runCanaryProbes() {
   for (const dataset of Object.keys(PLANNING_DATASETS)) {
     await run(dataset, () => probePlanningDataset(dataset));
   }
+  await run("sssi", probeSssi);
+  await run("sac", probeSac);
+  await run("spa", probeSpa);
+  await run("ramsar", probeRamsar);
+  await run("ancient-woodland", probeAncientWoodland);
+  await run("ancient-woodland-revised", probeAncientWoodlandRevised);
+  await run("priority-habitats", probePriorityHabitats);
   return results;
 }

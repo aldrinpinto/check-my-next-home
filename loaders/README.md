@@ -211,6 +211,42 @@ haversine basis (earth radius 3956 miles) — the locked golden
 counts turn on it at one boundary building. Modes:
 `--verify-only`, `--file tests/fixtures/heritage`.
 
+## Nature designations loader (plan step M5.3)
+
+`load-nature-designations.mjs` files SSSI, SAC, SPA and Ramsar
+designations and the merged ancient woodland layer from Natural
+England's ArcGIS services into `planning_layers`. Built to the
+user-seat gap check of 12 Nov 2026: the four statutory layers are
+complete registers and file grouped by site code, with features
+AND distinct sites in the log line; candidate SACs (36 features,
+6 sites) are excluded and counted, never served; SSSI Units are
+never read. Ancient woodland is two provisional inventories
+mid-revision, so the loader merges them under Natural England's
+own precedence rule — revised polygons win on overlap, each
+filed polygon's detail records which inventory it came from —
+and the absence answer is "no ancient woodland recorded in the
+inventory", never "there is none". Blank woodland names file as
+published. Natural England publishes no per-row quality flag, so
+`quality` stays NULL. The woodland services are slow at deep
+offsets (60–70 seconds a page, measured live), so pages fetch
+with retries and the woodland services page at 1,000. Modes:
+`--verify-only`, `--file tests/fixtures/nature-designations`.
+
+## Priority habitats loader (plan step M5.3)
+
+`load-priority-habitats.mjs` files the Priority Habitat
+Inventory — 818,225 unnamed habitat patches — into
+`planning_layers` by UID with the habitat label verbatim,
+mosaic classes included: nothing is filtered, so the filed
+count reconciles to the service's own count exactly. PHI is a
+compiled habitat map, not a register and not a protection, and
+the log line stamps the run with the inventory's own version
+(Sept_26 at build). The hosted bulk file is a 9.1 GB File
+Geodatabase this stack cannot read, so the loader pages the
+feature service in OBJECTID order, processing one page at a
+time inside the filing transaction. Modes: `--verify-only`,
+`--file tests/fixtures/priority-habitats`.
+
 ## Loader runner + canary
 
 `run-loaders.mjs` (plan step M4.8; `npm run load:all`) runs the
@@ -218,10 +254,11 @@ contract canary probes (`canary.mjs` — one cheap shape/freshness
 probe per source, filing nothing) and then the due dataset
 loads, records the run in the `loader_runs` tables, and sends
 one email per run: an alert on failure, a short OK heartbeat on
-success. Due-ness: the postcode directory and the M5.2 planning
-and heritage datasets quarterly (70 days — their sources move
-slowly, and the planning loaders never join onto the directory,
-so an empty directory does not skip them), the other datasets
+success. Due-ness: the postcode directory and the M5.2/M5.3 planning,
+heritage and nature datasets quarterly (70 days — their sources
+move slowly, and the planning and nature loaders never join onto
+the directory, so an empty directory does not skip them), the
+other datasets
 monthly, judged from the last successful run items;
 per-postcode loaders take their targets from what is already
 filed (the golden three when nothing is). A failed probe alerts

@@ -22,6 +22,8 @@
     "load:planning-areas": "node loaders/load-planning-areas.mjs",
     "load:green-belt": "node loaders/load-green-belt.mjs",
     "load:heritage": "node loaders/load-heritage.mjs",
+    "load:nature-designations": "node loaders/load-nature-designations.mjs",
+    "load:priority-habitats": "node loaders/load-priority-habitats.mjs",
     "load:all": "node loaders/run-loaders.mjs",
     "canary": "node loaders/run-loaders.mjs --canary-only"
   },

@@ -1,0 +1,507 @@
+// Priority habitats loader (plan step M5.3). Files the
+// Priority Habitat Inventory from Natural England's ArcGIS
+// service, following the user-seat gap check of 12 Nov 2026:
+//
+//   npm run load:priority-habitats
+//   npm run load:priority-habitats -- --verify-only
+//   npm run load:priority-habitats -- --file tests/fixtures/priority-habitats
+//
+// What the gap check changed, and where it lives in this file:
+//   - L5, PHI is 818,225 habitat patches, not sites, and
+//     not a protection register. It is a compiled map of where
+//     priority habitat is recorded — assembled from surveys of
+//     varying age — so the serving rule is the phrase
+//     "recorded in the Priority Habitat Inventory":
+//     PHI is not a protection and never proof of absence.
+//     Patches file as the unit, by UID, with the
+//     habitat label (MainHabs) exactly as published; the four
+//     non-priority mosaic classes file too, with their labels
+//     verbatim — nothing is filtered, so the filed count must
+//     reconcile to the service's own count exactly.
+//   - The bulk route: the hosted dataset is 9.1 GB of File
+//     Geodatabase, which no part of this stack can read, so the
+//     loader pages the feature service in OBJECTID order with
+//     the service's own count as the oracle the read must match
+//     (the same empty-result proof as the designations loader).
+//     Pages are processed one at a time and never held whole:
+//     golden tallies are computed per patch and dropped, and in
+//     filing mode each page stages into the database as it
+//     arrives. Staging rides inside the one transaction because
+//     the read itself is the long pole — the swap is still
+//     atomic and count-verified, and any failure (a broken page,
+//     a failed golden check) rolls the whole load back, so a
+//     failed load files nothing, exactly as the house pattern
+//     requires.
+//
+// Natural England publishes no per-row quality flag, so
+// `quality` files NULL rather than inventing one. The source
+// date is the inventory's own version month (the Version field
+// is uniform across every patch — Sept_26 at the 12 Nov 2026
+// snapshot), never the retrieval date.
+//
+// Source: Natural England ArcGIS feature service, Open
+// Government Licence v3.0. Distances are to the nearest polygon
+// edge on the longitude-scaled plane (miles = degrees of
+// latitude x 69.05), the prep's basis.
+
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import pg from "pg";
+
+const NE_BASE = "https://services.arcgis.com/JJzESW51TqeY9uat/arcgis/rest/services";
+const SERVICE = "Priority_Habitats_Inventory_England";
+const SOURCE_NAME = "Natural England — Priority Habitat Inventory (England)";
+const ORGANISATION = "Natural England";
+const FIELDS = [
+  "OBJECTID",
+  "UID",
+  "MainHabs",
+  "HabCodes",
+  "AddHabs",
+  "PrimSource",
+  "AreaHa",
+  "Version",
+];
+const PAGE_SIZE = 2000;
+
+const HOMES = {
+  "CM3 2JT": { lat: 51.776176, lng: 0.60387 },
+  "E16 1GN": { lat: 51.515224, lng: 0.021177 },
+  "KT17 1FH": { lat: 51.344571, lng: -0.247104 },
+};
+const GOLDEN = {
+  "CM3 2JT": { nearestName: "Traditional orchard", nearestMiles: 0.25, within1: 33 },
+  "E16 1GN": { nearestName: "Deciduous woodland", nearestMiles: 0.14, within1: 38 },
+  "KT17 1FH": { nearestName: "Deciduous woodland", nearestMiles: 0.18, within1: 57 },
+};
+
+// --- geometry (the house copies, on GeoJSON rings) ---------------
+
+function geojsonPolygons(geometry) {
+  if (!geometry) return null;
+  const raw =
+    geometry.type === "Polygon"
+      ? [geometry.coordinates]
+      : geometry.type === "MultiPolygon"
+        ? geometry.coordinates
+        : null;
+  if (!raw) throw new Error(`unsupported geometry type: ${geometry.type}`);
+  for (const polygon of raw) {
+    if (!Array.isArray(polygon) || polygon.length === 0)
+      throw new Error("malformed geometry: empty polygon");
+    for (const ring of polygon) {
+      if (!Array.isArray(ring) || ring.length < 4)
+        throw new Error("malformed geometry: ring with fewer than 4 points");
+      for (const pair of ring) {
+        if (
+          !Array.isArray(pair) ||
+          pair.length < 2 ||
+          !Number.isFinite(pair[0]) ||
+          !Number.isFinite(pair[1])
+        )
+          throw new Error("malformed geometry: coordinate is not a finite pair");
+      }
+    }
+  }
+  return raw;
+}
+
+function bboxOf(polygons) {
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (const polygon of polygons)
+    for (const ring of polygon)
+      for (const [x, y] of ring) {
+        if (x < x0) x0 = x;
+        if (y < y0) y0 = y;
+        if (x > x1) x1 = x;
+        if (y > y1) y1 = y;
+      }
+  return [x0, y0, x1, y1];
+}
+
+function ringContains(ring, x, y) {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i];
+    const [xj, yj] = ring[j];
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+function polygonsContain(polygons, lng, lat) {
+  return polygons.some((polygon) => {
+    let inside = false;
+    for (const ring of polygon) if (ringContains(ring, lng, lat)) inside = !inside;
+    return inside;
+  });
+}
+
+function segmentDistance(px, py, ax, ay, bx, by) {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const lengthSq = dx * dx + dy * dy;
+  let t = lengthSq === 0 ? 0 : ((px - ax) * dx + (py - ay) * dy) / lengthSq;
+  t = Math.max(0, Math.min(1, t));
+  const ex = ax + t * dx - px;
+  const ey = ay + t * dy - py;
+  return Math.sqrt(ex * ex + ey * ey);
+}
+
+function geometryDistanceMiles(polygons, home) {
+  if (polygonsContain(polygons, home.lng, home.lat)) return 0;
+  const scaleX = Math.cos((home.lat * Math.PI) / 180);
+  const px = home.lng * scaleX;
+  const py = home.lat;
+  let best = Infinity;
+  for (const polygon of polygons)
+    for (const ring of polygon)
+      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const d = segmentDistance(
+          px,
+          py,
+          ring[j][0] * scaleX,
+          ring[j][1],
+          ring[i][0] * scaleX,
+          ring[i][1],
+        );
+        if (d < best) best = d;
+      }
+  return best * 69.05;
+}
+
+// Bounding-box lower bound on the edge distance, miles — a
+// patch whose bound exceeds a mile can feed neither the
+// within-a-mile counts nor (once any patch inside a mile is
+// tallied) the nearest, so its exact distance is never needed.
+function bboxLowerBoundMiles(bbox, home) {
+  const scaleX = Math.cos((home.lat * Math.PI) / 180);
+  const px = home.lng * scaleX;
+  const py = home.lat;
+  const [x0, y0, x1, y1] = bbox;
+  const dx = px < x0 * scaleX ? x0 * scaleX - px : px > x1 * scaleX ? px - x1 * scaleX : 0;
+  const dy = py < y0 ? y0 - py : py > y1 ? py - y1 : 0;
+  return Math.sqrt(dx * dx + dy * dy) * 69.05;
+}
+
+function polygonsToWkt(polygons) {
+  const body = polygons
+    .map(
+      (polygon) =>
+        `(${polygon.map((ring) => `(${ring.map(([x, y]) => `${x} ${y}`).join(",")})`).join(",")})`,
+    )
+    .join(",");
+  return `MULTIPOLYGON(${body})`;
+}
+
+// --- the inventory version -----------------------------------------
+
+const MONTHS = {
+  Jan: 1,
+  Feb: 2,
+  Mar: 3,
+  Apr: 4,
+  May: 5,
+  Jun: 6,
+  Jul: 7,
+  Aug: 8,
+  Sep: 9,
+  Sept: 9,
+  Oct: 10,
+  Nov: 11,
+  Dec: 12,
+};
+function parseVersion(version) {
+  const m = String(version ?? "").match(/^([A-Za-z]+)_(\d{2})$/);
+  if (!m || !MONTHS[m[1]])
+    throw new Error(`contract failure: unparseable PHI version "${version}"`);
+  return { year: 2000 + Number(m[2]), month: MONTHS[m[1]] };
+}
+const versionDate = (v) => `${v.year}-${String(v.month).padStart(2, "0")}-01`;
+function versionAgeMonths(v, now = new Date()) {
+  return now.getUTCFullYear() * 12 + (now.getUTCMonth() + 1) - (v.year * 12 + v.month);
+}
+
+// --- the run ---------------------------------------------------------
+
+async function fetchJson(url, what, attempts = 3) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`HTTP ${response.status} for ${what}`);
+      return await response.json();
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts) await new Promise((resolve) => setTimeout(resolve, attempt * 3000));
+    }
+  }
+  throw lastError;
+}
+
+async function main() {
+  const startedAt = Date.now();
+  const args = process.argv.slice(2);
+  const verifyOnly = args.includes("--verify-only");
+  const fileAt = args.indexOf("--file");
+  const fixtureMode = fileAt !== -1;
+  const fixtureDir = fixtureMode ? args[fileAt + 1] : null;
+
+  const state = {
+    read: 0,
+    geoless: 0,
+    invalid: 0,
+    duplicates: 0,
+    filed: 0,
+    uids: new Set(),
+    versions: new Map(),
+    homes: Object.fromEntries(
+      Object.keys(HOMES).map((pc) => [
+        pc,
+        { inside: 0, nearestName: null, nearestMiles: Infinity, within1: 0 },
+      ]),
+    ),
+  };
+
+  let client = null;
+  let stageBuffer = [];
+  const flushStage = async () => {
+    if (!client || stageBuffer.length === 0) return;
+    const chunk = stageBuffer;
+    stageBuffer = [];
+    const values = [];
+    const params = [];
+    chunk.forEach((row, i) => {
+      const base = i * 9;
+      values.push(
+        `($${base + 1},$${base + 2},ST_Multi(ST_GeomFromText($${base + 3}, 4326)),$${base + 4},$${base + 5},$${base + 6},$${base + 7},$${base + 8},$${base + 9})`,
+      );
+      params.push(
+        "priority_habitat",
+        row.name,
+        row.wkt,
+        row.reference,
+        ORGANISATION,
+        null,
+        row.detail,
+        SOURCE_NAME,
+        row.sourceDate,
+      );
+    });
+    await client.query(
+      `INSERT INTO planning_stage (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date)
+       VALUES ${values.join(",")}`,
+      params,
+    );
+  };
+
+  // One patch: validate, dedupe by UID, tally against the
+  // golden homes, and (in filing mode) stage it. Returns
+  // nothing; failures accumulate in state and are judged after
+  // the read completes.
+  const processFeature = async (feature) => {
+    state.read += 1;
+    const props = {};
+    for (const [k, v] of Object.entries(feature.properties ?? {}))
+      props[k] = typeof v === "string" ? v.trim() : v;
+    const uid = props.UID;
+    if (!uid) throw new Error("contract failure: a PHI patch carries no UID");
+    if (state.uids.has(uid)) {
+      state.duplicates += 1;
+      return;
+    }
+    state.uids.add(uid);
+    state.versions.set(props.Version, (state.versions.get(props.Version) ?? 0) + 1);
+    let polygons = null;
+    try {
+      polygons = geojsonPolygons(feature.geometry);
+    } catch {
+      state.invalid += 1;
+      return;
+    }
+    if (polygons === null) {
+      state.geoless += 1;
+      return;
+    }
+    const bbox = bboxOf(polygons);
+    for (const [postcode, home] of Object.entries(HOMES)) {
+      const tally = state.homes[postcode];
+      // A point inside the patch would force the bound to 0,
+      // so a bound over a mile settles all three tallies.
+      if (bboxLowerBoundMiles(bbox, home) > 1.0) continue;
+      const miles = geometryDistanceMiles(polygons, home);
+      if (miles === 0) tally.inside += 1;
+      if (miles <= 1.0) tally.within1 += 1;
+      if (miles < tally.nearestMiles) {
+        tally.nearestMiles = miles;
+        tally.nearestName = props.MainHabs || null;
+      }
+    }
+    state.filed += 1;
+    if (client) {
+      stageBuffer.push({
+        name: props.MainHabs || null,
+        wkt: polygonsToWkt(polygons),
+        reference: uid,
+        detail:
+          [props.HabCodes, props.AddHabs, props.PrimSource]
+            .filter((p) => p !== "" && p != null)
+            .join(" · ") || null,
+        sourceDate: versionDate(parseVersion(props.Version)),
+      });
+      if (stageBuffer.length >= 500) await flushStage();
+    }
+  };
+
+  const checkGolden = () => {
+    const fails = [];
+    for (const [postcode, golden] of Object.entries(GOLDEN)) {
+      const tally = state.homes[postcode];
+      if (tally.inside !== 0)
+        fails.push(
+          `${postcode}: the point falls inside ${tally.inside} habitat patches — the golden reads say inside none`,
+        );
+      if (
+        tally.nearestName !== golden.nearestName ||
+        Math.abs(tally.nearestMiles - golden.nearestMiles) > 0.02
+      )
+        fails.push(
+          `${postcode}: nearest patch should be ${golden.nearestName} at ${golden.nearestMiles} mi, got ${tally.nearestName} at ${tally.nearestMiles.toFixed(3)} mi`,
+        );
+      if (tally.within1 !== golden.within1)
+        fails.push(
+          `${postcode}: expected ${golden.within1} patches within a mile, got ${tally.within1}`,
+        );
+    }
+    if (fails.length > 0) throw new Error(`golden checks failed:\n - ${fails.join("\n - ")}`);
+  };
+
+  try {
+    if (!verifyOnly) {
+      if (!process.env.DATABASE_URL)
+        throw new Error("DATABASE_URL is not set — filing requires a database");
+      client = new pg.Client({ connectionString: process.env.DATABASE_URL });
+      await client.connect();
+      await client.query("BEGIN");
+      await client.query(
+        `CREATE TEMP TABLE planning_stage (
+           constraint_type text, name text, geom geometry(MultiPolygon, 4326),
+           source_reference text, organisation text, quality text, detail text,
+           source_name text, source_date date,
+           loaded_at timestamptz NOT NULL DEFAULT now()
+         ) ON COMMIT DROP`,
+      );
+    }
+
+    let expected = null;
+    if (fixtureMode) {
+      const body = JSON.parse(
+        await readFile(join(fixtureDir, "priority-habitats.geojson"), "utf8"),
+      );
+      const features = body.features ?? [];
+      if (features.length === 0)
+        throw new Error("contract failure: the priority-habitats fixture has no features");
+      for (const field of FIELDS) {
+        if (!(field in (features[0].properties ?? {})))
+          throw new Error(`contract failure: the fixture no longer carries "${field}"`);
+      }
+      for (const feature of features) await processFeature(feature);
+    } else {
+      const layerUrl = `${NE_BASE}/${SERVICE}/FeatureServer/0`;
+      const meta = await fetchJson(`${layerUrl}?f=json`, "the PHI layer metadata");
+      const metaFields = (meta.fields ?? []).map((f) => f.name);
+      for (const field of FIELDS) {
+        if (!metaFields.includes(field))
+          throw new Error(`contract failure: the PHI layer no longer carries "${field}"`);
+      }
+      const countBody = await fetchJson(
+        `${layerUrl}/query?where=1%3D1&returnCountOnly=true&f=json`,
+        "the PHI count",
+      );
+      expected = countBody.count;
+      let offset = 0;
+      for (;;) {
+        const q = new URLSearchParams({
+          where: "1=1",
+          outFields: FIELDS.join(","),
+          returnGeometry: "true",
+          outSR: "4326",
+          resultOffset: String(offset),
+          resultRecordCount: String(PAGE_SIZE),
+          orderByFields: "OBJECTID",
+          f: "geojson",
+        });
+        const page = await fetchJson(`${layerUrl}/query?${q}`, "the PHI features");
+        const batch = page.features ?? [];
+        if (batch.length === 0) break;
+        for (const feature of batch) await processFeature(feature);
+        offset += batch.length;
+        if (batch.length < PAGE_SIZE) break;
+      }
+      if (state.read !== expected)
+        throw new Error(
+          `read ${state.read} patches but the service count is ${expected} — the read does not reconcile`,
+        );
+    }
+    await flushStage();
+
+    if (state.invalid > 0)
+      throw new Error(
+        `${state.invalid} patches carry geometry that does not parse — contract failure, nothing filed`,
+      );
+    if (state.filed + state.geoless + state.duplicates !== state.read)
+      throw new Error("the patch counts do not reconcile — nothing filed");
+    if (!fixtureMode && (state.read < 750000 || state.read > 900000))
+      throw new Error(`sanity failure: ${state.read} patches read is outside the expected band`);
+    if (state.versions.size !== 1)
+      throw new Error(
+        `contract failure: the inventory carries ${state.versions.size} versions (${[...state.versions.keys()].join(", ")}) — a single national version is the published shape`,
+      );
+    const [versionLabel] = [...state.versions.keys()];
+    const version = parseVersion(versionLabel);
+    if (!fixtureMode && versionAgeMonths(version) > 9)
+      throw new Error(
+        `sanity failure: PHI version ${versionLabel} is over ~9 months old — the twice-yearly cycle has slipped`,
+      );
+    checkGolden();
+
+    const summary = () =>
+      `load-priority-habitats · Natural England · Priority Habitat Inventory ${versionLabel} (${versionDate(version)}) · ` +
+      `${state.filed} patches filed (${state.read} read · ${state.geoless} without geometry counted · ${state.duplicates} duplicate UIDs dropped)`;
+
+    if (verifyOnly) {
+      console.log(`${summary()} · golden homes OK (verify only, nothing filed)`);
+      return;
+    }
+    const staged = await client.query("SELECT count(*)::int AS n FROM planning_stage");
+    if (staged.rows[0].n !== state.filed)
+      throw new Error("the staged patch count does not match — rolling back");
+    await client.query("DELETE FROM planning_layers WHERE constraint_type = 'priority_habitat'");
+    await client.query(
+      `INSERT INTO planning_layers (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at)
+       SELECT constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at FROM planning_stage`,
+    );
+    const filedCount = await client.query(
+      "SELECT count(*)::int AS n FROM planning_layers WHERE constraint_type = 'priority_habitat'",
+    );
+    if (filedCount.rows[0].n !== state.filed)
+      throw new Error("the filed patch count does not match — rolling back");
+    await client.query("COMMIT");
+    console.log(`${summary()} · golden homes OK · ${Math.round((Date.now() - startedAt) / 1000)}s`);
+  } catch (error) {
+    if (client) await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    if (client) await client.end();
+  }
+}
+
+main().catch((error) => {
+  console.error(
+    `load-priority-habitats FAILED: ${error.message}${error.cause ? ` (${error.cause.message ?? error.cause})` : ""}`,
+  );
+  process.exitCode = 1;
+});

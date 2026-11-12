@@ -69,14 +69,23 @@ Family:
     rivers & sea zones, and surface water. The layer's own date is
     stamped on every load.
 16. **planning_layers** — planning constraint shapes (conservation
-    areas, Article 4 areas, green belt, scheduled monuments and
-    the rest, including the nature designation layers). Since
-    migration 0007 each shape also carries its source reference,
-    the supplying organisation's platform entity number and the
-    source quality flag, plus a detail field (for an Article 4
-    area, the permitted-development rights it removes, as
-    published). Green-belt shapes are named by the belt itself
-    ("London"), never by the district that compiled the piece.
+    areas, Article 4 areas, green belt, scheduled monuments, and
+    the nature layers: SSSI, SAC, SPA, Ramsar, ancient woodland
+    and priority habitat). Since migration 0007 each shape also
+    carries its source reference, the supplying organisation's
+    platform entity number and the source quality flag, plus a
+    detail field (for an Article 4 area, the
+    permitted-development rights it removes, as published).
+    Green-belt shapes are named by the belt itself ("London"),
+    never by the district that compiled the piece. Ancient
+    woodland files as ONE merged layer from Natural England's
+    two inventories — the revised inventory wins where they
+    overlap, and the detail field records which inventory each
+    shape came from, because the inventories are provisional
+    and the absence answer is "recorded in the inventory",
+    never "there is none". Nature rows carry no quality flag —
+    Natural England publishes none per row, so the field stays
+    NULL rather than inventing one.
 17. **listed_buildings** — listed buildings (NHLE): name, grade,
     position.
 18. **neighbourhood_stats** — Census 2021 + IMD, one row per LSOA,

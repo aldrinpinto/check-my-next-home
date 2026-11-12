@@ -93,6 +93,8 @@ export const FRIENDLY_NAMES = {
   "load-planning-areas": "Planning areas — conservation areas and Article 4",
   "load-green-belt": "Green belt",
   "load-heritage": "Heritage — listed buildings and monuments",
+  "load-nature-designations": "Nature designations — SSSI, SAC, SPA, Ramsar, ancient woodland",
+  "load-priority-habitats": "Priority habitats",
   onspd: "Postcode directory source (canary)",
   ppd: "Sold prices source (canary)",
   police: "Crime source (canary)",
@@ -108,6 +110,13 @@ export const FRIENDLY_NAMES = {
   "green-belt": "Green belt source (canary)",
   "listed-building": "Listed buildings source (canary)",
   "scheduled-monument": "Scheduled monuments source (canary)",
+  sssi: "SSSI source (canary)",
+  sac: "SAC source (canary)",
+  spa: "SPA source (canary)",
+  ramsar: "Ramsar source (canary)",
+  "ancient-woodland": "Ancient woodland source (canary)",
+  "ancient-woodland-revised": "Ancient woodland, revised (canary)",
+  "priority-habitats": "Priority habitats source (canary)",
 };
 
 function shortDetail(item) {
@@ -167,6 +176,14 @@ function shortDetail(item) {
     case "load-heritage": {
       const buildings = pick(/listed buildings: (\d+) filed/);
       return buildings ? `${buildings} listed buildings` : "updated";
+    }
+    case "load-nature-designations": {
+      const sssi = pick(/SSSI: (\d+) features filed/);
+      return sssi ? `${sssi} SSSIs filed` : "updated";
+    }
+    case "load-priority-habitats": {
+      const patches = pick(/(\d+) patches filed/);
+      return patches ? `${patches} habitat patches` : "updated";
     }
     default:
       return "updated";
@@ -438,6 +455,8 @@ async function main() {
       await runAndLog("load-planning-areas", ["--file", fx("planning-areas")]);
       await runAndLog("load-green-belt", ["--file", fx("green-belt")]);
       await runAndLog("load-heritage", ["--file", fx("heritage")]);
+      await runAndLog("load-nature-designations", ["--file", fx("nature-designations")]);
+      await runAndLog("load-priority-habitats", ["--file", fx("priority-habitats")]);
     } else {
       if (!client) throw new Error("a live run needs the run-record database (DATABASE_URL)");
       const lastSuccess = async (item) => {
@@ -489,15 +508,27 @@ async function main() {
         due: dueDecision(await lastSuccess("load-health"), 25),
         args: [],
       });
-      // The M5.2 planning and heritage datasets are quarterly,
-      // on the postcode directory's 70-day rhythm — they file
-      // shapes and points from their own files and never join
-      // onto the directory, so the empty-directory skip below
-      // does not apply to them.
-      for (const item of ["load-planning-areas", "load-green-belt", "load-heritage"]) {
+      // The M5.2 planning and heritage datasets and the M5.3
+      // nature datasets are quarterly, on the postcode
+      // directory's 70-day rhythm — they file shapes and points
+      // from their own files and never join onto the directory,
+      // so the empty-directory skip below does not apply to them.
+      for (const item of [
+        "load-planning-areas",
+        "load-green-belt",
+        "load-heritage",
+        "load-nature-designations",
+        "load-priority-habitats",
+      ]) {
         plan.push({ item, due: dueDecision(await lastSuccess(item), 70), args: [] });
       }
-      const DIRECTORY_FREE = new Set(["load-planning-areas", "load-green-belt", "load-heritage"]);
+      const DIRECTORY_FREE = new Set([
+        "load-planning-areas",
+        "load-green-belt",
+        "load-heritage",
+        "load-nature-designations",
+        "load-priority-habitats",
+      ]);
 
       for (const step of plan) {
         if (!step.due.due) {

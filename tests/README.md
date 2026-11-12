@@ -58,7 +58,27 @@ The golden homes:
    green belt edge 0.101 miles away; nearest monument the Ewell
    church tower (1003721) 0.44, Nonsuch Palace (1017998) 0.45; 315
    listed buildings within 2 miles, nearest Pit House (1214537) at
-   0.17.
+   0.17. Nature facts, locked 12 Nov 2026 from Natural England's
+   services (step M5.3): no golden home falls inside an SSSI, SAC,
+   SPA, Ramsar site, ancient woodland or a priority habitat patch.
+   Birkdale — nearest SSSI Woodham Walter Common 2.88 miles; the
+   Essex Estuaries SAC and the Blackwater Estuary SPA and Ramsar
+   all at 4.36 (one estuary, several designations); nearest
+   recorded ancient woodland 0.39 — an unnamed polygon from the
+   revised inventory, where the original alone would say 0.85;
+   nearest priority habitat a traditional orchard at 0.25, with 33
+   patches within a mile. Exeter — nearest SSSI Gilbert's Pit
+   (Charlton) 1.90; Epping Forest SAC 4.07; Lee Valley SPA and
+   Ramsar both 5.19; nearest ancient woodland Greenwich Park
+   (revised) 2.51, the original alone saying 3.38; 38 priority
+   habitat patches within a mile, nearest 0.14. Epsom — Stones
+   Road Pond SSSI 0.67 and Epsom and Ashtead Commons 1.79; Mole
+   Gap to Reigate Escarpment SAC 5.00; South West London
+   Waterbodies SPA and Ramsar both 7.05; nearest ancient woodland
+   1.41 — an unnamed polygon from the ORIGINAL inventory, where
+   the revision alone (Surrey is not a completed county) would
+   say 2.11; 57 priority habitat patches within a mile, nearest
+   0.18.
 
 The M3.6 practice seed and the M4.1 postcode proof were built before home 3
 was added and cover homes 1 and 2 only.
