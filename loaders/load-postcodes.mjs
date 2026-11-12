@@ -534,8 +534,7 @@ async function main() {
            lsoa_code = EXCLUDED.lsoa_code,
            msoa_code = EXCLUDED.msoa_code,
            source_name = EXCLUDED.source_name,
-           source_date = EXCLUDED.source_date,
-           loaded_at = now()`,
+           source_date = EXCLUDED.source_date`,
         [SOURCE_NAME, edition.sourceDate],
       );
       const filed = await client.query(
