@@ -17,7 +17,9 @@ The table list is the Technical Plan's Section 2 list, verbatim —
    own — broadband, crime counts and EPC — each answer stamped inside
    with its source name and data date.
 2. **price_paid** — Land Registry sales, loaded on demand per
-   postcode and kept forever. Sold prices are never called a
+   postcode and kept forever. Each row carries the Registry's
+   transaction id (migration 0003) so the monthly update file can
+   amend or delete it later. Sold prices are never called a
    valuation anywhere in the product.
 3. **reports** — paid-report records: delivery email, report ID,
    status, payment reference (provider-neutral while the payments
