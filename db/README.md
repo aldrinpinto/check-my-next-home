@@ -38,3 +38,22 @@ leaves no trace. CI runs the migrations (twice — the second run must
 be a no-op) and then this proof on every push, using a throwaway
 test database whose password exists only inside that CI run. The
 real database password (Key K6) is never used in CI.
+
+## Seed the practice facts
+
+```bash
+npm run db:seed
+```
+
+Fills the shelves with a small practice dataset around the two
+golden test homes (plan step M3.6), so the engine and screens can be
+built before the real loaders arrive. Every seeded row is stamped
+`SEED — fake practice data (M3.6)` — none of it is a real fact, and
+none of it may ever be served as one. Re-running deletes the old
+seed rows first, so it is safe to repeat. Check what is seeded with:
+
+```bash
+npm run db:seed -- --verify
+```
+
+CI seeds and verifies on every push, after the proof.
