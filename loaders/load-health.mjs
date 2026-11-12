@@ -785,8 +785,18 @@ async function main() {
 
   try {
     await client.query("BEGIN");
+    // The stage table is spelled out rather than copied with
+    // LIKE: LIKE carries the id column's NOT NULL but not its
+    // identity default, so staged rows would arrive with no id.
     await client.query(
-      `CREATE TEMP TABLE health_stage (LIKE health_points INCLUDING DEFAULTS) ON COMMIT DROP`,
+      `CREATE TEMP TABLE health_stage (
+         ods_code text, name text, service_type text, address text, postcode text,
+         latitude double precision, longitude double precision,
+         parent_ods_code text, has_emergency_department boolean,
+         cqc_service_types text, provider_name text,
+         source_name text, source_date date,
+         loaded_at timestamptz NOT NULL DEFAULT now()
+       ) ON COMMIT DROP`,
     );
     for (const p of points) {
       await client.query(
