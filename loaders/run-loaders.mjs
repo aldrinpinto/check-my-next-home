@@ -118,6 +118,32 @@ function shortDetail(item) {
       const gias = pick(/GIAS (\d{4}-\d{2}-\d{2})/);
       return gias ? `register dated ${gias}` : "updated";
     }
+    case "load-sold-prices": {
+      const edition = pick(/edition (\d{4})-(\d{2})-(\d{2})/);
+      if (!edition) return "updated";
+      const months = [
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
+      ];
+      const parts = line.match(/edition (\d{4})-(\d{2})-(\d{2})/);
+      return `sales file dated ${Number(parts[3])} ${months[Number(parts[2]) - 1]} ${parts[1]}`;
+    }
+    case "load-epc": {
+      const counts = [...line.matchAll(/(\d+) certificates/g)].map((m) => Number(m[1]));
+      return counts.length
+        ? `${counts.reduce((a, b) => a + b, 0)} certificates checked`
+        : "updated";
+    }
     case "load-health": {
       const ods = pick(/ODS (\d{4}-\d{2}-\d{2})/);
       return ods ? `lists dated ${ods}` : "updated";

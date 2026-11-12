@@ -83,6 +83,27 @@ describe("sources", () => {
     expect(runner).not.toContain("emailBody");
   });
 
+  it("the email gives sold prices and EPC a real detail, not a bare (updated)", () => {
+    const items = [
+      {
+        item: "load-sold-prices",
+        mode: "fixture",
+        status: "succeeded",
+        logLine: "load-sold-prices · edition 2026-07-20 · CM3 2JT 30 sales · golden homes OK · 0s",
+      },
+      {
+        item: "load-epc",
+        mode: "fixture",
+        status: "succeeded",
+        logLine:
+          "load-epc · CM3 2JT 42 certificates · E16 1GN 12 certificates · golden homes OK · 0s",
+      },
+    ] as never;
+    const { text } = buildEmailBodies(run, items, null);
+    expect(text).toContain("Sold prices — updated fine (sales file dated 20 July 2026).");
+    expect(text).toContain("Energy certificates (EPC) — updated fine (54 certificates checked).");
+  });
+
   it("the runner sends one email via Resend and prints ALERT FAILED when it cannot", () => {
     expect(runner).toContain("api.resend.com/emails");
     expect(runner).toContain("onboarding@resend.dev");
