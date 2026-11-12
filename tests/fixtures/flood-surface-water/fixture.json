@@ -1,0 +1,8 @@
+{
+  "captured": "2026-11-12",
+  "edition": "2026-11-10",
+  "source": "Environment Agency — Risk of Flooding from Surface Water (OGC API Features collection rofsw, DSP dataset b5aaa28d-6eb9-460e-8d6f-43caa71fbe0e)",
+  "boxes": "Every feature intersecting a box around a golden home (Birkdale ±0.02°, Exeter ±0.02°, Epsom ±0.02°), deduplicated by feature id.",
+  "parts": 11,
+  "features": 204
+}
