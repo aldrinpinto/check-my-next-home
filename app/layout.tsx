@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { SITE_DESCRIPTION, SITE_NAME } from "../lib/site";
+import { SITE_DESCRIPTION, SITE_NAME, TEST_BANNER_TEXT, showTestBanner } from "../lib/site";
 
 export const metadata: Metadata = {
   title: `${SITE_NAME} — check what the listing doesn't tell you`,
@@ -18,7 +18,14 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en-GB">
-      <body>{children}</body>
+      <body>
+        {showTestBanner() && (
+          <div className="test-banner" role="note">
+            {TEST_BANNER_TEXT}
+          </div>
+        )}
+        {children}
+      </body>
     </html>
   );
 }
