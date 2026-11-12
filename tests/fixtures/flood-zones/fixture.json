@@ -1,0 +1,8 @@
+{
+  "captured": "2026-11-12",
+  "edition": "2026-10-21",
+  "source": "Environment Agency — Flood Map for Planning, Flood Zones 2 and 3 (OGC API Features collection Flood_Zones_2_3_Rivers_and_Sea, DSP dataset 04532375-a198-476e-985e-0579a0a11b47)",
+  "boxes": "Every feature intersecting a box around a golden home (Birkdale ±0.03°, Exeter ±0.02°, Epsom ±0.02°), deduplicated by feature id.",
+  "parts": 3,
+  "features": 462
+}
