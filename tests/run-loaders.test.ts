@@ -99,7 +99,13 @@ describe("sources", () => {
           "load-epc · CM3 2JT 42 certificates · E16 1GN 12 certificates · golden homes OK · 0s",
       },
     ] as never;
-    const { text } = buildEmailBodies(run, items, null);
+    const mailRun = {
+      id: "00000000-0000-4000-8000-000000000000",
+      kind: "load",
+      environment: "local",
+      startedAt: new Date("2026-11-12T00:00:00Z"),
+    } as never;
+    const { text } = buildEmailBodies(mailRun, items, null);
     expect(text).toContain("Sold prices — updated fine (sales file dated 20 July 2026).");
     expect(text).toContain("Energy certificates (EPC) — updated fine (54 certificates checked).");
   });
