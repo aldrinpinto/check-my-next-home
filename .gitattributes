@@ -1,0 +1,10 @@
+# Check My Next Home — keep line endings consistent on every machine.
+# The repo is LF; Windows clones must not rewrite files to CRLF.
+* text=auto eol=lf
+
+# Binary files are never line-ending converted.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.zip binary
