@@ -11,7 +11,8 @@ The table list is the Technical Plan's Section 2 list, verbatim —
 
 1. **postcode_cache** — saved answers per postcode, with source +
    dates. Holds the postcode geocode (latitude/longitude, council,
-   ward, region, LSOA code) and, in its `answers` JSON, the cached
+   ward, region, LSOA code and — since migration 0002 — MSOA code)
+   and, in its `answers` JSON, the cached
    answers for the checks the Technical Plan gives no table of their
    own — broadband, crime counts and EPC — each answer stamped inside
    with its source name and data date.

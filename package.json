@@ -10,6 +10,7 @@
     "db:migrate": "node db/migrate.mjs",
     "db:prove": "node db/prove.mjs",
     "db:seed": "node db/seed.mjs",
+    "load:postcodes": "node loaders/load-postcodes.mjs",
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
@@ -19,7 +20,8 @@
     "next": "^16.4.6",
     "pg": "^8.22.0",
     "react": "^19.3.1",
-    "react-dom": "^19.3.1"
+    "react-dom": "^19.3.1",
+    "yauzl": "^3.4.0"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
