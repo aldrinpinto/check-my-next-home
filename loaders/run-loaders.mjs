@@ -95,6 +95,9 @@ export const FRIENDLY_NAMES = {
   "load-heritage": "Heritage — listed buildings and monuments",
   "load-nature-designations": "Nature designations — SSSI, SAC, SPA, Ramsar, ancient woodland",
   "load-priority-habitats": "Priority habitats",
+  "load-flood-zones": "Flood zones — the planning map, defences ignored",
+  "load-flood-rivers-sea": "Flood likelihood — rivers and sea, defences counted",
+  "load-flood-surface-water": "Flood likelihood — surface water",
   onspd: "Postcode directory source (canary)",
   ppd: "Sold prices source (canary)",
   police: "Crime source (canary)",
@@ -117,6 +120,9 @@ export const FRIENDLY_NAMES = {
   "ancient-woodland": "Ancient woodland source (canary)",
   "ancient-woodland-revised": "Ancient woodland, revised (canary)",
   "priority-habitats": "Priority habitats source (canary)",
+  "flood-zones": "Flood zones source (canary)",
+  "flood-rivers-sea": "Rivers & sea flood source (canary)",
+  "flood-surface-water": "Surface water flood source (canary)",
 };
 
 function shortDetail(item) {
@@ -184,6 +190,18 @@ function shortDetail(item) {
     case "load-priority-habitats": {
       const patches = pick(/(\d+) patches filed/);
       return patches ? `${patches} habitat patches` : "updated";
+    }
+    case "load-flood-zones": {
+      const filed = pick(/(\d+) features filed/);
+      return filed ? `${filed} flood zone shapes filed` : "updated";
+    }
+    case "load-flood-rivers-sea": {
+      const filed = pick(/(\d+) features filed/);
+      return filed ? `${filed} rivers & sea shapes filed` : "updated";
+    }
+    case "load-flood-surface-water": {
+      const filed = pick(/(\d+) features filed/);
+      return filed ? `${filed} surface water shapes filed` : "updated";
     }
     default:
       return "updated";
@@ -457,6 +475,9 @@ async function main() {
       await runAndLog("load-heritage", ["--file", fx("heritage")]);
       await runAndLog("load-nature-designations", ["--file", fx("nature-designations")]);
       await runAndLog("load-priority-habitats", ["--file", fx("priority-habitats")]);
+      await runAndLog("load-flood-zones", ["--file", fx("flood-zones")]);
+      await runAndLog("load-flood-rivers-sea", ["--file", fx("flood-rivers-sea")]);
+      await runAndLog("load-flood-surface-water", ["--file", fx("flood-surface-water")]);
     } else {
       if (!client) throw new Error("a live run needs the run-record database (DATABASE_URL)");
       const lastSuccess = async (item) => {
@@ -508,17 +529,21 @@ async function main() {
         due: dueDecision(await lastSuccess("load-health"), 25),
         args: [],
       });
-      // The M5.2 planning and heritage datasets and the M5.3
-      // nature datasets are quarterly, on the postcode
-      // directory's 70-day rhythm — they file shapes and points
-      // from their own files and never join onto the directory,
-      // so the empty-directory skip below does not apply to them.
+      // The M5.1 flood datasets, the M5.2 planning and heritage
+      // datasets and the M5.3 nature datasets are quarterly, on
+      // the postcode directory's 70-day rhythm — they file
+      // shapes and points from their own files and never join
+      // onto the directory, so the empty-directory skip below
+      // does not apply to them.
       for (const item of [
         "load-planning-areas",
         "load-green-belt",
         "load-heritage",
         "load-nature-designations",
         "load-priority-habitats",
+        "load-flood-zones",
+        "load-flood-rivers-sea",
+        "load-flood-surface-water",
       ]) {
         plan.push({ item, due: dueDecision(await lastSuccess(item), 70), args: [] });
       }
@@ -528,6 +553,9 @@ async function main() {
         "load-heritage",
         "load-nature-designations",
         "load-priority-habitats",
+        "load-flood-zones",
+        "load-flood-rivers-sea",
+        "load-flood-surface-water",
       ]);
 
       for (const step of plan) {

@@ -24,6 +24,9 @@
     "load:heritage": "node loaders/load-heritage.mjs",
     "load:nature-designations": "node loaders/load-nature-designations.mjs",
     "load:priority-habitats": "node loaders/load-priority-habitats.mjs",
+    "load:flood-zones": "node loaders/load-flood-zones.mjs",
+    "load:flood-rivers-sea": "node loaders/load-flood-rivers-sea.mjs",
+    "load:flood-surface-water": "node loaders/load-flood-surface-water.mjs",
     "load:all": "node loaders/run-loaders.mjs",
     "canary": "node loaders/run-loaders.mjs --canary-only"
   },

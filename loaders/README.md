@@ -247,6 +247,59 @@ feature service in OBJECTID order, processing one page at a
 time inside the filing transaction. Modes: `--verify-only`,
 `--file tests/fixtures/priority-habitats`.
 
+## Flood zones loader (plan step M5.1)
+
+`load-flood-zones.mjs` files the Environment Agency's Flood
+Map for Planning zones (Flood Zones 2 and 3) into
+`flood_layers` as `layer_type` `flood_zone`, labels FZ2/FZ3
+exactly as published. The zones are a planning instrument
+computed as if flood defences did not exist — the opposite
+convention from the rivers & sea bands below, and the two are
+never merged (gap L1). Each shape's `detail` carries its
+published flood source and origin ("river and sea · modelled
+and recorded"). The OGC service silently ignores property
+filters, so every count is computed from the fetched data and
+the unfiltered service count is the only oracle (gap L5).
+Shapes file exactly as published — no buffering, snapping or
+simplifying. Zone 1 is never filed: it is absence, computed
+against the proven count. Golden proof: Birkdale inside no
+zone, Exeter inside Zone 3. Modes: `--verify-only`,
+`--file tests/fixtures/flood-zones`.
+
+## Rivers & sea flood loader (plan step M5.1)
+
+`load-flood-rivers-sea.mjs` files the Risk of Flooding from
+Rivers and Sea likelihood bands (the chance of flooding
+deeper than 0 m, taking defences and their condition into
+account) into `flood_layers` as `layer_type` `rofrs`, bands
+High / Medium / Low / Very low verbatim, with the depth basis
+">0 m" in `detail`. Absence is a different fact from a filed
+band, and never interchangeable with one: Birkdale and Epsom
+have no shape at their points (nearest Low 0.84 / 0.40 miles),
+while Exeter has a filed Very low polygon covering its point
+— the pair (Zone 3 above, Very low here) is the step's own
+check, and both rows coexist under their own layer types.
+Modes: `--verify-only`, `--file tests/fixtures/flood-rivers-sea`.
+
+## Surface water flood loader (plan step M5.1)
+
+`load-flood-surface-water.mjs` files the Risk of Flooding
+from Surface Water bands into `flood_layers` as `layer_type`
+`rofsw`. The product publishes three bands only — High /
+Medium / Low — so a "Very low" arrival fails the contract
+outright, and absence means "below the Low threshold",
+nothing more. The geometries are the heaviest the stack
+files (dissolved multipolygons, individually hundreds of KB)
+and some arrive self-intersecting: every geometry is
+validated, made valid where needed and the invalid count
+rides in the log line — never silently dropped, never
+simplified. Point answers in this product are near-miss
+fragile (Exeter's point sits in no polygon, with Low about
+9 metres away), so the golden proof pins the proximity facts
+— point band plus nearest band and distance per home — as
+assertions. Modes: `--verify-only`,
+`--file tests/fixtures/flood-surface-water`.
+
 ## Loader runner + canary
 
 `run-loaders.mjs` (plan step M4.8; `npm run load:all`) runs the
@@ -254,10 +307,11 @@ contract canary probes (`canary.mjs` — one cheap shape/freshness
 probe per source, filing nothing) and then the due dataset
 loads, records the run in the `loader_runs` tables, and sends
 one email per run: an alert on failure, a short OK heartbeat on
-success. Due-ness: the postcode directory and the M5.2/M5.3 planning,
-heritage and nature datasets quarterly (70 days — their sources
-move slowly, and the planning and nature loaders never join onto
-the directory, so an empty directory does not skip them), the
+success. Due-ness: the postcode directory and the M5.1 flood, M5.2
+planning and heritage and M5.3 nature datasets quarterly
+(70 days — their sources move slowly, and the flood, planning
+and nature loaders never join onto the directory, so an empty
+directory does not skip them), the
 other datasets
 monthly, judged from the last successful run items;
 per-postcode loaders take their targets from what is already

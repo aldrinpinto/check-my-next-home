@@ -827,6 +827,126 @@ function probePriorityHabitats() {
   })();
 }
 
+// --- Environment Agency flood products (plan step M5.1) -----
+//
+// One probe per product, mirroring what the three flood
+// loaders consume: the OGC collections document names the
+// collection; the unfiltered numberMatched — the only service
+// count trusted, since the service silently ignores property
+// filters (gap L5) — sits inside ±10% of the 12 Nov 2026
+// snapshot; and the WMS build layer still stamps a single
+// edition date, exactly as the loaders parse it. Freshness is
+// warn-only: the publisher's metadata promises updates only
+// "asNeeded", so an edition older than ~200 days (the
+// quarterly ambition plus slack) warns rather than fails.
+// Zones and RoFRS also keep the Exeter anchor — a small box
+// around the golden point still returns the covering fact
+// (Zone 3; a filed Very low) — the earliest warning that a
+// republication moved the golden home.
+
+const FLOOD_PRODUCTS = {
+  "flood-zones": {
+    items:
+      "https://environment.data.gov.uk/geoservices/datasets/04532375-a198-476e-985e-0579a0a11b47/ogc/features/v1/collections/Flood_Zones_2_3_Rivers_and_Sea/items",
+    wms: "https://environment.data.gov.uk/spatialdata/flood-map-for-planning-flood-zones/wms?service=WMS&version=1.3.0&request=GetCapabilities",
+    collection: "Flood_Zones_2_3_Rivers_and_Sea",
+    snapshot: 415408,
+    anchor: { property: "flood_zone", value: "FZ3", label: "Zone 3" },
+  },
+  "flood-rivers-sea": {
+    items:
+      "https://environment.data.gov.uk/geoservices/datasets/96ab4342-82c1-4095-87f1-0082e8d84ef1/ogc/features/v1/collections/rofrs_4band/items",
+    wms: "https://environment.data.gov.uk/spatialdata/nafra2-risk-of-flooding-from-rivers-and-sea/wms?service=WMS&version=1.3.0&request=GetCapabilities",
+    collection: "rofrs_4band",
+    snapshot: 249019,
+    anchor: { property: "risk_band", value: "Very low", label: "Very low" },
+  },
+  "flood-surface-water": {
+    items:
+      "https://environment.data.gov.uk/geoservices/datasets/b5aaa28d-6eb9-460e-8d6f-43caa71fbe0e/ogc/features/v1/collections/rofsw/items",
+    wms: "https://environment.data.gov.uk/spatialdata/nafra2-risk-of-flooding-from-surface-water/wms?service=WMS&version=1.3.0&request=GetCapabilities",
+    collection: "rofsw",
+    snapshot: 405438,
+    anchor: null,
+  },
+};
+
+const FLOOD_EXETER_POINT = { lat: 51.515224, lng: 0.021177 };
+
+async function floodEdition(spec) {
+  const response = await fetchRetry(spec.wms);
+  if (!response.ok)
+    throw new Error(`HTTP ${response.status} for the ${spec.collection} WMS capabilities`);
+  const xml = await response.text();
+  const pattern = new RegExp(`${spec.collection}_(\\d{2})_(\\d{2})_(\\d{4})`, "g");
+  const dates = new Set([...xml.matchAll(pattern)].map((m) => `${m[3]}-${m[2]}-${m[1]}`));
+  if (dates.size !== 1)
+    throw new Error(
+      `the ${spec.collection} WMS capabilities carry ${dates.size} distinct build dates — no single edition can be stamped`,
+    );
+  return [...dates][0];
+}
+
+function probeFloodProduct(item) {
+  const spec = FLOOD_PRODUCTS[item];
+  return (async () => {
+    const collectionsUrl = `${spec.items.split("/collections/")[0]}/collections?f=json`;
+    const collectionsResponse = await fetchRetry(collectionsUrl);
+    if (!collectionsResponse.ok)
+      throw new Error(
+        `HTTP ${collectionsResponse.status} for the ${spec.collection} collections document`,
+      );
+    const collectionsBody = await collectionsResponse.json();
+    if (!(collectionsBody.collections ?? []).some((c) => c.id === spec.collection))
+      throw new Error(`the collections document no longer names ${spec.collection}`);
+    const countResponse = await fetchRetry(`${spec.items}?limit=1&f=json`);
+    if (!countResponse.ok)
+      throw new Error(`HTTP ${countResponse.status} for the ${spec.collection} count`);
+    const countBody = await countResponse.json();
+    const matched = countBody.numberMatched;
+    if (!Number.isInteger(matched))
+      throw new Error(`the ${spec.collection} items response carries no numberMatched`);
+    const lo = Math.floor(spec.snapshot * 0.9);
+    const hi = Math.ceil(spec.snapshot * 1.1);
+    if (matched < lo || matched > hi)
+      throw new Error(
+        `the ${spec.collection} count is ${matched} — outside the band ${lo}–${hi} (±10% of the ${spec.snapshot} snapshot)`,
+      );
+    let anchorNote = "";
+    if (spec.anchor) {
+      const d = 0.0005;
+      const bbox = [
+        FLOOD_EXETER_POINT.lng - d,
+        FLOOD_EXETER_POINT.lat - d,
+        FLOOD_EXETER_POINT.lng + d,
+        FLOOD_EXETER_POINT.lat + d,
+      ].join(",");
+      const anchorResponse = await fetchRetry(`${spec.items}?bbox=${bbox}&limit=100&f=json`);
+      if (!anchorResponse.ok)
+        throw new Error(`HTTP ${anchorResponse.status} for the ${spec.collection} Exeter anchor`);
+      const anchorBody = await anchorResponse.json();
+      const hit = (anchorBody.features ?? []).some(
+        (f) => f.properties?.[spec.anchor.property] === spec.anchor.value,
+      );
+      if (!hit)
+        throw new Error(
+          `the Exeter anchor no longer returns ${spec.anchor.label} for ${spec.collection} — a republication may have moved the golden home`,
+        );
+      anchorNote = ` · Exeter anchor ${spec.anchor.label} OK`;
+    }
+    const edition = await floodEdition(spec);
+    const age = Math.floor(ageDays(edition));
+    const base = `canary ${item} · ${matched} features · edition ${edition}${anchorNote}`;
+    if (age > 200)
+      return {
+        warning: true,
+        logLine: `${base} · edition is ${age} days old — beyond the ~200-day ambition (warn-only: the publisher promises updates only as needed)`,
+        sourceDate: edition,
+      };
+    return { logLine: base, sourceDate: edition };
+  })();
+}
+
 export async function runCanaryProbes() {
   const results = [];
   const run = async (item, fn) => {
@@ -913,5 +1033,8 @@ export async function runCanaryProbes() {
   await run("ancient-woodland", probeAncientWoodland);
   await run("ancient-woodland-revised", probeAncientWoodlandRevised);
   await run("priority-habitats", probePriorityHabitats);
+  await run("flood-zones", () => probeFloodProduct("flood-zones"));
+  await run("flood-rivers-sea", () => probeFloodProduct("flood-rivers-sea"));
+  await run("flood-surface-water", () => probeFloodProduct("flood-surface-water"));
   return results;
 }

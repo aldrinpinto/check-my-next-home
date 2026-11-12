@@ -64,10 +64,21 @@ Family:
     square per year (NO2, PM2.5, PM10).
 14. **noise_summary** — one pre-summarised daytime + night-time road
     noise band per area. The raw 10 m grid never enters the database.
-15. **flood_layers** — Environment Agency flood shapes. Two layers
-    in one table, told apart by `layer_type` and never merged:
-    rivers & sea zones, and surface water. The layer's own date is
-    stamped on every load.
+15. **flood_layers** — Environment Agency flood shapes. Three
+    layers in one table, told apart by `layer_type` and never
+    merged: `flood_zone` (the planning Flood Zones 2 and 3,
+    which ignore flood defences), `rofrs` (the rivers & sea
+    likelihood bands, which count defences) and `rofsw` (the
+    surface water likelihood bands — it has no Very low band).
+    Since migration 0008 each shape also carries a `detail`
+    field: for a zone, its flood source and origin as published
+    ("river and sea · modelled and recorded"); for the band
+    products, the depth basis (">0 m"). Each product's own
+    revision date is stamped on the shapes it files — the three
+    revise independently, so one load can stamp three different
+    dates. Absence is never filed: there are no synthetic
+    Zone 1 or "Very low" shapes, so an empty answer is always
+    computed against the filed counts.
 16. **planning_layers** — planning constraint shapes (conservation
     areas, Article 4 areas, green belt, scheduled monuments, and
     the nature layers: SSSI, SAC, SPA, Ramsar, ancient woodland
