@@ -669,6 +669,15 @@ async function main() {
     odsDateStamp = meta.odsRetrieved;
     const postcodes = JSON.parse(await readFile(join(fixtureDir, "postcodes.json"), "utf8"));
     positionOf = (pc) => postcodes[(pc ?? "").trim().toUpperCase()] ?? null;
+    if (!verifyOnly) {
+      // Filing needs a database even in fixture mode (CI files the
+      // fixture into its throwaway PostGIS); positions still come
+      // from the fixture's own postcode list.
+      if (!process.env.DATABASE_URL)
+        throw new Error("DATABASE_URL is not set — filing requires a database");
+      client = new pg.Client({ connectionString: process.env.DATABASE_URL });
+      await client.connect();
+    }
   } else {
     const [a, b, c, d] = await Promise.all(
       ["epraccur", "ebranchs", "edispensary", "egdpprac"].map((name) => fetchText(DSE_URL(name))),
@@ -838,10 +847,10 @@ async function main() {
       throw new Error("the filed point count does not match — rolling back");
     await client.query("COMMIT");
   } catch (error) {
-    await client.query("ROLLBACK");
+    if (client) await client.query("ROLLBACK").catch(() => {});
     throw error;
   } finally {
-    await client.end();
+    if (client) await client.end();
   }
   console.log(`${summary()} · golden homes OK · ${Math.round((Date.now() - startedAt) / 1000)}s`);
 }
