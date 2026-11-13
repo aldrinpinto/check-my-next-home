@@ -36,6 +36,16 @@ const GOLDEN_POSTCODES = ["CM3 2JT", "E16 1GN", "KT17 1FH"];
 const ALERT_TO = process.env.ALERT_EMAIL_TO ?? "checkmynexthome@gmail.com";
 const DAY = 86400000;
 
+// The static class (plan step M5.8): a dataset that loads
+// exactly once. dueDecision with a ~100-year threshold says
+// "due" only when the loader has never succeeded — the
+// runner's one due-ness mechanism, no new machinery. The
+// dataset's canary probe watches for a republication; a
+// re-file after one is a manual operator re-run (the M5.10
+// council-tax seed precedent), matching the plan's cadence
+// table: "Load once… Once; re-checked rarely".
+export const STATIC_THRESHOLD_DAYS = 36500;
+
 // --- pure core (unit-tested) --------------------------------------
 
 export function dueDecision(lastSuccessIso, thresholdDays, now = new Date()) {
@@ -124,6 +134,7 @@ export const FRIENDLY_NAMES = {
   "load-osm-places": "Nearby places — vets, shops, eating places, parks and more",
   "load-os-greenspace": "Parks — official green spaces",
   "load-ev-chargers": "EV chargers — public charging points",
+  "load-census": "Census 2021 — the area in numbers",
   onspd: "Postcode directory source (canary)",
   ppd: "Sold prices source (canary)",
   police: "Crime source (canary)",
@@ -153,6 +164,7 @@ export const FRIENDLY_NAMES = {
   geofabrik: "Places map source (canary)",
   "os-greenspace": "Parks source (canary)",
   "open-charge-map": "EV chargers source (canary)",
+  "nomis-census": "Census source (canary)",
 };
 
 function shortDetail(item) {
@@ -250,6 +262,10 @@ function shortDetail(item) {
     case "load-ev-chargers": {
       const filed = pick(/(\d+) charging sites filed/);
       return filed ? `${filed} charging sites filed` : "updated";
+    }
+    case "load-census": {
+      const filed = pick(/(\d+) areas filed/);
+      return filed ? `${filed} areas filed` : "updated";
     }
     default:
       return "updated";
@@ -529,6 +545,7 @@ async function main() {
       await runAndLog("load-osm-places", ["--file", fx("osm-places")]);
       await runAndLog("load-os-greenspace", ["--file", fx("os-greenspace")]);
       await runAndLog("load-ev-chargers", ["--file", fx("ev-chargers")]);
+      await runAndLog("load-census", ["--file", fx("census")]);
     } else {
       if (!client) throw new Error("a live run needs the run-record database (DATABASE_URL)");
       const lastSuccess = async (item) => {
@@ -604,6 +621,17 @@ async function main() {
       ]) {
         plan.push({ item, due: dueDecision(await lastSuccess(item), 70), args: [] });
       }
+      // Census 2021 (plan step M5.8) is the static class:
+      // due exactly once, when it has never loaded, and
+      // never automatically again — the nomis-census canary
+      // watches for a republication, and a re-file after one
+      // is a manual operator re-run. It files by MSOA code
+      // from its own files, so it is directory-free too.
+      plan.push({
+        item: "load-census",
+        due: dueDecision(await lastSuccess("load-census"), STATIC_THRESHOLD_DAYS),
+        args: [],
+      });
       const DIRECTORY_FREE = new Set([
         "load-planning-areas",
         "load-green-belt",
@@ -617,6 +645,7 @@ async function main() {
         "load-osm-places",
         "load-os-greenspace",
         "load-ev-chargers",
+        "load-census",
       ]);
 
       for (const step of plan) {

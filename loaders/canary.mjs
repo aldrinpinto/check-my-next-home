@@ -1297,6 +1297,135 @@ function probeOpenChargeMap() {
   })();
 }
 
+// --- Nomis Census 2021 bulk downloads (plan step M5.8) ---
+//
+// Census is a static dataset, but static is not the same as
+// frozen: TS021 was corrected once already (29 Nov 2022,
+// mislabelled values, fixed the same day). Three arms,
+// cheap, filing nothing:
+// (a) availability — all seven bulk zips still answer; a
+//     withdrawn zip is the first sign of a moved source.
+// (b) shape — the TS021 file still carries its 25 count
+//     columns and TS054 its 13, TS054's "Social rented"
+//     subtotal among them: a re-issue that renames
+//     categories is caught here before it can break the
+//     loader's header contract on a manual re-run.
+// (c) golden — the three universal MSOAs' TS021 totals,
+//     compared EXACTLY against the filed baselines. Census
+//     counts have no legitimate drift, so this arm is exact
+//     where the EV probe's ±15% band would be wrong: any
+//     difference means the published table changed after we
+//     filed.
+// The prep sketched arm (c) as a guest-API read; the build
+// uses the bulk file instead — the API's dataset id is
+// known (NM_2041_1) but its MSOA geography typecode could
+// not be verified from the build environment, while the
+// bulk route is the loader's own proven path to the same
+// published totals. The cost is one 5.9 MB zip a month.
+
+const CENSUS_BULK_BASE = "https://www.nomisweb.co.uk/output/census/2021";
+const CENSUS_DATASET_CODES = ["ts007a", "ts007", "ts021", "ts030", "ts044", "ts052", "ts054"];
+export const CENSUS_GOLDEN_TOTALS = { E02004463: 8138, E02000749: 9552, E02006837: 11787 };
+
+// The count columns of a bulk MSOA CSV (everything except
+// the date / geography / geography code columns). Pure —
+// the tests run this offline.
+export function censusCountColumns(csvText) {
+  const header = splitCsvLine(csvText.split("\n")[0].replace(/^\ufeff/, "")).map((c) => c.trim());
+  return header.filter((c) => !["date", "geography", "geography code"].includes(c));
+}
+
+// One dataset's Total for the golden MSOAs, read from its
+// bulk MSOA CSV. Pure — the tests run this offline.
+export function censusGoldenTotals(csvText, totalPrefix) {
+  const lines = csvText.split("\n").filter((l) => l.trim() !== "");
+  const header = splitCsvLine(lines[0].replace(/^\ufeff/, "")).map((c) => c.trim());
+  const codeAt = header.indexOf("geography code");
+  const totalAt = header.findIndex((c) => c.startsWith(totalPrefix));
+  if (codeAt === -1 || totalAt === -1)
+    throw new Error("the bulk CSV no longer carries its geography code / Total columns");
+  const totals = {};
+  for (const line of lines.slice(1)) {
+    const fields = splitCsvLine(line);
+    const code = (fields[codeAt] ?? "").trim();
+    if (code in CENSUS_GOLDEN_TOTALS) totals[code] = Number(fields[totalAt]);
+  }
+  return totals;
+}
+
+async function censusBulkCsv(code) {
+  const { default: yauzl } = await import("yauzl");
+  const response = await fetchRetry(`${CENSUS_BULK_BASE}/census2021-${code}.zip`);
+  if (!response.ok) throw new Error(`HTTP ${response.status} for the ${code} bulk zip`);
+  const buffer = Buffer.from(await response.arrayBuffer());
+  return new Promise((resolve, reject) => {
+    yauzl.fromBuffer(buffer, { lazyEntries: true }, (err, zip) => {
+      if (err) return reject(err);
+      let settled = false;
+      zip.readEntry();
+      zip.on("entry", (entry) => {
+        if (entry.fileName.split("/").pop()?.toLowerCase() !== `census2021-${code}-msoa.csv`)
+          return zip.readEntry();
+        zip.openReadStream(entry, (streamErr, stream) => {
+          if (streamErr) return reject(streamErr);
+          const chunks = [];
+          stream.on("data", (c) => chunks.push(c));
+          stream.on("end", () => {
+            settled = true;
+            resolve(Buffer.concat(chunks).toString("utf8"));
+          });
+          stream.on("error", reject);
+        });
+      });
+      zip.on("error", reject);
+      zip.on("end", () => {
+        if (!settled) reject(new Error(`the ${code} bulk zip holds no MSOA CSV`));
+      });
+    });
+  });
+}
+
+export function probeNomisCensus() {
+  return (async () => {
+    for (const code of CENSUS_DATASET_CODES) {
+      const head = await fetchRetry(`${CENSUS_BULK_BASE}/census2021-${code}.zip`, {
+        method: "HEAD",
+      });
+      if (!head.ok) throw new Error(`HTTP ${head.status} for the ${code} bulk zip`);
+      const length = Number(head.headers.get("content-length") ?? "0");
+      if (length > 0 && length < 100_000)
+        throw new Error(
+          `the ${code} bulk zip is ${length} bytes — implausibly small for the published file`,
+        );
+    }
+    const ts021 = await censusBulkCsv("ts021");
+    const ts021Columns = censusCountColumns(ts021);
+    if (ts021Columns.length !== 25)
+      throw new Error(
+        `the TS021 bulk file carries ${ts021Columns.length} count columns — expected 25 (the category structure changed)`,
+      );
+    const ts054 = await censusBulkCsv("ts054");
+    const ts054Columns = censusCountColumns(ts054);
+    if (ts054Columns.length !== 13)
+      throw new Error(
+        `the TS054 bulk file carries ${ts054Columns.length} count columns — expected 13 (the category structure changed)`,
+      );
+    if (!ts054Columns.includes("Tenure of household: Social rented"))
+      throw new Error("the TS054 bulk file no longer carries its Social rented subtotal column");
+    const totals = censusGoldenTotals(ts021, "Ethnic group: Total");
+    for (const [code, expected] of Object.entries(CENSUS_GOLDEN_TOTALS)) {
+      if (totals[code] !== expected)
+        throw new Error(
+          `the published TS021 total for ${code} is ${totals[code]} — the filed baseline is ${expected}: the table was corrected or re-issued after we filed (census counts have no legitimate drift; a manual re-run of load-census is the response)`,
+        );
+    }
+    return {
+      logLine: `canary nomis-census · 7 bulk files present · TS021/TS054 shapes OK · golden totals unchanged (${Object.values(CENSUS_GOLDEN_TOTALS).join(" / ")})`,
+      sourceDate: "2021-03-21",
+    };
+  })();
+}
+
 export async function runCanaryProbes() {
   const results = [];
   const run = async (item, fn) => {
@@ -1390,5 +1519,6 @@ export async function runCanaryProbes() {
   await run("geofabrik", probeGeofabrik);
   await run("os-greenspace", probeOsGreenspace);
   await run("open-charge-map", probeOpenChargeMap);
+  await run("nomis-census", probeNomisCensus);
   return results;
 }

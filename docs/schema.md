@@ -155,10 +155,13 @@ Family:
     NULL rather than inventing one.
 17. **listed_buildings** — listed buildings (NHLE): name, grade,
     position.
-18. **neighbourhood_stats** — Census 2021 + IMD, one row per LSOA,
-    no shapes. Ethnicity and religion breakdowns live here and are
-    served only to the paid report's demographics depth — never to
-    the panel, hooks or shortlist.
+18. **neighbourhood_stats** — the Index of Multiple Deprivation,
+    one row per LSOA, no shapes: deprivation decile, score and
+    rank, served only to the paid depth — never to the panel,
+    hooks or shortlist. This table was once described as also
+    holding Census 2021; it does not — the Census is keyed by
+    MSOA and lives in **census_stats** (24). The M5.9 loader
+    files the IMD here.
 19. **ev_points** — public EV charging SITES from Open Charge
     Map (plan step M5.7; the National Chargepoint Registry the
     table was designed for was decommissioned in November
@@ -205,6 +208,25 @@ Family:
     found" may only be served for a council present here;
     everywhere else the recorded state is "not published by the
     council to the national dataset", never "none".
+24. **census_stats** — Census 2021 (migration 0011, plan step
+    M5.8), one row per MSOA, no shapes. `stats` JSONB holds one
+    object per published table — TS007A age bands, TS007 single
+    years of age, TS021 ethnic group, TS030 religion, TS044
+    accommodation type, TS052 bedroom occupancy, TS054 tenure —
+    and every value is an integer COUNT exactly as ONS
+    published it: percentages are always computed at serve
+    time from the filed counts, each table on its own total,
+    and are never filed. What an area in numbers means for a
+    family, in the Census's exact words and the ONS tables,
+    served only to the paid report's demographics depth —
+    never to the panel, hooks or shortlist, and never a
+    verdict on who lives somewhere. Filed once by
+    `loaders/load-census.mjs` from the ONS bulk downloads via
+    Nomis (keyless; OGL v3 licences ship inside each zip);
+    `source_date` is Census Day, 21 March 2021. Brought up to
+    date on a Census-decennial rhythm, not a refresh cycle —
+    the `nomis-census` canary probe watches for a
+    republication.
 
 ## Physical decisions (recorded at build, M3.3)
 
