@@ -5,6 +5,7 @@ import {
   buildEmailBodies,
   decideExitCode,
   dueDecision,
+  errorHeadline,
   summariseRun,
 } from "../loaders/run-loaders.mjs";
 
@@ -36,6 +37,28 @@ describe("run summary", () => {
     expect(subject).toContain("load-crime");
     expect(subject).not.toContain("epc-deltas");
     expect(lines.join("\n")).toContain("the previous data is still serving");
+  });
+
+  it("a failed loader's summary shows its own error, not Node's opening warning", () => {
+    // CI runs 98 and 99: a loader that imports node:sqlite has
+    // Node 22's ExperimentalWarning as the FIRST line of its
+    // stderr, and the summaries used to print that first line —
+    // so the greenspace loader's real error never reached the
+    // log or the alert email, two runs running.
+    const stderr = [
+      "(node:3236) ExperimentalWarning: SQLite is an experimental feature and might change at any time",
+      "(Use `node --trace-warnings ...` to show where the warning was created)",
+      'load-os-greenspace FAILED: column "lat" of relation "greenspace_points" does not exist',
+    ].join("\n");
+    expect(errorHeadline(stderr)).toContain('column "lat"');
+    expect(errorHeadline(stderr)).not.toContain("ExperimentalWarning");
+    const { lines } = summariseRun("load", [
+      { item: "load-os-greenspace", status: "failed", errorMessage: stderr },
+    ]);
+    expect(lines.join("\n")).toContain('column "lat" of relation "greenspace_points"');
+    // Plain single-line errors are untouched by the picking.
+    expect(errorHeadline("boom")).toBe("boom");
+    expect(errorHeadline(null)).toBe("unknown error");
   });
 
   it("warnings alone never fail a run", () => {

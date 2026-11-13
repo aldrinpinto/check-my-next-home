@@ -46,6 +46,28 @@ export function dueDecision(lastSuccessIso, thresholdDays, now = new Date()) {
     : { due: false, reason: `not due — last success ${Math.floor(age)} days ago` };
 }
 
+// The one line of a failed loader's captured output that the
+// summaries, the console and the alert email show. A child
+// loader's stderr OPENS with Node's own runtime warnings on
+// Node 22 — "(node:…) ExperimentalWarning: SQLite is an
+// experimental feature…" from every loader that imports
+// node:sqlite — so the first line is the warning, not the
+// failure: it hid the greenspace loader's real error in CI
+// runs 98 and 99 behind a sqlite warning. Prefer the loader's
+// own "FAILED:" line (every loader's main prints one, carrying
+// its error); fall back to the last line that is not Node
+// runtime noise.
+export function errorHeadline(errorMessage) {
+  const lines = (errorMessage ?? "unknown error")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l !== "");
+  if (lines.length === 0) return "unknown error";
+  const own = lines.filter((l) => !l.startsWith("(node:") && !l.startsWith("(Use `node "));
+  const pool = own.length > 0 ? own : lines;
+  return pool.find((l) => l.includes("FAILED:")) ?? pool[pool.length - 1];
+}
+
 export function summariseRun(kind, items) {
   const failed = items.filter((i) => i.status === "failed");
   const counted = items.filter((i) => i.status !== "warning");
@@ -59,7 +81,7 @@ export function summariseRun(kind, items) {
     if (i.status === "succeeded") return `OK      ${i.item} — ${i.logLine ?? ""}`;
     if (i.status === "skipped") return `SKIPPED ${i.item} — ${i.logLine ?? ""}`;
     if (i.status === "warning") return `WARNING ${i.item} — ${i.logLine ?? ""}`;
-    return `FAILED  ${i.item} — ${(i.errorMessage ?? "unknown error").split("\n")[0]}`;
+    return `FAILED  ${i.item} — ${errorHeadline(i.errorMessage)}`;
   });
   if (status === "failed") {
     lines.push("", "Each failed loader filed nothing; the previous data is still serving.");
@@ -239,7 +261,7 @@ export function humanLine(item) {
     };
   if (item.status === "warning")
     return { icon: "WARN", text: `${name} — noted, not alerting: ${item.logLine ?? ""}` };
-  const reason = (item.errorMessage ?? "unknown error").split("\n")[0].slice(0, 160);
+  const reason = errorHeadline(item.errorMessage).slice(0, 160);
   if (item.mode === "probe") {
     return {
       icon: "FAIL",
@@ -282,7 +304,7 @@ export function buildEmailBodies(run, items, recordNote) {
   const reference = `Reference: run ${run.id} · ${run.kind} · ${run.environment} · started ${run.startedAt.toISOString()} · ${recordNote ?? "full record in the loader_runs tables."}`;
   const detailLines = items.map(
     (i) =>
-      `${i.status.toUpperCase().padEnd(9)} ${i.item} — ${i.logLine ?? i.errorMessage?.split("\n")[0] ?? ""}`,
+      `${i.status.toUpperCase().padEnd(9)} ${i.item} — ${i.logLine ?? (i.errorMessage ? errorHeadline(i.errorMessage) : "")}`,
   );
 
   const text = [
@@ -475,8 +497,7 @@ async function main() {
       const runAndLog = async (name, loaderArgs) => {
         const outcome = await runLoader(name, loaderArgs);
         console.log(
-          outcome.logLine ??
-            `${outcome.item} FAILED — ${(outcome.errorMessage ?? "").split("\n")[0]}`,
+          outcome.logLine ?? `${outcome.item} FAILED — ${errorHeadline(outcome.errorMessage)}`,
         );
         items.push(outcome);
       };
@@ -611,8 +632,7 @@ async function main() {
         }
         const outcome = await runLoader(step.item, step.args);
         console.log(
-          outcome.logLine ??
-            `${outcome.item} FAILED — ${(outcome.errorMessage ?? "").split("\n")[0]}`,
+          outcome.logLine ?? `${outcome.item} FAILED — ${errorHeadline(outcome.errorMessage)}`,
         );
         items.push(outcome);
       }

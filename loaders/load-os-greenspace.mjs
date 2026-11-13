@@ -520,7 +520,7 @@ export async function fileGreenspace(pool, rows, retrievedAt) {
     await client.query("BEGIN");
     await client.query(`CREATE TEMP TABLE greenspace_stage (
       osm_id bigint, name text, point_role text,
-      lat double precision, lon double precision,
+      latitude double precision, longitude double precision,
       source_name text, source_date date
     ) ON COMMIT DROP`);
     const values = [];
@@ -528,7 +528,7 @@ export async function fileGreenspace(pool, rows, retrievedAt) {
     const flush = async () => {
       if (values.length === 0) return;
       await client.query(
-        `INSERT INTO greenspace_stage (osm_id, name, point_role, lat, lon, source_name, source_date) VALUES ${values.join(", ")}`,
+        `INSERT INTO greenspace_stage (osm_id, name, point_role, latitude, longitude, source_name, source_date) VALUES ${values.join(", ")}`,
         params,
       );
       values.length = 0;
@@ -552,9 +552,19 @@ export async function fileGreenspace(pool, rows, retrievedAt) {
     }
     await flush();
     await client.query("DELETE FROM greenspace_points");
+    // The live table's position columns are latitude/longitude
+    // (migration 0001) — this INSERT originally named them
+    // lat/lon, the row objects' property names: the same
+    // defect CI run 99 exposed in the places filer's INSERT
+    // ("column lat of relation osm_points does not exist").
+    // This filer's own copy of the error never reached the
+    // log — the runner's one-line summary showed Node 22's
+    // node:sqlite ExperimentalWarning instead (runs 98–99) —
+    // but the DDL cross-check finds it here without needing
+    // the log, and the schema-contract tests now pin it.
     await client.query(
-      `INSERT INTO greenspace_points (osm_id, name, point_role, lat, lon, source_name, source_date, loaded_at)
-       SELECT osm_id, name, point_role, lat, lon, source_name, source_date, $1 FROM greenspace_stage`,
+      `INSERT INTO greenspace_points (osm_id, name, point_role, latitude, longitude, source_name, source_date, loaded_at)
+       SELECT osm_id, name, point_role, latitude, longitude, source_name, source_date, $1 FROM greenspace_stage`,
       [retrievedAt],
     );
     await client.query("COMMIT");

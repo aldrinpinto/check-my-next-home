@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -352,5 +352,145 @@ describe("filing — the stage-table transaction", () => {
     expect(rec.statements).toContain("ROLLBACK");
     expect(rec.statements).not.toContain("COMMIT");
     expect(rec.released()).toBe(true);
+  });
+});
+
+describe("filing — the schema contract", () => {
+  // The same defect CI run 99 exposed in the places filer's
+  // final INSERT ("column lat of relation osm_points does
+  // not exist") was sitting in this filer's INSERT too —
+  // lat/lon, the row objects' property names, where migration
+  // 0001 defines latitude/longitude. This filer's copy of the
+  // error never reached a log (the runner's summary showed
+  // Node 22's node:sqlite ExperimentalWarning instead), so
+  // the DDL cross-check is what finds it: the live table's
+  // columns are parsed from the migration files themselves
+  // and every column the filer issues is checked against
+  // them. No Postgres needed.
+  function liveTableColumns(table: string): Set<string> {
+    const dir = join(process.cwd(), "db", "migrations");
+    const cols = new Set<string>();
+    for (const file of readdirSync(dir).sort()) {
+      if (!file.endsWith(".sql")) continue;
+      const sql = readFileSync(join(dir, file), "utf8");
+      const create = new RegExp(`CREATE TABLE ${table} \\(`).exec(sql);
+      if (create) {
+        // Walk to the matching close paren, then split the
+        // body on top-level commas only — column definitions
+        // carry their own parens (geometry(Point, 4326), the
+        // generated geom CASE).
+        let depth = 0;
+        let end = -1;
+        for (let i = create.index; i < sql.length; i++) {
+          if (sql[i] === "(") depth++;
+          else if (sql[i] === ")") {
+            depth--;
+            if (depth === 0) {
+              end = i;
+              break;
+            }
+          }
+        }
+        const body = sql.slice(sql.indexOf("(", create.index) + 1, end);
+        const parts: string[] = [];
+        let d = 0;
+        let cur = "";
+        for (const ch of body) {
+          if (ch === "(") d++;
+          else if (ch === ")") d--;
+          if (ch === "," && d === 0) {
+            parts.push(cur);
+            cur = "";
+          } else cur += ch;
+        }
+        if (cur.trim() !== "") parts.push(cur);
+        for (const part of parts) {
+          const name = part.trim().split(/\s+/)[0];
+          if (name && !/^(CONSTRAINT|PRIMARY|UNIQUE|CHECK|FOREIGN)$/i.test(name)) cols.add(name);
+        }
+      }
+      for (const alter of sql.matchAll(
+        new RegExp(`ALTER TABLE ${table}\\s+ADD COLUMN (\\w+)`, "g"),
+      )) {
+        cols.add(alter[1]);
+      }
+    }
+    return cols;
+  }
+
+  function recordingPool() {
+    const statements: string[] = [];
+    const client = {
+      async query(sql: string) {
+        statements.push(sql.trim().replace(/\s+/g, " "));
+        return { rows: [], rowCount: 0 };
+      },
+      release() {},
+    };
+    return { statements, pool: { connect: async () => client } };
+  }
+
+  const rows = [
+    {
+      osmId: null,
+      name: "A Park",
+      pointRole: "centre",
+      lat: 51.5,
+      lon: 0.02,
+      sourceName: SOURCE_NAME,
+      sourceDate: "2026-10-01",
+    },
+  ];
+
+  function firstParenList(statement: string): string[] {
+    const m = /\(([^)]+)\)/.exec(statement);
+    return m ? m[1].split(",").map((c) => c.trim()) : [];
+  }
+
+  it("every column the filer inserts into greenspace_points exists in the migration DDL", async () => {
+    const rec = recordingPool();
+    await fileGreenspace(rec.pool as never, rows as never, "2026-11-13T00:00:00Z");
+    const live = liveTableColumns("greenspace_points");
+    // Sanity: the parser found the real contract, not nothing.
+    expect(live.has("latitude")).toBe(true);
+    expect(live.has("longitude")).toBe(true);
+    expect(live.has("point_role")).toBe(true);
+    const finalInsert = rec.statements.find((s) =>
+      s.startsWith("INSERT INTO greenspace_points ("),
+    )!;
+    const target = firstParenList(finalInsert);
+    expect(target.length).toBeGreaterThan(0);
+    for (const col of target) expect(live.has(col)).toBe(true);
+    // The identity and generated columns are the database's own.
+    expect(target).not.toContain("id");
+    expect(target).not.toContain("geom");
+  });
+
+  it("the stage table, the staged insert and the final SELECT agree with each other", async () => {
+    const rec = recordingPool();
+    await fileGreenspace(rec.pool as never, rows as never, "2026-11-13T00:00:00Z");
+    const stageCreate = rec.statements.find((s) =>
+      s.startsWith("CREATE TEMP TABLE greenspace_stage"),
+    )!;
+    const stageDefs = /\((.+)\) ON COMMIT DROP/.exec(stageCreate)![1];
+    const stageCols = stageDefs.split(",").map((def) => def.trim().split(/\s+/)[0]);
+    const stagedInsert = rec.statements.find((s) =>
+      s.startsWith("INSERT INTO greenspace_stage ("),
+    )!;
+    for (const col of firstParenList(stagedInsert)) expect(stageCols).toContain(col);
+    const finalInsert = rec.statements.find((s) =>
+      s.startsWith("INSERT INTO greenspace_points ("),
+    )!;
+    const selectList = /SELECT (.+) FROM greenspace_stage/
+      .exec(finalInsert)![1]
+      .split(",")
+      .map((c) => c.trim());
+    // Position for position: the target list and the SELECT
+    // list are the same length, and every named SELECT item is
+    // a stage column (the $1 loaded_at parameter aside).
+    expect(selectList.length).toBe(firstParenList(finalInsert).length);
+    for (const item of selectList) {
+      if (/^[a-z_][a-z0-9_]*$/.test(item)) expect(stageCols).toContain(item);
+    }
   });
 });

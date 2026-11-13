@@ -572,7 +572,7 @@ export async function filePlaces(pool, rows, retrievedAt) {
     await client.query("BEGIN");
     await client.query(`CREATE TEMP TABLE osm_places_stage (
       osm_id bigint, name text, place_type text, detail text,
-      lat double precision, lon double precision,
+      latitude double precision, longitude double precision,
       source_name text, source_date date
     ) ON COMMIT DROP`);
     const values = [];
@@ -580,7 +580,7 @@ export async function filePlaces(pool, rows, retrievedAt) {
     const flush = async () => {
       if (values.length === 0) return;
       await client.query(
-        `INSERT INTO osm_places_stage (osm_id, name, place_type, detail, lat, lon, source_name, source_date) VALUES ${values.join(", ")}`,
+        `INSERT INTO osm_places_stage (osm_id, name, place_type, detail, latitude, longitude, source_name, source_date) VALUES ${values.join(", ")}`,
         params,
       );
       values.length = 0;
@@ -605,9 +605,17 @@ export async function filePlaces(pool, rows, retrievedAt) {
     }
     await flush();
     await client.query("DELETE FROM osm_points");
+    // The live table's position columns are latitude/longitude
+    // (migration 0001, like every other point table) — this
+    // INSERT originally named them lat/lon, the row objects'
+    // property names, and CI run 99's database job failed with
+    // "column lat of relation osm_points does not exist": the
+    // filing path's first real execution anywhere, the fake-
+    // pool tests having pinned statement order, not names.
+    // The schema-contract tests now pin the names too.
     await client.query(
-      `INSERT INTO osm_points (osm_id, name, place_type, lat, lon, source_name, source_date, loaded_at, detail)
-       SELECT osm_id, name, place_type, lat, lon, source_name, source_date, $1, detail FROM osm_places_stage`,
+      `INSERT INTO osm_points (osm_id, name, place_type, latitude, longitude, source_name, source_date, loaded_at, detail)
+       SELECT osm_id, name, place_type, latitude, longitude, source_name, source_date, $1, detail FROM osm_places_stage`,
       [retrievedAt],
     );
     await client.query("COMMIT");
