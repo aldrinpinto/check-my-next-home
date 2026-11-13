@@ -8,6 +8,7 @@ import {
   dedupePlaces,
   detailFor,
   extractDataDate,
+  filePlaces,
   goldenChecks,
   haversineMiles,
   md5Matches,
@@ -455,5 +456,83 @@ describe("national sanity", () => {
     const failures = sanityChecks([], { national: true });
     expect(failures.length).toBeGreaterThan(0);
     expect(failures.join(" ")).toContain("national");
+  });
+});
+
+describe("filing — the stage-table transaction", () => {
+  // CI run 98's database job failed with "relation
+  // osm_places_stage does not exist": filePlaces created the
+  // ON COMMIT DROP stage BEFORE its BEGIN, so in autocommit
+  // the stage was dropped again by the end of its own CREATE
+  // statement and the first staged insert found no table.
+  // The sandbox proofs were all verify-only, so the filing
+  // path had never run, and the source-shape test above can
+  // only see that the statements exist — never their order.
+  // No Postgres exists in the sandbox (CI is the proof
+  // environment), so the contract is pinned here against a
+  // recording fake pool: ONE transaction — BEGIN before the
+  // stage create, the swap after the staged inserts, COMMIT
+  // last — and a mid-filing failure rolls back.
+  function recordingPool(failOn?: string) {
+    const statements: string[] = [];
+    let released = false;
+    const client = {
+      async query(sql: string) {
+        const head = sql.trim().replace(/\s+/g, " ");
+        statements.push(head);
+        if (failOn && head.startsWith(failOn)) throw new Error(`forced failure: ${failOn}`);
+        return { rows: [], rowCount: 0 };
+      },
+      release() {
+        released = true;
+      },
+    };
+    return { statements, released: () => released, pool: { connect: async () => client } };
+  }
+
+  const rows = [
+    {
+      osmId: 101,
+      name: "A Vet",
+      placeType: "vet",
+      detail: null,
+      lat: 51.5,
+      lon: 0.02,
+      sourceDate: "2026-11-12",
+    },
+    {
+      osmId: 102,
+      name: null,
+      placeType: "leisure",
+      detail: null,
+      lat: 51.51,
+      lon: 0.005,
+      sourceDate: "2026-11-12",
+    },
+  ];
+
+  it("stages and swaps inside one transaction — BEGIN before the stage create, COMMIT last", async () => {
+    const rec = recordingPool();
+    await filePlaces(rec.pool as never, rows as never, "2026-11-13T00:00:00Z");
+    const at = (prefix: string) => rec.statements.findIndex((s) => s.startsWith(prefix));
+    expect(rec.statements[0]).toBe("BEGIN");
+    expect(at("CREATE TEMP TABLE osm_places_stage")).toBeGreaterThan(0);
+    expect(at("INSERT INTO osm_places_stage")).toBeGreaterThan(
+      at("CREATE TEMP TABLE osm_places_stage"),
+    );
+    expect(at("DELETE FROM osm_points")).toBeGreaterThan(at("INSERT INTO osm_places_stage"));
+    expect(at("INSERT INTO osm_points")).toBeGreaterThan(at("DELETE FROM osm_points"));
+    expect(rec.statements.at(-1)).toBe("COMMIT");
+    expect(rec.released()).toBe(true);
+  });
+
+  it("a failure mid-filing rolls the transaction back and still releases the client", async () => {
+    const rec = recordingPool("INSERT INTO osm_places_stage");
+    await expect(
+      filePlaces(rec.pool as never, rows as never, "2026-11-13T00:00:00Z"),
+    ).rejects.toThrow("forced failure");
+    expect(rec.statements).toContain("ROLLBACK");
+    expect(rec.statements).not.toContain("COMMIT");
+    expect(rec.released()).toBe(true);
   });
 });

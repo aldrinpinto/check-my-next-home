@@ -512,6 +512,12 @@ export function goldenChecks(rows, functionCounts, { full }) {
 export async function fileGreenspace(pool, rows, retrievedAt) {
   const client = await pool.connect();
   try {
+    // BEGIN first — the house pattern (see load-osm-places):
+    // the stage table is ON COMMIT DROP, and created outside
+    // a transaction it is dropped by its own CREATE statement
+    // in autocommit, so the first staged insert fails with
+    // "relation greenspace_stage does not exist" (CI run 98).
+    await client.query("BEGIN");
     await client.query(`CREATE TEMP TABLE greenspace_stage (
       osm_id bigint, name text, point_role text,
       lat double precision, lon double precision,
@@ -545,7 +551,6 @@ export async function fileGreenspace(pool, rows, retrievedAt) {
       if (values.length >= 500) await flush();
     }
     await flush();
-    await client.query("BEGIN");
     await client.query("DELETE FROM greenspace_points");
     await client.query(
       `INSERT INTO greenspace_points (osm_id, name, point_role, lat, lon, source_name, source_date, loaded_at)

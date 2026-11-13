@@ -7,6 +7,7 @@ import {
   FILED_FUNCTIONS,
   SOURCE_NAME,
   decideGreenspaceAction,
+  fileGreenspace,
   gbGeoPackageEntry,
   goldenChecks,
   haversineMiles,
@@ -274,5 +275,82 @@ describe("the fixture read — reconciliation and the golden figures (T3)", () =
     expect(loaderSource).toContain("CREATE TEMP TABLE greenspace_stage");
     expect(loaderSource).toContain("DELETE FROM greenspace_points");
     expect(loaderSource).toContain("ON COMMIT DROP");
+  });
+});
+
+describe("filing — the stage-table transaction", () => {
+  // The same CI run 98 failure as the places loader:
+  // fileGreenspace created the ON COMMIT DROP stage BEFORE
+  // its BEGIN, so in autocommit the stage was dropped again
+  // by the end of its own CREATE statement and the first
+  // staged insert failed with "relation greenspace_stage
+  // does not exist" — a line the runner's log then hid
+  // behind Node 22's ExperimentalWarning for node:sqlite,
+  // which is why that failure looked like a sqlite problem.
+  // The order contract is pinned against a recording fake
+  // pool (no Postgres in the sandbox; CI is the proof).
+  function recordingPool(failOn?: string) {
+    const statements: string[] = [];
+    let released = false;
+    const client = {
+      async query(sql: string) {
+        const head = sql.trim().replace(/\s+/g, " ");
+        statements.push(head);
+        if (failOn && head.startsWith(failOn)) throw new Error(`forced failure: ${failOn}`);
+        return { rows: [], rowCount: 0 };
+      },
+      release() {
+        released = true;
+      },
+    };
+    return { statements, released: () => released, pool: { connect: async () => client } };
+  }
+
+  const rows = [
+    {
+      osmId: null,
+      name: "A Park",
+      pointRole: "centre",
+      lat: 51.5,
+      lon: 0.02,
+      sourceName: SOURCE_NAME,
+      sourceDate: "2026-10-01",
+    },
+    {
+      osmId: null,
+      name: "A Park",
+      pointRole: "access",
+      lat: 51.51,
+      lon: 0.005,
+      sourceName: SOURCE_NAME,
+      sourceDate: "2026-10-01",
+    },
+  ];
+
+  it("stages and swaps inside one transaction — BEGIN before the stage create, COMMIT last", async () => {
+    const rec = recordingPool();
+    await fileGreenspace(rec.pool as never, rows as never, "2026-11-13T00:00:00Z");
+    const at = (prefix: string) => rec.statements.findIndex((s) => s.startsWith(prefix));
+    expect(rec.statements[0]).toBe("BEGIN");
+    expect(at("CREATE TEMP TABLE greenspace_stage")).toBeGreaterThan(0);
+    expect(at("INSERT INTO greenspace_stage")).toBeGreaterThan(
+      at("CREATE TEMP TABLE greenspace_stage"),
+    );
+    expect(at("DELETE FROM greenspace_points")).toBeGreaterThan(at("INSERT INTO greenspace_stage"));
+    expect(at("INSERT INTO greenspace_points")).toBeGreaterThan(
+      at("DELETE FROM greenspace_points"),
+    );
+    expect(rec.statements.at(-1)).toBe("COMMIT");
+    expect(rec.released()).toBe(true);
+  });
+
+  it("a failure mid-filing rolls the transaction back and still releases the client", async () => {
+    const rec = recordingPool("INSERT INTO greenspace_stage");
+    await expect(
+      fileGreenspace(rec.pool as never, rows as never, "2026-11-13T00:00:00Z"),
+    ).rejects.toThrow("forced failure");
+    expect(rec.statements).toContain("ROLLBACK");
+    expect(rec.statements).not.toContain("COMMIT");
+    expect(rec.released()).toBe(true);
   });
 });

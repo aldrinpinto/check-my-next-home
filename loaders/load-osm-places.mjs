@@ -560,6 +560,16 @@ export function sanityChecks(rows, { national }) {
 export async function filePlaces(pool, rows, retrievedAt) {
   const client = await pool.connect();
   try {
+    // BEGIN first — the other M5 loaders' shape, and load-
+    // bearing: the stage table is ON COMMIT DROP, and outside
+    // a transaction each statement is its own commit, so a
+    // stage created before BEGIN is dropped again by the end
+    // of its own CREATE statement and the first staged insert
+    // fails with "relation osm_places_stage does not exist".
+    // That is exactly what CI run 98's database job hit — the
+    // first real call of this function anywhere, the sandbox
+    // proofs having all been verify-only.
+    await client.query("BEGIN");
     await client.query(`CREATE TEMP TABLE osm_places_stage (
       osm_id bigint, name text, place_type text, detail text,
       lat double precision, lon double precision,
@@ -594,7 +604,6 @@ export async function filePlaces(pool, rows, retrievedAt) {
       if (values.length >= 500) await flush();
     }
     await flush();
-    await client.query("BEGIN");
     await client.query("DELETE FROM osm_points");
     await client.query(
       `INSERT INTO osm_points (osm_id, name, place_type, lat, lon, source_name, source_date, loaded_at, detail)
