@@ -175,7 +175,7 @@ jobs:
       - name: Load the census fixture (plan step M5.8)
         run: node loaders/load-census.mjs --file tests/fixtures/census
       - name: Load the IMD fixture (plan step M5.9)
-              run: node loaders/load-imd.mjs --file tests/fixtures/imd
+        run: node loaders/load-imd.mjs --file tests/fixtures/imd
       - name: Load the air quality fixture (plan step M5.9)
         run: node loaders/load-air-quality.mjs --file tests/fixtures/air
         
