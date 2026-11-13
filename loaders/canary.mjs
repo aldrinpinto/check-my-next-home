@@ -20,6 +20,11 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { probePlanningApplication } from "./canary-planning-application.mjs";
+import {
+  DATABASES as UC_DATABASES,
+  fetchDiscovery as fetchUcDiscovery,
+  monthsBetween as ucMonthsBetween,
+} from "./load-dwp-uc.mjs";
 
 const MONTHS = {
   January: "01",
@@ -1451,19 +1456,23 @@ export function probeNomisCensus() {
 //     geography migration is the standing warning that this
 //     can change under a live loader).
 //
-// stat-xplore-uc: reports NOT VERIFIED, plainly, for as
-// long as the K22 key is refused account-side at DWP
-// (HTTP 401 AUTHENTICATION on every documented
-// presentation, including a brand-new reset key, 13 Nov
-// 2026 — the refusal is an established fact, re-probing it
-// monthly would only repeat it). The probe returns the
-// runner's skipped outcome with the reason, so every
-// monthly run record states the position in words. When
-// DWP restores the account's API access, this probe gains
-// its real arms (availability of a minimal table query,
-// ~7-month freshness for the quarterly series, the
-// 2021-vintage check) alongside the loader's
-// PENDING_FIRST_PULL.
+// stat-xplore-uc: the loader's own discovery, run cheap —
+// assemble each UC database's schema level by level and
+// complete its month list (the loader's fetchDiscovery),
+// then arm freshness: each series' latest month within
+// ~7 months of the current month (UC points publish
+// quarterly and run ~3–6 months old, so 7 is the breach
+// line, not the expectation). While no keyed call answers
+// from the network the canary runs on, the probe reports
+// NOT VERIFIED as a skipped outcome, in words: proven
+// 13 Nov 2026, DWP's gateway refuses every Muse-side
+// network (HTTP 401) while the same K22 key answers 200
+// from the founder's browser — the key is valid, the
+// refusal is the network, and the run record should say
+// so rather than fail monthly over a known position. The
+// Households cube's missing Newham LSOA (the loader's
+// HOUSEHOLDS_MISSING_LSOAS) never fails this probe: the
+// probe selects no areas.
 
 export const CLAIMANT_GOLDEN_CODES = ["E01021395", "E01003511", "E01030396"];
 export const CLAIMANT_STALE_DAYS = 75;
@@ -1545,12 +1554,52 @@ export function probeNomisClaimant() {
   })();
 }
 
+export const UC_STALE_MONTHS = 7;
+
 export function probeStatXploreUc() {
-  return Promise.resolve({
-    skipped:
-      "not verified — the K22 Stat-Xplore key is refused by DWP (HTTP 401, account-side); " +
-      "Universal Credit figures cannot be checked until DWP restores the account's API access",
-  });
+  return (async () => {
+    const discoveries = [];
+    try {
+      for (const entry of UC_DATABASES) discoveries.push(await fetchUcDiscovery(entry));
+    } catch (err) {
+      if (/HTTP 401/.test(err.message))
+        return {
+          skipped:
+            "not verified — DWP refuses the K22 Stat-Xplore key from this network (HTTP 401); " +
+            "the key is valid (proven from the founder's browser, 13 Nov 2026) but no keyed call " +
+            "has yet answered from a network DWP accepts, so Universal Credit figures cannot be checked",
+        };
+      if (/no Stat-Xplore credential route/.test(err.message))
+        return {
+          skipped:
+            "not verified — no Stat-Xplore credential route is available to this run " +
+            "(Key K22 not in the environment and the connector helper not found)",
+        };
+      throw err;
+    }
+    const now = new Date();
+    const currentMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+    const bits = [];
+    for (let i = 0; i < UC_DATABASES.length; i += 1) {
+      const entry = UC_DATABASES[i];
+      const latest = discoveries[i].months.at(-1)?.month;
+      if (!latest)
+        throw new Error(
+          `${entry.database}: schema assembly returned no months — the shape changed`,
+        );
+      const age = ucMonthsBetween(latest, currentMonth);
+      if (age > UC_STALE_MONTHS)
+        throw new Error(
+          `the latest ${entry.series} month is ${latest} — ${age} months behind ${currentMonth}, past the ~${UC_STALE_MONTHS}-month arm (a quarterly release was missed or the series changed)`,
+        );
+      bits.push(`${entry.series} latest ${latest} (${age} months old)`);
+    }
+    const oldestLatest = discoveries.map((d) => d.months.at(-1).month).sort()[0];
+    return {
+      logLine: `canary stat-xplore-uc · schema assembly OK for both UC databases · ${bits.join(" · ")}`,
+      sourceDate: `${oldestLatest}-01`,
+    };
+  })();
 }
 
 // IMD (plan step M5.9): File 7 of the English Indices of

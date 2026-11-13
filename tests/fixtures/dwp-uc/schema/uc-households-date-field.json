@@ -1,0 +1,14 @@
+{
+  "id": "str:field:UC_Households:F_UC_HH_DATE:DATE_NAME",
+  "label": "Month",
+  "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:field:UC_Households:F_UC_HH_DATE:DATE_NAME",
+  "type": "FIELD",
+  "children": [
+    {
+      "id": "str:valueset:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE",
+      "label": "Month",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:valueset:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE",
+      "type": "VALUESET"
+    }
+  ]
+}

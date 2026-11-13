@@ -593,16 +593,27 @@ series with its own latest month; a monthly run that finds
 no new month is a healthy no-op. The values file exactly
 as returned: DWP applies Introduced Random Error to these
 tables (NOT rounding to the nearest 5), so small-area
-counts are approximate and serving says so. **Status: the
-K22 key is refused account-side at DWP (HTTP 401
-AUTHENTICATION, including a brand-new reset key, 13 Nov
-2026), so the loader's live pull is the one named PENDING
-step of this build — the first keyed verify-only pull,
-which locks the UC golden values and reconciles the
-schema discovery and response parsing against DWP's real
-answers. Until then nothing UC files, and the
-`stat-xplore-uc` canary probe reports "not verified" in
-words on every run.**
+counts are approximate and serving says so. **First pull
+DONE 13 Nov 2026, as founder-run browser captures: DWP's
+gateway refuses every Muse-side network (HTTP 401) while
+the same key answers 200 from the founder's browser — the
+key was never at fault. The pull reconciled the loader to
+DWP's real shapes: the schema is served one level at a
+time (discovery assembles it node by node and completes
+the month list past the 100-value valueset cap by
+probing), the table grammar is recodes + field-array
+dimensions, the response is {fields, cubes}, both count
+measures are confirmed, and the golden values are locked
+(people, May 2026: 117 / 383 / 93; households, April 2026:
+105 / 83). One gap: the Households cube does not hold
+Newham 036A (E01003511) — golden checks never demand it
+for that series. The `stat-xplore-uc` canary now runs the
+assembly + ~7-month freshness arms where calls answer,
+and reports "not verified" in words where they do not.
+Still unverified until a keyed call answers from a network
+DWP accepts (M12's VPS test): the assembled live pull
+end-to-end, and the national Households LSOA count against
+the filing band.**
 
 `load-lsoa-bases` files the two LSOA Census totals the
 benefits block states and divides by — TS021 residents
@@ -615,8 +626,8 @@ the runner's static class.
 npm run load:claimant-count / load:dwp-uc / load:lsoa-bases
 node loaders/load-claimant-count.mjs --verify-only        # live golden pull; nothing filed
 node loaders/load-claimant-count.mjs --file tests/fixtures/claimant-count   # file the golden fixture (CI)
-node loaders/load-dwp-uc.mjs --verify-only                # PENDING — the first keyed pull (see above)
-node loaders/load-dwp-uc.mjs --file tests/fixtures/dwp-uc # file the SYNTHETIC documented-shape fixture (CI)
+node loaders/load-dwp-uc.mjs --verify-only                # live golden pull (first pull DONE 13 Nov 2026 via founder captures — see above)
+node loaders/load-dwp-uc.mjs --file tests/fixtures/dwp-uc # file the REAL captured fixture (CI)
 node loaders/load-lsoa-bases.mjs --file tests/fixtures/lsoa-bases          # file the 3-LSOA fixture (CI)
 ```
 

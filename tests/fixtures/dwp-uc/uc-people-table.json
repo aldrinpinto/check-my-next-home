@@ -1,1 +1,159 @@
-{"cells":[{"coordinates":[0,0],"value":300},{"coordinates":[0,1],"value":2400},{"coordinates":[0,2],"value":410}],"fields":[{"id":"str:field:UC_Monthly:V_F_UC_CASELOAD_FULL:DATE","items":[{"id":"str:value:UC_Monthly:DATE:2026-05","label":"May 2026"}]},{"id":"str:field:UC_Monthly:V_F_UC_CASELOAD_FULL:GEOGRAPHY","items":[{"id":"str:value:UC_Monthly:GEO:E01021395","label":"Braintree 018C"},{"id":"str:value:UC_Monthly:GEO:E01003511","label":"Newham 036A"},{"id":"str:value:UC_Monthly:GEO:E01030396","label":"Epsom and Ewell 010D"}]}]}
+{
+  "query": {
+    "database": "str:database:UC_Monthly",
+    "measures": [
+      "str:count:UC_Monthly:V_F_UC_CASELOAD_FULL"
+    ],
+    "recodes": {
+      "str:field:UC_Monthly:F_UC_DATE:DATE_NAME": {
+        "map": [
+          [
+            "str:value:UC_Monthly:F_UC_DATE:DATE_NAME:C_UC_DATE:202603"
+          ],
+          [
+            "str:value:UC_Monthly:F_UC_DATE:DATE_NAME:C_UC_DATE:202604"
+          ],
+          [
+            "str:value:UC_Monthly:F_UC_DATE:DATE_NAME:C_UC_DATE:202605"
+          ]
+        ],
+        "total": false
+      },
+      "str:field:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE": {
+        "map": [
+          [
+            "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01021395"
+          ],
+          [
+            "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01003511"
+          ],
+          [
+            "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01030396"
+          ]
+        ],
+        "total": false
+      }
+    },
+    "dimensions": [
+      [
+        "str:field:UC_Monthly:F_UC_DATE:DATE_NAME"
+      ],
+      [
+        "str:field:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE"
+      ]
+    ]
+  },
+  "database": {
+    "id": "UC_Monthly",
+    "uri": "str:database:UC_Monthly",
+    "label": "People on Universal Credit",
+    "annotationKeys": [
+      "I",
+      "II",
+      "z"
+    ]
+  },
+  "measures": [
+    {
+      "uri": "str:count:UC_Monthly:V_F_UC_CASELOAD_FULL",
+      "label": "People on Universal Credit",
+      "measure": "str:count:UC_Monthly:V_F_UC_CASELOAD_FULL",
+      "function": "COUNT"
+    }
+  ],
+  "fields": [
+    {
+      "uri": "str:field:UC_Monthly:F_UC_DATE:DATE_NAME",
+      "label": "Month",
+      "items": [
+        {
+          "type": "RecodeItem",
+          "uris": [
+            "str:value:UC_Monthly:F_UC_DATE:DATE_NAME:C_UC_DATE:202603"
+          ],
+          "labels": [
+            "March 2026"
+          ]
+        },
+        {
+          "type": "RecodeItem",
+          "uris": [
+            "str:value:UC_Monthly:F_UC_DATE:DATE_NAME:C_UC_DATE:202604"
+          ],
+          "labels": [
+            "April 2026"
+          ]
+        },
+        {
+          "type": "RecodeItem",
+          "uris": [
+            "str:value:UC_Monthly:F_UC_DATE:DATE_NAME:C_UC_DATE:202605"
+          ],
+          "labels": [
+            "May 2026"
+          ]
+        }
+      ]
+    },
+    {
+      "uri": "str:field:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE",
+      "label": "National - Regional - LA - OAs",
+      "items": [
+        {
+          "type": "RecodeItem",
+          "uris": [
+            "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01021395"
+          ],
+          "labels": [
+            "Braintree 018C"
+          ]
+        },
+        {
+          "type": "RecodeItem",
+          "uris": [
+            "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01003511"
+          ],
+          "labels": [
+            "Newham 036A"
+          ]
+        },
+        {
+          "type": "RecodeItem",
+          "uris": [
+            "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01030396"
+          ],
+          "labels": [
+            "Epsom and Ewell 010D"
+          ]
+        }
+      ]
+    }
+  ],
+  "cubes": {
+    "str:count:UC_Monthly:V_F_UC_CASELOAD_FULL": {
+      "values": [
+        [
+          115,
+          379,
+          96
+        ],
+        [
+          115,
+          383,
+          92
+        ],
+        [
+          117,
+          383,
+          93
+        ]
+      ],
+      "precision": 0
+    }
+  },
+  "annotationMap": {
+    "I": "Figures are a count of the number of people on Universal Credit on the second Thursday of each month.",
+    "II": "Figures provided for starts show the Jobcentre Plus office recorded at the start of the claim, whereas the figures for the number of people on Universal Credit are representative of the current Jobcentre Plus office that the claimant is attending.  It is possible for people to have started on Universal Credit in one office and have moved to another office during their claim, and for this reason, the number of people on Universal Credit can be higher than the starts figure for any particular office, however it is more noticeable when numbers are low.",
+    "z": "\"..\" denotes a nil or negligible number of claimants or award amount based on a nil or negligible number of claimants."
+  }
+}

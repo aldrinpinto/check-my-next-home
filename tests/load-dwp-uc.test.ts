@@ -4,12 +4,16 @@ import { describe, expect, it } from "vitest";
 import { probeStatXploreUc } from "../loaders/canary.mjs";
 import {
   DATABASES,
+  FIRST_PULL,
   GOLDEN_LSOAS,
   GOLDEN_VALUES,
-  PENDING_FIRST_PULL,
+  HOUSEHOLDS_MISSING_LSOAS,
   buildTableQuery,
   discoverSchema,
+  extendMonthList,
+  fetchDiscovery,
   fileUc,
+  fixtureRoutes,
   goldenChecks,
   loadUcRows,
   monthFromText,
@@ -17,26 +21,28 @@ import {
   parseTableResponse,
 } from "../loaders/load-dwp-uc.mjs";
 
-// Universal Credit loader (plan step M5.16) — the half of
-// the benefits step whose live pull is PENDING: the K22
-// Stat-Xplore key is refused account-side at DWP (HTTP 401
-// AUTHENTICATION, 13 Nov 2026), so no real response exists
-// to capture. The fixture in tests/fixtures/dwp-uc is
-// therefore SYNTHETIC — hand-built in the API's documented
-// {fields, cells} shape, with invented counts, and its
-// README says so in terms. What is pinned here: the
-// documented-shape parser, the schema discovery, the
-// quarterly filing-window logic, the golden checks'
-// pending behaviour (presence + sanity asserted, exact
-// values asserted only once GOLDEN_VALUES is locked), the
-// filer's statement order and schema contract, the runner
-// registration, the canary's plain not-verified report, and
-// the wording discipline (Introduced Random Error, never
-// the bulletin's rounding; UC's quarterly cadence, never
-// plain "monthly").
+// Universal Credit loader (plan step M5.16) — reconciled
+// at the FIRST PULL, 13 Nov 2026. DWP's gateway refuses
+// every Muse-side network (HTTP 401) while the same K22
+// key answers 200 from the founder's browser, so the pull
+// ran as founder-run captures: the fixture in
+// tests/fixtures/dwp-uc is REAL — DWP's own schema nodes
+// and table responses (see its README). What is pinned
+// here: the real response grammar ({fields, cubes}), the
+// real query grammar (recodes + field-array dimensions —
+// the built verify queries equal the captures' own echoed
+// queries), the level-by-level schema assembly with its
+// month probing, the locked golden values, the Households
+// gap (Newham 036A absent from that cube), the quarterly
+// filing-window logic, the filer's statement order and
+// schema contract, the runner registration, the canary's
+// arms, and the wording discipline (Introduced Random
+// Error, never the bulletin's rounding; UC's quarterly
+// cadence, never plain "monthly").
 
 const FIXTURE_DIR = join(process.cwd(), "tests/fixtures/dwp-uc");
 const PEOPLE = DATABASES[0] as never;
+const HOUSEHOLDS = DATABASES[1] as never;
 
 type UcRow = {
   lsoaCode: string;
@@ -46,128 +52,271 @@ type UcRow = {
   count: number;
 };
 
+function readFixture(name: string) {
+  return JSON.parse(readFileSync(join(FIXTURE_DIR, name), "utf8"));
+}
+
 async function fixtureRows(): Promise<UcRow[]> {
   const { rows } = await loadUcRows({ kind: "dir", dir: FIXTURE_DIR });
   return rows as UcRow[];
 }
 
-describe("the pending state — stated, not smoothed over", () => {
-  it("the golden values are unlocked (null) until the first keyed pull", () => {
-    expect(GOLDEN_VALUES).toBeNull();
-    expect(PENDING_FIRST_PULL).toContain("PENDING");
-    expect(PENDING_FIRST_PULL).toContain("--verify-only");
-    expect(PENDING_FIRST_PULL).toContain("401");
+async function fixtureDiscovery(entry: never) {
+  const tableFile =
+    (entry as { series: string }).series === "uc_people"
+      ? "uc-people-table.json"
+      : "uc-households-table.json";
+  const tableJson = readFixture(tableFile);
+  return fetchDiscovery(entry, fixtureRoutes(FIXTURE_DIR, entry as never, tableJson));
+}
+
+describe("the first pull — done, and what it locked", () => {
+  it("the golden values are locked, each series at its own latest month", () => {
+    expect(GOLDEN_VALUES).toEqual({
+      uc_people: { "2026-05": { E01021395: 117, E01003511: 383, E01030396: 93 } },
+      uc_households: { "2026-04": { E01021395: 105, E01030396: 83 } },
+    });
+    expect(FIRST_PULL).toContain("DONE 13 Nov 2026");
+    expect(FIRST_PULL).toContain("founder-run browser captures");
+    expect(FIRST_PULL).not.toContain("PENDING");
   });
 
-  it("the canary probe reports not verified, plainly, as a skipped outcome", async () => {
-    const outcome = (await probeStatXploreUc()) as { skipped: string };
-    expect(outcome.skipped).toContain("not verified");
-    expect(outcome.skipped).toContain("refused by DWP");
-    const canary = readFileSync(join(process.cwd(), "loaders/canary.mjs"), "utf8");
-    expect(canary).toContain('run("stat-xplore-uc", probeStatXploreUc)');
+  it("the Households gap is a named constant, and the record states it", () => {
+    expect(HOUSEHOLDS_MISSING_LSOAS).toEqual(["E01003511"]);
+    expect(FIRST_PULL).toContain("E01003511");
+    expect(FIRST_PULL).toContain("HOUSEHOLDS_MISSING_LSOAS");
   });
 
-  it("the two series are the two documented databases, people first", () => {
+  it("the two series are the two confirmed databases, people first", () => {
     expect(DATABASES.map((d) => d.series)).toEqual(["uc_people", "uc_households"]);
     expect(DATABASES.map((d) => d.database)).toEqual([
       "str:database:UC_Monthly",
       "str:database:UC_Households",
     ]);
-    expect((DATABASES[0] as { documentedMeasure: string }).documentedMeasure).toBe(
+    expect(DATABASES.map((d) => (d as { documentedMeasure: string }).documentedMeasure)).toEqual([
       "str:count:UC_Monthly:V_F_UC_CASELOAD_FULL",
-    );
+      "str:count:UC_Households:V_F_UC_HOUSEHOLDS",
+    ]);
     expect(Object.keys(GOLDEN_LSOAS)).toEqual(["E01021395", "E01003511", "E01030396"]);
   });
 });
 
-describe("the documented-shape parser (synthetic fixture)", () => {
-  it("parses both series' responses into filing rows, each with its own month", async () => {
-    const rows = await fixtureRows();
-    expect(rows).toHaveLength(6);
-    const people = rows.filter((r) => r.series === "uc_people");
-    expect(people.map((r) => r.month)).toEqual(["2026-05", "2026-05", "2026-05"]);
-    expect(people.find((r) => r.lsoaCode === "E01021395")).toMatchObject({
-      lsoaName: "Braintree 018C",
-      count: 300,
-    });
-    const households = rows.filter((r) => r.series === "uc_households");
-    expect(households.map((r) => r.month)).toEqual(["2026-04", "2026-04", "2026-04"]);
-    expect(goldenChecks(rows, { full: false })).toEqual([]);
-  });
-
-  it("a response outside the documented shape refuses to parse — nothing files from it", () => {
-    expect(() => parseTableResponse({ unexpected: true }, PEOPLE)).toThrow(/documented/);
-    expect(() => parseTableResponse({ fields: [], cells: [] }, PEOPLE)).toThrow(/do not resolve/);
-  });
-
-  it("a non-integer or negative cell is refused", async () => {
-    const json = JSON.parse(readFileSync(join(FIXTURE_DIR, "uc-people-table.json"), "utf8"));
-    json.cells[0].value = -4;
-    expect(() => parseTableResponse(json, PEOPLE)).toThrow(/non-negative integer/);
-    json.cells[0].value = 12.5;
-    expect(() => parseTableResponse(json, PEOPLE)).toThrow(/non-negative integer/);
-  });
-
-  it("golden checks catch a missing golden LSOA", async () => {
-    const rows = await fixtureRows();
-    const cut = rows.filter((r) => r.lsoaCode !== "E01030396");
-    const failures = goldenChecks(cut as never, { full: false });
-    expect(failures.some((f) => f.includes("E01030396"))).toBe(true);
+describe("the canary probe", () => {
+  it("reports not verified, plainly, when no credential route is available to the run", async () => {
+    const savedKey = process.env.STATXPLORE_API_KEY;
+    const savedHelper = process.env.STATXPLORE_HELPER_PATH;
+    delete process.env.STATXPLORE_API_KEY;
+    process.env.STATXPLORE_HELPER_PATH = join(FIXTURE_DIR, "no-such-helper.py");
+    try {
+      const outcome = (await probeStatXploreUc()) as { skipped: string };
+      expect(outcome.skipped).toContain("not verified");
+      expect(outcome.skipped).toContain("no Stat-Xplore credential route");
+    } finally {
+      if (savedKey === undefined) delete process.env.STATXPLORE_API_KEY;
+      else process.env.STATXPLORE_API_KEY = savedKey;
+      if (savedHelper === undefined) delete process.env.STATXPLORE_HELPER_PATH;
+      else process.env.STATXPLORE_HELPER_PATH = savedHelper;
+    }
+    const canary = readFileSync(join(process.cwd(), "loaders/canary.mjs"), "utf8");
+    expect(canary).toContain('run("stat-xplore-uc", probeStatXploreUc)');
   });
 });
 
-describe("schema discovery and the quarterly filing window", () => {
-  const schemaTree = {
-    id: "str:database:UC_Monthly",
-    children: [
-      { id: "str:count:UC_Monthly:V_F_UC_CASELOAD_FULL", label: "Count" },
-      {
-        id: "str:field:UC_Monthly:V_F_UC_CASELOAD_FULL:DATE",
-        children: [
-          { id: "str:value:UC_Monthly:DATE:2026-03" },
-          { id: "str:value:UC_Monthly:DATE:2026-04" },
-          { id: "str:value:UC_Monthly:DATE:2026-05" },
-        ],
-      },
-      {
-        id: "str:field:UC_Monthly:V_F_UC_CASELOAD_FULL:GEOGRAPHY",
-        children: [
-          { id: "str:value:UC_Monthly:GEO:E01021395", label: "Braintree 018C" },
-          { id: "str:value:UC_Monthly:GEO:E01003511", label: "Newham 036A" },
-          { id: "str:value:UC_Monthly:GEO:E01030396", label: "Epsom and Ewell 010D" },
-        ],
-      },
-    ],
-  };
+describe("the real-shape parser (first pull's captures)", () => {
+  it("parses both series' responses into filing rows, months and values exact", async () => {
+    const rows = await fixtureRows();
+    expect(rows).toHaveLength(15);
+    const people = rows.filter((r) => r.series === "uc_people");
+    expect(people).toHaveLength(9);
+    expect(people.find((r) => r.lsoaCode === "E01021395" && r.month === "2026-05")).toMatchObject({
+      lsoaName: "Braintree 018C",
+      count: 117,
+    });
+    expect(people.find((r) => r.lsoaCode === "E01003511" && r.month === "2026-05")?.count).toBe(
+      383,
+    );
+    expect(people.find((r) => r.lsoaCode === "E01030396" && r.month === "2026-03")?.count).toBe(96);
+    const households = rows.filter((r) => r.series === "uc_households");
+    expect(households).toHaveLength(6);
+    expect(households.find((r) => r.lsoaCode === "E01030396" && r.month === "2026-04")?.count).toBe(
+      83,
+    );
+    // The Households rows hold no Newham row — the measured
+    // gap — and the golden checks pass with it absent.
+    expect(households.some((r) => r.lsoaCode === "E01003511")).toBe(false);
+    expect(goldenChecks(rows, { full: false })).toEqual([]);
+  });
 
-  it("finds the documented measure, the month list and the golden geography items", () => {
-    const discovery = discoverSchema(schemaTree as never, DATABASES[0] as never) as {
+  it("a response outside the real shape refuses to parse — nothing files from it", async () => {
+    const discovery = await fixtureDiscovery(PEOPLE);
+    expect(() => parseTableResponse({ unexpected: true }, PEOPLE, discovery as never)).toThrow(
+      /real \{fields, cubes\} shape/,
+    );
+    expect(() => parseTableResponse({ fields: [], cubes: {} }, PEOPLE, discovery as never)).toThrow(
+      /real \{fields, cubes\} shape/,
+    );
+    const json = readFixture("uc-people-table.json");
+    delete json.cubes["str:count:UC_Monthly:V_F_UC_CASELOAD_FULL"];
+    expect(() => parseTableResponse(json, PEOPLE, discovery as never)).toThrow(/no cube/);
+  });
+
+  it("a non-integer, negative or suppressed-marker cell is refused", async () => {
+    const discovery = await fixtureDiscovery(PEOPLE);
+    for (const bad of [-4, 12.5, ".."]) {
+      const json = readFixture("uc-people-table.json");
+      json.cubes["str:count:UC_Monthly:V_F_UC_CASELOAD_FULL"].values[0][0] = bad;
+      expect(() => parseTableResponse(json, PEOPLE, discovery as never)).toThrow(
+        /non-negative integer/,
+      );
+    }
+  });
+
+  it("golden checks catch a missing golden LSOA — and a moved locked value", async () => {
+    const rows = await fixtureRows();
+    const cut = rows.filter((r) => !(r.series === "uc_people" && r.lsoaCode === "E01030396"));
+    expect(goldenChecks(cut as never, { full: false }).some((f) => f.includes("E01030396"))).toBe(
+      true,
+    );
+    const moved = rows.map((r) =>
+      r.series === "uc_people" && r.month === "2026-05" && r.lsoaCode === "E01021395"
+        ? { ...r, count: 118 }
+        : r,
+    );
+    expect(
+      goldenChecks(moved as never, { full: false }).some((f) =>
+        f.includes("expected the golden 117"),
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("schema assembly and discovery (real captures, level by level)", () => {
+  it("assembles each database and discovers its confirmed measure, fields and months", async () => {
+    const people = (await fixtureDiscovery(PEOPLE)) as {
       measure: string;
+      dateFieldId: string;
+      geographyFieldId: string;
       months: { month: string }[];
       geographies: Map<string, { itemId: string }>;
     };
-    expect(discovery.measure).toBe("str:count:UC_Monthly:V_F_UC_CASELOAD_FULL");
-    expect(discovery.months.map((m) => m.month)).toEqual(["2026-03", "2026-04", "2026-05"]);
-    expect(discovery.geographies.get("E01021395")?.itemId).toContain("E01021395");
+    expect(people.measure).toBe("str:count:UC_Monthly:V_F_UC_CASELOAD_FULL");
+    expect(people.dateFieldId).toBe("str:field:UC_Monthly:F_UC_DATE:DATE_NAME");
+    expect(people.geographyFieldId).toBe("str:field:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE");
+    // The captured valueset slice runs May 2013 – August
+    // 2021 (the 100-value cap); probing + compositional
+    // completion carries the list to the captured latest.
+    expect(people.months[0].month).toBe("2013-05");
+    expect(people.months.at(-1)?.month).toBe("2026-05");
+    expect(people.months).toHaveLength(157);
+    expect(people.geographies.size).toBe(100);
+    expect(people.geographies.get("E01000001")?.itemId).toContain("E01000001");
+
+    const households = (await fixtureDiscovery(HOUSEHOLDS)) as {
+      measure: string;
+      months: { month: string }[];
+    };
+    expect(households.measure).toBe("str:count:UC_Households:V_F_UC_HOUSEHOLDS");
+    expect(households.months[0].month).toBe("2015-08");
+    expect(households.months.at(-1)?.month).toBe("2026-04");
   });
 
-  it("a wrong discovered measure for the people database fails loudly", () => {
-    const wrong = JSON.parse(JSON.stringify(schemaTree));
-    wrong.children[0].id = "str:count:UC_Monthly:SOMETHING_ELSE";
-    expect(() => discoverSchema(wrong as never, DATABASES[0] as never)).toThrow(/documented/);
+  it("the built verify queries equal the captures' own echoed queries", async () => {
+    const peopleDiscovery = await fixtureDiscovery(PEOPLE);
+    const peopleQuery = buildTableQuery(peopleDiscovery as never, PEOPLE, {
+      months: ["2026-03", "2026-04", "2026-05"],
+      lsoaCodes: ["E01021395", "E01003511", "E01030396"],
+    }) as { recodes: Record<string, unknown> };
+    const echoedPeople = readFixture("uc-people-table.json").query;
+    for (const key of Object.keys(echoedPeople.recodes)) delete echoedPeople.recodes[key].total;
+    expect(peopleQuery).toEqual(echoedPeople);
+
+    const householdsDiscovery = await fixtureDiscovery(HOUSEHOLDS);
+    const householdsQuery = buildTableQuery(householdsDiscovery as never, HOUSEHOLDS, {
+      months: ["2026-02", "2026-03", "2026-04"],
+      lsoaCodes: ["E01021395", "E01030396"],
+    }) as { recodes: Record<string, unknown> };
+    const echoedHouseholds = readFixture("uc-households-table.json").query;
+    for (const key of Object.keys(echoedHouseholds.recodes))
+      delete echoedHouseholds.recodes[key].total;
+    expect(householdsQuery).toEqual(echoedHouseholds);
   });
 
-  it("the table query carries the discovered field ids and items", () => {
-    const discovery = discoverSchema(schemaTree as never, DATABASES[0] as never);
-    const query = buildTableQuery(discovery as never, DATABASES[0] as never, {
+  it("a production query recodes the date field only — geography returns every area", async () => {
+    const discovery = await fixtureDiscovery(PEOPLE);
+    const query = buildTableQuery(discovery as never, PEOPLE, {
       months: ["2026-05"],
-      lsoaCodes: ["E01021395"],
-    }) as { database: string; measures: string[]; dimensions: { id: string; items?: string[] }[] };
-    expect(query.database).toBe("str:database:UC_Monthly");
-    expect(query.measures).toEqual(["str:count:UC_Monthly:V_F_UC_CASELOAD_FULL"]);
-    expect(query.dimensions).toHaveLength(2);
-    expect(query.dimensions[0].items).toEqual(["str:value:UC_Monthly:DATE:2026-05"]);
-    expect(query.dimensions[1].items).toEqual(["str:value:UC_Monthly:GEO:E01021395"]);
+      lsoaCodes: undefined,
+    }) as { dimensions: string[][]; recodes: Record<string, { map: string[][] }> };
+    expect(query.dimensions).toEqual([
+      ["str:field:UC_Monthly:F_UC_DATE:DATE_NAME"],
+      ["str:field:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE"],
+    ]);
+    expect(Object.keys(query.recodes)).toEqual(["str:field:UC_Monthly:F_UC_DATE:DATE_NAME"]);
+    expect(query.recodes["str:field:UC_Monthly:F_UC_DATE:DATE_NAME"].map).toEqual([
+      ["str:value:UC_Monthly:F_UC_DATE:DATE_NAME:C_UC_DATE:202605"],
+    ]);
+  });
+
+  it("an undiscovered month in a query fails loudly", async () => {
+    const discovery = await fixtureDiscovery(PEOPLE);
+    expect(() =>
+      buildTableQuery(discovery as never, PEOPLE, { months: ["2027-01"], lsoaCodes: undefined }),
+    ).toThrow(/not in the schema's month list/);
+  });
+
+  it("month probing strides and binary-searches within its bound", async () => {
+    const valueset = {
+      id: "str:valueset:UC_Monthly:F_UC_DATE:DATE_NAME:C_UC_DATE",
+      children: [{ id: "str:value:X:202101", label: "January 2021", type: "VALUE" }],
+    };
+    let probes = 0;
+    const latest = await extendMonthList(valueset as never, async (month: string) => {
+      probes += 1;
+      return month <= "2022-03";
+    });
+    expect(latest).toBe("2022-03");
+    expect(probes).toBeLessThanOrEqual(30);
+    const months = (valueset.children as { label: string }[]).map((c) => monthFromText(c.label));
+    expect(months).toEqual([
+      "2021-01",
+      "2021-02",
+      "2021-03",
+      "2021-04",
+      "2021-05",
+      "2021-06",
+      "2021-07",
+      "2021-08",
+      "2021-09",
+      "2021-10",
+      "2021-11",
+      "2021-12",
+      "2022-01",
+      "2022-02",
+      "2022-03",
+    ]);
+  });
+
+  it("discovery still refuses a wrong discovered measure for the people database", () => {
+    const tree = {
+      id: "str:database:UC_Monthly",
+      children: [
+        { id: "str:count:UC_Monthly:SOMETHING_ELSE", label: "Count" },
+        {
+          id: "str:field:UC_Monthly:F_UC_DATE:DATE_NAME",
+          children: [{ id: "str:value:UC_Monthly:X:202605", label: "May 2026" }],
+        },
+        {
+          id: "str:field:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE",
+          children: [
+            {
+              id: "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01021395",
+              label: "Braintree 018C",
+            },
+          ],
+        },
+      ],
+    };
+    expect(() => discoverSchema(tree as never, DATABASES[0] as never)).toThrow(/documented/);
   });
 
   it("months read from ids or from month-name labels alike", () => {
@@ -236,7 +385,9 @@ describe("filing — statement order and the schema contract", () => {
     expect(at("CREATE TEMP TABLE uc_stage")).toBeGreaterThan(0);
     expect(at("INSERT INTO uc_stage")).toBeGreaterThan(at("CREATE TEMP TABLE uc_stage"));
     const liveInserts = rec.calls.filter((c) => c.sql.startsWith("INSERT INTO benefits_stats"));
-    expect(liveInserts).toHaveLength(2);
+    // Six series-months in the real fixture: three months
+    // per series, each swapped separately.
+    expect(liveInserts).toHaveLength(6);
     for (const ins of liveInserts) expect(ins.sql).toContain("count, NULL, source_name");
     const prunes = rec.calls.filter(
       (c) =>

@@ -1,0 +1,608 @@
+{
+  "id": "str:valueset:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE",
+  "label": "Month",
+  "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:valueset:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE",
+  "type": "VALUESET",
+  "children": [
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201508",
+      "label": "August 2015",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201508",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201509",
+      "label": "September 2015",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201509",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201510",
+      "label": "October 2015",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201510",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201511",
+      "label": "November 2015",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201511",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201512",
+      "label": "December 2015",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201512",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201601",
+      "label": "January 2016",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201601",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201602",
+      "label": "February 2016",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201602",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201603",
+      "label": "March 2016",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201603",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201604",
+      "label": "April 2016",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201604",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201605",
+      "label": "May 2016",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201605",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201606",
+      "label": "June 2016",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201606",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201607",
+      "label": "July 2016",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201607",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201608",
+      "label": "August 2016",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201608",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201609",
+      "label": "September 2016",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201609",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201610",
+      "label": "October 2016",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201610",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201611",
+      "label": "November 2016",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201611",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201612",
+      "label": "December 2016",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201612",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201701",
+      "label": "January 2017",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201701",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201702",
+      "label": "February 2017",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201702",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201703",
+      "label": "March 2017",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201703",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201704",
+      "label": "April 2017",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201704",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201705",
+      "label": "May 2017",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201705",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201706",
+      "label": "June 2017",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201706",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201707",
+      "label": "July 2017",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201707",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201708",
+      "label": "August 2017",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201708",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201709",
+      "label": "September 2017",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201709",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201710",
+      "label": "October 2017",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201710",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201711",
+      "label": "November 2017",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201711",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201712",
+      "label": "December 2017",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201712",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201801",
+      "label": "January 2018",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201801",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201802",
+      "label": "February 2018",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201802",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201803",
+      "label": "March 2018",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201803",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201804",
+      "label": "April 2018",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201804",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201805",
+      "label": "May 2018",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201805",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201806",
+      "label": "June 2018",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201806",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201807",
+      "label": "July 2018",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201807",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201808",
+      "label": "August 2018",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201808",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201809",
+      "label": "September 2018",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201809",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201810",
+      "label": "October 2018",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201810",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201811",
+      "label": "November 2018",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201811",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201812",
+      "label": "December 2018",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201812",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201901",
+      "label": "January 2019",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201901",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201902",
+      "label": "February 2019",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201902",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201903",
+      "label": "March 2019",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201903",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201904",
+      "label": "April 2019",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201904",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201905",
+      "label": "May 2019",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201905",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201906",
+      "label": "June 2019",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201906",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201907",
+      "label": "July 2019",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201907",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201908",
+      "label": "August 2019",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201908",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201909",
+      "label": "September 2019",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201909",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201910",
+      "label": "October 2019",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201910",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201911",
+      "label": "November 2019",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201911",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201912",
+      "label": "December 2019",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:201912",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202001",
+      "label": "January 2020",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202001",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202002",
+      "label": "February 2020",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202002",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202003",
+      "label": "March 2020",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202003",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202004",
+      "label": "April 2020",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202004",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202005",
+      "label": "May 2020",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202005",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202006",
+      "label": "June 2020",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202006",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202007",
+      "label": "July 2020",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202007",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202008",
+      "label": "August 2020",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202008",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202009",
+      "label": "September 2020",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202009",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202010",
+      "label": "October 2020",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202010",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202011",
+      "label": "November 2020",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202011",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202012",
+      "label": "December 2020",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202012",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202101",
+      "label": "January 2021",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202101",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202102",
+      "label": "February 2021",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202102",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202103",
+      "label": "March 2021",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202103",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202104",
+      "label": "April 2021",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202104",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202105",
+      "label": "May 2021",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202105",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202106",
+      "label": "June 2021",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202106",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202107",
+      "label": "July 2021",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202107",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202108",
+      "label": "August 2021",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202108",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202109",
+      "label": "September 2021",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202109",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202110",
+      "label": "October 2021",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202110",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202111",
+      "label": "November 2021",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202111",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202112",
+      "label": "December 2021",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202112",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202201",
+      "label": "January 2022",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202201",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202202",
+      "label": "February 2022",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202202",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202203",
+      "label": "March 2022",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202203",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202204",
+      "label": "April 2022",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202204",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202205",
+      "label": "May 2022",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202205",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202206",
+      "label": "June 2022",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202206",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202207",
+      "label": "July 2022",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202207",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202208",
+      "label": "August 2022",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202208",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202209",
+      "label": "September 2022",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202209",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202210",
+      "label": "October 2022",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202210",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202211",
+      "label": "November 2022",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202211",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202212",
+      "label": "December 2022",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202212",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202301",
+      "label": "January 2023",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202301",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202302",
+      "label": "February 2023",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202302",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202303",
+      "label": "March 2023",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202303",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202304",
+      "label": "April 2023",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202304",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202305",
+      "label": "May 2023",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202305",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202306",
+      "label": "June 2023",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202306",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202307",
+      "label": "July 2023",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202307",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202308",
+      "label": "August 2023",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202308",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202309",
+      "label": "September 2023",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202309",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202310",
+      "label": "October 2023",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202310",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202311",
+      "label": "November 2023",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202311",
+      "type": "VALUE"
+    }
+  ]
+}

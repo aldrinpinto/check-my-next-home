@@ -1,1 +1,159 @@
-{"cells":[{"coordinates":[0,0],"value":140},{"coordinates":[0,1],"value":1050},{"coordinates":[0,2],"value":190}],"fields":[{"id":"str:field:UC_Households:V_F_UC_HOUSEHOLDS:DATE","items":[{"id":"str:value:UC_Households:DATE:2026-04","label":"April 2026"}]},{"id":"str:field:UC_Households:V_F_UC_HOUSEHOLDS:GEOGRAPHY","items":[{"id":"str:value:UC_Households:GEO:E01021395","label":"Braintree 018C"},{"id":"str:value:UC_Households:GEO:E01003511","label":"Newham 036A"},{"id":"str:value:UC_Households:GEO:E01030396","label":"Epsom and Ewell 010D"}]}]}
+{
+  "query": {
+    "database": "str:database:UC_Households",
+    "measures": [
+      "str:count:UC_Households:V_F_UC_HOUSEHOLDS"
+    ],
+    "recodes": {
+      "str:field:UC_Households:V_F_UC_HOUSEHOLDS:COA_CODE": {
+        "map": [
+          [
+            "str:value:UC_Households:V_F_UC_HOUSEHOLDS:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01021395"
+          ],
+          [
+            "str:value:UC_Households:V_F_UC_HOUSEHOLDS:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01030396"
+          ]
+        ],
+        "total": false
+      },
+      "str:field:UC_Households:F_UC_HH_DATE:DATE_NAME": {
+        "map": [
+          [
+            "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202602"
+          ],
+          [
+            "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202603"
+          ],
+          [
+            "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202604"
+          ]
+        ],
+        "total": false
+      }
+    },
+    "dimensions": [
+      [
+        "str:field:UC_Households:F_UC_HH_DATE:DATE_NAME"
+      ],
+      [
+        "str:field:UC_Households:V_F_UC_HOUSEHOLDS:COA_CODE"
+      ]
+    ]
+  },
+  "database": {
+    "id": "UC_Households",
+    "uri": "str:database:UC_Households",
+    "label": "Households on Universal Credit",
+    "annotationKeys": [
+      "I",
+      "II",
+      "III",
+      "IV",
+      "z"
+    ]
+  },
+  "measures": [
+    {
+      "uri": "str:count:UC_Households:V_F_UC_HOUSEHOLDS",
+      "label": "Households on Universal Credit",
+      "measure": "str:count:UC_Households:V_F_UC_HOUSEHOLDS",
+      "function": "COUNT"
+    }
+  ],
+  "fields": [
+    {
+      "uri": "str:field:UC_Households:F_UC_HH_DATE:DATE_NAME",
+      "label": "Month",
+      "items": [
+        {
+          "type": "RecodeItem",
+          "uris": [
+            "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202602"
+          ],
+          "labels": [
+            "February 2026"
+          ],
+          "annotationKeys": [
+            "r"
+          ]
+        },
+        {
+          "type": "RecodeItem",
+          "uris": [
+            "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202603"
+          ],
+          "labels": [
+            "March 2026"
+          ],
+          "annotationKeys": [
+            "p"
+          ]
+        },
+        {
+          "type": "RecodeItem",
+          "uris": [
+            "str:value:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE:202604"
+          ],
+          "labels": [
+            "April 2026"
+          ],
+          "annotationKeys": [
+            "p"
+          ]
+        }
+      ]
+    },
+    {
+      "uri": "str:field:UC_Households:V_F_UC_HOUSEHOLDS:COA_CODE",
+      "label": "National - Regional - LA - OAs",
+      "items": [
+        {
+          "type": "RecodeItem",
+          "uris": [
+            "str:value:UC_Households:V_F_UC_HOUSEHOLDS:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01021395"
+          ],
+          "labels": [
+            "Braintree 018C"
+          ]
+        },
+        {
+          "type": "RecodeItem",
+          "uris": [
+            "str:value:UC_Households:V_F_UC_HOUSEHOLDS:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01030396"
+          ],
+          "labels": [
+            "Epsom and Ewell 010D"
+          ]
+        }
+      ]
+    }
+  ],
+  "cubes": {
+    "str:count:UC_Households:V_F_UC_HOUSEHOLDS": {
+      "values": [
+        [
+          106,
+          77
+        ],
+        [
+          99,
+          81
+        ],
+        [
+          105,
+          83
+        ]
+      ],
+      "precision": 0
+    }
+  },
+  "annotationMap": {
+    "I": "A limited test of the full Universal Credit service was launched in Sutton, South London on 26th November 2014, and has expanded to other areas since. This publication now includes statistics covering both the live and full Universal Credit service. Please see https://www.gov.uk/government/publications/universal-credit-transition-to-full-service for details of the areas in which the full Universal Credit service is operating.",
+    "II": "Data for more recent months will be subject to a higher degree of revision. Universal Credit award amounts may be retrospectively revised.",
+    "III": "Monthly award amounts include any awards due to entitlement such as the standard allowance or housing entitlement plus any advance payments. Advance payments will normally be recovered during subsequent assessment periods.",
+    "IV": "Award, entitlement and payment information may be missing for a very small number of households on Universal Credit, where more limited information is entered onto IT systems.",
+    "z": "\"..\" denotes a nil or negligible number of claimants or award amount based on a nil or negligible number of claimants.",
+    "r": "Figures marked \"r\" have been revised since the previous release.",
+    "p": "Figures marked \"p\" are provisional. These figures will be subject to revision in subsequent releases. It is expected that overall provisional figures will be within two per cent of their revised figure in future releases."
+  }
+}

@@ -1,31 +1,58 @@
-# Universal Credit fixture (plan step M5.16) — SYNTHETIC
+# Universal Credit fixture (plan step M5.16) — REAL captures, 13 Nov 2026
 
-**These two JSON files are hand-built, not captured.** They
-exist so the UC loader's parser, golden checks and filing
-path can be exercised end-to-end in CI while the live pull
-is blocked — and they must be replaced by real captures the
-moment the block lifts.
+**Every JSON file here is a real DWP Stat-Xplore response,
+captured 13 Nov 2026 — nothing is synthetic.** They are the
+first pull's own evidence: the golden table responses the
+loader's golden values were locked from, and the schema
+nodes its discovery assembles.
 
-Why synthetic: the K22 Stat-Xplore key is refused
-account-side at DWP (HTTP 401 AUTHENTICATION on every
-documented presentation, including a brand-new reset key,
-13 Nov 2026), so no real Stat-Xplore response exists to
-capture. The loader's one remaining step is the
-PENDING_FIRST_PULL named in `loaders/load-dwp-uc.mjs`.
+How they were captured: DWP's gateway refuses every
+Muse-side network (HTTP 401 AUTHENTICATION from the
+sandbox and the connector surrogate alike), while the same
+K22 key answers 200 from the founder's home browser — so
+the founder ran the calls himself in YARC on his own
+connection and handed the responses over. The key and the
+account were never at fault; the loader's header records
+the full story (its FIRST_PULL note).
 
-What the files are: one `/table` response per UC series
-(`uc-people-table.json` for UC_Monthly, `uc-households-table.json`
-for UC_Households), written in the API's DOCUMENTED
-response shape — a `fields` array (a date field and a
-geography field, each with `items`) and a `cells` array
-whose `coordinates` index into those items — covering the
-three golden LSOAs at one illustrative month each (people
-May 2026, the prep's measured latest people month;
-households April 2026, illustrating that the households
-series runs behind). **The counts (300 / 2,400 / 410 and
-140 / 1,050 / 190) are invented round numbers for shape
-testing only — they are not DWP figures, must never be
-quoted as such, and assert nothing in the golden checks
-beyond presence and sanity.** The real golden values are
-locked by the first keyed verify-only pull, at which point
-this fixture is re-cut from that pull's real responses.
+What the files are:
+
+- `uc-people-table.json` — the real `/table` response for
+  UC_Monthly ("People on Universal Credit"): the three
+  golden LSOAs at March, April and May 2026. May 2026 was
+  the series' latest month at capture; the golden values
+  lock there: Birkdale 117, Exeter 383, Minerva 93.
+- `uc-households-table.json` — the real `/table` response
+  for UC_Households ("Households on Universal Credit"):
+  February, March and April 2026 (the series runs a month
+  behind people). April 2026 goldens: Birkdale 105,
+  Minerva 83.
+- `schema/` — one file per schema node, named
+  `<database>-<role>.json`: the database node, the date
+  field node, the date valueset (its first 100 values —
+  the API caps a valueset response at 100 children, so the
+  slice ends years before the latest month), the
+  residence-geography group, the COA field, and the LSOA
+  valueset (likewise its first 100 values). The loader's
+  fixture routes serve exactly these nodes to the same
+  assembly + probing + discovery code a live pull runs;
+  the probing route answers months past the slice from the
+  table captures' own month lists, which is what DWP had
+  published for each series at capture time.
+
+**The Households gap, stated plainly:** the households
+table response holds only TWO golden LSOAs. Newham 036A
+(E01003511, Exeter Road's LSOA) is absent from the
+Households cube: its schema value node exists and is
+correctly labelled, but a table recode naming it was
+refused by DWP with RECODE_FIELD_VALUE_NOT_FOUND, while
+the same code answers normally in UC_Monthly. There is
+therefore no households golden value for Exeter, and the
+loader's golden checks never demand one
+(HOUSEHOLDS_MISSING_LSOAS in `loaders/load-dwp-uc.mjs`).
+
+The counts in these files are DWP's published figures
+exactly as returned — subject to Introduced Random Error,
+as the loader's header describes — and the golden values
+in the loader were locked from them, not the other way
+round.

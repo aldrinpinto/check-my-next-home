@@ -1,0 +1,32 @@
+{
+  "id": "str:group:UC_Monthly:X_Geography+%28residence-based%29",
+  "label": "Geography (residence-based)",
+  "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:group:UC_Monthly:X_Geography+%2528residence-based%2529",
+  "type": "GROUP",
+  "children": [
+    {
+      "id": "str:field:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE",
+      "label": "National - Regional - LA - OAs",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:field:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE",
+      "type": "FIELD"
+    },
+    {
+      "id": "str:field:UC_Monthly:V_F_UC_CASELOAD_FULL:WARD_CODE",
+      "label": "National - Regional - LA - Ward",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:field:UC_Monthly:V_F_UC_CASELOAD_FULL:WARD_CODE",
+      "type": "FIELD"
+    },
+    {
+      "id": "str:field:UC_Monthly:V_F_UC_CASELOAD_FULL:PCON24",
+      "label": "Westminster Parliamentary Constituency",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:field:UC_Monthly:V_F_UC_CASELOAD_FULL:PCON24",
+      "type": "FIELD"
+    },
+    {
+      "id": "str:field:UC_Monthly:V_F_UC_CASELOAD_FULL:SPC_CODE",
+      "label": "Scottish Parliamentary Constituency",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:field:UC_Monthly:V_F_UC_CASELOAD_FULL:SPC_CODE",
+      "type": "FIELD"
+    }
+  ]
+}

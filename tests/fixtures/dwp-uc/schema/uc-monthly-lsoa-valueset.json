@@ -1,0 +1,608 @@
+{
+  "id": "str:valueset:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA",
+  "label": "Lower Layer Super Output Areas",
+  "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:valueset:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA",
+  "type": "VALUESET",
+  "children": [
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000001",
+      "label": "City of London 001A",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000001",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000002",
+      "label": "City of London 001B",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000002",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000003",
+      "label": "City of London 001C",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000003",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000005",
+      "label": "City of London 001E",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000005",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000006",
+      "label": "Barking and Dagenham 016A",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000006",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000007",
+      "label": "Barking and Dagenham 015A",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000007",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000008",
+      "label": "Barking and Dagenham 015B",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000008",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000009",
+      "label": "Barking and Dagenham 016B",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000009",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000011",
+      "label": "Barking and Dagenham 016C",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000011",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000012",
+      "label": "Barking and Dagenham 015D",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000012",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000013",
+      "label": "Barking and Dagenham 013A",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000013",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000014",
+      "label": "Barking and Dagenham 013B",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000014",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000015",
+      "label": "Barking and Dagenham 009A",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000015",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000016",
+      "label": "Barking and Dagenham 009B",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000016",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000017",
+      "label": "Barking and Dagenham 009C",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000017",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000018",
+      "label": "Barking and Dagenham 009D",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000018",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000019",
+      "label": "Barking and Dagenham 023A",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000019",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000020",
+      "label": "Barking and Dagenham 023B",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000020",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000021",
+      "label": "Barking and Dagenham 008A",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000021",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000022",
+      "label": "Barking and Dagenham 008B",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000022",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000024",
+      "label": "Barking and Dagenham 008D",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000024",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000025",
+      "label": "Barking and Dagenham 008E",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000025",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000027",
+      "label": "Barking and Dagenham 001A",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000027",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000028",
+      "label": "Barking and Dagenham 001B",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000028",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000029",
+      "label": "Barking and Dagenham 001C",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000029",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000030",
+      "label": "Barking and Dagenham 001D",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000030",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000031",
+      "label": "Barking and Dagenham 002A",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000031",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000032",
+      "label": "Barking and Dagenham 002B",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000032",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000033",
+      "label": "Barking and Dagenham 006A",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000033",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000034",
+      "label": "Barking and Dagenham 003A",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000034",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000035",
+      "label": "Barking and Dagenham 010A",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000035",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000036",
+      "label": "Barking and Dagenham 010B",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000036",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000037",
+      "label": "Barking and Dagenham 003B",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000037",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000038",
+      "label": "Barking and Dagenham 003C",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000038",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000039",
+      "label": "Barking and Dagenham 003D",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000039",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000040",
+      "label": "Barking and Dagenham 019A",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000040",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000041",
+      "label": "Barking and Dagenham 017A",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000041",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000042",
+      "label": "Barking and Dagenham 017B",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000042",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000043",
+      "label": "Barking and Dagenham 019B",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000043",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000044",
+      "label": "Barking and Dagenham 016D",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000044",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000045",
+      "label": "Barking and Dagenham 017C",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000045",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000046",
+      "label": "Barking and Dagenham 017D",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000046",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000049",
+      "label": "Barking and Dagenham 021C",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000049",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000050",
+      "label": "Barking and Dagenham 019C",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000050",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000051",
+      "label": "Barking and Dagenham 021D",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000051",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000052",
+      "label": "Barking and Dagenham 019D",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000052",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000053",
+      "label": "Barking and Dagenham 020A",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000053",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000054",
+      "label": "Barking and Dagenham 018A",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000054",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000055",
+      "label": "Barking and Dagenham 018B",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000055",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000056",
+      "label": "Barking and Dagenham 018C",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000056",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000057",
+      "label": "Barking and Dagenham 012A",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000057",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000058",
+      "label": "Barking and Dagenham 018D",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000058",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000059",
+      "label": "Barking and Dagenham 013C",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000059",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000060",
+      "label": "Barking and Dagenham 006B",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000060",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000061",
+      "label": "Barking and Dagenham 006C",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000061",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000062",
+      "label": "Barking and Dagenham 006D",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000062",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000063",
+      "label": "Barking and Dagenham 004A",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000063",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000064",
+      "label": "Barking and Dagenham 006E",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000064",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000065",
+      "label": "Barking and Dagenham 007A",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000065",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000066",
+      "label": "Barking and Dagenham 011A",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000066",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000067",
+      "label": "Barking and Dagenham 011B",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000067",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000068",
+      "label": "Barking and Dagenham 016E",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000068",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000069",
+      "label": "Barking and Dagenham 011C",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000069",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000070",
+      "label": "Barking and Dagenham 011D",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000070",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000071",
+      "label": "Barking and Dagenham 011E",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000071",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000072",
+      "label": "Barking and Dagenham 017E",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000072",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000073",
+      "label": "Barking and Dagenham 012B",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000073",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000074",
+      "label": "Barking and Dagenham 012C",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000074",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000075",
+      "label": "Barking and Dagenham 012D",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000075",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000076",
+      "label": "Barking and Dagenham 012E",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000076",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000077",
+      "label": "Barking and Dagenham 008F",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000077",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000078",
+      "label": "Barking and Dagenham 007B",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000078",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000079",
+      "label": "Barking and Dagenham 009E",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000079",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000080",
+      "label": "Barking and Dagenham 007C",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000080",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000081",
+      "label": "Barking and Dagenham 007D",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000081",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000082",
+      "label": "Barking and Dagenham 007E",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000082",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000083",
+      "label": "Barking and Dagenham 007F",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000083",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000084",
+      "label": "Barking and Dagenham 013D",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000084",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000085",
+      "label": "Barking and Dagenham 013E",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000085",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000086",
+      "label": "Barking and Dagenham 013F",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000086",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000087",
+      "label": "Barking and Dagenham 020B",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000087",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000088",
+      "label": "Barking and Dagenham 020C",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000088",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000089",
+      "label": "Barking and Dagenham 020D",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000089",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000090",
+      "label": "Barking and Dagenham 020E",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000090",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000091",
+      "label": "Barking and Dagenham 022A",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000091",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000093",
+      "label": "Barking and Dagenham 022B",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000093",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000094",
+      "label": "Barking and Dagenham 022C",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000094",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000095",
+      "label": "Barking and Dagenham 018E",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000095",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000096",
+      "label": "Barking and Dagenham 022D",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000096",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000097",
+      "label": "Barking and Dagenham 023C",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000097",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000098",
+      "label": "Barking and Dagenham 023D",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000098",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000099",
+      "label": "Barking and Dagenham 023E",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000099",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000100",
+      "label": "Barking and Dagenham 004B",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000100",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000101",
+      "label": "Barking and Dagenham 004C",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000101",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000102",
+      "label": "Barking and Dagenham 007G",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000102",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000103",
+      "label": "Barking and Dagenham 014A",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000103",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000104",
+      "label": "Barking and Dagenham 014B",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000104",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000105",
+      "label": "Barking and Dagenham 014C",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000105",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000106",
+      "label": "Barking and Dagenham 014D",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000106",
+      "type": "VALUE"
+    },
+    {
+      "id": "str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000107",
+      "label": "Barking and Dagenham 010C",
+      "location": "https://stat-xplore.dwp.gov.uk/webapi/rest/v1/schema/str:value:UC_Monthly:V_F_UC_CASELOAD_FULL:COA_CODE:V_C_MASTERGEOG21_LSOA_TO_MSOA:E01000107",
+      "type": "VALUE"
+    }
+  ]
+}
