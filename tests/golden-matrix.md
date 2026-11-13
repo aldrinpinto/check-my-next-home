@@ -137,8 +137,47 @@ flood planning maps are a Natural Resources Wales product, not an EA one.
 | -------------------------------------------------------------- | --------------------------------------------------------------- |
 | Inside a conservation area                                     | C1 (Ewell Village), C4 (Kingston Old Town), C7 (Oxford Central) |
 | Near but OUTSIDE a conservation area (the 0.099 mi knife-edge) | Epsom (Ewell Village CA at 0.099 mi)                            |
-| Genuine "none" for conservation areas, proven two ways         | Birkdale (                                                      |
-| ...[truncated 9113 chars]                                      |
+| Genuine "none" for conservation areas, proven two ways         | Birkdale (nearest 1.47 mi; Braintree's "none" proven genuine)   |
+| Inside an Article 4 area, council PUBLISHES                    | C1 (Epsom and Ewell 129), C2 (Tower Hamlets 350)                |
+| Inside an Article 4 area, council PUBLISHES                    | C7 (Oxford 251)                                                 |
+| Article 4 answer "not published by the council"                | Birkdale (Braintree 56; Silver End direction also absent)       |
+| Article 4 answer "not published by the council"                | Exeter (Newham 246; borough-wide direction since 2013 absent)   |
+| Published council, no area covers the point, one near          | Epsom (A4 at 0.099 mi)                                          |
+| Published council, no area covers the point, one near          | C10 (nearest A4 0.762 mi; Chelmsford 81 publishes)              |
+| Empty-result across all planning layers at once                | C9 (nearest CA 3.57 mi, A4 7.64 mi)                             |
+
+### Green belt (M5.2)
+
+| Combination                                              | Covered by                                                                            |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| INSIDE a green-belt piece                                | C3 (Epping Forest piece, deepest-inside Essex postcode found), C6 (Mole Valley piece) |
+| Near the edge but outside                                | Epsom (London belt edge 0.101 mi)                                                     |
+| No piece and no edge within 5 miles                      | Birkdale                                                                              |
+| Piece filed under the belt's core name, not the district | All inside cases (loader files 181 pieces under names like "London")                  |
+
+### Heritage (M5.2)
+
+| Combination                                                                                    | Covered by                                                                                     |
+| ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Listed building AT the postcode point (0.000 mi), grade II*                                    | C4 (Market House, Kingston, NHLE 1358428)                                                      |
+| Listed building effectively at the point, residential (0.008 mi), grade II                     | C3 (SAWYERS, NHLE 1337547)                                                                     |
+| Very large listed count within 2 mi                                                            | C7 (1,087)                                                                                     |
+| Boundary-count sensitivity (a building at 2.000–2.001 mi counts, on the R=3956 heritage basis) | Exeter (215 within 2 mi incl. NHLE 1289552 on the boundary)                                    |
+| Zero listed buildings within 2 mi                                                              | C9 (nearest 3.26 mi)                                                                           |
+| Postcode point INSIDE a scheduled monument                                                     | C5 (Oatlands Palace; also KT13 8NP / 8NR)                                                      |
+| Monument near but outside                                                                      | Birkdale (Hatfield Priory 0.49 mi), C7 (Oxford Castle 0.033 mi), C4 (Clattern Bridge 0.077 mi) |
+
+### Nature (M5.3)
+
+| Combination                                                                | Covered by                                                                                                                                                  |
+| -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| INSIDE an SSSI (standing alone, not stacked)                               | C6 (Epsom and Ashtead Commons SSSI)                                                                                                                         |
+| SSSI and SAC on the SAME ground (must not be double-counted as two places) | KT22 8QA (Mole Gap to Reigate Escarpment SSSI and SAC, both 0.416 mi)                                                                                       |
+| SAC and SPA on the same ground                                             | C8 (Severn Estuary SAC and SPA, both 1.837 mi)                                                                                                              |
+| INSIDE ancient woodland (provisional inventory — completeness caveat)      | KT22 8QA (inside an AWI polygon)                                                                                                                            |
+| Priority habitat very near (non-statutory inventory, publisher caveats)    | C6 (0.008 mi), C9 (0.123 mi — present where everything statutory is absent)                                                                                 |
+| Statutory nature: genuine NONE within 2 mi                                 | C9; Exeter separately guards the urban no-inside case                                                                                                       |
+| INSIDE a SAC / SPA / Ramsar site                                           | GAP — kind of postcode: a residential postcode inside the Thames Estuary, Minsmere or a Solent designation; none of the current candidates lands inside one |
 
 ### Transport (M5.5)
 
@@ -170,3 +209,72 @@ haversine miles on the filed points from the postcode point
 | Wales files identically — no Welsh exception in this dataset                                                                    | C8 — Grangetown (Cardiff) Rail Station 0.136, Penarth Road bus stop 0.077, Taffs Mead waterbus stop (FER) 0.653, all from the same file and run as the English rows                                                                           |
 | Far-station rural: the station answer is a fact with a distance, never an absence                                               | C3 — Harlow Mill Rail Station 4.531 with Mill Lane bus stop at 0.243 (Epping Underground 5.773); C9 — Littleport Rail Station 3.208, 7 bus stops within 2 mi, 86 within 5 mi                                                                  |
 | Mode cannot be read off the stop-type code (loader files codes verbatim; labelling is M6's)                                     | C8 — Cardiff's nearest MET/TMU rows are a Somerset heritage steam railway 20.6 mi away; the same codes are Tube/DLR in London                                                                                                                 |
+
+### Nearby places (M5.6, planned)
+
+| Combination                                      | Covered by                                       |
+| ------------------------------------------------ | ------------------------------------------------ |
+| Dense urban: many places in every category       | C7 (Oxford centre), C4 (Kingston centre), Exeter |
+| Sparse rural: categories genuinely empty         | C9                                               |
+| New development: places still arriving / missing | C10, C2                                          |
+
+### EV chargers (M5.7, planned)
+
+| Combination                 | Covered by                        |
+| --------------------------- | --------------------------------- |
+| Urban chargers near         | Exeter, C2, C7                    |
+| Zero chargers within radius | C9 — likely; verify at M5.7 build |
+| Rapid-only vs mixed speeds  | GAP — decide at M5.7 gap check    |
+
+### Census (M5.8, planned)
+
+| Combination                                                                                                | Covered by          |
+| ---------------------------------------------------------------------------------------------------------- | ------------------- |
+| High-diversity inner-London area (ethnicity + religion per the V1 decision, ONS Census 2021, no inference) | Exeter              |
+| Predominantly White British suburban / rural areas                                                         | Epsom, Birkdale, C9 |
+| Wales — Welsh-language and Wales-specific census outputs                                                   | C8                  |
+| Very small-population rural output area (suppression / rounding sensitivity)                               | C9                  |
+
+### IMD / air / noise / broadband (M5.9, planned)
+
+| Combination                                                                          | Covered by                                                                                     |
+| ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| IMD: most-deprived end                                                               | Exeter (Newham)                                                                                |
+| IMD: least-deprived end                                                              | Epsom, C3                                                                                      |
+| Wales: Welsh IMD is a SEPARATE index — scores must not be compared across the border | C8                                                                                             |
+| Air quality: central-urban, near major roads                                         | C2, C4, C7                                                                                     |
+| Noise: rail-adjacent                                                                 | C1 (station 0.021 mi)                                                                          |
+| Noise: flight-path                                                                   | GAP — kind of postcode: a residential postcode under the Heathrow approach (e.g. TW / UB area) |
+| Broadband: rural, likely slow / no full fibre                                        | C9                                                                                             |
+| Broadband: new-build full fibre                                                      | C10, C2                                                                                        |
+
+### Council tax (M5.10, planned)
+
+| Combination                                                                                                | Covered by                                                                                                              |
+| ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Standard banded house / flat                                                                               | Birkdale, Exeter, Epsom                                                                                                 |
+| Wales: Welsh bands rest on a different (2003) valuation basis — must not be presented as the English scale | C8                                                                                                                      |
+| New-build: band newly set, or property not yet banded at first sale — honesty state                        | C10                                                                                                                     |
+| Top band (H) property                                                                                      | GAP — kind of postcode: a large detached house postcode in Epsom / Weybridge (C5's street is the likely hunting ground) |
+
+## E2E journeys each candidate unlocks (Playwright, QA phase)
+
+| Candidate            | Journey it unlocks                                                                                                                                                                          |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| C1 KT17 1DR          | "Buy a report for a home inside a conservation area" — inside-CA and inside-A4 answers, removed-rights text shown; contrast run against Epsom (0.099 mi outside the same areas)             |
+| C2 E14 0BZ           | "Search a flat inside an Article 4 area in a publishing council" — direction details rendered; plus the defended-FZ3 display (zone shown, likelihood "Very low")                            |
+| C3 CM5 0DR           | "Search a rural house inside the green belt" — inside-GB answer; listed-building-at-the-address line (0.008 mi); flood-boundary display (point on the FZ2 edge)                             |
+| C4 KT1 1JS           | "Listed building at this exact address" — 0.000 mi, grade II* rendering; flagged non-residential, so a display test only, not a buyer journey                                               |
+| C5 KT13 8NB          | "Buy a report for a home inside a scheduled monument" — monument-inside answer with the listed gates at the same address                                                                    |
+| C6 KT21 1AG          | "Search a home inside an SSSI" — nature-inside answer; two stacked inside answers at one address (SSSI + green belt) rendered without double-counting                                       |
+| C7 OX1 1HD           | "Buy a report with undefended flood risk" — FZ3 + "Medium" likelihood display; largest heritage count in the set (performance and truncation behaviour); second-city CA + A4 inside answers |
+| C8 CF11 8AA          | "Search a Welsh postcode and see the honesty states" — schools with no Ofsted wording, health with no ratings wording, planning/flood coverage wording (never fake "nones")                 |
+| C9 CB6 1EH           | "The mostly-empty report" — five layers honestly answering none at once, priority habitat still reported, and a rural FZ3 answer; the report that must never pad itself                     |
+| C10 CM1 6ER          | "The new-build report" (D7 honesty) — predicted EPCs labelled as predicted, thin/absent sales history stated plainly                                                                        |
+| E16 1EG (guard only) | "Search a postcode with no EPC certificates" — the EPC section's empty state                                                                                                                |
+
+## Recommendation on set size
+
+1. Adopt 12 homes: the 3 universal core homes + C1, C2, C3, C5, C6, C7, C8, C9, C10 — each targeted to the datasets above — plus E16 1EG as an EPC-only guard. Optional extras, only if wanted: C4 (exact-zero II*) and KT22 8QA (ancient-woodland-inside; SSSI/SAC same-ground counting).
+2. Remaining GAPs to fill later, only when their milestone's gap check runs: mixed/poor EPC bands at one postcode; surface-water "High" at the point; inside a SAC/SPA/Ramsar; flight-path noise; council-tax band H; schools-none-within-radius (C9 may fill it unverified).
+3. Cost discipline: targeted homes assert only their own datasets, so fixture capture and quarterly re-proof stay proportional. Universal status must not be extended beyond the original three.
