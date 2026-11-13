@@ -947,6 +947,69 @@ function probeFloodProduct(item) {
   })();
 }
 
+// --- NaPTAN transport stops (plan step M5.5) ----------------
+//
+// One probe, mirroring what the transport loader consumes —
+// but the service's actual behaviour decides its shape (gap
+// L5): the API sends no Last-Modified header (measured — Date
+// only) and HEAD requests fail, so freshness is read from the
+// content. The probe pulls ONE small ATCO area (571, Cardiff:
+// 1,860 rows, 446 KB, ~2 s at the 13 Nov 2026 snapshot — the
+// loader's whole-GB pull is 97 MB and far too heavy for a
+// monthly probe) and asserts the header still carries every
+// consumed column, the row count sits in band, and the file's
+// own newest ModificationDateTime is within ~45 days —
+// authorities edit NaPTAN continuously (3,065 rows changed in
+// the month before the snapshot), so a stale area file means
+// the service, not the area, has stopped.
+
+const NAPTAN_CONSUMED = [
+  "ATCOCode",
+  "CommonName",
+  "Longitude",
+  "Latitude",
+  "Easting",
+  "Northing",
+  "StopType",
+  "Status",
+  "ModificationDateTime",
+];
+
+function probeNaptan() {
+  return (async () => {
+    const url = "https://naptan.api.dft.gov.uk/v1/access-nodes?dataFormat=CSV&atcoAreaCodes=571";
+    const response = await fetchRetry(url);
+    if (!response.ok) throw new Error(`HTTP ${response.status} for the NaPTAN area probe`);
+    const text = await response.text();
+    const lines = text.split("\n").filter((l) => l.trim() !== "");
+    if (lines.length < 2) throw new Error("the NaPTAN area probe returned no rows");
+    const header = splitCsvLine(lines[0].replace(/^﻿/, "")).map((c) => c.trim());
+    const missing = NAPTAN_CONSUMED.filter((c) => !header.includes(c));
+    if (missing.length > 0)
+      throw new Error(`the NaPTAN file no longer carries: ${missing.join(", ")}`);
+    const rows = lines.length - 1;
+    if (rows < 1674 || rows > 2046)
+      throw new Error(
+        `the NaPTAN area 571 probe returned ${rows} rows — outside the band 1674–2046 (1,860 ±10% at the 13 Nov 2026 snapshot)`,
+      );
+    const modIndex = header.indexOf("ModificationDateTime");
+    let newest = "";
+    for (const line of lines.slice(1)) {
+      const value = (splitCsvLine(line)[modIndex] ?? "").trim();
+      if (value > newest) newest = value;
+    }
+    const newestDate = newest.slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(newestDate) || ageDays(newestDate) > 45)
+      throw new Error(
+        `the newest NaPTAN edit in area 571 is ${newestDate || "unreadable"} — beyond the 45-day freshness guard`,
+      );
+    return {
+      logLine: `canary naptan · area 571: ${rows} stops · newest edit ${newestDate} · all ${NAPTAN_CONSUMED.length} consumed columns present`,
+      sourceDate: newestDate,
+    };
+  })();
+}
+
 export async function runCanaryProbes() {
   const results = [];
   const run = async (item, fn) => {
@@ -1036,5 +1099,6 @@ export async function runCanaryProbes() {
   await run("flood-zones", () => probeFloodProduct("flood-zones"));
   await run("flood-rivers-sea", () => probeFloodProduct("flood-rivers-sea"));
   await run("flood-surface-water", () => probeFloodProduct("flood-surface-water"));
+  await run("naptan", probeNaptan);
   return results;
 }

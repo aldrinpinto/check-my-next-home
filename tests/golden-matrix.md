@@ -139,3 +139,34 @@ flood planning maps are a Natural Resources Wales product, not an EA one.
 | Near but OUTSIDE a conservation area (the 0.099 mi knife-edge) | Epsom (Ewell Village CA at 0.099 mi)                            |
 | Genuine "none" for conservation areas, proven two ways         | Birkdale (                                                      |
 | ...[truncated 9113 chars]                                      |
+
+### Transport (M5.5)
+
+NaPTAN (Department for Transport), figures locked 13 Nov 2026 from the
+national file (435,812 rows; 381,640 active stops in the nine filed
+families). Two standing rules behind every figure below. The
+station-point rule: a station files as a family of rows (station
+points, entrances, platforms), and only station-level points
+(RLY / MET / TMU) speak for the station — entrances and platforms are
+never filed; around Custom House one station's rows span
+0.440–0.504 mi, thirty times the spread between distance
+conventions, so the point rule, not the earth radius, decides the
+figures. The grid-only note: 31,417 active stops publish no
+coordinates, only OS grid references, and file converted
+(EPSG:27700 → EPSG:4326) — including every Elizabeth line rail
+station and all 7 bus stops within 2 miles of C9. Distances are
+haversine miles on the filed points from the postcode point
+(house basis, earth radius 3956).
+
+| Combination                                                                                                                     | Covered by                                                                                                                                                                                                                                    |
+| ------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The step's check: a named station point at its locked distance                                                                  | Exeter (universal) — Custom House station point 4900ZZDLCUS1 at 0.440 mi; Canning Town Underground station point 0.564 in the same run                                                                                                        |
+| Nearest station point is a DIFFERENT station than the report's headline (ordering was a service judgement, not a distance fact) | Exeter — Royal Victoria's point at 0.414 is nearer than Custom House's 0.440; only the Custom House figure is locked, never a "nearest" claim for it                                                                                          |
+| Grid-only stops decide the answer (conversion or a confident wrong answer)                                                      | C9 — the Black Horse Drove bus pair (0500ELITP026 / 0500ELITP036), both grid-only, at 0.044 mi; unconverted the same computation answers 7.965 mi. Exeter too: the Custom House rail row (9100CUSTMHS) is grid-only, filed converted at 0.488 |
+| Closed / superseded stations present in the source, excluded by status                                                          | Exeter — Canning Town Rail Station (9100CNTN, inactive) never files; West Ham's superseded rail row (9100WHAM, inactive, 0.025 mi nearer than the live one) excluded, live row 9100WHAMHL filed                                               |
+| Paired bus stops (two rows, one stop pair — counts of rows are not counts of places)                                            | Birkdale (universal) — New Road 0.124 / 0.126; C9 — the 0.044 pair; Exeter — Canning Town Recreation Ground 0.172 / 0.186                                                                                                                     |
+| The flat's station is not the town's name station                                                                               | Epsom (universal) — Ewell East 0.246 (Ewell West 0.570, Epsom 1.170); nearest bus stop Hazel Mead 0.128                                                                                                                                       |
+| Semi-rural house: station walkable, bus stop at the road                                                                        | Birkdale (universal) — Hatfield Peverel 0.563 (the sample report's 0.6 reproduces); 13 bus stops within 0.5 mi                                                                                                                                |
+| Wales files identically — no Welsh exception in this dataset                                                                    | C8 — Grangetown (Cardiff) Rail Station 0.136, Penarth Road bus stop 0.077, Taffs Mead waterbus stop (FER) 0.653, all from the same file and run as the English rows                                                                           |
+| Far-station rural: the station answer is a fact with a distance, never an absence                                               | C3 — Harlow Mill Rail Station 4.531 with Mill Lane bus stop at 0.243 (Epping Underground 5.773); C9 — Littleport Rail Station 3.208, 7 bus stops within 2 mi, 86 within 5 mi                                                                  |
+| Mode cannot be read off the stop-type code (loader files codes verbatim; labelling is M6's)                                     | C8 — Cardiff's nearest MET/TMU rows are a Somerset heritage steam railway 20.6 mi away; the same codes are Tube/DLR in London                                                                                                                 |

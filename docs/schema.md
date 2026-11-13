@@ -58,8 +58,25 @@ Family:
 11. **osm_points** — OpenStreetMap places (supermarkets, vets,
     playgrounds, dog parks, parks as a supplement): name, type,
     latitude and longitude, nothing more.
-12. **transport_stops** — NaPTAN stops (bus, rail, tube, tram,
-    ferry): AtcoCode, name, type, exact coordinates.
+12. **transport_stops** — NaPTAN stops and stations (plan step
+    M5.5): one row per ATCO code (the table's key — the Bus
+    Open Data Service joins on it later), name and stop-type
+    code filed verbatim, exact coordinates. Active rows only,
+    nine stop families (BCT, BCS, BST, RLY, MET, TMU, FER,
+    FBT, FTD — never entrances, platforms or taxi ranks:
+    a station files as its station-level points, and grouping
+    them into one "station" is a read-time concern). 31,417
+    active stops publish no coordinates, only OS grid
+    references — including every Elizabeth line rail station —
+    so the loader converts Easting/Northing (EPSG:27700) to
+    latitude/longitude before filing (the columns are NOT
+    NULL) and counts the conversions in its log line. The
+    stop-type code is the source's vocabulary, not a mode
+    claim: MET and TMU include heritage railways outside
+    London, and NaPTAN carries no line or route data, so no
+    line attribution can come from this table. No locality,
+    street or indicator is held — the name, type and distance
+    are the transport answer's substance in V1.
 13. **air_grid** — Defra modelled air quality, one row per 1 km
     square per year (NO2, PM2.5, PM10).
 14. **noise_summary** — one pre-summarised daytime + night-time road

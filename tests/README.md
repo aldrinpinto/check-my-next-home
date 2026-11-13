@@ -78,7 +78,25 @@ The golden homes:
    1.41 — an unnamed polygon from the ORIGINAL inventory, where
    the revision alone (Surrey is not a completed county) would
    say 2.11; 57 priority habitat patches within a mile, nearest
-   0.18.
+   0.18. Transport facts, locked 13 Nov 2026 from the NaPTAN
+   national file (step M5.5): Birkdale — Hatfield Peverel
+   station 0.563 miles; nearest bus stop New Road 0.124 (a
+   pair: the other side of the road, 150009005008, at 0.126);
+   13 bus stops within half a mile. Exeter — the step's own
+   check: the Custom House station point (4900ZZDLCUS1) at
+   0.440 miles; the station files as a family of rows spanning
+   0.440–0.504, and the nearest station point overall is Royal
+   Victoria's at 0.414 — the sample report lists Custom House
+   first as the Elizabeth-line station, a service judgement,
+   not a distance fact, and only the Custom House figure is
+   locked; Canning Town Underground station point 0.564;
+   nearest bus stop Canning Town Recreation Ground 0.172
+   (pair at 0.186); Canning Town's closed rail station
+   (9100CNTN) is inactive in NaPTAN and must never file, and
+   West Ham's superseded rail row (9100WHAM) likewise, its
+   live replacement 9100WHAMHL filed. Epsom — the flat's
+   station is Ewell East at 0.246 (Ewell West 0.570, Epsom
+   itself 1.170); nearest bus stop Hazel Mead 0.128.
 
 The M3.6 practice seed and the M4.1 postcode proof were built before home 3
 was added and cover homes 1 and 2 only.

@@ -300,6 +300,32 @@ fragile (Exeter's point sits in no polygon, with Low about
 assertions. Modes: `--verify-only`,
 `--file tests/fixtures/flood-surface-water`.
 
+## Transport loader (plan step M5.5)
+
+`load-transport.mjs` files NaPTAN stops and stations from the
+Department for Transport's NaPTAN API (the whole of GB as one
+CSV, no key) into `transport_stops`. Built to the user-seat
+gap check of 13 Nov 2026: active rows only — the `Status`
+field is the currency filter and `Modification` is a decoy —
+in exactly nine stop families (BCT, BCS, BST, RLY, MET, TMU,
+FER, FBT, FTD), never entrances, platforms or taxi ranks, so
+a station files as its station-level points under their own
+ATCO codes. 31,417 active stops publish no coordinates, only
+OS grid references — every Elizabeth line rail station among
+them, and all 7 bus stops within 2 miles of the Hilgay golden
+home — so grid references are converted to coordinates
+(EPSG:27700 → EPSG:4326) as a counted filing step: without
+it that home's nearest bus stop reads 7.965 miles instead of
+0.044. Names and stop-type codes file verbatim (MET/TMU
+include heritage railways outside London; NaPTAN carries no
+line or route data, so no line attribution comes from this
+table). The Bus Open Data Service (Key K10, step M5.4) gates
+nothing here — it holds timetables, fares and live locations,
+and the step stores positions only ("live times are never
+stored — links out only"); a future routes layer would join
+on the ATCO codes filed here. Modes: `--verify-only`,
+`--file tests/fixtures/transport`.
+
 ## Loader runner + canary
 
 `run-loaders.mjs` (plan step M4.8; `npm run load:all`) runs the
@@ -308,9 +334,9 @@ probe per source, filing nothing) and then the due dataset
 loads, records the run in the `loader_runs` tables, and sends
 one email per run: an alert on failure, a short OK heartbeat on
 success. Due-ness: the postcode directory and the M5.1 flood, M5.2
-planning and heritage and M5.3 nature datasets quarterly
-(70 days — their sources move slowly, and the flood, planning
-and nature loaders never join onto the directory, so an empty
+planning and heritage, M5.3 nature and M5.5 transport datasets quarterly
+(70 days — their sources move slowly, and the flood, planning,
+nature and transport loaders never join onto the directory, so an empty
 directory does not skip them), the
 other datasets
 monthly, judged from the last successful run items;

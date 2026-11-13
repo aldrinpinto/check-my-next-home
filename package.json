@@ -27,6 +27,7 @@
     "load:flood-zones": "node loaders/load-flood-zones.mjs",
     "load:flood-rivers-sea": "node loaders/load-flood-rivers-sea.mjs",
     "load:flood-surface-water": "node loaders/load-flood-surface-water.mjs",
+    "load:transport": "node loaders/load-transport.mjs",
     "load:all": "node loaders/run-loaders.mjs",
     "canary": "node loaders/run-loaders.mjs --canary-only"
   },
