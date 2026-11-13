@@ -1033,6 +1033,92 @@ function probeNaptan() {
   })();
 }
 
+// Geofabrik (the M5.6 places loader's source): each country
+// extract must still resolve to a DATED file no more than 14
+// days old (Geofabrik republishes daily, so a stale dated
+// file means the mirror stalled), and the published .md5 the
+// loader verifies against must still parse. Cheap by design:
+// three HEADs and three tiny text files — never the extracts
+// themselves.
+function probeGeofabrik() {
+  return (async () => {
+    const base = "https://download.geofabrik.de/europe/united-kingdom";
+    const parts = [];
+    let newest = "";
+    for (const country of ["england", "wales", "scotland"]) {
+      const head = await fetchRetry(`${base}/${country}-latest.osm.pbf`, { method: "HEAD" });
+      if (!head.ok) throw new Error(`HTTP ${head.status} for the ${country} extract`);
+      const match = /-(\d{2})(\d{2})(\d{2})\.osm\.pbf/.exec(head.url);
+      if (!match)
+        throw new Error(`the ${country} extract no longer resolves to a dated file (${head.url})`);
+      const date = `20${match[1]}-${match[2]}-${match[3]}`;
+      if (ageDays(date) > 14)
+        throw new Error(
+          `the ${country} extract is dated ${date} — beyond the 14-day freshness guard (Geofabrik republishes daily)`,
+        );
+      const md5Response = await fetchRetry(`${base}/${country}-latest.osm.pbf.md5`);
+      if (!md5Response.ok)
+        throw new Error(`HTTP ${md5Response.status} for the ${country} published md5`);
+      const md5Text = await md5Response.text();
+      if (!/^[0-9a-f]{32}\s+\S+/m.test(md5Text.trim()))
+        throw new Error(`the ${country} published md5 no longer parses`);
+      parts.push(`${country} ${date}`);
+      if (date > newest) newest = date;
+    }
+    return {
+      logLine: `canary geofabrik · ${parts.join(" · ")} · published md5 files parse`,
+      sourceDate: newest,
+    };
+  })();
+}
+
+// OS Open Greenspace (the M5.6 parks loader's source): the
+// anonymous Downloads API must still answer with a product
+// version and a GB GeoPackage listing entry carrying a usable
+// md5 and a plausible size. Edition AGE is warning-grade only
+// — the product updates twice a year, so an old edition is
+// normal for months at a time; past ~240 days it earns a
+// look, never an alarm.
+function probeOsGreenspace() {
+  return (async () => {
+    const productResponse = await fetchRetry(
+      "https://api.os.uk/downloads/v1/products/OpenGreenspace",
+    );
+    if (!productResponse.ok)
+      throw new Error(`HTTP ${productResponse.status} for the OS Greenspace product record`);
+    const product = await productResponse.json();
+    const version = typeof product?.version === "string" ? product.version.trim() : "";
+    if (version === "") throw new Error("the OS Greenspace product record holds no version");
+    const listResponse = await fetchRetry(
+      "https://api.os.uk/downloads/v1/products/OpenGreenspace/downloads",
+    );
+    if (!listResponse.ok)
+      throw new Error(`HTTP ${listResponse.status} for the OS Greenspace downloads listing`);
+    const downloads = await listResponse.json();
+    const entry = Array.isArray(downloads)
+      ? downloads.find((e) => e.area === "GB" && e.format === "GeoPackage")
+      : null;
+    if (!entry) throw new Error("the downloads listing holds no GB GeoPackage entry");
+    if (!/^[0-9a-f]{32}$/.test(entry.md5 ?? ""))
+      throw new Error("the GB GeoPackage listing entry's md5 no longer parses");
+    if (!(entry.size > 40_000_000 && entry.size < 80_000_000))
+      throw new Error(
+        `the GB GeoPackage is listed at ${entry.size} bytes — outside the expected 40–80 MB band`,
+      );
+    const versionMatch = /^(\d{4})-(\d{2})$/.exec(version);
+    const editionDate = versionMatch ? `${versionMatch[1]}-${versionMatch[2]}-01` : null;
+    const logLine = `canary os-greenspace · edition ${version} · GB GeoPackage ${entry.size} bytes · md5 ${entry.md5}`;
+    if (editionDate && ageDays(editionDate) > 240) {
+      return {
+        warning: true,
+        logLine: `${logLine} · the edition is over 240 days old (the product updates twice a year — worth a look, not an alarm)`,
+        sourceDate: editionDate,
+      };
+    }
+    return { logLine, sourceDate: editionDate };
+  })();
+}
+
 export async function runCanaryProbes() {
   const results = [];
   const run = async (item, fn) => {
@@ -1123,5 +1209,7 @@ export async function runCanaryProbes() {
   await run("flood-rivers-sea", () => probeFloodProduct("flood-rivers-sea"));
   await run("flood-surface-water", () => probeFloodProduct("flood-surface-water"));
   await run("naptan", probeNaptan);
+  await run("geofabrik", probeGeofabrik);
+  await run("os-greenspace", probeOsGreenspace);
   return results;
 }

@@ -53,11 +53,50 @@ Family:
    joined to a health point by the exact code the ratings file
    carries (the practice/site code) — never by name. Pharmacies,
    dentists and Welsh points have no CQC rating by design.
-10. **greenspace_points** — park centre points and access points
-    only; the outline shape is deliberately never stored.
-11. **osm_points** — OpenStreetMap places (supermarkets, vets,
-    playgrounds, dog parks, parks as a supplement): name, type,
-    latitude and longitude, nothing more.
+10. **greenspace_points** — OS Open Greenspace park points
+    (plan step M5.6): one centre row and one row per access
+    point (`point_role`) for the three park-serving functions
+    only — Public Park Or Garden, Playing Field and Play
+    Space; the Exeter golden ground is a Playing Field site,
+    so a public-park-only cut would file nothing there. The
+    outline shape is deliberately never stored; a centre is
+    the site's area centroid, computed in EPSG:27700 (the
+    centre-point convention the park distances are served
+    under, accepted knowingly for V1). `osm_id` is NULL on
+    every row: the product's site and access ids are UUID
+    strings and the column is bigint, so site↔access linkage
+    is by the shared site name each access row carries. The
+    product updates twice a year (April and October editions)
+    under the Open Government Licence; the loader verifies
+    each edition against the Downloads API listing's md5 and
+    treats an unchanged version+md5 as a healthy no-op.
+    Attribution: Contains OS data © Crown Copyright and
+    database rights 2026.
+11. **osm_points** — OpenStreetMap places (plan step M5.6):
+    the What's Nearby points — `vet`, `pet_shop`,
+    `pet_boarding`, `supermarket`, `food_and_drink` (any sort
+    of food option: restaurant, pub, cafe, fast food, bar),
+    `leisure`, `visit`, `worship`, `library` and `park` — one
+    row per place under exactly one primary group (priority:
+    visit, worship, leisure, library, food & drink, then the
+    care and shop groups, parks last). The point is the
+    element's representative point: a node's position, a way's
+    node-average centre, a multipolygon relation's member
+    average — the same convention for every group, so
+    distances compare. Named and unnamed rows both file
+    (serving shows named places and counts the rest). Since
+    migration 0009 a row also carries `detail`: for worship,
+    the religion exactly as recorded (multi-value strings
+    verbatim, never normalised or inferred; no tag, NULL) and
+    nothing for any other type. The same place mapped twice
+    files once (same group + normalised name + points under
+    30 m, preferring relation over way over node); a name
+    alone never merges two places. `osm_id` holds the
+    element's numeric id only — nodes, ways and relations
+    share one number space, so it is a reference back to the
+    map, not a unique key. Data © OpenStreetMap contributors
+    under the ODbL: the table is a derivative database, stays
+    private, and only facts (names, distances) are served.
 12. **transport_stops** — NaPTAN stops and stations (plan step
     M5.5): one row per ATCO code (the table's key — the Bus
     Open Data Service joins on it later), name and stop-type

@@ -326,6 +326,66 @@ stored — links out only"); a future routes layer would join
 on the ATCO codes filed here. Modes: `--verify-only`,
 `--file tests/fixtures/transport`.
 
+## Nearby places loader (plan step M5.6)
+
+`load-osm-places.mjs` files the What's Nearby places from
+OpenStreetMap — vets, pet shops and boarding, supermarkets,
+food & drink (any sort of food option: restaurant, pub, cafe,
+fast food, bar), leisure, places to visit, places of worship,
+libraries and parks — into `osm_points`, from Geofabrik's
+country extracts (England, Wales, Scotland). Each extract is
+downloaded whole and verified against the md5 Geofabrik
+publishes for it — a mismatch refuses the run — then cut to
+the elements carrying an amenity, shop, leisure or tourism
+key by `osm-extract.py`, a small pyosmium cutter riding
+libosmium's C++ filters (a naive per-object parse of a
+country file is unusably slow; the prep measured both). The
+loader therefore needs python3 with pyosmium
+(`pip install osmium`) wherever it runs, fixture mode
+included. Built to the user-seat gap check of 13 Nov 2026:
+one primary group per place (visit, worship, leisure,
+library, food & drink, then the care and shop groups, parks
+last); the point is the element's representative point (node
+position, way node-average centre), so distances compare
+across groups; named and unnamed rows both file (serving
+shows named places and counts the rest — an unnamed pool
+polygon never poses as a named centre); a worship row's
+`detail` (migration 0009) carries the religion exactly as
+recorded, multi-value strings verbatim, never inferred; the
+same place mapped twice files once (same group + name +
+under 30 m, relation over way over node) while a shared name
+alone never merges two real places; and an empty group at a
+home is a fact about the map, never about the ground —
+Birkdale files zero vets, and serving says so in those words.
+Data © OpenStreetMap contributors (ODbL): the filed table
+stays private; only facts are served. Modes: default (live
+download), `--verify-only`, `--pbf-dir <dir>` (verify and
+read local extracts instead of downloading), `--file
+tests/fixtures/osm-places`.
+
+## Parks loader (plan step M5.6)
+
+`load-os-greenspace.mjs` files OS Open Greenspace into
+`greenspace_points`: a centre row (the site's area centroid,
+computed in EPSG:27700 — the centre-point convention the
+park distances are served under) plus one row per access
+point, for Public Park Or Garden, Playing Field and Play
+Space sites only — the Exeter golden ground is a Playing
+Field, so the function mix is load-bearing. The Downloads
+API needs no account or key; its listing entry for the GB
+GeoPackage (md5 + size) is the loader's oracle: an unchanged
+version+md5 is a healthy no-op run (the product updates only
+twice a year, in April and October), a changed md5 inside a
+version fails loudly, a new version downloads, verifies and
+files. The product's site ids are UUID strings and the
+table's id column is bigint, so `osm_id` stays NULL and
+access rows link to their site by its recorded name. The
+loader reads the GeoPackage with Node's built-in SQLite —
+no new dependency. Contains OS data © Crown Copyright and
+database rights 2026 (Open Government Licence). Modes:
+default (live), `--verify-only`, `--file
+tests/fixtures/os-greenspace`.
+
 ## Loader runner + canary
 
 `run-loaders.mjs` (plan step M4.8; `npm run load:all`) runs the
@@ -334,11 +394,10 @@ probe per source, filing nothing) and then the due dataset
 loads, records the run in the `loader_runs` tables, and sends
 one email per run: an alert on failure, a short OK heartbeat on
 success. Due-ness: the postcode directory and the M5.1 flood, M5.2
-planning and heritage, M5.3 nature and M5.5 transport datasets quarterly
-(70 days — their sources move slowly, and the flood, planning,
-nature and transport loaders never join onto the directory, so an empty
-directory does not skip them), the
-other datasets
+planning and heritage, M5.3 nature, M5.5 transport and M5.6
+nearby datasets quarterly (70 days — their sources move
+slowly; and those loaders never join onto the directory, so an
+empty directory does not skip them), the other datasets
 monthly, judged from the last successful run items;
 per-postcode loaders take their targets from what is already
 filed (the golden three when nothing is). A failed probe alerts

@@ -1,0 +1,36 @@
+[
+ {
+  "md5": "efad21a15dad2f8e5601057bfdbc7aba",
+  "size": 37542625,
+  "url": "https://api.os.uk/downloads/v1/products/OpenGreenspace/downloads?area=GB&format=ESRI%C2%AE+Shapefile&redirect",
+  "format": "ESRI\u00ae Shapefile",
+  "area": "GB",
+  "fileName": "opgrsp_essh_gb.zip"
+ },
+ {
+  "md5": "c3df5034e992f8bc684e746000de5e21",
+  "size": 40040340,
+  "url": "https://api.os.uk/downloads/v1/products/OpenGreenspace/downloads?area=GB&format=GML&subformat=3&redirect",
+  "format": "GML",
+  "subformat": "3",
+  "area": "GB",
+  "fileName": "opgrsp_gml3_gb.zip"
+ },
+ {
+  "md5": "3d0c0c5e92c5dbf1d23d71b18530c962",
+  "size": 58957224,
+  "url": "https://api.os.uk/downloads/v1/products/OpenGreenspace/downloads?area=GB&format=GeoPackage&redirect",
+  "format": "GeoPackage",
+  "area": "GB",
+  "fileName": "opgrsp_gpkg_gb.zip"
+ },
+ {
+  "md5": "e12946768d7b1cf1b56a82c4ede7a1c5",
+  "size": 86480468,
+  "url": "https://api.os.uk/downloads/v1/products/OpenGreenspace/downloads?area=GB&format=Vector+Tiles&subformat=%28MBTiles%29&redirect",
+  "format": "Vector Tiles",
+  "subformat": "(MBTiles)",
+  "area": "GB",
+  "fileName": "opgrsp_mbtiles_gb.zip"
+ }
+]
