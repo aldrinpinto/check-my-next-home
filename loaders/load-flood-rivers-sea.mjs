@@ -71,6 +71,7 @@
 
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import pg from "pg";
 
 const ITEMS_URL =
@@ -335,12 +336,67 @@ function processFeatures(raw) {
   return { items, geoless, perLabel };
 }
 
+function serviceErrorText(body) {
+  const error = body?.error;
+  if (!error) return null;
+  const parts = [
+    error.code != null ? `code ${error.code}` : null,
+    error.message ?? null,
+    ...(Array.isArray(error.details) ? error.details : []),
+  ].filter((part) => part !== null && part !== "");
+  return parts.length > 0 ? parts.join(": ") : "unknown error";
+}
+
+// One items page, fetched and judged INSIDE the retry boundary
+// (the guard pattern the 13 Nov 2026 PHI diagnosis set,
+// scratch-nature/PHI-DIAGNOSIS.md: a body the service failed
+// with must never read as a page of data — above all, never as
+// an empty page that ends the read). The count oracle must be
+// restated, the features member must be an array, and an empty
+// page while the count says more remain is a failed page: the
+// SAME startIndex is re-requested, and after the last attempt
+// the load fails loudly and files nothing.
+async function fetchRiversSeaPage(startIndex, expected, read, delaysMs = RETRY_DELAYS_MS) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= delaysMs.length + 1; attempt++) {
+    try {
+      const response = await fetchResponse(
+        `${ITEMS_URL}?limit=${PAGE}&startIndex=${startIndex}&f=json`,
+        "the rivers & sea features",
+        1,
+      );
+      const page = await response.json();
+      const errorText = serviceErrorText(page);
+      if (errorText)
+        throw new Error(
+          `the rivers & sea service returned an error for the page at startIndex ${startIndex}: ${errorText}`,
+        );
+      if (page?.numberMatched !== expected)
+        throw new Error(
+          `contract failure: the rivers & sea count moved mid-read (${expected} -> ${page?.numberMatched}) — nothing filed`,
+        );
+      if (!Array.isArray(page.features))
+        throw new Error(
+          `the rivers & sea page at startIndex ${startIndex} carries no features array`,
+        );
+      if (page.features.length === 0)
+        throw new Error(`rivers & sea: paging stopped at ${read} of ${expected} features`);
+      return page;
+    } catch (error) {
+      lastError = error;
+      if (attempt <= delaysMs.length)
+        await new Promise((resolve) => setTimeout(resolve, delaysMs[attempt - 1]));
+    }
+  }
+  throw lastError;
+}
+
 // The whole collection, read by paging: the unfiltered
 // numberMatched is the oracle (L5), every page must restate
 // it, and the read must reconcile exactly or file nothing.
 // Pages are processed as they land, so the raw GeoJSON of a
 // page is released before the next arrives.
-async function readLive() {
+export async function readLive({ delaysMs = RETRY_DELAYS_MS } = {}) {
   const first = await fetchJson(`${ITEMS_URL}?limit=1&f=json`, "the rivers & sea count");
   const expected = first.numberMatched;
   if (!Number.isInteger(expected) || expected <= 0)
@@ -352,17 +408,8 @@ async function readLive() {
   let read = 0;
   let startIndex = 0;
   while (read < expected) {
-    const page = await fetchJson(
-      `${ITEMS_URL}?limit=${PAGE}&startIndex=${startIndex}&f=json`,
-      "the rivers & sea features",
-    );
-    if (page.numberMatched !== expected)
-      throw new Error(
-        `contract failure: the rivers & sea count moved mid-read (${expected} -> ${page.numberMatched}) — nothing filed`,
-      );
-    const batch = page.features ?? [];
-    if (batch.length === 0)
-      throw new Error(`rivers & sea: paging stopped at ${read} of ${expected} features`);
+    const page = await fetchRiversSeaPage(startIndex, expected, read, delaysMs);
+    const batch = page.features;
     const processed = processFeatures(batch);
     items.push(...processed.items);
     geoless += processed.geoless;
@@ -607,9 +654,11 @@ async function main() {
   );
 }
 
-main().catch((error) => {
-  console.error(
-    `load-flood-rivers-sea FAILED: ${error.message}${error.cause ? ` (${error.cause.message ?? error.cause})` : ""}`,
-  );
-  process.exitCode = 1;
-});
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    console.error(
+      `load-flood-rivers-sea FAILED: ${error.message}${error.cause ? ` (${error.cause.message ?? error.cause})` : ""}`,
+    );
+    process.exitCode = 1;
+  });
+}

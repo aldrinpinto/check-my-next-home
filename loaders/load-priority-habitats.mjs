@@ -46,6 +46,7 @@
 
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import pg from "pg";
 
 const NE_BASE = "https://services.arcgis.com/JJzESW51TqeY9uat/arcgis/rest/services";
@@ -244,6 +245,128 @@ async function fetchJson(url, what, attempts = RETRY_DELAYS_MS.length + 1) {
   throw lastError;
 }
 
+// --- paging: the count is the contract -------------------------
+//
+// ArcGIS reports query failures as an HTTP 200 body carrying an
+// `error` member and no `features` member. The first version of
+// this loop read such a body as an empty page — end of data —
+// and a live verify-only run on 13 Nov 2026 stopped at exactly
+// 392 x 2000 = 784,000 of 818,225 patches (the diagnosis is
+// scratch-nature/PHI-DIAGNOSIS.md). The reconcile guard caught
+// the shortfall and filed nothing, but the read itself must
+// never trust a page it has not validated. So the count taken
+// at the start is the contract: the read ends only when
+// read === expected, every page is validated INSIDE the retry
+// boundary, a failed page re-requests the SAME offset, and
+// after the last attempt the load fails loudly, filing nothing.
+
+function serviceErrorText(body) {
+  const error = body?.error;
+  if (!error) return null;
+  const parts = [
+    error.code != null ? `code ${error.code}` : null,
+    error.message ?? null,
+    ...(Array.isArray(error.details) ? error.details : []),
+  ].filter((part) => part !== null && part !== "");
+  return parts.length > 0 ? parts.join(": ") : "unknown error";
+}
+
+// One page, judged against the count contract; returns the
+// page's last OBJECTID. Throws on any disagreement — the
+// caller retries the same offset, then fails. OBJECTID gaps
+// are legitimate (the published sequence has deletions); only
+// the ORDER is asserted, never contiguity.
+function validatePhiPage(page, { want, isFinal, lastObjectId, offset }) {
+  const errorText = serviceErrorText(page);
+  if (errorText)
+    throw new Error(
+      `the PHI service returned an error for the page at offset ${offset}: ${errorText}`,
+    );
+  if (!Array.isArray(page?.features))
+    throw new Error(`the PHI page at offset ${offset} carries no features array`);
+  if (page.features.length !== want)
+    throw new Error(
+      `the PHI page at offset ${offset} returned ${page.features.length} features — the count contract requires exactly ${want}`,
+    );
+  const flag = page.properties?.exceededTransferLimit;
+  if (!isFinal && flag !== true)
+    throw new Error(
+      `the PHI page at offset ${offset} does not restate exceededTransferLimit — the service's view of the total disagrees with the count`,
+    );
+  if (isFinal && flag)
+    throw new Error(
+      `the PHI page at offset ${offset} is the last the count allows, yet still claims exceededTransferLimit — the service's view of the total disagrees with the count`,
+    );
+  let previous = lastObjectId;
+  for (const feature of page.features) {
+    const objectId = feature?.properties?.OBJECTID;
+    if (!Number.isFinite(objectId))
+      throw new Error(`a feature on the PHI page at offset ${offset} carries no OBJECTID`);
+    if (previous !== null && objectId <= previous)
+      throw new Error(
+        `PHI OBJECTID ordering broke at offset ${offset}: ${objectId} follows ${previous} — the read cannot be trusted`,
+      );
+    previous = objectId;
+  }
+  return previous;
+}
+
+async function fetchPhiPage(layerUrl, offset, expected, lastObjectId, delaysMs = RETRY_DELAYS_MS) {
+  const want = Math.min(PAGE_SIZE, expected - offset);
+  const isFinal = offset + want === expected;
+  const q = new URLSearchParams({
+    where: "1=1",
+    outFields: FIELDS.join(","),
+    returnGeometry: "true",
+    outSR: "4326",
+    resultOffset: String(offset),
+    resultRecordCount: String(PAGE_SIZE),
+    orderByFields: "OBJECTID",
+    f: "geojson",
+  });
+  let lastError = null;
+  for (let attempt = 1; attempt <= delaysMs.length + 1; attempt++) {
+    try {
+      const response = await fetch(`${layerUrl}/query?${q}`);
+      if (!response.ok) throw new Error(`HTTP ${response.status} for the PHI features`);
+      const page = await response.json();
+      validatePhiPage(page, { want, isFinal, lastObjectId, offset });
+      return page;
+    } catch (error) {
+      lastError = error;
+      if (attempt <= delaysMs.length)
+        await new Promise((resolve) => setTimeout(resolve, delaysMs[attempt - 1]));
+    }
+  }
+  throw lastError;
+}
+
+// The whole read, driven by the count: each validated page is
+// handed to onBatch (which tallies and stages it) before the
+// next arrives, and progress is logged every ten pages and on
+// the final page, so an hour-long read shows signs of life and
+// names the offset where it failed.
+export async function readPhiPages(
+  layerUrl,
+  expected,
+  onBatch,
+  { delaysMs = RETRY_DELAYS_MS, log = () => {} } = {},
+) {
+  let offset = 0;
+  let lastObjectId = null;
+  let pages = 0;
+  while (offset < expected) {
+    const page = await fetchPhiPage(layerUrl, offset, expected, lastObjectId, delaysMs);
+    await onBatch(page.features);
+    lastObjectId = page.features[page.features.length - 1].properties.OBJECTID;
+    offset += page.features.length;
+    pages += 1;
+    if (pages % 10 === 0 || offset === expected)
+      log(`load-priority-habitats · read ${offset} of ${expected} patches (page ${pages})`);
+  }
+  return offset;
+}
+
 async function main() {
   const startedAt = Date.now();
   const args = process.argv.slice(2);
@@ -435,26 +558,19 @@ async function main() {
         `${layerUrl}/query?where=1%3D1&returnCountOnly=true&f=json`,
         "the PHI count",
       );
+      const countError = serviceErrorText(countBody);
+      if (countError) throw new Error(`the PHI count query failed: ${countError}`);
       expected = countBody.count;
-      let offset = 0;
-      for (;;) {
-        const q = new URLSearchParams({
-          where: "1=1",
-          outFields: FIELDS.join(","),
-          returnGeometry: "true",
-          outSR: "4326",
-          resultOffset: String(offset),
-          resultRecordCount: String(PAGE_SIZE),
-          orderByFields: "OBJECTID",
-          f: "geojson",
-        });
-        const page = await fetchJson(`${layerUrl}/query?${q}`, "the PHI features");
-        const batch = page.features ?? [];
-        if (batch.length === 0) break;
-        for (const feature of batch) await processFeature(feature);
-        offset += batch.length;
-        if (batch.length < PAGE_SIZE) break;
-      }
+      if (!Number.isInteger(expected) || expected <= 0)
+        throw new Error("contract failure: the PHI count response carries no count");
+      await readPhiPages(
+        layerUrl,
+        expected,
+        async (batch) => {
+          for (const feature of batch) await processFeature(feature);
+        },
+        { log: (line) => console.log(line) },
+      );
       if (state.read !== expected)
         throw new Error(
           `read ${state.read} patches but the service count is ${expected} — the read does not reconcile`,
@@ -513,9 +629,11 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(
-    `load-priority-habitats FAILED: ${error.message}${error.cause ? ` (${error.cause.message ?? error.cause})` : ""}`,
-  );
-  process.exitCode = 1;
-});
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    console.error(
+      `load-priority-habitats FAILED: ${error.message}${error.cause ? ` (${error.cause.message ?? error.cause})` : ""}`,
+    );
+    process.exitCode = 1;
+  });
+}

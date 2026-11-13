@@ -80,6 +80,7 @@
 
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import pg from "pg";
 
 const NE_BASE = "https://services.arcgis.com/JJzESW51TqeY9uat/arcgis/rest/services";
@@ -386,10 +387,98 @@ async function fetchJson(url, what, attempts = RETRY_DELAYS_MS.length + 1) {
   throw lastError;
 }
 
+// --- paging: the count is the contract -------------------------
+//
+// The same guard pattern as the priority habitats loader (the
+// 13 Nov 2026 diagnosis, scratch-nature/PHI-DIAGNOSIS.md):
+// ArcGIS reports query failures as an HTTP 200 body carrying
+// an `error` member and no `features` member, so a page is
+// validated INSIDE the retry boundary — an error envelope, a
+// missing features array, a page of the wrong length, or a
+// break in OBJECTID order fails the page, the SAME offset is
+// re-requested, and after the last attempt the read fails
+// loudly rather than ending early or improvising.
+
+function serviceErrorText(body) {
+  const error = body?.error;
+  if (!error) return null;
+  const parts = [
+    error.code != null ? `code ${error.code}` : null,
+    error.message ?? null,
+    ...(Array.isArray(error.details) ? error.details : []),
+  ].filter((part) => part !== null && part !== "");
+  return parts.length > 0 ? parts.join(": ") : "unknown error";
+}
+
+function validateServicePage(page, { spec, want, lastObjectId, offset }) {
+  const errorText = serviceErrorText(page);
+  if (errorText)
+    throw new Error(
+      `the ${spec.service} service returned an error for the page at offset ${offset}: ${errorText}`,
+    );
+  if (!Array.isArray(page?.features))
+    throw new Error(`the ${spec.service} page at offset ${offset} carries no features array`);
+  if (page.features.length !== want)
+    throw new Error(
+      `the ${spec.service} page at offset ${offset} returned ${page.features.length} features — the count contract requires exactly ${want}`,
+    );
+  let previous = lastObjectId;
+  for (const feature of page.features) {
+    const objectId = feature?.properties?.OBJECTID;
+    if (!Number.isFinite(objectId))
+      throw new Error(
+        `a feature on the ${spec.service} page at offset ${offset} carries no OBJECTID`,
+      );
+    if (previous !== null && objectId <= previous)
+      throw new Error(
+        `${spec.service} OBJECTID ordering broke at offset ${offset}: ${objectId} follows ${previous} — the read cannot be trusted`,
+      );
+    previous = objectId;
+  }
+  return previous;
+}
+
+async function fetchServicePage(
+  layerUrl,
+  spec,
+  offset,
+  expected,
+  pageSize,
+  lastObjectId,
+  delaysMs = RETRY_DELAYS_MS,
+) {
+  const want = Math.min(pageSize, expected - offset);
+  const q = new URLSearchParams({
+    where: "1=1",
+    outFields: spec.fields.join(","),
+    returnGeometry: "true",
+    outSR: "4326",
+    resultOffset: String(offset),
+    resultRecordCount: String(pageSize),
+    orderByFields: "OBJECTID",
+    f: "geojson",
+  });
+  let lastError = null;
+  for (let attempt = 1; attempt <= delaysMs.length + 1; attempt++) {
+    try {
+      const response = await fetch(`${layerUrl}/query?${q}`);
+      if (!response.ok) throw new Error(`HTTP ${response.status} for the ${spec.service} features`);
+      const page = await response.json();
+      validateServicePage(page, { spec, want, lastObjectId, offset });
+      return page;
+    } catch (error) {
+      lastError = error;
+      if (attempt <= delaysMs.length)
+        await new Promise((resolve) => setTimeout(resolve, delaysMs[attempt - 1]));
+    }
+  }
+  throw lastError;
+}
+
 // One service, read whole: layer metadata (the contract and the
 // data-edit stamp), the service's own count (the oracle the
 // paged read must match), then every feature in OBJECTID order.
-async function readServiceLive(spec) {
+export async function readServiceLive(spec, { delaysMs = RETRY_DELAYS_MS } = {}) {
   const layerUrl = `${NE_BASE}/${spec.service}/FeatureServer/0`;
   const meta = await fetchJson(`${layerUrl}?f=json`, `the ${spec.service} layer metadata`);
   const metaFields = (meta.fields ?? []).map((f) => f.name);
@@ -405,28 +494,27 @@ async function readServiceLive(spec) {
     `${layerUrl}/query?where=1%3D1&returnCountOnly=true&f=json`,
     `the ${spec.service} count`,
   );
+  const countError = serviceErrorText(countBody);
+  if (countError) throw new Error(`the ${spec.service} count query failed: ${countError}`);
   const expected = countBody.count;
+  if (!Number.isInteger(expected) || expected < 0)
+    throw new Error(`contract failure: the ${spec.service} count response carries no count`);
   const features = [];
   let offset = 0;
-  while (features.length < expected) {
-    const q = new URLSearchParams({
-      where: "1=1",
-      outFields: spec.fields.join(","),
-      returnGeometry: "true",
-      outSR: "4326",
-      resultOffset: String(offset),
-      resultRecordCount: String(pageSize),
-      orderByFields: "OBJECTID",
-      f: "geojson",
-    });
-    const page = await fetchJson(`${layerUrl}/query?${q}`, `the ${spec.service} features`);
-    const batch = page.features ?? [];
-    if (batch.length === 0)
-      throw new Error(
-        `${spec.service}: paging stopped at ${features.length} of ${expected} features`,
-      );
-    features.push(...batch);
-    offset += batch.length;
+  let lastObjectId = null;
+  while (offset < expected) {
+    const page = await fetchServicePage(
+      layerUrl,
+      spec,
+      offset,
+      expected,
+      pageSize,
+      lastObjectId,
+      delaysMs,
+    );
+    features.push(...page.features);
+    lastObjectId = page.features[page.features.length - 1].properties.OBJECTID;
+    offset += page.features.length;
   }
   if (features.length !== expected)
     throw new Error(
@@ -868,9 +956,11 @@ async function main() {
   console.log(`${summary()} · golden homes OK · ${Math.round((Date.now() - startedAt) / 1000)}s`);
 }
 
-main().catch((error) => {
-  console.error(
-    `load-nature-designations FAILED: ${error.message}${error.cause ? ` (${error.cause.message ?? error.cause})` : ""}`,
-  );
-  process.exitCode = 1;
-});
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    console.error(
+      `load-nature-designations FAILED: ${error.message}${error.cause ? ` (${error.cause.message ?? error.cause})` : ""}`,
+    );
+    process.exitCode = 1;
+  });
+}

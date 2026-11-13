@@ -677,19 +677,38 @@ function probePlanningDataset(dataset) {
 
 const NE_BASE = "https://services.arcgis.com/JJzESW51TqeY9uat/arcgis/rest/services";
 
+// ArcGIS (and OGC) services can report a failure as an HTTP
+// 200 body carrying an `error` member and no data — the shape
+// behind the 13 Nov 2026 PHI short read. A probe must record
+// that as a FAILURE, never as an empty or zero result, so
+// every JSON body the Natural England and flood probes consume
+// is checked for the envelope before anything is read from it.
+function assertNoErrorEnvelope(body, what) {
+  const error = body?.error;
+  if (!error) return;
+  const parts = [error.code != null ? `code ${error.code}` : null, error.message ?? null].filter(
+    (part) => part !== null && part !== "",
+  );
+  throw new Error(
+    `${what} returned an error envelope${parts.length > 0 ? `: ${parts.join(": ")}` : ""}`,
+  );
+}
+
 async function neLayerMeta(service) {
   const response = await fetchRetry(`${NE_BASE}/${service}/FeatureServer/0?f=json`);
   if (!response.ok) throw new Error(`HTTP ${response.status} for the ${service} layer`);
   const meta = await response.json();
+  assertNoErrorEnvelope(meta, `the ${service} layer metadata`);
   const ms = meta.editingInfo?.dataLastEditDate;
   return { editDate: ms ? new Date(ms).toISOString().slice(0, 10) : null };
 }
 
-async function neCount(service, where = "1=1") {
+export async function neCount(service, where = "1=1") {
   const q = new URLSearchParams({ where, returnCountOnly: "true", f: "json" });
   const response = await fetchRetry(`${NE_BASE}/${service}/FeatureServer/0/query?${q}`);
   if (!response.ok) throw new Error(`HTTP ${response.status} for the ${service} count`);
   const body = await response.json();
+  assertNoErrorEnvelope(body, `the ${service} count`);
   if (typeof body.count !== "number")
     throw new Error(`the ${service} count response changed shape`);
   return body.count;
@@ -760,7 +779,7 @@ function probeAncientWoodland() {
   })();
 }
 
-function probeAncientWoodlandRevised() {
+export function probeAncientWoodlandRevised() {
   return (async () => {
     const n = await neCount("Ancient_Woodland_Revised_England");
     // The revision only ever grows as counties complete: the
@@ -812,6 +831,7 @@ function probePriorityHabitats() {
     );
     if (!response.ok) throw new Error(`HTTP ${response.status} for the PHI version sample`);
     const body = await response.json();
+    assertNoErrorEnvelope(body, "the PHI version sample");
     const version = body.features?.[0]?.attributes?.Version;
     const m = String(version ?? "").match(/^([A-Za-z]+)_(\d{2})$/);
     if (!m || !PHI_MONTHS[m[1]]) throw new Error(`unparseable PHI version "${version}"`);
@@ -887,7 +907,7 @@ async function floodEdition(spec) {
   return [...dates][0];
 }
 
-function probeFloodProduct(item) {
+export function probeFloodProduct(item) {
   const spec = FLOOD_PRODUCTS[item];
   return (async () => {
     const collectionsUrl = `${spec.items.split("/collections/")[0]}/collections?f=json`;
@@ -897,12 +917,14 @@ function probeFloodProduct(item) {
         `HTTP ${collectionsResponse.status} for the ${spec.collection} collections document`,
       );
     const collectionsBody = await collectionsResponse.json();
+    assertNoErrorEnvelope(collectionsBody, `the ${spec.collection} collections document`);
     if (!(collectionsBody.collections ?? []).some((c) => c.id === spec.collection))
       throw new Error(`the collections document no longer names ${spec.collection}`);
     const countResponse = await fetchRetry(`${spec.items}?limit=1&f=json`);
     if (!countResponse.ok)
       throw new Error(`HTTP ${countResponse.status} for the ${spec.collection} count`);
     const countBody = await countResponse.json();
+    assertNoErrorEnvelope(countBody, `the ${spec.collection} count`);
     const matched = countBody.numberMatched;
     if (!Number.isInteger(matched))
       throw new Error(`the ${spec.collection} items response carries no numberMatched`);
@@ -925,6 +947,7 @@ function probeFloodProduct(item) {
       if (!anchorResponse.ok)
         throw new Error(`HTTP ${anchorResponse.status} for the ${spec.collection} Exeter anchor`);
       const anchorBody = await anchorResponse.json();
+      assertNoErrorEnvelope(anchorBody, `the ${spec.collection} Exeter anchor`);
       const hit = (anchorBody.features ?? []).some(
         (f) => f.properties?.[spec.anchor.property] === spec.anchor.value,
       );
