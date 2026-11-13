@@ -7,7 +7,9 @@ import {
   goldenBandChecks,
   parseGeotiff,
   parseSamplesCsv,
+  pointsForSamples,
   samplesToRows,
+  toBng,
 } from "../loaders/load-noise.mjs";
 
 // Noise loader (plan step M5.9). The fixture's values are the
@@ -175,6 +177,91 @@ describe("the fixture samples", () => {
       "postcode,source_kind,day_value,night_value\nZZ9 9ZZ,road,50,40\n",
     );
     expect(() => samplesToRows(samples, new Map())).toThrow(/unknown postcode/);
+  });
+});
+
+// The runner's fixture pass (CI's database job) files the noise
+// fixture against a postcode directory loaded from the ONSPD
+// excerpt fixture, which carries only the CM and E area files —
+// so the directory holds CM3 2JT and E16 1GN but neither KT
+// postcode the noise fixture samples. pointsForSamples is the
+// exact resolution the loader's --file branch runs: directory
+// rows first, a golden postcode's recorded point as the fallback.
+// (This is the path that failed in CI with "sample for unknown
+// postcode KT17 1FH" while the hand-built map above stayed green.)
+describe("fixture-mode point resolution — the runner's path", () => {
+  const fixtureSamples = () =>
+    parseSamplesCsv(
+      readFileSync(join(process.cwd(), "tests/fixtures/noise/noise-samples.csv"), "utf8"),
+    );
+  // What the excerpt directory actually returns for the fixture's
+  // postcodes: the two it holds, at their directory coordinates.
+  const excerptDirectory = [
+    { postcode: "CM3 2JT", latitude: 51.776176, longitude: 0.60387 },
+    { postcode: "E16 1GN", latitude: 51.515224, longitude: 0.021177 },
+  ];
+
+  it("resolves all three core golden postcodes against the excerpt directory", () => {
+    const rows = samplesToRows(
+      fixtureSamples(),
+      pointsForSamples(fixtureSamples(), excerptDirectory),
+    ) as {
+      areaRef: string;
+      sourceKind: string;
+      dayBand: string;
+      nightBand: string;
+      latitude: number;
+      longitude: number;
+    }[];
+    expect(rows).toHaveLength(12);
+    expect(() => goldenBandChecks(rows)).not.toThrow();
+    // Directory coordinates are used where the directory has them.
+    const birkdale = rows.find((r) => r.areaRef === "CM3 2JT");
+    expect(birkdale?.latitude).toBe(51.776176);
+    expect(birkdale?.longitude).toBe(0.60387);
+    // The KT rows fall back to the golden points' recorded BNG
+    // positions: Minerva House KT17 1FH is 51.344571, -0.247104
+    // and Ewell Village KT17 1DR converts to ~51.350244, -0.256606.
+    const minerva = rows.find((r) => r.areaRef === "KT17 1FH");
+    expect(Math.abs((minerva?.latitude ?? 0) - 51.344571)).toBeLessThan(0.001);
+    expect(Math.abs((minerva?.longitude ?? 0) - -0.247104)).toBeLessThan(0.001);
+    const ewell = rows.find((r) => r.areaRef === "KT17 1DR");
+    expect(Math.abs((ewell?.latitude ?? 0) - 51.350244)).toBeLessThan(0.001);
+    expect(Math.abs((ewell?.longitude ?? 0) - -0.256606)).toBeLessThan(0.001);
+  });
+
+  it("prefers a directory row over the golden fallback when both exist", () => {
+    const directory = [
+      ...excerptDirectory,
+      { postcode: "KT17 1FH", latitude: 51.0, longitude: 0.0 },
+    ];
+    const rows = samplesToRows(fixtureSamples(), pointsForSamples(fixtureSamples(), directory));
+    const minerva = rows.find((r) => r.areaRef === "KT17 1FH");
+    expect(minerva?.latitude).toBe(51.0);
+    expect(minerva?.longitude).toBe(0.0);
+  });
+
+  it("still refuses a genuinely unknown postcode with the same error", () => {
+    const samples = parseSamplesCsv(
+      "postcode,source_kind,day_value,night_value\nZZ9 9ZZ,road,50,40\n",
+    );
+    const points = pointsForSamples(samples, excerptDirectory);
+    expect(() => samplesToRows(samples, points)).toThrow(
+      "noise: sample for unknown postcode ZZ9 9ZZ",
+    );
+  });
+});
+
+describe("toBng — the live sampling conversion", () => {
+  it("lands on the golden points' recorded BNG coordinates", () => {
+    // GOLDEN_SAMPLES records CM3 2JT at BNG [579733, 211818] and
+    // KT17 1FH at [522181, 162068], from the postcode directory.
+    const [cmX, cmY] = toBng(51.776176, 0.60387) as number[];
+    expect(Math.abs(cmX - 579733)).toBeLessThan(3);
+    expect(Math.abs(cmY - 211818)).toBeLessThan(3);
+    const [ktX, ktY] = toBng(51.344571, -0.247104) as number[];
+    expect(Math.abs(ktX - 522181)).toBeLessThan(3);
+    expect(Math.abs(ktY - 162068)).toBeLessThan(3);
   });
 });
 

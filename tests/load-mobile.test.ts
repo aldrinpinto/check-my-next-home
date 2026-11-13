@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -27,7 +28,13 @@ describe("the fixture release", () => {
           basis: string;
           services: Record<
             string,
-            { outdoor: { no_operator_pct: number; at_least_one_operator_pct: number } }
+            {
+              outdoor: {
+                no_operator_pct: number;
+                all_operators_pct: number | null;
+                at_least_one_operator_pct: number;
+              };
+            }
           >;
         };
       }[];
@@ -36,6 +43,29 @@ describe("the fixture release", () => {
     expect(() => structuralChecks(rows, { full: false })).not.toThrow();
     const braintree = rows.find((r) => r.lauaName === "Braintree");
     expect(braintree?.answer.basis).toMatch(/local-authority level/);
+    // Spring 2026 removed the aggregate Data service. The filed
+    // services are the technology/service families the real file
+    // publishes, including 5G Standalone at both confidence levels.
+    expect(Object.keys(braintree?.answer.services ?? {})).toEqual([
+      "voice",
+      "4g",
+      "5g_high_confidence",
+      "5g_very_high_confidence",
+      "5g_sa_high_confidence",
+      "5g_sa_very_high_confidence",
+    ]);
+    expect(braintree?.answer.services).not.toHaveProperty("data");
+    // Voice is a three-operator maximum in the real file: its
+    // all-operators figure is the _3 column, not a missing _4 column.
+    expect(braintree?.answer.services.voice.outdoor.all_operators_pct).toBe(88.5);
+    // 5G SA has no four-operator column values (one operator does
+    // not deploy it), but its published no-operator figure and the
+    // sanctioned at-least-one derivation still file.
+    expect(braintree?.answer.services["5g_sa_high_confidence"].outdoor).toEqual({
+      no_operator_pct: 42.6,
+      all_operators_pct: null,
+      at_least_one_operator_pct: 57.4,
+    });
     // at-least-one = 100 - no-operator, from the filed inputs.
     const fourG = braintree?.answer.services["4g"].outdoor;
     expect(fourG?.at_least_one_operator_pct).toBeCloseTo(100 - (fourG?.no_operator_pct ?? NaN), 5);
@@ -44,6 +74,37 @@ describe("the fixture release", () => {
   it("refuses a file missing a consumed service column", () => {
     const broken = "laua,laua_name,Voice_prem_out_0\nE07000067,Braintree,0.1\n";
     expect(() => parseLauaCsv(broken, RELEASE)).toThrow(/missing column/);
+  });
+});
+
+describe("blank and partial rows", () => {
+  // The real Spring 2026 file ends with an empty row spanning every
+  // column (founder's live run, 13 Nov 2026): a record in which
+  // every field is empty holds no data and must be skipped — the
+  // fixture itself now ends with such a row, and the fixture test
+  // above parses it. A row that carries values but no authority
+  // code or name is a data error and must still throw.
+  const fixtureLines = async () => {
+    const text = await readFile(join(FIXTURE_DIR, "202601_mobile_coverage_laua_r01.csv"), "utf8");
+    return text.split(/\r?\n/).filter((line) => line !== "");
+  };
+
+  it("skips a record in which every field is empty", async () => {
+    const [header, row] = await fixtureLines();
+    const emptyRow = ",".repeat(header.split(",").length - 1);
+    const rows = parseLauaCsv([header, row, emptyRow].join("\n"), RELEASE);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].lauaName).toBe(row.split(",")[1]);
+  });
+
+  it("still refuses a row that carries values but no authority code or name", async () => {
+    const [header, row] = await fixtureLines();
+    const fields = row.split(",");
+    fields[0] = "";
+    fields[1] = "";
+    expect(() => parseLauaCsv([header, fields.join(",")].join("\n"), RELEASE)).toThrow(
+      /no authority code or name/,
+    );
   });
 });
 

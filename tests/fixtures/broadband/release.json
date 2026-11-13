@@ -1,6 +1,1 @@
-{
-  "snapshot": "2026-01",
-  "snapshotLabel": "2026-01",
-  "sourceDate": "2026-01-01",
-  "revision": "r2"
-}
+{"filedSeries":{"basis":"All premises","filePattern":"202601_fixed_pc_coverage_r2_<AREA>.csv","path":"202601_fixed_broadband_coverage_and_full_fibre_take-up (v2)/202601_fixed_pc_coverage/postcode_files_r2","revision":"r2"},"notFiledSeries":{"basis":"Residential premises","filePattern":"202601_fixed_pc_coverage_res_r1_<AREA>.csv","filed":false,"path":"202601_fixed_broadband_coverage_and_full_fibre_take-up (v2)/202601_fixed_pc_coverage/postcode_res_files_r1","revision":"r1"},"releaseZip":"202601_fixed_broadband_coverage_and_full_fibre_take-up-r1.zip","revision":"r2","snapshot":"2026-01","snapshotLabel":"2026-01","sourceDate":"2026-01-01"}

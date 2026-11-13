@@ -82,7 +82,15 @@ proj4.defs(
   "+proj=tmerc +lat_0=49 +lon_0=-2 +k=0.9996012717 +x_0=400000 +y_0=-100000 " +
     "+ellps=airy +towgs84=446.448,-125.157,542.06,0.15,0.247,0.842,-20.489 +units=m +no_defs",
 );
-export const toBng = (lat, lng) => proj4("EPSG:27700", "EPSG:4326", [lng, lat]);
+// WGS84 → BNG (the live sampling route) and back (the golden-point
+// fallback below). proj4's first argument is the SOURCE projection:
+// toBng(51.776176, 0.60387) lands within ~2 m of CM3 2JT's recorded
+// BNG point [579733, 211818] — pinned by a test.
+export const toBng = (lat, lng) => proj4("EPSG:4326", "EPSG:27700", [lng, lat]);
+export const fromBng = (x, y) => {
+  const [lng, lat] = proj4("EPSG:27700", "EPSG:4326", [x, y]);
+  return { latitude: lat, longitude: lng };
+};
 
 export const SOURCE_NAME = "Defra strategic noise mapping — England Round 4 (2022 reference year)";
 // Round 4 was published in October 2024.
@@ -332,6 +340,30 @@ export function samplesToRows(samples, pointsByPostcode) {
     });
   }
   return rows;
+}
+
+// The point a fixture (--file) sample files at, for one postcode:
+// the postcode directory's row when it holds one (the directory is
+// authoritative), else — for a golden postcode — the point this
+// loader itself recorded in GOLDEN_SAMPLES, converted from BNG.
+// The fallback exists because the directory's CI fixture is an
+// excerpt (the ONSPD sample carries only the CM and E area files,
+// so its golden set is CM3 2JT + E16 1GN), while the noise fixture
+// samples the KT golden points too: their samples are golden-point
+// measurements by construction (tests/fixtures/noise/README.md),
+// so the recorded point is the right coordinate. A postcode that is
+// neither in the directory nor a golden point stays absent from the
+// map, and samplesToRows still refuses it as unknown.
+export function pointsForSamples(samples, directoryRows) {
+  const points = new Map(directoryRows.map((p) => [p.postcode, p]));
+  for (const s of samples) {
+    if (points.has(s.postcode)) continue;
+    const golden = GOLDEN_SAMPLES[s.postcode];
+    if (golden) {
+      points.set(s.postcode, { postcode: s.postcode, ...fromBng(...golden.bng) });
+    }
+  }
+  return points;
 }
 
 export function parseSamplesCsv(text) {
@@ -651,7 +683,7 @@ async function run() {
         `SELECT postcode, latitude, longitude FROM postcode_cache WHERE postcode = ANY($1)`,
         [wanted],
       );
-      const pointsByPostcode = new Map(found.map((p) => [p.postcode, p]));
+      const pointsByPostcode = pointsForSamples(samples, found);
       rows = samplesToRows(samples, pointsByPostcode);
       goldenBandChecks(rows);
       note = `${rows.length} rows from ${fileDir}`;

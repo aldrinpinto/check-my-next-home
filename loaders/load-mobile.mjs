@@ -20,20 +20,34 @@
 // included), the design absorbs the true grain.
 //
 // What is filed per authority, from the published columns: for
-// Voice, Data, 4G and 5G (high and very high confidence), the
-// outdoor percentages with no operator and with all four operators,
-// plus Ofcom's own sanctioned derivation for "at least one
-// operator" (100 minus the no-operator percentage — About-this-data
-// note 3), with the published inputs filed beside it so the
-// derivation is auditable. 4G also carries the indoor set (the only
-// service with published indoor premises figures alongside 5G's
-// outdoor-only publication).
+// Voice, 4G, ordinary 5G (high and very high confidence) and 5G
+// Standalone (high and very high confidence), the outdoor
+// percentages with no operator and with all operators, plus
+// Ofcom's own sanctioned derivation for "at least one operator"
+// (100 minus the no-operator percentage — Spring 2026
+// About-this-data note 4), with the published inputs filed beside
+// it so the derivation is auditable. Voice's all-operators column
+// is _3, not _4: the real file publishes Voice for a maximum of
+// three operators. The 5G SA _4 columns are present but empty —
+// one operator does not deploy 5G SA — so their all-operators
+// figure files as null while the published no-operator figure and
+// its derivation still file. Of the filed services, only 4G also
+// carries an indoor set; every 5G variant is outdoor-only.
+//
+// There is NO Data service in the Spring 2026 file. Older Ofcom
+// documentation (through Spring 2025) listed an aggregate Data
+// family, and this loader originally required it; the founder's
+// live run on 13 Nov 2026 proved the shipped Spring 2026 file has
+// no Data_* columns, and the Spring 2026 About-this-data service
+// list omits Data. It is not reconstructed from 4G: the older
+// aggregate was defined from combined 3G/4G thresholds, so 4G
+// alone is not the same measure.
 //
 // Access, filing discipline and modes mirror load-broadband:
-// ofcom.org.uk 403s this build sandbox, so the loader is built
-// against Ofcom's published documentation with format-faithful
-// fixtures and its live-pull proof is outstanding (founder-machine
-// pull, PHI precedent). One transaction stages and merges; stale
+// ofcom.org.uk 403s this build sandbox. The founder-machine pull
+// supplied the real Spring 2026 header shape this loader and its
+// fixture now follow; the corrected loader's live-pull proof is
+// still outstanding. One transaction stages and merges; stale
 // keys are removed in the same transaction; a failed load never
 // overwrites the last good copy. Postcodes whose council matches
 // no published authority are counted and named in the loader's
@@ -62,18 +76,28 @@ export const SOURCE_NAME = "Ofcom Connected Nations — mobile coverage (local a
 export const ANSWER_KEY = "mobile";
 
 // Service columns consumed, by their published names
-// ([Service]_[prem type]_[operator count]).
+// ([Service]_[prem type]_[operator count]). `allOperators` is the
+// highest published operator-count column for that service: 3 for
+// Voice, 4 for the rest. (The 5G SA _4 columns exist but are
+// empty in Spring 2026; see the header note.)
 const SERVICES = {
-  voice: "Voice",
-  data: "Data",
-  "4g": "4G",
-  "5g_high_confidence": "5G_high_confidence",
-  "5g_very_high_confidence": "5G_very_high_confidence",
+  voice: { label: "Voice", allOperators: 3 },
+  "4g": { label: "4G", allOperators: 4 },
+  "5g_high_confidence": { label: "5G_high_confidence", allOperators: 4 },
+  "5g_very_high_confidence": { label: "5G_very_high_confidence", allOperators: 4 },
+  "5g_sa_high_confidence": { label: "5G_SA_high_confidence", allOperators: 4 },
+  "5g_sa_very_high_confidence": {
+    label: "5G_SA_very_high_confidence",
+    allOperators: 4,
+  },
 };
 const REQUIRED_COLUMNS = [
   "laua",
   "laua_name",
-  ...Object.values(SERVICES).flatMap((s) => [`${s}_prem_out_0`, `${s}_prem_out_4`]),
+  ...Object.values(SERVICES).flatMap(({ label, allOperators }) => [
+    `${label}_prem_out_0`,
+    `${label}_prem_out_${allOperators}`,
+  ]),
   "4G_prem_in_0",
   "4G_prem_in_4",
 ];
@@ -97,11 +121,14 @@ const pct = (raw, laua, field) => {
 const coverageSet = (noneRaw, allRaw, laua, field) => {
   const none = pct(noneRaw, laua, field);
   const all = pct(allRaw, laua, field);
-  if (none === null || all === null) return null;
+  // A missing all-operators value (5G SA _4 in Spring 2026) does
+  // not erase the published no-operator figure: file it as null
+  // beside the figures that were published.
+  if (none === null) return null;
   return {
     no_operator_pct: none,
     all_operators_pct: all,
-    // Ofcom's own derivation (About-this-data note 3).
+    // Ofcom's own derivation (Spring 2026 About-this-data note 4).
     at_least_one_operator_pct: Math.round((100 - none) * 10) / 10,
   };
 };
@@ -120,16 +147,21 @@ export function parseLauaCsv(text, release) {
   const get = (rec, name) => rec[index.get(name)];
   const rows = [];
   for (const rec of records.slice(1)) {
-    if (rec.length === 1 && rec[0] === "") continue;
+    // A record in which every field is empty is a blank row the
+    // file carries (the real Spring 2026 file ends with an empty
+    // row spanning all columns): it holds no data, so skip it. A
+    // record that carries values but no authority code or name is
+    // a data error and still throws below.
+    if (rec.every((field) => field.trim() === "")) continue;
     const laua = get(rec, "laua").trim();
     const lauaName = get(rec, "laua_name").trim();
     if (!laua || !lauaName) throw new Error("mobile: a row with no authority code or name");
     const services = {};
-    for (const [key, label] of Object.entries(SERVICES)) {
+    for (const [key, { label, allOperators }] of Object.entries(SERVICES)) {
       services[key] = {
         outdoor: coverageSet(
           get(rec, `${label}_prem_out_0`),
-          get(rec, `${label}_prem_out_4`),
+          get(rec, `${label}_prem_out_${allOperators}`),
           lauaName,
           `${label} outdoor`,
         ),

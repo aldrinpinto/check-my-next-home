@@ -20,6 +20,14 @@ values the loader's `--verify-only` re-checks live):
 | | rail | 53.84 | 49.48 | Below 55 dB / Below 50 dB |
 | | airport | nodata | nodata | No modelled airport noise |
 
+Filing note: in the runner's fixture pass the postcode directory
+comes from the ONSPD excerpt fixture, which holds only the CM and
+E areas — the two KT postcodes above are not in it. The loader
+resolves a golden postcode missing from the directory from the
+point it recorded for that postcode in `GOLDEN_SAMPLES`
+(`pointsForSamples` in the loader; directory rows win when both
+exist), and still refuses any other unknown postcode.
+
 Semantics, as published: a value of 0 means no contribution above
 the mapping floor was modelled at the point (never "0 dB");
 `nodata` means the point is outside the modelled extent. Exeter

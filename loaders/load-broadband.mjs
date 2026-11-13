@@ -8,9 +8,11 @@
 //   gap G12: the Spring 2026 postcode files were re-issued mid-cycle
 //   from r1 to r2 after two area files duplicated others; a loader
 //   pinned to r1 would have filed the wrong data without a murmur).
-//   Inside the ZIP, the all-premises postcode files
-//   (postcode_files/<snapshot>_fixed_postcode_coverage_r<N>_<area>.csv)
-//   are the filed set; the residential-only set is not filed.
+//   Inside the ZIP, the all-premises postcode files are nested
+//   under 202601_fixed_pc_coverage/postcode_files_r<N>/ with
+//   basenames <snapshot>_fixed_pc_coverage_r<N>_<area>.csv; those
+//   are the filed set. The residential-only series under
+//   postcode_res_files_r<N>/ is deliberately not filed.
 //
 // What is filed, per postcode, exactly as published (gap G6):
 // the gigabit-capable percentage is the headline figure; alongside
@@ -45,7 +47,8 @@
 //   node loaders/load-broadband.mjs --verify-only    discover +
 //     structural checks, files nothing
 //   node loaders/load-broadband.mjs --file <dir>     file a local
-//     release folder: release.json + postcode_files/*.csv.
+//     release folder: release.json plus real-shaped all-premises
+//     postcode entries at any depth below it.
 //
 // Exits non-zero on any failure and prints
 // "load-broadband FAILED: …" to stderr.
@@ -133,9 +136,19 @@ const pct = (raw, postcode, field) => {
   return n;
 };
 
-// Parse one postcode-area CSV into answer rows. The speed-band
-// shares must sum to ~100 on every row — a publisher invariant that
-// catches a mis-mapped column on the first real pull.
+// Parse one postcode-area CSV into answer rows. Speed-band rule
+// (Ofcom, "About this data — fixed broadband coverage and full
+// fibre take-up 2026", v2): each band is the percentage of ALL
+// premises in the postcode whose maximum download speed falls in
+// that range. Premises that could not be matched to at least one
+// provider record with a non-zero predicted speed are
+// UNCLASSIFIED — they count in the denominator but sit in no
+// band — so the six bands legitimately sum to LESS than 100, the
+// shortfall is the postcode's unclassified share, and a sum of
+// exactly 0 is the legitimate limiting case (no matched
+// premises). Only a sum OVER 100 (beyond a small rounding
+// tolerance) signals a mis-mapped column; every single band is
+// separately held to [0, 100] by pct() below.
 export function parsePostcodeCsv(text, release) {
   const records = [...csvRecords(text)];
   if (records.length < 2) throw new Error("broadband: postcode file has no rows");
@@ -165,9 +178,13 @@ export function parsePostcodeCsv(text, release) {
       "300_plus": pct(get(rec, COL.band300Plus), postcode, "band >=300"),
     };
     const bandSum = Object.values(bands).reduce((a, b) => a + b, 0);
-    if (bandSum < 98.5 || bandSum > 101.5) {
+    // Bands are shares of all premises and may sum below 100 (the
+    // shortfall is the unclassified share — see the rule above);
+    // only a sum over 100, beyond a small rounding tolerance,
+    // means a column is mis-mapped.
+    if (bandSum > 100.5) {
       throw new Error(
-        `broadband: speed bands for ${postcode} sum to ${bandSum}, not ~100 — a column is mis-mapped`,
+        `broadband: speed bands for ${postcode} sum to ${bandSum}, over 100 — a column is mis-mapped (bands are shares of all premises; a sum below 100 is legitimate, the shortfall being the unclassified share of unmatched / zero-predicted-speed premises — Ofcom, "About this data — fixed broadband coverage and full fibre take-up 2026")`,
       );
     }
     rows.push({
@@ -316,10 +333,14 @@ function readZipEntries(buffer, predicate) {
   });
 }
 
-const POSTCODE_FILE = /_fixed_postcode_coverage_r(\d+)_([A-Z]+)\.csv$/i;
+// Ofcom abbreviates "postcode" to "pc" in the real file names.
+// Requiring _r<N> immediately after "coverage" is load-bearing:
+// the residential series is _fixed_pc_coverage_res_r<N>_<area>.csv
+// and must never match this all-premises pattern.
+export const POSTCODE_FILE = /_fixed_pc_coverage_r(\d+)_([A-Z]+)\.csv$/i;
 
 export function releaseFromNames(names) {
-  const first = names[0];
+  const first = names[0]?.split(/[\\/]/).pop();
   const match = first?.match(/^(\d{6})_/);
   if (!match) throw new Error(`broadband: cannot read a snapshot from "${first}"`);
   const yyyymm = match[1];
@@ -340,13 +361,19 @@ export async function loadBroadbandRows({ fileDir = null } = {}) {
   let files;
   if (fileDir) {
     release = JSON.parse(await readFile(join(fileDir, "release.json"), "utf8"));
-    const names = (await readdir(join(fileDir, "postcode_files"))).filter((n) =>
-      POSTCODE_FILE.test(n),
-    );
-    if (names.length === 0) throw new Error(`broadband: no postcode files in ${fileDir}`);
+    const paths = [];
+    const walk = async (dir) => {
+      for (const entry of await readdir(dir, { withFileTypes: true })) {
+        const path = join(dir, entry.name);
+        if (entry.isDirectory()) await walk(path);
+        else if (entry.isFile() && POSTCODE_FILE.test(entry.name)) paths.push(path);
+      }
+    };
+    await walk(fileDir);
+    if (paths.length === 0) throw new Error(`broadband: no postcode files in ${fileDir}`);
     files = new Map();
-    for (const name of names) {
-      files.set(name, await readFile(join(fileDir, "postcode_files", name), "utf8"));
+    for (const path of paths) {
+      files.set(path.split(/[\\/]/).pop(), await readFile(path, "utf8"));
     }
   } else {
     const { fixedZipUrl } = await discoverReleaseZips();
@@ -354,10 +381,7 @@ export async function loadBroadbandRows({ fileDir = null } = {}) {
       throw new Error("broadband: no fixed-broadband ZIP linked from the publication page");
     }
     const buffer = await fetchRetry(fixedZipUrl, { binary: true });
-    files = await readZipEntries(
-      buffer,
-      (name) => /postcode_files\//i.test(name) && POSTCODE_FILE.test(name),
-    );
+    files = await readZipEntries(buffer, (name) => POSTCODE_FILE.test(name));
     if (files.size === 0) throw new Error("broadband: the release ZIP holds no postcode files");
     release = releaseFromNames([...files.keys()].map((k) => k.split("/").pop()));
   }

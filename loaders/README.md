@@ -511,7 +511,15 @@ filename (the Spring 2026 postcode files were re-issued r1→r2
 mid-cycle). Broadband files the all-premises postcode
 percentages as published — gigabit-capable is the headline;
 Ofcom publishes no full-fibre percentage and no premise counts
-at postcode level, and neither is invented. Mobile is filed at
+at postcode level, and neither is invented. The maximum-speed
+band shares are shares of all premises in the postcode (Ofcom,
+"About this data — fixed broadband coverage and full fibre
+take-up 2026"): premises that could not be matched to a
+provider record with a non-zero predicted speed are
+unclassified and sit in no band, so the six bands legitimately
+sum to less than 100 — the shortfall is the postcode's
+unclassified share — and a sum of exactly 0 is legitimate;
+only a sum over 100 fails the load. Mobile is filed at
 its TRUE grain: Ofcom publishes no postcode-level mobile file,
 so each postcode gets its own local authority's published
 percentages (joined on the directory's council), with the
