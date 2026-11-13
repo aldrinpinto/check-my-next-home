@@ -9,7 +9,9 @@ name: Practice — M4.8 deliberate-break proof
 # scenarios that keep the key intact. Since plan step M5.3 the
 # job also asserts the two nature loaders filed their six layers
 # on the clean pass; since plan step M5.1 it likewise asserts
-# the three flood loaders filed their three layers.
+# the three flood loaders filed their three layers; since
+# plan step M5.5 it likewise asserts the transport loader
+# filed its stops.
 
 on:
   workflow_dispatch:
@@ -79,6 +81,14 @@ jobs:
           psql "$DATABASE_URL" -Atc "SELECT count(*) FROM loader_run_items WHERE run_id = (SELECT id FROM loader_runs ORDER BY started_at DESC LIMIT 1) AND item IN ('load-flood-zones', 'load-flood-rivers-sea', 'load-flood-surface-water') AND status = 'succeeded'" | grep -qx 3
           psql "$DATABASE_URL" -Atc "SELECT DISTINCT layer_type FROM flood_layers WHERE layer_type IN ('flood_zone', 'rofrs', 'rofsw') ORDER BY 1"
           psql "$DATABASE_URL" -Atc "SELECT count(DISTINCT layer_type) FROM flood_layers WHERE layer_type IN ('flood_zone', 'rofrs', 'rofsw')" | grep -qx 3
+
+      - name: Assert the transport loader filed (plan step M5.5)
+        run: |
+          psql "$DATABASE_URL" -Atc "SELECT item, status FROM loader_run_items WHERE run_id = (SELECT id FROM loader_runs ORDER BY started_at DESC LIMIT 1) AND item IN ('load-transport') ORDER BY item"
+          psql "$DATABASE_URL" -Atc "SELECT count(*) FROM loader_run_items WHERE run_id = (SELECT id FROM loader_runs ORDER BY started_at DESC LIMIT 1) AND item IN ('load-transport') AND status = 'succeeded'" | grep -qx 1
+          psql "$DATABASE_URL" -Atc "SELECT count(*) FROM transport_stops" | grep -qx 1481
+          psql "$DATABASE_URL" -Atc "SELECT DISTINCT stop_type FROM transport_stops ORDER BY 1"
+          psql "$DATABASE_URL" -Atc "SELECT count(DISTINCT stop_type) FROM transport_stops" | grep -qx 8
 
       - name: Snapshot the filed crime answers
         run: |
