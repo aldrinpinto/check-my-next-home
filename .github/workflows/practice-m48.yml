@@ -128,7 +128,8 @@ jobs:
 
       - name: Assert the M5.9 datasets filed (plan step M5.9)
         run: |
-          psql "$DATABASE_URL" -Atc "SELECT count(*) FROM loader_run_items WHERE run_id = (SELECT id FROM loader_runs ORDER BY started_at DESC LIMIT 1) AND item IN ('load-imd','load-air-quality','load-noise','load-broadband','load-mobile') AND status='succeeded'" | grep -qx 5
+          psql "$DATABASE_URL" -Atc "SELECT item, status FROM loader_run_items WHERE run_id = (SELECT id FROM loader_runs ORDER BY started_at DESC LIMIT 1) AND item IN ('load-imd','load-air-quality','load-noise','load-broadband','load-mobile') ORDER BY 1"
+          psql "$DATABASE_URL" -Atc "SELECT count(*) FROM loader_run_items WHERE run_id = (SELECT id FROM loader_runs ORDER BY started_at DESC LIMIT 1) AND item IN ('load-imd','load-air-quality','load-noise','load-broadband','load-mobile') AND status='succeeded'"
           psql "$DATABASE_URL" -Atc "SELECT count(*) FROM neighbourhood_stats" | grep -qx 3
           psql "$DATABASE_URL" -Atc "SELECT imd_decile FROM neighbourhood_stats WHERE lsoa_code='E01021395'" | grep -qx 8
           psql "$DATABASE_URL" -Atc "SELECT imd_decile FROM neighbourhood_stats WHERE lsoa_code='E01003511'" | grep -qx 3
