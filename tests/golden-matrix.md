@@ -263,6 +263,15 @@ Registry was decommissioned on 28 Nov 2024 and is not a source.
 | New-build: band newly set, or property not yet banded at first sale — honesty state                        | C10                                                                                                                     |
 | Top band (H) property                                                                                      | GAP — kind of postcode: a large detached house postcode in Epsom / Weybridge (C5's street is the likely hunting ground) |
 
+### Benefits (M5.16)
+
+| Combination                                                                                            | Covered by                                                                                                                                                                   |
+| ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Claimant Count filed for the home's LSOA (count + published % of residents aged 16–64, September 2026) | Birkdale LSOA E01021395: 15 / 1.6% · Exeter LSOA E01003511: 120 / 8.6% · Minerva LSOA E01030396: 20 / 1.2% — locked at the prep, re-verified live at the build               |
+| LSOA Census bases filed (TS021 residents / TS054 households)                                           | Birkdale 1,489 / 625 · Exeter 1,923 / 671 · Minerva 2,487 / 852                                                                                                              |
+| Universal Credit (people + households)                                                                 | PENDING — the K22 Stat-Xplore key is refused account-side at DWP (HTTP 401, 13 Nov 2026); goldens lock at the first keyed verify-only pull (the loader's PENDING_FIRST_PULL) |
+| Scotland / NI home: no benefits row, named not-covered state at serving                                | By construction — both series file England & Wales LSOAs only                                                                                                                |
+
 ## E2E journeys each candidate unlocks (Playwright, QA phase)
 
 | Candidate            | Journey it unlocks                                                                                                                                                                          |

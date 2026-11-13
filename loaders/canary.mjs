@@ -19,6 +19,8 @@ import { createWriteStream, existsSync, mkdtempSync, readFileSync, rmSync } from
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { probePlanningApplication } from "./canary-planning-application.mjs";
+
 const MONTHS = {
   January: "01",
   February: "02",
@@ -1426,6 +1428,131 @@ export function probeNomisCensus() {
   })();
 }
 
+// --- DWP benefits sources (plan step M5.16) ---
+//
+// nomis-claimant: the Claimant Count is the keyless half of
+// the benefits step, so its probe works today, on the
+// loader's own recipe at golden size. Three arms:
+// (a) freshness — NM_162_1's latest month is no more than
+//     ~75 days behind the canary date (measured rhythm:
+//     September 2026's count, taken 11 Sep, was released
+//     20 Oct — about six weeks; 75 days from the month end
+//     leaves a full release cycle of slack before calling
+//     it stale);
+// (b) golden — the three golden LSOAs return a count and a
+//     published percentage for the latest month, count a
+//     non-negative integer, percentage within 0–100
+//     (values themselves move monthly and the previous
+//     month is revised at every release — presence and
+//     sanity, never equality);
+// (c) shape — the response still carries the consumed
+//     columns, measures 1 and 2, and the "2021 super output
+//     areas - lower layer" geography type (the January 2026
+//     geography migration is the standing warning that this
+//     can change under a live loader).
+//
+// stat-xplore-uc: reports NOT VERIFIED, plainly, for as
+// long as the K22 key is refused account-side at DWP
+// (HTTP 401 AUTHENTICATION on every documented
+// presentation, including a brand-new reset key, 13 Nov
+// 2026 — the refusal is an established fact, re-probing it
+// monthly would only repeat it). The probe returns the
+// runner's skipped outcome with the reason, so every
+// monthly run record states the position in words. When
+// DWP restores the account's API access, this probe gains
+// its real arms (availability of a minimal table query,
+// ~7-month freshness for the quarterly series, the
+// 2021-vintage check) alongside the loader's
+// PENDING_FIRST_PULL.
+
+export const CLAIMANT_GOLDEN_CODES = ["E01021395", "E01003511", "E01030396"];
+export const CLAIMANT_STALE_DAYS = 75;
+
+export function claimantLatestFacts(csvText) {
+  const lines = csvText.split(/\r?\n/).filter((l) => l.trim() !== "");
+  if (lines.length < 2) throw new Error("the Claimant Count response is empty");
+  const header = splitCsvLine(lines[0]).map((h) => h.trim());
+  const at = {};
+  for (const col of [
+    "DATE_CODE",
+    "GEOGRAPHY_CODE",
+    "GEOGRAPHY_TYPE",
+    "MEASURE_CODE",
+    "OBS_VALUE",
+  ]) {
+    at[col] = header.indexOf(col);
+    if (at[col] === -1)
+      throw new Error(`the Claimant Count response carries no ${col} column — the shape changed`);
+  }
+  let month = null;
+  const rows = {};
+  for (const line of lines.slice(1)) {
+    const fields = splitCsvLine(line);
+    const rowMonth = fields[at.DATE_CODE].trim();
+    if (month === null) month = rowMonth;
+    if (rowMonth !== month)
+      throw new Error(`the Claimant Count response mixes months (${month} and ${rowMonth})`);
+    if (fields[at.GEOGRAPHY_TYPE].trim() !== "2021 super output areas - lower layer")
+      throw new Error(
+        `the geography type is "${fields[at.GEOGRAPHY_TYPE].trim()}" — expected "2021 super output areas - lower layer" (a re-basing must fail here)`,
+      );
+    const code = fields[at.GEOGRAPHY_CODE].trim();
+    const measure = fields[at.MEASURE_CODE].trim();
+    const value = fields[at.OBS_VALUE].trim();
+    rows[code] = rows[code] ?? {};
+    if (measure === "1") rows[code].count = value;
+    else if (measure === "2") rows[code].pct = value;
+    else
+      throw new Error(`a row's MEASURE_CODE is "${measure}" — only measures 1 and 2 are requested`);
+  }
+  return { month, rows };
+}
+
+export function probeNomisClaimant() {
+  return (async () => {
+    const url =
+      "https://www.nomisweb.co.uk/api/v01/dataset/NM_162_1.data.csv" +
+      `?geography=${CLAIMANT_GOLDEN_CODES.join(",")}&date=latest&gender=0&age=0&measure=1,2&measures=20100`;
+    const response = await fetchRetry(url, { headers: { "User-Agent": "CheckMyNextHome/1.0" } });
+    if (!response.ok)
+      throw new Error(`HTTP ${response.status} for the Claimant Count golden query`);
+    const { month, rows } = claimantLatestFacts(await response.text());
+    for (const code of CLAIMANT_GOLDEN_CODES) {
+      const row = rows[code];
+      if (!row || row.count === undefined || row.pct === undefined)
+        throw new Error(
+          `${code} did not return both measures for ${month} — the golden arm failed`,
+        );
+      if (!/^\d+$/.test(row.count))
+        throw new Error(`${code}: the count "${row.count}" is not a non-negative integer`);
+      const pct = Number(row.pct);
+      if (!Number.isFinite(pct) || pct < 0 || pct > 100)
+        throw new Error(`${code}: the percentage "${row.pct}" is outside 0–100`);
+    }
+    // Freshness: days between the latest month's last day
+    // and today, against the ~75-day arm.
+    const [year, mon] = month.split("-").map(Number);
+    const monthEnd = Date.UTC(year, mon, 0);
+    const age = Math.floor((Date.now() - monthEnd) / 86400000);
+    if (age > CLAIMANT_STALE_DAYS)
+      throw new Error(
+        `the latest Claimant Count month is ${month} — its month end is ${age} days behind today, past the ~${CLAIMANT_STALE_DAYS}-day arm (a release was missed or the series changed)`,
+      );
+    return {
+      logLine: `canary nomis-claimant · latest month ${month} (${age} days past month end) · golden LSOAs return count + % (${CLAIMANT_GOLDEN_CODES.map((c) => `${c} ${rows[c].count} / ${rows[c].pct}%`).join(" · ")})`,
+      sourceDate: `${month}-01`,
+    };
+  })();
+}
+
+export function probeStatXploreUc() {
+  return Promise.resolve({
+    skipped:
+      "not verified — the K22 Stat-Xplore key is refused by DWP (HTTP 401, account-side); " +
+      "Universal Credit figures cannot be checked until DWP restores the account's API access",
+  });
+}
+
 // IMD (plan step M5.9): File 7 of the English Indices of
 // Deprivation 2025. Arms: the asset answers and is plausibly
 // sized; the header still leads with the consumed columns; and
@@ -1691,10 +1818,13 @@ export async function runCanaryProbes() {
   await run("os-greenspace", probeOsGreenspace);
   await run("open-charge-map", probeOpenChargeMap);
   await run("nomis-census", probeNomisCensus);
+  await run("nomis-claimant", probeNomisClaimant);
+  await run("stat-xplore-uc", probeStatXploreUc);
   await run("govuk-iod", probeGovukIod);
   await run("defra-pcm", probeDefraPcm);
   await run("defra-noise", probeDefraNoise);
   await run("ofcom-broadband", () => probeOfcom("broadband"));
   await run("ofcom-mobile", () => probeOfcom("mobile"));
+  await run("planning-application", probePlanningApplication);
   return results;
 }

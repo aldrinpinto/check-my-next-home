@@ -250,6 +250,49 @@ Family:
     date on a Census-decennial rhythm, not a refresh cycle —
     the `nomis-census` canary probe watches for a
     republication.
+25. **benefits_stats** — DWP benefits statistics (migration
+    0013, plan step M5.16), one row per LSOA (2021) per
+    series per reference month. Three series, filed by two
+    loaders and NEVER merged or summed — there is no
+    published figure called "people on benefits" and this
+    table cannot express one: `uc_people` (People on
+    Universal Credit — everyone on UC, including people in
+    work), `uc_households` (Households on Universal
+    Credit), and `claimant_count` (the Claimant Count —
+    ONS's count of claimants of unemployment-related
+    benefits, never shortened to "unemployment"). Each row
+    carries its own series' own month (the Claimant Count
+    publishes monthly; Universal Credit data points publish
+    quarterly, and the two UC series do not share a latest
+    month), its own source stamp, the published `count`,
+    and a `pct` ONLY where the source publishes one (the
+    Claimant Count's percentage of residents aged 16–64 —
+    itself NULL where Nomis suppresses it for a very small
+    figure; always NULL for UC — DWP publishes no LSOA percentage,
+    and the households share serving prints is computed at
+    serve time on the Census base in **lsoa_bases** (26)).
+    UC counts file exactly as Stat-Xplore returns them:
+    DWP applies Introduced Random Error to small cells (it
+    does not round them to the nearest 5), so small-area UC
+    counts are approximate by the publisher's own design
+    and serving says so. Newest 13 months kept per series.
+    England & Wales only — Scotland and Northern Ireland
+    publish on other geographies, so their homes have no
+    row and serving prints the named not-covered state.
+    Served only to the paid report's benefits block —
+    never headlines, the panel, the shortlist, the landing
+    page or marketing.
+26. **lsoa_bases** — the LSOA Census base totals
+    (migration 0013, plan step M5.16): each LSOA's
+    residents (TS021 total) and households (TS054 total)
+    from Census 2021, filed once by `load-lsoa-bases.mjs`
+    from the same Nomis bulk zips as the Census. They are
+    the stated size of the small area in the benefits
+    block's header and the bases its shares divide by —
+    the Census itself filed at MSOA grain (24), so these
+    two LSOA totals are filed separately rather than
+    derived from it. `source_date` is Census Day,
+    21 March 2021.
 
 ## Physical decisions (recorded at build, M3.3)
 

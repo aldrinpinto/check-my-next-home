@@ -546,6 +546,80 @@ node loaders/load-noise.mjs --file tests/fixtures/noise   # band + file the meas
 node loaders/load-broadband.mjs --file ~/Downloads/cn-release  # file a founder-downloaded release
 ```
 
+## Benefits loaders + LSOA bases (plan step M5.16)
+
+Three loaders under the one step, never merged (the flood
+precedent — one broken source never blocks the others):
+`load-claimant-count.mjs` (keyless, monthly),
+`load-dwp-uc.mjs` (key-gated, monthly-run), and
+`load-lsoa-bases.mjs` (static, Census-Day). All three file
+by LSOA code from their own sources, into `benefits_stats`
+and `lsoa_bases` (migration 0013), and all three are
+directory-free in the runner. The data serves only the
+paid report's benefits block — never headlines, the panel,
+the shortlist, the landing page or marketing — and the
+three series are never merged or summed anywhere: there
+is no published figure called "people on benefits".
+
+`load-claimant-count` files the Claimant Count (Nomis
+dataset NM_162_1, guest — no key) for all 35,672 England &
+Wales LSOAs: the published count plus the published
+percentage of residents aged 16–64, filed exactly as
+published and never computed. The series keeps its full
+name everywhere — it is ONS's count of claimants of
+unemployment-related benefits (Jobseeker's Allowance plus
+Universal Credit claimants required to seek work), never
+shortened to "unemployment"; ONS states it is no longer a
+reliable indicator of the labour market. Each run files
+the latest two months (each release revises the previous
+month), paging `geography=TYPE151` in 25,000-row guest-cap
+steps. Where an LSOA's figure is very small Nomis publishes
+the count but suppresses the percentage (status M — the
+underlying value is 1 or 2; 54 LSOAs in September 2026,
+measured at the build): the suppressed percentage files
+as NULL and is never back-calculated. Goldens, locked at the prep and re-verified live at
+the build (September 2026): Birkdale 15 / 1.6%, Exeter
+Road 120 / 8.6%, Minerva House 20 / 1.2%. The
+`nomis-claimant` canary arms freshness (~75 days),
+golden presence/sanity and the 2021-geography shape.
+
+`load-dwp-uc` files both Universal Credit series from the
+DWP Stat-Xplore Open Data API (Key K22, in an `APIKey`
+header): People on UC (UC_Monthly) and Households on UC
+(UC_Households), counts only — DWP publishes no LSOA
+percentage. UC data points are published QUARTERLY
+(Feb/May/Aug/Nov), three monthly points at a time, each
+series with its own latest month; a monthly run that finds
+no new month is a healthy no-op. The values file exactly
+as returned: DWP applies Introduced Random Error to these
+tables (NOT rounding to the nearest 5), so small-area
+counts are approximate and serving says so. **Status: the
+K22 key is refused account-side at DWP (HTTP 401
+AUTHENTICATION, including a brand-new reset key, 13 Nov
+2026), so the loader's live pull is the one named PENDING
+step of this build — the first keyed verify-only pull,
+which locks the UC golden values and reconciles the
+schema discovery and response parsing against DWP's real
+answers. Until then nothing UC files, and the
+`stat-xplore-uc` canary probe reports "not verified" in
+words on every run.**
+
+`load-lsoa-bases` files the two LSOA Census totals the
+benefits block states and divides by — TS021 residents
+and TS054 households per LSOA (goldens: Birkdale 1,489 /
+625, Exeter Road 1,923 / 671, Minerva House 2,487 / 852) —
+from the same keyless bulk zips as the census loader, in
+the runner's static class.
+
+```text
+npm run load:claimant-count / load:dwp-uc / load:lsoa-bases
+node loaders/load-claimant-count.mjs --verify-only        # live golden pull; nothing filed
+node loaders/load-claimant-count.mjs --file tests/fixtures/claimant-count   # file the golden fixture (CI)
+node loaders/load-dwp-uc.mjs --verify-only                # PENDING — the first keyed pull (see above)
+node loaders/load-dwp-uc.mjs --file tests/fixtures/dwp-uc # file the SYNTHETIC documented-shape fixture (CI)
+node loaders/load-lsoa-bases.mjs --file tests/fixtures/lsoa-bases          # file the 3-LSOA fixture (CI)
+```
+
 ## Loader runner + canary
 
 `run-loaders.mjs` (plan step M4.8; `npm run load:all`) runs the
@@ -564,7 +638,10 @@ once, when they have never loaded, and never automatically
 again — the
 other datasets monthly, judged from the last successful run items;
 per-postcode loaders take their targets from what is already
-filed (the golden three when nothing is). A failed probe alerts
+filed (the golden three when nothing is). The M5.16 benefits
+loaders (plan step M5.16) are monthly on the same 25-day
+judgement, and the LSOA Census base totals are static like
+the census itself. A failed probe alerts
 but never blocks a load. If the database is down the record
 falls back to a JSON-lines file and the email still goes out.
 `npm run canary` runs the probes only.

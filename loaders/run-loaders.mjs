@@ -135,6 +135,9 @@ export const FRIENDLY_NAMES = {
   "load-os-greenspace": "Parks — official green spaces",
   "load-ev-chargers": "EV chargers — public charging points",
   "load-census": "Census 2021 — the area in numbers",
+  "load-lsoa-bases": "Area sizes — Census residents and households by small area",
+  "load-claimant-count": "Benefits figures — Claimant Count",
+  "load-dwp-uc": "Benefits figures — Universal Credit",
   "load-imd": "Deprivation — Indices of Deprivation 2025",
   "load-air-quality": "Air quality — Defra modelled background",
   "load-noise": "Noise — Defra modelled road, rail and airport",
@@ -170,6 +173,8 @@ export const FRIENDLY_NAMES = {
   "os-greenspace": "Parks source (canary)",
   "open-charge-map": "EV chargers source (canary)",
   "nomis-census": "Census source (canary)",
+  "nomis-claimant": "Claimant Count source (canary)",
+  "stat-xplore-uc": "Universal Credit source (canary)",
   "govuk-iod": "Deprivation source (canary)",
   "defra-pcm": "Air quality source (canary)",
   "defra-noise": "Noise source (canary)",
@@ -276,6 +281,18 @@ function shortDetail(item) {
     case "load-census": {
       const filed = pick(/(\d+) areas filed/);
       return filed ? `${filed} areas filed` : "updated";
+    }
+    case "load-lsoa-bases": {
+      const filed = pick(/(\d+) areas filed/);
+      return filed ? `${filed} small areas sized` : "updated";
+    }
+    case "load-claimant-count": {
+      const filed = pick(/(\d+) area-months filed/);
+      return filed ? `${filed} area-months filed` : "updated";
+    }
+    case "load-dwp-uc": {
+      const filed = pick(/uc_people: (\d+) areas/);
+      return filed ? `${filed} areas filed for people on Universal Credit` : "updated";
     }
     default:
       return "updated";
@@ -556,6 +573,9 @@ async function main() {
       await runAndLog("load-os-greenspace", ["--file", fx("os-greenspace")]);
       await runAndLog("load-ev-chargers", ["--file", fx("ev-chargers")]);
       await runAndLog("load-census", ["--file", fx("census")]);
+      await runAndLog("load-lsoa-bases", ["--file", fx("lsoa-bases")]);
+      await runAndLog("load-claimant-count", ["--file", fx("claimant-count")]);
+      await runAndLog("load-dwp-uc", ["--file", fx("dwp-uc")]);
       await runAndLog("load-imd", ["--file", fx("imd")]);
       await runAndLog("load-air-quality", ["--file", fx("air")]);
       await runAndLog("load-noise", ["--file", fx("noise")]);
@@ -647,6 +667,34 @@ async function main() {
         due: dueDecision(await lastSuccess("load-census"), STATIC_THRESHOLD_DAYS),
         args: [],
       });
+      // The M5.16 LSOA Census base totals are the static
+      // class too (a Census-Day filing, like the census
+      // itself), and directory-free: they file by LSOA code
+      // from the same bulk zips.
+      plan.push({
+        item: "load-lsoa-bases",
+        due: dueDecision(await lastSuccess("load-lsoa-bases"), STATIC_THRESHOLD_DAYS),
+        args: [],
+      });
+      // The M5.16 benefits loaders are the monthly class
+      // (25 days, like crime and sold prices): the Claimant
+      // Count publishes monthly; Universal Credit data
+      // points publish quarterly, so most monthly UC runs
+      // file only the re-file window. Two separate items
+      // under the one step (the flood precedent): the UC
+      // loader's Stat-Xplore key dependency must never
+      // stall the keyless claimant filing. Both file by
+      // LSOA from their own sources — directory-free.
+      plan.push({
+        item: "load-claimant-count",
+        due: dueDecision(await lastSuccess("load-claimant-count"), 25),
+        args: [],
+      });
+      plan.push({
+        item: "load-dwp-uc",
+        due: dueDecision(await lastSuccess("load-dwp-uc"), 25),
+        args: [],
+      });
       // The M5.9 datasets are the static class too: IMD is a
       // decennial-style index watched by the govuk-iod canary,
       // PCM air and Round 4 noise are republished on multi-year
@@ -684,6 +732,9 @@ async function main() {
         "load-os-greenspace",
         "load-ev-chargers",
         "load-census",
+        "load-lsoa-bases",
+        "load-claimant-count",
+        "load-dwp-uc",
         "load-imd",
         "load-air-quality",
         "load-noise",
