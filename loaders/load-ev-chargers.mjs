@@ -543,6 +543,18 @@ export function goldenChecks(sites, counts, { full }) {
 export async function fileEvPoints(pool, sites, sourceDate, retrievedAt) {
   const client = await pool.connect();
   try {
+    // BEGIN first — the other M5 loaders' shape, and load-
+    // bearing: the stage table is ON COMMIT DROP, and outside
+    // a transaction each statement is its own commit, so a
+    // stage created before BEGIN is dropped again by the end
+    // of its own CREATE statement and the first staged insert
+    // fails with "relation ev_stage does not exist". That is
+    // exactly what CI runs 101 and 102's database jobs hit —
+    // the first real calls of this function anywhere, the
+    // sandbox proofs having all been verify-only. This filer
+    // was written before the M5.6 fix rounds and copied the
+    // then-buggy shape.
+    await client.query("BEGIN");
     await client.query(`CREATE TEMP TABLE ev_stage (
       registry_id text, name text, lat double precision, lon double precision,
       operator text, connector_types text, charging_speed text, detail jsonb,
@@ -579,7 +591,6 @@ export async function fileEvPoints(pool, sites, sourceDate, retrievedAt) {
       if (values.length >= 500) await flush();
     }
     await flush();
-    await client.query("BEGIN");
     await client.query("DELETE FROM ev_points");
     await client.query(
       `INSERT INTO ev_points (registry_id, name, latitude, longitude, connector_types, charging_speed, operator, detail, source_name, source_date, loaded_at)

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -6,6 +6,7 @@ import {
   FILEABLE_USAGE,
   buildSites,
   classifyPois,
+  fileEvPoints,
   goldenChecks,
   groupSites,
   haversineMiles,
@@ -474,5 +475,226 @@ describe("the loader's shape — source guards", () => {
   it("normalises titles the gate's way for the grouping key", () => {
     expect(normaliseTitle("St. Mary's & Sons — Café")).toBe("st marys and sons cafe");
     expect(normaliseTitle(null)).toBe("");
+  });
+});
+
+describe("filing — the stage-table transaction", () => {
+  // CI runs 101 and 102's database jobs failed with
+  // "relation ev_stage does not exist": fileEvPoints created
+  // the ON COMMIT DROP stage BEFORE its BEGIN, so in
+  // autocommit the stage was dropped again by the end of its
+  // own CREATE statement and the first staged insert found
+  // no table. This filer was written before the M5.6 fix
+  // rounds and copied the then-buggy shape (the identical
+  // defect CI run 98 hit in the nearby filers). The sandbox
+  // proofs were all verify-only, so the filing path had
+  // never run, and the source-guard tests above can only see
+  // that the statements exist — never their order. No
+  // Postgres exists in the sandbox (CI is the proof
+  // environment), so the contract is pinned here against a
+  // recording fake pool: ONE transaction — BEGIN before the
+  // stage create, the swap after the staged inserts, COMMIT
+  // last — and a mid-filing failure rolls back.
+  function recordingPool(failOn?: string) {
+    const statements: string[] = [];
+    let released = false;
+    const client = {
+      async query(sql: string) {
+        const head = sql.trim().replace(/\s+/g, " ");
+        statements.push(head);
+        if (failOn && head.startsWith(failOn)) throw new Error(`forced failure: ${failOn}`);
+        return { rows: [], rowCount: 0 };
+      },
+      release() {
+        released = true;
+      },
+    };
+    return { statements, released: () => released, pool: { connect: async () => client } };
+  }
+
+  const sites = [
+    {
+      registryId: "130084",
+      name: "Witham Leisure Centre",
+      lat: 51.7965,
+      lon: 0.6424,
+      operator: "Charge Your Car",
+      connectorTypes: "Type 2 (Socket Only)",
+      chargingSpeed: "up to 22 kW",
+      detail: { usage_type: "Public - Membership Required", devices: 1 },
+    },
+    {
+      registryId: "200001",
+      name: null,
+      lat: 51.51,
+      lon: 0.005,
+      operator: null,
+      connectorTypes: null,
+      chargingSpeed: null,
+      detail: { usage_type: "Public", devices: 2 },
+    },
+  ];
+
+  it("stages and swaps inside one transaction — BEGIN before the stage create, COMMIT last", async () => {
+    const rec = recordingPool();
+    await fileEvPoints(rec.pool as never, sites as never, "2026-11-13", "2026-11-13T00:00:00Z");
+    const at = (prefix: string) => rec.statements.findIndex((s) => s.startsWith(prefix));
+    expect(rec.statements[0]).toBe("BEGIN");
+    expect(at("CREATE TEMP TABLE ev_stage")).toBeGreaterThan(0);
+    expect(at("INSERT INTO ev_stage")).toBeGreaterThan(at("CREATE TEMP TABLE ev_stage"));
+    expect(at("DELETE FROM ev_points")).toBeGreaterThan(at("INSERT INTO ev_stage"));
+    expect(at("INSERT INTO ev_points")).toBeGreaterThan(at("DELETE FROM ev_points"));
+    expect(rec.statements.at(-1)).toBe("COMMIT");
+    expect(rec.released()).toBe(true);
+  });
+
+  it("a failure mid-filing rolls the transaction back and still releases the client", async () => {
+    const rec = recordingPool("INSERT INTO ev_stage");
+    await expect(
+      fileEvPoints(rec.pool as never, sites as never, "2026-11-13", "2026-11-13T00:00:00Z"),
+    ).rejects.toThrow("forced failure");
+    expect(rec.statements).toContain("ROLLBACK");
+    expect(rec.statements).not.toContain("COMMIT");
+    expect(rec.released()).toBe(true);
+  });
+});
+
+describe("filing — the schema contract", () => {
+  // The order tests above pin statement ORDER, not names.
+  // This block pins the names, in the M5.6 fix-round
+  // pattern: the live table's columns are parsed from the
+  // migration files themselves (the proven contract) and
+  // every column the filer issues is checked against them.
+  // ev_points is exactly the table this guards hardest: it
+  // was created in migration 0001 and reshaped in 0010, and
+  // the stage table legitimately uses lat/lon where the
+  // live table uses latitude/longitude — a mapping only a
+  // DDL check can prove. This filer shipped before the
+  // contract-test pattern existed, so it never had one.
+  // No Postgres needed.
+  function liveTableColumns(table: string): Set<string> {
+    const dir = join(process.cwd(), "db", "migrations");
+    const cols = new Set<string>();
+    for (const file of readdirSync(dir).sort()) {
+      if (!file.endsWith(".sql")) continue;
+      const sql = readFileSync(join(dir, file), "utf8");
+      const create = new RegExp(`CREATE TABLE ${table} \\(`).exec(sql);
+      if (create) {
+        // Walk to the matching close paren, then split the
+        // body on top-level commas only — column definitions
+        // carry their own parens (geometry(Point, 4326), the
+        // generated geom CASE).
+        let depth = 0;
+        let end = -1;
+        for (let i = create.index; i < sql.length; i++) {
+          if (sql[i] === "(") depth++;
+          else if (sql[i] === ")") {
+            depth--;
+            if (depth === 0) {
+              end = i;
+              break;
+            }
+          }
+        }
+        const body = sql.slice(sql.indexOf("(", create.index) + 1, end);
+        const parts: string[] = [];
+        let d = 0;
+        let cur = "";
+        for (const ch of body) {
+          if (ch === "(") d++;
+          else if (ch === ")") d--;
+          if (ch === "," && d === 0) {
+            parts.push(cur);
+            cur = "";
+          } else cur += ch;
+        }
+        if (cur.trim() !== "") parts.push(cur);
+        for (const part of parts) {
+          const name = part.trim().split(/\s+/)[0];
+          if (name && !/^(CONSTRAINT|PRIMARY|UNIQUE|CHECK|FOREIGN)$/i.test(name)) cols.add(name);
+        }
+      }
+      // Whole ALTER statements, not single matches:
+      // migration 0010 adds operator and detail in ONE
+      // statement with two ADD COLUMN clauses.
+      for (const alter of sql.matchAll(new RegExp(`ALTER TABLE ${table}([^;]*);`, "g"))) {
+        for (const add of alter[1].matchAll(/ADD COLUMN (\w+)/g)) {
+          cols.add(add[1]);
+        }
+      }
+    }
+    return cols;
+  }
+
+  function recordingPool() {
+    const statements: string[] = [];
+    const client = {
+      async query(sql: string) {
+        statements.push(sql.trim().replace(/\s+/g, " "));
+        return { rows: [], rowCount: 0 };
+      },
+      release() {},
+    };
+    return { statements, pool: { connect: async () => client } };
+  }
+
+  const sites = [
+    {
+      registryId: "130084",
+      name: "Witham Leisure Centre",
+      lat: 51.7965,
+      lon: 0.6424,
+      operator: "Charge Your Car",
+      connectorTypes: "Type 2 (Socket Only)",
+      chargingSpeed: "up to 22 kW",
+      detail: { usage_type: "Public - Membership Required", devices: 1 },
+    },
+  ];
+
+  function firstParenList(statement: string): string[] {
+    const m = /\(([^)]+)\)/.exec(statement);
+    return m ? m[1].split(",").map((c) => c.trim()) : [];
+  }
+
+  it("every column the filer inserts into ev_points exists in the migration DDL", async () => {
+    const rec = recordingPool();
+    await fileEvPoints(rec.pool as never, sites as never, "2026-11-13", "2026-11-13T00:00:00Z");
+    const live = liveTableColumns("ev_points");
+    // Sanity: the parser found the real contract, not nothing.
+    expect(live.has("latitude")).toBe(true);
+    expect(live.has("longitude")).toBe(true);
+    expect(live.has("operator")).toBe(true); // migration 0010's ALTER
+    expect(live.has("detail")).toBe(true); // migration 0010's ALTER, second clause
+    const finalInsert = rec.statements.find((s) => s.startsWith("INSERT INTO ev_points ("))!;
+    const target = firstParenList(finalInsert);
+    expect(target.length).toBeGreaterThan(0);
+    for (const col of target) expect(live.has(col)).toBe(true);
+    // The identity and generated columns are the database's own.
+    expect(target).not.toContain("id");
+    expect(target).not.toContain("geom");
+  });
+
+  it("the stage table, the staged insert and the final SELECT agree with each other", async () => {
+    const rec = recordingPool();
+    await fileEvPoints(rec.pool as never, sites as never, "2026-11-13", "2026-11-13T00:00:00Z");
+    const stageCreate = rec.statements.find((s) => s.startsWith("CREATE TEMP TABLE ev_stage"))!;
+    const stageDefs = /\((.+)\) ON COMMIT DROP/.exec(stageCreate)![1];
+    const stageCols = stageDefs.split(",").map((def) => def.trim().split(/\s+/)[0]);
+    const stagedInsert = rec.statements.find((s) => s.startsWith("INSERT INTO ev_stage ("))!;
+    for (const col of firstParenList(stagedInsert)) expect(stageCols).toContain(col);
+    const finalInsert = rec.statements.find((s) => s.startsWith("INSERT INTO ev_points ("))!;
+    const selectList = /SELECT (.+) FROM ev_stage/
+      .exec(finalInsert)![1]
+      .split(",")
+      .map((c) => c.trim());
+    // Position for position: the target list and the SELECT
+    // list are the same length, and every named SELECT item
+    // is a stage column (the $1 loaded_at parameter aside) —
+    // this is where the stage's lat/lon prove they map onto
+    // the live table's latitude/longitude by position.
+    expect(selectList.length).toBe(firstParenList(finalInsert).length);
+    for (const item of selectList) {
+      if (/^[a-z_][a-z0-9_]*$/.test(item)) expect(stageCols).toContain(item);
+    }
   });
 });
