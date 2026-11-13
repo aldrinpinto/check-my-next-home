@@ -167,3 +167,7 @@ jobs:
         env:
           NODE_OPTIONS: --experimental-sqlite
         run: node loaders/load-os-greenspace.mjs --file tests/fixtures/os-greenspace
+      - name: Load the EV chargers fixture (plan step M5.7)
+        env:
+          NODE_OPTIONS: --experimental-sqlite
+        run: node loaders/load-ev-chargers.mjs --file tests/fixtures/ev-chargers/ocm-pois.json
