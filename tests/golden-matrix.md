@@ -218,13 +218,19 @@ haversine miles on the filed points from the postcode point
 | Sparse rural: categories genuinely empty         | C9                                               |
 | New development: places still arriving / missing | C10, C2                                          |
 
-### EV chargers (M5.7, planned)
+### EV chargers (M5.7)
 
-| Combination                 | Covered by                        |
-| --------------------------- | --------------------------------- |
-| Urban chargers near         | Exeter, C2, C7                    |
-| Zero chargers within radius | C9 — likely; verify at M5.7 build |
-| Rapid-only vs mixed speeds  | GAP — decide at M5.7 gap check    |
+Source: Open Charge Map (opendata records only), filed by site with the
+access class shown exactly as recorded. The National Chargepoint
+Registry was decommissioned on 28 Nov 2024 and is not a source.
+
+| Combination                                                                                                   | Covered by                                                                                                                                     |
+| ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Nearest charger is "Public - Membership Required" — filed, with its access class shown, not hidden            | Birkdale (universal) — Witham Leisure Centre at 1.866 mi, 22 kW; the only fileable site within 2 mi                                            |
+| Membership-required nearest at other golden homes                                                             | Epsom — Wilsons of Epsom Nissan (POD Point) 0.580 mi; Cardiff — MFG Texaco Ninian 0.168 mi, 50 kW; Oxford — Worcester Street Car Park 0.120 mi |
+| Nearest charger is "Public - Pay At Location"                                                                 | Exeter (universal) — 0.277 mi                                                                                                                  |
+| Nearest charger is unrestricted "Public"                                                                      | London City Island — 0.312 mi                                                                                                                  |
+| No charger within radius — stated as none within 2 mi with the nearest distance given, never as "no chargers" | Hilgay (C9) — nearest 3.538 mi, none within 2 mi                                                                                               |
 
 ### Census (M5.8, planned)
 

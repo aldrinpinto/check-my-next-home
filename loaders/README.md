@@ -386,6 +386,40 @@ database rights 2026 (Open Government Licence). Modes:
 default (live), `--verify-only`, `--file
 tests/fixtures/os-greenspace`.
 
+## EV chargers loader (plan step M5.7)
+
+`load-ev-chargers.mjs` files public EV charging sites into
+`ev_points` from Open Charge Map — the step's original
+source, the National Chargepoint Registry, was
+decommissioned on 28 November 2024 (Zapmap sells access;
+OpenStreetMap alone was measured wrong at Birkdale). The
+unit of filing is the site, not the device: records group
+(same operator + same normalised title + within 30 m)
+before filing, and device/connector counts file as facts
+about the site. Only explicitly-public usage classes file —
+Public, Public – Pay At Location, and Public – Membership
+Required under the founder's re-rule of 13 Nov 2026, each
+filed with its class EXACTLY as recorded (a merged site's
+served class is its most restrictive member class); every
+exclusion — other classes, unrecorded access, Planned /
+Removed statuses, Northern Ireland — is counted in the log
+line, never silent. Status files as a dated record, never
+a live-availability claim, and unrecorded status (37% of
+records) files as NULL, a normal state. Per-record data
+provider attribution rides in every row's detail (42% of
+the GB data is the dead registry's own Dec 2023 import).
+The pull is bounding-box tiles with adaptive subdivision
+(a capped tile splits into quadrants), openly-licensed
+records only. Key K17: `OPEN_CHARGE_MAP_API_KEY` when set,
+else the custom.open-charge-map connector helper (the key
+never appears in the repo, the logs or a fixture). Modes:
+default (live), `--verify-only`, `--file
+tests/fixtures/ev-chargers`. The report's EV block (M8)
+must carry the attribution: "Open Charge Map" plus each
+record's own data provider, per record — and membership-
+required sites must be labelled with their recorded class
+wherever they are served.
+
 ## Loader runner + canary
 
 `run-loaders.mjs` (plan step M4.8; `npm run load:all`) runs the
@@ -394,8 +428,8 @@ probe per source, filing nothing) and then the due dataset
 loads, records the run in the `loader_runs` tables, and sends
 one email per run: an alert on failure, a short OK heartbeat on
 success. Due-ness: the postcode directory and the M5.1 flood, M5.2
-planning and heritage, M5.3 nature, M5.5 transport and M5.6
-nearby datasets quarterly (70 days — their sources move
+planning and heritage, M5.3 nature, M5.5 transport, M5.6
+nearby and M5.7 EV chargers datasets quarterly (70 days — their sources move
 slowly; and those loaders never join onto the directory, so an
 empty directory does not skip them), the other datasets
 monthly, judged from the last successful run items;

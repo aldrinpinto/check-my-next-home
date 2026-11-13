@@ -30,6 +30,7 @@
     "load:transport": "node loaders/load-transport.mjs",
     "load:osm-places": "node loaders/load-osm-places.mjs",
     "load:os-greenspace": "node loaders/load-os-greenspace.mjs",
+    "load:ev-chargers": "node loaders/load-ev-chargers.mjs",
     "load:all": "node loaders/run-loaders.mjs",
     "canary": "node loaders/run-loaders.mjs --canary-only"
   },

@@ -159,8 +159,36 @@ Family:
     no shapes. Ethnicity and religion breakdowns live here and are
     served only to the paid report's demographics depth — never to
     the panel, hooks or shortlist.
-19. **ev_points** — National Chargepoint Registry points: name,
-    position, connector and speed where published.
+19. **ev_points** — public EV charging SITES from Open Charge
+    Map (plan step M5.7; the National Chargepoint Registry the
+    table was designed for was decommissioned in November
+    2024, and `registry_id` now holds the Open Charge Map
+    site id — the representative record's POI id). One row
+    per SITE, not per device: records group before filing
+    (same operator + same normalised title + points within
+    30 m), and device/connector counts are facts about the
+    site. Only explicitly-public usage classes file — Public,
+    Public – Pay At Location, and Public – Membership
+    Required under the founder's re-rule of 13 Nov 2026 —
+    each site's class carried in `detail` EXACTLY as
+    recorded, the site's served class being the most
+    restrictive among its records; every exclusion (other
+    classes, unrecorded access, Planned/Removed statuses,
+    Northern Ireland) is counted per run, never silent.
+    `operator` is a column; `detail` (migration 0010) carries
+    the recorded facts: usage class(es), status + its
+    recorded date (both NULL when unrecorded — 37% of
+    records; a dated record, never a live availability
+    claim), the per-record data provider(s) (attribution is
+    load-bearing: 42% of the GB data is the dead registry's
+    own Dec 2023 import), device count, merged-record count,
+    the full connector list (type + kW + quantity) and the
+    fastest published power (`max_kw`, NULL when the source
+    publishes none), and the address as recorded. The legacy
+    `connector_types` / `charging_speed` columns are written
+    as summaries of the detail (the type list; "up to X kW").
+    Attribution for serving: "Open Charge Map" plus the
+    record's own data provider, per record.
 20. **council_tax_rates** — each council's Band D charge, for the
     council tax estimate.
 21. **loader_runs** — one row per loader-runner invocation: kind,

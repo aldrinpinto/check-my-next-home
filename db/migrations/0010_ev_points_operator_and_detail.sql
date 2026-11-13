@@ -1,0 +1,49 @@
+-- Migration 0010 — EV points: operator and recorded detail
+-- (plan step M5.7; added after the user-seat gap check of
+-- 13 Nov 2026, gap L5 — before the first EV load, on purpose).
+--
+-- ev_points was created for the National Chargepoint Registry,
+-- which the government decommissioned on 28 November 2024. The
+-- step's source is now Open Charge Map (founder ruling,
+-- 13 Nov 2026), and the 0001 columns cannot hold the fields
+-- the honesty rules need: there is no operator, no usage /
+-- access class, no status, no per-record data provider (Open
+-- Charge Map's terms require provider attribution visible to
+-- end users, per record), no device count, no connector list
+-- and no address.
+--
+-- `operator` is a column because serving groups and labels by
+-- it. Everything else recorded rides in `detail` (JSONB,
+-- written only from source fields):
+--   usage_type / usage_types — the access class EXACTLY as
+--     recorded ("Public", "Public - Membership Required",
+--     "Public - Pay At Location"); a membership-required site
+--     is filed under the founder's re-rule of 13 Nov 2026 with
+--     its class shown as recorded, never upgraded to plain
+--     "public".
+--   status / status_date — the representative record's status
+--     and its recorded date. Both are NULL when the source
+--     records none (37% of records carry no status): "not
+--     recorded" is a normal state, never an error, and a filed
+--     status is a dated record, never a live availability claim.
+--   data_provider / data_providers — who supplied the record
+--     (42% of the GB data is the dead registry's own Dec 2023
+--     import; the attribution is what keeps that honest).
+--   devices / pois_merged — how many charge points the site
+--     holds, and how many source records were grouped into it.
+--   connectors / max_kw — every connector at the site (type,
+--     kW, quantity) and the fastest published power; max_kw is
+--     NULL when the source publishes no power at all.
+--   address — line, town and postcode as recorded.
+--
+-- registry_id is redefined by this step: it now holds the
+-- Open Charge Map site id (the representative record's POI
+-- id, as text) — the registry it originally named no longer
+-- exists. The legacy connector_types / charging_speed columns
+-- stay and are written as summaries of the detail (the type
+-- list, and "up to X kW" from the fastest connector), so the
+-- 0001 serving shape keeps working.
+
+ALTER TABLE ev_points
+  ADD COLUMN operator text,
+  ADD COLUMN detail jsonb;

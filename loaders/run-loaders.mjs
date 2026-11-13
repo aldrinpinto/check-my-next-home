@@ -123,6 +123,7 @@ export const FRIENDLY_NAMES = {
   "load-transport": "Transport — bus stops and stations",
   "load-osm-places": "Nearby places — vets, shops, eating places, parks and more",
   "load-os-greenspace": "Parks — official green spaces",
+  "load-ev-chargers": "EV chargers — public charging points",
   onspd: "Postcode directory source (canary)",
   ppd: "Sold prices source (canary)",
   police: "Crime source (canary)",
@@ -151,6 +152,7 @@ export const FRIENDLY_NAMES = {
   naptan: "Transport stops source (canary)",
   geofabrik: "Places map source (canary)",
   "os-greenspace": "Parks source (canary)",
+  "open-charge-map": "EV chargers source (canary)",
 };
 
 function shortDetail(item) {
@@ -244,6 +246,10 @@ function shortDetail(item) {
       if (filed) return `${filed} park points filed`;
       const unchanged = pick(/edition (\S+) is unchanged/);
       return unchanged ? `edition ${unchanged} unchanged` : "updated";
+    }
+    case "load-ev-chargers": {
+      const filed = pick(/(\d+) charging sites filed/);
+      return filed ? `${filed} charging sites filed` : "updated";
     }
     default:
       return "updated";
@@ -522,6 +528,7 @@ async function main() {
       await runAndLog("load-transport", ["--file", fx("transport")]);
       await runAndLog("load-osm-places", ["--file", fx("osm-places")]);
       await runAndLog("load-os-greenspace", ["--file", fx("os-greenspace")]);
+      await runAndLog("load-ev-chargers", ["--file", fx("ev-chargers")]);
     } else {
       if (!client) throw new Error("a live run needs the run-record database (DATABASE_URL)");
       const lastSuccess = async (item) => {
@@ -575,11 +582,12 @@ async function main() {
       });
       // The M5.1 flood datasets, the M5.2 planning and heritage
       // datasets, the M5.3 nature datasets, the M5.5
-      // transport stops and the M5.6 nearby places are
-      // quarterly, on the postcode directory's 70-day rhythm —
-      // they file shapes and points from their own files and
-      // never join onto the directory, so the empty-directory
-      // skip below does not apply to them.
+      // transport stops, the M5.6 nearby places and the M5.7
+      // EV chargers are quarterly, on the postcode
+      // directory's 70-day rhythm — they file shapes and
+      // points from their own files and never join onto the
+      // directory, so the empty-directory skip below does not
+      // apply to them.
       for (const item of [
         "load-planning-areas",
         "load-green-belt",
@@ -592,6 +600,7 @@ async function main() {
         "load-transport",
         "load-osm-places",
         "load-os-greenspace",
+        "load-ev-chargers",
       ]) {
         plan.push({ item, due: dueDecision(await lastSuccess(item), 70), args: [] });
       }
@@ -607,6 +616,7 @@ async function main() {
         "load-transport",
         "load-osm-places",
         "load-os-greenspace",
+        "load-ev-chargers",
       ]);
 
       for (const step of plan) {

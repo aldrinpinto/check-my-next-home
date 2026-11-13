@@ -14,6 +14,11 @@
 // deltas probe, which is warning-grade only until its normal
 // behaviour is characterised (it has never been tested before).
 
+import { spawn } from "node:child_process";
+import { createWriteStream, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
+
 const MONTHS = {
   January: "01",
   February: "02",
@@ -1119,6 +1124,179 @@ function probeOsGreenspace() {
   })();
 }
 
+// Open Charge Map (the M5.7 EV chargers loader's source).
+// Four arms, baselines fixed at the first load (the gate
+// capture of 13 Nov 2026), all bands GENEROUS at ±15% —
+// chargers are the fastest-growing dataset the project
+// files, so ordinary growth must never trip this probe
+// (prep Section 8.2, gap L8):
+// (a) the credential answers: referencedata returns with
+//     the key (a 403 is the probe FAILING, not passing);
+// (b) the South tile's record count inside ±15% of 17,409
+//     (a cliff either way means a licence filter or a feed
+//     broke; hitting the 20,000 cap fails too — the count
+//     is then unmeasurable and the baseline needs re-fixing);
+// (c) the anti-Birkdale arm: at least one record of a
+//     fileable class within 2 miles of the Birkdale golden
+//     home (the failure this step's prep measured, twice
+//     over, is a source that holds nothing usable near
+//     Witham while the town has working public charging);
+// (d) the Exeter density arm: fileable-class records within
+//     2 miles inside ±15% of 193 (catches a licence-filter
+//     regression that halves a city silently);
+// (e) the membership share of the South tile inside
+//     20–50% (measured 32%): a collapse toward zero means
+//     the access classification stopped arriving — the
+//     "restricted reads as public" alarm in reverse.
+// The credential plumbing mirrors the loader's (this file
+// is self-contained by design): the env key directly, or
+// the custom.open-charge-map connector helper, which
+// receives the vault-held Key K17 through the surrogate
+// exchange. Fileable classes mirror the loader's filing
+// rules (UsageType 1/4/5; Planned/Removed statuses out).
+const OCM_BASELINE = { southTile: 17409, exeterFileable: 193 };
+
+async function callOcmProbe(path, params, workDir) {
+  const key = process.env.OPEN_CHARGE_MAP_API_KEY;
+  if (key) {
+    const url = new URL(`https://api.openchargemap.io/v3/${path}/`);
+    for (const [k, v] of Object.entries(params)) url.searchParams.set(k, String(v));
+    const res = await fetch(url, {
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "CheckMyNextHome/1.0 (+https://checkmynexthome.co.uk)",
+        "X-API-Key": key,
+      },
+    });
+    if (!res.ok) throw new Error(`Open Charge Map ${path} returned HTTP ${res.status}`);
+    return res.json();
+  }
+  const helper =
+    process.env.OCM_HELPER_PATH ??
+    join(homedir(), "workspace/custom-connectors/custom.open-charge-map/bin/ocm.py");
+  if (!existsSync(helper))
+    throw new Error(
+      "no Open Charge Map credential route for the probe: OPEN_CHARGE_MAP_API_KEY is not set and the connector helper was not found",
+    );
+  return new Promise((resolve, reject) => {
+    const outPath = join(workDir, "ocm-probe.json");
+    const args = [helper, path];
+    for (const [k, v] of Object.entries(params)) args.push(`--${k}`, String(v));
+    const out = createWriteStream(outPath);
+    const child = spawn("python3", args);
+    const timer = setTimeout(() => child.kill("SIGKILL"), 300_000);
+    child.stdout.pipe(out);
+    let stderr = "";
+    child.stderr.on("data", (c) => {
+      stderr = (stderr + c).slice(-1000);
+    });
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      out.end(() => {
+        if (code !== 0)
+          return reject(
+            new Error(`Open Charge Map helper failed (${code}): ${stderr.slice(-300)}`),
+          );
+        try {
+          resolve(JSON.parse(readFileSync(outPath, "utf8")));
+        } catch (err) {
+          reject(new Error(`Open Charge Map helper returned unparseable JSON: ${err.message}`));
+        }
+      });
+    });
+  });
+}
+
+function probeOpenChargeMap() {
+  return (async () => {
+    const workDir = mkdtempSync(join(tmpdir(), "cmnh-ocm-canary-"));
+    try {
+      const fileable = (p) =>
+        [1, 4, 5].includes(p.UsageTypeID ?? -1) && ![150, 200, 210].includes(p.StatusTypeID ?? -1);
+      const within = (band, value) => value >= band * 0.85 && value <= band * 1.15;
+      // (a) the credential answers
+      const ref = await callOcmProbe("referencedata", {}, workDir);
+      if (!ref || typeof ref !== "object" || !("UsageTypes" in ref))
+        throw new Error(
+          "referencedata answered without the expected shape — the credential or the API changed",
+        );
+      // (b) + (e) the South tile
+      const south = await callOcmProbe(
+        "poi",
+        {
+          boundingbox: "(51.95,-5.75),(50.55,1.95)",
+          countrycode: "GB",
+          opendata: "true",
+          maxresults: 20000,
+        },
+        workDir,
+      );
+      if (!Array.isArray(south)) throw new Error("the South tile pull returned a non-array");
+      if (south.length >= 20000)
+        throw new Error(
+          "the South tile hit the 20,000-result cap — its count is unmeasurable and the probe baseline needs re-fixing (the loader subdivides; the probe cannot)",
+        );
+      if (!within(OCM_BASELINE.southTile, south.length))
+        throw new Error(
+          `the South tile holds ${south.length} records — outside ±15% of the first load's ${OCM_BASELINE.southTile} (a cliff means a licence filter or a feed broke)`,
+        );
+      const membershipShare = south.filter((p) => p.UsageTypeID === 4).length / south.length;
+      if (membershipShare < 0.2 || membershipShare > 0.5)
+        throw new Error(
+          `membership-required records are ${(membershipShare * 100).toFixed(0)}% of the South tile — outside the 20–50% band around the first load's 32% (the access classification may have stopped arriving)`,
+        );
+      // (c) the anti-Birkdale arm
+      const birkdale = await callOcmProbe(
+        "poi",
+        {
+          latitude: 51.776176,
+          longitude: 0.60387,
+          distance: 2,
+          distanceunit: "Miles",
+          countrycode: "GB",
+          opendata: "true",
+          maxresults: 100,
+        },
+        workDir,
+      );
+      const birkdaleFileable = Array.isArray(birkdale) ? birkdale.filter(fileable).length : 0;
+      if (birkdaleFileable < 1)
+        throw new Error(
+          "no fileable-class charger record within 2 miles of the Birkdale golden home — the anti-Birkdale arm (a source holding nothing usable near Witham is the failure this step exists to catch)",
+        );
+      // (d) the Exeter density arm
+      const exeter = await callOcmProbe(
+        "poi",
+        {
+          latitude: 51.515224,
+          longitude: 0.021177,
+          distance: 2,
+          distanceunit: "Miles",
+          countrycode: "GB",
+          opendata: "true",
+          maxresults: 1000,
+        },
+        workDir,
+      );
+      const exeterFileable = Array.isArray(exeter) ? exeter.filter(fileable).length : 0;
+      if (!within(OCM_BASELINE.exeterFileable, exeterFileable))
+        throw new Error(
+          `${exeterFileable} fileable-class records within 2 miles of the Exeter golden home — outside ±15% of the first load's ${OCM_BASELINE.exeterFileable}`,
+        );
+      return {
+        logLine: `canary open-charge-map · credential answers · South tile ${south.length} records (first load ${OCM_BASELINE.southTile}) · membership share ${(membershipShare * 100).toFixed(0)}% · Birkdale ${birkdaleFileable} fileable within 2 mi · Exeter ${exeterFileable} fileable within 2 mi (first load ${OCM_BASELINE.exeterFileable})`,
+        sourceDate: new Date().toISOString().slice(0, 10),
+      };
+    } finally {
+      rmSync(workDir, { recursive: true, force: true });
+    }
+  })();
+}
+
 export async function runCanaryProbes() {
   const results = [];
   const run = async (item, fn) => {
@@ -1211,5 +1389,6 @@ export async function runCanaryProbes() {
   await run("naptan", probeNaptan);
   await run("geofabrik", probeGeofabrik);
   await run("os-greenspace", probeOsGreenspace);
+  await run("open-charge-map", probeOpenChargeMap);
   return results;
 }
