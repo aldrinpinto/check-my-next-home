@@ -26,13 +26,30 @@
 // Ofcom's own sanctioned derivation for "at least one operator"
 // (100 minus the no-operator percentage — Spring 2026
 // About-this-data note 4), with the published inputs filed beside
-// it so the derivation is auditable. Voice's all-operators column
-// is _3, not _4: the real file publishes Voice for a maximum of
-// three operators. The 5G SA _4 columns are present but empty —
-// one operator does not deploy 5G SA — so their all-operators
-// figure files as null while the published no-operator figure and
-// its derivation still file. Of the filed services, only 4G also
-// carries an indoor set; every 5G variant is outdoor-only.
+// it so the derivation is auditable. Every service's
+// all-operators column is its _4 — Voice included: the real file
+// publishes Voice_prem_out_4 with values (the founder's v6 raw
+// rows show Braintree Voice_prem_out_4 = 99.29, with _3 = 0.64
+// the exactly-three share). An earlier revision of this loader
+// read Voice's all-operators from _3; that was wrong.
+//
+// EMPTY CELLS ARE ZEROS — with one documented exception. Ofcom
+// writes an exact zero as an empty cell in the operator-count
+// percentage columns: the founder's v6 live run (13 Nov 2026)
+// printed the real rows, and Braintree's 4G_prem_out _0 is empty
+// while _1.._4 sum to exactly 100, and Newham's _0.._3 are all
+// empty beside _4 = 100. So parsing is two passes: a column that
+// is empty in EVERY row is an unpublished column and its figure
+// files as null; any other empty cell is an exact 0. The
+// unpublished case is the documented one — the Spring 2026
+// About-this-data states that all 3G columns for 2, 3 and 4
+// operators are empty file-wide (3G switch-off) and all 5G SA
+// columns for 4 operators are empty file-wide (one operator does
+// not deploy 5G SA): those combinations do not exist, so the 5G
+// SA all-operators figure files as null — never as 0 — while its
+// published no-operator figure and the derivation still file. Of
+// the filed services, only 4G also carries an indoor set; every
+// 5G variant is outdoor-only.
 //
 // There is NO Data service in the Spring 2026 file. Older Ofcom
 // documentation (through Spring 2025) listed an aggregate Data
@@ -44,10 +61,12 @@
 // alone is not the same measure.
 //
 // Access, filing discipline and modes mirror load-broadband:
-// ofcom.org.uk 403s this build sandbox. The founder-machine pull
+// ofcom.org.uk 403s this build sandbox. The founder-machine runs
 // supplied the real Spring 2026 header shape this loader and its
-// fixture now follow; the corrected loader's live-pull proof is
-// still outstanding. One transaction stages and merges; stale
+// fixture now follow, and the v6 run passed end-to-end against
+// the real release — its raw-row printout is also the evidence
+// for the empty-cell rule above. One transaction stages and
+// merges; stale
 // keys are removed in the same transaction; a failed load never
 // overwrites the last good copy. Postcodes whose council matches
 // no published authority are counted and named in the loader's
@@ -77,11 +96,12 @@ export const ANSWER_KEY = "mobile";
 
 // Service columns consumed, by their published names
 // ([Service]_[prem type]_[operator count]). `allOperators` is the
-// highest published operator-count column for that service: 3 for
-// Voice, 4 for the rest. (The 5G SA _4 columns exist but are
-// empty in Spring 2026; see the header note.)
+// highest published operator-count column for that service: 4 for
+// every filed service, Voice included — the real file publishes
+// Voice_prem_out_4 with values. (The 5G SA _4 columns exist but
+// are empty file-wide in Spring 2026; see the header note.)
 const SERVICES = {
-  voice: { label: "Voice", allOperators: 3 },
+  voice: { label: "Voice", allOperators: 4 },
   "4g": { label: "4G", allOperators: 4 },
   "5g_high_confidence": { label: "5G_high_confidence", allOperators: 4 },
   "5g_very_high_confidence": { label: "5G_very_high_confidence", allOperators: 4 },
@@ -91,9 +111,9 @@ const SERVICES = {
     allOperators: 4,
   },
 };
-const REQUIRED_COLUMNS = [
-  "laua",
-  "laua_name",
+// The operator-count columns this loader consumes — the set the
+// empty-cell rule's first pass is judged over.
+const CONSUMED_COLUMNS = [
   ...Object.values(SERVICES).flatMap(({ label, allOperators }) => [
     `${label}_prem_out_0`,
     `${label}_prem_out_${allOperators}`,
@@ -101,6 +121,7 @@ const REQUIRED_COLUMNS = [
   "4G_prem_in_0",
   "4G_prem_in_4",
 ];
+const REQUIRED_COLUMNS = ["laua", "laua_name", ...CONSUMED_COLUMNS];
 
 // The golden homes' councils (D10) — directory facts from the
 // postcode loader, not coverage figures. Their authorities must be
@@ -109,8 +130,10 @@ export const GOLDEN_COUNCILS = ["Braintree", "Newham", "Epsom and Ewell"];
 
 export const normaliseCouncil = (name) => name.trim().replace(/\s+/g, " ").toLowerCase();
 
+// A published (non-empty) cell must be a percentage. Empty cells
+// never reach here — figure() inside parseLauaCsv resolves them
+// first, under the empty-cell rule.
 const pct = (raw, laua, field) => {
-  if (raw === "" || raw === undefined) return null; // published empty (e.g. defunct services)
   const n = Number(raw);
   if (!Number.isFinite(n) || n < 0 || n > 100) {
     throw new Error(`mobile: ${field} "${raw}" for ${laua} is not a percentage`);
@@ -118,18 +141,20 @@ const pct = (raw, laua, field) => {
   return n;
 };
 
-const coverageSet = (noneRaw, allRaw, laua, field) => {
-  const none = pct(noneRaw, laua, field);
-  const all = pct(allRaw, laua, field);
-  // A missing all-operators value (5G SA _4 in Spring 2026) does
-  // not erase the published no-operator figure: file it as null
-  // beside the figures that were published.
-  if (none === null) return null;
+// Build one coverage set from its two resolved figures. A figure
+// is null only when its column is unpublished (empty in every
+// row — e.g. the 5G SA _4 columns: the no-operator figure and
+// its derivation file beside a null all-operators figure). The
+// set itself is null only when neither figure is usable, the
+// defensive case, kept in the null shape earlier revisions
+// filed for unpublished sets.
+const coverageSet = (none, all) => {
+  if (none === null && all === null) return null;
   return {
     no_operator_pct: none,
     all_operators_pct: all,
     // Ofcom's own derivation (Spring 2026 About-this-data note 4).
-    at_least_one_operator_pct: Math.round((100 - none) * 10) / 10,
+    at_least_one_operator_pct: none === null ? null : Math.round((100 - none) * 10) / 10,
   };
 };
 
@@ -145,14 +170,33 @@ export function parseLauaCsv(text, release) {
     }
   }
   const get = (rec, name) => rec[index.get(name)];
+  // A record in which every field is empty is a blank row the
+  // file carries (the real Spring 2026 file ends with an empty
+  // row spanning all columns): it holds no data, so it is set
+  // aside before anything else. A record that carries values but
+  // no authority code or name is a data error and still throws
+  // below.
+  const dataRecords = records.slice(1).filter((rec) => !rec.every((field) => field.trim() === ""));
+  // Pass 1 — the empty-cell rule (see the header note): a
+  // consumed column that is empty in EVERY authority row is an
+  // unpublished column (the documented 3G multi-operator and 5G
+  // SA four-operator cases) and its figures file as null. Any
+  // other empty cell is an exact zero Ofcom chose not to print.
+  const unpublished = new Set(
+    CONSUMED_COLUMNS.filter((name) =>
+      dataRecords.every((rec) => {
+        const value = get(rec, name);
+        return value === undefined || value.trim() === "";
+      }),
+    ),
+  );
+  const figure = (rec, name, lauaName) => {
+    const raw = get(rec, name);
+    if (raw !== undefined && raw.trim() !== "") return pct(raw, lauaName, name);
+    return unpublished.has(name) ? null : 0;
+  };
   const rows = [];
-  for (const rec of records.slice(1)) {
-    // A record in which every field is empty is a blank row the
-    // file carries (the real Spring 2026 file ends with an empty
-    // row spanning all columns): it holds no data, so skip it. A
-    // record that carries values but no authority code or name is
-    // a data error and still throws below.
-    if (rec.every((field) => field.trim() === "")) continue;
+  for (const rec of dataRecords) {
     const laua = get(rec, "laua").trim();
     const lauaName = get(rec, "laua_name").trim();
     if (!laua || !lauaName) throw new Error("mobile: a row with no authority code or name");
@@ -160,18 +204,14 @@ export function parseLauaCsv(text, release) {
     for (const [key, { label, allOperators }] of Object.entries(SERVICES)) {
       services[key] = {
         outdoor: coverageSet(
-          get(rec, `${label}_prem_out_0`),
-          get(rec, `${label}_prem_out_${allOperators}`),
-          lauaName,
-          `${label} outdoor`,
+          figure(rec, `${label}_prem_out_0`, lauaName),
+          figure(rec, `${label}_prem_out_${allOperators}`, lauaName),
         ),
       };
       if (key === "4g") {
         services[key].indoor = coverageSet(
-          get(rec, "4G_prem_in_0"),
-          get(rec, "4G_prem_in_4"),
-          lauaName,
-          "4G indoor",
+          figure(rec, "4G_prem_in_0", lauaName),
+          figure(rec, "4G_prem_in_4", lauaName),
         );
       }
     }

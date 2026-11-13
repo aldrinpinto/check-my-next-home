@@ -55,9 +55,10 @@ describe("the fixture release", () => {
       "5g_sa_very_high_confidence",
     ]);
     expect(braintree?.answer.services).not.toHaveProperty("data");
-    // Voice is a three-operator maximum in the real file: its
-    // all-operators figure is the _3 column, not a missing _4 column.
-    expect(braintree?.answer.services.voice.outdoor.all_operators_pct).toBe(88.5);
+    // Voice's all-operators figure is the _4 column, like every
+    // other service (the real file publishes Voice_prem_out_4
+    // with values; _3 is only the exactly-three share).
+    expect(braintree?.answer.services.voice.outdoor.all_operators_pct).toBe(99.17);
     // 5G SA has no four-operator column values (one operator does
     // not deploy it), but its published no-operator figure and the
     // sanctioned at-least-one derivation still file.
@@ -74,6 +75,103 @@ describe("the fixture release", () => {
   it("refuses a file missing a consumed service column", () => {
     const broken = "laua,laua_name,Voice_prem_out_0\nE07000067,Braintree,0.1\n";
     expect(() => parseLauaCsv(broken, RELEASE)).toThrow(/missing column/);
+  });
+});
+
+type CoverageSet = {
+  no_operator_pct: number | null;
+  all_operators_pct: number | null;
+  at_least_one_operator_pct: number | null;
+} | null;
+type Services = Record<string, { outdoor: CoverageSet; indoor?: CoverageSet }>;
+
+describe("the empty-cell rule (Ofcom writes exact zeros as empty cells)", () => {
+  // Proven by the founder's v6 live run (13 Nov 2026) against the
+  // real file, whose raw rows the harness printed: Braintree's
+  // real 4G_prem_out_0 is empty while its siblings sum to exactly
+  // 100, and Newham's _0.._3 are empty beside _4 = 100. An empty
+  // cell is a zero — unless its column is empty in EVERY row,
+  // which is an unpublished column (the documented 3G
+  // multi-operator and 5G SA four-operator cases) whose figure
+  // files as null. The fixture reproduces all three shapes with
+  // invented values.
+  const load = async () =>
+    (await loadMobileRows({ fileDir: FIXTURE_DIR } as never)) as unknown as {
+      rows: { lauaName: string; answer: { services: Services } }[];
+    };
+
+  it("files an empty _0 cell as 0 when its siblings carry the figures", async () => {
+    const { rows } = await load();
+    const braintree = rows.find((r) => r.lauaName === "Braintree");
+    expect(braintree?.answer.services["4g"].outdoor).toEqual({
+      no_operator_pct: 0,
+      all_operators_pct: 98.9,
+      at_least_one_operator_pct: 100,
+    });
+    // Voice's all-operators figure comes from _4, not from the
+    // exactly-three _3 column an earlier revision read.
+    expect(braintree?.answer.services.voice.outdoor).toEqual({
+      no_operator_pct: 0,
+      all_operators_pct: 99.17,
+      at_least_one_operator_pct: 100,
+    });
+  });
+
+  it("files the full-coverage authority (every _4 = 100, siblings empty) in full", async () => {
+    const { rows } = await load();
+    const newham = rows.find((r) => r.lauaName === "Newham");
+    const full = { no_operator_pct: 0, all_operators_pct: 100, at_least_one_operator_pct: 100 };
+    expect(newham?.answer.services.voice.outdoor).toEqual(full);
+    expect(newham?.answer.services["4g"].outdoor).toEqual(full);
+    expect(newham?.answer.services["4g"].indoor).toEqual(full);
+    expect(newham?.answer.services["5g_high_confidence"].outdoor).toEqual(full);
+    expect(newham?.answer.services["5g_very_high_confidence"].outdoor).toEqual(full);
+    // 5G SA's _4 column is unpublished file-wide: its
+    // all-operators figure stays null even here, beside the
+    // filed 0 and its derivation — it is never filed as 0 or 100.
+    const sa = { no_operator_pct: 0, all_operators_pct: null, at_least_one_operator_pct: 100 };
+    expect(newham?.answer.services["5g_sa_high_confidence"].outdoor).toEqual(sa);
+    expect(newham?.answer.services["5g_sa_very_high_confidence"].outdoor).toEqual(sa);
+  });
+
+  it("keeps the ordinary all-numeric row filing as published", async () => {
+    const { rows } = await load();
+    const epsom = rows.find((r) => r.lauaName === "Epsom and Ewell");
+    expect(epsom?.answer.services.voice.outdoor).toEqual({
+      no_operator_pct: 0.4,
+      all_operators_pct: 97.8,
+      at_least_one_operator_pct: 99.6,
+    });
+    expect(epsom?.answer.services["5g_sa_high_confidence"].outdoor).toEqual({
+      no_operator_pct: 27.5,
+      all_operators_pct: null,
+      at_least_one_operator_pct: 72.5,
+    });
+  });
+
+  it("files a set as null only when both its columns are unpublished file-wide", async () => {
+    const text = await readFile(join(FIXTURE_DIR, "202601_mobile_coverage_laua_r01.csv"), "utf8");
+    const lines = text.split(/\r?\n/).filter((line) => line !== "");
+    const header = lines[0].split(",");
+    const targets = [
+      "5G_very_high_confidence_prem_out_0",
+      "5G_very_high_confidence_prem_out_4",
+    ].map((name) => header.indexOf(name));
+    const blanked = [
+      lines[0],
+      ...lines.slice(1).map((line) => {
+        const fields = line.split(",");
+        for (const at of targets) fields[at] = "";
+        return fields.join(",");
+      }),
+    ].join("\n");
+    const rows = parseLauaCsv(blanked, RELEASE) as unknown as {
+      lauaName: string;
+      answer: { services: Services };
+    }[];
+    const braintree = rows.find((r) => r.lauaName === "Braintree");
+    expect(braintree?.answer.services["5g_very_high_confidence"].outdoor).toBeNull();
+    expect(braintree?.answer.services["4g"].outdoor).not.toBeNull();
   });
 });
 

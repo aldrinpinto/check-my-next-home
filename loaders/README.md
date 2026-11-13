@@ -524,7 +524,15 @@ its TRUE grain: Ofcom publishes no postcode-level mobile file,
 so each postcode gets its own local authority's published
 percentages (joined on the directory's council), with the
 grain named inside the answer and "at least one operator"
-derived exactly as Ofcom's own notes prescribe. Ofcom returns
+derived exactly as Ofcom's own notes prescribe. Ofcom writes
+an exact zero as an empty cell in the operator-count columns
+(proven by the founder's v6 raw rows: Braintree's real
+`4G_prem_out_0` is empty while its siblings sum to 100), so
+the loader reads an empty cell as 0 — except a column empty
+in every row, which is an unpublished combination (all 3G
+columns for 2/3/4 operators and all 5G SA columns for 4
+operators, per the About-this-data) and files as null, never
+as 0. Ofcom returns
 HTTP 403 to some networks (including the build sandbox): from
 one, the loaders fail with that named plainly, the
 `ofcom-broadband`/`ofcom-mobile` canaries skip rather than
