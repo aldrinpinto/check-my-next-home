@@ -140,3 +140,5 @@ jobs:
         run: node loaders/load-flood-rivers-sea.mjs --file tests/fixtures/flood-rivers-sea
       - name: Load the flood surface water fixture (plan step M5.1)
         run: node loaders/load-flood-surface-water.mjs --file tests/fixtures/flood-surface-water
+      - name: Load the transport fixture (plan step M5.5)
+        run: node loaders/load-transport.mjs --file tests/fixtures/transport
