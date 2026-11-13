@@ -141,6 +141,7 @@ jobs:
           psql "$DATABASE_URL" -Atc "SELECT count(*) FROM postcode_cache WHERE answers ? 'broadband'" | grep -qx 4
           psql "$DATABASE_URL" -Atc "SELECT answers->'broadband'->>'gigabit_capable_pct' FROM postcode_cache WHERE postcode='CM3 2JT'" | grep -qx 85.6
           psql "$DATABASE_URL" -Atc "SELECT answers->'mobile'->>'laua_name' FROM postcode_cache WHERE postcode='KT17 1FH'" | grep -qx "Epsom and Ewell"
+
       - name: Snapshot the filed crime answers
         run: |
           psql "$DATABASE_URL" -Atc "SELECT postcode || '=' || (answers->'crime')::text FROM postcode_cache WHERE answers ? 'crime' ORDER BY postcode" > /tmp/crime-before.txt
