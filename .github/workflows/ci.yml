@@ -173,4 +173,4 @@ jobs:
         run: node loaders/load-ev-chargers.mjs --file tests/fixtures/ev-chargers/ocm-pois.json
 
       - name: Load the census fixture (plan step M5.8)
-    run: node loaders/load-census.mjs --file tests/fixtures/census
+        run: node loaders/load-census.mjs --file tests/fixtures/census
