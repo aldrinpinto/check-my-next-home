@@ -178,4 +178,3 @@ jobs:
         run: node loaders/load-imd.mjs --file tests/fixtures/imd
       - name: Load the air quality fixture (plan step M5.9)
         run: node loaders/load-air-quality.mjs --file tests/fixtures/air
-
