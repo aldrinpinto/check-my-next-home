@@ -420,6 +420,49 @@ record's own data provider, per record — and membership-
 required sites must be labelled with their recorded class
 wherever they are served.
 
+## Census 2021 loader (plan step M5.8)
+
+`npm run load:census` files Census 2021 for every MSOA in
+England & Wales (7,264 areas) into `census_stats` (migration
+0011). The source is the ONS bulk download via Nomis — seven
+keyless zips (no key, no registration; OGL v3 licences ship
+inside them): TS007A (age bands), TS007 (single years of
+age), TS021 (ethnic group), TS030 (religion), TS044
+(accommodation type), TS052 (bedroom occupancy) and TS054
+(tenure). Every value filed is an integer COUNT exactly as
+published — percentages are never filed; serving code
+computes them from the counts, each table on its own total
+(the published tables do not share one total: ONS perturbs
+each table independently, by design). Categories file in
+full, unmerged — the Census's own words — and TS054's
+"Social rented" files BOTH as a category inside the tenure
+table and as its own filed fact, because the plan's
+cost-of-ownership step reads the subtotal, not its parts.
+TS007's single years file as a 101-value vector from which
+consumers compute the median age (the loader never files a
+median). The header contract is exact: a bulk re-issue that
+renames, drops or adds a category fails the load loudly
+rather than misfiling a column.
+
+The loader is a one-off, not a refresh: the runner registers
+it in the STATIC class (due exactly once, when it has never
+loaded), and the monthly `nomis-census` canary probe watches
+the source for a republication — TS021 was corrected once
+already (29 Nov 2022) — comparing the three universal MSOAs'
+TS021 totals EXACTLY against the filed baselines; a
+difference means a manual re-run of this loader. The whole
+load is all-or-nothing: all seven datasets parse, validate
+against the golden MSOAs and stage inside one transaction
+before anything becomes live, so a failed load never
+overwrites the last good copy.
+
+```text
+npm run load:census                                          # live download → file
+node loaders/load-census.mjs --verify-only                   # live download; validate and report; nothing filed
+node loaders/load-census.mjs --file tests/fixtures/census    # file the 3-MSOA fixture (CI)
+node loaders/load-census.mjs --file ~/Downloads/census-zips  # file (or, with --verify-only, validate) a folder of founder-downloaded zips
+```
+
 ## Loader runner + canary
 
 `run-loaders.mjs` (plan step M4.8; `npm run load:all`) runs the
@@ -431,10 +474,33 @@ success. Due-ness: the postcode directory and the M5.1 flood, M5.2
 planning and heritage, M5.3 nature, M5.5 transport, M5.6
 nearby and M5.7 EV chargers datasets quarterly (70 days — their sources move
 slowly; and those loaders never join onto the directory, so an
-empty directory does not skip them), the other datasets
-monthly, judged from the last successful run items;
+empty directory does not skip them), the Census 2021 dataset
+(plan step M5.8) in the static class — due exactly once, when
+it has never loaded, and never automatically again — the
+other datasets monthly, judged from the last successful run items;
 per-postcode loaders take their targets from what is already
 filed (the golden three when nothing is). A failed probe alerts
 but never blocks a load. If the database is down the record
 falls back to a JSON-lines file and the email still goes out.
 `npm run canary` runs the probes only.
+
+## Before any push
+
+Run `npm run prepush` and do not push unless it is green. It
+runs the local gates in CI's order — format check, lint,
+typecheck, the full test suite, build — so a failure CI would
+have caught is caught here first, without spending a CI run on
+it (three M5 loader defects reached CI in Nov 2026 before this
+gate existed; each cost a red run and a fix round).
+
+One part of the suite matters most for loader work:
+`tests/loader-contracts.test.ts` is the guard for filing SQL.
+It discovers every loader registered in `run-loaders.mjs` and
+checks, for each one, that every live-table INSERT names only
+columns the migrations define (and never a generated column),
+that BEGIN is issued before any `CREATE TEMP TABLE ... ON
+COMMIT DROP` stage create, and that the loader's fixture
+wiring is coherent. New loaders are covered automatically
+once they are registered in the runner — no list to update —
+and the per-loader fake-pool tests remain the gold standard
+each new loader should still bring for its own filer.

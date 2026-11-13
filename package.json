@@ -17,6 +17,7 @@
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "prepush": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build",
     "load:schools": "node loaders/load-schools.mjs",
     "load:health": "node loaders/load-health.mjs",
     "load:planning-areas": "node loaders/load-planning-areas.mjs",
@@ -31,6 +32,7 @@
     "load:osm-places": "node loaders/load-osm-places.mjs",
     "load:os-greenspace": "node loaders/load-os-greenspace.mjs",
     "load:ev-chargers": "node loaders/load-ev-chargers.mjs",
+    "load:census": "node loaders/load-census.mjs",
     "load:all": "node loaders/run-loaders.mjs",
     "canary": "node loaders/run-loaders.mjs --canary-only"
   },
