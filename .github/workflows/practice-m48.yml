@@ -141,7 +141,7 @@ jobs:
           psql "$DATABASE_URL" -Atc "SELECT night_band FROM noise_summary WHERE area_ref='E16 1GN' AND source_kind='airport'" | grep -qx "No modelled airport noise"
           psql "$DATABASE_URL" -Atc "SELECT count(*) FROM postcode_cache WHERE answers ? 'broadband'" | grep -qx 2
           psql "$DATABASE_URL" -Atc "SELECT answers->'broadband'->>'gigabit_capable_pct' FROM postcode_cache WHERE postcode='CM3 2JT'" | grep -qx 85.6
-          psql "$DATABASE_URL" -Atc "SELECT answers->'mobile'->>'laua_name' FROM postcode_cache WHERE postcode='KT17 1FH'" | grep -qx "Epsom and Ewell"
+          psql "$DATABASE_URL" -Atc "SELECT answers->'mobile'->>'laua_name' FROM postcode_cache WHERE postcode='CM3 2JT'" | grep -qx "Braintree"
 
       - name: Snapshot the filed crime answers
         run: |
