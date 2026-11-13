@@ -126,6 +126,21 @@ jobs:
           psql "$DATABASE_URL" -Atc "SELECT stats->'ts054'->>'social_rented' FROM census_stats WHERE msoa_code = 'E02000749'" | grep -qx 1631
           psql "$DATABASE_URL" -Atc "SELECT stats->'ts021'->>'total' FROM census_stats WHERE msoa_code = 'E02006837'" | grep -qx 11787
 
+      - name: Assert the M5.9 datasets filed (plan step M5.9)
+        run: |
+          psql "$DATABASE_URL" -Atc "SELECT count(*) FROM loader_run_items WHERE run_id = (SELECT id FROM loader_runs ORDER BY started_at DESC LIMIT 1) AND item IN ('load-imd','load-air-quality','load-noise','load-broadband','load-mobile') AND status='succeeded'" | grep -qx 5
+          psql "$DATABASE_URL" -Atc "SELECT count(*) FROM neighbourhood_stats" | grep -qx 3
+          psql "$DATABASE_URL" -Atc "SELECT imd_decile FROM neighbourhood_stats WHERE lsoa_code='E01021395'" | grep -qx 8
+          psql "$DATABASE_URL" -Atc "SELECT imd_decile FROM neighbourhood_stats WHERE lsoa_code='E01003511'" | grep -qx 3
+          psql "$DATABASE_URL" -Atc "SELECT imd_summary FROM neighbourhood_stats WHERE lsoa_code='E01030396'" | grep -qx "Among the less deprived 10 percent of areas in England"
+          psql "$DATABASE_URL" -Atc "SELECT count(*) FROM air_grid WHERE year=2024" | grep -qx 3
+          psql "$DATABASE_URL" -Atc "SELECT no2 FROM air_grid WHERE grid_ref='771971' AND year=2024" | grep -qx 21.71409
+          psql "$DATABASE_URL" -Atc "SELECT count(*) FROM noise_summary" | grep -qx 12
+          psql "$DATABASE_URL" -Atc "SELECT day_band FROM noise_summary WHERE area_ref='E16 1GN' AND source_kind='airport'" | grep -qx "Below 55 dB"
+          psql "$DATABASE_URL" -Atc "SELECT night_band FROM noise_summary WHERE area_ref='E16 1GN' AND source_kind='airport'" | grep -qx "No modelled airport noise"
+          psql "$DATABASE_URL" -Atc "SELECT count(*) FROM postcode_cache WHERE answers ? 'broadband'" | grep -qx 4
+          psql "$DATABASE_URL" -Atc "SELECT answers->'broadband'->>'gigabit_capable_pct' FROM postcode_cache WHERE postcode='CM3 2JT'" | grep -qx 85.6
+          psql "$DATABASE_URL" -Atc "SELECT answers->'mobile'->>'laua_name' FROM postcode_cache WHERE postcode='KT17 1FH'" | grep -qx "Epsom and Ewell"
       - name: Snapshot the filed crime answers
         run: |
           psql "$DATABASE_URL" -Atc "SELECT postcode || '=' || (answers->'crime')::text FROM postcode_cache WHERE answers ? 'crime' ORDER BY postcode" > /tmp/crime-before.txt
