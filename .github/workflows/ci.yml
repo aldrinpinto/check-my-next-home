@@ -42,7 +42,13 @@ jobs:
       - name: Type-check (TypeScript)
         run: npm run typecheck
 
+      # The M5.6 parks loader (and so its test) imports
+      # node:sqlite, which Node 22 still gates behind
+      # --experimental-sqlite (unflagged on Node 23+; the
+      # flag is accepted and harmless there).
       - name: Unit tests (Vitest)
+        env:
+          NODE_OPTIONS: --experimental-sqlite
         run: npm test
 
       - name: Build the site
@@ -121,7 +127,20 @@ jobs:
       - name: Load the health fixture (plan step M4.7)
         run: npm run load:health -- --file tests/fixtures/health
 
+      # The M5.6 places loader cuts its extracts with pyosmium
+      # (pip package "osmium", the version the prep measured),
+      # and the M5.6 parks loader reads its GeoPackage with
+      # node:sqlite — unflagged on Node 23+, still behind
+      # --experimental-sqlite on the Node 22 line this job
+      # runs, hence the NODE_OPTIONS on the steps that reach
+      # it (the flag is accepted and harmless where the
+      # module is unflagged).
+      - name: Set up the OSM extract cutter (plan step M5.6)
+        run: pip install osmium==4.3.2
+
       - name: Runner — fixture pass over all loaders (plan step M4.8)
+        env:
+          NODE_OPTIONS: --experimental-sqlite
         run: node loaders/run-loaders.mjs --file tests/fixtures --kind practice --env ci --no-canary --no-email
 
       - name: Load the planning-area fixture (plan step M5.2)
@@ -142,3 +161,9 @@ jobs:
         run: node loaders/load-flood-surface-water.mjs --file tests/fixtures/flood-surface-water
       - name: Load the transport fixture (plan step M5.5)
         run: node loaders/load-transport.mjs --file tests/fixtures/transport
+      - name: Load the nearby places fixture (plan step M5.6)
+        run: node loaders/load-osm-places.mjs --file tests/fixtures/osm-places
+      - name: Load the greenspace fixture (plan step M5.6)
+        env:
+          NODE_OPTIONS: --experimental-sqlite
+        run: node loaders/load-os-greenspace.mjs --file tests/fixtures/os-greenspace
