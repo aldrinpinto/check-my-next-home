@@ -108,6 +108,14 @@ jobs:
           psql "$DATABASE_URL" -Atc "SELECT count(*) FROM osm_points WHERE name = 'Goddard Vets Plaistow'" | grep -qx 1
           psql "$DATABASE_URL" -Atc "SELECT count(*) FROM greenspace_points" | grep -qx 5008
           psql "$DATABASE_URL" -Atc "SELECT count(DISTINCT point_role) FROM greenspace_points" | grep -qx 2
+                - name: Assert the EV chargers filed (plan step M5.7)
+                        run: |
+                                                          psql "$DATABASE_URL" -Atc "SELECT item, status FROM loader_run_items WHERE run_id = (SELECT id FROM loader_runs ORDER BY started_at DESC LIMIT 1) AND item IN ('load-ev-chargers') ORDER BY item"
+                                                                    psql "$DATABASE_URL" -Atc "SELECT count(*) FROM loader_run_items WHERE run_id = (SELECT id FROM loader_runs ORDER BY started_at DESC LIMIT 1) AND item IN ('load-ev-chargers') AND status = 'succeeded'" | grep -qx 1
+                                                                              psql "$DATABASE_URL" -Atc "SELECT count(*) FROM ev_points" | grep -qx 831
+                                                                                        psql "$DATABASE_URL" -Atc "SELECT count(*) FROM ev_points WHERE name = 'Witham Leisure Centre'" | grep -qx 1
+                                                                                                  psql "$DATABASE_URL" -Atc "SELECT detail->>'usage_type' FROM ev_points WHERE name = 'Witham Leisure Centre'" | grep -qx "Public - Membership Required"
+          
 
       - name: Snapshot the filed crime answers
         run: |
