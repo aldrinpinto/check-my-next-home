@@ -463,6 +463,73 @@ node loaders/load-census.mjs --file tests/fixtures/census    # file the 3-MSOA f
 node loaders/load-census.mjs --file ~/Downloads/census-zips  # file (or, with --verify-only, validate) a folder of founder-downloaded zips
 ```
 
+## Deprivation, air, noise, broadband and mobile loaders (plan step M5.9)
+
+Five loaders, one per source (the flood precedent — never
+merged), all in the runner's STATIC class (due exactly once,
+then operator re-runs on a canary's word):
+
+`npm run load:imd` files the English Indices of Deprivation
+2025 (MHCLG File 7, GOV.UK asset server, OGL v3, keyless) into
+`neighbourhood_stats`: overall score, rank and decile plus the
+seven domain deciles per 2021 LSOA, and `imd_summary` rendered
+at load time from the decile in the Final Design's words.
+England only — Scotland and Wales publish separate indices on
+their own scales and get no rows. IDACI/IDAOPI are never read.
+The `govuk-iod` canary watches the release page (File 7 was
+re-issued once as v2).
+
+`npm run load:air-quality` files Defra's PCM background maps
+(UK-AIR datastore, OGL v3) into `air_grid`: the 2024 vintage's
+NO2, PM2.5 and PM10 annual means for all 254,905 1 km squares,
+at full published precision, centres converted on the
+schools/transport proj4 basis. Concentrations as published —
+no band is computed. The 2025 maps exist only as shapefiles
+under a new model and are not filed; the `defra-pcm` canary
+watches for the 2025 CSVs.
+
+`npm run load:noise` files Defra's strategic noise mapping,
+England Round 4, into `noise_summary` (migration 0012 added
+`source_kind`): road, rail and airport rows per postcode, each
+carrying the publisher's 5 dB Lday/Lnight presentation bands,
+with "Below 55/50 dB" (a real value under the first band) and
+"No modelled … noise" (grid 0 or nodata) as distinct states —
+0 is never filed as "0 dB". The loader samples the 10 m grids
+loader-side through the publisher's WCS (20 km GeoTIFF tiles,
+resumable per-tile sample files in `NOISE_WORK_DIR`): a
+national first pass is an operator-run job measured in hours,
+and the loader exits non-zero until sampling completes, so
+the runner keeps it due and every pass resumes. `--verify-only`
+re-samples the golden points through the WMS instead (the
+`defra-noise` canary does the same monthly for one point).
+
+`npm run load:broadband` and `npm run load:mobile` file Ofcom
+Connected Nations answers into `postcode_cache.answers` (the
+crime/EPC pattern). Both DISCOVER the current release ZIP from
+Ofcom's publication page on every run — never a hardcoded
+filename (the Spring 2026 postcode files were re-issued r1→r2
+mid-cycle). Broadband files the all-premises postcode
+percentages as published — gigabit-capable is the headline;
+Ofcom publishes no full-fibre percentage and no premise counts
+at postcode level, and neither is invented. Mobile is filed at
+its TRUE grain: Ofcom publishes no postcode-level mobile file,
+so each postcode gets its own local authority's published
+percentages (joined on the directory's council), with the
+grain named inside the answer and "at least one operator"
+derived exactly as Ofcom's own notes prescribe. Ofcom returns
+HTTP 403 to some networks (including the build sandbox): from
+one, the loaders fail with that named plainly, the
+`ofcom-broadband`/`ofcom-mobile` canaries skip rather than
+alarm, and `--file` mode files a release downloaded elsewhere.
+
+```text
+npm run load:imd / load:air-quality / load:noise / load:broadband / load:mobile
+node loaders/load-imd.mjs --verify-only              # live pull; golden checks; nothing filed
+node loaders/load-noise.mjs --verify-only            # golden points re-sampled live via WMS
+node loaders/load-noise.mjs --file tests/fixtures/noise   # band + file the measured-values fixture (CI)
+node loaders/load-broadband.mjs --file ~/Downloads/cn-release  # file a founder-downloaded release
+```
+
 ## Loader runner + canary
 
 `run-loaders.mjs` (plan step M4.8; `npm run load:all`) runs the
@@ -475,8 +542,10 @@ planning and heritage, M5.3 nature, M5.5 transport, M5.6
 nearby and M5.7 EV chargers datasets quarterly (70 days — their sources move
 slowly; and those loaders never join onto the directory, so an
 empty directory does not skip them), the Census 2021 dataset
-(plan step M5.8) in the static class — due exactly once, when
-it has never loaded, and never automatically again — the
+(plan step M5.8) and the five M5.9 datasets (IMD, air quality,
+noise, broadband, mobile) in the static class — due exactly
+once, when they have never loaded, and never automatically
+again — the
 other datasets monthly, judged from the last successful run items;
 per-postcode loaders take their targets from what is already
 filed (the golden three when nothing is). A failed probe alerts

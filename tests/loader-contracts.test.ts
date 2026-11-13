@@ -68,6 +68,10 @@ const NO_LIVE_INSERT: Record<string, string> = {
     "files by merging crime counts into postcode_cache.answers (UPDATE ... SET answers); inserts no rows of its own",
   "load-epc":
     "files by merging EPC answers into postcode_cache.answers (UPDATE ... SET answers); inserts no rows of its own",
+  "load-broadband":
+    "files by merging Ofcom broadband answers into postcode_cache.answers (UPDATE ... SET answers); inserts no rows of its own",
+  "load-mobile":
+    "files by merging Ofcom mobile answers into postcode_cache.answers (UPDATE ... SET answers); inserts no rows of its own",
 };
 
 // A registered loader with no fixture invocation in the runner.

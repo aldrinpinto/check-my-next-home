@@ -15,7 +15,11 @@ The table list is the Technical Plan's Section 2 list, verbatim —
    and, in its `answers` JSON, the cached
    answers for the checks the Technical Plan gives no table of their
    own — broadband, crime counts and EPC — each answer stamped inside
-   with its source name and data date.
+   with its source name and data date. Since plan step M5.9 the
+   answers also carry a `mobile` key: Ofcom publishes mobile
+   coverage at local-authority level only, so that answer is the
+   postcode's own council area's figures with the grain named
+   inside it — never presented as a postcode measurement.
 2. **price_paid** — Land Registry sales, loaded on demand per
    postcode and kept forever. Each row carries the Registry's
    transaction id (migration 0003) so the monthly update file can
@@ -117,9 +121,23 @@ Family:
     street or indicator is held — the name, type and distance
     are the transport answer's substance in V1.
 13. **air_grid** — Defra modelled air quality, one row per 1 km
-    square per year (NO2, PM2.5, PM10).
-14. **noise_summary** — one pre-summarised daytime + night-time road
-    noise band per area. The raw 10 m grid never enters the database.
+    square per year (NO2, PM2.5, PM10). Filed by load-air-quality
+    (plan step M5.9) from the PCM background maps: concentrations
+    as published at full precision, year-stamped, served labelled
+    modelled — no band is computed or stored.
+14. **noise_summary** — one pre-summarised daytime + night-time
+    noise band pair per area PER SOURCE. Designed road-only in
+    migration 0001; the founder ruled rail and airport noise
+    into V1 (plan step M5.9), so migration 0012 adds
+    `source_kind` ('road', 'rail' or 'airport') with one row per
+    (area, source) — area is the postcode, the point its
+    directory point. Bands are the publisher's 5 dB presentation
+    ranges (day from 55 dB, night from 50 dB), with below-range
+    ("Below 55 dB") and no-modelled-source ("No modelled road
+    noise" — grid 0 or nodata) as distinct filed states; a grid
+    value of 0 is never stored as "0 dB". The raw 10 m grid
+    never enters the database: load-noise samples it loader-side
+    and files bands only.
 15. **flood_layers** — Environment Agency flood shapes. Three
     layers in one table, told apart by `layer_type` and never
     merged: `flood_zone` (the planning Flood Zones 2 and 3,
@@ -161,7 +179,12 @@ Family:
     hooks or shortlist. This table was once described as also
     holding Census 2021; it does not — the Census is keyed by
     MSOA and lives in **census_stats** (24). The M5.9 loader
-    files the IMD here.
+    (load-imd) files IoD2025 here: the overall score, rank and
+    decile in their columns (summary line rendered from the
+    decile at load), and the seven domain deciles inside
+    `stats`. England only — the Welsh and Scottish indices are
+    separate publications on their own scales and are never
+    filed into this table.
 19. **ev_points** — public EV charging SITES from Open Charge
     Map (plan step M5.7; the National Chargepoint Registry the
     table was designed for was decommissioned in November

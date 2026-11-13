@@ -33,6 +33,11 @@
     "load:os-greenspace": "node loaders/load-os-greenspace.mjs",
     "load:ev-chargers": "node loaders/load-ev-chargers.mjs",
     "load:census": "node loaders/load-census.mjs",
+    "load:imd": "node loaders/load-imd.mjs",
+    "load:air-quality": "node loaders/load-air-quality.mjs",
+    "load:noise": "node loaders/load-noise.mjs",
+    "load:broadband": "node loaders/load-broadband.mjs",
+    "load:mobile": "node loaders/load-mobile.mjs",
     "load:all": "node loaders/run-loaders.mjs",
     "canary": "node loaders/run-loaders.mjs --canary-only"
   },

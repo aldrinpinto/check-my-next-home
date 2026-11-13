@@ -1,0 +1,4 @@
+laua,laua_name,prem_count,pixel_count,ab_rd_count,mway_count,mway_ard_count,Voice_prem_out_0,Voice_prem_out_4,Data_prem_out_0,Data_prem_out_4,4G_prem_out_0,4G_prem_out_4,4G_prem_in_0,4G_prem_in_4,5G_high_confidence_prem_out_0,5G_high_confidence_prem_out_4,5G_very_high_confidence_prem_out_0,5G_very_high_confidence_prem_out_4
+E07000067,Braintree,65000,42000,900,0,300,0.1,88.5,0.2,85.1,0.3,82.4,2.1,55.6,18.4,12.2,35.1,4.8
+E09000025,Newham,118000,26000,700,0,250,0.0,96.2,0.0,95.8,0.1,94.9,0.6,78.3,2.4,30.5,9.8,15.6
+E07000071,Epsom and Ewell,34000,15000,500,120,300,0.0,93.4,0.1,91.2,0.2,89.7,1.2,66.9,8.9,18.3,22.4,7.9

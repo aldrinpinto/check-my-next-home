@@ -1426,6 +1426,177 @@ export function probeNomisCensus() {
   })();
 }
 
+// IMD (plan step M5.9): File 7 of the English Indices of
+// Deprivation 2025. Arms: the asset answers and is plausibly
+// sized; the header still leads with the consumed columns; and
+// the release page still links the asset the loader fetches —
+// File 7 was re-issued once already (the v2 ONS lookup
+// correction), so a moved link is warning-grade early notice,
+// not a failure: the loader's own golden checks stay the
+// authority on any re-file.
+const IOD_RELEASE_PAGE =
+  "https://www.gov.uk/government/statistics/english-indices-of-deprivation-2025";
+const IOD_FILE7_URL =
+  "https://assets.publishing.service.gov.uk/media/691ded56d140bbbaa59a2a7d/File_7_IoD2025_All_Ranks_Scores_Deciles_Population_Denominators.csv";
+
+export function probeGovukIod() {
+  return (async () => {
+    const head = await fetchRetry(IOD_FILE7_URL, { method: "HEAD" });
+    if (!head.ok) throw new Error(`HTTP ${head.status} for File 7`);
+    const length = Number(head.headers.get("content-length") ?? "0");
+    if (length > 0 && length < 5_000_000)
+      throw new Error(`File 7 is ${length} bytes — implausibly small for the published file`);
+    const headText = await streamHead(IOD_FILE7_URL, (t) => t.includes("\n"), {
+      maxBytes: 200_000,
+    });
+    const headerLine = headText.split("\n")[0];
+    if (!headerLine.includes("Index of Multiple Deprivation (IMD) Decile"))
+      throw new Error("File 7's header no longer leads with the IMD columns");
+    const page = await fetchRetry(IOD_RELEASE_PAGE);
+    if (page.ok) {
+      const html = await page.text();
+      const linked = html.match(/media\/[a-z0-9]+\/File_7_[^"]+\.csv/i)?.[0];
+      if (linked && !IOD_FILE7_URL.includes(linked)) {
+        return {
+          warning: true,
+          logLine:
+            "canary govuk-iod · File 7 has been re-issued at a new asset URL — update the IMD loader's FILE7_URL before any re-file (the filed 2025 figures stand)",
+          sourceDate: "2025-10-30",
+        };
+      }
+    }
+    return {
+      logLine: "canary govuk-iod · File 7 present, header OK, release page links the filed asset",
+      sourceDate: "2025-10-30",
+    };
+  })();
+}
+
+// Air quality (plan step M5.9): Defra PCM background CSVs. Arms:
+// the three filed-vintage files answer at plausible sizes; and a
+// watch for the NEXT vintage's CSVs — the 2025 maps exist only as
+// compliance shapefiles today (a different model, not filed), so
+// the day mapno22025.csv answers is the day the loader's vintage
+// can move on. Warning-grade: nothing is wrong, an operator
+// re-run becomes possible.
+const PCM_BASE = "https://uk-air.defra.gov.uk/datastore/pcm";
+const PCM_FILED_YEAR = 2024;
+
+export function probeDefraPcm() {
+  return (async () => {
+    for (const name of [
+      `mapno2${PCM_FILED_YEAR}.csv`,
+      `mappm25${PCM_FILED_YEAR}g.csv`,
+      `mappm10${PCM_FILED_YEAR}g.csv`,
+    ]) {
+      const head = await fetchRetry(`${PCM_BASE}/${name}`, { method: "HEAD" });
+      if (!head.ok) throw new Error(`HTTP ${head.status} for ${name}`);
+      const length = Number(head.headers.get("content-length") ?? "0");
+      if (length > 0 && length < 1_000_000)
+        throw new Error(`${name} is ${length} bytes — implausibly small for a PCM file`);
+    }
+    const next = await fetchRetry(`${PCM_BASE}/mapno2${PCM_FILED_YEAR + 1}.csv`, {
+      method: "HEAD",
+    });
+    if (next.ok) {
+      return {
+        warning: true,
+        logLine: `canary defra-pcm · PCM ${PCM_FILED_YEAR} files OK · the ${PCM_FILED_YEAR + 1} CSVs have landed — the air loader's vintage can move on (operator re-run)`,
+        sourceDate: `${PCM_FILED_YEAR}-12-31`,
+      };
+    }
+    return {
+      logLine: `canary defra-pcm · PCM ${PCM_FILED_YEAR} files present · no ${PCM_FILED_YEAR + 1} CSVs yet`,
+      sourceDate: `${PCM_FILED_YEAR}-12-31`,
+    };
+  })();
+}
+
+// Noise (plan step M5.9): Defra Round 4 services on the Data
+// Services Platform. Arms: all three services still offer their
+// Lday/Lnight layers; and one golden point sample — Birkdale's
+// road Lnight, measured 42.53 dB at build — still reads within a
+// tolerance (the grids are static; a shift means a republication
+// the operator should know about before any re-file).
+const NOISE_SERVICES = {
+  road: {
+    wms: "https://environment.data.gov.uk/spatialdata/road-noise-all-metrics-england-round-4/wms",
+    layers: ["Road_Noise_Lday_England_Round_4_All", "Road_Noise_Lnight_England_Round_4_All"],
+  },
+  rail: {
+    wms: "https://environment.data.gov.uk/spatialdata/noise-data/wms",
+    layers: ["Rail_Noise_Lday_England_Round_4_All", "Rail_Noise_Lnight_England_Round_4_All"],
+  },
+  airport: {
+    wms: "https://environment.data.gov.uk/spatialdata/airport-noise-all-metrics-england-round-4/wms",
+    layers: ["Airport_Noise_ALL_Lday", "Airport_Noise_ALL_Lnight"],
+  },
+};
+
+export function probeDefraNoise() {
+  return (async () => {
+    for (const [kind, svc] of Object.entries(NOISE_SERVICES)) {
+      const caps = await fetchRetry(`${svc.wms}?service=WMS&version=1.3.0&request=GetCapabilities`);
+      if (!caps.ok) throw new Error(`HTTP ${caps.status} for the ${kind} WMS`);
+      const text = await caps.text();
+      for (const layer of svc.layers) {
+        if (!text.includes(`<Name>${layer}</Name>`))
+          throw new Error(`the ${kind} WMS no longer offers ${layer}`);
+      }
+    }
+    const layer = NOISE_SERVICES.road.layers[1];
+    const url =
+      `${NOISE_SERVICES.road.wms}?service=WMS&version=1.3.0&request=GetFeatureInfo` +
+      `&layers=${layer}&query_layers=${layer}&crs=EPSG:27700` +
+      `&bbox=579683,211768,579783,211868&width=11&height=11&i=5&j=5&info_format=application/json`;
+    const response = await fetchRetry(url);
+    if (!response.ok) throw new Error(`HTTP ${response.status} for the golden point sample`);
+    const parsed = JSON.parse(await response.text());
+    const value = parsed.features?.[0]?.properties?.GRAY_INDEX;
+    if (typeof value !== "number" || Math.abs(value - 42.53) > 0.6)
+      throw new Error(
+        `Birkdale road Lnight reads ${value} — the build measured 42.53 (Round 4 republished or the service changed)`,
+      );
+    return {
+      logLine:
+        "canary defra-noise · road/rail/airport layers all offered · Birkdale road Lnight golden unchanged",
+      sourceDate: "2024-10-01",
+    };
+  })();
+}
+
+// Broadband + mobile (plan step M5.9): Ofcom Connected Nations
+// discovery. Ofcom 403s some networks outright (it 403s the build
+// sandbox), so a 403 is a SKIP, never a monthly false alarm — the
+// probe speaks only when discovery actually runs: then a missing
+// ZIP for its dataset is a failure, and a found ZIP is reported
+// with its release name so a new edition is visible in the run
+// email. The discovery logic is the loaders' own (one source).
+export function probeOfcom(kind) {
+  return (async () => {
+    const { discoverReleaseZips } = await import("./load-broadband.mjs");
+    let zips;
+    try {
+      zips = await discoverReleaseZips();
+    } catch (error) {
+      if (/HTTP 403/.test(error.message)) {
+        return {
+          skipped:
+            "ofcom.org.uk returns 403 to this network (known) — release discovery unavailable from here",
+        };
+      }
+      throw error;
+    }
+    const url = kind === "broadband" ? zips.fixedZipUrl : zips.mobileZipUrl;
+    if (!url) throw new Error(`the publication page links no ${kind} ZIP`);
+    const name = decodeURIComponent(url.split("/").pop() ?? url);
+    return {
+      logLine: `canary ofcom-${kind} · release ZIP discovered: ${name}`,
+      sourceDate: null,
+    };
+  })();
+}
+
 export async function runCanaryProbes() {
   const results = [];
   const run = async (item, fn) => {
@@ -1520,5 +1691,10 @@ export async function runCanaryProbes() {
   await run("os-greenspace", probeOsGreenspace);
   await run("open-charge-map", probeOpenChargeMap);
   await run("nomis-census", probeNomisCensus);
+  await run("govuk-iod", probeGovukIod);
+  await run("defra-pcm", probeDefraPcm);
+  await run("defra-noise", probeDefraNoise);
+  await run("ofcom-broadband", () => probeOfcom("broadband"));
+  await run("ofcom-mobile", () => probeOfcom("mobile"));
   return results;
 }

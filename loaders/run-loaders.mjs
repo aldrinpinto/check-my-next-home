@@ -135,6 +135,11 @@ export const FRIENDLY_NAMES = {
   "load-os-greenspace": "Parks — official green spaces",
   "load-ev-chargers": "EV chargers — public charging points",
   "load-census": "Census 2021 — the area in numbers",
+  "load-imd": "Deprivation — Indices of Deprivation 2025",
+  "load-air-quality": "Air quality — Defra modelled background",
+  "load-noise": "Noise — Defra modelled road, rail and airport",
+  "load-broadband": "Broadband — Ofcom coverage by postcode",
+  "load-mobile": "Mobile — Ofcom coverage by local authority",
   onspd: "Postcode directory source (canary)",
   ppd: "Sold prices source (canary)",
   police: "Crime source (canary)",
@@ -165,6 +170,11 @@ export const FRIENDLY_NAMES = {
   "os-greenspace": "Parks source (canary)",
   "open-charge-map": "EV chargers source (canary)",
   "nomis-census": "Census source (canary)",
+  "govuk-iod": "Deprivation source (canary)",
+  "defra-pcm": "Air quality source (canary)",
+  "defra-noise": "Noise source (canary)",
+  "ofcom-broadband": "Broadband source (canary)",
+  "ofcom-mobile": "Mobile source (canary)",
 };
 
 function shortDetail(item) {
@@ -546,6 +556,11 @@ async function main() {
       await runAndLog("load-os-greenspace", ["--file", fx("os-greenspace")]);
       await runAndLog("load-ev-chargers", ["--file", fx("ev-chargers")]);
       await runAndLog("load-census", ["--file", fx("census")]);
+      await runAndLog("load-imd", ["--file", fx("imd")]);
+      await runAndLog("load-air-quality", ["--file", fx("air")]);
+      await runAndLog("load-noise", ["--file", fx("noise")]);
+      await runAndLog("load-broadband", ["--file", fx("broadband")]);
+      await runAndLog("load-mobile", ["--file", fx("mobile")]);
     } else {
       if (!client) throw new Error("a live run needs the run-record database (DATABASE_URL)");
       const lastSuccess = async (item) => {
@@ -632,6 +647,29 @@ async function main() {
         due: dueDecision(await lastSuccess("load-census"), STATIC_THRESHOLD_DAYS),
         args: [],
       });
+      // The M5.9 datasets are the static class too: IMD is a
+      // decennial-style index watched by the govuk-iod canary,
+      // PCM air and Round 4 noise are republished on multi-year
+      // cycles watched by their canaries, and the Ofcom releases
+      // land twice a year, watched by the ofcom canaries — each
+      // files exactly once, then only on an operator re-run.
+      // IMD, air and noise file their own tables and are
+      // directory-free; broadband and mobile merge into the
+      // postcode directory's answers, so the empty-directory
+      // skip applies to them.
+      for (const item of [
+        "load-imd",
+        "load-air-quality",
+        "load-noise",
+        "load-broadband",
+        "load-mobile",
+      ]) {
+        plan.push({
+          item,
+          due: dueDecision(await lastSuccess(item), STATIC_THRESHOLD_DAYS),
+          args: [],
+        });
+      }
       const DIRECTORY_FREE = new Set([
         "load-planning-areas",
         "load-green-belt",
@@ -646,6 +684,9 @@ async function main() {
         "load-os-greenspace",
         "load-ev-chargers",
         "load-census",
+        "load-imd",
+        "load-air-quality",
+        "load-noise",
       ]);
 
       for (const step of plan) {
