@@ -19,7 +19,11 @@ The table list is the Technical Plan's Section 2 list, verbatim —
    answers also carry a `mobile` key: Ofcom publishes mobile
    coverage at local-authority level only, so that answer is the
    postcode's own council area's figures with the grain named
-   inside it — never presented as a postcode measurement.
+   inside it — never presented as a postcode measurement. Since
+   migration 0017 (plan step M6.1) an expression index on the
+   outward code — `split_part(postcode, ' ', 1)` — serves the
+   brain's wider-area district count, which a sequential scan of
+   the full directory made the one slow path in address resolution.
 2. **price_paid** — Land Registry sales, loaded on demand per
    postcode and kept forever. Each row carries the Registry's
    transaction id (migration 0003) so the monthly update file can
