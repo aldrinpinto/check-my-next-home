@@ -41,7 +41,7 @@ const SEEDED_TABLES = [
   "listed_buildings",
   "neighbourhood_stats",
   "ev_points",
-  "council_tax_rates",
+  "council_tax_charges",
 ];
 
 const connectionString = process.env.DATABASE_URL;
@@ -617,16 +617,6 @@ try {
             "50 kW",
             ...stamp,
           ],
-        ],
-      );
-
-      await bulkInsert(
-        client,
-        "council_tax_rates",
-        ["council_name", "band_d_charge", "tax_year", "source_name", "source_date"],
-        [
-          ["Braintree District Council", 2145.0, "2026/27", ...stamp],
-          ["London Borough of Newham", 1892.0, "2026/27", ...stamp],
         ],
       );
 

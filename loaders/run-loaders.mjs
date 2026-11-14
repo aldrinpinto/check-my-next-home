@@ -143,6 +143,7 @@ export const FRIENDLY_NAMES = {
   "load-noise": "Noise — Defra modelled road, rail and airport",
   "load-broadband": "Broadband — Ofcom coverage by postcode",
   "load-mobile": "Mobile — Ofcom coverage by local authority",
+  "load-council-tax": "Council tax — the councils' average Band D charges",
   onspd: "Postcode directory source (canary)",
   ppd: "Sold prices source (canary)",
   police: "Crime source (canary)",
@@ -180,6 +181,7 @@ export const FRIENDLY_NAMES = {
   "defra-noise": "Noise source (canary)",
   "ofcom-broadband": "Broadband source (canary)",
   "ofcom-mobile": "Mobile source (canary)",
+  "mhclg-council-tax": "Council tax source (canary)",
 };
 
 function shortDetail(item) {
@@ -293,6 +295,10 @@ function shortDetail(item) {
     case "load-dwp-uc": {
       const filed = pick(/uc_people: (\d+) areas/);
       return filed ? `${filed} areas filed for people on Universal Credit` : "updated";
+    }
+    case "load-council-tax": {
+      const filed = pick(/(\d+) authorities filed/);
+      return filed ? `${filed} councils' charges filed` : "updated";
     }
     default:
       return "updated";
@@ -581,6 +587,7 @@ async function main() {
       await runAndLog("load-noise", ["--file", fx("noise")]);
       await runAndLog("load-broadband", ["--file", fx("broadband")]);
       await runAndLog("load-mobile", ["--file", fx("mobile")]);
+      await runAndLog("load-council-tax", ["--file", fx("council-tax")]);
     } else {
       if (!client) throw new Error("a live run needs the run-record database (DATABASE_URL)");
       const lastSuccess = async (item) => {
@@ -676,6 +683,20 @@ async function main() {
         due: dueDecision(await lastSuccess("load-lsoa-bases"), STATIC_THRESHOLD_DAYS),
         args: [],
       });
+      // Council tax (plan step M5.10) is the manual class
+      // the static pattern was named for: a seed filed by
+      // hand from the publishers' annual releases, due
+      // exactly once and never automatically again — the
+      // operator re-runs it each spring when the new year's
+      // releases land, and the mhclg-council-tax canary
+      // watches for both the new release and a revision of
+      // the filed one. It files by billing-authority code
+      // from its own sources, so it is directory-free.
+      plan.push({
+        item: "load-council-tax",
+        due: dueDecision(await lastSuccess("load-council-tax"), STATIC_THRESHOLD_DAYS),
+        args: [],
+      });
       // The M5.16 benefits loaders are the monthly class
       // (25 days, like crime and sold prices): the Claimant
       // Count publishes monthly; Universal Credit data
@@ -738,6 +759,7 @@ async function main() {
         "load-imd",
         "load-air-quality",
         "load-noise",
+        "load-council-tax",
       ]);
 
       for (const step of plan) {

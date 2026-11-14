@@ -631,6 +631,104 @@ node loaders/load-dwp-uc.mjs --file tests/fixtures/dwp-uc # file the REAL captur
 node loaders/load-lsoa-bases.mjs --file tests/fixtures/lsoa-bases          # file the 3-LSOA fixture (CI)
 ```
 
+## Council tax loader (plan step M5.10)
+
+`load-council-tax.mjs` is the MANUAL class — the loader
+the runner's static pattern was named for. There is no
+feed: council tax is set once a year, so the loader is a
+seed, filed by hand from the publishers' own summary
+tables, due exactly once in the runner and never
+automatically again. It files `council_tax_charges`
+(migration 0014) — one row per billing authority per tax
+year: the **area** Band D in whole pence exactly as
+published, the component split (billing authority /
+county / police / fire / GLA / combined authority, fixed
+nullable pence columns — a closed statutory stack), and
+the `parish_averaged` flag. No band beyond Band D is
+ever filed: the other bands are statutory ratios applied
+at answer time (M6) — England A 6/9 to H 18/9, Wales A
+6/9 to I 21/9 on 2003 values — and the row's `nation`
+column is what selects the ratio set. The served figure
+is always an **average**: the D13 line beside it reads
+"This is [Council]'s average Band D council tax for
+[year], including county, police and fire charges; your
+exact bill depends on your home's band and parish, so
+treat this as a close estimate, not the bill itself"
+(the parish clause drops for unparished and unitary
+authorities).
+
+Sources, both official and free. England: MHCLG's
+_Council Tax levels set by local authorities in England_
+(GOV.UK, late March) — Tables 1–9 ODS (Table 9's area
+Band D; Tables 8a/8c own elements excluding/including
+parish precepts; 8b counties; 8d police; 8e fire; 8f
+combined authorities) and Table 10 ODS (the billing
+authorities' revenue accounts). Wales: Welsh Government
+via StatsWales, _Composition of average Band D council
+tax by billing authority_ (unitary element excluding
+community councils, the community average, the police
+element, the total). **Every filed row is asserted
+before filing**: components + the average parish or
+community element = the published area Band D to the
+penny; Table 10's arithmetic (requirement ÷ tax base)
+agrees with Table 8's printed averages to the penny;
+and across London, area minus own element is one uniform
+GLA figure (the City of London excepted — its precept is
+abated). A failure files nothing and says why. A body
+whose charge folds into another's files as no component
+(fire inside a county or unitary element; a combined
+authority printing £0.00).
+
+The seed (13 Nov 2026, tax year **2026-27**) files the
+three golden councils penny-verified plus a spot-check
+set of ten more, England and Wales mixed — the record,
+with every figure and both reconciliations, is
+`loaders/council-tax-spot-check.md`. **Every other
+authority is deliberately unfiled**: absence from the
+table is the named **"not published"** state at serving,
+never a zero and never an estimate. Scotland and
+Northern Ireland are likewise unfiled, permanently:
+Scotland's is a different system (water charges bundled
+into the bill) and Northern Ireland levies domestic
+rates — serving names both as **not-covered** answer
+states (M6); no rows are ever written for them.
+
+**The spring pass (the once-a-year operator job).** When
+the `mhclg-council-tax` canary warns that the new year's
+release has landed (it also warns if the filed year is
+revised — MHCLG re-issued the 2025-26 tables a year
+after first publication — and the seed loader's upserts
+make a re-seed safe at any time):
+
+1. Run `npm run load:council-tax -- --verify-only` and
+   read what it says: it discovers the new year's
+   release, parses both nations in full and asserts the
+   seed authorities against the golden registry.
+2. Extend the loader as the pass requires: add the new
+   year to `RELEASES` with its publication dates; roll
+   the `GOLDENS` registry to the new year's verified
+   seed figures; extend `AREA_PRECEPTORS` (the release
+   prints no district-to-county membership, so membership
+   is operator reference data — work county by county
+   from the county set in Table 8b, with the identity
+   assertion as the safety net) toward full coverage.
+3. File the seed with `npm run load:council-tax`; when
+   `AREA_PRECEPTORS` covers every billing authority in
+   the release, file the whole nation with
+   `npm run load:council-tax -- --all` (it refuses,
+   listing the unmapped, until the map is complete).
+4. Refresh the fixture cuts under
+   `tests/fixtures/council-tax` from the new release and
+   extend `loaders/council-tax-spot-check.md`.
+
+```text
+npm run load:council-tax                                  # live seed (upserts the seed authorities)
+npm run load:council-tax -- --verify-only                 # parse + assert both nations; file nothing
+npm run load:council-tax -- --all                         # the full national pass (refuses until the map is complete)
+node loaders/load-council-tax.mjs --file tests/fixtures/council-tax        # file the 2026-27 fixture (CI)
+node loaders/load-council-tax.mjs --file tests/fixtures/council-tax-2025-26 --verify-only   # the rehearsal year
+```
+
 ## Loader runner + canary
 
 `run-loaders.mjs` (plan step M4.8; `npm run load:all`) runs the

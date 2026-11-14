@@ -215,8 +215,44 @@ Family:
     as summaries of the detail (the type list; "up to X kW").
     Attribution for serving: "Open Charge Map" plus the
     record's own data provider, per record.
-20. **council_tax_rates** — each council's Band D charge, for the
-    council tax estimate.
+20. **council_tax_charges** — the billing authorities'
+    average Band D council tax (migration 0014, plan step
+    M5.10), one row per billing authority per tax year,
+    superseding this list's original **council_tax_rates**
+    placeholder (migration 0001: name-keyed, one row per
+    council for all years, a pounds figure with no
+    components — dropped by 0014; nothing ever filed it
+    from a real source). `band_d_area_average_pence` is
+    the publisher's AREA Band D in whole pence (MHCLG
+    Table 9 for England; the StatsWales total for Wales)
+    — an area average, with parish (England) and
+    community (Wales) precepts averaged into it wherever
+    `parish_averaged` is set. The component split is six
+    fixed nullable pence columns — billing authority (its
+    own element excluding parish precepts), county,
+    police, fire, GLA, combined authority — chosen over a
+    JSON breakdown because the precept stack is a closed
+    statutory list of six roles that does not grow, and
+    columns keep the pence arithmetic, the CHECK
+    discipline and serve-time maths in SQL. A role folded
+    into another body's charge is NULL (fire inside a
+    county or unitary element), never a borrowed figure;
+    there is no parish column — the parish element is the
+    difference between the area figure and the components'
+    sum. Nation-scoped CHECKs keep the nations apart (a
+    Welsh row can never carry a county, GLA or combined-
+    authority element; a GLA element can only sit on a
+    London borough code), and no band column beyond Band
+    D exists: the other bands are statutory ratios of
+    Band D (England A 6/9 to H 18/9; Wales A 6/9 to I
+    21/9 on 2003 values), computed at answer time, never
+    filed. An authority with no row for a year is the
+    honest "not published" state — the seed files the
+    verified authorities only (see
+    loaders/council-tax-spot-check.md) and the spring
+    pass extends coverage; Scotland and Northern Ireland
+    have no rows (different systems), served as named
+    not-covered states.
 21. **loader_runs** — one row per loader-runner invocation: kind,
     environment, status, and the alert's own status and error, so
     a failed alert is recorded, never swallowed.

@@ -20,6 +20,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { probePlanningApplication } from "./canary-planning-application.mjs";
+import { probeCouncilTax } from "./canary-council-tax.mjs";
 import {
   DATABASES as UC_DATABASES,
   fetchDiscovery as fetchUcDiscovery,
@@ -1875,5 +1876,6 @@ export async function runCanaryProbes() {
   await run("ofcom-broadband", () => probeOfcom("broadband"));
   await run("ofcom-mobile", () => probeOfcom("mobile"));
   await run("planning-application", probePlanningApplication);
+  await run("mhclg-council-tax", probeCouncilTax);
   return results;
 }

@@ -37,7 +37,7 @@ const EXPECTED_TABLES = [
   "listed_buildings",
   "neighbourhood_stats",
   "ev_points",
-  "council_tax_rates",
+  "council_tax_charges",
 ];
 
 // A test location in Hatfield Peverel, Essex (the project's golden
