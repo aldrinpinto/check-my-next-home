@@ -37,3 +37,21 @@ export function showTestBanner(
 ): boolean {
   return !isProductionEnv(env);
 }
+
+// M5.13 / decisions D15 + D18 — the company-ownership feature flag.
+// The loader files HM Land Registry's CCOD/OCOD company-ownership
+// datasets and the Companies House snapshots (migration 0016), but
+// filing is preparation only: while this flag is false, nothing
+// user-facing may read those tables or surface anything they hold.
+// It defaults to false and stays false until BOTH gates open:
+//   1. HM Land Registry Data Services' written answer on clause 3.2
+//      of the CCOD/OCOD licence permits this use (a per-property
+//      answer showing company facts only, the datasets' address text
+//      never displayed); and
+//   2. the founder's own go.
+// If the written answer is no, the founder alone decides whether the
+// feature is killed — it is never enabled, disabled or deleted on
+// the assistant's initiative. The flag is deliberately a checked-in
+// constant, not an environment variable: enabling it is a reviewed
+// code change, visible in the commit history, never a runtime flip.
+export const COMPANY_OWNERSHIP_ENABLED = false;

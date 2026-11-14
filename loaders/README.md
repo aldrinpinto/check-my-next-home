@@ -852,6 +852,160 @@ npm run load:tribunal-building-safety -- --verify-only    # enumerate + parse + 
 node loaders/load-tribunal-building-safety.mjs --file tests/fixtures/tribunal-building-safety   # the fixture corpus (CI)
 ```
 
+## Company ownership loader (plan step M5.13)
+
+`load-company-ownership.mjs` is MONTHLY (the runner's
+25-day class). It files HM Land Registry's two
+company-ownership datasets — CCOD (UK companies that
+own property in England and Wales; November 2026:
+4,485,124 titles) and OCOD (overseas companies;
+90,950 titles) — into `company_titles` (migration
+0016), and the Companies House snapshot for every
+company number those titles carry into
+`company_snapshots`, from the Free Company Data
+Product (bulk, OGL v3.0, no key). Both datasets file
+as FULL replacements on every pass — never the
+change-only files — so a title sold to an individual
+drops out instead of lingering. Validation is a full
+pre-pass before anything files; the swap itself is a
+stage-swap per dataset inside one transaction.
+
+**THE FLAG COMES FIRST.** This data is filed as
+preparation only. `COMPANY_OWNERSHIP_ENABLED`
+(lib/site.ts) defaults to false, and while it is
+false nothing user-facing may read these tables or
+surface anything they hold. It stays off until both
+gates open: HM Land Registry Data Services' written
+answer on clause 3.2 of the CCOD/OCOD licence
+permits this use, AND the founder gives the go
+(decision D18). If the written answer is no, the
+founder alone decides whether the feature is killed
+— the loader never deletes on its own. (The licence
+requires deletion within 48 hours of a termination;
+the full-replacement tables make that a drop, not a
+clean-up.)
+
+**The licence shape (decision D15).** CCOD/OCOD are
+free of charge but NOT open data — a bespoke,
+revocable HM Land Registry licence, not OGL. Clause
+3.2 restricts the datasets' address fields (Royal
+Mail / Ordnance Survey derived; we hold no PSGA
+licence), so the register address text in
+`company_titles` is a MATCH KEY ONLY: never
+displayed, never published, never served — the
+address on screen is always the buyer's own input.
+Attribution wherever the information is used:
+"Information produced by HM Land Registry © Crown
+copyright [year]". The licence's operating
+obligations — End-User Records kept and open to
+audit, the licence flowed down to end users,
+deletion within 48 hours of a termination — are
+accepted product requirements (D15). Depth boundary:
+no officers, no persons with significant control, no
+parent-company inference, no charges; the £7 title
+register stays the hand-off for those.
+
+**The answer shape this data feeds (M6.13 owns
+serving).** The headline answers the home's OWN
+title. A company-held building freehold is a
+separate labelled line in report depth only — a
+flat's own leasehold title and its building's
+freehold are different titles with different
+proprietors, and the wording never lets one stand
+for the other. The served fact is "a registered
+proprietor of this title is a company" (the
+additional-proprietor indicator is the register's
+own flag where further proprietors, or kinds the
+dataset does not list, sit alongside). Every answer
+carries its dataset month: the register lags — a
+transfer appears only after registration completes
+and the next monthly file lands — and the licence
+forbids presenting out-of-date data as current.
+
+**The caveat set the No must carry (for M6.13's
+explainer and the How-we-check page, decision
+D13/D15).** A "not company-owned" answer means:
+this home's title is not in HM Land Registry's
+company-ownership data as at [dataset month]. The
+explainer names the holes, every time, in plain
+words: (1) charities are excluded from both datasets
+by category, so a charity-owned home returns this
+same No; (2) roughly a tenth of land in England and
+Wales is unregistered — no registered title exists
+for the datasets to hold, so it is invisible to this
+check; (3) a sale still in the registration gap has
+not reached the data yet. Scotland and Northern
+Ireland are never a No: the datasets cover England
+and Wales only, and those homes return the named
+not-covered state.
+
+**Snapshot holes are named, never filled.** The
+Companies House bulk product holds live companies
+only, keyed by its own number forms. A filed number
+absent from it files no snapshot row, and serving
+names the state — measured at this build, not
+hypothetical: CLARION HOUSING ASSOCIATION LIMITED's
+titles carry number 7686 as filed, and the product
+keys that society RS007686, so no snapshot files for
+it. Titles whose register row records no company
+number at all (most overseas proprietors) are the
+second named state. The loader never repairs joins
+by name-matching and never invents a profile; the
+Companies House API key (K24) that could fetch
+dissolved profiles is not taken.
+
+**The golden sample-check (run at this build,
+14 Nov 2026, from the real files — the prep could
+not run it, being account-gated).** 19 Birkdale Rise
+(CM3 2JT) is in neither dataset — a clean No against
+a non-empty CCOD slice (SAGE HOMES RP LIMITED's
+titles over other Birkdale Rise houses); 6 Exeter
+Road (E16 1GN) holds no row in either dataset at its
+postcode, and a street-name search of both full
+files found company titles only at 8 Exeter Road
+(E16 1GP); Flat 4, Minerva House (KT17 1FH) has no
+own-title row, while its building's freehold
+(SY876459, "Flats 1-9 Minerva House, 12 Ceres
+Crescent") is held by ADRIATIC LAND 11 LIMITED,
+incorporated in Guernsey, no number recorded. The
+loader asserts this record exactly for the locked
+edition (2026-11) and structurally thereafter.
+
+**Parse discipline.** The header is the contract —
+a renamed consumed column fails loudly, naming it.
+Rows in the wrong shape (field count, tenure, price,
+date) file nothing and are counted BY NAME in the
+run output (measured: one malformed trailing record
+in each November 2026 file); a reject rate past the
+bound fails the load. A postcode not in UK form
+files as NULL and is counted by class; the row's
+address text remains the match material.
+
+**Acquisition.** `--file` reads a local set (fixture
+CSVs, or the downloaded ZIPs, or a mix; a
+manifest.json names the editions). The live pass is
+the operator mode: the Land Registry half shells to
+the connector helper `lrdata.py` (CMNH_LRDATA_HELPER
+overrides its path) — the only credential path; no
+key ever appears in this repo, its fixtures, tests
+or logs — and the Companies House snapshot downloads
+from download.companieshouse.gov.uk (no key). Every
+downloaded ZIP is verified against the published CSV
+size before it may parse: the helper's
+single-connection download can be cut short on a
+constrained network (measured at this build,
+repeated cuts at ~316 MB of the CCOD file from the
+build sandbox; the build's pull used a resumable
+chunked fetch through the same helper API), and a
+truncated file fails the load — a partial edition
+never files.
+
+```text
+npm run load:company-ownership                     # operator (live) monthly pass
+npm run load:company-ownership -- --verify-only    # acquire + validate + assert the goldens; file nothing
+node loaders/load-company-ownership.mjs --file tests/fixtures/company-ownership   # the fixture slices (CI)
+```
+
 ## Loader runner + canary
 
 `run-loaders.mjs` (plan step M4.8; `npm run load:all`) runs the

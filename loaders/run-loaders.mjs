@@ -146,6 +146,8 @@ export const FRIENDLY_NAMES = {
   "load-council-tax": "Council tax — the councils' average Band D charges",
   "load-tribunal-building-safety":
     "Building safety orders — published tribunal decisions in the BSA/BSB case series",
+  "load-company-ownership":
+    "Company ownership — Land Registry company-owned titles, Companies House snapshots",
   onspd: "Postcode directory source (canary)",
   ppd: "Sold prices source (canary)",
   police: "Crime source (canary)",
@@ -310,6 +312,10 @@ function shortDetail(item) {
       return failures && Number(failures) > 0
         ? `${filed} building-safety cases filed · ${failures} published documents could not be read (named in the run record)`
         : `${filed} building-safety cases filed`;
+    }
+    case "load-company-ownership": {
+      const filed = pick(/(\d+) company-owned titles filed/);
+      return filed ? `${filed} company-owned titles filed` : "updated";
     }
     default:
       return "updated";
@@ -600,6 +606,7 @@ async function main() {
       await runAndLog("load-mobile", ["--file", fx("mobile")]);
       await runAndLog("load-council-tax", ["--file", fx("council-tax")]);
       await runAndLog("load-tribunal-building-safety", ["--file", fx("tribunal-building-safety")]);
+      await runAndLog("load-company-ownership", ["--file", fx("company-ownership")]);
     } else {
       if (!client) throw new Error("a live run needs the run-record database (DATABASE_URL)");
       const lastSuccess = async (item) => {
@@ -731,6 +738,19 @@ async function main() {
         due: dueDecision(await lastSuccess("load-dwp-uc"), 25),
         args: [],
       });
+      // Company ownership (plan step M5.13) is the monthly
+      // class too: CCOD/OCOD republish monthly and the
+      // Companies House snapshot with them, and each pass
+      // replaces both datasets wholesale. It files its own
+      // tables from its own sources — directory-free. (The
+      // data files as preparation only: the
+      // COMPANY_OWNERSHIP_ENABLED flag gates everything
+      // user-facing, per decision D18.)
+      plan.push({
+        item: "load-company-ownership",
+        due: dueDecision(await lastSuccess("load-company-ownership"), 25),
+        args: [],
+      });
       // The M5.9 datasets are the static class too: IMD is a
       // decennial-style index watched by the govuk-iod canary,
       // PCM air and Round 4 noise are republished on multi-year
@@ -776,6 +796,7 @@ async function main() {
         "load-noise",
         "load-council-tax",
         "load-tribunal-building-safety",
+        "load-company-ownership",
       ]);
 
       for (const step of plan) {

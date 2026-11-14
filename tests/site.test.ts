@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { SITE_NAME, SITE_STRAPLINE, TEST_BANNER_TEXT, showTestBanner } from "../lib/site";
+import {
+  COMPANY_OWNERSHIP_ENABLED,
+  SITE_NAME,
+  SITE_STRAPLINE,
+  TEST_BANNER_TEXT,
+  showTestBanner,
+} from "../lib/site";
 
 describe("site identity", () => {
   it("uses the decided name", () => {
@@ -29,5 +35,17 @@ describe("TEST banner (M2.8)", () => {
 
   it("never shows on the real site (production)", () => {
     expect(showTestBanner("production")).toBe(false);
+  });
+});
+
+describe("company ownership flag (M5.13 / D18)", () => {
+  it("defaults to OFF — the filed data must not surface anywhere user-facing", () => {
+    // The flag opens only when HM Land Registry Data
+    // Services' written clause-3.2 answer is yes AND the
+    // founder gives the go. Flipping it is a deliberate,
+    // reviewed code change — if this test fails because
+    // the constant was changed, that change IS the
+    // decision, and it must be the founder's.
+    expect(COMPANY_OWNERSHIP_ENABLED).toBe(false);
   });
 });

@@ -361,6 +361,43 @@ Family:
     by the bsr-register canary — and a row here records
     only that a decision or order was published for a
     case, never a verdict on a building.
+28. **company_titles** — HM Land Registry's
+    company-ownership datasets, CCOD (UK companies) and
+    OCOD (overseas companies), filed whole every month
+    by `loaders/load-company-ownership.mjs` (migration
+    0016, plan step M5.13; decisions D15 + D18). One row
+    per title: tenure, the register's property address
+    fields exactly as filed — match keys only, never
+    surfaced in any answer (the licence's clause 3.2
+    restricts them; the address on screen is always the
+    buyer's own input) — the lead proprietor's name,
+    company number where the register records one (NULL
+    where it does not — most overseas proprietors), the
+    OCOD country of incorporation, and the dataset
+    edition month as `source_date` (the register lags,
+    and no answer may present the data as more current
+    than its month). Each dataset's rows are replaced
+    wholesale per pass, so a title that leaves the
+    datasets drops out. These tables sit behind
+    COMPANY_OWNERSHIP_ENABLED (lib/site.ts), which
+    defaults to false: filing is preparation, and
+    nothing user-facing reads them until the written
+    clause-3.2 answer is yes and the founder gives the
+    go.
+29. **company_snapshots** — the Companies House
+    snapshot for the company numbers company_titles
+    carries, from the Free Company Data Product (bulk,
+    OGL v3.0): name, status, incorporation date, SIC
+    codes, registered office as published. The product
+    holds live companies only, so a filed number can
+    honestly have NO row here — a dissolved proprietor,
+    or a number the product keys in a different form —
+    and that missing-snapshot state is named at serving,
+    never filled by name-matching or invention. There
+    are no officers, no persons with significant
+    control, no parent companies and no charges in
+    either table — decision D15's depth boundary; the
+    £7 title register stays the hand-off for those.
 
 ## Physical decisions (recorded at build, M3.3)
 
