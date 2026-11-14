@@ -20,6 +20,7 @@
     "prepush": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build",
     "load:schools": "node loaders/load-schools.mjs",
     "load:health": "node loaders/load-health.mjs",
+    "load:nurseries": "node loaders/load-nurseries.mjs",
     "load:planning-areas": "node loaders/load-planning-areas.mjs",
     "load:green-belt": "node loaders/load-green-belt.mjs",
     "load:heritage": "node loaders/load-heritage.mjs",

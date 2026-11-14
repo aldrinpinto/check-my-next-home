@@ -61,6 +61,21 @@ Family:
    where the newest inspection is one, and the report link, joined
    to schools on URN.
 7. **nurseries** — Ofsted childcare, group settings only.
+   Filed by `load-nurseries.mjs` (plan step M5.17) from
+   Ofsted's childcare register management information
+   (published twice a year, as at 30 June and 31 December;
+   the loader runs quarterly in the runner): Provider type
+   "Childcare on non-domestic premises" in the Full day care
+   and Sessional day care subtypes only — childminders are
+   never points (decision D5), the domestic-premises rows
+   Ofsted publishes REDACTED hold no position to file, and
+   out-of-school day care is not nursery provision. Each
+   setting sits at its own postcode's position from the
+   postcode directory; the subtype files verbatim as
+   `setting_type`, and the register's as-at date is the
+   rows' `source_date`. Migration 0018's geography index
+   covers this table, so the brain's distance reads use it
+   like every other point table.
 8. **health_points** — service points: GP practices and their
    branch surgeries (with the parent practice's code), pharmacies
    and dental practices from the NHS organisation service, and

@@ -152,6 +152,50 @@ and logged. The emergency-department flag is three-state (see
 migration 0005). Points are positioned from the postcode
 directory — no health source publishes coordinates.
 
+## Nurseries loader (plan step M5.17)
+
+`load-nurseries.mjs` files Ofsted's childcare register into
+`nurseries` — the table existed since M4 with no loader, so
+the brain's nursery answers (M6.2) served the register-empty
+wording until this step filed the real data. The source is
+the "childcare provider data" CSV of Ofsted's management
+information release (GOV.UK), discovered from the data-set
+page on every run by its dated asset name; Ofsted publishes
+twice a year (as at 30 June and 31 December), so the runner
+registers the loader QUARTERLY — the twice-a-year cadence
+class (the OS Greenspace precedent). The file opens with two
+preamble rows (the release title carries the as-at date that
+becomes the rows' source date) before its header row, and
+columns are read by name.
+
+Only GROUP settings file: Provider type "Childcare on
+non-domestic premises" with subtype "Full day care" (day
+nurseries) or "Sessional day care" (pre-schools and
+playgroups). Everything else is counted in the log line,
+never silent: childminder-type rows (Childminder, Home
+childcarer, Childminder without domestic premises) never
+file — decision D5 makes childminders count-only at report
+depth, never points, and Ofsted publishes those rows
+REDACTED in any case; "Childcare on domestic premises" rows
+are published REDACTED too, so the register holds no position
+for them and none is guessed; "Out-of-school day care"
+(breakfast, after-school and holiday clubs) is not nursery
+provision and stays out of a category served as nurseries;
+blank-subtype rows assert no provision type and stay out.
+No childcare source publishes coordinates, so each setting
+sits at its own postcode's position from the postcode
+directory (the health loader's convention); a setting whose
+postcode is outside the directory is counted, never filed
+and never placed at a guess (129 at the first load, most of
+them rows Ofsted itself publishes with the postcode
+REDACTED). The loader takes no postcode arguments — it files
+the whole register — and refuses any argument it does not
+recognise, so nothing can be silently dropped. First load
+(14 Nov 2026, register as at 30 June 2026): 19,672 settings
+filed of 60,007 register rows; the golden locks are in
+tests/golden-matrix.md. Modes: `--verify-only`,
+`--file tests/fixtures/nurseries`.
+
 ## Planning areas loader (plan step M5.2)
 
 `load-planning-areas.mjs` files conservation areas and Article

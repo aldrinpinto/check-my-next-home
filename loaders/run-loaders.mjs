@@ -86,6 +86,7 @@ export const LOADER_SCHEDULE = [
   { item: "load-epc", cadence: "monthly", timeoutMinutes: 30 },
   { item: "load-schools", cadence: "monthly", timeoutMinutes: 30 },
   { item: "load-health", cadence: "monthly", timeoutMinutes: 30 },
+  { item: "load-nurseries", cadence: "quarterly", timeoutMinutes: 30 },
   { item: "load-planning-areas", cadence: "quarterly", timeoutMinutes: 30 },
   { item: "load-green-belt", cadence: "quarterly", timeoutMinutes: 30 },
   { item: "load-heritage", cadence: "quarterly", timeoutMinutes: 30 },
@@ -296,6 +297,7 @@ export const FRIENDLY_NAMES = {
   "load-epc": "Energy certificates (EPC)",
   "load-schools": "Schools",
   "load-health": "Health — GPs, pharmacies, dentists, hospitals",
+  "load-nurseries": "Nurseries — Ofsted childcare register, group settings only",
   "load-planning-areas": "Planning areas — conservation areas and Article 4",
   "load-green-belt": "Green belt",
   "load-heritage": "Heritage — listed buildings and monuments",
@@ -408,6 +410,10 @@ function shortDetail(item) {
     case "load-health": {
       const ods = pick(/ODS (\d{4}-\d{2}-\d{2})/);
       return ods ? `lists dated ${ods}` : "updated";
+    }
+    case "load-nurseries": {
+      const filed = pick(/(\d+) group settings filed/);
+      return filed ? `${filed} nurseries filed` : "updated";
     }
     case "load-planning-areas": {
       const areas = pick(/conservation areas: (\d+) filed/);
@@ -776,6 +782,7 @@ async function main() {
       await runAndLog("load-epc", ["--file", fx("epc"), "CM3 2JT", "E16 1GN"]);
       await runAndLog("load-schools", ["--file", fx("schools")]);
       await runAndLog("load-health", ["--file", fx("health")]);
+      await runAndLog("load-nurseries", ["--file", fx("nurseries")]);
       await runAndLog("load-planning-areas", ["--file", fx("planning-areas")]);
       await runAndLog("load-green-belt", ["--file", fx("green-belt")]);
       await runAndLog("load-heritage", ["--file", fx("heritage")]);
@@ -856,6 +863,20 @@ async function main() {
       plan.push({
         item: "load-health",
         due: dueDecision(await lastSuccess("load-health"), thresholdDaysFor("load-health")),
+        args: [],
+      });
+      // Nurseries (plan step M5.17) are quarterly: Ofsted's
+      // childcare register publishes twice a year (as at
+      // 30 June and 31 December), so the quarterly class is
+      // the coarsest timed class that still discovers each
+      // new edition within one cycle — the OS Greenspace
+      // twice-a-year precedent. The loader positions settings
+      // from the postcode directory, so like schools and
+      // health it is NOT directory-free: the empty-directory
+      // skip below applies to it.
+      plan.push({
+        item: "load-nurseries",
+        due: dueDecision(await lastSuccess("load-nurseries"), thresholdDaysFor("load-nurseries")),
         args: [],
       });
       // The M5.1 flood datasets, the M5.2 planning and heritage
