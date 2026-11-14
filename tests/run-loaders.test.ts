@@ -1,12 +1,24 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   buildEmailBodies,
   decideExitCode,
   dueDecision,
   errorHeadline,
+  formatTimeout,
+  formatTimers,
+  humanLine,
+  isOperatorJob,
+  LOADER_SCHEDULE,
+  operatorSkipLine,
+  runLoader,
+  scheduleFor,
+  STATIC_THRESHOLD_DAYS,
   summariseRun,
+  thresholdDaysFor,
+  timeoutMinutesFor,
+  DEFAULT_TIMEOUT_MINUTES,
 } from "../loaders/run-loaders.mjs";
 
 // The runner's pure core (plan step M4.8): due-ness, the one-email
@@ -197,5 +209,189 @@ describe("the email a person reads", () => {
     expect(bodies.html).toContain("What happened");
     expect(bodies.html).toContain("What you need to do");
     expect(bodies.html).toContain("Collector by collector");
+  });
+});
+
+// --- M5.15 / D19: the schedule registry, the operator-job class,
+// the timeout map and its labelling, and the --timers print. ---
+
+describe("the schedule registry (M5.15 / D19)", () => {
+  const runner = readFileSync(join(process.cwd(), "loaders/run-loaders.mjs"), "utf8");
+  const span = runner.slice(runner.indexOf("FRIENDLY_NAMES"));
+  const friendlyLoaders = [...span.slice(0, span.indexOf("};")).matchAll(/"([\w-]+)"\s*:/g)]
+    .map((m) => m[1])
+    .filter((k) => k.startsWith("load-"))
+    .sort();
+
+  it("covers exactly the loaders the runner knows, no more, no fewer", () => {
+    expect(LOADER_SCHEDULE.map((e) => e.item).sort()).toEqual(friendlyLoaders);
+  });
+
+  it("noise and priority habitats are operator jobs — the timer never runs them", () => {
+    expect(isOperatorJob("load-noise")).toBe(true);
+    expect(isOperatorJob("load-priority-habitats")).toBe(true);
+    expect(isOperatorJob("load-crime")).toBe(false);
+    // No due-ness threshold and no timeout: they are not the
+    // timer's business at all.
+    expect(thresholdDaysFor("load-noise")).toBeNull();
+    expect(thresholdDaysFor("load-priority-habitats")).toBeNull();
+    expect(timeoutMinutesFor("load-noise")).toBeNull();
+    expect(timeoutMinutesFor("load-priority-habitats")).toBeNull();
+    expect(scheduleFor("load-noise").timeoutMinutes).toBeUndefined();
+  });
+
+  it("EV chargers moved from quarterly to monthly (D19)", () => {
+    expect(scheduleFor("load-ev-chargers").cadence).toBe("monthly");
+    expect(thresholdDaysFor("load-ev-chargers")).toBe(25);
+  });
+
+  it("every timed loader carries the 30-minute default, and the classes keep their thresholds", () => {
+    expect(DEFAULT_TIMEOUT_MINUTES).toBe(30);
+    for (const entry of LOADER_SCHEDULE) {
+      if (entry.cadence === "operator") continue;
+      expect(entry.timeoutMinutes, entry.item).toBe(DEFAULT_TIMEOUT_MINUTES);
+      expect(timeoutMinutesFor(entry.item)).toBe(30);
+    }
+    expect(thresholdDaysFor("load-crime")).toBe(25);
+    expect(thresholdDaysFor("load-company-ownership")).toBe(25);
+    expect(thresholdDaysFor("load-postcodes")).toBe(70);
+    expect(thresholdDaysFor("load-tribunal-building-safety")).toBe(70);
+    expect(thresholdDaysFor("load-census")).toBe(STATIC_THRESHOLD_DAYS);
+    expect(thresholdDaysFor("load-council-tax")).toBe(STATIC_THRESHOLD_DAYS);
+  });
+});
+
+describe("operator-job skip lines", () => {
+  it("name the job and the date it last filed, or that it never has", () => {
+    expect(operatorSkipLine("load-noise", "2026-10-03T12:00:00.000Z")).toBe(
+      "skipped — operator job, run by hand; last filed 3 October 2026",
+    );
+    expect(operatorSkipLine("load-priority-habitats", null)).toBe(
+      "skipped — operator job, run by hand; never filed yet",
+    );
+    // A pg Date object formats the same way.
+    expect(operatorSkipLine("load-noise", new Date("2026-01-31T23:59:00.000Z"))).toContain(
+      "last filed 31 January 2026",
+    );
+  });
+
+  it("reach the run email as a SKIPPED line carrying that wording", () => {
+    const run = {
+      id: "run-op",
+      kind: "load",
+      environment: "local",
+      startedAt: new Date("2026-11-14T00:00:00Z"),
+    };
+    const item = {
+      item: "load-noise",
+      mode: "live",
+      status: "skipped",
+      logLine: operatorSkipLine("load-noise", "2026-10-03T12:00:00.000Z"),
+    };
+    expect(humanLine(item as never).text).toContain(
+      "skipped: operator job, run by hand; last filed 3 October 2026",
+    );
+    const { text } = buildEmailBodies(run as never, [item] as never, null);
+    expect(text).toContain("operator job, run by hand; last filed 3 October 2026");
+  });
+});
+
+describe("timeout labelling (M5.15 / D19)", () => {
+  it("says TIMED OUT after N minutes, in those words", () => {
+    expect(formatTimeout(30 * 60 * 1000)).toBe("TIMED OUT after 30 minutes");
+    expect(formatTimeout(60 * 1000)).toBe("TIMED OUT after 1 minute");
+    expect(formatTimeout(45 * 60 * 1000)).toBe("TIMED OUT after 45 minutes");
+  });
+
+  it("the label wins the headline over any partial stderr", () => {
+    expect(errorHeadline("TIMED OUT after 30 minutes\nsome partial output")).toBe(
+      "TIMED OUT after 30 minutes",
+    );
+  });
+
+  it("reaches the run record summary and the email as the reason", () => {
+    const item = {
+      item: "load-crime",
+      mode: "live",
+      status: "failed",
+      errorMessage: "TIMED OUT after 30 minutes\n",
+    };
+    const { lines } = summariseRun("load", [item as never]);
+    expect(lines.join("\n")).toContain("TIMED OUT after 30 minutes");
+    const run = {
+      id: "run-to",
+      kind: "load",
+      environment: "local",
+      startedAt: new Date("2026-11-14T00:00:00Z"),
+    };
+    const { text } = buildEmailBodies(run as never, [item] as never, null);
+    expect(text).toContain("TIMED OUT after 30 minutes");
+    expect(decideExitCode({ items: [item] as never, alertStatus: "sent", noEmail: false })).toBe(1);
+  });
+});
+
+describe("the --timers print (M5.15 / D19)", () => {
+  const print = formatTimers();
+
+  it("groups every registered loader by class, matching the plan's Data Loaders table", () => {
+    for (const entry of LOADER_SCHEDULE) expect(print).toContain(entry.item);
+    const monthlyAt = print.indexOf("MONTHLY");
+    const quarterlyAt = print.indexOf("QUARTERLY");
+    const operatorAt = print.indexOf("OPERATOR JOBS");
+    expect(monthlyAt).toBeGreaterThan(-1);
+    expect(quarterlyAt).toBeGreaterThan(monthlyAt);
+    expect(operatorAt).toBeGreaterThan(quarterlyAt);
+    // EV chargers print in the monthly group (D19), not quarterly.
+    expect(print.indexOf("load-ev-chargers")).toBeGreaterThan(monthlyAt);
+    expect(print.indexOf("load-ev-chargers")).toBeLessThan(quarterlyAt);
+    // The quarterly rhythm is stated in the plan's own terms.
+    expect(print).toContain("Jan/Apr/Jul/Oct");
+    // Operator jobs print as operator jobs, after every timed group.
+    expect(print.indexOf("load-noise")).toBeGreaterThan(operatorAt);
+    expect(print.indexOf("load-priority-habitats")).toBeGreaterThan(operatorAt);
+    // Timed loaders print their timeout; the monthly group runs on the 5th.
+    expect(print).toContain("timeout 30 minutes");
+    expect(print).toContain("on the 5th");
+  });
+});
+
+describe("timeout drill — a fixture loader past a tiny timeout", () => {
+  // The practice workflow cannot grow a break-timeout scenario
+  // (workflow files are not editable by push), so the drill the
+  // M5.15 check calls for lives here: two throwaway loaders in
+  // loaders/, one that hangs and one that finishes, run through
+  // the runner's own runLoader one after the other.
+  const hangName = "load-zz-drill-hang";
+  const okName = "load-zz-drill-ok";
+  const hangPath = join(process.cwd(), "loaders", `${hangName}.mjs`);
+  const okPath = join(process.cwd(), "loaders", `${okName}.mjs`);
+
+  beforeAll(() => {
+    writeFileSync(hangPath, "setInterval(() => {}, 1000);\n");
+    writeFileSync(okPath, `console.log("${okName} · done");\n`);
+  });
+  afterAll(() => {
+    rmSync(hangPath, { force: true });
+    rmSync(okPath, { force: true });
+  });
+
+  it("is FAILED, labelled TIMED OUT in record and email, exits 1 — and the next loader still runs", async () => {
+    const hung = await runLoader(hangName, [], 300);
+    expect(hung.status).toBe("failed");
+    expect(hung.errorMessage).toContain("TIMED OUT after");
+
+    const run = {
+      id: "run-drill",
+      kind: "load",
+      environment: "local",
+      startedAt: new Date("2026-11-14T00:00:00Z"),
+    };
+    const { text } = buildEmailBodies(run as never, [hung] as never, null);
+    expect(text).toContain("TIMED OUT after");
+    expect(decideExitCode({ items: [hung] as never, alertStatus: "sent", noEmail: false })).toBe(1);
+
+    const next = await runLoader(okName, [], 10_000);
+    expect(next.status).toBe("succeeded");
+    expect(next.logLine).toContain("done");
   });
 });

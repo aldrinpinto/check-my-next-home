@@ -194,9 +194,10 @@ describe("the runner's registration", () => {
       '"load-lsoa-bases": "Area sizes — Census residents and households by small area"',
     );
     expect(runner).toContain('runAndLog("load-lsoa-bases", ["--file", fx("lsoa-bases")])');
-    expect(runner).toContain(
-      'dueDecision(await lastSuccess("load-lsoa-bases"), STATIC_THRESHOLD_DAYS)',
-    );
+    // M5.15: registration is the schedule-registry entry now —
+    // static class, 30-minute timeout; the class thresholds
+    // themselves are pinned in tests/run-loaders.test.ts.
+    expect(runner).toContain('{ item: "load-lsoa-bases", cadence: "static", timeoutMinutes: 30 }');
     const directoryFree = runner.slice(
       runner.indexOf("const DIRECTORY_FREE"),
       runner.indexOf("]);", runner.indexOf("const DIRECTORY_FREE")),

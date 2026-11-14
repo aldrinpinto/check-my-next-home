@@ -415,7 +415,10 @@ describe("the runner's registration", () => {
     const runner = readFileSync(join(process.cwd(), "loaders/run-loaders.mjs"), "utf8");
     expect(runner).toContain('"load-dwp-uc": "Benefits figures — Universal Credit"');
     expect(runner).toContain('runAndLog("load-dwp-uc", ["--file", fx("dwp-uc")])');
-    expect(runner).toContain('dueDecision(await lastSuccess("load-dwp-uc"), 25)');
+    // M5.15: registration is the schedule-registry entry now —
+    // monthly class, 30-minute timeout; the class thresholds
+    // themselves are pinned in tests/run-loaders.test.ts.
+    expect(runner).toContain('{ item: "load-dwp-uc", cadence: "monthly", timeoutMinutes: 30 }');
     const directoryFree = runner.slice(
       runner.indexOf("const DIRECTORY_FREE"),
       runner.indexOf("]);", runner.indexOf("const DIRECTORY_FREE")),

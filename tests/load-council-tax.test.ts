@@ -345,9 +345,10 @@ describe("registration — runner, package and canary wiring", () => {
       '"load-council-tax": "Council tax — the councils\' average Band D charges"',
     );
     expect(runner).toContain('runAndLog("load-council-tax", ["--file", fx("council-tax")])');
-    expect(runner).toContain(
-      'dueDecision(await lastSuccess("load-council-tax"), STATIC_THRESHOLD_DAYS)',
-    );
+    // M5.15: registration is the schedule-registry entry now —
+    // static (manual) class, 30-minute timeout; the class
+    // thresholds themselves are pinned in tests/run-loaders.test.ts.
+    expect(runner).toContain('{ item: "load-council-tax", cadence: "static", timeoutMinutes: 30 }');
     const directoryFree = runner.slice(
       runner.indexOf("const DIRECTORY_FREE"),
       runner.indexOf("]);", runner.indexOf("const DIRECTORY_FREE")),

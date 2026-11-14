@@ -43,6 +43,7 @@
     "load:mobile": "node loaders/load-mobile.mjs",
     "load:council-tax": "node loaders/load-council-tax.mjs",
     "load:all": "node loaders/run-loaders.mjs",
+    "load:timers": "node loaders/run-loaders.mjs --timers",
     "canary": "node loaders/run-loaders.mjs --canary-only",
     "load:tribunal-building-safety": "node loaders/load-tribunal-building-safety.mjs",
     "load:company-ownership": "node loaders/load-company-ownership.mjs"

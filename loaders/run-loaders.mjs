@@ -7,6 +7,7 @@
 //
 //   npm run load:all                        live run (due datasets)
 //   npm run load:all -- --canary-only       probes only
+//   npm run load:all -- --timers            print the schedule registry and exit
 //   npm run load:all -- --file tests/fixtures --kind practice-break --env ci
 //
 // Design rules (M4.8 gap check, 12 Nov 2026):
@@ -46,6 +47,174 @@ const DAY = 86400000;
 // table: "Load once… Once; re-checked rarely".
 export const STATIC_THRESHOLD_DAYS = 36500;
 
+// --- the schedule registry (plan step M5.15, decision D19) ---------
+//
+// The one table that says when each loader runs and how long it
+// may take. The live plan in main() reads its due-ness thresholds
+// and timeouts from here, and --timers prints from here, so the
+// print can never drift from the behaviour (the M5.15 check:
+// "the timer list printed from the system matches the plan").
+//
+// Cadences, judged from the last SUCCESS, as before:
+//   monthly   25 days — in practice files in every monthly run
+//   quarterly 70 days — in practice every third monthly run,
+//             the Jan/Apr/Jul/Oct rhythm (the postcode directory
+//             rides this class: its 70-day threshold is unchanged)
+//   static    the ~100-year threshold above — loads exactly once
+//   operator  NO threshold and NO timeout: the timed runner
+//             never runs these. Noise (an hours-long national
+//             pass) and priority habitats (an 818k-patch mirror
+//             with no resume — a mid-pass kill restarts at page
+//             0) cannot be shown to fit a timed window, so they
+//             are named operator jobs: an operator runs them by
+//             hand, and every timed run's record and email lists
+//             them as SKIPPED with the date they last filed. The
+//             canary freshness probes are the stale-data guard.
+//
+// Timeouts: a per-loader map, 30 minutes for every timed loader
+// today — no loader has a measured duration yet, so none gets
+// headroom (D19: headroom only where measured). When a loader
+// is killed by its timeout the item is recorded and emailed as
+// "TIMED OUT after N minutes" (see formatTimeout), the run
+// continues with the next loader, and the run fails.
+export const DEFAULT_TIMEOUT_MINUTES = 30;
+
+export const LOADER_SCHEDULE = [
+  { item: "load-postcodes", cadence: "quarterly", timeoutMinutes: 30 },
+  { item: "load-sold-prices", cadence: "monthly", timeoutMinutes: 30 },
+  { item: "load-crime", cadence: "monthly", timeoutMinutes: 30 },
+  { item: "load-epc", cadence: "monthly", timeoutMinutes: 30 },
+  { item: "load-schools", cadence: "monthly", timeoutMinutes: 30 },
+  { item: "load-health", cadence: "monthly", timeoutMinutes: 30 },
+  { item: "load-planning-areas", cadence: "quarterly", timeoutMinutes: 30 },
+  { item: "load-green-belt", cadence: "quarterly", timeoutMinutes: 30 },
+  { item: "load-heritage", cadence: "quarterly", timeoutMinutes: 30 },
+  { item: "load-nature-designations", cadence: "quarterly", timeoutMinutes: 30 },
+  { item: "load-priority-habitats", cadence: "operator" },
+  { item: "load-flood-zones", cadence: "quarterly", timeoutMinutes: 30 },
+  { item: "load-flood-rivers-sea", cadence: "quarterly", timeoutMinutes: 30 },
+  { item: "load-flood-surface-water", cadence: "quarterly", timeoutMinutes: 30 },
+  { item: "load-transport", cadence: "quarterly", timeoutMinutes: 30 },
+  { item: "load-osm-places", cadence: "quarterly", timeoutMinutes: 30 },
+  { item: "load-os-greenspace", cadence: "quarterly", timeoutMinutes: 30 },
+  { item: "load-ev-chargers", cadence: "monthly", timeoutMinutes: 30 },
+  { item: "load-tribunal-building-safety", cadence: "quarterly", timeoutMinutes: 30 },
+  { item: "load-census", cadence: "static", timeoutMinutes: 30 },
+  { item: "load-lsoa-bases", cadence: "static", timeoutMinutes: 30 },
+  { item: "load-council-tax", cadence: "static", timeoutMinutes: 30 },
+  { item: "load-claimant-count", cadence: "monthly", timeoutMinutes: 30 },
+  { item: "load-dwp-uc", cadence: "monthly", timeoutMinutes: 30 },
+  { item: "load-company-ownership", cadence: "monthly", timeoutMinutes: 30 },
+  { item: "load-imd", cadence: "static", timeoutMinutes: 30 },
+  { item: "load-air-quality", cadence: "static", timeoutMinutes: 30 },
+  { item: "load-noise", cadence: "operator" },
+  { item: "load-broadband", cadence: "static", timeoutMinutes: 30 },
+  { item: "load-mobile", cadence: "static", timeoutMinutes: 30 },
+];
+
+const SCHEDULE_BY_ITEM = new Map(LOADER_SCHEDULE.map((e) => [e.item, e]));
+
+const CLASS_THRESHOLDS_DAYS = {
+  monthly: 25,
+  quarterly: 70,
+  static: STATIC_THRESHOLD_DAYS,
+  operator: null,
+};
+
+export function scheduleFor(item) {
+  const entry = SCHEDULE_BY_ITEM.get(item);
+  if (!entry) throw new Error(`no schedule entry for ${item}`);
+  return entry;
+}
+
+export function isOperatorJob(item) {
+  return scheduleFor(item).cadence === "operator";
+}
+
+// The due-ness threshold the timed runner judges this loader by,
+// or null for an operator job (never judged, never run).
+export function thresholdDaysFor(item) {
+  return CLASS_THRESHOLDS_DAYS[scheduleFor(item).cadence];
+}
+
+// The loader's timeout in minutes, or null for an operator job
+// (the timer never runs it, so nothing times it out).
+export function timeoutMinutesFor(item) {
+  const entry = scheduleFor(item);
+  return entry.cadence === "operator" ? null : entry.timeoutMinutes;
+}
+
+export function timeoutMsFor(item) {
+  const minutes = timeoutMinutesFor(item);
+  return minutes === null ? null : minutes * 60 * 1000;
+}
+
+// The words a timeout is recorded and emailed in (D19: the
+// reason is stated, never left as raw stderr). Configured
+// timeouts are whole minutes, so that is the wording that
+// ships; a sub-minute timeout (the test-suite drill) is
+// labelled in seconds rather than as a fraction of a minute.
+export function formatTimeout(timeoutMs) {
+  if (timeoutMs % 60000 === 0) {
+    const minutes = timeoutMs / 60000;
+    return `TIMED OUT after ${minutes} minute${minutes === 1 ? "" : "s"}`;
+  }
+  const seconds = Math.max(1, Math.round(timeoutMs / 1000));
+  return `TIMED OUT after ${seconds} second${seconds === 1 ? "" : "s"}`;
+}
+
+const MONTH_NAMES = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+// The run-record and email line for an operator job in a timed
+// run: SKIPPED, what it is, and the date it last filed — the
+// operator's stale-data prompt between the canary probes.
+export function operatorSkipLine(item, lastSuccess) {
+  void item;
+  if (!lastSuccess) return "skipped — operator job, run by hand; never filed yet";
+  const d = new Date(lastSuccess);
+  const when = `${d.getUTCDate()} ${MONTH_NAMES[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+  return `skipped — operator job, run by hand; last filed ${when}`;
+}
+
+// The --timers print: every registered loader, grouped by class,
+// in the plan's own terms. Printed from LOADER_SCHEDULE — the
+// same table the live plan reads — so the two cannot drift.
+export function formatTimers() {
+  const byClass = (cadence) => LOADER_SCHEDULE.filter((e) => e.cadence === cadence);
+  const timed = (e) => `  ${e.item} — timeout ${e.timeoutMinutes} minutes`;
+  const lines = [
+    "Loader timers — Check My Next Home",
+    "One run a month, on the 5th. In each run a loader files only when its class says it is due;",
+    "due-ness is judged from the loader's last successful run.",
+    "",
+    "MONTHLY — due when the last success was 25 or more days ago, so in practice these file in every monthly run:",
+    ...byClass("monthly").map(timed),
+    "",
+    "QUARTERLY — due when the last success was 70 or more days ago, so in practice every third monthly run (the Jan/Apr/Jul/Oct rhythm):",
+    ...byClass("quarterly").map(timed),
+    "",
+    "STATIC — loads once, when it has never loaded; after that a re-file is a manual operator re-run when its canary reports a republication:",
+    ...byClass("static").map(timed),
+    "",
+    "OPERATOR JOBS — never run by the timer and never timed out; an operator runs them by hand, and every run's record and email lists them as SKIPPED with the date they last filed:",
+    ...byClass("operator").map((e) => `  ${e.item} — operator job, no timeout`),
+  ];
+  return lines.join("\n");
+}
+
 // --- pure core (unit-tested) --------------------------------------
 
 export function dueDecision(lastSuccessIso, thresholdDays, now = new Date()) {
@@ -75,6 +244,11 @@ export function errorHeadline(errorMessage) {
   if (lines.length === 0) return "unknown error";
   const own = lines.filter((l) => !l.startsWith("(node:") && !l.startsWith("(Use `node "));
   const pool = own.length > 0 ? own : lines;
+  // A timeout label (M5.15) is the runner's own authoritative
+  // reason and outranks anything the killed loader managed to
+  // print before it died.
+  const timedOut = pool.find((l) => l.startsWith("TIMED OUT"));
+  if (timedOut) return timedOut;
   return pool.find((l) => l.includes("FAILED:")) ?? pool[pool.length - 1];
 }
 
@@ -449,18 +623,30 @@ async function sendRunEmail(subject, text, html) {
 
 // --- loader execution -------------------------------------------------
 
-function runLoader(name, args) {
+export function runLoader(name, args, timeoutMs = DEFAULT_TIMEOUT_MINUTES * 60 * 1000) {
   return new Promise((resolve) => {
     const startedAt = new Date();
     execFile(
       process.execPath,
       [join(process.cwd(), "loaders", `${name}.mjs`), ...args],
-      { maxBuffer: 16 * 1024 * 1024, timeout: 30 * 60 * 1000 },
+      { maxBuffer: 16 * 1024 * 1024, timeout: timeoutMs },
       (error, stdout, stderr) => {
         const finishedAt = new Date();
         const outLines = (stdout ?? "").split("\n").filter((l) => l.trim() !== "");
         const logLine =
           [...outLines].reverse().find((l) => l.startsWith("load-")) ?? outLines.at(-1) ?? null;
+        // execFile kills a child that overruns its timeout and
+        // reports it with killed set — that kill is the one
+        // failure whose reason the loader cannot state itself,
+        // so the runner states it, in the label's own words,
+        // ahead of whatever output survived (D19).
+        const timedOut = Boolean(error && error.killed);
+        const rawError = error ? stderr || error.message : null;
+        const errorMessage = !error
+          ? null
+          : timedOut
+            ? `${formatTimeout(timeoutMs)}\n${rawError.slice(-3000)}`
+            : rawError.slice(-4000);
         resolve({
           item: name,
           mode: args.includes("--file") ? "fixture" : "live",
@@ -469,7 +655,7 @@ function runLoader(name, args) {
           finishedAt,
           durationMs: finishedAt.getTime() - startedAt.getTime(),
           logLine: error ? null : logLine,
-          errorMessage: error ? (stderr || error.message).slice(-4000) : null,
+          errorMessage,
           exitCode: error ? (typeof error.code === "number" ? error.code : 1) : 0,
         });
       },
@@ -549,6 +735,13 @@ async function main() {
   };
   const items = [];
 
+  // --timers prints the schedule registry and exits: no probes,
+  // no loads, no record, no email (plan step M5.15).
+  if (args.includes("--timers")) {
+    console.log(formatTimers());
+    return;
+  }
+
   if (!noCanary || canaryOnly) {
     const probes = await runCanaryProbes();
     items.push(...probes);
@@ -620,7 +813,10 @@ async function main() {
       const hasDirectory = directoryCount.rows[0].n > 0;
 
       const plan = [];
-      const postcodesDue = dueDecision(await lastSuccess("load-postcodes"), 70);
+      const postcodesDue = dueDecision(
+        await lastSuccess("load-postcodes"),
+        thresholdDaysFor("load-postcodes"),
+      );
       plan.push({ item: "load-postcodes", due: postcodesDue, args: [] });
 
       const targets = { sold: new Set(), crime: new Set(), epc: new Set() };
@@ -646,45 +842,75 @@ async function main() {
         ["load-epc", targets.epc, [...targets.epc]],
       ]) {
         void set;
-        plan.push({ item, due: dueDecision(await lastSuccess(item), 25), args: loaderArgs });
+        plan.push({
+          item,
+          due: dueDecision(await lastSuccess(item), thresholdDaysFor(item)),
+          args: loaderArgs,
+        });
       }
       plan.push({
         item: "load-schools",
-        due: dueDecision(await lastSuccess("load-schools"), 25),
+        due: dueDecision(await lastSuccess("load-schools"), thresholdDaysFor("load-schools")),
         args: [],
       });
       plan.push({
         item: "load-health",
-        due: dueDecision(await lastSuccess("load-health"), 25),
+        due: dueDecision(await lastSuccess("load-health"), thresholdDaysFor("load-health")),
         args: [],
       });
       // The M5.1 flood datasets, the M5.2 planning and heritage
-      // datasets, the M5.3 nature datasets, the M5.5
-      // transport stops, the M5.6 nearby places and the M5.7
-      // EV chargers are quarterly, on the postcode
-      // directory's 70-day rhythm — they file shapes and
-      // points from their own files and never join onto the
-      // directory, so the empty-directory skip below does not
-      // apply to them. The M5.14 tribunal building-safety
-      // decisions join them: a small corpus re-read whole
-      // each pass from GOV.UK, filing by case reference.
+      // datasets, the M5.3 nature designations, the M5.5
+      // transport stops and the M5.6 nearby places are
+      // quarterly, on the postcode directory's 70-day rhythm —
+      // they file shapes and points from their own files and
+      // never join onto the directory, so the empty-directory
+      // skip below does not apply to them. The M5.14 tribunal
+      // building-safety decisions join them: a small corpus
+      // re-read whole each pass from GOV.UK, filing by case
+      // reference. Two former members of this loop left it at
+      // M5.15 (decision D19): the EV chargers moved to the
+      // monthly class below (Open Charge Map changes daily),
+      // and priority habitats left the timed runs entirely —
+      // it is an operator job now, planned as one just after
+      // this loop.
       for (const item of [
         "load-planning-areas",
         "load-green-belt",
         "load-heritage",
         "load-nature-designations",
-        "load-priority-habitats",
         "load-flood-zones",
         "load-flood-rivers-sea",
         "load-flood-surface-water",
         "load-transport",
         "load-osm-places",
         "load-os-greenspace",
-        "load-ev-chargers",
         "load-tribunal-building-safety",
       ]) {
-        plan.push({ item, due: dueDecision(await lastSuccess(item), 70), args: [] });
+        plan.push({
+          item,
+          due: dueDecision(await lastSuccess(item), thresholdDaysFor(item)),
+          args: [],
+        });
       }
+      // Priority habitats (M5.3) is an operator job (M5.15 /
+      // D19): the mirror pages 818,225 patches with no resume,
+      // so a timed kill would restart it at page 0 and no
+      // duration measurement shows it fitting the window. The
+      // timed runner never runs it; the plan entry exists so
+      // every run's record and email lists it as SKIPPED with
+      // the date it last filed.
+      plan.push({ item: "load-priority-habitats", operator: true, args: [] });
+      // EV chargers (M5.7) are monthly since M5.15 (D19): Open
+      // Charge Map changes daily, so the quarterly rhythm was
+      // the one cadence that did not match its publisher.
+      plan.push({
+        item: "load-ev-chargers",
+        due: dueDecision(
+          await lastSuccess("load-ev-chargers"),
+          thresholdDaysFor("load-ev-chargers"),
+        ),
+        args: [],
+      });
       // Census 2021 (plan step M5.8) is the static class:
       // due exactly once, when it has never loaded, and
       // never automatically again — the nomis-census canary
@@ -693,7 +919,7 @@ async function main() {
       // from its own files, so it is directory-free too.
       plan.push({
         item: "load-census",
-        due: dueDecision(await lastSuccess("load-census"), STATIC_THRESHOLD_DAYS),
+        due: dueDecision(await lastSuccess("load-census"), thresholdDaysFor("load-census")),
         args: [],
       });
       // The M5.16 LSOA Census base totals are the static
@@ -702,7 +928,7 @@ async function main() {
       // from the same bulk zips.
       plan.push({
         item: "load-lsoa-bases",
-        due: dueDecision(await lastSuccess("load-lsoa-bases"), STATIC_THRESHOLD_DAYS),
+        due: dueDecision(await lastSuccess("load-lsoa-bases"), thresholdDaysFor("load-lsoa-bases")),
         args: [],
       });
       // Council tax (plan step M5.10) is the manual class
@@ -716,7 +942,10 @@ async function main() {
       // from its own sources, so it is directory-free.
       plan.push({
         item: "load-council-tax",
-        due: dueDecision(await lastSuccess("load-council-tax"), STATIC_THRESHOLD_DAYS),
+        due: dueDecision(
+          await lastSuccess("load-council-tax"),
+          thresholdDaysFor("load-council-tax"),
+        ),
         args: [],
       });
       // The M5.16 benefits loaders are the monthly class
@@ -730,12 +959,15 @@ async function main() {
       // LSOA from their own sources — directory-free.
       plan.push({
         item: "load-claimant-count",
-        due: dueDecision(await lastSuccess("load-claimant-count"), 25),
+        due: dueDecision(
+          await lastSuccess("load-claimant-count"),
+          thresholdDaysFor("load-claimant-count"),
+        ),
         args: [],
       });
       plan.push({
         item: "load-dwp-uc",
-        due: dueDecision(await lastSuccess("load-dwp-uc"), 25),
+        due: dueDecision(await lastSuccess("load-dwp-uc"), thresholdDaysFor("load-dwp-uc")),
         args: [],
       });
       // Company ownership (plan step M5.13) is the monthly
@@ -748,32 +980,40 @@ async function main() {
       // user-facing, per decision D18.)
       plan.push({
         item: "load-company-ownership",
-        due: dueDecision(await lastSuccess("load-company-ownership"), 25),
+        due: dueDecision(
+          await lastSuccess("load-company-ownership"),
+          thresholdDaysFor("load-company-ownership"),
+        ),
         args: [],
       });
       // The M5.9 datasets are the static class too: IMD is a
       // decennial-style index watched by the govuk-iod canary,
-      // PCM air and Round 4 noise are republished on multi-year
-      // cycles watched by their canaries, and the Ofcom releases
-      // land twice a year, watched by the ofcom canaries — each
-      // files exactly once, then only on an operator re-run.
-      // IMD, air and noise file their own tables and are
-      // directory-free; broadband and mobile merge into the
-      // postcode directory's answers, so the empty-directory
-      // skip applies to them.
-      for (const item of [
-        "load-imd",
-        "load-air-quality",
-        "load-noise",
-        "load-broadband",
-        "load-mobile",
-      ]) {
+      // PCM air is republished on a multi-year cycle watched by
+      // its canary, and the Ofcom releases land twice a year,
+      // watched by the ofcom canaries — each files exactly
+      // once, then only on an operator re-run. IMD and air
+      // file their own tables and are directory-free; broadband
+      // and mobile merge into the postcode directory's answers,
+      // so the empty-directory skip applies to them. Noise,
+      // the fifth M5.9 dataset, is NOT here: since M5.15 (D19)
+      // it is an operator job, planned as one just below.
+      for (const item of ["load-imd", "load-air-quality", "load-broadband", "load-mobile"]) {
         plan.push({
           item,
-          due: dueDecision(await lastSuccess(item), STATIC_THRESHOLD_DAYS),
+          due: dueDecision(await lastSuccess(item), thresholdDaysFor(item)),
           args: [],
         });
       }
+      // Noise (M5.9) is an operator job (M5.15 / D19): the
+      // national Round 4 pass samples WCS tiles for hours, far
+      // outside any timed window, and as a static-class loader
+      // that had never succeeded it was due on EVERY run —
+      // each monthly run would have burned its full timeout on
+      // it, recorded FAILED and failed the whole run, for a job
+      // progressing exactly as designed. The plan entry exists
+      // so every run's record and email lists it as SKIPPED
+      // with the date it last filed.
+      plan.push({ item: "load-noise", operator: true, args: [] });
       const DIRECTORY_FREE = new Set([
         "load-planning-areas",
         "load-green-belt",
@@ -800,6 +1040,20 @@ async function main() {
       ]);
 
       for (const step of plan) {
+        // Operator jobs (M5.15 / D19) are never run by the
+        // timer: the item is recorded and emailed as SKIPPED,
+        // with the date the loader last filed, and nothing else
+        // about the run depends on them.
+        if (step.operator) {
+          items.push({
+            item: step.item,
+            mode: "live",
+            status: "skipped",
+            logLine: operatorSkipLine(step.item, await lastSuccess(step.item)),
+            durationMs: 0,
+          });
+          continue;
+        }
         if (!step.due.due) {
           items.push({
             item: step.item,
@@ -820,7 +1074,7 @@ async function main() {
           });
           continue;
         }
-        const outcome = await runLoader(step.item, step.args);
+        const outcome = await runLoader(step.item, step.args, timeoutMsFor(step.item));
         console.log(
           outcome.logLine ?? `${outcome.item} FAILED — ${errorHeadline(outcome.errorMessage)}`,
         );

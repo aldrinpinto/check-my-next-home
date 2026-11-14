@@ -252,7 +252,12 @@ describe("the runner's monthly class", () => {
     const runner = readFileSync(join(process.cwd(), "loaders/run-loaders.mjs"), "utf8");
     expect(runner).toContain('"load-claimant-count": "Benefits figures — Claimant Count"');
     expect(runner).toContain('runAndLog("load-claimant-count", ["--file", fx("claimant-count")])');
-    expect(runner).toContain('dueDecision(await lastSuccess("load-claimant-count"), 25)');
+    // M5.15: registration is the schedule-registry entry now —
+    // monthly class, 30-minute timeout; the class thresholds
+    // themselves are pinned in tests/run-loaders.test.ts.
+    expect(runner).toContain(
+      '{ item: "load-claimant-count", cadence: "monthly", timeoutMinutes: 30 }',
+    );
     const directoryFree = runner.slice(
       runner.indexOf("const DIRECTORY_FREE"),
       runner.indexOf("]);", runner.indexOf("const DIRECTORY_FREE")),

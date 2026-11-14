@@ -1013,27 +1013,77 @@ contract canary probes (`canary.mjs` — one cheap shape/freshness
 probe per source, filing nothing) and then the due dataset
 loads, records the run in the `loader_runs` tables, and sends
 one email per run: an alert on failure, a short OK heartbeat on
-success. Due-ness: the postcode directory and the M5.1 flood, M5.2
-planning and heritage, M5.3 nature, M5.5 transport, M5.6
-nearby and M5.7 EV chargers datasets quarterly (70 days — their sources move
-slowly; and those loaders never join onto the directory, so an
-empty directory does not skip them), the M5.14 tribunal
-building-safety decisions quarterly on the same rhythm
-(they file by case reference from GOV.UK, so the directory
-skip does not apply to them either), the Census 2021 dataset
-(plan step M5.8) and the five M5.9 datasets (IMD, air quality,
-noise, broadband, mobile) in the static class — due exactly
-once, when they have never loaded, and never automatically
-again — the
-other datasets monthly, judged from the last successful run items;
-per-postcode loaders take their targets from what is already
-filed (the golden three when nothing is). The M5.16 benefits
-loaders (plan step M5.16) are monthly on the same 25-day
-judgement, and the LSOA Census base totals are static like
-the census itself. A failed probe alerts
+success. Due-ness is read from the schedule registry in
+`run-loaders.mjs` (plan step M5.15, decision D19) — the same
+table `npm run load:timers` prints, so the print and the
+behaviour cannot drift. Quarterly (70 days, judged from the
+last successful run items): the postcode directory and the
+M5.1 flood, M5.2 planning and heritage, M5.3 nature
+designations, M5.5 transport and M5.6 nearby datasets and the
+M5.14 tribunal building-safety decisions — those loaders never
+join onto the directory, so an empty directory does not skip
+them. Monthly (25 days): sold prices, crime, EPC, schools,
+health, the M5.16 benefits loaders, the M5.13 company
+ownership, and since M5.15 the M5.7 EV chargers (Open Charge
+Map changes daily; quarterly was the one cadence that did not
+match its publisher). Static — due exactly once, when they
+have never loaded, and never automatically again: the Census
+2021 dataset (plan step M5.8), the LSOA Census base totals and
+four of the five M5.9 datasets (IMD, air quality, broadband,
+mobile). Operator jobs — never run by the timer: noise and
+priority habitats (see the next section). Per-postcode loaders
+take their targets from what is already filed (the golden
+three when nothing is). Each timed loader gets the timeout
+its registry entry sets — 30 minutes for every loader today,
+headroom only where a duration has been measured — and a
+loader killed by its timeout is recorded and emailed as
+"TIMED OUT after N minutes" while the run carries on with the
+next loader. A failed probe alerts
 but never blocks a load. If the database is down the record
 falls back to a JSON-lines file and the email still goes out.
 `npm run canary` runs the probes only.
+
+## Timers and operator jobs (plan step M5.15)
+
+The timers install at M12, when the Hetzner VPS exists — one
+cron, on the 5th of each month. There is no second, quarterly
+cron: the quarterly loaders fall due every third monthly run,
+which lands them in January, April, July and October. The line
+to install (05:15 on the 5th; adjust the path to where the
+repo lives on the server):
+
+```text
+15 5 5 * *  cd ~/check-my-next-home && npm run load:all
+```
+
+The run's own email is the log-and-alert check that follows
+each run: one email per run, an alert on any failure, so a
+missing email is itself visible. To check the timers against
+the plan at any time:
+
+```text
+npm run load:timers
+```
+
+which prints every registered loader's class and timeout from
+the schedule registry in `run-loaders.mjs` — the step's check
+is that the print matches the plan's Data Loaders table.
+
+Two loaders are operator jobs (decision D19): `load-noise`
+and `load-priority-habitats`. The timer never runs them and
+nothing times them out; every timed run's record and email
+lists them as SKIPPED, with the date they last filed, and
+their canary probes are the stale-data guard. Their first
+passes are explicit pre-launch operator jobs in the M12
+window, run by hand before launch:
+
+```text
+npm run load:noise               # the national Round 4 sampling pass — hours long, resumable
+npm run load:priority-habitats   # the full 818,225-patch mirror — no resume; run it in one sitting
+```
+
+After those first passes they are re-run by hand the same way
+whenever their sources republish.
 
 ## Before any push
 
