@@ -793,15 +793,17 @@ describe("nearby bundle — 19 Birkdale Rise, CM3 2JT", () => {
     expect(evCat.places).toHaveLength(1);
     expect(evCat.places[0].name).toBe("Witham Leisure Centre");
     expect(evCat.places[0].detail).toBe("Public - Membership Required");
-    // The prep's locked figure is 1.866 — measured with the EV
-    // loader's own haversine, whose earth radius is 3,959. The
-    // brain serves ONE basis (D22): radius 3,956, the M5.2/M5.5
-    // basis, under which this distance is 1.864. The difference
-    // is the radius alone (the same filed point measures 1.8656
-    // at radius 3,959 — the M6.2 rehearsal proves both), never
+    // The lock is 1.864 — the product's ONE basis (D22):
+    // haversine, earth radius 3,956, the M5.2/M5.5 basis. The
+    // EV loader originally fixed this figure at 1.866 on its
+    // own haversine (radius 3,959), a filing-layer artefact;
+    // the founder ruled on 14 Nov 2026 that the locks be
+    // re-stated on the single basis. The difference is the
+    // radius alone (the same filed point measures 1.8656 at
+    // radius 3,959 — the M6.2 rehearsal proves both), never
     // more than ~0.003 mi on any EV figure.
     expect(evCat.places[0].miles).toBe(1.864);
-    expect(Math.abs(evCat.places[0].miles - 1.866)).toBeLessThanOrEqual(0.005);
+    expect(Math.abs(evCat.places[0].miles - 1.864)).toBeLessThanOrEqual(0.005);
   });
 
   it("serves schools, supermarkets and the What's Nearby groups from the filed data", async () => {
@@ -1040,7 +1042,7 @@ describe("nearby bundle — Hilgay, CB6 1EH", () => {
     const evCat = category(bundle, "ev-chargers");
     expect(evCat.state).toBe("none-within");
     expect(evCat.beyondNearest?.name).toBe("The Coach House At Lodge Farm");
-    expect(Math.abs((evCat.beyondNearest?.miles ?? 0) - 3.538)).toBeLessThanOrEqual(0.005);
+    expect(Math.abs((evCat.beyondNearest?.miles ?? 0) - 3.535)).toBeLessThanOrEqual(0.005);
     // The GIAS fixture cut holds no Hilgay-area schools at all;
     // both school answers take the beyond-radius path here. The
     // real nearest schools are fixed in the golden matrix from
