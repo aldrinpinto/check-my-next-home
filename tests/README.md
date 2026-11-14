@@ -167,9 +167,10 @@ datasets, then locked.
    nearest 17.22), statutory nature NONE within 2 miles, while
    priority habitat is present at 0.123 miles and is reported as
    present, and the point is INSIDE Flood Zone 3 (fen floodplain; its
-   rivers/sea band is fixed at first load). Its crime and schools
-   counts are expected to be tiny or none and are verified at first
-   load, not assumed.
+   rivers/sea band is fixed at first load). Its crime count was
+   fixed at first load (M6.4): 7 recorded crimes in the 12 months
+   to September 2026; its schools counts were fixed at M6.2 (no
+   primary or secondary within 2 miles).
 9. CM1 6ER — Beaulieu, Chelmsford (postcode introduced July 2024).
    Guards EPC: 49 certificates at the postcode, ALL predicted (SAP
    schema), ALL band B — the new-build certificate case. Guards sold

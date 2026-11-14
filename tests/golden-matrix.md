@@ -76,13 +76,13 @@ flood planning maps are a Natural Resources Wales product, not an EA one.
 
 ### Crime (M4.3) — counts only, never a score
 
-| Combination                 | Covered by                                              |
-| --------------------------- | ------------------------------------------------------- |
-| Very low count, semi-rural  | Birkdale (330 in 12 months to Sep 2026, 1 mi)           |
-| Very high count, inner city | Exeter (10,722, same window)                            |
-| Mid count, suburban flat    | Epsom (1,956, same window)                              |
-| Genuinely tiny rural count  | C9 — expected but NOT yet counted; verify at first load |
-| Zero crimes in window       | GAP — no verified candidate; a C9 count may land here   |
+| Combination                 | Covered by                                                                                                                                            |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Very low count, semi-rural  | Birkdale (330 in 12 months to Sep 2026, 1 mi)                                                                                                         |
+| Very high count, inner city | Exeter (10,722, same window)                                                                                                                          |
+| Mid count, suburban flat    | Epsom (1,956, same window)                                                                                                                            |
+| Genuinely tiny rural count  | C9 (Hilgay) — counted at first load, M6.4: 7 in the same window                                                                                       |
+| Zero crimes in window       | GAP — no verified candidate; C9 counted 7 at first load, so the gap stays open — the brain's zero branch is proven on a synthetic filed answer (M6.4) |
 
 ### EPC (M4.5)
 
@@ -420,6 +420,72 @@ CM3 2JT exactly that way, and the loader's golden check
 passed over the remaining postcodes without naming the
 loss. The brain invokes the loader with the separator,
 and a unit test pins the invocation against a stub loader.
+
+### Crime in the brain (M6.4)
+
+Proved twice over: `tests/crime.test.ts` against the raw
+Police.uk captures, re-derived with the loader's counting
+rules; and the first load itself — on 14 Nov 2026 the real
+loader filed KT17 1FH, KT17 1DR and CB6 1EH live (latest
+published month 2026-09, so the filed window is the locked
+Oct 2025 – Sep 2026) against a local PostGIS, and an
+independent re-count from the saved raw responses matched
+the filed artefacts exactly: totals, all 12 monthly counts
+and every category tally. The rule is decision D24: the
+answer is the filed artefact served as published — the
+12-month total, the full category breakdown under the
+publisher's own slugs, and the monthly counts as dated
+facts. No trend is computed, no rate, ranking or comparison
+exists, and no served string calls any place safe or
+unsafe. Rung 1 and rung 2 serve the identical answer,
+worded "recorded within 1 mile of this postcode"; rung 3
+carries only the named state "crime counts need an exact
+postcode"; Scotland and Northern Ireland carry the named
+not-covered state.
+
+| Check                                                     | Figure                                                                                                                                                                                                                                                                                                               |
+| --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Birkdale total                                            | 330 recorded crimes within 1 mile of the postcode point, Oct 2025 – Sep 2026                                                                                                                                                                                                                                         |
+| Birkdale split (all 14 published categories have a count) | violent-crime 133; anti-social-behaviour 65; robbery 29; criminal-damage-arson 20; other-theft 19; vehicle-crime 16; public-order 14; drugs 9; burglary 7; other-crime 6; shoplifting 6; possession-of-weapons 4; bicycle-theft 1; theft-from-the-person 1                                                           |
+| Exeter total                                              | 10,722, same window and basis                                                                                                                                                                                                                                                                                        |
+| Exeter split (all 14)                                     | violent-crime 2,893; anti-social-behaviour 1,852; vehicle-crime 1,266; other-theft 1,042; shoplifting 706; theft-from-the-person 654; drugs 487; public-order 477; burglary 432; robbery 351; criminal-damage-arson 283; bicycle-theft 105; other-crime 98; possession-of-weapons 76                                 |
+| Minerva total                                             | 1,956, same window and basis — asserted as a served answer for the first time at this step                                                                                                                                                                                                                           |
+| Minerva split (all 14)                                    | violent-crime 591; anti-social-behaviour 332; public-order 175; criminal-damage-arson 169; shoplifting 162; other-theft 132; vehicle-crime 122; burglary 88; drugs 73; other-crime 44; bicycle-theft 23; robbery 20; possession-of-weapons 14; theft-from-the-person 11                                              |
+| Ewell Village KT17 1DR (fixed at first load)              | 2,361, same window and basis; split (all 14): violent-crime 769; anti-social-behaviour 383; criminal-damage-arson 206; vehicle-crime 198; public-order 191; shoplifting 167; other-theft 160; burglary 91; drugs 67; other-crime 52; bicycle-theft 30; robbery 22; possession-of-weapons 16; theft-from-the-person 9 |
+| Hilgay CB6 1EH (fixed at first load)                      | 7 — the genuinely tiny rural count; only five categories have a count: violent-crime 3; criminal-damage-arson 1; other-theft 1; public-order 1; vehicle-crime 1. The nine absent slugs are not printed as measured zeros                                                                                             |
+| Zero crimes in window                                     | GAP stays open: Hilgay counted 7, not 0. The brain's zero branch ("0 recorded crimes within 1 mile of this postcode, [window]") is proven on a synthetic filed answer until a real zero is filed                                                                                                                     |
+
+Monthly counts (the brain's order, oldest first — served
+as dated facts, asserted exactly in the suite):
+
+| Postcode | Oct 2025 – Sep 2026                                          |
+| -------- | ------------------------------------------------------------ |
+| CM3 2JT  | 22, 47, 28, 26, 14, 28, 37, 33, 34, 23, 26, 12               |
+| E16 1GN  | 970, 891, 828, 810, 714, 901, 946, 1,024, 943, 940, 902, 853 |
+| KT17 1FH | 180, 169, 155, 132, 123, 176, 165, 160, 179, 162, 168, 187   |
+| KT17 1DR | 214, 197, 172, 145, 156, 185, 197, 213, 244, 212, 209, 217   |
+| CB6 1EH  | 0, 0, 0, 2, 1, 0, 0, 1, 2, 1, 0, 0                           |
+
+**The stale window, proven.** The brain's staleness
+threshold is the loader guard's own: `CRIME_STALE_AFTER_MONTHS`
+in `lib/crime.ts` is pinned by a unit test to the loader's
+`MAX_LAG_MONTHS` (3), so loader, canary and brain trip on
+the same line. Against the frozen Sep 2026 window the suite
+proves the boundary both ways: served on 31 Dec 2026
+(exactly 3 months behind) there is no stale line; served on
+15 Jan 2027 (4 months behind) the answer carries "the
+latest month we hold is September 2026 — Police.uk has not
+published newer data we can file" with the totals, split
+and months byte-identical to the fresh answer — the
+last-good window serves in full, never suppressed.
+
+**Loader finding, recorded.** The crime loader's argument
+filter drops the slot its `--file` value would occupy, so
+invoked bare in live mode the FIRST postcode is silently
+never loaded — the same trap M6.3 pinned for the
+sold-prices loader. The first load above was invoked with
+a leading `--`, and all three postcodes filed. The loader
+itself is untouched by this step.
 
 ## E2E journeys each candidate unlocks (Playwright, QA phase)
 

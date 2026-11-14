@@ -17,3 +17,17 @@ the 12-month totals are **330** crimes for CM3 2JT and **10,722**
 for E16 1GN — the approved reports' figures, reproduced exactly by
 summing the monthly responses. Counts only: the product never turns
 crime counts into a score or a verdict.
+
+First-load captures added 14 Nov 2026 (plan step M6.4), same window
+(Oct 2025 – Sep 2026), captured the day the real loader filed the
+same postcodes live; an independent tally of these files matched
+the loader's filed artefacts exactly:
+
+- `epsom-YYYY-MM.json` — KT17 1FH (Minerva House): **1,956**.
+- `ewell-YYYY-MM.json` — KT17 1DR (Ewell Village): **2,361**.
+- `hilgay-YYYY-MM.json` — CB6 1EH (Hilgay): **7**.
+
+These three points are NOT in `fixture.json`: the loader's fixture
+mode still covers the two M4.3 points only. The brain's suite
+(`tests/crime.test.ts`) derives its filed artefacts from all five
+points' captures.
