@@ -65,14 +65,14 @@ flood planning maps are a Natural Resources Wales product, not an EA one.
 
 ### Sold prices (M4.2)
 
-| Combination                                                                    | Covered by                                                                                                                   |
-| ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| The home itself has exactly one recorded sale                                  | Birkdale (£588,995, 15 Jun 2023, its only sale)                                                                              |
-| Street median over a defined report set; category-B rows present on the street | Birkdale (median £610,875 over the report's eight; 31 recorded street sales incl. category-B rows)                           |
-| Postcode median over few sales                                                 | Exeter (£310,000 over 9 sales)                                                                                               |
-| Many sales, mixed category A/B; same flat number in sibling buildings          | Epsom (31 sales, 27 category A; Flat 4 exists in Jupiter, Minerva and Juno Houses — only PAON+SAON identifies the right one) |
-| New-build: no or almost no recorded sales                                      | C10 — EPC side verified; the exact sales count is to be fixed at first load from pp-complete                                 |
-| Postcode with zero recorded sales of any kind                                  | GAP — E16 1EG is the likely fill (introduced Oct 2025) but its sales count is unverified; verify before relying on it        |
+| Combination                                                                    | Covered by                                                                                                                                                                                                                         |
+| ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The home itself has exactly one recorded sale                                  | Birkdale (£588,995, 15 Jun 2023, its only sale)                                                                                                                                                                                    |
+| Street median over a defined report set; category-B rows present on the street | Birkdale (median £610,875 over the report's eight; 31 recorded street sales incl. category-B rows) — the figure the brain serves under D23 differs; see "Sold prices in the brain (M6.3)"                                          |
+| Postcode median over few sales                                                 | Exeter (£310,000 over 9 sales)                                                                                                                                                                                                     |
+| Many sales, mixed category A/B; same flat number in sibling buildings          | Epsom (31 sales, 27 category A; Flat 4 exists in Jupiter, Minerva and Juno Houses — only PAON+SAON identifies the right one)                                                                                                       |
+| New-build: no or almost no recorded sales                                      | C10 — count fixed at first load in the M6.3 rehearsal: exactly 0 recorded sales (edition 28 Oct 2026)                                                                                                                              |
+| Postcode with zero recorded sales of any kind                                  | C10 (CM1 6ER) — loaded at first ask in the M6.3 rehearsal, no sale recorded. E16 1EG was the expected fill and is not one: it holds one recorded sale (Flat 24, Crawford Point, £148,000, 5 Jun 2009) and serves the too-few state |
 
 ### Crime (M4.3) — counts only, never a score
 
@@ -342,6 +342,84 @@ The brain's distance answers (`lib/nearby.ts`, ruling D22), built 14 Nov 2026. S
 | Nurseries: behaviour locked, no figures                                                            | No loader files the nurseries table, so no filed rows exist to fix figures from. `tests/nearby.test.ts` asserts the category's behaviour on synthetic rows (lists within 2 miles in distance order, never names a beyond-radius nearest, and the register-empty wording "no nursery within 2 miles of the postcode point in the childcare register we hold") and locks no figures                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | The ladder: rungs 1 and 2 share one measurement point; rung 3 carries no distance payload          | Rung-1 and rung-2 bundles for CM3 2JT return identical station lists (asserted). Rung 3 ("CM3") returns only the named state "distances need an exact postcode" — a structural test proves the bundle contains no categories, no place names and no miles. Rung 4 returns the no-location state                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | Performance at national volume (D22's proof; migration 0018)                                       | Before migration 0018 the brain's geography reads sequential-scanned the national tables (full-bundle means 1,660–1,779 ms per home; Exeter's bus-stop read 1,121 ms alone). Migration 0018 adds GiST indexes on the geography cast of each point table; with them, the same rehearsal's full-bundle means are Birkdale 54.1 ms, Exeter 43.4 ms, Minerva 33.7 ms, Hilgay 32.9 ms (5 runs each), and Exeter's worst category read is parks at 4.7 ms. Plans verified with EXPLAIN ANALYZE on the brain's own query shapes: bitmap/index scans on the 0018 indexes for the within-radius reads; the nearest-A&E KNN read sequential-scans the 2,322-row health table (the planner's choice at that size). WASM-engine numbers as ever — production timings are M12's confirmation                                                                                                                                                  |
+
+### Sold prices in the brain (M6.3)
+
+Proved twice over: `tests/sold-prices.test.ts` against the
+loader's own fixture filings, and the local PostgreSQL
+rehearsal at first load (real loaders, Price Paid edition
+28 October 2026), which also recomputed every served figure
+independently from the filed table. The rule is decision
+D23: the served median is the postcode median over
+category-A recorded sales only, the counted number and the
+counted date span named beside it; a median is served only
+at five counted sales or more; the home's own history is
+all its recorded sales as filed, category-B included and
+never labelled; a flat also gets its building's category-A
+list, count and median. The brain never computes a gap, a
+percentage or a comparative adjective against any median,
+and sold prices are never called a valuation.
+
+| Check                             | Figure                                                                                                                                         |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Birkdale own history              | one sale: £588,995, 15 Jun 2023, detached, freehold, new-build                                                                                 |
+| Birkdale postcode median (served) | £588,995 over 29 counted category-A sales, 20 Dec 1996 to 20 Jul 2026; 31 recorded in the postcode                                             |
+| Exeter own history                | one sale: £270,000, 17 Jan 2014, filed as flat-type, leasehold, new-build — served as filed, never "corrected"                                 |
+| Exeter postcode median            | £310,000 over 9 counted sales, 20 Sep 2013 to 31 Jan 2024                                                                                      |
+| Exeter No 10 repeat pair          | £260,000 on 18 Dec 2013, then £410,000 on 24 Feb 2023, both in its history in that order                                                       |
+| Minerva Flat 4 own history        | one sale: £420,000, 3 Dec 2019                                                                                                                 |
+| Minerva postcode median           | £399,999 over 27 counted category-A sales of 31 recorded, 30 Aug 2019 to 6 Jul 2026                                                            |
+| Minerva House building            | 12 category-A sales, median £392,499.50, 29 Nov 2019 to 18 Sep 2024                                                                            |
+| The Flat 4 trap                   | Jupiter House Flat 4 (£341,000, 10 Sep 2019) is not Minerva's Flat 4; Juno House Flat 4 has no price or date in the register and is not a sale |
+
+Recent category-A sales (newest first, the brain's order):
+
+| Postcode | Most recent sales                                                                                                                                                                                                                                  |
+| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CM3 2JT  | £630,000 on 20 Jul 2026 (16 Birkdale Rise); £628,000 on 17 Jul 2026 (8); £540,966 on 9 Feb 2024 (28) and £593,750 the same day (26) — a shared date serves in price order; £499,995 on 8 Dec 2023 (11)                                             |
+| E16 1GN  | £571,000 on 31 Jan 2024 (5 Exeter Road); £410,000 on 24 Feb 2023 (10); £136,500 on 13 May 2022 (14); £270,000 on 17 Jan 2014 (6); £260,000 on 18 Dec 2013 (10); then the four 20 Sep 2013 sales                                                    |
+| KT17 1FH | £390,000 on 6 Jul 2026 (Flat 5, Jupiter House); £307,500 on 23 Jan 2026 (Flat 7, Jupiter House); £405,000 on 14 Mar 2025 (Flat 1, Jupiter House); £304,000 on 18 Sep 2024 (Flat 2, Minerva House); £385,000 on 14 Aug 2024 (Flat 1, Minerva House) |
+
+**Divergence, recorded openly.** The Birkdale figure the
+M4.2 loader proof reproduces from the sample report — a
+£610,875 average over eight named transactions — counts
+eight transactions the report's author chose; it is not a
+rule and nothing in the register defines it. Under the
+product's one rule (above) Birkdale serves £588,995 over
+29 counted sales of 31 recorded. The loader proof stands,
+as a statement about the sample report; the served figure
+follows D23.
+
+**The three loaded states** are proven separately in the
+unit suite and again in the rehearsal: sales found (the
+three universal homes); loaded with none recorded —
+CM1 6ER (Beaulieu, targeted home C10): the check loaded it
+through the loader at first ask and the register holds no
+sale for it, so it serves "No sale recorded for this
+postcode since 1995" under the 28 October 2026 edition,
+its recorded-sales count at first load exactly 0; not yet
+loaded — a cold postcode is never answered from emptiness:
+the check loads it first (Birkdale's own first rehearsal
+check arrived cold and loaded before answering, resolving
+the home itself only once its sales were filed; warm
+postcodes are not reloaded). E16 1EG — the candidate for
+targeted home E15's zero-sales row — is NOT a zero-sales
+postcode: loaded at first ask in the same rehearsal, it
+holds exactly one recorded sale (Flat 24, Crawford Point,
+£148,000, 5 Jun 2009), so it serves the too-few-for-a-
+median state instead; the zero-sales row above belongs to
+CM1 6ER. Scotland and Northern Ireland postcodes get the
+named not-covered state and are never loaded (EH1 1YZ
+proven in the rehearsal).
+
+**Rehearsal finding, pinned.** The sold-prices loader
+takes its postcodes after a `--` separator (its own usage
+line); without one, its argument filter silently drops
+the first postcode — the rehearsal's first warm batch lost
+CM3 2JT exactly that way, and the loader's golden check
+passed over the remaining postcodes without naming the
+loss. The brain invokes the loader with the separator,
+and a unit test pins the invocation against a stub loader.
 
 ## E2E journeys each candidate unlocks (Playwright, QA phase)
 

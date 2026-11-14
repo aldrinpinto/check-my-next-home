@@ -128,7 +128,7 @@ function normText(value: string): string {
 
 // Display form: the filed words with their casing tidied, numbers and
 // commas kept. "MINERVA HOUSE, 12" -> "Minerva House, 12".
-function displayText(value: string): string {
+export function displayText(value: string): string {
   return value
     .toLowerCase()
     .replace(/(^|[\s,])([a-z])/g, (_m, sep: string, ch: string) => sep + ch.toUpperCase())
@@ -263,6 +263,14 @@ function toResolved(parts: LoadedAddressParts): ResolvedAddress {
     label = label === "" ? street : `${label}${separator}${street}`;
   }
   return { ...parts, label };
+}
+
+// The display label for any filed address parts — the same
+// one-line form a resolution carries ("19 Birkdale Rise",
+// "Flat 4, Minerva House, 12 Ceres Crescent"). Later checks use
+// it to name the home a filed record belongs to.
+export function labelForAddressParts(parts: LoadedAddressParts): string {
+  return toResolved(parts).label;
 }
 
 function addressKey(parts: LoadedAddressParts): string {

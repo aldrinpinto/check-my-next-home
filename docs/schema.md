@@ -20,6 +20,12 @@ The table list is the Technical Plan's Section 2 list, verbatim —
    coverage at local-authority level only, so that answer is the
    postcode's own council area's figures with the grain named
    inside it — never presented as a postcode measurement. Since
+   plan step M6.3 the answers also carry a `soldPricesLoad`
+   stamp — the file edition and timestamp of the check's own
+   on-demand sold-prices load. It is the durable proof that
+   separates "loaded, with no sales recorded" from "never
+   loaded": a load that files no sales leaves no price_paid
+   rows, so the rows alone cannot tell the two states apart. Since
    migration 0017 (plan step M6.1) an expression index on the
    outward code — `split_part(postcode, ' ', 1)` — serves the
    brain's wider-area district count, which a sequential scan of
@@ -28,7 +34,13 @@ The table list is the Technical Plan's Section 2 list, verbatim —
    postcode and kept forever. Each row carries the Registry's
    transaction id (migration 0003) so the monthly update file can
    amend or delete it later. Sold prices are never called a
-   valuation anywhere in the product.
+   valuation anywhere in the product. The brain's sold-price
+   answers (plan step M6.3, decision D23) compute from these
+   rows at answer time: the postcode median over category-A
+   sales only, the count and date span named beside it; a
+   home's own history includes its category-B sales,
+   unlabelled, because the register does not say which
+   category-B reason applies to a row.
 3. **reports** — paid-report records: delivery email, report ID,
    status, payment reference (provider-neutral while the payments
    decision D3 is parked).
