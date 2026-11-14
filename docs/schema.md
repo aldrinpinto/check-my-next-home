@@ -329,6 +329,38 @@ Family:
     two LSOA totals are filed separately rather than
     derived from it. `source_date` is Census Day,
     21 March 2021.
+27. **tribunal_building_safety_decisions** — the
+    published First-tier Tribunal (Property Chamber)
+    decisions in the Building Safety Act remediation
+    case series (migration 0015, plan step M5.14), one
+    row per CASE whose reference carries /BSA/ (a
+    section 123 remediation-order application) or /BSB/
+    (a section 124 remediation-contribution-order
+    application), filed quarterly by
+    `loaders/load-tribunal-building-safety.mjs` from the
+    decisions' own PDF headers via GOV.UK. `property_text`
+    is the decision's Property line exactly as printed;
+    `postcode` is the full postcode parsed from it and
+    is NULL where the decision prints none (a district
+    only, or a multi-building set) — a NULL row can
+    never be served for a postcode. `building_key` is
+    the normalised building stem for matching within a
+    postcode; `is_single_flat` marks decisions naming
+    specific flats, which surface for those flats only,
+    not as a block headline. `order_kind` comes from the
+    decision's own type line or the order document's
+    heading (falling back to the reference's series) —
+    never from GOV.UK's sub-category tagging, which
+    republishes one document under two sub-categories.
+    A case published as several documents files once,
+    spoken for by its order document. There is no
+    Building Safety Register table, deliberately: no
+    building-level register extract exists (the register
+    is a postcode lookup by design), so the register
+    half of the step is a serving-time hand-off watched
+    by the bsr-register canary — and a row here records
+    only that a decision or order was published for a
+    case, never a verdict on a building.
 
 ## Physical decisions (recorded at build, M3.3)
 

@@ -21,6 +21,7 @@ import { join } from "node:path";
 
 import { probePlanningApplication } from "./canary-planning-application.mjs";
 import { probeCouncilTax } from "./canary-council-tax.mjs";
+import { probeBsrRegister } from "./canary-bsr-register.mjs";
 import {
   DATABASES as UC_DATABASES,
   fetchDiscovery as fetchUcDiscovery,
@@ -1877,5 +1878,6 @@ export async function runCanaryProbes() {
   await run("ofcom-mobile", () => probeOfcom("mobile"));
   await run("planning-application", probePlanningApplication);
   await run("mhclg-council-tax", probeCouncilTax);
+  await run("bsr-register", probeBsrRegister);
   return results;
 }

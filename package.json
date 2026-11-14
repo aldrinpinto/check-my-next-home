@@ -43,7 +43,8 @@
     "load:mobile": "node loaders/load-mobile.mjs",
     "load:council-tax": "node loaders/load-council-tax.mjs",
     "load:all": "node loaders/run-loaders.mjs",
-    "canary": "node loaders/run-loaders.mjs --canary-only"
+    "canary": "node loaders/run-loaders.mjs --canary-only",
+    "load:tribunal-building-safety": "node loaders/load-tribunal-building-safety.mjs"
   },
   "version": "0.1.0",
   "dependencies": {

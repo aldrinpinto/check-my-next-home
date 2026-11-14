@@ -729,6 +729,129 @@ node loaders/load-council-tax.mjs --file tests/fixtures/council-tax        # fil
 node loaders/load-council-tax.mjs --file tests/fixtures/council-tax-2025-26 --verify-only   # the rehearsal year
 ```
 
+## Tribunal building-safety decisions loader (plan step M5.14)
+
+`load-tribunal-building-safety.mjs` is QUARTERLY (the
+runner's 70-day class). Step M5.14 has two halves, and
+only one of them is a loader.
+
+**The register half is a hand-off, not a table.** There
+is no Building Safety Register list to file: the
+Building Safety Regulator's register of high-rise
+residential buildings (England, buildings of 7+
+storeys or 18m+ with 2+ residential units, registered
+since 1 Oct 2023) is published only as a postcode
+lookup — the register search service
+(www.register-high-rise-building.service.gov.uk) —
+expressly designed so the register is never released
+as data, and MHCLG's cladding-remediation figures are
+aggregate-only by stated public-safety policy. So no
+row anywhere records register status, and a home's
+absence from any list can never be read as a cladding
+or safety verdict (see loaders/README's discipline and
+migration 0015's). What the data layer owes the brain
+(M6.16 builds the answers on these named states):
+
+1. **Flat / block (England)** → the **hand-off state**:
+   the report names the Building Safety Regulator's
+   register and links the official search service for
+   the reader to check the building themselves. A
+   "not found" there has three honest meanings — the
+   building is out of the register's scope, it is
+   unregistered (itself an offence for an occupied
+   higher-risk building), or it is registered under a
+   different postcode — so the wording stays neutral
+   and never converts any of them into a verdict.
+2. **House** → the **scope line**: the register covers
+   high-rise residential buildings; a house is outside
+   what the register is for, stated plainly as scope,
+   not as a finding about the house.
+3. **Scotland / Wales / Northern Ireland** → the
+   **not-covered states**, each naming the nation's own
+   route: Scotland's Cladding Assurance Register (the
+   Scottish Government's register of buildings assessed
+   for cladding), the Welsh Government's building
+   safety route for high-rise residential buildings,
+   and Northern Ireland, which has no equivalent
+   register. The remediation universe (buildings of
+   11m+) is also wider than the register universe
+   (18m+/7 storeys) — the hand-off wording keeps that
+   gap visible rather than implying the lookup settles
+   the question. EWS1 forms have no public register
+   either, and are never implied.
+
+The `bsr-register` canary (monthly, in `canary.mjs`)
+watches the two changes that would break this design:
+an official building-level extract appearing in the
+data.gov.uk catalogue (warning — re-open the register
+half as a filing step; the recorded baseline, 14 Nov
+2026, is three service-performance datasets and
+nothing else), and the GOV.UK guidance or the search
+service changing shape (warning — re-check the
+hand-off). An unreachable source is a skip, never read
+as "no extract".
+
+**The tribunal half files the BSA/BSB slice.**
+`load-tribunal-building-safety.mjs` enumerates GOV.UK's
+residential-property-tribunal-decisions finder under
+HMCTS's own "Building Safety Act" category, selects the
+documents carrying a case reference in the /BSA/
+(section 123 remediation orders) or /BSB/ (section 124
+remediation contribution orders) series, parses each
+decision PDF's first-page header block (case
+references, the Property line exactly as printed, the
+type of application, the date) and files
+`tribunal_building_safety_decisions` (migration 0015)
+— one row per case, via a stage-swap, with the Oyster
+Bay control golden asserted before filing (see
+tests/golden-matrix.md). Kind comes from the
+decision's own type line or the order document's
+heading, falling back to the reference's series —
+never from GOV.UK's sub-category tagging, which
+publishes the same document under two different
+sub-categories. The slice is deliberately NOT the
+tribunal's general index: publication is selective,
+other series (HYI included) are out of scope, and a
+case's row records that a decision or order was
+published — never a verdict on the building.
+
+**Coverage wording (the only honest form, for
+M6.16):** the served line counts "published
+building-safety orders naming this postcode, as at
+[date]". No wording anywhere may say or imply "no
+tribunal decisions" without that qualification: no
+row at a postcode can mean the case sits in another
+series, the decision was never published, or its PDF
+could not be read. A row whose property text names
+specific flats files `is_single_flat` and surfaces
+only for those flats' addresses, not as a block
+headline; a row whose Property prints no full
+postcode files with a NULL postcode and can never be
+served for one.
+
+**The parse-failure discipline.** Headers vary by
+region and era, and some PDFs carry no extractable
+text at all (scanned) or text in CID-encoded fonts:
+such a document files NOTHING and is counted BY NAME
+in the run output. The first live pull (14 Nov 2026)
+filed **28 cases from 24 documents**, with 3 named
+parse failures — Ridley House (BIR/00CN/BSA/2024/0601,
+scanned), the Prince Park Apartments order document
+and 5 Praed Street (both CID-encoded; the Prince Park
+case still filed from its later variation decision) —
+2 dates taken from GOV.UK metadata where an order
+document's header carries none, and 12 rows whose
+Property prints no full postcode. A run whose
+parse-failure count RISES against the previous
+recorded run fails loudly after filing: a silently
+thinner index is the one outcome this step forbids.
+
+```text
+npm run load:tribunal-building-safety                     # live quarterly pass (stage-swap)
+npm run load:tribunal-building-safety -- --verify-only    # enumerate + parse + assert the golden; file nothing
+node loaders/load-tribunal-building-safety.mjs --file tests/fixtures/tribunal-building-safety   # the fixture corpus (CI)
+```
+
 ## Loader runner + canary
 
 `run-loaders.mjs` (plan step M4.8; `npm run load:all`) runs the
@@ -740,7 +863,10 @@ success. Due-ness: the postcode directory and the M5.1 flood, M5.2
 planning and heritage, M5.3 nature, M5.5 transport, M5.6
 nearby and M5.7 EV chargers datasets quarterly (70 days — their sources move
 slowly; and those loaders never join onto the directory, so an
-empty directory does not skip them), the Census 2021 dataset
+empty directory does not skip them), the M5.14 tribunal
+building-safety decisions quarterly on the same rhythm
+(they file by case reference from GOV.UK, so the directory
+skip does not apply to them either), the Census 2021 dataset
 (plan step M5.8) and the five M5.9 datasets (IMD, air quality,
 noise, broadband, mobile) in the static class — due exactly
 once, when they have never loaded, and never automatically

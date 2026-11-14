@@ -144,6 +144,8 @@ export const FRIENDLY_NAMES = {
   "load-broadband": "Broadband — Ofcom coverage by postcode",
   "load-mobile": "Mobile — Ofcom coverage by local authority",
   "load-council-tax": "Council tax — the councils' average Band D charges",
+  "load-tribunal-building-safety":
+    "Building safety orders — published tribunal decisions in the BSA/BSB case series",
   onspd: "Postcode directory source (canary)",
   ppd: "Sold prices source (canary)",
   police: "Crime source (canary)",
@@ -182,6 +184,7 @@ export const FRIENDLY_NAMES = {
   "ofcom-broadband": "Broadband source (canary)",
   "ofcom-mobile": "Mobile source (canary)",
   "mhclg-council-tax": "Council tax source (canary)",
+  "bsr-register": "Building Safety Register (canary)",
 };
 
 function shortDetail(item) {
@@ -299,6 +302,14 @@ function shortDetail(item) {
     case "load-council-tax": {
       const filed = pick(/(\d+) authorities filed/);
       return filed ? `${filed} councils' charges filed` : "updated";
+    }
+    case "load-tribunal-building-safety": {
+      const filed = pick(/(\d+) cases filed/);
+      const failures = pick(/parse failures: (\d+)/);
+      if (!filed) return "updated";
+      return failures && Number(failures) > 0
+        ? `${filed} building-safety cases filed · ${failures} published documents could not be read (named in the run record)`
+        : `${filed} building-safety cases filed`;
     }
     default:
       return "updated";
@@ -588,6 +599,7 @@ async function main() {
       await runAndLog("load-broadband", ["--file", fx("broadband")]);
       await runAndLog("load-mobile", ["--file", fx("mobile")]);
       await runAndLog("load-council-tax", ["--file", fx("council-tax")]);
+      await runAndLog("load-tribunal-building-safety", ["--file", fx("tribunal-building-safety")]);
     } else {
       if (!client) throw new Error("a live run needs the run-record database (DATABASE_URL)");
       const lastSuccess = async (item) => {
@@ -646,7 +658,9 @@ async function main() {
       // directory's 70-day rhythm — they file shapes and
       // points from their own files and never join onto the
       // directory, so the empty-directory skip below does not
-      // apply to them.
+      // apply to them. The M5.14 tribunal building-safety
+      // decisions join them: a small corpus re-read whole
+      // each pass from GOV.UK, filing by case reference.
       for (const item of [
         "load-planning-areas",
         "load-green-belt",
@@ -660,6 +674,7 @@ async function main() {
         "load-osm-places",
         "load-os-greenspace",
         "load-ev-chargers",
+        "load-tribunal-building-safety",
       ]) {
         plan.push({ item, due: dueDecision(await lastSuccess(item), 70), args: [] });
       }
@@ -760,6 +775,7 @@ async function main() {
         "load-air-quality",
         "load-noise",
         "load-council-tax",
+        "load-tribunal-building-safety",
       ]);
 
       for (const step of plan) {
