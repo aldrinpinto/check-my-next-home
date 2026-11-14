@@ -416,7 +416,14 @@ migration file itself:
    disagree.
 3. Shape tables hold **MultiPolygons**; loaders wrap incoming
    polygons with `ST_Multi` on load.
-4. Every geometry column has a **GiST spatial index**.
+4. Every geometry column has a **GiST spatial index**. Since
+   migration 0018 (plan step M6.2) the point tables the brain
+   reads (schools, nurseries, health_points, transport_stops,
+   ev_points, osm_points, greenspace_points) also carry a GiST
+   index on the **geography cast** of the point, because the
+   brain's distance reads run ST_DWithin over geography and the
+   geometry index cannot serve a cast — without them those reads
+   sequential-scan the national tables.
 5. Every loaded dataset carries its stamp — `source_name`,
    `source_date`, `loaded_at` — and loaders follow the Technical
    Plan's load-stamp-then-swap rule: validate the new copy, stamp
