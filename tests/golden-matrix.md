@@ -1610,3 +1610,54 @@ D38 reconciles the wording layer to D12 and locks the site's search wording befo
 1. Adopt 12 homes: the 3 universal core homes + C1, C2, C3, C5, C6, C7, C8, C9, C10 — each targeted to the datasets above — plus E16 1EG as an EPC-only guard. Optional extras, only if wanted: C4 (exact-zero II*) and KT22 8QA (ancient-woodland-inside; SSSI/SAC same-ground counting).
 2. Remaining GAPs to fill later, only when their milestone's gap check runs: mixed/poor EPC bands at one postcode; surface-water "High" at the point; inside a SAC/SPA/Ramsar; flight-path noise; council-tax band H; schools-none-within-radius (filled at M6.2: C9 has no primary or secondary school within 2 miles on the national filing — see Distances and What's Nearby).
 3. Cost discipline: targeted homes assert only their own datasets, so fixture capture and quarterly re-proof stay proportional. Universal status must not be extended beyond the original three.
+
+## Consolidation — the replay, the contracts, the count (M6.19)
+
+M6.19 audited the finished backend against this matrix and the
+state census (tests/state-matrix.test.ts) and converted the
+one-off scoped rehearsals into committed proofs:
+
+1. **Golden replay** (tests/golden-replay.test.ts, gated on
+   GOLDEN_REPLAY=1, running in CI's database job): every golden
+   home through every brain plus the short bundle, through the
+   real database sources against the filed fixture corpus. Its
+   setup filings seed the homes' real ONSPD Aug 2026 directory
+   rows (tests/fixtures/replay/directory-rows.json) and run the
+   sold-prices, crime and EPC loaders through their real
+   fixture paths for the homes the CI steps do not reach.
+2. **Bundle-shape contracts** (tests/bundle-contracts.test.ts +
+   tests/fixtures/replay/bundle-shapes.json): 43 pinned shapes
+   covering every bundle the website consumes, at every rung
+   and in every key-changing state variant — the frozen M7
+   front-end contract.
+3. **The set count, tidied.** The plan labels this set "14
+   homes" and the recommendation above says "12" while
+   enumerating 13; the enumerated list is the authority and
+   totals **15 homes** — the 3 universal + C1–C10 + KT22 8QA +
+   E16 1EG. The replay carries all 15 plus five further
+   witnesses: Cardiff doubles as C8 and the Welsh witness;
+   EH1 1AD for Scotland (EH1 1AA, named above as the short-
+   bundle witness, was terminated in ONSPD in December 1996
+   and never enters the filed directory — EH1 1AD is a live
+   postcode in the same data zone, S01014710); BT1 1AA and
+   BT45 6EB for Northern Ireland (the second carries the Mid
+   Ulster planning exception on its real directory row); and
+   the zero-crimes witnesses CA20 1EX and LD5 4AD.
+4. **Fixture-basis note.** The replay's spatial figures
+   (nearby, constraints, heritage, nature, flood edges) are
+   locked on the fixture cuts, which are excerpts; where they
+   differ from this matrix's national-basis locks, the matrix
+   lock stands as the national truth and the replay lock is
+   the fixture-corpus truth — the M6.19 backend report
+   (docs/backend-m6.19.md) carries the cell-by-cell coverage
+   map and names each basis. Corpus-independent locks (crime
+   artefacts, the universal sold medians over the excerpt's
+   complete postcode sets, EPC artefacts and spreads, Census,
+   council tax) reproduce identically in the replay.
+5. **Not closed here** (M12-owed, restated in the backend
+   report): national-volume and production timing proofs, the
+   Article 4 gate bridge filing, the first national filings
+   (noise, priority habitats, PVGIS), the four Ofcom golden
+   gaps, the Stat-Xplore national pull with its count-band
+   check, the council-tax spring pass, and the
+   company-ownership exposure decision.

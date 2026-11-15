@@ -3291,7 +3291,7 @@ function buildCensus(
     explainer:
       "These figures describe the whole Census area this home sits in — thousands of residents — as they were on Census Day, 21 March 2021. They are the area in numbers, not a description of this street or of the people on it. Each table's percentages are of that table's own total — the tables' totals differ because the Census applies disclosure control, so a percentage from one table is not a share of another table's total.",
   };
-  if (msoaCode === null) {
+  if (msoaCode === null || nation === "scotland" || nation === "northern-ireland") {
     return {
       ...meta,
       sourceName: null,
@@ -3306,7 +3306,7 @@ function buildCensus(
         nation === "scotland" || nation === "northern-ireland"
           ? `Census 2021 figures are published for England and Wales — ${nationName(nation)} is outside that coverage`
           : "Census 2021 figures are published for England and Wales — this postcode is outside that coverage",
-      msoaCode: null,
+      msoaCode,
       msoaName: null,
       residentsTotal: null,
       householdsTotal: null,

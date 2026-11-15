@@ -1,0 +1,182 @@
+[
+ {
+  "postcode": "KT17 1FH",
+  "latitude": 51.344571,
+  "longitude": -0.247104,
+  "council": "Epsom and Ewell",
+  "ward": "Nonsuch",
+  "region": "South East",
+  "lsoaCode": "E01030396",
+  "msoaCode": "E02006837"
+ },
+ {
+  "postcode": "KT17 1DR",
+  "latitude": 51.350243,
+  "longitude": -0.256581,
+  "council": "Epsom and Ewell",
+  "ward": "Ewell Village",
+  "region": "South East",
+  "lsoaCode": "E01030390",
+  "msoaCode": "E02006837"
+ },
+ {
+  "postcode": "E14 0BZ",
+  "latitude": 51.511184,
+  "longitude": 0.005102,
+  "council": "Tower Hamlets",
+  "ward": "Blackwall & Cubitt Town",
+  "region": "London",
+  "lsoaCode": "E01035702",
+  "msoaCode": "E02007112"
+ },
+ {
+  "postcode": "CM5 0DR",
+  "latitude": 51.749133,
+  "longitude": 0.214797,
+  "council": "Epping Forest",
+  "ward": "Rural East",
+  "region": "East of England",
+  "lsoaCode": "E01021796",
+  "msoaCode": "E02004529"
+ },
+ {
+  "postcode": "KT1 1JS",
+  "latitude": 51.409811,
+  "longitude": -0.306243,
+  "council": "Kingston upon Thames",
+  "ward": "Kingston Town",
+  "region": "London",
+  "lsoaCode": "E01002968",
+  "msoaCode": "E02000606"
+ },
+ {
+  "postcode": "KT13 8NB",
+  "latitude": 51.375459,
+  "longitude": -0.451253,
+  "council": "Elmbridge",
+  "ward": "Weybridge Riverside",
+  "region": "South East",
+  "lsoaCode": "E01030371",
+  "msoaCode": "E02006328"
+ },
+ {
+  "postcode": "KT21 1AG",
+  "latitude": 51.328565,
+  "longitude": -0.300853,
+  "council": "Mole Valley",
+  "ward": "Ashtead Lanes & Common",
+  "region": "South East",
+  "lsoaCode": "E01030507",
+  "msoaCode": "E02006363"
+ },
+ {
+  "postcode": "OX1 1HD",
+  "latitude": 51.751268,
+  "longitude": -1.264073,
+  "council": "Oxford",
+  "ward": "Osney & St Thomas",
+  "region": "South East",
+  "lsoaCode": "E01028521",
+  "msoaCode": "E02005947"
+ },
+ {
+  "postcode": "CF11 8AA",
+  "latitude": 51.467947,
+  "longitude": -3.192837,
+  "council": "Cardiff",
+  "ward": "Grangetown",
+  "region": "W99999999",
+  "lsoaCode": "W01001759",
+  "msoaCode": "W02000412"
+ },
+ {
+  "postcode": "CB6 1EH",
+  "latitude": 52.507481,
+  "longitude": 0.33491,
+  "council": "King's Lynn and West Norfolk",
+  "ward": "Feltwell",
+  "region": "East of England",
+  "lsoaCode": "E01026679",
+  "msoaCode": "E02005568"
+ },
+ {
+  "postcode": "CM1 6ER",
+  "latitude": 51.766431,
+  "longitude": 0.498037,
+  "council": "Chelmsford",
+  "ward": "Broomfield and The Walthams",
+  "region": "East of England",
+  "lsoaCode": "E01034082",
+  "msoaCode": "E02004485"
+ },
+ {
+  "postcode": "KT22 8QA",
+  "latitude": 51.279368,
+  "longitude": -0.289893,
+  "council": "Mole Valley",
+  "ward": "Brockham, Betchworth, Buckland, Box Hill & Headley",
+  "region": "South East",
+  "lsoaCode": "E01030524",
+  "msoaCode": "E02006369"
+ },
+ {
+  "postcode": "E16 1EG",
+  "latitude": 51.513995,
+  "longitude": 0.010054,
+  "council": "Newham",
+  "ward": "Canning Town South",
+  "region": "London",
+  "lsoaCode": "E01034209",
+  "msoaCode": "E02000747"
+ },
+ {
+  "postcode": "EH1 1AD",
+  "latitude": 55.948894,
+  "longitude": -3.19259,
+  "council": "City of Edinburgh",
+  "ward": "City Centre",
+  "region": "S99999999",
+  "lsoaCode": "S01014710",
+  "msoaCode": "S02002727"
+ },
+ {
+  "postcode": "BT1 1AA",
+  "latitude": 54.602438,
+  "longitude": -5.922291,
+  "council": "Belfast",
+  "ward": "Duncairn",
+  "region": "N99999999",
+  "lsoaCode": "N21000192",
+  "msoaCode": "N99999999"
+ },
+ {
+  "postcode": "BT45 6EB",
+  "latitude": 54.755902,
+  "longitude": -6.607135,
+  "council": "Mid Ulster",
+  "ward": "Town Parks East",
+  "region": "N99999999",
+  "lsoaCode": "N21000651",
+  "msoaCode": "N99999999"
+ },
+ {
+  "postcode": "CA20 1EX",
+  "latitude": 54.465875,
+  "longitude": -3.255128,
+  "council": "Cumberland",
+  "ward": "Gosforth",
+  "region": "North West",
+  "lsoaCode": "E01019279",
+  "msoaCode": "E02004006"
+ },
+ {
+  "postcode": "LD5 4AD",
+  "latitude": 52.116071,
+  "longitude": -3.665247,
+  "council": "Powys",
+  "ward": "Llanwrtyd Wells",
+  "region": "W99999999",
+  "lsoaCode": "W01000471",
+  "msoaCode": "W02000110"
+ }
+]

@@ -1,0 +1,75 @@
+{
+  "basis": "Street-level crimes recorded within 1 mile of the postcode point (Police.uk API)",
+  "total": 7287,
+  "months": [
+    {
+      "count": 630,
+      "month": "2025-10"
+    },
+    {
+      "count": 669,
+      "month": "2025-11"
+    },
+    {
+      "count": 575,
+      "month": "2025-12"
+    },
+    {
+      "count": 484,
+      "month": "2026-01"
+    },
+    {
+      "count": 596,
+      "month": "2026-02"
+    },
+    {
+      "count": 512,
+      "month": "2026-03"
+    },
+    {
+      "count": 578,
+      "month": "2026-04"
+    },
+    {
+      "count": 629,
+      "month": "2026-05"
+    },
+    {
+      "count": 658,
+      "month": "2026-06"
+    },
+    {
+      "count": 682,
+      "month": "2026-07"
+    },
+    {
+      "count": 674,
+      "month": "2026-08"
+    },
+    {
+      "count": 600,
+      "month": "2026-09"
+    }
+  ],
+  "loadedAt": "2026-11-15T21:26:43.326Z",
+  "windowTo": "2026-09",
+  "categories": {
+    "drugs": 311,
+    "robbery": 91,
+    "burglary": 203,
+    "other-crime": 120,
+    "other-theft": 405,
+    "shoplifting": 519,
+    "public-order": 845,
+    "bicycle-theft": 158,
+    "vehicle-crime": 585,
+    "violent-crime": 2499,
+    "anti-social-behaviour": 841,
+    "criminal-damage-arson": 547,
+    "possession-of-weapons": 61,
+    "theft-from-the-person": 102
+  },
+  "sourceDate": "2026-09",
+  "sourceName": "Police.uk street-level crime",
+  "windowFrom": "2025-10"
+}
