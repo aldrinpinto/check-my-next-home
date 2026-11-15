@@ -1,0 +1,596 @@
+import type { AddressQueryable, AddressResolution } from "./address";
+import {
+  buildAreaBundle,
+  createAreaSource,
+  type AreaBundle,
+  type AreaDataSource,
+} from "./area-bundle";
+import {
+  buildCrimeBundle,
+  createCrimeSource,
+  crimeStaleLineForWindow,
+  type CrimeBundle,
+  type CrimeBundleOptions,
+  type CrimeDataSource,
+} from "./crime";
+import {
+  buildFloodBundle,
+  createFloodSource,
+  type FloodBundle,
+  type FloodDataSource,
+} from "./flood";
+import {
+  buildNearbyBundle,
+  createNearbySource,
+  type NearbyBundle,
+  type NearbyDataSource,
+} from "./nearby";
+
+// The bundle cache (plan step M6.8, decision D29).
+//
+// A repeat check of the same home should not recompute what
+// has already been computed from the same filed data. This
+// module wraps four of the five bundle builders — crime,
+// flood, nearby and the area bundle — with a database cache
+// (migration 0020's bundle_cache table, owned by the brain
+// alone; no loader reads or writes it). Sold prices is
+// deliberately NOT cached: its warm read is one indexed query
+// plus an in-memory median, and its one real cost, the cold
+// load, is already paid once per postcode by design.
+//
+// The rules the cache lives under:
+//
+//   - A miss is exactly today. The cache wraps the builders;
+//     it never replaces them. Absent entry, moved version,
+//     corrupt or shape-disagreeing entry, missing cache
+//     table — every failure path lands on the existing
+//     builder and its existing sources, unchanged, and a
+//     failed cache write never fails the check.
+//   - Invalidation is a per-brain VERSION VECTOR, never a
+//     TTL. Each entry stores the last-success stamps (from
+//     loader_run_items) of the loader items its brain's
+//     answer depends on, plus the filed GUARD COUNTS for the
+//     filings that can move no stamp: the hand-run operator
+//     jobs (noise, priority habitats — loader_run_items is
+//     written by the runner only, so a hand-run first filing
+//     may move no stamp, and a cached not-filed state must
+//     not survive the filing that ends it) and the
+//     brain-invoked cold loads, whose artefacts are guarded
+//     by content hash. A read recomputes the current vector
+//     and compares: any difference is a miss. A TTL could
+//     serve a superseded edition as current; the version
+//     rule cannot (D9).
+//   - The key is (postcode, brain, rung, home key). The rung
+//     is part of the key, so a rung-1 entry can never serve
+//     a rung-2 reader address-level facts; the home key
+//     carries the resolved home at rung 1 and the narrowing
+//     at rung 2. The postcode-point brains (crime, flood,
+//     nearby) have no home dimension and file under the
+//     empty home key. Rungs 3 and 4 are never cached — they
+//     are constant named states. The resolution itself is
+//     never cached: re-deriving it is what makes a directory
+//     re-file safe, and the directory's serving fields ride
+//     in every version's guards, so a moved point or a
+//     changed area code busts every entry for the postcode.
+//   - Crime's stale line is never stored. It is the one
+//     now-dependent served element in the brain — it flips
+//     on a calendar boundary with no data change — so the
+//     entry stores the bundle with the line stripped, and
+//     the line is recomputed at serve from the cached
+//     window end (crimeStaleLineForWindow).
+//   - Writes SKIP any bundle carrying a load-failure state:
+//     a crime bundle in its not-filed state, and an area
+//     bundle whose EPC section is not-filed (the state a
+//     failed cold load leaves behind). Those states are
+//     retries in disguise — the lift lives inside the
+//     builder, which a cache hit never calls — so freezing
+//     one could hold a postcode in a failed state until an
+//     unrelated filing moved a stamp. The stable not-filed
+//     states whose filings move a guard count (flood's
+//     per-layer, noise, priority habitats, solar) cache
+//     safely under the same version discipline as facts.
+//   - The short bundle (M6.7) gets no entries of its own:
+//     it is a pure derivation over the full bundles, derived
+//     on read from whichever bundles are warm.
+
+export type CacheBrain = "crime" | "flood" | "nearby" | "area";
+
+// The loader items each cached brain's answer depends on —
+// the stamps half of the version vector. Pinned by test
+// against LOADER_SCHEDULE (loaders/run-loaders.mjs): renaming
+// a loader item fails the test loudly instead of silently
+// un-invalidating a brain. The area list follows the reads
+// createAreaSource actually makes: the planning-layer loaders
+// (areas, green belt, heritage for listed buildings and
+// monuments, nature designations, priority habitats), the
+// EPC artefact (load-epc, including the runner's per-postcode
+// re-files), council tax, Census and its LSOA bases, IMD,
+// air, noise, the two benefits loaders and the PVGIS grid.
+export const BRAIN_DEPENDENCIES: Record<CacheBrain, readonly string[]> = {
+  crime: ["load-postcodes", "load-crime"],
+  flood: [
+    "load-postcodes",
+    "load-flood-zones",
+    "load-flood-rivers-sea",
+    "load-flood-surface-water",
+  ],
+  nearby: [
+    "load-postcodes",
+    "load-schools",
+    "load-health",
+    "load-transport",
+    "load-nurseries",
+    "load-osm-places",
+    "load-os-greenspace",
+    "load-ev-chargers",
+  ],
+  area: [
+    "load-postcodes",
+    "load-planning-areas",
+    "load-green-belt",
+    "load-heritage",
+    "load-nature-designations",
+    "load-priority-habitats",
+    "load-epc",
+    "load-council-tax",
+    "load-census",
+    "load-lsoa-bases",
+    "load-imd",
+    "load-air-quality",
+    "load-noise",
+    "load-claimant-count",
+    "load-dwp-uc",
+    "load-pvgis",
+  ],
+};
+
+// ------------------------------------------------------------------
+// The version vector
+// ------------------------------------------------------------------
+
+export interface BundleVersion {
+  // Loader item -> the ISO instant its last successful runner
+  // item finished, or null when it has never succeeded.
+  stamps: Record<string, string | null>;
+  // The filed guard counts and content hashes (see the guard
+  // readers below), keyed by guard name.
+  guards: Record<string, number | string | null>;
+}
+
+// Canonical serialisation for version comparison: JSONB does
+// not preserve key order, so both sides are compared through
+// a key-sorted form.
+function canonical(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) =>
+    a < b ? -1 : a > b ? 1 : 0,
+  );
+  return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonical(v)}`).join(",")}}`;
+}
+
+function versionsEqual(a: BundleVersion, b: BundleVersion): boolean {
+  return canonical(a) === canonical(b);
+}
+
+function toIso(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  const date = value instanceof Date ? value : new Date(value as string);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+async function readStamps(
+  db: AddressQueryable,
+  items: readonly string[],
+): Promise<Record<string, string | null>> {
+  const { rows } = await db.query(
+    `SELECT DISTINCT ON (item) item, finished_at
+     FROM loader_run_items
+     WHERE item = ANY($1) AND status = 'succeeded' AND finished_at IS NOT NULL
+     ORDER BY item, finished_at DESC`,
+    [items],
+  );
+  const latest = new Map(rows.map((row) => [row.item as string, toIso(row.finished_at)]));
+  const stamps: Record<string, string | null> = {};
+  for (const item of items) stamps[item] = latest.get(item) ?? null;
+  return stamps;
+}
+
+// The directory's serving fields, taken from the freshly
+// derived resolution itself — no extra read. A directory
+// re-file that moves the point or changes the council or
+// area codes changes this string and busts every entry.
+function directoryGuard(resolution: Rung12Resolution): string {
+  const d = resolution.directory;
+  return [d.latitude, d.longitude, d.council ?? "", d.lsoaCode ?? "", d.msoaCode ?? ""].join("|");
+}
+
+// The content hash of one artefact inside postcode_cache's
+// answers — the guard for the writes that happen outside the
+// runner (brain-invoked cold loads, a loader run by hand).
+// Null when the postcode or the artefact is absent.
+async function artefactHash(
+  db: AddressQueryable,
+  postcode: string,
+  key: "crime" | "epc",
+): Promise<string | null> {
+  const { rows } = await db.query(
+    "SELECT md5((answers -> $2)::text) AS h FROM postcode_cache WHERE postcode = $1",
+    [postcode, key],
+  );
+  return (rows[0]?.h as string | null) ?? null;
+}
+
+async function countOf(
+  db: AddressQueryable,
+  sql: string,
+  params: readonly unknown[] = [],
+): Promise<number> {
+  const { rows } = await db.query(sql, params);
+  return Number(rows[0]?.n ?? 0);
+}
+
+// The guards half of the version vector, per brain: the
+// filed counts and content hashes whose movement can change
+// the brain's answer without moving a runner stamp.
+const GUARDS: Record<
+  CacheBrain,
+  (db: AddressQueryable, resolution: Rung12Resolution) => Promise<BundleVersion["guards"]>
+> = {
+  async crime(db, resolution) {
+    const postcode = resolution.directory.postcode;
+    return {
+      directory: directoryGuard(resolution),
+      crimeArtefact: await artefactHash(db, postcode, "crime"),
+    };
+  },
+
+  async flood(db, resolution) {
+    const { rows } = await db.query(
+      "SELECT layer_type, count(*)::int AS n FROM flood_layers GROUP BY layer_type",
+    );
+    const byLayer = new Map(rows.map((row) => [row.layer_type as string, Number(row.n)]));
+    return {
+      directory: directoryGuard(resolution),
+      // The per-layer filed counts the flood source itself
+      // reads — a layer's first filing (0 -> N) busts the
+      // cached per-layer not-filed state, whoever ran it.
+      floodZone: byLayer.get("flood_zone") ?? 0,
+      rofrs: byLayer.get("rofrs") ?? 0,
+      rofsw: byLayer.get("rofsw") ?? 0,
+    };
+  },
+
+  async nearby(db, resolution) {
+    // Every nearby filing is a runner class — its stamp
+    // moves — so the directory guard is the only extra.
+    void db;
+    return { directory: directoryGuard(resolution) };
+  },
+
+  async area(db, resolution) {
+    const postcode = resolution.directory.postcode;
+    return {
+      directory: directoryGuard(resolution),
+      // The EPC artefact is rewritten by brain-invoked cold
+      // loads, outside the runner: guard its content.
+      epcArtefact: await artefactHash(db, postcode, "epc"),
+      // The operator-job trap: noise and priority habitats
+      // are hand-run (D19) and may move no runner stamp.
+      noiseSummary: await countOf(db, "SELECT count(*)::int AS n FROM noise_summary"),
+      noiseForPostcode: await countOf(
+        db,
+        "SELECT count(*)::int AS n FROM noise_summary WHERE area_ref = $1",
+        [postcode],
+      ),
+      priorityHabitats: await countOf(
+        db,
+        "SELECT count(*)::int AS n FROM planning_layers WHERE constraint_type = 'priority_habitat'",
+      ),
+      listedBuildings: await countOf(db, "SELECT count(*)::int AS n FROM listed_buildings"),
+      solarGrid: await countOf(db, "SELECT count(*)::int AS n FROM solar_grid"),
+      // The council-tax spring pass is a yearly operator job
+      // (D16): if it ever runs outside the runner, the
+      // charges table's own count is the guard that moves.
+      councilTaxCharges: await countOf(db, "SELECT count(*)::int AS n FROM council_tax_charges"),
+    };
+  },
+};
+
+// ------------------------------------------------------------------
+// The store
+// ------------------------------------------------------------------
+
+export interface BundleCache {
+  // The current version vector for a brain and resolution,
+  // or null when the cache's own reads fail (missing tables,
+  // a broken connection): the cache then steps aside and the
+  // builders answer exactly as they do today.
+  versionFor(brain: CacheBrain, resolution: Rung12Resolution): Promise<BundleVersion | null>;
+  readEntry(
+    postcode: string,
+    brain: CacheBrain,
+    rung: number,
+    homeKey: string,
+  ): Promise<{ version: BundleVersion; bundle: unknown } | null>;
+  // Best-effort by design: a failed write never surfaces.
+  writeEntry(
+    postcode: string,
+    brain: CacheBrain,
+    rung: number,
+    homeKey: string,
+    version: BundleVersion,
+    bundle: unknown,
+  ): Promise<void>;
+}
+
+export function createBundleCache(db: AddressQueryable): BundleCache {
+  return {
+    async versionFor(brain, resolution) {
+      try {
+        const stamps = await readStamps(db, BRAIN_DEPENDENCIES[brain]);
+        const guards = await GUARDS[brain](db, resolution);
+        return { stamps, guards };
+      } catch {
+        return null;
+      }
+    },
+
+    async readEntry(postcode, brain, rung, homeKey) {
+      try {
+        const { rows } = await db.query(
+          "SELECT version, bundle FROM bundle_cache WHERE postcode = $1 AND brain = $2 AND rung = $3 AND home_key = $4",
+          [postcode, brain, rung, homeKey],
+        );
+        const row = rows[0];
+        if (!row) return null;
+        return { version: row.version as BundleVersion, bundle: row.bundle };
+      } catch {
+        return null;
+      }
+    },
+
+    async writeEntry(postcode, brain, rung, homeKey, version, bundle) {
+      try {
+        await db.query(
+          `INSERT INTO bundle_cache (postcode, brain, rung, home_key, version, bundle)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           ON CONFLICT (postcode, brain, rung, home_key)
+           DO UPDATE SET version = EXCLUDED.version, bundle = EXCLUDED.bundle, computed_at = now()`,
+          [postcode, brain, rung, homeKey, JSON.stringify(version), JSON.stringify(bundle)],
+        );
+      } catch {
+        // Best-effort: a failed cache write must never fail
+        // the check (migration 0006's rule for the run
+        // record, applied to the cache).
+      }
+    },
+  };
+}
+
+// ------------------------------------------------------------------
+// Keys
+// ------------------------------------------------------------------
+
+type Rung12Resolution = Extract<AddressResolution, { rung: 1 | 2 }>;
+
+// The brains' matching normal form (the lib/address.ts
+// convention): upper case, punctuation becomes spaces, runs
+// collapse. Used for key material only — the key needs to be
+// stable for the same resolved home, nothing more.
+function normKey(value: string): string {
+  return value
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+// The home half of the key: at rung 1 the resolved home's
+// own parts (PAON | SAON | street — two flats in one
+// building never share an entry); at rung 2 the narrowing
+// the list was cut by (street | building).
+export function homeKeyOf(resolution: Rung12Resolution): string {
+  if (resolution.rung === 1) {
+    const a = resolution.address;
+    return [a.paon ?? "", a.saon ?? "", a.street ?? ""].map(normKey).join("|");
+  }
+  return [resolution.street ?? "", resolution.building ?? ""].map(normKey).join("|");
+}
+
+// ------------------------------------------------------------------
+// The serve path
+// ------------------------------------------------------------------
+
+// The stored bundle must agree with its own key before
+// anything is served from it: a hand-corrupted or misplaced
+// entry degrades to a recompute, never to a wrong answer.
+function keyAgreement(bundle: unknown, kinds: readonly string[], postcode: string, rung: number) {
+  if (typeof bundle !== "object" || bundle === null) return false;
+  const b = bundle as { kind?: unknown; postcode?: unknown; rung?: unknown };
+  return kinds.includes(b.kind as string) && b.postcode === postcode && b.rung === rung;
+}
+
+interface ServeOptions<TBundle> {
+  brain: CacheBrain;
+  resolution: Rung12Resolution;
+  homeKey: string;
+  kinds: readonly string[];
+  compute: () => Promise<TBundle>;
+  // False for bundles carrying a load-failure state — they
+  // are never written (see the header).
+  cacheable: (bundle: TBundle) => boolean;
+  // The form stored in the entry, when it differs from the
+  // served form (crime stores its stale line stripped).
+  storable?: (bundle: TBundle) => unknown;
+  // The served form of a stored bundle (crime recomputes
+  // its stale line here, at serve, from the cached window).
+  onServe?: (bundle: TBundle) => TBundle;
+}
+
+async function serveCached<TBundle>(
+  cache: BundleCache,
+  opts: ServeOptions<TBundle>,
+): Promise<TBundle> {
+  const { resolution } = opts;
+  const postcode = resolution.directory.postcode;
+  const rung = resolution.rung;
+
+  // The version is read BEFORE the compute: an entry written
+  // from it can only ever vouch for data at most as new as
+  // the bundle it sits beside, and any filing that lands
+  // during the compute moves the next read's version and
+  // busts the entry. The dangerous direction — new stamps
+  // beside an older bundle — cannot occur.
+  const version = await cache.versionFor(opts.brain, resolution);
+  if (version !== null) {
+    const entry = await cache.readEntry(postcode, opts.brain, rung, opts.homeKey);
+    if (
+      entry &&
+      versionsEqual(entry.version, version) &&
+      keyAgreement(entry.bundle, opts.kinds, postcode, rung)
+    ) {
+      const stored = entry.bundle as TBundle;
+      return opts.onServe ? opts.onServe(stored) : stored;
+    }
+  }
+
+  const bundle = await opts.compute();
+  if (version !== null && opts.cacheable(bundle)) {
+    await cache.writeEntry(
+      postcode,
+      opts.brain,
+      rung,
+      opts.homeKey,
+      version,
+      opts.storable ? opts.storable(bundle) : bundle,
+    );
+  }
+  return bundle;
+}
+
+// ------------------------------------------------------------------
+// The cached builders — same shapes as the builders they wrap
+// ------------------------------------------------------------------
+
+export async function buildCrimeBundleCached(
+  resolution: AddressResolution,
+  source: CrimeDataSource,
+  cache: BundleCache,
+  options: CrimeBundleOptions = {},
+): Promise<CrimeBundle> {
+  if (resolution.rung === 3 || resolution.rung === 4)
+    return buildCrimeBundle(resolution, source, options);
+  const now = options.now ?? new Date();
+  return serveCached(cache, {
+    brain: "crime",
+    resolution,
+    homeKey: "",
+    kinds: ["crime", "not-covered"],
+    compute: () => buildCrimeBundle(resolution, source, options),
+    // The not-filed state is a retry in disguise (M6.9's
+    // handover): never written, so a later filing is always
+    // seen by a fresh compute.
+    cacheable: (bundle) => !(bundle.kind === "crime" && bundle.crime.state === "not-filed"),
+    storable: (bundle) =>
+      bundle.kind === "crime" && bundle.crime.state === "served"
+        ? { ...bundle, crime: { ...bundle.crime, staleLine: null } }
+        : bundle,
+    onServe: (bundle) =>
+      bundle.kind === "crime" && bundle.crime.state === "served"
+        ? {
+            ...bundle,
+            crime: {
+              ...bundle.crime,
+              staleLine: crimeStaleLineForWindow(bundle.crime.windowTo, now),
+            },
+          }
+        : bundle,
+  });
+}
+
+export async function buildFloodBundleCached(
+  resolution: AddressResolution,
+  source: FloodDataSource,
+  cache: BundleCache,
+): Promise<FloodBundle> {
+  if (resolution.rung === 3 || resolution.rung === 4) return buildFloodBundle(resolution, source);
+  return serveCached(cache, {
+    brain: "flood",
+    resolution,
+    homeKey: "",
+    kinds: ["flood", "not-covered"],
+    compute: () => buildFloodBundle(resolution, source),
+    // Flood's per-layer not-filed states cache safely: the
+    // layers' filed counts are in the version's guards, so
+    // a first filing busts the entry whoever ran it.
+    cacheable: () => true,
+  });
+}
+
+export async function buildNearbyBundleCached(
+  resolution: AddressResolution,
+  source: NearbyDataSource,
+  cache: BundleCache,
+): Promise<NearbyBundle> {
+  if (resolution.rung === 3 || resolution.rung === 4) return buildNearbyBundle(resolution, source);
+  return serveCached(cache, {
+    brain: "nearby",
+    resolution,
+    homeKey: "",
+    kinds: ["distances"],
+    compute: () => buildNearbyBundle(resolution, source),
+    cacheable: () => true,
+  });
+}
+
+export async function buildAreaBundleCached(
+  resolution: AddressResolution,
+  source: AreaDataSource,
+  cache: BundleCache,
+): Promise<AreaBundle> {
+  if (resolution.rung === 3 || resolution.rung === 4) return buildAreaBundle(resolution, source);
+  return serveCached(cache, {
+    brain: "area",
+    resolution,
+    homeKey: homeKeyOf(resolution),
+    kinds: ["area-bundle"],
+    compute: () => buildAreaBundle(resolution, source),
+    // An EPC section in its not-filed state means the cold
+    // load was attempted and failed (or is not possible):
+    // the retry lives inside buildEpc, which a cache hit
+    // never calls, so the bundle is never written.
+    cacheable: (bundle) =>
+      !(bundle.kind === "area-bundle" && bundle.sections.epc.state === "not-filed"),
+  });
+}
+
+// ------------------------------------------------------------------
+// The wired set — one database handle, the real sources, the
+// cache. The shape a future check orchestrator calls.
+// ------------------------------------------------------------------
+
+export interface CachedBrains {
+  buildCrimeBundle(
+    resolution: AddressResolution,
+    options?: CrimeBundleOptions,
+  ): Promise<CrimeBundle>;
+  buildFloodBundle(resolution: AddressResolution): Promise<FloodBundle>;
+  buildNearbyBundle(resolution: AddressResolution): Promise<NearbyBundle>;
+  buildAreaBundle(resolution: AddressResolution): Promise<AreaBundle>;
+}
+
+export function createCachedBrains(db: AddressQueryable): CachedBrains {
+  const cache = createBundleCache(db);
+  const crimeSource = createCrimeSource(db);
+  const floodSource = createFloodSource(db);
+  const nearbySource = createNearbySource(db);
+  const areaSource = createAreaSource(db);
+  return {
+    buildCrimeBundle: (resolution, options) =>
+      buildCrimeBundleCached(resolution, crimeSource, cache, options),
+    buildFloodBundle: (resolution) => buildFloodBundleCached(resolution, floodSource, cache),
+    buildNearbyBundle: (resolution) => buildNearbyBundleCached(resolution, nearbySource, cache),
+    buildAreaBundle: (resolution) => buildAreaBundleCached(resolution, areaSource, cache),
+  };
+}

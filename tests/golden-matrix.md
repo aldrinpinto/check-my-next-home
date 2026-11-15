@@ -1002,6 +1002,77 @@ faithfully; the nearest (Royal Victoria Station,
 No broadband slot exists in the short shape: M6.17
 extends the derivation when its brain exists.
 
+### Caching the brain's answers (M6.8)
+
+`lib/bundle-cache.ts` — the cached builders
+(`buildCrimeBundleCached`, `buildFloodBundleCached`,
+`buildNearbyBundleCached`, `buildAreaBundleCached`,
+and `createCachedBrains(db)` wiring the real sources),
+decision D29. One entry per brain bundle in
+migration 0020's `bundle_cache`, keyed (postcode,
+brain, rung, home key); sold prices has NO cache path
+(asserted: the dependency map and the wired set carry
+exactly the four cached brains). Invalidation is the
+per-brain version vector — the dependency loader
+items' last-success stamps from `loader_run_items`
+(the mapping is pinned by test against
+LOADER_SCHEDULE) plus the filed guard counts for the
+filings that move no stamp: flood's per-layer counts;
+the area bundle's noise totals (table-wide and for
+the postcode), priority-habitat count, listed count,
+solar-grid count and council-tax charges count; the
+crime and EPC artefacts' content hashes (the
+cold-load guard); and the directory's serving fields,
+taken from the fresh resolution itself.
+
+Proven in the unit suite (tests/bundle-cache.test.ts,
+23 tests, the cache's database port faked at the
+AddressQueryable seam) and against the real engine in
+the step's scoped rehearsal (PGlite PostGIS,
+migrations twice including 0020; the full local
+runner pass is not the gate — CI's database job is):
+
+- A second identical check serves from the entry,
+  deep-equal to the first, with zero further
+  builder-source calls — for all four brains.
+- Crime's stale line is never stored: the stored
+  entry's line is null, and serving the same entry
+  either side of the 3-month boundary (window to
+  September 2026; now November 2026 vs January 2027)
+  flips the line to the named stale line with no
+  re-file and no cache write between.
+- A filing that moves a stamp (crime re-filed, total
+  330 -> 331, new load-crime success recorded) busts
+  the entry and the stored version moves with it; a
+  filing that moves only a guard count (a flood
+  layer's count) busts it too; a moved directory
+  point busts every entry for the postcode; an EPC
+  cold load's artefact rewrite busts the area entry
+  through its content hash with no stamp moving.
+- The operator-job trap, closed: noise rows inserted
+  directly with NO runner record bust a cached area
+  bundle whose noise section was not-filed, and a
+  flood layer's first filing busts its cached
+  not-filed state the same way.
+- Rung and home separation is structural: a rung-1
+  Minerva entry misses at rung 2 (the rung-2 bundle
+  carries no certificate number anywhere), two
+  Flat 4s in one postcode (Minerva House, Jupiter
+  House) hold separate entries and serve only their
+  own certificates, and crime entries are rung-keyed
+  too.
+- Write-skip: a crime not-filed bundle and an area
+  bundle whose EPC cold load failed are never
+  written — the next check retries inside the
+  builder and serves, so a failed load is never
+  frozen into an entry (the M6.9 prep's handover
+  requirement).
+- Poison and absence: an entry whose bundle
+  disagrees with its key, and a non-object stored
+  bundle, both degrade to recompute and are
+  overwritten; with the cache table dropped, checks
+  serve computed with no error surfacing.
+
 ## E2E journeys each candidate unlocks (Playwright, QA phase)
 
 | Candidate            | Journey it unlocks                                                                                                                                                                          |

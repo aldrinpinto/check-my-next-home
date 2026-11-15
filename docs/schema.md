@@ -450,6 +450,38 @@ Family:
     fact at a named 0.1° grain: it is never the home's
     roof, its orientation or its yield, and no finer
     precision is claimed than the filed cell holds.
+31. **bundle_cache** — the brain's computed answers,
+    cached (migration 0020, plan step M6.8, decision
+    D29). One row per bundle for the crime, flood,
+    nearby and area brains, keyed (postcode, brain,
+    rung, home_key): the rung is part of the key so a
+    rung-1 entry can never serve a rung-2 reader, and
+    the home key carries the resolved home at rung 1
+    and the narrowing at rung 2 (the postcode-point
+    brains file under the empty home key; rungs 3 and
+    4 are never cached). Sold prices has no entries —
+    its warm read is one indexed query and its cold
+    load is already paid once per postcode by design.
+    Each row's `version` is the invalidation vector:
+    the last-success stamps (from loader_run_items) of
+    the loader items the brain's answer depends on,
+    plus the filed guard counts for the filings that
+    can move no stamp — the hand-run operator jobs
+    (noise, priority habitats) and the brain-invoked
+    cold loads, whose artefacts are guarded by content
+    hash. A read recomputes the vector and compares;
+    any difference is a miss and a recompute. There is
+    no TTL: an entry can never serve a superseded
+    edition as current (D9). The table is owned by the
+    brain alone — no loader reads or writes it, which
+    is why the entries do not live in
+    postcode_cache.answers. Crime's stale line is
+    never stored (it is recomputed at serve from the
+    cached window end), and bundles carrying a
+    load-failure state (crime not-filed; an area
+    bundle whose EPC cold load failed) are never
+    written, so a failed load can never be frozen into
+    an entry.
 
 ## Physical decisions (recorded at build, M3.3)
 

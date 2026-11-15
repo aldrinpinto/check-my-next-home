@@ -231,11 +231,21 @@ function monthLabel(yyyyMm: string): string {
 
 const numberFormat = new Intl.NumberFormat("en-GB");
 
-function staleLineFor(filed: FiledCrimeAnswer, now: Date): string | null {
+// The stale line for a filed window's end month, judged on
+// `now`. Exported for the bundle cache (plan step M6.8): the
+// cache stores the window, never this line, and recomputes
+// the line at serve time — it flips on a calendar boundary
+// with no data change, so a frozen copy would serve a stale
+// window as fresh (or a fresh one as stale).
+export function crimeStaleLineForWindow(windowTo: string, now: Date): string | null {
   const todayMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  const lag = monthIndex(todayMonth) - monthIndex(filed.windowTo);
+  const lag = monthIndex(todayMonth) - monthIndex(windowTo);
   if (lag <= CRIME_STALE_AFTER_MONTHS) return null;
-  return `the latest month we hold is ${monthLabel(filed.windowTo)} — Police.uk has not published newer data we can file`;
+  return `the latest month we hold is ${monthLabel(windowTo)} — Police.uk has not published newer data we can file`;
+}
+
+function staleLineFor(filed: FiledCrimeAnswer, now: Date): string | null {
+  return crimeStaleLineForWindow(filed.windowTo, now);
 }
 
 // ------------------------------------------------------------------
