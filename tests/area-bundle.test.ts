@@ -5,12 +5,16 @@ import type { AddressResolution, DirectoryPostcode, ResolvedAddress } from "../l
 import {
   buildAreaBundle,
   certificateMatchesHome,
+  companyTitleMatch,
   createAreaSource,
   projectHeadline,
   solarCellRef,
   translateArticle4Codes,
   type AreaDataSource,
   type CensusFacts,
+  type CompanyOwnershipFacts,
+  type CompanySnapshotRow,
+  type CompanyTitleRow,
   type CouncilTaxFacts,
   type DesignationFacts,
   type EpcArtefact,
@@ -158,6 +162,32 @@ const JUNO = home(MINERVA_DIR, {
   paon: "JUNO HOUSE, 16",
   saon: "FLAT 4",
   street: "CERES CRESCENT",
+});
+const JUNO_FLAT2 = home(MINERVA_DIR, {
+  label: "Flat 2, Juno House, 16 Ceres Crescent",
+  paon: "JUNO HOUSE, 16",
+  saon: "FLAT 2",
+  street: "CERES CRESCENT",
+});
+const BIRKDALE_39 = home(BIRKDALE_DIR, {
+  label: "39 Birkdale Rise",
+  paon: "39",
+  street: "BIRKDALE RISE",
+});
+const BIRKDALE_4 = home(BIRKDALE_DIR, {
+  label: "4 Birkdale Rise",
+  paon: "4",
+  street: "BIRKDALE RISE",
+});
+const BIRKDALE_9 = home(BIRKDALE_DIR, {
+  label: "9 Birkdale Rise",
+  paon: "9",
+  street: "BIRKDALE RISE",
+});
+const BIRKDALE_44 = home(BIRKDALE_DIR, {
+  label: "44 Birkdale Rise",
+  paon: "44",
+  street: "BIRKDALE RISE",
 });
 
 // --- the fake source ------------------------------------------
@@ -500,7 +530,172 @@ class FakeAreaSource implements AreaDataSource {
     const anySolar = [...FACTS.values()].find((f) => f.solar);
     return { gridFiledCount: anySolar?.solar?.gridFiledCount ?? 0, cell: null };
   }
+
+  companyCalls: string[] = [];
+  companyOverride: CompanyOwnershipFacts | null = null;
+
+  async companyOwnershipFacts(postcode: string) {
+    this.companyCalls.push(postcode);
+    return this.companyOverride ?? COMPANY_BY_POSTCODE.get(postcode) ?? EMPTY_COMPANY_FACTS;
+  }
 }
+
+// --- company ownership facts: the M5.13 fixture slices,
+// transcribed from tests/fixtures/company-ownership (real
+// November 2026 extracts — the loader's own golden record).
+
+const CCOD_SOURCE = "HM Land Registry — UK companies that own property in England and Wales (CCOD)";
+const OCOD_SOURCE =
+  "HM Land Registry — Overseas companies that own property in England and Wales (OCOD)";
+const CH_SOURCE = "Companies House — Free Company Data Product";
+const COMPANY_DATE = "2026-11-01";
+
+function companyTitle(
+  partial: Partial<CompanyTitleRow> & { titleNumber: string; propertyAddress: string },
+): CompanyTitleRow {
+  return {
+    dataset: "ccod",
+    tenure: "Freehold",
+    proprietorName: "",
+    companyNumber: null,
+    proprietorshipCategory: "Limited Company or Public Limited Company",
+    countryIncorporated: null,
+    additionalProprietor: false,
+    sourceName: CCOD_SOURCE,
+    sourceDate: COMPANY_DATE,
+    ...partial,
+  };
+}
+
+const SAGE_SNAPSHOT: CompanySnapshotRow = {
+  companyNumber: "11217910",
+  companyName: "SAGE HOMES RP LIMITED",
+  status: "Active",
+  incorporationDate: "2018-02-21",
+  sicCodes: ["68201 - Renting and operating of Housing Association real estate"],
+  sourceName: CH_SOURCE,
+  sourceDate: COMPANY_DATE,
+};
+
+const SOMY_SNAPSHOT: CompanySnapshotRow = {
+  companyNumber: "13678133",
+  companyName: "SOMY RESIDENTIAL LIMITED",
+  status: "Active",
+  incorporationDate: "2021-10-13",
+  sicCodes: ["68209 - Other letting and operating of own or leased real estate"],
+  sourceName: CH_SOURCE,
+  sourceDate: COMPANY_DATE,
+};
+
+function companyFacts(
+  titles: CompanyTitleRow[],
+  snapshots: CompanyOwnershipFacts["snapshots"] = {},
+): CompanyOwnershipFacts {
+  return {
+    ccodFiledCount: 4485124,
+    ocodFiledCount: 90950,
+    editions: {
+      ccod: { sourceName: CCOD_SOURCE, sourceDate: COMPANY_DATE },
+      ocod: { sourceName: OCOD_SOURCE, sourceDate: COMPANY_DATE },
+    },
+    titles,
+    snapshots,
+  };
+}
+
+const EMPTY_COMPANY_FACTS = companyFacts([]);
+
+const BIRKDALE_TITLES: CompanyTitleRow[] = [
+  companyTitle({
+    titleNumber: "AA53500",
+    propertyAddress: "39, 41 and, 49 Birkdale Rise, Hatfield Peverel, Chelmsford (CM3 2JT)",
+    proprietorName: "SAGE HOMES RP LIMITED",
+    companyNumber: "11217910",
+  }),
+  companyTitle({
+    titleNumber: "AA53502",
+    propertyAddress:
+      "35, 37, 43, 45, 47 And 32 To 44 (inclusive), Birkdale Rise, Hatfield Peverel, Chelmsford (CM3 2JT)",
+    proprietorName: "SAGE HOMES RP LIMITED",
+    companyNumber: "11217910",
+  }),
+];
+
+const CLARION = {
+  proprietorName: "CLARION HOUSING ASSOCIATION LIMITED",
+  companyNumber: "7686",
+  proprietorshipCategory: "Community Benefit Society (Company)",
+  tenure: "Leasehold",
+};
+
+const ADRIATIC = {
+  dataset: "ocod" as const,
+  proprietorName: "ADRIATIC LAND 11 LIMITED",
+  countryIncorporated: "GUERNSEY",
+  sourceName: OCOD_SOURCE,
+};
+
+const EPSOM_TITLES: CompanyTitleRow[] = [
+  companyTitle({
+    titleNumber: "SY857896",
+    propertyAddress: "3 Juno House, 16 Ceres Crescent, Epsom (KT17 1FH)",
+    ...CLARION,
+  }),
+  companyTitle({
+    titleNumber: "SY857898",
+    propertyAddress: "4 Juno House, 16 Ceres Crescent, Epsom (KT17 1FH)",
+    ...CLARION,
+  }),
+  companyTitle({
+    titleNumber: "SY873488",
+    propertyAddress: "Flat 2, Juno House, 16 Ceres Crescent, Epsom (KT17 1FH)",
+    proprietorName: "SOMY RESIDENTIAL LIMITED",
+    companyNumber: "13678133",
+    tenure: "Leasehold",
+  }),
+  companyTitle({
+    titleNumber: "SY857895",
+    propertyAddress: "Apartment 7, Juno House, 16 Ceres Crescent, Epsom (KT17 1FH)",
+    ...CLARION,
+  }),
+  companyTitle({
+    titleNumber: "SY857897",
+    propertyAddress: "1 Juno House, 16 Ceres Crescent, Epsom (KT17 1FH)",
+    ...CLARION,
+  }),
+  companyTitle({
+    titleNumber: "SY857899",
+    propertyAddress: "6 Juno House, 16 Ceres Crescent, Epsom (KT17 1FH)",
+    ...CLARION,
+  }),
+  companyTitle({
+    titleNumber: "SY876459",
+    propertyAddress: "Flats 1-9 Minerva House, 12 Ceres Crescent, Epsom (KT17 1FH)",
+    ...ADRIATIC,
+  }),
+  companyTitle({
+    titleNumber: "SY874425",
+    propertyAddress: "Jupiter House, 10 Ceres Crescent, Epsom (KT17 1FH)",
+    ...ADRIATIC,
+  }),
+  companyTitle({
+    titleNumber: "SY874424",
+    propertyAddress: "Flats 1 To 8 (inclusive), Juno House, 16 Ceres Crescent, Epsom (KT17 1FH)",
+    ...ADRIATIC,
+  }),
+];
+
+const COMPANY_BY_POSTCODE = new Map<string, CompanyOwnershipFacts>([
+  ["CM3 2JT", companyFacts(BIRKDALE_TITLES, { "11217910": SAGE_SNAPSHOT, "7686": null })],
+  ["E16 1GN", companyFacts([])],
+  [
+    "KT17 1FH",
+    companyFacts(EPSOM_TITLES, {
+      "13678133": SOMY_SNAPSHOT,
+      "7686": null,
+    }),
+  ],
+]);
 
 const EPC_BY_POSTCODE = new Map<string, EpcArtefact | null>();
 const NOISE_BY_POSTCODE = new Map<
@@ -2066,6 +2261,384 @@ describe("planning applications — the hand-off", () => {
       ])
         expect(text).not.toContain(banned);
     }
+  });
+});
+
+// --- company ownership (M6.13, decision D32) --------------------------
+
+describe("company ownership — behind the flag", () => {
+  const ON = { companyOwnershipEnabled: true };
+
+  async function bundleOn(resolution: AddressResolution, src: AreaDataSource = source) {
+    const built = await buildAreaBundle(resolution, src, ON);
+    if (built.kind !== "area-bundle") throw new Error("expected an area bundle");
+    return built;
+  }
+
+  it("flag OFF (the shipped default): the key is absent — not null, not a named state — and the tables are never read", async () => {
+    const fresh = new FakeAreaSource();
+    for (const resolution of [BIRKDALE, EXETER, MINERVA, JUNO]) {
+      const built = await bundle(resolution, fresh);
+      expect("companyOwnership" in built.sections).toBe(false);
+      const json = JSON.stringify(built);
+      expect(json).not.toContain("SAGE HOMES");
+      expect(json).not.toContain("ADRIATIC");
+      expect(json).not.toContain("companyOwnership");
+      const headline = projectHeadline(built);
+      expect(headline === null || !("companyOwnership" in headline)).toBe(true);
+    }
+    // The default path makes NO read of the company tables.
+    expect(fresh.companyCalls).toEqual([]);
+  });
+
+  it("the matcher springs every trap in the fixture set", () => {
+    const addr = (resolution: AddressResolution) => {
+      if (resolution.kind !== "home") throw new Error("expected a home resolution");
+      return resolution.address;
+    };
+    const [aa53500, aa53502] = BIRKDALE_TITLES;
+    const byNumber = new Map(EPSOM_TITLES.map((t) => [t.titleNumber, t]));
+    // Numeric membership, never substring.
+    expect(companyTitleMatch(aa53500, addr(BIRKDALE))).toBeNull();
+    expect(companyTitleMatch(aa53502, addr(BIRKDALE))).toBeNull();
+    expect(companyTitleMatch(aa53500, addr(BIRKDALE_4))).toBeNull();
+    expect(companyTitleMatch(aa53502, addr(BIRKDALE_4))).toBeNull();
+    expect(companyTitleMatch(aa53500, addr(BIRKDALE_9))).toBeNull();
+    expect(companyTitleMatch(aa53502, addr(BIRKDALE_9))).toBeNull();
+    // 39 is enumerated in one title AND inside the other's range.
+    expect(companyTitleMatch(aa53500, addr(BIRKDALE_39))).toBe("own");
+    expect(companyTitleMatch(aa53502, addr(BIRKDALE_39))).toBe("own");
+    expect(companyTitleMatch(aa53502, addr(BIRKDALE_44))).toBe("own");
+    expect(companyTitleMatch(aa53500, addr(BIRKDALE_44))).toBeNull();
+    // The range form is the building's title, never the flat's own.
+    expect(companyTitleMatch(byNumber.get("SY876459")!, addr(MINERVA))).toBe("building");
+    expect(companyTitleMatch(byNumber.get("SY876459")!, addr(JUNO))).toBeNull();
+    expect(companyTitleMatch(byNumber.get("SY874424")!, addr(JUNO))).toBe("building");
+    expect(companyTitleMatch(byNumber.get("SY874424")!, addr(MINERVA))).toBeNull();
+    // The bare-building form: every flat in that building, no other.
+    expect(companyTitleMatch(byNumber.get("SY874425")!, addr(JUPITER))).toBe("building");
+    expect(companyTitleMatch(byNumber.get("SY874425")!, addr(JUNO))).toBeNull();
+    // Single-flat forms: the flat's own title, in its building only.
+    expect(companyTitleMatch(byNumber.get("SY857898")!, addr(JUNO))).toBe("own");
+    expect(companyTitleMatch(byNumber.get("SY857898")!, addr(JUNO_FLAT2))).toBeNull();
+    expect(companyTitleMatch(byNumber.get("SY873488")!, addr(JUNO_FLAT2))).toBe("own");
+    expect(companyTitleMatch(byNumber.get("SY873488")!, addr(JUNO))).toBeNull();
+    expect(companyTitleMatch(byNumber.get("SY857896")!, addr(JUNO))).toBeNull();
+  });
+
+  it("Birkdale: the clean No, over a slice provably holding two SAGE titles", async () => {
+    const { sections } = await bundleOn(BIRKDALE);
+    const company = sections.companyOwnership;
+    expect(company).toBeDefined();
+    if (!company) return;
+    expect(company.state).toBe("not-company-owned");
+    expect(company.line).toBe(
+      "this home's title is not in HM Land Registry's company-ownership data as at November 2026",
+    );
+    expect(company.ownTitles).toEqual([]);
+    expect(company.buildingTitles).toEqual([]);
+    expect(company.buildingLine).toBeNull();
+    expect(company.depth).toBe("report");
+    expect(company.grain).toBe("home");
+    expect(company.sourceName).toBe(CCOD_SOURCE);
+    expect(company.sourceDate).toBe("2026-11-01");
+    expect(company.sourceLine).toBe(`${CCOD_SOURCE} — data to 1 November 2026`);
+    expect(company.attributionLine).toBe(
+      "Information produced by HM Land Registry © Crown copyright 2026",
+    );
+    // The No's three holes ride in the explainer, every time.
+    expect(company.explainer).toContain("charities are excluded from both datasets by category");
+    expect(company.explainer).toContain(
+      "roughly a tenth of land in England and Wales is unregistered",
+    );
+    expect(company.explainer).toContain("a sale still being registered has not reached the data");
+  });
+
+  it("39 Birkdale Rise: BOTH SAGE titles match, and both serve whole with the snapshot", async () => {
+    const { sections } = await bundleOn(BIRKDALE_39);
+    const company = sections.companyOwnership;
+    if (!company) throw new Error("expected the section");
+    expect(company.state).toBe("served");
+    expect(company.line).toBe("a registered proprietor of this home's title is a company");
+    expect(company.ownTitles.map((t) => t.titleNumber)).toEqual(["AA53500", "AA53502"]);
+    for (const title of company.ownTitles) {
+      expect(title.proprietorName).toBe("SAGE HOMES RP LIMITED");
+      expect(title.companyNumber).toBe("11217910");
+      expect(title.numberState).toBe("recorded");
+      expect(title.tenure).toBe("Freehold");
+      expect(title.line).toBe("a registered proprietor of this title is a company");
+      expect(title.snapshotLine).toBeNull();
+      expect(title.snapshot?.companyName).toBe("SAGE HOMES RP LIMITED");
+      expect(title.snapshot?.status).toBe("Active");
+      expect(title.snapshot?.incorporationDate).toBe("2018-02-21");
+      expect(title.snapshot?.sicCodes).toEqual([
+        "68201 - Renting and operating of Housing Association real estate",
+      ]);
+      expect(title.snapshot?.sourceLine).toBe(`${CH_SOURCE} — data to 1 November 2026`);
+      expect(title.attributionLine).toBe(
+        "Information produced by HM Land Registry © Crown copyright 2026",
+      );
+      // Filed but never served.
+      expect(JSON.stringify(title)).not.toContain("153243");
+      expect(JSON.stringify(title)).not.toContain("651439");
+    }
+    expect(company.buildingTitles).toEqual([]);
+  });
+
+  it("Minerva Flat 4: own-title No AND the building line — Adriatic, Guernsey, no number recorded", async () => {
+    const { sections } = await bundleOn(MINERVA);
+    const company = sections.companyOwnership;
+    if (!company) throw new Error("expected the section");
+    expect(company.state).toBe("not-company-owned");
+    expect(company.line).toBe(
+      "this home's title is not in HM Land Registry's company-ownership data as at November 2026",
+    );
+    expect(company.ownTitles).toEqual([]);
+    expect(company.buildingLine).toBe(
+      "this home's building is held on a separate title from this home's own title, and a company is a registered proprietor of that building title",
+    );
+    expect(company.buildingTitles).toHaveLength(1);
+    const title = company.buildingTitles[0];
+    expect(title.titleNumber).toBe("SY876459");
+    expect(title.dataset).toBe("ocod");
+    expect(title.tenure).toBe("Freehold");
+    expect(title.proprietorName).toBe("ADRIATIC LAND 11 LIMITED");
+    expect(title.companyNumber).toBeNull();
+    expect(title.numberState).toBe("no-number-recorded");
+    expect(title.snapshotLine).toBe("the register records no company number for this proprietor");
+    expect(title.snapshot).toBeNull();
+    expect(title.countryIncorporated).toBe("GUERNSEY");
+    expect(title.line).toBe("a registered proprietor of this building's title is a company");
+    expect(title.sourceLine).toBe(`${OCOD_SOURCE} — data to 1 November 2026`);
+  });
+
+  it("Juno Flat 4: a Clarion own-title Yes — the number as filed, its snapshot state named, never repaired — PLUS the Adriatic building line", async () => {
+    const { sections } = await bundleOn(JUNO);
+    const company = sections.companyOwnership;
+    if (!company) throw new Error("expected the section");
+    expect(company.state).toBe("served");
+    expect(company.ownTitles.map((t) => t.titleNumber)).toEqual(["SY857898"]);
+    const own = company.ownTitles[0];
+    expect(own.proprietorName).toBe("CLARION HOUSING ASSOCIATION LIMITED");
+    expect(own.companyNumber).toBe("7686");
+    expect(own.numberState).toBe("number-not-in-the-snapshot");
+    expect(own.snapshotLine).toBe(
+      "no Companies House snapshot is held under company number 7686 as filed",
+    );
+    expect(own.snapshot).toBeNull();
+    expect(own.proprietorshipCategory).toBe("Community Benefit Society (Company)");
+    expect(own.tenure).toBe("Leasehold");
+    // The product's own keying is never substituted.
+    expect(JSON.stringify(company)).not.toContain("RS007686");
+    expect(company.buildingTitles.map((t) => t.titleNumber)).toEqual(["SY874424"]);
+    expect(company.buildingLine).not.toBeNull();
+  });
+
+  it("Juno Flat 2: the SOMY title serves with its Companies House snapshot attached", async () => {
+    const { sections } = await bundleOn(JUNO_FLAT2);
+    const company = sections.companyOwnership;
+    if (!company) throw new Error("expected the section");
+    expect(company.state).toBe("served");
+    expect(company.ownTitles.map((t) => t.titleNumber)).toEqual(["SY873488"]);
+    const own = company.ownTitles[0];
+    expect(own.proprietorName).toBe("SOMY RESIDENTIAL LIMITED");
+    expect(own.numberState).toBe("recorded");
+    expect(own.snapshot?.companyName).toBe("SOMY RESIDENTIAL LIMITED");
+    expect(own.snapshot?.status).toBe("Active");
+    expect(own.snapshot?.incorporationDate).toBe("2021-10-13");
+    expect(own.snapshot?.sicCodes).toEqual([
+      "68209 - Other letting and operating of own or leased real estate",
+    ]);
+  });
+
+  it("Jupiter Flat 4: the bare-building form is its building line, and nothing is its own title", async () => {
+    const { sections } = await bundleOn(JUPITER);
+    const company = sections.companyOwnership;
+    if (!company) throw new Error("expected the section");
+    expect(company.state).toBe("not-company-owned");
+    expect(company.ownTitles).toEqual([]);
+    expect(company.buildingTitles.map((t) => t.titleNumber)).toEqual(["SY874425"]);
+  });
+
+  it("Exeter: a No at own-title and building level, over an empty slice with filed tables", async () => {
+    const { sections } = await bundleOn(EXETER);
+    const company = sections.companyOwnership;
+    if (!company) throw new Error("expected the section");
+    expect(company.state).toBe("not-company-owned");
+    expect(company.ownTitles).toEqual([]);
+    expect(company.buildingTitles).toEqual([]);
+    expect(company.buildingLine).toBeNull();
+  });
+
+  it("rung 2 serves needs-exact-home and nothing else — no read, no title payload", async () => {
+    const fresh = new FakeAreaSource();
+    const built = await buildAreaBundle(addressList(MINERVA_DIR), fresh, ON);
+    if (built.kind !== "area-bundle") throw new Error("expected an area bundle");
+    const company = built.sections.companyOwnership;
+    if (!company) throw new Error("expected the section");
+    expect(company.state).toBe("needs-exact-home");
+    expect(company.line).toBe(
+      "choose the exact home to see whether a company is a registered proprietor of its title",
+    );
+    expect(company.ownTitles).toEqual([]);
+    expect(company.buildingTitles).toEqual([]);
+    const json = JSON.stringify(company);
+    expect(json).not.toContain("SY876459");
+    expect(json).not.toContain("ADRIATIC");
+    expect(fresh.companyCalls).toEqual([]);
+  });
+
+  it("rung 3: the company reason joins the record ONLY with the flag on", async () => {
+    const wider = {
+      rung: 3,
+      kind: "wider-area",
+      outward: "CM3",
+      label: "Wider area — CM3, not this exact home",
+      postcodeCount: 541,
+    } as const;
+    const on = await buildAreaBundle(wider, source, ON);
+    if (on.kind !== "wider-area") throw new Error("expected wider-area");
+    expect(Object.keys(on.area.sections)).toHaveLength(13);
+    expect(on.area.sections.companyOwnership).toEqual({
+      state: "unavailable",
+      reason: "company ownership needs an exact postcode",
+    });
+    const off = await buildAreaBundle(wider, source);
+    if (off.kind !== "wider-area") throw new Error("expected wider-area");
+    expect(Object.keys(off.area.sections)).toHaveLength(12);
+    expect("companyOwnership" in off.area.sections).toBe(false);
+  });
+
+  it("an unfiled dataset serves not-filed, never a No — the guard is per-dataset", async () => {
+    for (const counts of [
+      { ccodFiledCount: 0, ocodFiledCount: 90950 },
+      { ccodFiledCount: 4485124, ocodFiledCount: 0 },
+    ]) {
+      const fresh = new FakeAreaSource();
+      fresh.companyOverride = { ...companyFacts(BIRKDALE_TITLES), ...counts };
+      const { sections } = await bundleOn(BIRKDALE, fresh);
+      const company = sections.companyOwnership;
+      if (!company) throw new Error("expected the section");
+      expect(company.state).toBe("not-filed");
+      expect(company.line).toBe(
+        "the company-ownership data is not filed yet, so no company-ownership answer can be given yet",
+      );
+      expect(company.ownTitles).toEqual([]);
+    }
+  });
+
+  it("Scotland and Northern Ireland serve not-covered, naming the nation's own register — never a No", async () => {
+    const scotland = (await bundleOn(SCOTLAND)).sections.companyOwnership;
+    if (!scotland) throw new Error("expected the section");
+    expect(scotland.state).toBe("not-covered");
+    expect(scotland.line).toBe(
+      "the company-ownership datasets cover England and Wales only — title information for Scotland is held by Registers of Scotland",
+    );
+    const ni = (await bundleOn(BELFAST)).sections.companyOwnership;
+    if (!ni) throw new Error("expected the section");
+    expect(ni.state).toBe("not-covered");
+    expect(ni.line).toBe(
+      "the company-ownership datasets cover England and Wales only — title information for Northern Ireland is held by Land & Property Services",
+    );
+  });
+
+  it("Wales serves normally — the datasets cover England and Wales", async () => {
+    const fresh = new FakeAreaSource();
+    fresh.companyOverride = companyFacts([]);
+    const { sections } = await bundleOn(C8, fresh);
+    const company = sections.companyOwnership;
+    if (!company) throw new Error("expected the section");
+    expect(company.state).toBe("not-company-owned");
+  });
+
+  it("the additional-proprietor flag changes nothing in the sentence — it never asserts sole ownership", async () => {
+    const fresh = new FakeAreaSource();
+    fresh.companyOverride = companyFacts([{ ...BIRKDALE_TITLES[0], additionalProprietor: true }], {
+      "11217910": SAGE_SNAPSHOT,
+    });
+    const { sections } = await bundleOn(BIRKDALE_39, fresh);
+    const company = sections.companyOwnership;
+    if (!company) throw new Error("expected the section");
+    expect(company.state).toBe("served");
+    expect(company.ownTitles).toHaveLength(1);
+    expect(company.ownTitles[0].additionalProprietor).toBe(true);
+    expect(company.ownTitles[0].line).toBe("a registered proprietor of this title is a company");
+    const json = JSON.stringify(company).toLowerCase();
+    expect(json).not.toContain("the owner is a company");
+    expect(json).not.toContain("sole");
+  });
+
+  it("mixed editions: each part carries its own month, and the No is dated by the earlier edition", async () => {
+    const fresh = new FakeAreaSource();
+    const facts = companyFacts(EPSOM_TITLES, { "13678133": SOMY_SNAPSHOT, "7686": null });
+    facts.editions.ocod = { sourceName: OCOD_SOURCE, sourceDate: "2026-10-01" };
+    facts.titles = facts.titles.map((t) =>
+      t.dataset === "ocod" ? { ...t, sourceDate: "2026-10-01" } : t,
+    );
+    fresh.companyOverride = facts;
+    const { sections } = await bundleOn(JUNO, fresh);
+    const company = sections.companyOwnership;
+    if (!company) throw new Error("expected the section");
+    expect(company.ownTitles[0].sourceLine).toBe(`${CCOD_SOURCE} — data to 1 November 2026`);
+    expect(company.buildingTitles[0].sourceLine).toBe(`${OCOD_SOURCE} — data to 1 October 2026`);
+
+    const noFresh = new FakeAreaSource();
+    const noFacts = companyFacts(BIRKDALE_TITLES, { "11217910": SAGE_SNAPSHOT });
+    noFacts.editions.ocod = { sourceName: OCOD_SOURCE, sourceDate: "2026-10-01" };
+    noFresh.companyOverride = noFacts;
+    const no = (await bundleOn(BIRKDALE, noFresh)).sections.companyOwnership;
+    if (!no) throw new Error("expected the section");
+    expect(no.line).toBe(
+      "this home's title is not in HM Land Registry's company-ownership data as at October 2026",
+    );
+    expect(no.sourceLine).toBe(`${OCOD_SOURCE} — data to 1 October 2026`);
+  });
+
+  it("the register's address text never serves — the licence's core serving rule, proven", async () => {
+    for (const resolution of [BIRKDALE, BIRKDALE_39, EXETER, MINERVA, JUNO, JUNO_FLAT2, JUPITER]) {
+      const { sections } = await bundleOn(resolution);
+      const json = JSON.stringify(sections.companyOwnership);
+      for (const fragment of [
+        "CERES CRESCENT",
+        "HATFIELD PEVEREL",
+        "CHELMSFORD",
+        "ORION HOUSE",
+        "ROYAL PLAZA",
+        "PETER PORT",
+        "HAMPSTEAD ROAD",
+        "FIR TREE ROAD",
+        "ALDESGATE",
+        "Birkdale Rise,",
+      ])
+        expect(json, `${resolution.kind} bundle leaks "${fragment}"`).not.toContain(fragment);
+    }
+  });
+
+  it("no verdict phrasing beyond the filed facts, anywhere in the section", async () => {
+    for (const resolution of [BIRKDALE, BIRKDALE_39, MINERVA, JUNO, JUPITER]) {
+      const { sections } = await bundleOn(resolution);
+      const text = JSON.stringify(sections.companyOwnership).toLowerCase();
+      for (const banned of [
+        "corporate landlord",
+        "landlord",
+        "institutional",
+        "beneficial owner",
+        "parent company",
+        "the owner is a company",
+      ])
+        expect(text, `${resolution.kind} bundle contains "${banned}"`).not.toContain(banned);
+    }
+  });
+
+  it("report depth, structurally: the headline projection cannot carry the section, flag on or off", async () => {
+    const built = await bundleOn(BIRKDALE_39);
+    expect(built.sections.companyOwnership?.depth).toBe("report");
+    const headline = projectHeadline(built);
+    if (!headline) throw new Error("expected a headline projection");
+    expect(Object.keys(headline).sort()).toEqual(
+      ["air", "constraints", "councilTax", "epc", "heritage", "nature", "noise", "postcode"].sort(),
+    );
+    expect(JSON.stringify(headline)).not.toContain("SAGE HOMES");
   });
 });
 

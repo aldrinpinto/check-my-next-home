@@ -10,6 +10,7 @@ import {
   type ResolvedAddress,
 } from "./address";
 import { DISTANCE_BASIS_LABEL, RADIUS_MILES } from "./nearby";
+import { COMPANY_OWNERSHIP_ENABLED } from "./site";
 
 // Constraints & area bundle (plan step M6.6, decision D26).
 //
@@ -18,7 +19,8 @@ import { DISTANCE_BASIS_LABEL, RADIUS_MILES } from "./nearby";
 // nature, the home's EPC, council tax, Census 2021, the IMD,
 // air, noise, DWP benefits and solar — plus the planning
 // applications hand-off (M6.12), the one section that files
-// nothing at all — served as ONE bundle of
+// nothing at all, and company ownership (M6.13, decision
+// D32), the one section gated behind a flag — served as ONE bundle of
 // per-dataset sections off M6.1's AddressResolution, so M6.7's
 // short version can be DERIVED from it later as a projection,
 // never as a second read of the tables. This step also closes
@@ -70,7 +72,14 @@ import { DISTANCE_BASIS_LABEL, RADIUS_MILES } from "./nearby";
 // Planning applications add a twelfth shape that is not an
 // absence at all: handed-off (M6.12) — the data exists and
 // is public, and is deliberately not held, so the section
-// is a pointer to the council's own register.
+// is a pointer to the council's own register. Company
+// ownership (M6.13) is the thirteenth section and the only
+// flag-gated one: while COMPANY_OWNERSHIP_ENABLED is false
+// the section is ABSENT from the bundle by construction —
+// no key, no named state — and its tables are never read;
+// behind the flag it answers the home's own title from the
+// filed CCOD/OCOD titles, with the building's own title
+// named separately where a flat's building is held on one.
 
 export const AREA_UNAVAILABLE_REASON = "area answers need an exact postcode";
 
@@ -420,6 +429,62 @@ export interface SolarFacts {
   cell: SolarCellFacts | null;
 }
 
+// One filed company-ownership title (migration 0016), as the
+// M5.13 loader files it. The register's address text is a
+// MATCH KEY ONLY (licence clause 3.2): the matcher parses
+// it, and no served shape carries it — the address on
+// screen is always the buyer's own input. price_paid and
+// date_proprietor_added are filed but deliberately NOT
+// carried by this port: no served shape can hold them
+// (decision D15's depth boundary, held at M6.13).
+export interface CompanyTitleRow {
+  titleNumber: string;
+  dataset: "ccod" | "ocod";
+  tenure: string;
+  propertyAddress: string;
+  proprietorName: string;
+  companyNumber: string | null;
+  proprietorshipCategory: string | null;
+  countryIncorporated: string | null;
+  additionalProprietor: boolean;
+  sourceName: string | null;
+  sourceDate: string | null;
+}
+
+// One Companies House snapshot row, keyed by the company
+// number AS FILED on a title. The registered office is
+// filed but not carried: it never serves (D15).
+export interface CompanySnapshotRow {
+  companyNumber: string;
+  companyName: string;
+  status: string | null;
+  incorporationDate: string | null;
+  sicCodes: string[];
+  sourceName: string | null;
+  sourceDate: string | null;
+}
+
+export interface CompanyOwnershipFacts {
+  // Each dataset's filed total — the guard. A No may only
+  // be computed over proven filings of BOTH datasets: a No
+  // read over an unfiled OCOD would be a false No for every
+  // overseas-held home.
+  ccodFiledCount: number;
+  ocodFiledCount: number;
+  // Each dataset's edition stamp, read independently of the
+  // slice — an empty slice still has an edition to date a
+  // No by.
+  editions: Record<"ccod" | "ocod", { sourceName: string | null; sourceDate: string | null }>;
+  // The postcode's filed slice, both datasets together.
+  titles: CompanyTitleRow[];
+  // Snapshots keyed by the company number as filed on the
+  // title. A filed number the Companies House product holds
+  // no row under maps to null — the named
+  // number-not-in-the-snapshot state — and is never
+  // repaired by name-matching.
+  snapshots: Record<string, CompanySnapshotRow | null>;
+}
+
 export interface AreaDataSource {
   planningLayerFacts(
     layer: PlanningLayerKind,
@@ -450,6 +515,12 @@ export interface AreaDataSource {
   noiseRows(postcode: string): Promise<NoiseFacts>;
   benefits(lsoaCode: string): Promise<BenefitsFacts>;
   solarCell(cellRef: string): Promise<SolarFacts>;
+  // The postcode's company-ownership facts (M6.13). The
+  // builder calls this ONLY when the company-ownership flag
+  // is on: while COMPANY_OWNERSHIP_ENABLED is false, the
+  // default path makes no read of these tables at all —
+  // the flag's promise, kept structurally (D18/D32).
+  companyOwnershipFacts(postcode: string): Promise<CompanyOwnershipFacts>;
 }
 
 // ------------------------------------------------------------------
@@ -1726,6 +1797,435 @@ function buildPlanningApplications(
 }
 
 // ------------------------------------------------------------------
+// Company ownership — the home's own title (M6.13, decision
+// D32, on D15/D18). Whether a company is a registered
+// proprietor of this home's title, answered from HM Land
+// Registry's two company-ownership datasets (CCOD for UK
+// companies, OCOD for overseas companies) and the Companies
+// House snapshots the titles key to — all filed at M5.13
+// behind COMPANY_OWNERSHIP_ENABLED, which stays false in
+// the shipped code: this section EXISTS only when the flag
+// is on, as an absent key while it is off (not null, not a
+// named state), and the builder below is never called on
+// the default path, so the flag-off bundle makes no read
+// of the company tables at all. Exposure still waits on
+// both gates: HMLR Data Services' written clause-3.2
+// answer, and the founder's go.
+//
+// The match is two-stage, in the EPC pattern: the
+// postcode's filed slice first (one indexed read), then
+// free-text parsing of the register's address text — the
+// datasets file no structured address parts. The title's
+// FORM decides what a match means, never its tenure:
+//   - single-home form ("3 Juno House", "Flat 2, Juno
+//     House", one house number on its street) — the home's
+//     OWN title;
+//   - range form ("Flats 1-9 Minerva House", "Flats 1 To 8
+//     (inclusive), Juno House") and bare-building form
+//     ("Jupiter House, 10 Ceres Crescent") — the BUILDING's
+//     title, a separate labelled line, because a flat's own
+//     leasehold title and its building's freehold are
+//     different titles with different proprietors;
+//   - multi-house form ("39, 41 and, 49 Birkdale Rise";
+//     "35, 37, 43, 45, 47 And 32 To 44 (inclusive),
+//     Birkdale Rise") — one title over many houses; a
+//     house matches as its OWN title when its number is a
+//     member of the enumerated set or falls in a stated
+//     range. Membership is NUMERIC, never substring: 19
+//     matches neither Birkdale title, and a naive text
+//     search would put house 4 inside "41", "44" and "49",
+//     and Flat 4 inside "Flats 1-9" as an own title.
+// `multiple_address_indicator` cannot help — it is N on
+// every filed row, including both multi-house titles — so
+// the parse does the work alone. Text that parses into no
+// form is simply not a match: ambiguity fails toward the
+// named states, never toward a guess. Multiple own-title
+// matches serve whole, unranked (39 Birkdale Rise sits in
+// both SAGE titles), the EPC disagreement rule.
+//
+// Two limits ride with the answer, named rather than
+// hidden: the match is POSTCODE-KEYED — a title the
+// register files under a neighbouring postcode for the
+// same building is invisible to this check (6 Exeter
+// Road's No is provable at building level only by a
+// street search of the full files, which no servable
+// equivalent exists for, or should); and the No claims
+// only what the lookup proved, with its three holes
+// (charities excluded by category, unregistered land
+// invisible, the registration lag) carried in the
+// explainer every time it serves.
+// ------------------------------------------------------------------
+
+export interface CompanySnapshotServed {
+  companyName: string;
+  status: string | null;
+  incorporationDate: string | null;
+  sicCodes: string[];
+  sourceName: string | null;
+  sourceDate: string | null;
+  sourceLine: string | null;
+}
+
+export interface CompanyTitleServed {
+  titleNumber: string;
+  dataset: "ccod" | "ocod";
+  tenure: string;
+  proprietorName: string;
+  companyNumber: string | null;
+  // The number's own named state: recorded (with its
+  // snapshot), no-number-recorded (the register records
+  // none — most overseas proprietors), or
+  // number-not-in-the-snapshot (a number is filed but the
+  // Companies House product holds no row under it — the
+  // filed number serves as filed, never repaired).
+  numberState: "recorded" | "no-number-recorded" | "number-not-in-the-snapshot";
+  proprietorshipCategory: string | null;
+  countryIncorporated: string | null;
+  // The register's own flag for further proprietors
+  // sitting alongside this one. The served sentence is
+  // true with the flag either way — "a registered
+  // proprietor of this title is a company", never "the
+  // owner is a company".
+  additionalProprietor: boolean;
+  line: string;
+  // The named sentence for the two missing-snapshot
+  // states; null where a snapshot is held and speaks for
+  // itself.
+  snapshotLine: string | null;
+  snapshot: CompanySnapshotServed | null;
+  attributionLine: string | null;
+  sourceName: string | null;
+  sourceDate: string | null;
+  sourceLine: string | null;
+}
+
+export interface CompanyOwnershipSection extends AreaSectionMeta {
+  state: "served" | "not-company-owned" | "needs-exact-home" | "not-covered" | "not-filed";
+  // The section's lead answer: the home's OWN title
+  // (decision D15's "headline" — the section's internal
+  // lead, at report depth; the D28 short bundle is
+  // untouched by this section in either flag position).
+  line: string | null;
+  ownTitles: CompanyTitleServed[];
+  // The building line: present whenever a building-covering
+  // title matches this home's building, whether or not the
+  // own title also matched — and worded so it can never
+  // stand for the home's own title.
+  buildingLine: string | null;
+  buildingTitles: CompanyTitleServed[];
+  // The licence's attribution, its year bound to the
+  // edition year of the dataset the answer rests on.
+  attributionLine: string | null;
+}
+
+const NEEDS_EXACT_HOME_COMPANY =
+  "choose the exact home to see whether a company is a registered proprietor of its title";
+
+const COMPANY_EXPLAINER =
+  "This check answers one question: is a company a registered proprietor of this home's own title? It reads HM Land Registry's two company-ownership datasets — one for UK companies, one for overseas companies — and matches this home against the titles filed at its postcode. A flat's own title and its building's title are different titles with different proprietors, so where the building is held on its own title that is named separately, never as this home's answer. The datasets' address text is used only to make the match — it is never shown; the address you see is the one you gave. A 'not company-owned' answer has three holes, and they matter: charities are excluded from both datasets by category, so a charity-owned home returns the same answer; roughly a tenth of land in England and Wales is unregistered, so no title exists for the datasets to hold; and a sale still being registered has not reached the data yet. The answer is only as current as the dataset month it names. For everything deeper — the full register entry, and anything about the company beyond the facts shown — the hand-off is HM Land Registry's title register for the title number shown.";
+
+const COMPANY_ATTRIBUTION = "Information produced by HM Land Registry © Crown copyright";
+
+function companyAttributionLine(sourceDate: string | null): string | null {
+  return sourceDate ? `${COMPANY_ATTRIBUTION} ${sourceDate.slice(0, 4)}` : null;
+}
+
+// A flat key's ordering value ("4" < "4A" < "5"), for
+// range membership — numeric, never substring.
+function flatKeyValue(key: string): number {
+  const match = /^([0-9]+)([A-Z]?)$/.exec(key);
+  if (!match) return Number.MAX_SAFE_INTEGER;
+  return Number(match[1]) * 100 + (match[2] ? match[2].charCodeAt(0) - 64 : 0);
+}
+
+function keyWithin(key: string, low: string, high: string): boolean {
+  const value = flatKeyValue(key);
+  return flatKeyValue(low) <= value && value <= flatKeyValue(high);
+}
+
+// The range form, read off the RAW register text: "Flats
+// 1-9" (a hyphen) or "Flats 1 To 8" (the word To). The
+// normalised text cannot tell "Flats 1-9" from a single
+// flat at a numbered building ("Flat 4, 12 Ceres
+// Crescent"), so the hyphen and the To are the evidence —
+// a form with neither is not a range.
+function titleFlatRange(propertyAddress: string): { low: string; high: string } | null {
+  const match = /\bFLATS?\s+([0-9]+[A-Z]?)\s*(?:[-–—]|\bTO\b)\s*([0-9]+[A-Z]?)\b/.exec(
+    propertyAddress.toUpperCase(),
+  );
+  return match ? { low: match[1], high: match[2] } : null;
+}
+
+// The single flat a title names, if it names exactly one:
+// the keyword form ("Flat 2", "Apartment 7") or the bare
+// number directly before the building's name ("3 Juno
+// House"). A bare building form ("Jupiter House, 10 Ceres
+// Crescent") names none — its number FOLLOWS the name, as
+// the building's street number.
+function titleFlatKey(text: string, buildingName: string | null): string | null {
+  const keyed = /\b(?:FLAT|APARTMENT|APT|UNIT) ([0-9]+[A-Z]?)\b/.exec(text);
+  if (keyed) return keyed[1];
+  if (buildingName) {
+    const padded = ` ${text} `;
+    const idx = padded.indexOf(` ${buildingName} `);
+    if (idx > 0) {
+      const before = padded.slice(0, idx).trim().split(" ").pop() ?? "";
+      if (/^[0-9]+[A-Z]?$/.test(before)) return before;
+    }
+  }
+  return null;
+}
+
+// Does the title's text name this home's building — by its
+// name, or (a building known only by its street number) by
+// number + street together, the EPC matcher's own rule.
+function titleNamesBuilding(text: string, home: ResolvedAddress): boolean {
+  const paon = parsePaon(home.paon);
+  if (paon.name) return textContains(text, paon.name);
+  if (paon.number && home.street)
+    return textContains(text, paon.number) && textContains(text, normText(home.street));
+  return false;
+}
+
+// The house numbers a title enumerates before the home's
+// street name: the singletons as a set, the "32 To 44"
+// spans as ranges. Null when the street is not named —
+// the title cannot be placed on this street at all.
+function houseNumbersIn(
+  text: string,
+  streetNorm: string,
+): { singles: Set<string>; ranges: { low: string; high: string }[] } | null {
+  const padded = ` ${text} `;
+  const idx = padded.indexOf(` ${streetNorm} `);
+  if (idx === -1) return null;
+  const ranges: { low: string; high: string }[] = [];
+  const rest = padded
+    .slice(0, idx)
+    .replace(/\b([0-9]+[A-Z]?)\s+TO\s+([0-9]+[A-Z]?)\b/g, (_span, low: string, high: string) => {
+      ranges.push({ low, high });
+      return " ";
+    });
+  const singles = new Set<string>();
+  for (const token of rest.split(" ")) if (/^[0-9]+[A-Z]?$/.test(token)) singles.add(token);
+  return { singles, ranges };
+}
+
+// What is this filed title to this resolved home: its OWN
+// title, its BUILDING's title, or not a match at all. The
+// title's form decides — see the section header.
+export function companyTitleMatch(
+  row: CompanyTitleRow,
+  home: ResolvedAddress,
+): "own" | "building" | null {
+  const text = normText(row.propertyAddress);
+  const homeFlat = flatKeyOf(home.saon);
+
+  if (homeFlat !== null) {
+    if (!titleNamesBuilding(text, home)) return null;
+    const range = titleFlatRange(row.propertyAddress);
+    if (range) return keyWithin(homeFlat, range.low, range.high) ? "building" : null;
+    const key = titleFlatKey(text, parsePaon(home.paon).name);
+    if (key !== null) return key === homeFlat ? "own" : null;
+    return "building";
+  }
+
+  // Houses. A flats-form title — a flat range, or one
+  // named flat — is never a house's own title.
+  if (titleFlatRange(row.propertyAddress) !== null) return null;
+  if (/\b(?:FLAT|APARTMENT|APT|UNIT) [0-9]+[A-Z]?\b/.test(text)) return null;
+  const paon = parsePaon(home.paon);
+  if (paon.name && !paon.number) {
+    // A named house: its own title carries its name, on
+    // its street where the home has one.
+    if (!textContains(text, paon.name)) return null;
+    return !home.street || textContains(text, normText(home.street)) ? "own" : null;
+  }
+  if (!paon.number || !home.street) return null;
+  const found = houseNumbersIn(text, normText(home.street));
+  if (!found) return null;
+  if (found.singles.has(paon.number)) return "own";
+  return found.ranges.some((range) => keyWithin(paon.number as string, range.low, range.high))
+    ? "own"
+    : null;
+}
+
+function toServedCompanyTitle(
+  row: CompanyTitleRow,
+  facts: CompanyOwnershipFacts,
+  kind: "own" | "building",
+): CompanyTitleServed {
+  const snapshot = row.companyNumber !== null ? (facts.snapshots[row.companyNumber] ?? null) : null;
+  const numberState: CompanyTitleServed["numberState"] =
+    row.companyNumber === null
+      ? "no-number-recorded"
+      : snapshot
+        ? "recorded"
+        : "number-not-in-the-snapshot";
+  return {
+    titleNumber: row.titleNumber,
+    dataset: row.dataset,
+    tenure: row.tenure,
+    proprietorName: row.proprietorName,
+    companyNumber: row.companyNumber,
+    numberState,
+    proprietorshipCategory: row.proprietorshipCategory,
+    countryIncorporated: row.countryIncorporated,
+    additionalProprietor: row.additionalProprietor,
+    line:
+      kind === "own"
+        ? "a registered proprietor of this title is a company"
+        : "a registered proprietor of this building's title is a company",
+    snapshotLine:
+      numberState === "no-number-recorded"
+        ? "the register records no company number for this proprietor"
+        : numberState === "number-not-in-the-snapshot"
+          ? `no Companies House snapshot is held under company number ${row.companyNumber} as filed`
+          : null,
+    snapshot: snapshot
+      ? {
+          companyName: snapshot.companyName,
+          status: snapshot.status,
+          incorporationDate: snapshot.incorporationDate,
+          sicCodes: snapshot.sicCodes,
+          sourceName: snapshot.sourceName,
+          sourceDate: snapshot.sourceDate,
+          sourceLine: sourceLineOf(snapshot.sourceName, snapshot.sourceDate),
+        }
+      : null,
+    attributionLine: companyAttributionLine(row.sourceDate),
+    sourceName: row.sourceName,
+    sourceDate: row.sourceDate,
+    sourceLine: sourceLineOf(row.sourceName, row.sourceDate),
+  };
+}
+
+function buildCompanyOwnership(
+  resolution: Extract<AddressResolution, { rung: 1 | 2 }>,
+  facts: CompanyOwnershipFacts | null,
+  nation: Nation,
+): CompanyOwnershipSection {
+  const meta = {
+    depth: "report" as const,
+    grain: "home" as const,
+    grainLine: "this home's own title, in HM Land Registry's company-ownership data",
+    explainer: COMPANY_EXPLAINER,
+  };
+  const noFacts = {
+    sourceName: null,
+    sourceDate: null,
+    sourceLine: null,
+    ownTitles: [] as CompanyTitleServed[],
+    buildingLine: null,
+    buildingTitles: [] as CompanyTitleServed[],
+    attributionLine: null,
+  };
+
+  // The ladder first (D26): the own-title answer is a home
+  // fact, so rung 2 asks for the exact home and nothing
+  // else serves — no postcode-level company statistic is
+  // invented from data filed to answer a different
+  // question. (The builder is not even called with facts
+  // at rung 2: no read of the tables is made.)
+  if (resolution.rung === 2) {
+    return { ...meta, ...noFacts, state: "needs-exact-home", line: NEEDS_EXACT_HOME_COMPANY };
+  }
+
+  // The datasets cover England and Wales; Scotland and
+  // Northern Ireland are never a No — the line names the
+  // nation's own register as where title information
+  // lives (the D30 publisher-naming rule).
+  if (nation === "scotland" || nation === "northern-ireland") {
+    const register = nation === "scotland" ? "Registers of Scotland" : "Land & Property Services";
+    return {
+      ...meta,
+      ...noFacts,
+      state: "not-covered",
+      line: `the company-ownership datasets cover England and Wales only — title information for ${nationName(nation)} is held by ${register}`,
+    };
+  }
+  if (nation === "unknown") {
+    return {
+      ...meta,
+      ...noFacts,
+      state: "not-covered",
+      line: "the company-ownership datasets cover England and Wales only, so no company-ownership answer can be given for this home",
+    };
+  }
+
+  // The guard: absence is only ever served against a
+  // proven filing of BOTH datasets (the M6.9/D30 rule, in
+  // the flood form).
+  if (facts === null || facts.ccodFiledCount <= 0 || facts.ocodFiledCount <= 0) {
+    return {
+      ...meta,
+      ...noFacts,
+      state: "not-filed",
+      line: "the company-ownership data is not filed yet, so no company-ownership answer can be given yet",
+    };
+  }
+
+  const ownTitles: CompanyTitleServed[] = [];
+  const buildingTitles: CompanyTitleServed[] = [];
+  for (const row of facts.titles) {
+    const match = companyTitleMatch(row, resolution.address);
+    if (match === "own") ownTitles.push(toServedCompanyTitle(row, facts, "own"));
+    else if (match === "building")
+      buildingTitles.push(toServedCompanyTitle(row, facts, "building"));
+  }
+  const byTitleNumber = (a: CompanyTitleServed, b: CompanyTitleServed) =>
+    a.titleNumber.localeCompare(b.titleNumber);
+  ownTitles.sort(byTitleNumber);
+  buildingTitles.sort(byTitleNumber);
+
+  const buildingLine =
+    buildingTitles.length > 0
+      ? "this home's building is held on a separate title from this home's own title, and a company is a registered proprietor of that building title"
+      : null;
+
+  if (ownTitles.length > 0) {
+    const lead = ownTitles[0];
+    return {
+      ...meta,
+      sourceName: lead.sourceName,
+      sourceDate: lead.sourceDate,
+      sourceLine: lead.sourceLine,
+      state: "served",
+      line: "a registered proprietor of this home's title is a company",
+      ownTitles,
+      buildingLine,
+      buildingTitles,
+      attributionLine: lead.attributionLine,
+    };
+  }
+
+  // The No. It is dated by the EARLIER of the two dataset
+  // editions: the lookup is only as complete as its least
+  // current dataset, and the licence's rule is that data
+  // never present as more current than it is.
+  const editions = [facts.editions.ccod, facts.editions.ocod].filter(
+    (edition) => edition.sourceDate !== null,
+  );
+  const asAt =
+    editions.length > 0
+      ? editions.reduce((a, b) => ((a.sourceDate as string) <= (b.sourceDate as string) ? a : b))
+      : null;
+  return {
+    ...meta,
+    sourceName: asAt?.sourceName ?? null,
+    sourceDate: asAt?.sourceDate ?? null,
+    sourceLine: sourceLineOf(asAt?.sourceName ?? null, asAt?.sourceDate ?? null),
+    state: "not-company-owned",
+    line: asAt
+      ? `this home's title is not in HM Land Registry's company-ownership data as at ${monthLabel(asAt.sourceDate as string)}`
+      : "this home's title is not in HM Land Registry's company-ownership data",
+    ownTitles,
+    buildingLine,
+    buildingTitles,
+    attributionLine: companyAttributionLine(asAt?.sourceDate ?? null),
+  };
+}
+
+// ------------------------------------------------------------------
 // Census 2021 — the MSOA in numbers, report depth only.
 // Percentages are computed at serve time from the filed
 // counts, EACH TABLE ON ITS OWN TOTAL: the tables' totals
@@ -2402,6 +2902,12 @@ export interface AreaSections {
   noise: NoiseSection;
   benefits: BenefitsSection;
   solar: SolarSection;
+  // Company ownership (M6.13) is OPTIONAL in the type and
+  // ABSENT in the object while its flag is off: the key
+  // does not exist in the serialised bundle — not null,
+  // not a named state — in the full bundle, in the
+  // headline projection and in every derived shape.
+  companyOwnership?: CompanyOwnershipSection;
 }
 
 export type AreaBundle =
@@ -2444,10 +2950,27 @@ const RUNG3_SECTION_REASONS: Record<string, string> = {
   solar: "solar modelling needs an exact postcode",
 };
 
+// The company-ownership rung-3 reason joins the record
+// ONLY when the flag is on: absence is uniform while it
+// is off, in every rung's shape (M6.13).
+const RUNG3_COMPANY_REASON = "company ownership needs an exact postcode";
+
+export interface AreaBundleOptions {
+  // The test seam for the company-ownership flag, in the
+  // house pattern (lib/site.ts's showTestBanner): the real
+  // value as a defaulted option. Shipped call sites pass
+  // nothing, so the checked-in constant governs; tests pass
+  // true explicitly to build the on-state. No shipped code
+  // path passes true, and no test flips the constant.
+  companyOwnershipEnabled?: boolean;
+}
+
 export async function buildAreaBundle(
   resolution: AddressResolution,
   source: AreaDataSource,
+  options: AreaBundleOptions = {},
 ): Promise<AreaBundle> {
+  const companyEnabled = options.companyOwnershipEnabled ?? COMPANY_OWNERSHIP_ENABLED;
   if (resolution.rung === 3)
     return {
       rung: 3,
@@ -2456,10 +2979,11 @@ export async function buildAreaBundle(
         state: "unavailable",
         reason: AREA_UNAVAILABLE_REASON,
         sections: Object.fromEntries(
-          Object.entries(RUNG3_SECTION_REASONS).map(([key, reason]) => [
-            key,
-            { state: "unavailable" as const, reason },
-          ]),
+          Object.entries(
+            companyEnabled
+              ? { ...RUNG3_SECTION_REASONS, companyOwnership: RUNG3_COMPANY_REASON }
+              : RUNG3_SECTION_REASONS,
+          ).map(([key, reason]) => [key, { state: "unavailable" as const, reason }]),
         ),
       },
     };
@@ -2517,6 +3041,20 @@ export async function buildAreaBundle(
 
   const epc = await buildEpc(resolution, source);
 
+  // Company ownership, behind its flag (M6.13): while the
+  // flag is off the section is absent and the source is
+  // never asked — no read of the company tables happens on
+  // the default path at all. At rung 2 the section is the
+  // needs-exact-home state, which needs no facts either,
+  // so the one read happens only for a rung-1 answer.
+  let companyOwnership: CompanyOwnershipSection | undefined;
+  if (companyEnabled) {
+    companyOwnership =
+      resolution.rung === 2
+        ? buildCompanyOwnership(resolution, null, nation)
+        : buildCompanyOwnership(resolution, await source.companyOwnershipFacts(postcode), nation);
+  }
+
   return {
     rung: resolution.rung,
     kind: "area-bundle",
@@ -2545,6 +3083,7 @@ export async function buildAreaBundle(
       noise: buildNoise(noiseFacts, nation),
       benefits: buildBenefits(benefitsFacts, resolution.directory.lsoaCode, nation),
       solar: buildSolar(solarFacts),
+      ...(companyOwnership ? { companyOwnership } : {}),
     },
   };
 }
@@ -3134,6 +3673,87 @@ export function createAreaSource(
           sourceName: (row.source_name as string | null) ?? null,
           sourceDate: (row.source_date as string | null) ?? null,
         },
+      };
+    },
+
+    async companyOwnershipFacts(postcode) {
+      // The guard counts and the edition stamps are read
+      // per dataset, independently of the slice: an empty
+      // slice still has editions to date its No by, and an
+      // unfiled dataset must read as unfiled, never as an
+      // empty slice.
+      const { rows: countRows } = await db.query(
+        "SELECT dataset, count(*)::int AS n FROM company_titles GROUP BY dataset",
+      );
+      const counts = new Map(countRows.map((row) => [row.dataset as string, Number(row.n)]));
+      const editionOf = async (dataset: string) => {
+        const { rows } = await db.query(
+          "SELECT source_name, source_date::text AS source_date FROM company_titles WHERE dataset = $1 LIMIT 1",
+          [dataset],
+        );
+        return {
+          sourceName: (rows[0]?.source_name as string | null) ?? null,
+          sourceDate: (rows[0]?.source_date as string | null) ?? null,
+        };
+      };
+      const { rows } = await db.query(
+        `SELECT title_number, dataset, tenure, property_address, proprietor_name,
+                company_number, proprietorship_category, country_incorporated,
+                additional_proprietor_indicator, source_name,
+                source_date::text AS source_date
+         FROM company_titles WHERE postcode = $1 ORDER BY title_number`,
+        [postcode],
+      );
+      const titles: CompanyTitleRow[] = rows.map((row) => ({
+        titleNumber: row.title_number as string,
+        dataset: row.dataset as "ccod" | "ocod",
+        tenure: row.tenure as string,
+        propertyAddress: row.property_address as string,
+        proprietorName: row.proprietor_name as string,
+        companyNumber: (row.company_number as string | null) ?? null,
+        proprietorshipCategory: (row.proprietorship_category as string | null) ?? null,
+        countryIncorporated: (row.country_incorporated as string | null) ?? null,
+        additionalProprietor: Boolean(row.additional_proprietor_indicator),
+        sourceName: (row.source_name as string | null) ?? null,
+        sourceDate: (row.source_date as string | null) ?? null,
+      }));
+      // The snapshots for exactly the numbers the slice
+      // carries, keyed by the number as filed; a number
+      // with no product row stays null — the named
+      // missing-snapshot state, never name-matched.
+      const numbers = [
+        ...new Set(
+          titles.map((title) => title.companyNumber).filter((n): n is string => n !== null),
+        ),
+      ];
+      const snapshots: Record<string, CompanySnapshotRow | null> = {};
+      for (const number of numbers) snapshots[number] = null;
+      if (numbers.length > 0) {
+        const { rows: snapshotRows } = await db.query(
+          `SELECT company_number, company_name, status,
+                  incorporation_date::text AS incorporation_date, sic_codes,
+                  source_name, source_date::text AS source_date
+           FROM company_snapshots WHERE company_number = ANY($1)`,
+          [numbers],
+        );
+        for (const row of snapshotRows) {
+          snapshots[row.company_number as string] = {
+            companyNumber: row.company_number as string,
+            companyName: row.company_name as string,
+            status: (row.status as string | null) ?? null,
+            incorporationDate: (row.incorporation_date as string | null) ?? null,
+            sicCodes: (row.sic_codes as string[]) ?? [],
+            sourceName: (row.source_name as string | null) ?? null,
+            sourceDate: (row.source_date as string | null) ?? null,
+          };
+        }
+      }
+      return {
+        ccodFiledCount: counts.get("ccod") ?? 0,
+        ocodFiledCount: counts.get("ocod") ?? 0,
+        editions: { ccod: await editionOf("ccod"), ocod: await editionOf("ocod") },
+        titles,
+        snapshots,
       };
     },
   };

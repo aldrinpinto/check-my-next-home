@@ -3,8 +3,10 @@ import {
   buildAreaBundle,
   createAreaSource,
   type AreaBundle,
+  type AreaBundleOptions,
   type AreaDataSource,
 } from "./area-bundle";
+import { COMPANY_OWNERSHIP_ENABLED } from "./site";
 import {
   buildCrimeBundle,
   createCrimeSource,
@@ -92,6 +94,18 @@ import {
 //   - The short bundle (M6.7) gets no entries of its own:
 //     it is a pure derivation over the full bundles, derived
 //     on read from whichever bundles are warm.
+//   - The area bundle's shape contract includes the
+//     company-ownership key's PRESENCE (M6.13): the section
+//     exists only while its flag is on, so an entry written
+//     before a flip lacks the key and one written after a
+//     flip back carries it. Either disagreement with the
+//     current flag position degrades to a recompute — the
+//     flip can never silently serve a bundle shaped for
+//     the other position. The company's filed counts and
+//     loader stamp ride in the area version vector from
+//     this step on, flag off included, so the section's
+//     own not-filed state caches safely: the first filing
+//     moves the counts and busts the entry, whoever ran it.
 
 export type CacheBrain = "crime" | "flood" | "nearby" | "area";
 
@@ -105,7 +119,10 @@ export type CacheBrain = "crime" | "flood" | "nearby" | "area";
 // monuments, nature designations, priority habitats), the
 // EPC artefact (load-epc, including the runner's per-postcode
 // re-files), council tax, Census and its LSOA bases, IMD,
-// air, noise, the two benefits loaders and the PVGIS grid.
+// air, noise, the two benefits loaders, the PVGIS grid and
+// company ownership (M6.13 — its tables are read only behind
+// the flag, but the stamp guards the cached bundle's shape
+// in either flag position).
 export const BRAIN_DEPENDENCIES: Record<CacheBrain, readonly string[]> = {
   crime: ["load-postcodes", "load-crime"],
   flood: [
@@ -141,6 +158,7 @@ export const BRAIN_DEPENDENCIES: Record<CacheBrain, readonly string[]> = {
     "load-claimant-count",
     "load-dwp-uc",
     "load-pvgis",
+    "load-company-ownership",
   ],
 };
 
@@ -293,6 +311,21 @@ const GUARDS: Record<
       // (D16): if it ever runs outside the runner, the
       // charges table's own count is the guard that moves.
       councilTaxCharges: await countOf(db, "SELECT count(*)::int AS n FROM council_tax_charges"),
+      // Company ownership (M6.13): the datasets re-file
+      // monthly in full, so a re-filing that moves no stamp
+      // — a hand-run pass — still moves these counts, per
+      // dataset and for the snapshots; and a cached
+      // not-filed section never survives the first filing
+      // that ends it.
+      companyTitlesCcod: await countOf(
+        db,
+        "SELECT count(*)::int AS n FROM company_titles WHERE dataset = 'ccod'",
+      ),
+      companyTitlesOcod: await countOf(
+        db,
+        "SELECT count(*)::int AS n FROM company_titles WHERE dataset = 'ocod'",
+      ),
+      companySnapshots: await countOf(db, "SELECT count(*)::int AS n FROM company_snapshots"),
     };
   },
 };
@@ -426,6 +459,11 @@ interface ServeOptions<TBundle> {
   // The served form of a stored bundle (crime recomputes
   // its stale line here, at serve, from the cached window).
   onServe?: (bundle: TBundle) => TBundle;
+  // A further shape contract on the stored bundle, beyond
+  // key agreement: a stored bundle that fails it degrades
+  // to a recompute, never to a serve (the area bundle's
+  // company-key presence rule, M6.13).
+  shapeOk?: (bundle: unknown) => boolean;
 }
 
 async function serveCached<TBundle>(
@@ -448,7 +486,8 @@ async function serveCached<TBundle>(
     if (
       entry &&
       versionsEqual(entry.version, version) &&
-      keyAgreement(entry.bundle, opts.kinds, postcode, rung)
+      keyAgreement(entry.bundle, opts.kinds, postcode, rung) &&
+      (!opts.shapeOk || opts.shapeOk(entry.bundle))
     ) {
       const stored = entry.bundle as TBundle;
       return opts.onServe ? opts.onServe(stored) : stored;
@@ -548,20 +587,42 @@ export async function buildAreaBundleCached(
   resolution: AddressResolution,
   source: AreaDataSource,
   cache: BundleCache,
+  options: AreaBundleOptions = {},
 ): Promise<AreaBundle> {
-  if (resolution.rung === 3 || resolution.rung === 4) return buildAreaBundle(resolution, source);
+  if (resolution.rung === 3 || resolution.rung === 4)
+    return buildAreaBundle(resolution, source, options);
+  // The flag position the caller is building for — the
+  // shipped constant unless a test passes the seam value —
+  // is part of the stored shape's contract (see shapeOk).
+  const companyEnabled = options.companyOwnershipEnabled ?? COMPANY_OWNERSHIP_ENABLED;
   return serveCached(cache, {
     brain: "area",
     resolution,
     homeKey: homeKeyOf(resolution),
     kinds: ["area-bundle"],
-    compute: () => buildAreaBundle(resolution, source),
+    compute: () => buildAreaBundle(resolution, source, options),
     // An EPC section in its not-filed state means the cold
     // load was attempted and failed (or is not possible):
     // the retry lives inside buildEpc, which a cache hit
-    // never calls, so the bundle is never written.
+    // never calls, so the bundle is never written. (The
+    // company section's own not-filed state is NOT a
+    // write-skip: its guard counts sit in the version
+    // vector, so the first filing busts the entry — the
+    // stable not-filed reasoning in the header.)
     cacheable: (bundle) =>
       !(bundle.kind === "area-bundle" && bundle.sections.epc.state === "not-filed"),
+    // The company key's presence must agree with the
+    // current flag position: flag on + key absent, or flag
+    // off + key present, degrades to a recompute — absence
+    // by staleness would be indistinguishable from the flag
+    // itself, and a flipped-off entry must never surface
+    // the section it was written with.
+    shapeOk: (bundle) => {
+      if (typeof bundle !== "object" || bundle === null) return false;
+      const sections = (bundle as { sections?: unknown }).sections;
+      if (typeof sections !== "object" || sections === null) return false;
+      return "companyOwnership" in sections === companyEnabled;
+    },
   });
 }
 

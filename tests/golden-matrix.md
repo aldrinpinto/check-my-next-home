@@ -1255,6 +1255,133 @@ projection cannot carry it.
   council re-file busted the entry. No migration in this
   step; docs/schema.md needs no new entry (no table).
 
+### Company ownership — the answer behind the flag (M6.13, decision D32)
+
+The area bundle's thirteenth section, and the only
+flag-gated one: `COMPANY_OWNERSHIP_ENABLED` in
+lib/site.ts stays false in the shipped code, so while
+the flag is off the section's key is ABSENT from every
+served shape — not null, not a named state — the brain
+never reads the two tables, the D28 short bundle is
+untouched (eleven sections, no company key in either
+flag position), and exposure still waits for HM Land
+Registry's written clause-3.2 answer and the founder's
+go. Tests force the flag on through an injected build
+option (the house seam pattern); shipped call sites
+pass nothing. The section sits at report depth, so the
+headline projection can never carry it.
+
+**Witnesses** (real filed fixtures,
+tests/fixtures/company-ownership/ — November 2026
+extracts; the standing witnesses above):
+
+- **19 Birkdale Rise, CM3 2JT** — the clean No over a
+  non-empty slice: CCOD AA53500 "39, 41 and, 49
+  Birkdale Rise" and AA53502 "35, 37, 43, 45, 47 And
+  32 To 44 (inclusive), Birkdale Rise", both SAGE
+  HOMES RP LIMITED. The line: "this home's title is
+  not in HM Land Registry's company-ownership data as
+  at November 2026" — dated by the EARLIER of the two
+  dataset editions, the lookup being only as complete
+  as its least current dataset. The No's three holes
+  (charities excluded from both datasets by category;
+  unregistered land invisible; registration lag) sit
+  in the explainer, never in the line.
+- **6 Exeter Road, E16 1GN** — the No at own-title AND
+  building level: the postcode slice is empty because
+  the company titles sit at 8 Exeter Road, E16 1GP, a
+  different postcode. **The standing limit: matching
+  is keyed to the home's exact postcode** (the
+  datasets' only index); a company title one postcode
+  away is invisible, and the answer is the plain No.
+- **Flat 4, Minerva House, KT17 1FH** — own-title No
+  plus the building line: OCOD SY876459 "Flats 1-9
+  Minerva House, 12 Ceres Crescent", Freehold,
+  ADRIATIC LAND 11 LIMITED, GUERNSEY, no company
+  number (`no-number-recorded`). The section's state
+  is the own-title answer (not-company-owned); the
+  building line serves alongside it, naming the
+  proprietor as filed.
+- **Flat 4, Juno House, KT17 1FH** — own-title Yes:
+  CCOD SY857898 "4 Juno House", Leasehold, CLARION
+  HOUSING ASSOCIATION LIMITED, company number **7686
+  as filed** — no Companies House snapshot is held
+  under it (`number-not-in-the-snapshot`); the
+  snapshot's RS007686 is never repaired in and never
+  appears in served output. Plus the Adriatic
+  building line OCOD SY874424 "Flats 1 To 8
+  (inclusive), Juno House". The lead: "a registered
+  proprietor of this home's title is a company".
+- Supporting forms: Flat 2, Juno House (CCOD SY873488
+  SOMY RESIDENTIAL LIMITED, 13678133, snapshot served:
+  Active, incorporated 2021-10-13, SIC as filed);
+  Flat 4, Jupiter House (bare-building building line,
+  OCOD SY874425 "Jupiter House, 10 Ceres Crescent").
+
+**The trap set** (all sprung in tests, on the filed
+fixtures): multi-house titles match by NUMERIC
+MEMBERSHIP, never substring — 19 matches neither SAGE
+title, house 4 and house 9 match nothing (the "49"
+substring and "44"/"9" digit traps), 39 matches BOTH
+SAGE titles (enumerated in one, inside the other's
+range) and serves both whole, 44 matches only the
+range title; "Flats 1-9" range forms and bare-building
+forms are the BUILDING's title, never the flat's own;
+a flat number inside a range owns nothing;
+`multiple_address_indicator` (N on every filed row)
+is never used. Form decides own-title vs building
+line; the register's address text itself never serves
+— only the parsed facts do.
+
+**Served content rules**: the Land Registry title
+number serves with every matched title (it makes the
+£7 title-register hand-off in the explainer
+actionable); `price_paid` and `date_proprietor_added`
+NEVER serve (the facts type does not carry them);
+snapshot facts serve only as D15 allows (name,
+number, status, incorporation date, SIC — no
+officers, PSC, parents, charges, no registered
+office); per-dataset source lines carry "Information
+produced by HM Land Registry © Crown copyright
+{edition year}", the year bound to each dataset's own
+edition. States: served / not-company-owned /
+needs-exact-home (rung 2, the D26 ladder) /
+not-covered (Scotland and Northern Ireland name their
+own registers — Registers of Scotland, Land &
+Property Services — never a No) / not-filed
+(per-dataset guard: either dataset's table empty →
+not-filed, never a No).
+
+**The two M6.8 cache obligations** (proven in
+tests/bundle-cache.test.ts and in the rehearsal
+against the real bundle_cache table): (a) the area
+version vector carries `load-company-ownership`'s
+stamp PLUS per-dataset filed-count guards
+(company_titles per dataset, company_snapshots), so a
+hand-run re-filing that moves no stamp still busts;
+(b) the cached area bundle's shape contract includes
+the company key's PRESENCE matching the current flag
+position — an entry written flag-off degrades to a
+recompute on a flag-on read, and vice versa, both
+ways proven. The section's own not-filed state is not
+a cache write-skip: the guard counts bust it on the
+first filing.
+
+**Rehearsal record** (scoped PGlite pass, 15 Nov
+2026): migrations applied twice, newest still 0020 —
+no new migration in this step; the loader filed the
+fixture slices (11 titles: 8 CCOD, 3 OCOD; 2 snapshots
+of 3 filed numbers; golden areas OK); the four goldens
+above served through the REAL database source with
+the flag forced on, the section absent flag-off, and
+both cache obligations proven against the real
+bundle_cache table (a flag-off entry recomputed on a
+flag-on read; deleting the Minerva building title
+busted the cached entry through the OCOD guard count
+and the building line disappeared). The temporary
+prove suite was deleted after passing; CI's database
+job is the final word.
+
 ## E2E journeys each candidate unlocks (Playwright, QA phase)
 
 | Candidate            | Journey it unlocks                                                                                                                                                                          |

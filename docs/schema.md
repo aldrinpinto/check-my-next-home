@@ -414,9 +414,13 @@ Family:
     datasets drops out. These tables sit behind
     COMPANY_OWNERSHIP_ENABLED (lib/site.ts), which
     defaults to false: filing is preparation, and
-    nothing user-facing reads them until the written
-    clause-3.2 answer is yes and the founder gives the
-    go.
+    while the flag is false the brain never reads
+    them — the M6.13 serving code (the area bundle's
+    company-ownership section, decision D32) exists
+    behind the flag, structurally absent from every
+    served shape while it is off, and exposure still
+    waits for the written clause-3.2 answer to be
+    yes and the founder to give the go.
 29. **company_snapshots** — the Companies House
     snapshot for the company numbers company_titles
     carries, from the Free Company Data Product (bulk,

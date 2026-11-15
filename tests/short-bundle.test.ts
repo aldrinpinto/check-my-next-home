@@ -1808,6 +1808,23 @@ class FakeAreaSource implements AreaDataSource {
     const anySolar = [...FACTS.values()].find((f) => f.solar);
     return { gridFiledCount: anySolar?.solar?.gridFiledCount ?? 0, cell: null };
   }
+
+  // Company ownership (M6.13) is flag-gated and the short
+  // bundle never carries it; these tests build with the
+  // shipped (off) position, so the builder never calls
+  // this — the stub exists for the port's shape only.
+  async companyOwnershipFacts() {
+    return {
+      ccodFiledCount: 0,
+      ocodFiledCount: 0,
+      editions: {
+        ccod: { sourceName: null, sourceDate: null },
+        ocod: { sourceName: null, sourceDate: null },
+      },
+      titles: [],
+      snapshots: {},
+    };
+  }
 }
 
 const areaSource = new FakeAreaSource();

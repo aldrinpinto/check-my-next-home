@@ -49,6 +49,15 @@
 //      One state across four nation forms (plus the
 //      Mid Ulster exception and the unnamed-council
 //      form), and rung 3's twelfth per-section reason.
+//   M6.13 (decision D32) adds the company-ownership
+//      family, asserted in its own block below: five
+//      states (served / not-company-owned /
+//      needs-exact-home / not-covered / not-filed) that
+//      exist ONLY behind the section's flag — with the
+//      shipped flag off the section is absent from every
+//      shape, which the same block asserts — plus rung
+//      3's thirteenth per-section reason in the flag-on
+//      position.
 //   Settled fixes — nature designations and nearby
 //      categories gain filed-count guards in the flood
 //      form; the sold-prices median's none-recorded line
@@ -73,6 +82,8 @@ import {
   buildAreaBundle,
   type AreaDataSource,
   type BenefitsFacts,
+  type CompanyOwnershipFacts,
+  type CompanyTitleRow,
   type CouncilTaxFacts,
   type DesignationFacts,
   type EpcArtefact,
@@ -1148,6 +1159,23 @@ class MatrixAreaSource implements AreaDataSource {
     bases: null,
   };
   solar: SolarFacts = { gridFiledCount: 1000, cell: null };
+  company: CompanyOwnershipFacts = {
+    ccodFiledCount: 4485124,
+    ocodFiledCount: 90950,
+    editions: {
+      ccod: {
+        sourceName: "HM Land Registry — UK companies that own property in England and Wales (CCOD)",
+        sourceDate: "2026-11-01",
+      },
+      ocod: {
+        sourceName:
+          "HM Land Registry — Overseas companies that own property in England and Wales (OCOD)",
+        sourceDate: "2026-11-01",
+      },
+    },
+    titles: [],
+    snapshots: {},
+  };
 
   async planningLayerFacts(layer: string) {
     return this.layers.get(layer) ?? layerFacts({});
@@ -1194,6 +1222,9 @@ class MatrixAreaSource implements AreaDataSource {
   }
   async solarCell() {
     return this.solar;
+  }
+  async companyOwnershipFacts() {
+    return this.company;
   }
 }
 
@@ -1984,5 +2015,250 @@ describe("matrix — area: planning applications (the hand-off)", () => {
         expect(text).not.toContain(banned);
       if (planning.link) expect(planning.link.url).not.toContain(postcode);
     }
+  });
+});
+
+// ------------------------------------------------------------------
+// Company ownership: the flag-gated family (M6.13, D32)
+// ------------------------------------------------------------------
+
+const CCOD_SOURCE_M =
+  "HM Land Registry — UK companies that own property in England and Wales (CCOD)";
+const OCOD_SOURCE_M =
+  "HM Land Registry — Overseas companies that own property in England and Wales (OCOD)";
+
+function matrixTitle(
+  partial: Partial<CompanyTitleRow> & { titleNumber: string; propertyAddress: string },
+): CompanyTitleRow {
+  return {
+    dataset: "ccod",
+    tenure: "Freehold",
+    proprietorName: "",
+    companyNumber: null,
+    proprietorshipCategory: "Limited Company or Public Limited Company",
+    countryIncorporated: null,
+    additionalProprietor: false,
+    sourceName: CCOD_SOURCE_M,
+    sourceDate: "2026-11-01",
+    ...partial,
+  };
+}
+
+const SAGE_TITLES_M: CompanyTitleRow[] = [
+  matrixTitle({
+    titleNumber: "AA53500",
+    propertyAddress: "39, 41 and, 49 Birkdale Rise, Hatfield Peverel, Chelmsford (CM3 2JT)",
+    proprietorName: "SAGE HOMES RP LIMITED",
+    companyNumber: "11217910",
+  }),
+  matrixTitle({
+    titleNumber: "AA53502",
+    propertyAddress:
+      "35, 37, 43, 45, 47 And 32 To 44 (inclusive), Birkdale Rise, Hatfield Peverel, Chelmsford (CM3 2JT)",
+    proprietorName: "SAGE HOMES RP LIMITED",
+    companyNumber: "11217910",
+  }),
+];
+
+const MINERVA_DIR_M = directory({
+  postcode: "KT17 1FH",
+  latitude: 51.344571,
+  longitude: -0.247104,
+  council: "Epsom and Ewell",
+  lsoaCode: "E01030396",
+  msoaCode: "E02006837",
+});
+const MINERVA_HOME_M = home(MINERVA_DIR_M, {
+  paon: "MINERVA HOUSE, 12",
+  saon: "FLAT 4",
+  street: "CERES CRESCENT",
+  label: "Flat 4, Minerva House, 12 Ceres Crescent",
+});
+
+async function areaBundleOn(source: MatrixAreaSource, resolution: AddressResolution = ENG_HOME) {
+  const bundle = await buildAreaBundle(resolution, source, { companyOwnershipEnabled: true });
+  if (bundle.kind !== "area-bundle") throw new Error("expected an area bundle");
+  return bundle;
+}
+
+describe("matrix — area: company ownership (behind the flag)", () => {
+  it("flag OFF (the shipped position): the section is absent from the full bundle — no key, no state, no wording", async () => {
+    const bundle = await areaBundle(new MatrixAreaSource(), ENG_HOME);
+    expect("companyOwnership" in bundle.sections).toBe(false);
+    expect(JSON.stringify(bundle)).not.toContain("companyOwnership");
+    expectClean(bundle);
+  });
+
+  it("served: an own-title match serves the proprietor as filed, with its snapshot", async () => {
+    const source = new MatrixAreaSource();
+    source.company.titles = [
+      matrixTitle({
+        titleNumber: "AA99999",
+        propertyAddress: "19 Birkdale Rise, Hatfield Peverel, Chelmsford (CM3 2JT)",
+        proprietorName: "EXAMPLE HOMES LIMITED",
+        companyNumber: "99999999",
+      }),
+    ];
+    source.company.snapshots = {
+      "99999999": {
+        companyNumber: "99999999",
+        companyName: "EXAMPLE HOMES LIMITED",
+        status: "Active",
+        incorporationDate: "2020-01-01",
+        sicCodes: ["68100 - Buying and selling of own real estate"],
+        sourceName: "Companies House — Free Company Data Product",
+        sourceDate: "2026-11-01",
+      },
+    };
+    const bundle = await areaBundleOn(source, ENG_HOME);
+    const company = bundle.sections.companyOwnership;
+    if (!company) throw new Error("expected the section");
+    expect(company.state).toBe("served");
+    expect(company.line).toBe("a registered proprietor of this home's title is a company");
+    expect(company.ownTitles).toHaveLength(1);
+    expect(company.ownTitles[0].titleNumber).toBe("AA99999");
+    expect(company.ownTitles[0].numberState).toBe("recorded");
+    expect(company.depth).toBe("report");
+    expectClean(bundle);
+  });
+
+  it("not-company-owned: the No over a non-empty slice, dated by the dataset month, its holes in the explainer", async () => {
+    const source = new MatrixAreaSource();
+    source.company.titles = SAGE_TITLES_M;
+    const bundle = await areaBundleOn(source, ENG_HOME);
+    const company = bundle.sections.companyOwnership;
+    if (!company) throw new Error("expected the section");
+    expect(company.state).toBe("not-company-owned");
+    expect(company.line).toBe(
+      "this home's title is not in HM Land Registry's company-ownership data as at November 2026",
+    );
+    expect(company.explainer).toContain("charities are excluded from both datasets by category");
+    expect(company.explainer).toContain("unregistered");
+    expect(company.explainer).toContain("still being registered");
+    expect(company.attributionLine).toBe(
+      "Information produced by HM Land Registry © Crown copyright 2026",
+    );
+    expectClean(bundle);
+  });
+
+  it("the building line: a flat's building title serves separately, named, never as the flat's own", async () => {
+    const source = new MatrixAreaSource();
+    source.company.titles = [
+      matrixTitle({
+        titleNumber: "SY876459",
+        dataset: "ocod",
+        propertyAddress: "Flats 1-9 Minerva House, 12 Ceres Crescent, Epsom (KT17 1FH)",
+        proprietorName: "ADRIATIC LAND 11 LIMITED",
+        countryIncorporated: "GUERNSEY",
+        sourceName: OCOD_SOURCE_M,
+      }),
+    ];
+    const bundle = await areaBundleOn(source, MINERVA_HOME_M);
+    const company = bundle.sections.companyOwnership;
+    if (!company) throw new Error("expected the section");
+    expect(company.state).toBe("not-company-owned");
+    expect(company.ownTitles).toEqual([]);
+    expect(company.buildingTitles.map((t) => t.titleNumber)).toEqual(["SY876459"]);
+    expect(company.buildingTitles[0].numberState).toBe("no-number-recorded");
+    expect(company.buildingLine).toContain("separate title");
+    expectClean(bundle);
+  });
+
+  it("needs-exact-home at rung 2, with no title payload", async () => {
+    const bundle = await areaBundleOn(new MatrixAreaSource(), addressList(ENG_DIR));
+    const company = bundle.sections.companyOwnership;
+    if (!company) throw new Error("expected the section");
+    expect(company.state).toBe("needs-exact-home");
+    expect(company.line).toBe(
+      "choose the exact home to see whether a company is a registered proprietor of its title",
+    );
+    expect(company.ownTitles).toEqual([]);
+    expect(company.buildingTitles).toEqual([]);
+    expectClean(bundle);
+  });
+
+  it("not-covered: Scotland and Northern Ireland name their own registers — never a No", async () => {
+    const scotland = (await areaBundleOn(new MatrixAreaSource(), SCO_HOME)).sections
+      .companyOwnership;
+    if (!scotland) throw new Error("expected the section");
+    expect(scotland.state).toBe("not-covered");
+    expect(scotland.line).toContain("Registers of Scotland");
+    const ni = (await areaBundleOn(new MatrixAreaSource(), NI_HOME)).sections.companyOwnership;
+    if (!ni) throw new Error("expected the section");
+    expect(ni.state).toBe("not-covered");
+    expect(ni.line).toContain("Land & Property Services");
+  });
+
+  it("not-filed: an unfiled dataset serves the not-filed family, never a No", async () => {
+    const source = new MatrixAreaSource();
+    source.company.ocodFiledCount = 0;
+    source.company.titles = SAGE_TITLES_M;
+    const bundle = await areaBundleOn(source, ENG_HOME);
+    const company = bundle.sections.companyOwnership;
+    if (!company) throw new Error("expected the section");
+    expect(company.state).toBe("not-filed");
+    expect(company.line).toBe(
+      "the company-ownership data is not filed yet, so no company-ownership answer can be given yet",
+    );
+    expectClean(bundle);
+  });
+
+  it("rung 3 in the flag-on position: the thirteenth per-section reason joins the record", async () => {
+    const bundle = await buildAreaBundle(
+      { rung: 3, kind: "wider-area", outward: "CM3", label: "Wider area — CM3", postcodeCount: 1 },
+      new MatrixAreaSource(),
+      { companyOwnershipEnabled: true },
+    );
+    if (bundle.kind !== "wider-area") throw new Error("expected wider-area");
+    expect(Object.keys(bundle.area.sections)).toHaveLength(13);
+    expect(bundle.area.sections.companyOwnership).toEqual({
+      state: "unavailable",
+      reason: "company ownership needs an exact postcode",
+    });
+  });
+
+  it("the section never reaches the short bundle, in either flag position", async () => {
+    const { short } = await shortFor(ENG_HOME, new MatrixAreaSource(), headlineNearby());
+    if (short.kind !== "short-bundle") throw new Error("expected a short bundle");
+    expect(Object.keys(short.sections)).toHaveLength(11);
+    expect("companyOwnership" in short.sections).toBe(false);
+
+    const soldSource = new MatrixSoldPricesSource();
+    soldSource.rows.set("CM3 2JT", [
+      sale({ price: 100000, saleDate: "2001-01-05" }),
+      sale({ price: 200000, saleDate: "2005-02-05" }),
+      sale({ price: 300000, saleDate: "2010-03-05" }),
+      sale({ price: 400000, saleDate: "2015-04-05" }),
+      sale({ price: 588995, saleDate: "2023-06-15" }),
+    ]);
+    const crimeSource = new MatrixCrimeSource();
+    crimeSource.artefacts.set("CM3 2JT", crimeArtefact(3));
+    const [nearbyBundle, soldPrices, crime, flood, areaOn] = await Promise.all([
+      buildNearbyBundle(ENG_HOME, headlineNearby()),
+      buildSoldPricesBundle(ENG_HOME, soldSource),
+      buildCrimeBundle(ENG_HOME, crimeSource, { now: CRIME_NOW }),
+      buildFloodBundle(ENG_HOME, new MatrixFloodSource()),
+      areaBundleOn(new MatrixAreaSource(), ENG_HOME),
+    ]);
+    const shortOn = buildShortBundle({
+      nearby: nearbyBundle,
+      soldPrices,
+      crime,
+      flood,
+      area: areaOn,
+    });
+    if (shortOn.kind !== "short-bundle") throw new Error("expected a short bundle");
+    expect(Object.keys(shortOn.sections)).toHaveLength(11);
+    expect("companyOwnership" in shortOn.sections).toBe(false);
+    expect(JSON.stringify(shortOn)).not.toContain("companyOwnership");
+  });
+
+  it("the register's address text is absent from every served shape", async () => {
+    const source = new MatrixAreaSource();
+    source.company.titles = SAGE_TITLES_M;
+    const bundle = await areaBundleOn(source, ENG_HOME);
+    const json = JSON.stringify(bundle.sections.companyOwnership);
+    for (const fragment of ["HATFIELD PEVEREL", "CHELMSFORD", "Birkdale Rise,"])
+      expect(json).not.toContain(fragment);
   });
 });
