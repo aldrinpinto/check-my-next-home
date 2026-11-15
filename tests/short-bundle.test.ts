@@ -32,6 +32,7 @@ import {
 } from "../lib/sold-prices";
 import { DATASETS, buildRows, parseDatasetCsv } from "../loaders/load-census.mjs";
 import { imdSummaryFor } from "../loaders/load-imd.mjs";
+import { BANNED_WORDING, GIGABIT_FIGURE, VALUATION_DISCLAIMER } from "./banned-wording";
 
 // The short-version bundle (plan step M6.7, decision D28).
 //
@@ -2670,72 +2671,21 @@ describe("short bundle — broadband & mobile (M6.17, D36)", () => {
 // --- banned wording, inherited ------------------------------------
 
 describe("short bundle — wording (the union of the brains' banned lists)", () => {
-  const BANNED = [
-    // crime (D24)
-    "score",
-    "rating",
-    "rated",
-    "safe",
-    "unsafe",
-    "dangerous",
-    "high-crime",
-    "low-crime",
-    "crime rate",
-    "rising",
-    "falling",
-    "trend",
-    // flood (D25)
-    "flood-proof",
-    "floodproof",
-    "will flood",
-    "won't flood",
-    "no flood risk",
-    "at risk",
-    "insurable",
-    "uninsurable",
-    "you may struggle",
-    "lenders require",
-    // sold prices (D23)
-    "worth",
-    "estimate",
-    "bargain",
-    "overpriced",
-    "underpriced",
-    "good price",
-    "below the median",
-    "above the median",
-    "cheaper",
-    "dearer",
-    // area (D26)
-    "quiet",
-    "peaceful",
-    "noisy",
-    "clean air",
-    "polluted",
-    "healthy air",
-    "affluent",
-    "poor area",
-    "good area",
-    "family-friendly",
-    "desirable",
-    "good schools",
-    "your home is listed",
-    "no constraints",
-    "no nature",
-    "protected",
-    "deprived",
-  ];
+  // The union lives in ONE shared place (tests/banned-wording.ts,
+  // M6.10/D38) — this scan and the SEO wording scan both import
+  // it, so the lists can never diverge.
+  const BANNED = BANNED_WORDING;
   // The one ruled disclaimer: the median explainers state the
   // figure "is not a valuation of this home" (D23). The scan
   // strips that exact sentence, then requires "valuation" to
   // appear nowhere else.
-  const DISCLAIMER = "It is not a valuation of this home.";
-  // The one ruled percentage: D36's broadband headline IS a
-  // percentage — the gigabit figure — and the pick carries
-  // the section's line verbatim. The scan strips a
-  // percentage figure in that line's exact shape, then
-  // requires "%" to appear in no other served string.
-  const GIGABIT_FIGURE = /available to [\d.]+% of premises/g;
+  const DISCLAIMER = VALUATION_DISCLAIMER;
+  // The one ruled percentage (GIGABIT_FIGURE, shared with the
+  // list): D36's broadband headline IS a percentage — the
+  // gigabit figure — and the pick carries the section's line
+  // verbatim. The scan strips a percentage figure in that
+  // line's exact shape, then requires "%" to appear in no
+  // other served string.
 
   it("no served string carries a banned term, and no key computes a comparison", async () => {
     const shorts: ShortBundle[] = [];

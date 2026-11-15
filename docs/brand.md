@@ -1,13 +1,15 @@
 # Brand — Check My Next Home
 
-Decided by Aldrin Pinto and finalised on 12 Nov 2026. This file is the site's single source for its identity tokens; the build applies the palette and logo at step M7.1 of the Phase 1 plan.
+Decided by Aldrin Pinto and finalised on 12 Nov 2026. This file is the site's single source for its identity tokens; the build applies the palette and logo at step M7.1 of the Phase 1 plan. (The tagline and manifesto entries below were corrected to decision D12 on 15 Nov 2026 at step M6.10: D12 was decided on 13 Nov 2026, after this file, and had never been written into it — the code carried the same drift until M6.10 reconciled both.)
 
 ## Name
 
 **Check My Next Home** — the brand name and the website name are identical, everywhere, with no alternates.
 
 1. Canonical host: checkmynexthome.co.uk (the .com domain 301-redirects to it).
-2. Strapline: Your family's next home — check what the listing doesn't tell you.
+2. Tagline (D12, decided 13 Nov 2026): Check the house. Choose the home.
+3. Manifesto (D12): For the family who'll live there — not just the buyer. Hero kicker only — never in the header, a page title or a meta description.
+4. Superseded: the M3 strapline "Your family's next home — check what the listing doesn't tell you." is no longer the site's strapline. It survives only as homepage hero copy, under the manifesto kicker.
 
 ## Colours — Theme 2, Forest green + brass
 
