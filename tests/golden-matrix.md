@@ -649,6 +649,205 @@ answer can be given from it") rather than an absence read
 from an empty table — the same judgment call M6.4 flagged
 for crime, applied per layer here.
 
+### Constraints & area in the brain (M6.6)
+
+Proved in the local rehearsal on 15 Nov 2026: a fresh
+PGlite PostGIS filed with the fullest local filing — the
+national planning, heritage and green-belt files (the M5.2
+builds' own 12 Nov 2026 downloads: 9,798 conservation
+areas, 7,521 Article 4 areas, the 116-organisation gate,
+181 green-belt pieces, 379,169 listed buildings, 20,007
+monuments), the full ONSPD August 2026 directory
+(1,810,363 postcodes, extracted from the project's own
+zip), the national IMD File 7 (33,755 LSOAs) and PCM 2024
+air file (254,905 squares), and the repo fixtures for
+Census (the three golden MSOAs), council tax (13
+authorities), benefits, noise (12 rows), priority habitats
+(1,716 patches), PVGIS (3 cells) and nature designations
+(the golden cuts of the Natural England services). EPC
+artefacts were filed by the loader's own fixture path for
+CM3 2JT (42 certificates) and E16 1GN (12), and for
+KT17 1FH from the M4.5 live captures (25 certificates; the
+certificate documents were re-fetched through the EPC
+connector helper for the rehearsal only). Every fact below
+was read back through the real database source
+(`createAreaSource`) and the real bundle builder. The rule
+is decision D26: one bundle of per-dataset sections, each
+with its own facts or named state, its own source line
+with that dataset's own edition, its grain named in its
+words, and depth encoded — IMD, Census, benefits and
+solar are report-depth; the headline projection
+(`projectHeadline`) carries constraints, heritage, nature,
+the EPC band, the council-tax authority figure, the NO2
+figure and the road day band only, and is a projection of
+the bundle, never a second read. All distances are
+PostGIS geography distances from the postcode point.
+
+Locks on the serving basis. Constraints: Birkdale —
+conservation area none-found in the national data (nearest
+Chelmer and Blackwater Navigation, 1.473 miles), Article 4
+not published (nearest filed area West Bowers Farm,
+Woodham Walter, 1.584), green belt none-found (nearest
+London belt edge 5.831 miles in the beyond form). Exeter —
+Article 4 not published (nearest London City Island,
+0.617). The Epsom flat — Ewell Village conservation area
+and Article 4 area both 0.099 miles away, green belt
+(London) 0.101. C1 is inside both Ewell Village areas, its
+Article 4 detail the codes 1A;1C;1D;1F;2A;2B, translated at
+report depth (1A "extensions and other alterations to a
+house", 2B "a new or altered access to a road"; an unknown
+code serves untranslated, never invented). C2 is inside
+the London City Island Article 4 area. C4 is inside the
+KINGSTON OLD TOWN CONSERVATION AREA (filed name verbatim)
+and a Kingston Article 4 area whose detail is filed as
+prose, not codes — prose serves as its own words. C7 is
+inside Oxford's "Central" conservation area and its
+"Houses in Multiple Occupation Article 4 Direction"
+(detail 3L, "changes of use (Part 3 Class L)"). Heritage:
+listed counts within 2 miles — Birkdale 102 (nearest
+White Hart Cottage, 1123430, II, 0.187), Exeter 213
+(nearest the Chapel of St George and St Helena, 1406622,
+II, 0.322), the Epsom flat 315 (nearest PIT HOUSE,
+1214537, II, 0.169), Oxford 1,087. C4's point IS the
+listed MARKET HOUSE (1358428, II*, 0.000 miles) and C3's
+SAWYERS (1337547, II) sits 0.008 away: both serve the
+at-the-point "check the NHLE entry" line, never "this
+home is listed". C5's point falls inside the Oatlands
+Palace monument; its listed gates (1191628) are 0.024
+away. Hilgay: zero listed within 2 miles (beyond form:
+Apes Hall, Littleport, 2.532), nearest conservation area
+Littleport 3.572, nearest monument 4.475. Nature, grouped
+by place: Exeter's Gilbert's Pit (Charlton) SSSI at 1.902;
+the Epsom flat's Stones Road Pond SSSI at 0.673; C6
+stands inside Epsom and Ashtead Commons SSSI and the
+London green belt; KT22 8QA's Mole Gap to Reigate
+Escarpment SSSI and SAC over the same ground at 0.393
+serve as ONE place ("SSSI · part of Mole Gap to Reigate
+Escarpment SAC"), and the point is inside a filed ancient
+woodland polygon and the green belt; C3's beyond place is
+"Epping Forest SSSI — SSSI · part of Epping Forest SAC"
+(4.019). Ancient woodland absence is "no ancient woodland
+recorded in the inventory" (Birkdale's nearest unnamed
+shape 0.387, the Epsom flat's 1.41). EPC: Birkdale's one
+certificate serves (2490-1633-0432-1002-3023, band B,
+141 sq m, 2022-10-07, SAP — predicted, as filed); Exeter's
+two both serve, newest first (91 sq m 2023 RdSAP, then
+71 sq m 2013 SAP) with the disagreement named; at
+KT17 1FH the three Flat 4s separate exactly — Flat 4
+Minerva House matches only 8401-7039-6529-6723-9906
+(band B, 70 sq m, 2019-11-07, SAP) of the 25 filed.
+Council tax joins on the directory's council name for all
+four golden councils: Braintree £2,280.34 (parish average
+£64.54), Newham £1,944.23 (GLA £510.51), Epsom and Ewell
+£2,530.84, Cardiff £2,013.18 (community council average
+£4.32); Tower Hamlets (C2) £1,837.78 also joins. Census:
+the three MSOAs reproduce on their own per-table totals
+(Birkdale totals 8,141/8,136/8,138/8,138/3,398/3,399/
+3,397 across the seven tables), median ages calculated
+from the single years — Birkdale 46.5, Exeter 33.4, the
+Epsom flat's MSOA 44.5 (computed and locked at this
+build) — social-rented 469 of 3,397, 1,631 of 3,330
+(49.0 percent), 241 of 4,440. IMD deciles 8 / 3 / 10 with
+Exeter's Barriers to Housing domain decile 1; the served
+summary is the FILED summary string, character for
+character (pinned by test against the loader's own
+renderer); the score and rank are never served, asserted
+absent at serialisation. Air reproduces the locked PCM
+2024 triples exactly (Birkdale NO2 8.150298, Exeter
+21.71409, the Epsom flat 12.49256 µg/m³), NO2 the one
+headline figure, no comparison to statutory limits
+anywhere in the answer. Noise (fixture filing): Birkdale
+road Below 55 / Below 50, rail and airport no-modelled;
+Exeter road 55–59 / Below 50, airport Below 55 by day and
+no-modelled by night (the two states distinct); C1's rail
+pair is a real below-range pair (Below 55 / Below 50).
+Benefits, three series separate: Claimant Count Sep 2026
+15 / 1.6 percent, 120 / 8.6, 20 / 1.2; UC people May 2026
+117 / 383 / 93; UC households Apr 2026 105 / 83, and
+Exeter's LSOA absent from the Households cube serves
+not-published-for-this-area, never a zero. Solar (fixture
+cells): yields 1,057.65 / 1,009.96 / 991.49 kWh/kWp on the
+filed standard basis, worded as facts about the location;
+a point whose cell is not filed (C3) serves "not filed
+for this area yet", distinct from an empty grid's
+not-filed state. Priority habitats (fixture filing of
+1,716 patches): Birkdale's nearest a traditional orchard
+at 0.249 with five types within 2 miles, aggregated
+only — never patch counts, never "protected".
+
+Divergences from the prep-era pins, named. (1) Exeter's
+listed count is 213 on the serving basis, not the prep's
+215 (the prep counted on a mixed basis). (2) Several prep
+distances were 2-decimal roundings of the geography
+figures now locked at 3 decimals (1.473, 0.617, 0.322,
+0.169, 2.887, 0.393 and the rest above), and several
+filed names carry their register suffixes ("Gilbert's
+Pit (Charlton) SSSI", "PIT HOUSE", "MARKET HOUSE"). (3)
+Article 4's "none found" cannot yet be served for ANY
+council through the real source: the gate table
+(migration 0007) is keyed by the platform's organisation
+ENTITY number and no filed table bridges the directory's
+council NAME to that number (the planning files publish
+the number only; the platform's organisation register is
+not filed). The source's gate therefore answers false —
+fail-safe: Birkdale and Exeter serve "not published" as
+ruled, and a publishing council's absence (the Epsom
+flat) also serves "not published" until the bridge is
+filed. The gated branch is proven by unit test against a
+gate answering true. Filing the bridge is an M5-class
+job, named for M12. (4) The EPC section's solar facts:
+the M4.5 loader's minimisation drops the register's solar
+fields, so no filed certificate carries them and no EPC
+solar fact can serve in V1; the brain passes them through
+if a future filing keeps them. (5) Exeter's ancient
+woodland beyond form (Greenwich Park, 2.51 in the prep's
+live read) and Hilgay's priority habitat at 0.123 (the
+prep's live read) do not reproduce on the fixture
+filings — those shapes sit outside the cuts filed; the
+brain's beyond and aggregated paths are proven on the
+shapes that are filed, and both facts await the national
+filings at M12. (6) E16 1EG's filed-zero EPC state is
+proven at unit level and by the loader's own golden; in
+this rehearsal no artefact was filed for it (filing needs
+the register token, which never enters this environment),
+so the real source serves the cold path's not-filed after
+the load attempt fails — the honest token-less behaviour.
+(7) Welsh coverage rulings taken at this build: green
+belt absence in Wales is sparse coverage (the filed belts
+are England's designation layer), and the listed section
+serves sparse coverage with NO count outside England
+(the filed list is England's NHLE; a Welsh zero would be
+a false figure) — Cardiff's conservation-area absence
+was already ruled sparse coverage in D26. (8) The
+rehearsal's first postcode filing carried the fixture's
+cut-down Documents lookups, under which Epsom and
+Cardiff's directory rows held LAD codes instead of names
+and their tax joins served not-published; with the full
+ONSPD Documents both joins serve (above). The brain's
+behaviour under a code-carrying directory row is the
+named mismatch state working as designed — never a
+borrowed figure.
+
+Timing (local PGlite WASM engine; native production
+timing is M12's confirmation, as for M6.1/M6.2/M6.5):
+full-bundle means over 10 runs — CM3 2JT 1,098 ms,
+E16 1GN 899 ms, KT17 1FH 692 ms, KT21 1AG (inside an
+SSSI) 685 ms, OX1 1HD (1,087 listed) 1,104 ms, CB6 1EH
+(near-empty) 1,696 ms. The profile shows the cost is the
+beyond-step walks (5/10/20/40 miles) over near-empty
+layers — designation facts 470–1,026 ms and priority
+habitats 210–514 ms per point on this engine, against
+1–53 ms for a single planning layer and ~1 ms for air.
+EXPLAIN ANALYZE proves every nearest query is
+radius-bounded and index-driven: Bitmap Index Scan on
+planning_layers_geom_idx for planning nearest, Index Scan
+on listed_buildings_geom_idx for listed points, and the
+designation overlap self-join on planning_layers_geom_idx
+— no full-layer distance sorts. Priority-habitat timing
+is fixture-volume only (1,716 patches); its national
+re-proof is owed at M12, as are the noise and solar
+first-pass filings that lift those sections' guards.
+
 ## E2E journeys each candidate unlocks (Playwright, QA phase)
 
 | Candidate            | Journey it unlocks                                                                                                                                                                          |
