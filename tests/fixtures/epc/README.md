@@ -12,7 +12,11 @@ captured 12 Nov 2026 with the project's own API token:
 KT17 1FH was captured the same way on 15 Nov 2026 for M6.14 (its raw
 register documents were never fixtured before then): the search
 (25 stubs) as `search-kt17-1fh.json` and all 25 certificate documents
-in `certs/` — 79 documents in the directory in total. The practice
+in `certs/`. CM1 6ER was captured the same way on 15 Nov 2026 for
+M6.15: the search (49 stubs) as `search-cm1-6er.json` and all 49
+certificate documents in `certs/` — 128 documents in the directory
+in total. All 49 Beaulieu certificates are SAP (predicted) and
+band B, as the golden matrix locks. The practice
 directory excerpt (the ONSPD fixture) holds CM and E areas only, so
 the runner's fixture pass still files the two original postcodes;
 the KT17 set locks the loader's Minerva goldens and serves wherever

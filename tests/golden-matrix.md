@@ -86,14 +86,14 @@ flood planning maps are a Natural Resources Wales product, not an EA one.
 
 ### EPC (M4.5)
 
-| Combination                                                                            | Covered by                                                                                                           |
-| -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| One certificate for the home, band B, measured (RdSAP-era)                             | Birkdale (band B, 141 sq m, registered 7 Oct 2022)                                                                   |
-| Two certificates for the SAME address with disagreeing floor areas — both must survive | Exeter (71 sq m 2013 and 91 sq m 2023, both band B)                                                                  |
-| Building-level certificates; all one band; same flat number in three buildings         | Epsom (25 certs, all band B; Flat 4 cert in each of the three Houses; the flat's own is SAP, 70 sq m)                |
-| Predicted-only (SAP) certificates, new-build                                           | C10 (49 certs, all SAP, all band B)                                                                                  |
-| ZERO certificates at the postcode                                                      | E16 1EG (verified zero via the EPC register; E16 1DP the same) — EPC-only guard                                      |
-| Mixed bands at one postcode incl. a poor band (F/G)                                    | GAP — kind of postcode that fills it: an older unrenovated street (pre-1919 terraces) in any of the existing regions |
+| Combination                                                                            | Covered by                                                                                                                                                                                                                                                                                                                                     |
+| -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| One certificate for the home, band B, measured (RdSAP-era)                             | Birkdale (band B, 141 sq m, registered 7 Oct 2022)                                                                                                                                                                                                                                                                                             |
+| Two certificates for the SAME address with disagreeing floor areas — both must survive | Exeter (71 sq m 2013 and 91 sq m 2023, both band B)                                                                                                                                                                                                                                                                                            |
+| Building-level certificates; all one band; same flat number in three buildings         | Epsom (25 certs, all band B; Flat 4 cert in each of the three Houses; the flat's own is SAP, 70 sq m)                                                                                                                                                                                                                                          |
+| Predicted-only (SAP) certificates, new-build                                           | C10 (49 certs, all SAP, all band B)                                                                                                                                                                                                                                                                                                            |
+| ZERO certificates at the postcode                                                      | E16 1EG (verified zero via the EPC register; E16 1DP the same) — EPC-only guard                                                                                                                                                                                                                                                                |
+| Mixed bands at one postcode incl. a poor band (F/G)                                    | GAP for a real postcode — but the per-band rendering and percentage maths beyond the goldens' B–D range are proven at M6.15 by a labelled synthetic artefact in the state matrix (bands A–G plus the no-band form). Kind of postcode that fills the golden gap: an older unrenovated street (pre-1919 terraces) in any of the existing regions |
 
 ### Schools (M4.6)
 
@@ -1482,6 +1482,33 @@ cost line; the real loader re-filed CM3 2JT and the cost lines
 returned, the entry holding the restored bundle. Temporary
 prove suites deleted after passing; CI's database job is the
 final word.
+
+## The postcode's EPC spread (M6.15, decision D34)
+
+D34: the spread of recorded certificates across bands at the whole postcode, served as a sub-block (`spread`) inside the EPC section at report depth. It shares the section's artefact read, source line and D29 cache guard (the EPC artefact hash) — no new cache entry, no new vector component; the headline projection cannot carry it and the D28 short bundle is untouched (both asserted).
+
+**The counting rule — certificates, never homes.** The counting unit is the filed certificate. A homes count would need a latest-per-home pick, and picking a winner among a home's disagreeing certificates is the ranking D26 forbids. The standing example is in the Exeter filing: 10 Exeter Road holds a predicted band B (2013, SAP) and an assessed band C (2025, RdSAP); a homes count silently picks one, the certificates count serves both. The block's own explainer says the rest of the rule in plain words: a home assessed more than once appears more than once, and most homes in a postcode have no certificate at all.
+
+**The split rule — predicted and assessed never combine.** Predicted (SAP) and assessed (RdSAP) certificates serve as separate rows, each on its own base, the base always named in the row's line; percentages are computed at serve time from the filed counts (the D26 Census pattern). Birkdale is the proof of why: combined, its 42 certificates would read 90.5 percent band B — but every B is a new-build prediction and all four assessed homes rate C or D. A row with zero certificates does not serve.
+
+**The claim boundary.** The spread speaks of filed certificates only — never of the postcode's homes — and no comparison between the checked home's own band and the spread is computed, phrased or laid out: the block is a pure function of the artefact and references the home's certificates not at all (proven by serving two Birkdale homes of different bands and asserting identical spreads, and by the block's closed key shape). Area energy verdicts ("efficient area", "well-insulated postcode" and kin) are in the state matrix's banned scan.
+
+**The golden spreads** (asserted verbatim in the unit suite against the fixtured register documents, and served verbatim through the real sources in the M6.15 scoped rehearsal):
+
+| Postcode          | Certificates | Predicted (SAP) row | Assessed (RdSAP) row |
+| ----------------- | ------------ | ------------------- | -------------------- |
+| CM3 2JT Birkdale  | 42           | 38 — B 38           | 4 — C 1, D 3         |
+| E16 1GN Exeter Rd | 12           | 10 — B 10           | 2 — B 1, C 1         |
+| KT17 1FH Minerva  | 25           | 25 — B 25           | — (no row serves)    |
+| CM1 6ER Beaulieu  | 49           | 49 — B 49           | — (no row serves)    |
+
+Birkdale's rows serve verbatim as: "of the 38 predicted (SAP) certificates recorded for this postcode, 38 are band B (100 percent)" and "of the 4 assessments of existing homes (RdSAP) recorded for this postcode, 1 is band C (25 percent) and 3 are band D (75 percent)". Exeter's assessed row: "of the 2 assessments of existing homes (RdSAP) recorded for this postcode, 1 is band B (50 percent) and 1 is band C (50 percent)".
+
+**The Beaulieu capture.** Before this step, Beaulieu's "49 certificates, all predicted, all band B" existed only as a locked sentence in this matrix — no register document was in the repo. At M6.15 the postcode was captured through the project's EPC connector in the established fixture pattern (search response plus all 49 certificate documents, minimised and verified exactly as the loader minimises: 49 SAP, all band B, all postcode CM1 6ER, no missing bands), and the spread above is locked from the captured documents. The fixture directory now holds 128 certificate documents across four postcodes.
+
+**States and rungs.** The spread serves wherever the postcode's artefact holds certificates — rungs 1 and 2 alike (it is a postcode fact), including beside the none-matching state (the home has no certificate; the postcode's spread still serves whole) and beside needs-exact-home at rung 2. Filed-with-zero (E16 1EG) and not-filed serve no spread: one artefact, one zero, one line — the section's own state line already says it. Rung 3 carries the section's shared reason; rung 4 nothing. The per-band rendering beyond the goldens' B–D range (E/F/G bands, the no-band form, fractional percentages) is proven by a labelled synthetic artefact in the state matrix.
+
+**Rehearsal record.** Scoped rehearsal at M6.15 on the local PGlite engine (PostgreSQL 18.6, PostGIS 3.6.2): migrations applied twice (newest still 0020 — this step needs no migration); the REAL loader filed the four fixture postcodes (42 / 12 / 25 / 49 certificates, its golden check passing); resolutions through the REAL address source and bundles through the REAL area source served all four golden spreads verbatim; rung 2 served the same spread; the spread survived a round trip through the REAL bundle_cache table unchanged. CI's database job is the final word.
 
 ## E2E journeys each candidate unlocks (Playwright, QA phase)
 

@@ -2305,6 +2305,275 @@ describe("monthly cost — never a total (M6.14, D33)", () => {
   });
 });
 
+// --- The postcode's EPC spread (M6.15, D34) ------------------------------
+
+describe("the postcode's EPC spread (M6.15, D34)", () => {
+  // The loader's minimisation, mirrored so the artefacts
+  // below are the filed shape the real loader produces from
+  // the captured register documents (tests/fixtures/epc).
+  function fixtureArtefact(postcode: string): EpcArtefact {
+    const dir = join(__dirname, "fixtures", "epc");
+    const fixture = JSON.parse(readFileSync(join(dir, "fixture.json"), "utf8")) as {
+      postcodes: Record<string, { searchFile: string }>;
+    };
+    const search = JSON.parse(
+      readFileSync(join(dir, fixture.postcodes[postcode].searchFile), "utf8"),
+    ) as { data: Record<string, unknown>[] };
+    const costOf = (doc: Record<string, unknown>, key: string): number | null => {
+      const cost = doc[key] as { value?: unknown; currency?: unknown } | null;
+      if (cost === null || typeof cost !== "object") return null;
+      if (cost.currency !== "GBP") return null;
+      return typeof cost.value === "number" && Number.isFinite(cost.value) ? cost.value : null;
+    };
+    const certificates: EpcCertificate[] = search.data.map((stub) => {
+      const raw = JSON.parse(
+        readFileSync(join(dir, "certs", `${stub.certificateNumber as string}.json`), "utf8"),
+      ) as { data?: Record<string, unknown> } & Record<string, unknown>;
+      const doc = (raw.data ?? raw) as Record<string, unknown>;
+      const dwelling = doc.dwelling_type as { value?: string } | string | null;
+      return {
+        certificateNumber: stub.certificateNumber as string,
+        addressLine1:
+          (doc.address_line_1 as string | null) ?? (stub.addressLine1 as string | null) ?? null,
+        addressLine2:
+          (doc.address_line_2 as string | null) ?? (stub.addressLine2 as string | null) ?? null,
+        addressLine3:
+          (doc.address_line_3 as string | null) ?? (stub.addressLine3 as string | null) ?? null,
+        postTown: (doc.post_town as string | null) ?? (stub.postTown as string | null) ?? null,
+        postcode: (doc.postcode as string) ?? (stub.postcode as string),
+        uprn: (doc.uprn as string | null) ?? (stub.uprn as string | null) ?? null,
+        band:
+          (doc.current_energy_efficiency_band as string | null) ??
+          (stub.currentEnergyEfficiencyBand as string | null) ??
+          null,
+        ratingCurrent: (doc.energy_rating_current as number | null) ?? null,
+        potentialBand: (doc.potential_energy_efficiency_band as string | null) ?? null,
+        totalFloorArea: (doc.total_floor_area as number | null) ?? null,
+        dwellingType:
+          typeof dwelling === "object" && dwelling !== null
+            ? (dwelling.value ?? null)
+            : (dwelling ?? null),
+        assessmentType: (doc.assessment_type as string | null) ?? null,
+        registrationDate:
+          (doc.registration_date as string | null) ??
+          (stub.registrationDate as string | null) ??
+          null,
+        heatingCostCurrent: costOf(doc, "heating_cost_current"),
+        hotWaterCostCurrent: costOf(doc, "hot_water_cost_current"),
+        lightingCostCurrent: costOf(doc, "lighting_cost_current"),
+        heatingCostPotential: costOf(doc, "heating_cost_potential"),
+        hotWaterCostPotential: costOf(doc, "hot_water_cost_potential"),
+        lightingCostPotential: costOf(doc, "lighting_cost_potential"),
+      };
+    });
+    return artefact(certificates);
+  }
+
+  const FIXTURE_ARTEFACTS = new Map<string, EpcArtefact>([
+    ["CM3 2JT", fixtureArtefact("CM3 2JT")],
+    ["E16 1GN", fixtureArtefact("E16 1GN")],
+    ["KT17 1FH", fixtureArtefact("KT17 1FH")],
+    ["CM1 6ER", fixtureArtefact("CM1 6ER")],
+  ]);
+
+  class FixtureEpcSource extends FakeAreaSource {
+    override async epcArtefact(postcode: string) {
+      return FIXTURE_ARTEFACTS.get(postcode) ?? null;
+    }
+    override async loadEpc() {
+      // The fixture artefacts are already filed.
+    }
+  }
+  const fixtureSource = new FixtureEpcSource();
+
+  const BEAULIEU_DIR = directory({
+    postcode: "CM1 6ER",
+    latitude: 51.7425,
+    longitude: 0.492,
+    council: "Chelmsford",
+    lsoaCode: "E01000002",
+    msoaCode: null,
+  });
+  const BEAULIEU = home(BEAULIEU_DIR, {
+    label: "49 George Heard Crescent",
+    paon: "49",
+    street: "GEORGE HEARD CRESCENT",
+  });
+  const BIRKDALE_2 = home(BIRKDALE_DIR, {
+    label: "2 Birkdale Rise",
+    paon: "2",
+    street: "BIRKDALE RISE",
+  });
+
+  const SPREAD_EXPLAINER =
+    "The spread counts certificates, not homes: a home assessed more than once appears more than once, and most homes in a postcode have no certificate at all — a certificate exists only where a home was built, sold or let since the register began. It describes what the register holds for the postcode, and says nothing about any one home.";
+
+  const BIRKDALE_SPREAD = {
+    grainLine: "the postcode's recorded certificates",
+    certificateCount: 42,
+    explainer: SPREAD_EXPLAINER,
+    rows: [
+      {
+        kind: "predicted",
+        count: 38,
+        bands: [{ band: "B", count: 38, pct: 100 }],
+        line: "of the 38 predicted (SAP) certificates recorded for this postcode, 38 are band B (100 percent)",
+      },
+      {
+        kind: "assessed",
+        count: 4,
+        bands: [
+          { band: "C", count: 1, pct: 25 },
+          { band: "D", count: 3, pct: 75 },
+        ],
+        line: "of the 4 assessments of existing homes (RdSAP) recorded for this postcode, 1 is band C (25 percent) and 3 are band D (75 percent)",
+      },
+    ],
+  };
+
+  it("Birkdale: both rows serve, split as filed — 38 predicted all B; 4 assessed, C 1 and D 3", async () => {
+    const { sections } = await bundle(BIRKDALE, fixtureSource);
+    expect(sections.epc.state).toBe("served");
+    expect(sections.epc.certificateCountAtPostcode).toBe(42);
+    expect(sections.epc.spread).toEqual(BIRKDALE_SPREAD);
+  });
+
+  it("Exeter: 12 certificates — 10 predicted all B; 2 assessed, B 1 and C 1", async () => {
+    const { sections } = await bundle(EXETER, fixtureSource);
+    expect(sections.epc.spread).toEqual({
+      grainLine: "the postcode's recorded certificates",
+      certificateCount: 12,
+      explainer: SPREAD_EXPLAINER,
+      rows: [
+        {
+          kind: "predicted",
+          count: 10,
+          bands: [{ band: "B", count: 10, pct: 100 }],
+          line: "of the 10 predicted (SAP) certificates recorded for this postcode, 10 are band B (100 percent)",
+        },
+        {
+          kind: "assessed",
+          count: 2,
+          bands: [
+            { band: "B", count: 1, pct: 50 },
+            { band: "C", count: 1, pct: 50 },
+          ],
+          line: "of the 2 assessments of existing homes (RdSAP) recorded for this postcode, 1 is band B (50 percent) and 1 is band C (50 percent)",
+        },
+      ],
+    });
+  });
+
+  it("Minerva: a single predicted row — 25, all B, on the real documents; no assessed row serves", async () => {
+    const { sections } = await bundle(MINERVA, fixtureSource);
+    expect(sections.epc.spread).toEqual({
+      grainLine: "the postcode's recorded certificates",
+      certificateCount: 25,
+      explainer: SPREAD_EXPLAINER,
+      rows: [
+        {
+          kind: "predicted",
+          count: 25,
+          bands: [{ band: "B", count: 25, pct: 100 }],
+          line: "of the 25 predicted (SAP) certificates recorded for this postcode, 25 are band B (100 percent)",
+        },
+      ],
+    });
+  });
+
+  it("Beaulieu: a single predicted row — 49, all B, from the captured register documents", async () => {
+    const { sections } = await bundle(BEAULIEU, fixtureSource);
+    expect(sections.epc.state).toBe("served");
+    expect(sections.epc.spread).toEqual({
+      grainLine: "the postcode's recorded certificates",
+      certificateCount: 49,
+      explainer: SPREAD_EXPLAINER,
+      rows: [
+        {
+          kind: "predicted",
+          count: 49,
+          bands: [{ band: "B", count: 49, pct: 100 }],
+          line: "of the 49 predicted (SAP) certificates recorded for this postcode, 49 are band B (100 percent)",
+        },
+      ],
+    });
+  });
+
+  it("no comparison: the spread is identical whatever the checked home's own band, and carries no home-derived field", async () => {
+    const birkdale = await bundle(BIRKDALE, fixtureSource);
+    const birkdale2 = await bundle(BIRKDALE_2, fixtureSource);
+    // The two homes' own answers genuinely differ (band B
+    // against band C) — and the spread does not move.
+    expect(birkdale.sections.epc.headlineBand).toBe("B");
+    expect(birkdale2.sections.epc.headlineBand).toBe("C");
+    expect(birkdale2.sections.epc.spread).toEqual(birkdale.sections.epc.spread);
+    // The block's shape is closed: nothing in it is derived
+    // from the home's certificates (the D23 rule, applied to
+    // bands and pinned structurally as at M6.14).
+    const spread = birkdale.sections.epc.spread;
+    if (!spread) throw new Error("expected a spread");
+    expect(Object.keys(spread).sort()).toEqual(
+      ["certificateCount", "explainer", "grainLine", "rows"].sort(),
+    );
+    for (const row of spread.rows) {
+      expect(Object.keys(row).sort()).toEqual(["bands", "count", "kind", "line"].sort());
+      for (const band of row.bands)
+        expect(Object.keys(band).sort()).toEqual(["band", "count", "pct"].sort());
+    }
+    // No certificate is referenced: not the home's own, not
+    // any other.
+    expect(JSON.stringify(spread)).not.toContain("2490-1633-0432-1002-3023");
+  });
+
+  it("the spread serves at rung 2 while the home's certificates serve needs-exact-home", async () => {
+    const rung1 = await bundle(BIRKDALE, fixtureSource);
+    const rung2 = await bundle(addressList(BIRKDALE_DIR), fixtureSource);
+    expect(rung2.sections.epc.state).toBe("needs-exact-home");
+    expect(rung2.sections.epc.certificates).toEqual([]);
+    expect(rung2.sections.epc.spread).toEqual(rung1.sections.epc.spread);
+    expect(rung2.sections.epc.spread).toEqual(BIRKDALE_SPREAD);
+  });
+
+  it("the spread serves whole in the none-matching state — it completes the count's context", async () => {
+    const nowhere = home(BIRKDALE_DIR, {
+      label: "999 Birkdale Rise",
+      paon: "999",
+      street: "BIRKDALE RISE",
+    });
+    const { sections } = await bundle(nowhere, fixtureSource);
+    expect(sections.epc.state).toBe("none-matching");
+    expect(sections.epc.spread).toEqual(BIRKDALE_SPREAD);
+  });
+
+  it("the headline projection cannot carry the spread (report depth)", async () => {
+    const built = await bundle(BIRKDALE, fixtureSource);
+    const headline = projectHeadline(built);
+    expect(headline).not.toBeNull();
+    if (!headline) return;
+    expect(Object.keys(headline.epc).sort()).toEqual(["headlineBand", "line", "state"].sort());
+    expect(JSON.stringify(headline)).not.toContain("certificates recorded for this postcode");
+  });
+
+  it("no area energy verdict wording appears in any golden spread", async () => {
+    for (const resolution of [BIRKDALE, EXETER, MINERVA, BEAULIEU]) {
+      const { sections } = await bundle(resolution, fixtureSource);
+      const text = JSON.stringify(sections.epc.spread).toLowerCase();
+      for (const banned of [
+        "efficient area",
+        "efficient postcode",
+        "energy-efficient area",
+        "energy-efficient postcode",
+        "well-insulated",
+        "poorly insulated",
+        "insulated postcode",
+        "green area",
+        "green postcode",
+      ])
+        expect(text, `spread contains "${banned}"`).not.toContain(banned);
+    }
+  });
+});
+
 // --- Planning applications: the hand-off (M6.12, D31) -----------------
 
 describe("planning applications — the hand-off", () => {

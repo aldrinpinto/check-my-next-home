@@ -249,6 +249,17 @@ const BANNED = [
   "cost of living",
   "you will pay",
   "typical monthly bill",
+  // The EPC spread's banned framings (M6.15, D34): a count
+  // of filed certificates is never an energy verdict on
+  // the area.
+  "efficient area",
+  "efficient postcode",
+  "energy-efficient area",
+  "energy-efficient postcode",
+  "well-insulated area",
+  "well-insulated postcode",
+  "poorly insulated area",
+  "poorly insulated postcode",
 ];
 
 function expectClean(bundle: unknown) {
@@ -1625,6 +1636,129 @@ describe("matrix — area: EPC", () => {
     const bundle = await areaBundle(new MatrixAreaSource(), addressList(ENG_DIR));
     expect(bundle.sections.epc.state).toBe("needs-exact-home");
     expect(bundle.sections.epc.line).toBe("choose the exact home to see its energy certificates");
+  });
+
+  it("spread: serves beside the home's answer, on its own named base (M6.15, D34)", async () => {
+    const bundle = await areaBundle(new MatrixAreaSource());
+    // The matrix's filed certificate carries no assessment
+    // type, so it files on the assessed row — the section's
+    // own convention (not SAP = not predicted).
+    expect(bundle.sections.epc.spread).toEqual({
+      grainLine: "the postcode's recorded certificates",
+      certificateCount: 1,
+      explainer:
+        "The spread counts certificates, not homes: a home assessed more than once appears more than once, and most homes in a postcode have no certificate at all — a certificate exists only where a home was built, sold or let since the register began. It describes what the register holds for the postcode, and says nothing about any one home.",
+      rows: [
+        {
+          kind: "assessed",
+          count: 1,
+          bands: [{ band: "B", count: 1, pct: 100 }],
+          line: "of the 1 assessment of existing homes (RdSAP) recorded for this postcode, 1 is band B (100 percent)",
+        },
+      ],
+    });
+    expectClean(bundle);
+  });
+
+  it("spread: serves whole in the none-matching state (M6.15)", async () => {
+    const source = new MatrixAreaSource();
+    source.epc = epcArtefact([
+      cert({
+        certificateNumber: "X3",
+        addressLine1: "21 Birkdale Rise",
+        band: "C",
+        assessmentType: "RdSAP",
+      }),
+    ]);
+    const bundle = await areaBundle(source);
+    expect(bundle.sections.epc.state).toBe("none-matching");
+    expect(bundle.sections.epc.spread?.certificateCount).toBe(1);
+    expect(bundle.sections.epc.spread?.rows).toEqual([
+      {
+        kind: "assessed",
+        count: 1,
+        bands: [{ band: "C", count: 1, pct: 100 }],
+        line: "of the 1 assessment of existing homes (RdSAP) recorded for this postcode, 1 is band C (100 percent)",
+      },
+    ]);
+  });
+
+  it("spread: filed-zero and not-filed serve no spread (M6.15)", async () => {
+    const filedZero = new MatrixAreaSource();
+    filedZero.epc = epcArtefact([]);
+    expect((await areaBundle(filedZero)).sections.epc.spread).toBeNull();
+
+    const notFiled = new MatrixAreaSource();
+    notFiled.epc = null;
+    expect((await areaBundle(notFiled)).sections.epc.spread).toBeNull();
+  });
+
+  it("spread: rung 2 serves it while the home serves needs-exact-home (M6.15)", async () => {
+    const rung1 = await areaBundle(new MatrixAreaSource());
+    const rung2 = await areaBundle(new MatrixAreaSource(), addressList(ENG_DIR));
+    expect(rung2.sections.epc.state).toBe("needs-exact-home");
+    expect(rung2.sections.epc.certificates).toEqual([]);
+    expect(rung2.sections.epc.spread).toEqual(rung1.sections.epc.spread);
+    expect(rung2.sections.epc.spread).not.toBeNull();
+  });
+
+  it("spread: a SYNTHETIC mixed artefact renders every band and the no-band form (M6.15)", async () => {
+    // Synthetic by design: no golden postcode exercises the
+    // E–G bands or a certificate with no recorded band (the
+    // golden matrix's named GAP), so this artefact — built
+    // for this test, not captured — proves the per-band
+    // rendering and the percentage maths beyond the goldens'
+    // B–D range.
+    const source = new MatrixAreaSource();
+    const mk = (n: number, band: string | null, assessmentType: string) =>
+      cert({
+        certificateNumber: `SYN-${assessmentType}-${n}`,
+        addressLine1: "1 Other Street",
+        band,
+        assessmentType,
+      });
+    source.epc = epcArtefact([
+      mk(1, "A", "SAP"),
+      mk(2, "B", "SAP"),
+      mk(3, "B", "SAP"),
+      mk(4, "E", "SAP"),
+      mk(5, "F", "SAP"),
+      mk(6, "G", "SAP"),
+      mk(7, null, "SAP"),
+      mk(8, "D", "RdSAP"),
+      mk(9, "D", "RdSAP"),
+      mk(10, "F", "RdSAP"),
+      mk(11, null, "RdSAP"),
+    ]);
+    const bundle = await areaBundle(source);
+    expect(bundle.sections.epc.state).toBe("none-matching");
+    expect(bundle.sections.epc.spread?.certificateCount).toBe(11);
+    expect(bundle.sections.epc.spread?.rows).toEqual([
+      {
+        kind: "predicted",
+        count: 7,
+        bands: [
+          { band: "A", count: 1, pct: 14.3 },
+          { band: "B", count: 2, pct: 28.6 },
+          { band: "E", count: 1, pct: 14.3 },
+          { band: "F", count: 1, pct: 14.3 },
+          { band: "G", count: 1, pct: 14.3 },
+          { band: null, count: 1, pct: 14.3 },
+        ],
+        line: "of the 7 predicted (SAP) certificates recorded for this postcode, 1 is band A (14.3 percent), 2 are band B (28.6 percent), 1 is band E (14.3 percent), 1 is band F (14.3 percent), 1 is band G (14.3 percent) and 1 has no band recorded (14.3 percent)",
+      },
+      {
+        kind: "assessed",
+        count: 4,
+        bands: [
+          { band: "D", count: 2, pct: 50 },
+          { band: "F", count: 1, pct: 25 },
+          { band: null, count: 1, pct: 25 },
+        ],
+        line: "of the 4 assessments of existing homes (RdSAP) recorded for this postcode, 2 are band D (50 percent), 1 is band F (25 percent) and 1 has no band recorded (25 percent)",
+      },
+    ]);
+    expectClean(bundle);
   });
 });
 

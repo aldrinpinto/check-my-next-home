@@ -2613,4 +2613,21 @@ describe("short bundle — wording (the union of the brains' banned lists)", () 
       }
     }
   });
+
+  it("the postcode's EPC spread never reaches the short bundle (M6.15, D34)", async () => {
+    const full = await fullBundles(MINERVA);
+    if (full.area.kind !== "area-bundle") throw new Error("expected an area bundle");
+    // The full bundle's EPC section carries the spread —
+    // the fake files 25 certificates at KT17 1FH, all
+    // predicted, all band B.
+    expect(full.area.sections.epc.spread?.certificateCount).toBe(25);
+    expect(full.area.sections.epc.spread?.rows).toHaveLength(1);
+    // The short bundle's EPC is the headline projection
+    // only: no spread key, no spread wording.
+    const short = servedShort(buildShortBundle(full));
+    expect(Object.keys(short.sections.epc).sort()).toEqual(
+      ["headlineBand", "line", "state"].sort(),
+    );
+    expect(JSON.stringify(short)).not.toContain("certificates recorded for this postcode");
+  });
 });

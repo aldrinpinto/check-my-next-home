@@ -1383,16 +1383,83 @@ export interface ServedCertificate {
   energyCosts: ServedEnergyCosts | null;
 }
 
+// One band's share of one spread row: how many of the
+// row's filed certificates sit at this band, and that count
+// as a percentage of the row's own base, computed at serve
+// time from the filed counts (the Census pattern — counts
+// first, the base always named in the row's line).
+export interface EpcSpreadBand {
+  // The register's band letter, or null where the register
+  // recorded no band for the certificate. Such a certificate
+  // still counts in the row's base and serves in this
+  // absence form — never dropped, never folded into a
+  // neighbouring band.
+  band: string | null;
+  count: number;
+  pct: number;
+}
+
+// One row of the spread: the filed certificates of ONE
+// assessment kind at the postcode, on their own base.
+// Predicted (SAP) and assessed (RdSAP) certificates are
+// never combined into one distribution (D34): at Birkdale
+// the combined figure would read 90.5 percent band B while
+// every B is a new-build prediction and all four assessed
+// homes rate C or D.
+export interface EpcSpreadRow {
+  kind: "predicted" | "assessed";
+  // The row's base: the filed certificates of this kind.
+  count: number;
+  // Bands in A–G order, the no-band form last; a band with
+  // no certificates does not appear.
+  bands: EpcSpreadBand[];
+  line: string;
+}
+
+// The postcode's EPC spread (M6.15, decision D34): how the
+// certificates the register holds at the whole postcode
+// spread across bands. A postcode-grain sub-block inside
+// this home-grain section, under its own grain line. The
+// counting unit is certificates, never homes — a homes
+// count would need a latest-per-home pick, and picking a
+// winner among a home's disagreeing certificates is the
+// ranking D26 forbids (10 Exeter Road holds a predicted
+// band B from 2013 and an assessed band C from 2025; both
+// stand in this count). The block is a pure function of
+// the filed artefact: it references the checked home's own
+// certificates not at all, and no comparison between the
+// home's band and the spread is computed or phrased (the
+// D23 sold-prices rule, applied to bands).
+export interface EpcSpread {
+  // The sub-block's own grain, named in its words — the
+  // section's grain stays "home".
+  grainLine: "the postcode's recorded certificates";
+  certificateCount: number;
+  explainer: string;
+  // One row per assessment kind present at the postcode,
+  // predicted first; a kind with no certificates serves no
+  // row (Beaulieu and Minerva serve the predicted row
+  // alone).
+  rows: EpcSpreadRow[];
+}
+
 export interface EpcSection extends AreaSectionMeta {
   state: "served" | "not-filed" | "filed-zero" | "none-matching" | "needs-exact-home";
   line: string | null;
   certificates: ServedCertificate[];
   // How many certificates the register holds at the whole
-  // postcode — context for the none-matching state. The
-  // postcode-wide spread itself is M6.15's, not this step's.
+  // postcode — context for the none-matching state, and
+  // the spread's base.
   certificateCountAtPostcode: number | null;
   // The newest matched certificate's band — the headline line.
   headlineBand: string | null;
+  // The postcode's spread of recorded certificates (see
+  // EpcSpread). Null where the postcode's artefact holds
+  // no certificates (filed-zero) or could not be loaded
+  // (not-filed): one artefact, one zero, one line — the
+  // section's own state line already says it. Report
+  // depth: the headline projection does not carry it.
+  spread: EpcSpread | null;
 }
 
 // Matching normal form — the house tool's own convention
@@ -1526,6 +1593,96 @@ function toServedCertificate(cert: EpcCertificate): ServedCertificate {
   };
 }
 
+// ------------------------------------------------------------------
+// The postcode's EPC spread (M6.15, decision D34) — computed
+// from the same artefact read as the home's own answer, so
+// it inherits the read, the source line, the cold-load path
+// and the D29 artefact-hash cache guard unchanged. It is a
+// postcode fact: it serves at rungs 1 and 2 alike, including
+// beside the none-matching and needs-exact-home states,
+// whose subjects are the home, not the postcode.
+// ------------------------------------------------------------------
+
+const EPC_BAND_ORDER = ["A", "B", "C", "D", "E", "F", "G"];
+
+function joinFragments(fragments: string[]): string {
+  if (fragments.length <= 1) return fragments.join("");
+  return `${fragments.slice(0, -1).join(", ")} and ${fragments[fragments.length - 1]}`;
+}
+
+function spreadRow(
+  kind: EpcSpreadRow["kind"],
+  certificates: EpcCertificate[],
+): EpcSpreadRow | null {
+  if (certificates.length === 0) return null;
+  const counts = new Map<string | null, number>();
+  for (const cert of certificates) counts.set(cert.band, (counts.get(cert.band) ?? 0) + 1);
+  const known = EPC_BAND_ORDER.filter((band) => counts.has(band));
+  const other = [...counts.keys()].filter(
+    (band): band is string => band !== null && !EPC_BAND_ORDER.includes(band),
+  );
+  const ordered: (string | null)[] = [...known, ...other, ...(counts.has(null) ? [null] : [])];
+  const bands: EpcSpreadBand[] = ordered.map((band) => {
+    const count = counts.get(band) ?? 0;
+    return { band, count, pct: round1((count / certificates.length) * 100) };
+  });
+  const fragments = bands.map(({ band, count, pct }) =>
+    band === null
+      ? `${count} ${count === 1 ? "has" : "have"} no band recorded (${pct} percent)`
+      : `${count} ${count === 1 ? "is" : "are"} band ${band} (${pct} percent)`,
+  );
+  const base =
+    kind === "predicted"
+      ? `of the ${certificates.length} predicted (SAP) certificate${certificates.length === 1 ? "" : "s"} recorded for this postcode`
+      : `of the ${certificates.length} assessment${certificates.length === 1 ? "" : "s"} of existing homes (RdSAP) recorded for this postcode`;
+  return { kind, count: certificates.length, bands, line: `${base}, ${joinFragments(fragments)}` };
+}
+
+function epcSpreadOf(certificates: EpcCertificate[]): EpcSpread | null {
+  if (certificates.length === 0) return null;
+  // The section's own convention (see toServedCertificate):
+  // SAP is predicted; anything else is an assessment of the
+  // existing home. The register files SAP or RdSAP.
+  const predicted = certificates.filter(
+    (cert) => (cert.assessmentType ?? "").toUpperCase() === "SAP",
+  );
+  const assessed = certificates.filter(
+    (cert) => (cert.assessmentType ?? "").toUpperCase() !== "SAP",
+  );
+  const rows = [spreadRow("predicted", predicted), spreadRow("assessed", assessed)].filter(
+    (row): row is EpcSpreadRow => row !== null,
+  );
+  return {
+    grainLine: "the postcode's recorded certificates",
+    certificateCount: certificates.length,
+    explainer:
+      "The spread counts certificates, not homes: a home assessed more than once appears more than once, and most homes in a postcode have no certificate at all — a certificate exists only where a home was built, sold or let since the register began. It describes what the register holds for the postcode, and says nothing about any one home.",
+    rows,
+  };
+}
+
+// The postcode's filed EPC artefact, loading it through
+// the existing loader path first when the check has never
+// loaded the postcode (the D23 pattern), so "not filed"
+// means the load was attempted and failed or is not
+// possible — never "we never looked". Null when no
+// artefact can be had.
+async function loadEpcArtefact(
+  source: AreaDataSource,
+  postcode: string,
+): Promise<EpcArtefact | null> {
+  let artefact = await source.epcArtefact(postcode);
+  if (artefact === null) {
+    try {
+      await source.loadEpc(postcode);
+      artefact = await source.epcArtefact(postcode);
+    } catch {
+      artefact = null;
+    }
+  }
+  return artefact;
+}
+
 async function buildEpc(
   resolution: Extract<AddressResolution, { rung: 1 | 2 }>,
   source: AreaDataSource,
@@ -1538,34 +1695,34 @@ async function buildEpc(
       "Every certificate the register holds for this home is served, newest first. Where two certificates disagree — on floor area, say — both are shown: the register's disagreement is itself a fact, and no winner is picked.",
   };
 
+  const postcode = resolution.directory.postcode;
+  const artefact = await loadEpcArtefact(source, postcode);
+  const sourceMeta =
+    artefact === null
+      ? { sourceName: null, sourceDate: null, sourceLine: null }
+      : {
+          sourceName: artefact.sourceName,
+          sourceDate: artefact.sourceDate,
+          sourceLine: sourceLineOf(artefact.sourceName, artefact.sourceDate),
+        };
+  // The spread is a postcode fact with its own state,
+  // independent of the section's home-grain state: it
+  // serves wherever the artefact holds certificates, at
+  // either rung, and is null exactly where the artefact
+  // holds none or could not be loaded.
+  const spread = artefact === null ? null : epcSpreadOf(artefact.certificates);
+
   if (resolution.rung === 2) {
     return {
       ...meta,
-      sourceName: null,
-      sourceDate: null,
-      sourceLine: null,
+      ...sourceMeta,
       state: "needs-exact-home",
       line: NEEDS_EXACT_HOME_EPC,
       certificates: [],
       certificateCountAtPostcode: null,
       headlineBand: null,
+      spread,
     };
-  }
-
-  const postcode = resolution.directory.postcode;
-  let artefact = await source.epcArtefact(postcode);
-  if (artefact === null) {
-    // A cold postcode: load its certificates through the
-    // existing loader path before answering (the D23
-    // pattern), so "not filed" means the load was attempted
-    // and failed or is not possible — never "we never
-    // looked".
-    try {
-      await source.loadEpc(postcode);
-      artefact = await source.epcArtefact(postcode);
-    } catch {
-      artefact = null;
-    }
   }
 
   if (artefact === null) {
@@ -1579,14 +1736,9 @@ async function buildEpc(
       certificates: [],
       certificateCountAtPostcode: null,
       headlineBand: null,
+      spread: null,
     };
   }
-
-  const sourceMeta = {
-    sourceName: artefact.sourceName,
-    sourceDate: artefact.sourceDate,
-    sourceLine: sourceLineOf(artefact.sourceName, artefact.sourceDate),
-  };
 
   if (artefact.certificates.length === 0) {
     return {
@@ -1597,6 +1749,7 @@ async function buildEpc(
       certificates: [],
       certificateCountAtPostcode: 0,
       headlineBand: null,
+      spread: null,
     };
   }
 
@@ -1620,6 +1773,7 @@ async function buildEpc(
       certificates: [],
       certificateCountAtPostcode: artefact.certificates.length,
       headlineBand: null,
+      spread,
     };
   }
 
@@ -1634,6 +1788,7 @@ async function buildEpc(
     certificates: matched,
     certificateCountAtPostcode: artefact.certificates.length,
     headlineBand: matched[0].band,
+    spread,
   };
 }
 
