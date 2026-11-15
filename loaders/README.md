@@ -301,7 +301,12 @@ computed as if flood defences did not exist — the opposite
 convention from the rivers & sea bands below, and the two are
 never merged (gap L1). Each shape's `detail` carries its
 published flood source and origin ("river and sea · modelled
-and recorded"). The OGC service silently ignores property
+and recorded"). The source vocabulary is the Agency's own —
+"river", "sea", "river and sea" and, since the collection
+changed in place after the 12 Nov 2026 capture, "unknown"
+for the shapes that state no source (origin "local
+evidence"), admitted as published under decision D27. The
+OGC service silently ignores property
 filters, so every count is computed from the fetched data and
 the unfiltered service count is the only oracle (gap L5).
 Shapes file exactly as published — no buffering, snapping or

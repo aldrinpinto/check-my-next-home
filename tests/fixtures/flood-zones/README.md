@@ -14,10 +14,25 @@ Selection: every feature intersecting a box around a golden
 home — Birkdale ±0.03°, Exeter ±0.02°, Epsom ±0.02° —
 deduplicated by feature id. 462 features: 339 FZ3, 123 FZ2;
 sources "river and sea" 242, "river" 119, "sea" 101. The
-capture is held as three numbered parts whose feature arrays
+capture is held as numbered parts whose feature arrays
 concatenate to the whole, in order — the files exceed the
 GitHub connector's request-size limit, and the loader and
 the tests read them that way.
+
+D27 addition (15 Nov 2026): a fourth part holds ONE further
+feature, captured verbatim from the same live collection on
+15 Nov 2026 — Flood_Zones_2_3_Rivers_and_Sea.1070, an FZ2
+shape on the south Cornish coast whose flood_source is
+"unknown" (origin "local evidence"). The live collection
+began publishing shapes with that source after the 12 Nov
+capture (the M6.5 build found 7 in the first 29,500
+features); decision D27 admits the word as published, and
+the feature sits in this fixture so the widened vocabulary
+is proven end-to-end by the loader's own fixture path. It
+lies far from every golden home and changes no golden fact
+below. Fixture totals with the addition: 463 features —
+339 FZ3, 124 FZ2; sources "river and sea" 242, "river" 119,
+"sea" 101, "unknown" 1.
 
 Golden facts these features must reproduce (recomputed from
 this capture with exact point-in-polygon; the M5.1 prep's

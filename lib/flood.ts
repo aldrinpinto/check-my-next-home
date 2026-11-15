@@ -84,11 +84,12 @@ import { DISTANCE_BASIS_LABEL, RADIUS_MILES } from "./nearby";
 
 export const FLOOD_UNAVAILABLE_REASON = "flood answers need an exact postcode";
 
-// The limits, stated plainly (D25's insurance boundary). This
+// The limits, stated plainly (D25's insurance boundary; the
+// closing sentence is D27's unknown-source statement). This
 // copy is served with the flood answer wherever the answer is
 // presented in full.
 export const FLOOD_HOW_WE_CHECK =
-  "These answers describe the postcode point on the Environment Agency's published maps, not the property: a postcode covers more ground than one home, and the point can fall in a different mapped area from the building itself. We hold no record of past flooding at any home — holding no record does not mean a home has never flooded. Insurers and lenders run their own models on the building itself; nothing here says whether a home can be insured or borrowed against, and these answers are not a substitute for an insurer's or lender's own check.";
+  "These answers describe the postcode point on the Environment Agency's published maps, not the property: a postcode covers more ground than one home, and the point can fall in a different mapped area from the building itself. We hold no record of past flooding at any home — holding no record does not mean a home has never flooded. Insurers and lenders run their own models on the building itself; nothing here says whether a home can be insured or borrowed against, and these answers are not a substitute for an insurer's or lender's own check. A small number of the Environment Agency's flood-zone shapes do not state whether the flooding is from rivers, the sea or another source.";
 
 // ------------------------------------------------------------------
 // The publisher's definitions, as published (D25/Q7 — verified

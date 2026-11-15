@@ -147,6 +147,15 @@ describe("flood zones loader sources", () => {
     expect(loader).toContain("flood_source");
     expect(loader).toContain("origin");
   });
+
+  it("admits the published source vocabulary including 'unknown' (D27)", () => {
+    // The live collection began publishing shapes whose
+    // flood_source is "unknown" after the 12 Nov 2026
+    // capture; D27 admits the word as published, so the
+    // loader's contract carries it alongside the original
+    // three.
+    expect(loader).toContain('SOURCES = ["river", "sea", "river and sea", "unknown"]');
+  });
 });
 
 describe("migration 0008 — the detail column lands before any flood load (L2)", () => {
@@ -162,19 +171,27 @@ describe("migration 0008 — the detail column lands before any flood load (L2)"
 });
 
 describe("fixture vocabulary contract (computed from the fetched data)", () => {
-  it("holds 462 features, every label in {FZ2, FZ3}, counts pinned", () => {
-    expect(zones).toHaveLength(462);
+  it("holds 463 features, every label in {FZ2, FZ3}, counts pinned", () => {
+    expect(zones).toHaveLength(463);
     const counts = new Map<string, number>();
     for (const f of zones) {
       const label = f.properties.flood_zone as string;
       expect(["FZ2", "FZ3"]).toContain(label);
-      expect(["river", "sea", "river and sea"]).toContain(f.properties.flood_source);
+      expect(["river", "sea", "river and sea", "unknown"]).toContain(f.properties.flood_source);
       expect(typeof f.properties.origin).toBe("string");
       expect((f.properties.origin as string).length).toBeGreaterThan(0);
       counts.set(label, (counts.get(label) ?? 0) + 1);
     }
     expect(counts.get("FZ3")).toBe(339);
-    expect(counts.get("FZ2")).toBe(123);
+    expect(counts.get("FZ2")).toBe(124);
+  });
+
+  it("carries exactly one 'unknown'-source feature — the D27 capture, verbatim", () => {
+    const unknown = zones.filter((f) => f.properties.flood_source === "unknown");
+    expect(unknown).toHaveLength(1);
+    expect(unknown[0].id).toContain("Flood_Zones_2_3_Rivers_and_Sea.1070");
+    expect(unknown[0].properties.flood_zone).toBe("FZ2");
+    expect(unknown[0].properties.origin).toBe("local evidence");
   });
 });
 

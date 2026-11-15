@@ -857,6 +857,42 @@ describe("flood — the golden homes (measured on the serving basis)", () => {
   });
 });
 
+describe("flood — the 'unknown' zone source (D27)", () => {
+  it("serves a filed unknown-source zone row end-to-end, detail verbatim", async () => {
+    // The live zones collection now publishes shapes whose
+    // flood_source is "unknown" (origin "local evidence");
+    // D27 files and serves them as published. The point is
+    // the D27 fixture feature's own ground (a small FZ2
+    // polygon on the south Cornish coast, feature …1070);
+    // the facts are the filed row's shape: an FZ2 covering
+    // whose detail is the published pair, verbatim.
+    const cornwall = directory("XX4 4XX", 50.0718, -5.5811, "E01000004");
+    fileFacts(cornwall, {
+      flood_zone: facts({
+        sourceName: ZONES_SOURCE,
+        sourceDate: "2026-10-21",
+        covering: [{ riskLabel: "FZ2", detail: "unknown · local evidence" }],
+      }),
+      rofrs: facts({ sourceName: ROFRS_SOURCE, sourceDate: "2026-11-03" }),
+      rofsw: facts({ sourceName: ROFSW_SOURCE, sourceDate: "2026-11-10" }),
+    });
+    const zones = layer(await served(cornwall), "flood_zone");
+    expect(zones.pointState).toBe("inside");
+    expect(zones.covering?.label).toBe("FZ2");
+    expect(zones.covering?.displayLabel).toBe("Flood Zone 2");
+    expect(zones.covering?.detail).toBe("unknown · local evidence");
+    expect(zones.line).toBe(
+      "the postcode point falls inside Flood Zone 2 on the Environment Agency's planning map",
+    );
+  });
+
+  it("the How-we-check copy states the unknown-source fact in plain English (D27)", () => {
+    expect(FLOOD_HOW_WE_CHECK).toContain(
+      "A small number of the Environment Agency's flood-zone shapes do not state whether the flooding is from rivers, the sea or another source.",
+    );
+  });
+});
+
 describe("flood — wording (D25's banned-wording scan)", () => {
   const BANNED = [
     "safe",

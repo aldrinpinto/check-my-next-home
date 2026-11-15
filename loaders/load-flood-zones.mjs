@@ -21,12 +21,18 @@
 //
 // What the gap check changed, and where it lives in this file:
 //   - L2, published detail has a home. flood_source ("river",
-//     "sea", "river and sea") and origin ("modelled",
-//     "modelled and recorded", ...) are part of the published
-//     fact — Exeter's zone says "river and sea" — so migration
-//     0008 added flood_layers.detail and this loader files
-//     "source · origin" there. risk_label stays the clean
-//     vocabulary {FZ2, FZ3} that the contract check guards.
+//     "sea", "river and sea", "unknown") and origin
+//     ("modelled", "modelled and recorded", ...) are part of
+//     the published fact — Exeter's zone says "river and
+//     sea" — so migration 0008 added flood_layers.detail and
+//     this loader files "source · origin" there. risk_label
+//     stays the clean vocabulary {FZ2, FZ3} that the contract
+//     check guards. D27 (15 Nov 2026): the live collection
+//     began publishing shapes whose flood_source is
+//     "unknown" (origin "local evidence") after the 12 Nov
+//     2026 capture — the word is admitted as published and
+//     files verbatim ("unknown · local evidence"); the
+//     finding is recorded in tests/golden-matrix.md (M6.5).
 //   - L3, shapes file exactly as published. No buffering, no
 //     snapping, no simplification — the surface-water pins in
 //     the sibling loader turn on metres, and the same
@@ -85,7 +91,7 @@ const COLLECTION = "Flood_Zones_2_3_Rivers_and_Sea";
 const LAYER_TYPE = "flood_zone";
 const SOURCE_NAME = "Environment Agency — Flood Map for Planning (Flood Zones 2 and 3)";
 const VOCAB = ["FZ2", "FZ3"];
-const SOURCES = ["river", "sea", "river and sea"];
+const SOURCES = ["river", "sea", "river and sea", "unknown"];
 const PAGE = 250;
 const SNAPSHOT = 415408; // the service's unfiltered count, 12 Nov 2026
 
@@ -330,7 +336,7 @@ function processFeatures(raw) {
     const source = props.flood_source;
     if (!SOURCES.includes(source))
       throw new Error(
-        `contract failure: flood_source "${source}" is outside {river, sea, river and sea}`,
+        `contract failure: flood_source "${source}" is outside {river, sea, river and sea, unknown}`,
       );
     const origin = props.origin;
     if (typeof origin !== "string" || origin === "")

@@ -649,6 +649,43 @@ answer can be given from it") rather than an absence read
 from an empty table — the same judgment call M6.4 flagged
 for crime, applied per layer here.
 
+**D27 — "unknown" admitted (15 Nov 2026, step M5.19).**
+The founder ruled on finding (2) above: "unknown" joins
+the zones loader's published source vocabulary — filed
+and served as published. The loader's SOURCES is now
+{river, sea, river and sea, unknown} and its contract
+error names all four; the flood How-we-check copy gains
+the plain-English sentence "A small number of the
+Environment Agency's flood-zone shapes do not state
+whether the flooding is from rivers, the sea or another
+source." The other two flood loaders gate bands, not
+sources, and needed no change (checked at build). Proof:
+a scoped live read on 15 Nov 2026 found the service
+unchanged in count (numberMatched 415,408) and still
+serving the word — the page at startIndex 1,000 carries
+four unknown features (FZ2 and FZ3, origin "local
+evidence"). One of them, feature
+Flood_Zones_2_3_Rivers_and_Sea.1070 (FZ2, detail
+"unknown · local evidence", a small polygon on the south
+Cornish coast), is held verbatim as part 4 of the zones
+fixture — byte-identical to the live feature served the
+same day — taking the fixture to 463 features (FZ2 124,
+FZ3 339). Before the change, the loader's fixture
+verify-only run failed on that fixture with the contract
+error in finding (2); after it, the run passes (463 read,
+golden homes OK). The brain serves a filed
+unknown-source row end-to-end with the detail verbatim
+(tests/flood.test.ts, the D27 describe — lib/flood.ts
+carried no detail vocabulary lock to extend). Migrations
+twice PASS in the local rehearsal. The fixture's filing
+into a database remains CI's proof, as it has always
+been for this loader: the local WASM engine's
+ST_MakeValid swap wedged on the fixture's dissolved
+shapes (10 minutes, no completion — the same wedge as
+the national filing above), so the local rehearsal
+stopped at the scoped gate and the filing itself is
+owed to CI's database job.
+
 ### Constraints & area in the brain (M6.6)
 
 Proved in the local rehearsal on 15 Nov 2026: a fresh
