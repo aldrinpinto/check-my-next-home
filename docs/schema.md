@@ -393,7 +393,18 @@ Family:
     half of the step is a serving-time hand-off watched
     by the bsr-register canary — and a row here records
     only that a decision or order was published for a
-    case, never a verdict on a building.
+    case, never a verdict on a building. Serving
+    (M6.16, decision D35): the area bundle's
+    `buildingSafety` section reads this table by
+    postcode through `createAreaSource.tribunalFacts` —
+    every filed row for the postcode serves, grouped by
+    `building_key`, with `is_single_flat` rows serving
+    only at their own flats' rung-1 checks; the table's
+    own count and latest `retrieved_at` are read
+    independently of the slice, so an unfiled table
+    serves the not-filed state rather than an empty
+    answer. The section's second half is the register
+    hand-off, which reads no table at all.
 28. **company_titles** — HM Land Registry's
     company-ownership datasets, CCOD (UK companies) and
     OCOD (overseas companies), filed whole every month

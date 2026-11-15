@@ -1809,6 +1809,18 @@ class FakeAreaSource implements AreaDataSource {
     return { gridFiledCount: anySolar?.solar?.gridFiledCount ?? 0, cell: null };
   }
 
+  // Building safety (M6.16) never headlines; the builder
+  // does read the port, so the stub serves the empty form.
+  async tribunalFacts() {
+    return {
+      filedCount: 28,
+      lastFiledAt: "2026-11-14T05:15:00.000Z",
+      sourceName:
+        "GOV.UK — Residential property tribunal decisions (First-tier Tribunal, Property Chamber)",
+      rows: [],
+    };
+  }
+
   // Company ownership (M6.13) is flag-gated and the short
   // bundle never carries it; these tests build with the
   // shipped (off) position, so the builder never calls

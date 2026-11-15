@@ -92,6 +92,21 @@ import { COMPANY_OWNERSHIP_ENABLED } from "./site";
 // two lines' grains and bases never merge (D26) — so no
 // served shape carries a total field for them, and the
 // state matrix scans the two sections to prove it.
+//
+// Building safety (M6.16, decision D35) is the fourteenth
+// section and the second hand-off: ONE section with two
+// sub-blocks that keep separate states and source lines —
+// the filed tribunal decisions (the published BSA/BSB
+// remediation series, grouped by building, fail-open: the
+// home's building group is labelled and served first,
+// never used as a filter) and the Building Safety
+// Regulator register hand-off (no building-level register
+// data exists to file; the register is a postcode lookup
+// by design). The halves correct each other: the
+// tribunal's empty line is only ever read beside the
+// register hand-off, and neither half's silence is a
+// verdict about any building — the section carries no
+// word that could make it one (D17).
 
 export const AREA_UNAVAILABLE_REASON = "area answers need an exact postcode";
 
@@ -522,6 +537,60 @@ export interface CompanyOwnershipFacts {
   snapshots: Record<string, CompanySnapshotRow | null>;
 }
 
+export type TribunalOrderKind =
+  "remediation-order" | "remediation-contribution-order" | "other-building-safety";
+
+// One filed tribunal decision (migration 0015), as the
+// brain reads it: the header facts only — the decision's
+// own Property line verbatim, its date, its kind, its case
+// reference and the GOV.UK page it was filed from. Nothing
+// from a decision's body is filed, so nothing from it can
+// serve.
+export interface TribunalDecisionRow {
+  caseRef: string;
+  // The decision's own date, ISO ("2026-04-10").
+  decisionDate: string;
+  orderKind: TribunalOrderKind;
+  propertyText: string;
+  // The normalised building stem the loader filed — the
+  // grouping within the postcode (the postcode is the
+  // join, this is the grouping).
+  buildingKey: string;
+  isSingleFlat: boolean;
+  sourceUrl: string;
+  sourceName: string | null;
+  sourceDate: string | null;
+}
+
+export interface TribunalFacts {
+  // The whole table's filed count — the guard. An empty
+  // line may only be computed over a proven filing: an
+  // unfiled table serves the not-filed state, never a
+  // zero (the company-ownership rule, D32).
+  filedCount: number;
+  // The filing's currency: the latest retrieved_at across
+  // the table, as an ISO instant. The stage-swap re-stamps
+  // every row on each quarterly pass, so this is the pass
+  // date — the "as at" of the coverage line, which
+  // qualifies the index's currency, not the newest
+  // decision (a latest-decision date would mislead whenever
+  // the newest decision at a postcode is old but the
+  // filing is fresh, which is the normal case).
+  lastFiledAt: string | null;
+  // The dataset's source name as filed (the loader's
+  // constant), read independently of the slice — an empty
+  // slice still has a source to name.
+  sourceName: string | null;
+  // The postcode's filed slice, decision date then case
+  // reference. Rows whose Property printed no full
+  // postcode file with a NULL postcode and are in no
+  // slice: they can never be served for a postcode, which
+  // is exactly why the coverage line is bounded to orders
+  // "naming this postcode" and the explainer carries the
+  // completeness caveat.
+  rows: TribunalDecisionRow[];
+}
+
 export interface AreaDataSource {
   planningLayerFacts(
     layer: PlanningLayerKind,
@@ -558,6 +627,11 @@ export interface AreaDataSource {
   // default path makes no read of these tables at all —
   // the flag's promise, kept structurally (D18/D32).
   companyOwnershipFacts(postcode: string): Promise<CompanyOwnershipFacts>;
+  // The building-safety facts (M6.16): the tribunal
+  // table's guard count and filing currency, plus the
+  // postcode's filed decision slice. Read at rungs 1 and
+  // 2 alike — the tribunal answer is a postcode fact.
+  tribunalFacts(postcode: string): Promise<TribunalFacts>;
 }
 
 // ------------------------------------------------------------------
@@ -2536,6 +2610,465 @@ function buildCompanyOwnership(
 }
 
 // ------------------------------------------------------------------
+// Building safety — the tribunal decisions and the
+// register hand-off (M6.16, decision D35, on D17). ONE
+// section with two sub-blocks, because the halves correct
+// each other: the tribunal's empty line is only safe to
+// read standing beside the register hand-off, and the
+// register's silence is never a finding either. Each
+// sub-block keeps its own state, its own grain line and
+// its own source line — the tribunal half has a filed
+// source with a filing date; the register half files
+// nothing and carries none (the planning precedent).
+//
+// The tribunal half serves the published BSA/BSB slice
+// filed at M5.14 (migration 0015): remediation orders
+// (section 123) and remediation contribution orders
+// (section 124) under the Building Safety Act 2022, plus
+// the honest remainder of decisions in the series that
+// are neither. The match unit is the BUILDING (D17), and
+// the serving is fail-open group-and-label: every
+// block-level decision filed for the postcode serves,
+// grouped by the loader's building stem; the checked
+// home's group is labelled and served first where its
+// stem matches — and nothing is ever filtered out, so a
+// building-name mismatch between the directory and the
+// tribunal's printed name can never print a false empty
+// answer. Over-narrowing is the unsafe direction here.
+// A decision naming specific flats (is_single_flat)
+// serves only at those flats' own rung-1 answers — never
+// as a block headline at rung 2, and never at a sibling
+// flat. The coverage line is the locked form —
+// "published building-safety orders naming this
+// postcode, as at [filing date]" — with the prep's one
+// honest correction: decisions that are not orders are
+// never called orders, so a postcode whose rows are all
+// of the other kind counts "decisions", and a mixed
+// postcode counts "decisions and orders".
+//
+// The register half is a hand-off (D17): no published
+// list of registered high-rise residential buildings
+// exists — the Building Safety Regulator's register is
+// reachable only through its own postcode search
+// service, expressly designed so the register is never
+// released as data — so the answer names the register
+// and links the official search (the very URL the
+// bsr-register canary probes monthly), or, for a clear
+// single house at rung 1, serves the scope line: the
+// register covers high-rise residential buildings, and
+// a house is outside what the register is for. The
+// scope line's trigger is deliberately conservative:
+// the filed data can prove a flat (a SAON) but can
+// never prove a house, so it fires only where the SAON
+// is absent AND the PAON parses to a bare house number
+// with no building name; every other home, and every
+// rung-2 answer, takes the neutral hand-off, which is
+// true for houses too. No council is named for the
+// register — it is a single national service, and
+// naming the directory council would falsely imply it
+// holds the record. Scotland names its Cladding
+// Assurance Register WITHOUT a link (no verified search
+// landing exists in the record; D31's rule — a link
+// only where it lands on the real search); Wales names
+// the Welsh Government's route; Northern Ireland has
+// no equivalent register.
+// ------------------------------------------------------------------
+
+export interface TribunalDecisionServed {
+  caseRef: string;
+  kind: TribunalOrderKind;
+  // The kind in plain words, with its section of the Act.
+  kindLine: string;
+  // The building as the decision names it — the
+  // tribunal's own words, verbatim.
+  propertyText: string;
+  decisionDate: string;
+  decisionDateLabel: string;
+  // The GOV.UK page of the document the row was filed
+  // from — the hand-off within the filed half: the
+  // decision itself, for the reader who needs more than
+  // its header facts.
+  sourceUrl: string;
+  isSingleFlat: boolean;
+  line: string;
+}
+
+export interface TribunalBuildingGroup {
+  buildingKey: string;
+  // The group's heading: the tribunal's own words for
+  // the building, from the group's first decision.
+  buildingName: string;
+  // True where this group is the checked home's building
+  // — a label, never a filter: every group serves
+  // either way.
+  isHomeBuilding: boolean;
+  decisions: TribunalDecisionServed[];
+}
+
+export interface TribunalBlock {
+  state: "served" | "none-filed" | "not-filed" | "not-covered";
+  grain: "postcode point";
+  grainLine: string;
+  line: string | null;
+  // The decisions this answer serves — the count the
+  // line counts. Single-flat decisions count only where
+  // they serve: at their own flats' rung-1 answers.
+  decisionCount: number;
+  groups: TribunalBuildingGroup[];
+  sourceName: string | null;
+  sourceDate: string | null;
+  sourceLine: string | null;
+}
+
+export interface RegisterBlock {
+  state: "handed-off" | "out-of-scope" | "not-covered";
+  grain: "home";
+  grainLine: string;
+  line: string;
+  link: { label: string; url: string } | null;
+  // No dataset is filed for this half, so no source line
+  // exists to carry (the planning hand-off's precedent).
+  sourceName: null;
+  sourceDate: null;
+  sourceLine: null;
+}
+
+export interface BuildingSafetySection extends AreaSectionMeta {
+  tribunal: TribunalBlock;
+  register: RegisterBlock;
+}
+
+// The register search service — the canary's own probe
+// target (loaders/canary-bsr-register.mjs,
+// REGISTER_SEARCH_URL), so the hand-off link is the
+// project's monitored contract, not an invented URL.
+// Like planning's links (D31): a plain landing page, no
+// postcode in the URL; the line instructs the reader to
+// enter the postcode there.
+const BSR_REGISTER_SEARCH = {
+  label: "Search the register of high-rise residential buildings (GOV.UK)",
+  url: "https://www.register-high-rise-building.service.gov.uk/public-register/search",
+};
+
+const BUILDING_SAFETY_EXPLAINER =
+  "This section brings together the two official records that speak to a building of this kind, and they answer different questions. The tribunal index holds the building-safety decisions the First-tier Tribunal (Property Chamber) has published in the remediation series — remediation orders and remediation contribution orders under the Building Safety Act 2022. Publication is selective: the tribunal publishes only some of its decisions, cases in other series are not in this index, a small number of published documents cannot be read by the filing process (their text is scanned or encoded so it cannot be extracted) and so file nothing, and some published decisions name no full postcode in their header, so they cannot be matched to any postcode here. An empty tribunal answer means only that no published, readable decision in the filed index names this postcode. The register is a separate record, kept by the Building Safety Regulator for high-rise residential buildings in England. If a building is not found on it, that can mean the building is outside the register's scope, that it is unregistered, or that it is registered under a different postcode — the search result is the reader's to interpret, and this check draws no conclusion from it. The register covers buildings of 18 metres or 7 storeys and above, while the tribunal's remediation orders reach buildings of 11 metres and above, so a building can sit inside the tribunal's world and outside the register's. EWS1 forms have no public register. Whether a building has cladding is a question neither record answers here.";
+
+const TRIBUNAL_KIND_LINES: Record<TribunalOrderKind, string> = {
+  "remediation-order": "remediation order (section 123 of the Building Safety Act 2022)",
+  "remediation-contribution-order":
+    "remediation contribution order (section 124 of the Building Safety Act 2022)",
+  // The honest remainder (a Regulation 3 appeal is the
+  // filed example): never let "other" read as an order.
+  "other-building-safety":
+    "a published decision in the building-safety series that is not a remediation order or a remediation contribution order",
+};
+
+function toServedTribunalDecision(row: TribunalDecisionRow): TribunalDecisionServed {
+  const kindLine = TRIBUNAL_KIND_LINES[row.orderKind];
+  return {
+    caseRef: row.caseRef,
+    kind: row.orderKind,
+    kindLine,
+    propertyText: row.propertyText,
+    decisionDate: row.decisionDate,
+    decisionDateLabel: dateLabel(row.decisionDate),
+    sourceUrl: row.sourceUrl,
+    isSingleFlat: row.isSingleFlat,
+    line: `${kindLine} for ${row.propertyText} — ${row.caseRef}, ${dateLabel(row.decisionDate)}`,
+  };
+}
+
+// The flat keys a single-flat decision's Property line
+// names, parsed from its leading flat list — the same
+// leading list the loader's isSingleFlat flag was
+// computed from ("Flat 5, …", "Flats 5, 15 & 29 …").
+function singleFlatKeysOf(propertyText: string): Set<string> {
+  const match =
+    /^\s*(?:flat|flats|unit|apartment|apartments)\s+([0-9]+[a-z]?(?:\s*(?:,|&|and)\s*[0-9]+[a-z]?)*)/i.exec(
+      propertyText,
+    );
+  if (!match) return new Set();
+  return new Set(
+    match[1]
+      .toUpperCase()
+      .split(/\s*(?:,|&|AND)\s*/)
+      .filter(Boolean),
+  );
+}
+
+// The checked home's building stem, in the loader's
+// buildingKey normal form (lower-cased, punctuation
+// removed), from the address parts in the Property
+// line's own order — building, street, town. A
+// best-effort LABEL key only: a mismatch never filters
+// anything out (the fail-open rule).
+function homeBuildingKey(home: ResolvedAddress): string | null {
+  const parts = [home.paon, home.street, home.town].filter(
+    (part): part is string => part !== null && part.trim() !== "",
+  );
+  if (parts.length === 0) return null;
+  return parts
+    .join(" ")
+    .toLowerCase()
+    .replace(/[.,'"()]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// A single-flat decision serves at a home only where
+// BOTH hold: the decision's building stem is the home's
+// building, and its leading flat list names the home's
+// own flat. Anything less is a different flat's answer.
+function singleFlatMatchesHome(row: TribunalDecisionRow, home: ResolvedAddress): boolean {
+  const flat = flatKeyOf(home.saon);
+  if (flat === null) return false;
+  if (!singleFlatKeysOf(row.propertyText).has(flat)) return false;
+  const key = homeBuildingKey(home);
+  return key !== null && key === row.buildingKey;
+}
+
+// The register scope line's trigger (D35): rung 1 only,
+// and only for a clear single house — no SAON (a filed
+// SAON proves a flat) and a PAON that parses to a bare
+// house number with no building name. The loaded data
+// can prove a flat; it can never prove a house, so
+// every doubtful shape takes the neutral hand-off
+// instead — guessing the scope line for a flat in a
+// converted house would be the unsafe error.
+function isClearSingleHouse(resolution: Extract<AddressResolution, { rung: 1 }>): boolean {
+  const home = resolution.address;
+  if (home.saon !== null) return false;
+  const paon = parsePaon(home.paon);
+  return paon.name === null && paon.number !== null;
+}
+
+// The coverage line's noun, honestly: orders where the
+// served rows are orders; decisions where they are all
+// of the other kind (an appeal is not an order); the
+// pair where they mix.
+function tribunalCountLine(servedCount: number, otherCount: number, asAt: string): string {
+  if (otherCount === 0)
+    return `${servedCount} published building-safety ${servedCount === 1 ? "order" : "orders"} naming this postcode${asAt}`;
+  if (otherCount === servedCount)
+    return `${servedCount} published building-safety ${servedCount === 1 ? "decision" : "decisions"} naming this postcode${asAt}`;
+  return `${servedCount} published building-safety decisions and orders naming this postcode${asAt}`;
+}
+
+function buildTribunalBlock(
+  resolution: Extract<AddressResolution, { rung: 1 | 2 }>,
+  facts: TribunalFacts,
+  nation: Nation,
+): TribunalBlock {
+  const grainLine = "published decisions naming this postcode";
+  const base = { grain: "postcode point" as const, grainLine, decisionCount: 0, groups: [] };
+  const noSource = { sourceName: null, sourceDate: null, sourceLine: null };
+
+  // Jurisdiction is a coverage fact, not an absence: the
+  // Property Chamber's building-safety decisions are
+  // England's, and a Welsh or Scottish postcode never
+  // serves an English empty line.
+  if (nation === "scotland" || nation === "wales" || nation === "northern-ireland") {
+    const line =
+      nation === "scotland"
+        ? "the building-safety tribunal decisions filed here are for England — Scotland's own route is the Cladding Assurance Register, the Scottish Government's register of buildings assessed for cladding"
+        : nation === "wales"
+          ? "the building-safety tribunal decisions filed here are for England — Wales's route is the Welsh Government's building safety route for high-rise residential buildings"
+          : "the building-safety tribunal decisions filed here are for England — Northern Ireland is outside the tribunal's building-safety jurisdiction and has no equivalent register";
+    return { ...base, ...noSource, state: "not-covered", line };
+  }
+  if (nation === "unknown") {
+    return {
+      ...base,
+      ...noSource,
+      state: "not-covered",
+      line: "the building-safety tribunal decisions filed here are for England, and this postcode's filed area code does not place it in England",
+    };
+  }
+
+  // The guard: an absence is only ever computed over a
+  // proven filing (the company-ownership rule, D32). An
+  // empty table misread as "no orders" is precisely the
+  // dangerous inference this section exists to prevent.
+  if (facts.filedCount <= 0) {
+    return {
+      ...base,
+      ...noSource,
+      state: "not-filed",
+      line: "the building-safety decisions data is not filed yet, so no building-safety answer can be given yet",
+    };
+  }
+
+  const filedDate = facts.lastFiledAt ? facts.lastFiledAt.slice(0, 10) : null;
+  const asAt = filedDate ? `, as at ${dateLabel(filedDate)}` : "";
+  const source = {
+    sourceName: facts.sourceName,
+    sourceDate: filedDate,
+    sourceLine: sourceLineOf(facts.sourceName, filedDate),
+  };
+
+  // Which rows serve: every block-level row at the
+  // postcode, plus — at rung 1 only — the single-flat
+  // rows naming this home's own flat. Nothing else is
+  // ever filtered out.
+  const home = resolution.rung === 1 ? resolution.address : null;
+  const served = facts.rows.filter(
+    (row) => !row.isSingleFlat || (home !== null && singleFlatMatchesHome(row, home)),
+  );
+
+  if (served.length === 0) {
+    return {
+      ...base,
+      ...source,
+      state: "none-filed",
+      // The locked form (D17): one true, bounded claim.
+      // Everything it does NOT mean lives in the
+      // explainer — selective publication, the unreadable
+      // documents, the decisions naming no postcode.
+      line: `no published building-safety orders naming this postcode${asAt}`,
+    };
+  }
+
+  // Group by the filed building stem. The label key is
+  // the home's own derived stem at rung 1, or — where
+  // rung 2 is narrowed to one building — the stem of
+  // that building's own first address in the list.
+  const labelHome: ResolvedAddress | null =
+    resolution.rung === 1
+      ? resolution.address
+      : resolution.building !== null && resolution.addresses.length > 0
+        ? resolution.addresses[0]
+        : null;
+  const homeKey = labelHome ? homeBuildingKey(labelHome) : null;
+
+  const byKey = new Map<string, TribunalDecisionRow[]>();
+  for (const row of served) {
+    const rows = byKey.get(row.buildingKey) ?? [];
+    rows.push(row);
+    byKey.set(row.buildingKey, rows);
+  }
+  const groups: TribunalBuildingGroup[] = [...byKey.entries()].map(([buildingKey, rows]) => ({
+    buildingKey,
+    buildingName: rows[0].propertyText,
+    isHomeBuilding: homeKey !== null && buildingKey === homeKey,
+    decisions: rows.map(toServedTribunalDecision),
+  }));
+  // The home's group first; the rest keep filing order
+  // (the sort is stable). Labelling only — every group
+  // serves either way.
+  groups.sort((a, b) => Number(b.isHomeBuilding) - Number(a.isHomeBuilding));
+
+  const otherCount = served.filter((row) => row.orderKind === "other-building-safety").length;
+  return {
+    ...base,
+    ...source,
+    state: "served",
+    line: tribunalCountLine(served.length, otherCount, asAt),
+    decisionCount: served.length,
+    groups,
+  };
+}
+
+function buildRegisterBlock(
+  resolution: Extract<AddressResolution, { rung: 1 | 2 }>,
+  nation: Nation,
+): RegisterBlock {
+  const base = {
+    grain: "home" as const,
+    grainLine: "this building, in the Building Safety Regulator's register",
+    sourceName: null,
+    sourceDate: null,
+    sourceLine: null,
+  };
+
+  if (nation === "scotland") {
+    return {
+      ...base,
+      state: "not-covered",
+      // Named WITHOUT a link: no verified search landing
+      // for the register exists in the record, and D31's
+      // rule is a link only where it lands on the real
+      // search.
+      line: "Scotland's buildings are not on the Building Safety Regulator's register — Scotland's own route is the Cladding Assurance Register, the Scottish Government's register of buildings assessed for cladding",
+      link: null,
+    };
+  }
+  if (nation === "wales") {
+    return {
+      ...base,
+      state: "not-covered",
+      line: "Wales's buildings are not on the Building Safety Regulator's register — the Welsh Government runs its own building safety route for high-rise residential buildings",
+      link: null,
+    };
+  }
+  if (nation === "northern-ireland") {
+    return {
+      ...base,
+      state: "not-covered",
+      line: "Northern Ireland's buildings are not on the Building Safety Regulator's register — Northern Ireland has no equivalent register",
+      link: null,
+    };
+  }
+  if (nation === "unknown") {
+    return {
+      ...base,
+      state: "not-covered",
+      line: "the Building Safety Regulator's register covers England, and this postcode's filed area code does not place it in England, so no register hand-off can be given",
+      link: null,
+    };
+  }
+
+  // The scope line: scope, not a finding about the
+  // house — and no link under it, because a link would
+  // invite the reader to treat a "not found" as
+  // confirmation of the scope.
+  if (resolution.rung === 1 && isClearSingleHouse(resolution)) {
+    return {
+      ...base,
+      state: "out-of-scope",
+      line: "the Building Safety Regulator's register covers high-rise residential buildings — buildings of 7 or more storeys or 18 metres or more, with 2 or more residential units; a house is outside what the register is for",
+      link: null,
+    };
+  }
+
+  // The hand-off. It asserts nothing about the building —
+  // only where the register is checked — so it is true
+  // for every England home that is not a clear single
+  // house, flats and doubtful shapes alike.
+  return {
+    ...base,
+    state: "handed-off",
+    line: "whether this building is on the Building Safety Regulator's register of high-rise residential buildings can only be checked on the register's own search service — we do not hold a copy of the register, so no register answer is given here; the link below takes you to the official search, where you enter the postcode",
+    link: { ...BSR_REGISTER_SEARCH },
+  };
+}
+
+function buildBuildingSafety(
+  resolution: Extract<AddressResolution, { rung: 1 | 2 }>,
+  facts: TribunalFacts,
+  nation: Nation,
+): BuildingSafetySection {
+  const tribunal = buildTribunalBlock(resolution, facts, nation);
+  return {
+    depth: "report",
+    grain: "postcode point",
+    // The section's two grains, named in its words
+    // (D26): the tribunal half is a postcode fact, the
+    // register half is about this building.
+    grainLine:
+      "published tribunal decisions naming this postcode, and the national register for this building",
+    explainer: BUILDING_SAFETY_EXPLAINER,
+    // The section's source fields are the tribunal
+    // half's — the only filed dataset in the section.
+    // The register sub-block carries its own nulls.
+    sourceName: tribunal.sourceName,
+    sourceDate: tribunal.sourceDate,
+    sourceLine: tribunal.sourceLine,
+    tribunal,
+    register: buildRegisterBlock(resolution, nation),
+  };
+}
+
+// ------------------------------------------------------------------
 // Census 2021 — the MSOA in numbers, report depth only.
 // Percentages are computed at serve time from the filed
 // counts, EACH TABLE ON ITS OWN TOTAL: the tables' totals
@@ -3206,6 +3739,9 @@ export interface AreaSections {
   epc: EpcSection;
   councilTax: CouncilTaxSection;
   planningApplications: PlanningApplicationsSection;
+  // Building safety (M6.16) is unconditional — the
+  // fourteenth section, present in every bundle.
+  buildingSafety: BuildingSafetySection;
   census: CensusSection;
   imd: ImdSection;
   air: AirSection;
@@ -3252,6 +3788,7 @@ const RUNG3_SECTION_REASONS: Record<string, string> = {
   epc: "energy certificates need an exact postcode",
   councilTax: "council tax needs an exact postcode",
   planningApplications: "planning applications need an exact postcode",
+  buildingSafety: "building safety answers need an exact postcode",
   census: "Census figures need an exact postcode",
   imd: "area statistics need an exact postcode",
   air: "air quality needs an exact postcode",
@@ -3324,6 +3861,7 @@ export async function buildAreaBundle(
     noiseFacts,
     benefitsFacts,
     solarFacts,
+    tribunalFactsValue,
   ] = await Promise.all([
     source.planningLayerFacts("conservation_area", latitude, longitude),
     source.planningLayerFacts("article_4_area", latitude, longitude),
@@ -3347,6 +3885,7 @@ export async function buildAreaBundle(
       ? source.benefits(resolution.directory.lsoaCode)
       : Promise.resolve({ claimantCount: null, ucPeople: null, ucHouseholds: null, bases: null }),
     source.solarCell(solarCellRef(latitude, longitude)),
+    source.tribunalFacts(postcode),
   ]);
 
   const epc = await buildEpc(resolution, source);
@@ -3387,6 +3926,7 @@ export async function buildAreaBundle(
       // The hand-off reads no source: it derives from the
       // resolution's directory row and nation alone.
       planningApplications: buildPlanningApplications(resolution.directory.council, nation),
+      buildingSafety: buildBuildingSafety(resolution, tribunalFactsValue, nation),
       census: buildCensus(censusFacts, resolution.directory.msoaCode, nation),
       imd: buildImd(imdFacts, resolution.directory.lsoaCode, nation),
       air: buildAir(airFacts),
@@ -4064,6 +4604,46 @@ export function createAreaSource(
         editions: { ccod: await editionOf("ccod"), ocod: await editionOf("ocod") },
         titles,
         snapshots,
+      };
+    },
+
+    async tribunalFacts(postcode) {
+      // The guard count, the filing currency and the
+      // source name are read across the whole table,
+      // independently of the slice: an empty slice still
+      // has a currency to date its line by, and an
+      // unfiled table must read as unfiled, never as an
+      // empty slice (the guard).
+      const { rows: guardRows } = await db.query(
+        `SELECT count(*)::int AS n, max(retrieved_at) AS last_filed,
+                (SELECT source_name FROM tribunal_building_safety_decisions LIMIT 1) AS source_name
+         FROM tribunal_building_safety_decisions`,
+      );
+      const lastFiled = guardRows[0]?.last_filed as Date | string | null | undefined;
+      const { rows } = await db.query(
+        `SELECT case_ref, decision_date::text AS decision_date, order_kind,
+                property_text, building_key, is_single_flat, source_url,
+                source_name, source_date::text AS source_date
+         FROM tribunal_building_safety_decisions
+         WHERE postcode = $1
+         ORDER BY decision_date, case_ref`,
+        [postcode],
+      );
+      return {
+        filedCount: Number(guardRows[0]?.n ?? 0),
+        lastFiledAt: lastFiled ? new Date(lastFiled as string).toISOString() : null,
+        sourceName: (guardRows[0]?.source_name as string | null) ?? null,
+        rows: rows.map((row) => ({
+          caseRef: row.case_ref as string,
+          decisionDate: row.decision_date as string,
+          orderKind: row.order_kind as TribunalOrderKind,
+          propertyText: row.property_text as string,
+          buildingKey: row.building_key as string,
+          isSingleFlat: Boolean(row.is_single_flat),
+          sourceUrl: row.source_url as string,
+          sourceName: (row.source_name as string | null) ?? null,
+          sourceDate: (row.source_date as string | null) ?? null,
+        })),
       };
     },
   };

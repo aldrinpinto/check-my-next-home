@@ -58,6 +58,16 @@
 //      shape, which the same block asserts — plus rung
 //      3's thirteenth per-section reason in the flag-on
 //      position.
+//   M6.16 (decision D35) adds the building-safety
+//      family, asserted in its own block below: one
+//      combined section whose two halves keep separate
+//      states — the tribunal half's four (served /
+//      none-filed / not-filed / not-covered) and the
+//      register half's three (handed-off / out-of-scope /
+//      not-covered) — plus rung 3's thirteenth
+//      per-section reason in the shipped position (the
+//      fourteenth with the company flag on). The section
+//      is report-depth only and never headlines.
 //   Settled fixes — nature designations and nearby
 //      categories gain filed-count guards in the flood
 //      form; the sold-prices median's none-recorded line
@@ -92,6 +102,8 @@ import {
   type PhiFacts,
   type PlanningLayerFacts,
   type SolarFacts,
+  type TribunalDecisionRow,
+  type TribunalFacts,
 } from "../lib/area-bundle";
 import {
   buildCrimeBundle,
@@ -282,7 +294,14 @@ function expectClean(bundle: unknown) {
     .join("\n")
     .toLowerCase()
     .replaceAll("it is not a valuation of this home", "")
-    .replaceAll("no crime answer can be given", "");
+    .replaceAll("no crime answer can be given", "")
+    // "Building Safety" is the dataset's own name (M6.16):
+    // the section cannot be served without naming it, and
+    // the name is not a verdict. Removing the name keeps a
+    // served "this building is safe" tripping the "safe"
+    // scan — only the name is excused.
+    .replaceAll("building-safety", "")
+    .replaceAll("building safety", "");
   for (const word of BANNED) expect(text, `banned word: ${word}`).not.toContain(word);
 }
 
@@ -291,7 +310,7 @@ function expectClean(bundle: unknown) {
 // ------------------------------------------------------------------
 
 describe("matrix — the address ladder's own states", () => {
-  it("rung 3 is a wider area: every brain serves its named unavailable state, and the area bundle carries all twelve per-section reasons", async () => {
+  it("rung 3 is a wider area: every brain serves its named unavailable state, and the area bundle carries all thirteen per-section reasons", async () => {
     const rung3: AddressResolution = {
       rung: 3,
       kind: "wider-area",
@@ -308,7 +327,7 @@ describe("matrix — the address ladder's own states", () => {
     const area = await buildAreaBundle(rung3, new MatrixAreaSource());
     if (area.kind !== "wider-area") throw new Error("expected wider-area");
     expect(area.area.reason).toBe("area answers need an exact postcode");
-    expect(Object.keys(area.area.sections)).toHaveLength(12);
+    expect(Object.keys(area.area.sections)).toHaveLength(13);
   });
 
   it("rung 4 is no location: the shared unavailable reason, no sections record", async () => {
@@ -1193,6 +1212,13 @@ class MatrixAreaSource implements AreaDataSource {
     titles: [],
     snapshots: {},
   };
+  tribunal: TribunalFacts = {
+    filedCount: 28,
+    lastFiledAt: "2026-11-14T05:15:00.000Z",
+    sourceName:
+      "GOV.UK — Residential property tribunal decisions (First-tier Tribunal, Property Chamber)",
+    rows: [],
+  };
 
   async planningLayerFacts(layer: string) {
     return this.layers.get(layer) ?? layerFacts({});
@@ -1242,6 +1268,9 @@ class MatrixAreaSource implements AreaDataSource {
   }
   async companyOwnershipFacts() {
     return this.company;
+  }
+  async tribunalFacts() {
+    return this.tribunal;
   }
 }
 
@@ -2016,7 +2045,7 @@ describe("matrix — area: Census, IMD, air, noise, benefits, solar", () => {
     expect(missingCell.sections.solar.line).toBe("solar modelling is not filed for this area yet");
   });
 
-  it("rung 3: every section present only as its named state, per-section reasons intact (12)", async () => {
+  it("rung 3: every section present only as its named state, per-section reasons intact (13)", async () => {
     const bundle = await buildAreaBundle(
       { rung: 3, kind: "wider-area", outward: "CM3", label: "Wider area — CM3", postcodeCount: 1 },
       new MatrixAreaSource(),
@@ -2031,6 +2060,10 @@ describe("matrix — area: Census, IMD, air, noise, benefits, solar", () => {
       planningApplications: {
         state: "unavailable",
         reason: "planning applications need an exact postcode",
+      },
+      buildingSafety: {
+        state: "unavailable",
+        reason: "building safety answers need an exact postcode",
       },
       census: { state: "unavailable", reason: "Census figures need an exact postcode" },
       imd: { state: "unavailable", reason: "area statistics need an exact postcode" },
@@ -2483,14 +2516,14 @@ describe("matrix — area: company ownership (behind the flag)", () => {
     expectClean(bundle);
   });
 
-  it("rung 3 in the flag-on position: the thirteenth per-section reason joins the record", async () => {
+  it("rung 3 in the flag-on position: the fourteenth per-section reason joins the record", async () => {
     const bundle = await buildAreaBundle(
       { rung: 3, kind: "wider-area", outward: "CM3", label: "Wider area — CM3", postcodeCount: 1 },
       new MatrixAreaSource(),
       { companyOwnershipEnabled: true },
     );
     if (bundle.kind !== "wider-area") throw new Error("expected wider-area");
-    expect(Object.keys(bundle.area.sections)).toHaveLength(13);
+    expect(Object.keys(bundle.area.sections)).toHaveLength(14);
     expect(bundle.area.sections.companyOwnership).toEqual({
       state: "unavailable",
       reason: "company ownership needs an exact postcode",
@@ -2540,5 +2573,166 @@ describe("matrix — area: company ownership (behind the flag)", () => {
     const json = JSON.stringify(bundle.sections.companyOwnership);
     for (const fragment of ["HATFIELD PEVEREL", "CHELMSFORD", "Birkdale Rise,"])
       expect(json).not.toContain(fragment);
+  });
+});
+
+// ------------------------------------------------------------------
+// Building safety (M6.16, D35): one section, two halves,
+// separate states — the tribunal's silence never sits
+// alone, and neither half ever supports a safety verdict.
+// The real-corpus serving proof lives in
+// tests/area-bundle.test.ts (the M5.14 fixture corpus
+// through the loader's own parser); the rows here are
+// the matrix's synthetic witnesses in the filed form.
+// ------------------------------------------------------------------
+
+const TRIBUNAL_ROW_M: TribunalDecisionRow = {
+  caseRef: "LON/00XX/BSA/2025/0001",
+  decisionDate: "2025-05-05",
+  orderKind: "remediation-order",
+  propertyText: "19 Birkdale Rise, Hatfield Peverel CM3 2JT",
+  buildingKey: "19 birkdale rise hatfield peverel",
+  isSingleFlat: false,
+  sourceUrl: "https://www.gov.uk/residential-property-tribunal-decisions/example",
+  sourceName:
+    "GOV.UK — Residential property tribunal decisions (First-tier Tribunal, Property Chamber)",
+  sourceDate: "2025-05-05",
+};
+
+const ENG_FLAT = home(ENG_DIR, {
+  saon: "Flat 4",
+  paon: "BIRKDALE HOUSE",
+  label: "Flat 4, Birkdale House",
+});
+
+describe("matrix — area: building safety (M6.16, D35)", () => {
+  it("served: the postcode's decisions group under their building, the home's group labelled", async () => {
+    const source = new MatrixAreaSource();
+    source.tribunal = { ...source.tribunal, rows: [TRIBUNAL_ROW_M] };
+    const bundle = await areaBundle(source);
+    const section = bundle.sections.buildingSafety;
+    expect(section.depth).toBe("report");
+    expect(section.tribunal.state).toBe("served");
+    expect(section.tribunal.line).toBe(
+      "1 published building-safety order naming this postcode, as at 14 November 2026",
+    );
+    expect(section.tribunal.groups).toHaveLength(1);
+    expect(section.tribunal.groups[0].isHomeBuilding).toBe(true);
+    expect(section.tribunal.groups[0].decisions[0].line).toBe(
+      "remediation order (section 123 of the Building Safety Act 2022) for 19 Birkdale Rise, Hatfield Peverel CM3 2JT — LON/00XX/BSA/2025/0001, 5 May 2025",
+    );
+    expectClean(bundle);
+  });
+
+  it("none-filed beside the hand-off: the empty line never sits alone (a flat's bundle)", async () => {
+    const bundle = await areaBundle(new MatrixAreaSource(), ENG_FLAT);
+    const section = bundle.sections.buildingSafety;
+    expect(section.tribunal.state).toBe("none-filed");
+    expect(section.tribunal.line).toBe(
+      "no published building-safety orders naming this postcode, as at 14 November 2026",
+    );
+    expect(section.register.state).toBe("handed-off");
+    expect(section.register.link).toEqual({
+      label: "Search the register of high-rise residential buildings (GOV.UK)",
+      url: "https://www.register-high-rise-building.service.gov.uk/public-register/search",
+    });
+    expectClean(bundle);
+  });
+
+  it("out-of-scope: a clear single house takes the scope line, with no link", async () => {
+    const bundle = await areaBundle(new MatrixAreaSource());
+    const register = bundle.sections.buildingSafety.register;
+    expect(register.state).toBe("out-of-scope");
+    expect(register.line).toBe(
+      "the Building Safety Regulator's register covers high-rise residential buildings — buildings of 7 or more storeys or 18 metres or more, with 2 or more residential units; a house is outside what the register is for",
+    );
+    expect(register.link).toBeNull();
+    expectClean(bundle);
+  });
+
+  it("not-filed: an unfiled table serves the not-filed family, never an empty line", async () => {
+    const source = new MatrixAreaSource();
+    source.tribunal = { filedCount: 0, lastFiledAt: null, sourceName: null, rows: [] };
+    const bundle = await areaBundle(source);
+    const section = bundle.sections.buildingSafety;
+    expect(section.tribunal.state).toBe("not-filed");
+    expect(section.tribunal.line).toBe(
+      "the building-safety decisions data is not filed yet, so no building-safety answer can be given yet",
+    );
+    expect(section.sourceName).toBeNull();
+    // The register half does not depend on the filing.
+    expect(section.register.state).toBe("out-of-scope");
+    expectClean(bundle);
+  });
+
+  it("not-covered: Scotland, Wales and Northern Ireland, in both halves", async () => {
+    for (const [resolution, fragment] of [
+      [SCO_HOME, "Cladding Assurance Register"],
+      [WAL_HOME, "Welsh Government"],
+      [NI_HOME, "no equivalent register"],
+    ] as const) {
+      const bundle = await areaBundle(new MatrixAreaSource(), resolution);
+      const section = bundle.sections.buildingSafety;
+      expect(section.tribunal.state).toBe("not-covered");
+      expect(section.tribunal.line).toContain(fragment);
+      expect(section.register.state).toBe("not-covered");
+      expect(section.register.line).toContain(fragment);
+      expect(section.register.link).toBeNull();
+      expectClean(bundle);
+    }
+  });
+
+  it("rung 3: the thirteenth per-section reason, in the house form", async () => {
+    const bundle = await buildAreaBundle(
+      { rung: 3, kind: "wider-area", outward: "CM3", label: "Wider area — CM3", postcodeCount: 1 },
+      new MatrixAreaSource(),
+    );
+    if (bundle.kind !== "wider-area") throw new Error("expected wider-area");
+    expect(bundle.area.sections.buildingSafety).toEqual({
+      state: "unavailable",
+      reason: "building safety answers need an exact postcode",
+    });
+  });
+
+  it("the section never reaches the short bundle", async () => {
+    const { short } = await shortFor(ENG_HOME, new MatrixAreaSource(), headlineNearby());
+    if (short.kind !== "short-bundle") throw new Error("expected a short bundle");
+    expect(Object.keys(short.sections)).toHaveLength(11);
+    expect("buildingSafety" in short.sections).toBe(false);
+    expect(JSON.stringify(short)).not.toContain("buildingSafety");
+  });
+
+  it("no served string supports a safety verdict (D35's banned list, the dataset's name excused)", async () => {
+    const served = new MatrixAreaSource();
+    served.tribunal = { ...served.tribunal, rows: [TRIBUNAL_ROW_M] };
+    const bundles = [
+      await areaBundle(served),
+      await areaBundle(new MatrixAreaSource()),
+      await areaBundle(new MatrixAreaSource(), ENG_FLAT),
+      await areaBundle(new MatrixAreaSource(), SCO_HOME),
+    ];
+    const text = bundles
+      .map((bundle) => JSON.stringify(bundle.sections.buildingSafety))
+      .join("\n")
+      .toLowerCase()
+      .replaceAll("building-safety", "")
+      .replaceAll("building safety", "");
+    for (const banned of [
+      "safe",
+      "unsafe",
+      "cladding-free",
+      "no cladding problem",
+      "no cladding",
+      "compliant",
+      "passed",
+      "cleared",
+      "no issues",
+      "no concerns",
+      "risk-free",
+      "no tribunal decisions",
+      "no cases",
+    ]) {
+      expect(text, `banned in the building-safety section: ${banned}`).not.toContain(banned);
+    }
   });
 });

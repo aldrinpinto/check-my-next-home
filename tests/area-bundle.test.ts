@@ -23,9 +23,18 @@ import {
   type ListedFacts,
   type PlanningLayerFacts,
   type PlanningLayerKind,
+  type TribunalDecisionRow,
+  type TribunalFacts,
 } from "../lib/area-bundle";
 import { DATASETS, buildRows, parseDatasetCsv } from "../loaders/load-census.mjs";
 import { imdSummaryFor } from "../loaders/load-imd.mjs";
+import {
+  SOURCE_NAME as TRIBUNAL_SOURCE,
+  buildCases,
+  extractPdfText,
+  parseDecisionHeader,
+  readFixturePdf,
+} from "../loaders/load-tribunal-building-safety.mjs";
 
 // Constraints & area in the brain (plan step M6.6, decision
 // D26).
@@ -538,6 +547,71 @@ class FakeAreaSource implements AreaDataSource {
     this.companyCalls.push(postcode);
     return this.companyOverride ?? COMPANY_BY_POSTCODE.get(postcode) ?? EMPTY_COMPANY_FACTS;
   }
+
+  tribunalCalls: string[] = [];
+  tribunalOverride: TribunalFacts | null = null;
+
+  async tribunalFacts(postcode: string) {
+    this.tribunalCalls.push(postcode);
+    return this.tribunalOverride ?? tribunalFactsFor(postcode);
+  }
+}
+
+// --- tribunal facts: the M5.14 fixture corpus, parsed by
+// the loader's own code (the loader test's pattern) — the
+// fake serves exactly what the fixture pass files (11
+// cases from 9 documents), never a transcription. The
+// filing currency is the fixture pass's stamp.
+
+const TRIBUNAL_FILED_AT = "2026-11-14T05:15:00.000Z";
+
+interface FiledTribunalRow extends TribunalDecisionRow {
+  postcode: string | null;
+}
+
+const TRIBUNAL_CORPUS: Promise<FiledTribunalRow[]> = (async () => {
+  const dir = join(__dirname, "fixtures", "tribunal-building-safety");
+  const manifest = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8")) as {
+    items: { link: string; title: string; decisionDate: string | null; pdf: string }[];
+  };
+  const documents = [];
+  for (const entry of manifest.items) {
+    const buffer = await readFixturePdf(dir, entry.pdf);
+    documents.push({
+      item: { link: entry.link, title: entry.title, decisionDate: entry.decisionDate },
+      parsed: parseDecisionHeader(extractPdfText(buffer)),
+    });
+  }
+  const { rows } = buildCases(documents) as unknown as {
+    rows: (TribunalDecisionRow & { postcode: string | null })[];
+  };
+  return rows.map((row) => ({ ...row, sourceName: TRIBUNAL_SOURCE, sourceDate: row.decisionDate }));
+})();
+
+async function tribunalFactsFor(postcode: string): Promise<TribunalFacts> {
+  const all = await TRIBUNAL_CORPUS;
+  return {
+    filedCount: all.length,
+    lastFiledAt: TRIBUNAL_FILED_AT,
+    sourceName: TRIBUNAL_SOURCE,
+    rows: all
+      .filter((row) => row.postcode === postcode)
+      .sort(
+        (a, b) =>
+          a.decisionDate.localeCompare(b.decisionDate) || a.caseRef.localeCompare(b.caseRef),
+      )
+      .map((row) => ({
+        caseRef: row.caseRef,
+        decisionDate: row.decisionDate,
+        orderKind: row.orderKind,
+        propertyText: row.propertyText,
+        buildingKey: row.buildingKey,
+        isSingleFlat: row.isSingleFlat,
+        sourceUrl: row.sourceUrl,
+        sourceName: row.sourceName,
+        sourceDate: row.sourceDate,
+      })),
+  };
 }
 
 // --- company ownership facts: the M5.13 fixture slices,
@@ -1541,6 +1615,7 @@ describe("the ladder", () => {
       [
         "air",
         "benefits",
+        "buildingSafety",
         "census",
         "constraints",
         "councilTax",
@@ -2967,14 +3042,14 @@ describe("company ownership — behind the flag", () => {
     } as const;
     const on = await buildAreaBundle(wider, source, ON);
     if (on.kind !== "wider-area") throw new Error("expected wider-area");
-    expect(Object.keys(on.area.sections)).toHaveLength(13);
+    expect(Object.keys(on.area.sections)).toHaveLength(14);
     expect(on.area.sections.companyOwnership).toEqual({
       state: "unavailable",
       reason: "company ownership needs an exact postcode",
     });
     const off = await buildAreaBundle(wider, source);
     if (off.kind !== "wider-area") throw new Error("expected wider-area");
-    expect(Object.keys(off.area.sections)).toHaveLength(12);
+    expect(Object.keys(off.area.sections)).toHaveLength(13);
     expect("companyOwnership" in off.area.sections).toBe(false);
   });
 
@@ -3408,6 +3483,337 @@ describe("solar", () => {
     expect(hilgay.sections.solar.state).toBe("not-filed");
     if (hilgay.sections.solar.state === "not-filed")
       expect(hilgay.sections.solar.line).toContain("not filed for this area yet");
+  });
+});
+
+// --- building safety (M6.16, D35) --------------------------------------
+
+const OYSTER_DIR = directory({
+  postcode: "BH15 2FN",
+  latitude: 50.72,
+  longitude: -1.982,
+  council: "Bournemouth, Christchurch and Poole",
+  lsoaCode: "E01013500",
+  msoaCode: "E02006700",
+});
+const OYSTER_FLAT = home(OYSTER_DIR, {
+  label: "Oyster Bay",
+  saon: "Flat 5",
+  paon: "OYSTER BAY APARTMENTS",
+  street: "STERTE",
+  town: "POOLE",
+});
+
+const PLANETREE_DIR = directory({
+  postcode: "E17 7FW",
+  latitude: 51.59,
+  longitude: -0.021,
+  council: "Waltham Forest",
+  lsoaCode: "E01004700",
+  msoaCode: "E02000850",
+});
+const PLANETREE = home(PLANETREE_DIR, {
+  label: "Planetree Path",
+  paon: "5",
+  street: "PLANETREE PATH",
+  town: "LONDON",
+});
+
+const THANET_DIR = directory({
+  postcode: "NW2 4JA",
+  latitude: 51.55,
+  longitude: -0.235,
+  council: "Brent",
+  lsoaCode: "E01000500",
+  msoaCode: "E02000150",
+});
+const THANET = home(THANET_DIR, {
+  label: "Thanet Lodge",
+  paon: "THANET LODGE",
+  street: "MAPESBURY ROAD",
+  town: "LONDON",
+});
+
+const EMPIRE_DIR = directory({
+  postcode: "SE1 4NH",
+  latitude: 51.499,
+  longitude: -0.096,
+  council: "Southwark",
+  lsoaCode: "E01004000",
+  msoaCode: "E02000780",
+});
+
+describe("building safety — the tribunal half serves the filed corpus (D35)", () => {
+  it("Oyster Bay: the positive control serves verbatim, its group labelled, beside the hand-off", async () => {
+    const { sections } = await bundle(OYSTER_FLAT);
+    const section = sections.buildingSafety;
+    expect(section.depth).toBe("report");
+    const tribunal = section.tribunal;
+    expect(tribunal.state).toBe("served");
+    expect(tribunal.line).toBe(
+      "1 published building-safety order naming this postcode, as at 14 November 2026",
+    );
+    expect(tribunal.decisionCount).toBe(1);
+    expect(tribunal.groups).toHaveLength(1);
+    const group = tribunal.groups[0];
+    expect(group.buildingName).toBe("1-31 Oyster Bay Apartments, Sterte, Poole BH15 2FN");
+    expect(group.buildingKey).toBe("oyster bay apartments sterte poole");
+    expect(group.isHomeBuilding).toBe(true);
+    expect(group.decisions).toHaveLength(1);
+    const decision = group.decisions[0];
+    expect(decision.caseRef).toBe("HAV/00HQ/BSA/2025/0002");
+    expect(decision.kind).toBe("remediation-order");
+    expect(decision.kindLine).toBe(
+      "remediation order (section 123 of the Building Safety Act 2022)",
+    );
+    expect(decision.line).toBe(
+      "remediation order (section 123 of the Building Safety Act 2022) for 1-31 Oyster Bay Apartments, Sterte, Poole BH15 2FN — HAV/00HQ/BSA/2025/0002, 10 April 2026",
+    );
+    expect(decision.sourceUrl).toBe(
+      "https://www.gov.uk/residential-property-tribunal-decisions/1-31-oyster-bay-apartments-sterte-poole-dorset-bh15-2fn-hav-slash-00hq-slash-bsa-slash-2025-slash-0002",
+    );
+    // The section's source fields are the tribunal half's.
+    expect(section.sourceName).toBe(TRIBUNAL_SOURCE);
+    expect(section.sourceDate).toBe("2026-11-14");
+    expect(tribunal.sourceLine).toContain(TRIBUNAL_SOURCE);
+    // The register half corrects the reading: a flat is
+    // never scope-worded, so the hand-off stands.
+    expect(section.register.state).toBe("handed-off");
+    expect(section.register.link).toEqual({
+      label: "Search the register of high-rise residential buildings (GOV.UK)",
+      url: "https://www.register-high-rise-building.service.gov.uk/public-register/search",
+    });
+  });
+
+  it("Planetree Path: a remediation contribution order serves with its own kind line", async () => {
+    const { sections } = await bundle(PLANETREE);
+    const tribunal = sections.buildingSafety.tribunal;
+    expect(tribunal.state).toBe("served");
+    expect(tribunal.line).toBe(
+      "1 published building-safety order naming this postcode, as at 14 November 2026",
+    );
+    const decision = tribunal.groups[0].decisions[0];
+    expect(decision.caseRef).toBe("LON/00BH/BSB/2024/0500");
+    expect(decision.kind).toBe("remediation-contribution-order");
+    expect(decision.kindLine).toBe(
+      "remediation contribution order (section 124 of the Building Safety Act 2022)",
+    );
+    expect(decision.propertyText).toBe("1-9 PLANETREE PATH, LONDON E17 7FW");
+  });
+
+  it("Thanet Lodge: three cases for one building serve as ONE group, in filing order", async () => {
+    const { sections } = await bundle(THANET);
+    const tribunal = sections.buildingSafety.tribunal;
+    expect(tribunal.state).toBe("served");
+    expect(tribunal.line).toBe(
+      "3 published building-safety orders naming this postcode, as at 14 November 2026",
+    );
+    expect(tribunal.decisionCount).toBe(3);
+    expect(tribunal.groups).toHaveLength(1);
+    expect(tribunal.groups[0].buildingName).toBe("Thanet Lodge, 10 Mapesbury Road, London NW2 4JA");
+    expect(tribunal.groups[0].decisions.map((d) => d.caseRef)).toEqual([
+      "LON/00AE/BSA/2024/0007",
+      "LON/00AE/BSA/2024/0500",
+      "LON/00AE/BSA/2024/0502",
+    ]);
+  });
+
+  it("Empire Square at rung 2: the postcode's decisions serve with no home label", async () => {
+    const { sections } = await bundle(addressList(EMPIRE_DIR));
+    const tribunal = sections.buildingSafety.tribunal;
+    expect(tribunal.state).toBe("served");
+    expect(tribunal.decisionCount).toBe(1);
+    expect(tribunal.groups[0].isHomeBuilding).toBe(false);
+    expect(tribunal.groups[0].decisions[0].caseRef).toBe("LON/00BE/BSB/2024/0602");
+    expect(tribunal.groups[0].decisions[0].kind).toBe("remediation-contribution-order");
+  });
+
+  it("the universal three serve the locked empty form — no filed decision names them", async () => {
+    for (const resolution of [BIRKDALE, EXETER, MINERVA]) {
+      const { sections } = await bundle(resolution);
+      const tribunal = sections.buildingSafety.tribunal;
+      expect(tribunal.state).toBe("none-filed");
+      expect(tribunal.line).toBe(
+        "no published building-safety orders naming this postcode, as at 14 November 2026",
+      );
+      expect(tribunal.decisionCount).toBe(0);
+      expect(tribunal.groups).toEqual([]);
+    }
+  });
+
+  it("the register scope line: a clear single house only — Birkdale and Exeter take it, Minerva's flat never does", async () => {
+    const birkdale = await bundle(BIRKDALE);
+    expect(birkdale.sections.buildingSafety.register.state).toBe("out-of-scope");
+    expect(birkdale.sections.buildingSafety.register.line).toBe(
+      "the Building Safety Regulator's register covers high-rise residential buildings — buildings of 7 or more storeys or 18 metres or more, with 2 or more residential units; a house is outside what the register is for",
+    );
+    expect(birkdale.sections.buildingSafety.register.link).toBeNull();
+    const exeter = await bundle(EXETER);
+    expect(exeter.sections.buildingSafety.register.state).toBe("out-of-scope");
+    const minerva = await bundle(MINERVA);
+    expect(minerva.sections.buildingSafety.register.state).toBe("handed-off");
+    expect(minerva.sections.buildingSafety.register.link?.url).toBe(
+      "https://www.register-high-rise-building.service.gov.uk/public-register/search",
+    );
+    // Rung 2 never scope-words: the list is not one home.
+    const rung2 = await bundle(addressList(BIRKDALE_DIR));
+    expect(rung2.sections.buildingSafety.register.state).toBe("handed-off");
+  });
+
+  it("an unfiled table serves not-filed — the guard, never an empty line", async () => {
+    const fresh = new FakeAreaSource();
+    fresh.tribunalOverride = { filedCount: 0, lastFiledAt: null, sourceName: null, rows: [] };
+    const { sections } = await bundle(BIRKDALE, fresh);
+    const section = sections.buildingSafety;
+    expect(section.tribunal.state).toBe("not-filed");
+    expect(section.tribunal.line).toBe(
+      "the building-safety decisions data is not filed yet, so no building-safety answer can be given yet",
+    );
+    expect(section.sourceName).toBeNull();
+    expect(section.sourceDate).toBeNull();
+    // The register half is independent of the filing.
+    expect(section.register.state).toBe("out-of-scope");
+  });
+
+  it("the nations: tribunal and register both serve their not-covered forms", async () => {
+    const scotland = await bundle(SCOTLAND);
+    expect(scotland.sections.buildingSafety.tribunal.state).toBe("not-covered");
+    expect(scotland.sections.buildingSafety.tribunal.line).toContain("Cladding Assurance Register");
+    expect(scotland.sections.buildingSafety.register.state).toBe("not-covered");
+    expect(scotland.sections.buildingSafety.register.line).toContain("Cladding Assurance Register");
+    // Named WITHOUT a link (D35): no verified landing
+    // exists in the record.
+    expect(scotland.sections.buildingSafety.register.link).toBeNull();
+
+    const cardiff = await bundle(C8);
+    expect(cardiff.sections.buildingSafety.tribunal.state).toBe("not-covered");
+    expect(cardiff.sections.buildingSafety.tribunal.line).toContain("Welsh Government");
+    expect(cardiff.sections.buildingSafety.register.state).toBe("not-covered");
+    expect(cardiff.sections.buildingSafety.register.link).toBeNull();
+
+    const belfast = await bundle(BELFAST);
+    expect(belfast.sections.buildingSafety.tribunal.state).toBe("not-covered");
+    expect(belfast.sections.buildingSafety.tribunal.line).toContain("no equivalent register");
+    expect(belfast.sections.buildingSafety.register.state).toBe("not-covered");
+    expect(belfast.sections.buildingSafety.register.line).toContain("no equivalent register");
+  });
+
+  it("group-and-label is fail-open: a stem mismatch labels nothing and filters nothing", async () => {
+    const fresh = new FakeAreaSource();
+    const row = (
+      partial: Partial<TribunalDecisionRow> & { caseRef: string },
+    ): TribunalDecisionRow => ({
+      decisionDate: "2025-03-03",
+      orderKind: "remediation-order",
+      propertyText: "Alpha House, Birkdale Rise, Hatfield Peverel CM3 2JT",
+      buildingKey: "alpha house birkdale rise hatfield peverel",
+      isSingleFlat: false,
+      sourceUrl: "https://www.gov.uk/example",
+      sourceName: TRIBUNAL_SOURCE,
+      sourceDate: "2025-03-03",
+      ...partial,
+    });
+    fresh.tribunalOverride = {
+      filedCount: 11,
+      lastFiledAt: TRIBUNAL_FILED_AT,
+      sourceName: TRIBUNAL_SOURCE,
+      rows: [
+        row({ caseRef: "SYN/0001" }),
+        row({
+          caseRef: "SYN/0002",
+          propertyText: "19 Birkdale Rise CM3 2JT",
+          buildingKey: "19 birkdale rise",
+        }),
+      ],
+    };
+    const { sections } = await bundle(BIRKDALE, fresh);
+    const tribunal = sections.buildingSafety.tribunal;
+    expect(tribunal.state).toBe("served");
+    expect(tribunal.decisionCount).toBe(2);
+    // Both groups serve; the home's own group is labelled
+    // and first even though it was filed second.
+    expect(tribunal.groups.map((g) => g.buildingKey)).toEqual([
+      "19 birkdale rise",
+      "alpha house birkdale rise hatfield peverel",
+    ]);
+    expect(tribunal.groups[0].isHomeBuilding).toBe(true);
+    expect(tribunal.groups[1].isHomeBuilding).toBe(false);
+  });
+
+  it("a single-flat decision serves only at its own flat's rung-1 check", async () => {
+    const fresh = new FakeAreaSource();
+    const base: TribunalDecisionRow = {
+      caseRef: "SYN/FLAT",
+      decisionDate: "2025-04-04",
+      orderKind: "remediation-order",
+      propertyText: "Flat 2, 19 Birkdale Rise, Hatfield Peverel CM3 2JT",
+      buildingKey: "19 birkdale rise hatfield peverel",
+      isSingleFlat: true,
+      sourceUrl: "https://www.gov.uk/example",
+      sourceName: TRIBUNAL_SOURCE,
+      sourceDate: "2025-04-04",
+    };
+    const buildingWide: TribunalDecisionRow = {
+      ...base,
+      caseRef: "SYN/BUILDING",
+      propertyText: "19 Birkdale Rise, Hatfield Peverel CM3 2JT",
+      isSingleFlat: false,
+    };
+    fresh.tribunalOverride = {
+      filedCount: 11,
+      lastFiledAt: TRIBUNAL_FILED_AT,
+      sourceName: TRIBUNAL_SOURCE,
+      rows: [base, buildingWide],
+    };
+    // The house itself: the flat's decision is not its
+    // answer — only the building-wide one serves.
+    const house = await bundle(BIRKDALE, fresh);
+    expect(house.sections.buildingSafety.tribunal.decisionCount).toBe(1);
+    expect(
+      house.sections.buildingSafety.tribunal.groups[0].decisions.map((d) => d.caseRef),
+    ).toEqual(["SYN/BUILDING"]);
+    // Flat 2's own check: both serve, in one labelled
+    // group.
+    const flat2 = home(BIRKDALE_DIR, {
+      label: "Flat 2, Birkdale",
+      saon: "Flat 2",
+      paon: "19",
+      street: "BIRKDALE RISE",
+      town: "HATFIELD PEVEREL",
+    });
+    const own = await bundle(flat2, fresh);
+    expect(own.sections.buildingSafety.tribunal.decisionCount).toBe(2);
+    expect(own.sections.buildingSafety.tribunal.groups).toHaveLength(1);
+    expect(own.sections.buildingSafety.tribunal.groups[0].isHomeBuilding).toBe(true);
+    // A sibling flat: the single-flat decision is not
+    // theirs either.
+    const flat3 = home(BIRKDALE_DIR, {
+      label: "Flat 3, Birkdale",
+      saon: "Flat 3",
+      paon: "19",
+      street: "BIRKDALE RISE",
+      town: "HATFIELD PEVEREL",
+    });
+    const sibling = await bundle(flat3, fresh);
+    expect(sibling.sections.buildingSafety.tribunal.decisionCount).toBe(1);
+    // Rung 2: single-flat decisions never serve.
+    const rung2 = await bundle(addressList(BIRKDALE_DIR), fresh);
+    expect(rung2.sections.buildingSafety.tribunal.decisionCount).toBe(1);
+  });
+
+  it("the explainer carries the completeness caveats — publication is never stated complete", async () => {
+    const { sections } = await bundle(BIRKDALE);
+    const explainer = sections.buildingSafety.explainer ?? "";
+    expect(explainer).toContain("Publication is selective");
+    expect(explainer).toContain("cannot be read by the filing process");
+    expect(explainer).toContain("name no full postcode");
+    expect(explainer).toContain(
+      "An empty tribunal answer means only that no published, readable decision in the filed index names this postcode",
+    );
+    expect(explainer).toContain("EWS1 forms have no public register");
+    expect(explainer).toContain(
+      "Whether a building has cladding is a question neither record answers",
+    );
   });
 });
 

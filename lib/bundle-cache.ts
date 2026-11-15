@@ -106,6 +106,11 @@ import {
 //     this step on, flag off included, so the section's
 //     own not-filed state caches safely: the first filing
 //     moves the counts and busts the entry, whoever ran it.
+//     From M6.16 the contract also requires the
+//     building-safety key's presence: the section is
+//     unconditional, so an entry written before the step
+//     lacks the key and degrades to a recompute — a
+//     pre-step entry never serves sectionless.
 
 export type CacheBrain = "crime" | "flood" | "nearby" | "area";
 
@@ -119,10 +124,13 @@ export type CacheBrain = "crime" | "flood" | "nearby" | "area";
 // monuments, nature designations, priority habitats), the
 // EPC artefact (load-epc, including the runner's per-postcode
 // re-files), council tax, Census and its LSOA bases, IMD,
-// air, noise, the two benefits loaders, the PVGIS grid and
+// air, noise, the two benefits loaders, the PVGIS grid,
 // company ownership (M6.13 — its tables are read only behind
 // the flag, but the stamp guards the cached bundle's shape
-// in either flag position).
+// in either flag position) and the tribunal building-safety
+// decisions (M6.16 — the timed quarterly pass moves the
+// stamp; the loader's direct entry point moves no stamp,
+// so its filed count rides in the guards as well).
 export const BRAIN_DEPENDENCIES: Record<CacheBrain, readonly string[]> = {
   crime: ["load-postcodes", "load-crime"],
   flood: [
@@ -159,6 +167,7 @@ export const BRAIN_DEPENDENCIES: Record<CacheBrain, readonly string[]> = {
     "load-dwp-uc",
     "load-pvgis",
     "load-company-ownership",
+    "load-tribunal-building-safety",
   ],
 };
 
@@ -326,6 +335,23 @@ const GUARDS: Record<
         "SELECT count(*)::int AS n FROM company_titles WHERE dataset = 'ocod'",
       ),
       companySnapshots: await countOf(db, "SELECT count(*)::int AS n FROM company_snapshots"),
+      // Building safety (M6.16): the tribunal loader's
+      // direct entry point (npm run
+      // load:tribunal-building-safety) bypasses the runner
+      // entirely and writes no loader_run_items row, so a
+      // hand-run quarterly pass re-files the table while
+      // moving no stamp — the operator trap in its exact
+      // shape. The table's own count is the guard that
+      // moves; a cached not-filed section never survives
+      // the first filing that ends it. (Named residual,
+      // the flood counts' own: a same-count content change
+      // from a hand run moves neither stamp nor count; the
+      // timed runner's stamp closes it on the primary
+      // path.)
+      tribunalDecisions: await countOf(
+        db,
+        "SELECT count(*)::int AS n FROM tribunal_building_safety_decisions",
+      ),
     };
   },
 };
@@ -616,12 +642,15 @@ export async function buildAreaBundleCached(
     // off + key present, degrades to a recompute — absence
     // by staleness would be indistinguishable from the flag
     // itself, and a flipped-off entry must never surface
-    // the section it was written with.
+    // the section it was written with. The building-safety
+    // key (M6.16) is unconditional: it must be present, so
+    // an entry written before the step degrades to a
+    // recompute rather than serving sectionless.
     shapeOk: (bundle) => {
       if (typeof bundle !== "object" || bundle === null) return false;
       const sections = (bundle as { sections?: unknown }).sections;
       if (typeof sections !== "object" || sections === null) return false;
-      return "companyOwnership" in sections === companyEnabled;
+      return "companyOwnership" in sections === companyEnabled && "buildingSafety" in sections;
     },
   });
 }
