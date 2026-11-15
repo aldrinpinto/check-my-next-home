@@ -2506,7 +2506,9 @@ describe("monthly cost — never a total (M6.14, D33)", () => {
     expect(Object.keys(headline.councilTax).sort()).toEqual(
       ["authority", "bandDAverageLabel", "line", "state", "taxYear"].sort(),
     );
-    expect(Object.keys(headline.epc).sort()).toEqual(["headlineBand", "line", "state"].sort());
+    expect(Object.keys(headline.epc).sort()).toEqual(
+      ["headlineAssessmentLabel", "headlineBand", "line", "state"].sort(),
+    );
   });
 });
 
@@ -2755,7 +2757,9 @@ describe("the postcode's EPC spread (M6.15, D34)", () => {
     const headline = projectHeadline(built);
     expect(headline).not.toBeNull();
     if (!headline) return;
-    expect(Object.keys(headline.epc).sort()).toEqual(["headlineBand", "line", "state"].sort());
+    expect(Object.keys(headline.epc).sort()).toEqual(
+      ["headlineAssessmentLabel", "headlineBand", "line", "state"].sort(),
+    );
     expect(JSON.stringify(headline)).not.toContain("certificates recorded for this postcode");
   });
 

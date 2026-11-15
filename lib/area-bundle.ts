@@ -1136,7 +1136,7 @@ function buildHeritage(
     grain: "postcode point",
     grainLine: "listed buildings and monuments recorded around the postcode point",
     explainer:
-      "Listed buildings are recorded as points with a name, a grade and an NHLE number — no source publishes a listed building's address, so a nearby point is a match to check, not a finding about a specific home.",
+      "Listed buildings are recorded as points with a name, a grade and an NHLE number — no source publishes a listed building's address, so a nearby point is a match to check, not a finding about a specific home. The grades are the list's ranking of significance: Grade I buildings are of exceptional interest, Grade II* buildings are particularly important buildings of more than special interest, and Grade II buildings are of special interest.",
     sourceName: listed.sourceName,
     sourceDate: listed.sourceDate,
     sourceLine: sourceLineOf(listed.sourceName, listed.sourceDate),
@@ -1236,6 +1236,12 @@ export interface NatureSection extends AreaSectionMeta {
   // each type.
   designationsLine: string | null;
   ancientWoodland: PolygonLayerAnswer;
+  // The Ancient Woodland Inventory's own caveat, served
+  // with the section (M6.18, decision D37): the inventory
+  // is provisional, so its absence line is a statement
+  // about the inventory, and this line is what keeps it
+  // one. (The constant existed unserved before this step.)
+  ancientWoodlandInventoryLine: string;
   priorityHabitat: PriorityHabitatAnswer;
 }
 
@@ -1448,7 +1454,7 @@ function buildNature(
     grain: "postcode point",
     grainLine: "designated sites and recorded habitats around the postcode point",
     explainer:
-      "Designations are grouped by place: one site can carry several designations over the same ground, and they are named together so the stack reads as one place, not several.",
+      "Designations are grouped by place: one site can carry several designations over the same ground, and they are named together so the stack reads as one place, not several. The designations are: SSSI is a Site of Special Scientific Interest, SAC is a Special Area of Conservation, SPA is a Special Protection Area, and a Ramsar site is a wetland of international importance under the Ramsar Convention.",
     sourceName: firstType.sourceName,
     sourceDate: firstType.sourceDate,
     sourceLine: sourceLineOf(firstType.sourceName, firstType.sourceDate),
@@ -1472,6 +1478,7 @@ function buildNature(
       woodlandFacts,
       nation === "england" ? "none-found" : "sparse-coverage",
     ),
+    ancientWoodlandInventoryLine: ANCIENT_WOODLAND_INVENTORY_LINE,
     priorityHabitat,
   };
 }
@@ -1526,6 +1533,12 @@ export interface ServedCertificate {
   address: string;
   band: string | null;
   rating: number | null;
+  // The rating's scale line (M6.18, decision D37): the
+  // rating is a bare number without it — nothing else in
+  // the served shape states what the number is a score
+  // of, or that the band derives from it. Null where the
+  // register filed no rating: no figure, no line.
+  ratingLine: string | null;
   potentialBand: string | null;
   floorAreaSqM: number | null;
   dwellingType: string | null;
@@ -1743,6 +1756,10 @@ function toServedCertificate(cert: EpcCertificate): ServedCertificate {
     address,
     band: cert.band,
     rating: cert.ratingCurrent,
+    ratingLine:
+      cert.ratingCurrent === null
+        ? null
+        : "this number is the register's energy-efficiency measure for this home — the certificate's band derives from it",
     potentialBand: cert.potentialBand,
     floorAreaSqM: cert.totalFloorArea,
     dwellingType: cert.dwellingType,
@@ -1995,6 +2012,14 @@ export interface CouncilTaxSection extends AreaSectionMeta {
     monthlyPence: number;
     monthlyLabelPence: string;
   }[];
+  // The band table's derivation, in the served shape
+  // (M6.18, decision D37): before this step the statutory
+  // ratios lived only in code comments and the schema
+  // doc, and the explainer said only that Band D is "the
+  // scale the other bands are set from". Null in the
+  // not-filed and not-covered states, where no table
+  // serves.
+  bandsLine: string | null;
   // The monthly line (M6.14): the Band D average spread
   // evenly over 12 months, carrying D16's correction inside
   // itself — the council's scale, not this home's bill.
@@ -2056,6 +2081,7 @@ function buildCouncilTax(facts: CouncilTaxFacts | null, nation: Nation): Council
       components: [],
       parish: null,
       bands: [],
+      bandsLine: null,
       monthlyLine: null,
       bandDMonthlyPence: null,
       bandDMonthlyLabel: null,
@@ -2076,6 +2102,7 @@ function buildCouncilTax(facts: CouncilTaxFacts | null, nation: Nation): Council
       components: [],
       parish: null,
       bands: [],
+      bandsLine: null,
       monthlyLine: null,
       bandDMonthlyPence: null,
       bandDMonthlyLabel: null,
@@ -2126,6 +2153,8 @@ function buildCouncilTax(facts: CouncilTaxFacts | null, nation: Nation): Council
         monthlyLabelPence: formatPounds(monthlyPence),
       };
     }),
+    bandsLine:
+      "the other bands are set from Band D by fixed statutory ratios — each band's charge is a set number of ninths of the Band D charge",
     monthlyLine: `${facts.authorityName}'s average Band D council tax spread evenly over 12 months is ${formatPounds(bandDMonthlyPence)} a month — the council's scale, not this home's bill`,
     bandDMonthlyPence,
     bandDMonthlyLabel: formatPounds(bandDMonthlyPence),
@@ -2335,6 +2364,13 @@ export interface CompanySnapshotServed {
   status: string | null;
   incorporationDate: string | null;
   sicCodes: string[];
+  // What the SIC codes ARE, in the served shape (M6.18,
+  // decision D37 — the census's latent row): the codes
+  // serve as filed numbers, and without this line they
+  // are meaningless to a reader unaided. Null where the
+  // snapshot files no codes: no figure, no line. The
+  // section stays behind its flag either way.
+  sicCodesLine: string | null;
   sourceName: string | null;
   sourceDate: string | null;
   sourceLine: string | null;
@@ -2561,6 +2597,10 @@ function toServedCompanyTitle(
           status: snapshot.status,
           incorporationDate: snapshot.incorporationDate,
           sicCodes: snapshot.sicCodes,
+          sicCodesLine:
+            snapshot.sicCodes.length > 0
+              ? "the SIC codes are Companies House's standard industrial classification codes for the company's activities, served as filed"
+              : null,
           sourceName: snapshot.sourceName,
           sourceDate: snapshot.sourceDate,
           sourceLine: sourceLineOf(snapshot.sourceName, snapshot.sourceDate),
@@ -3249,7 +3289,7 @@ function buildCensus(
     grain: "area" as const,
     grainLine: "the wider area around this home, in Census 2021 numbers",
     explainer:
-      "These figures describe the whole Census area this home sits in — thousands of residents — as they were on Census Day, 21 March 2021. They are the area in numbers, not a description of this street or of the people on it.",
+      "These figures describe the whole Census area this home sits in — thousands of residents — as they were on Census Day, 21 March 2021. They are the area in numbers, not a description of this street or of the people on it. Each table's percentages are of that table's own total — the tables' totals differ because the Census applies disclosure control, so a percentage from one table is not a share of another table's total.",
   };
   if (msoaCode === null) {
     return {
@@ -3627,6 +3667,14 @@ export interface BenefitsSeriesServed {
   count: number | null;
   pct: number | null;
   pctState: "published" | "not-published" | null;
+  // The Claimant Count percentage's base, in the served
+  // shape (M6.18, decision D37): the percentage is of the
+  // working-age population — before this step that base
+  // existed only in a code comment on the filed-data
+  // interface, and the served shape carried a bare number.
+  // Null for the UC series (they file no percentage) and
+  // where the percentage itself is not published.
+  pctLine: string | null;
   line: string | null;
 }
 
@@ -3636,6 +3684,11 @@ export interface BenefitsSection extends AreaSectionMeta {
   lsoaCode: string | null;
   series: BenefitsSeriesServed[];
   bases: { residents: number; households: number } | null;
+  // What the base counts ARE, in the served shape (M6.18,
+  // decision D37): the small area's Census residents and
+  // households, filed as the series' context. Null where
+  // no bases are filed.
+  basesLine: string | null;
 }
 
 function buildBenefits(
@@ -3661,6 +3714,7 @@ function buildBenefits(
       lsoaCode,
       series: [],
       bases: null,
+      basesLine: null,
     };
   }
 
@@ -3680,6 +3734,7 @@ function buildBenefits(
         count: null,
         pct: null,
         pctState: null,
+        pctLine: null,
         line: missingIsKnown
           ? `${label} is not published for this area`
           : `${label} is not filed for this area`,
@@ -3695,6 +3750,10 @@ function buildBenefits(
       pct: filed.pct,
       pctState:
         series === "claimant_count" ? (filed.pct === null ? "not-published" : "published") : null,
+      pctLine:
+        series === "claimant_count" && filed.pct !== null
+          ? `${filed.pct} percent of the working-age population`
+          : null,
       line: `${label}: ${filed.count} in ${monthLabel(filed.month)}`,
     };
   };
@@ -3721,6 +3780,9 @@ function buildBenefits(
     lsoaCode,
     series,
     bases: facts.bases,
+    basesLine: facts.bases
+      ? `the counts are read against the small area's Census 2021 population, filed as the series' context: ${facts.bases.residents} residents and ${facts.bases.households} households`
+      : null,
   };
 }
 
@@ -4345,7 +4407,19 @@ export interface HeadlineProjection {
   // a headline that dropped it would serve a state with
   // no sentence — the other seven sections already travel
   // whole or with their lines.
-  epc: { state: EpcSection["state"]; headlineBand: string | null; line: string | null };
+  epc: {
+    state: EpcSection["state"];
+    headlineBand: string | null;
+    // The headline band's predicted/assessed label (M6.18,
+    // decision D37, restoring D7): the newest matched
+    // certificate's assessmentLabel, picked beside the
+    // band — D7 rules a predicted band is labelled
+    // predicted wherever it appears, and the slimming had
+    // dropped the label by omission. Null where no
+    // certificate serves.
+    headlineAssessmentLabel: string | null;
+    line: string | null;
+  };
   councilTax: {
     state: CouncilTaxSection["state"];
     authority: string | null;
@@ -4386,6 +4460,7 @@ export function projectHeadline(bundle: AreaBundle): HeadlineProjection | null {
     epc: {
       state: sections.epc.state,
       headlineBand: sections.epc.headlineBand,
+      headlineAssessmentLabel: sections.epc.certificates[0]?.assessmentLabel ?? null,
       line: sections.epc.line,
     },
     councilTax: {

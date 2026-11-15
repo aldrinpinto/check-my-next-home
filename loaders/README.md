@@ -758,12 +758,13 @@ at answer time (M6) — England A 6/9 to H 18/9, Wales A
 6/9 to I 21/9 on 2003 values — and the row's `nation`
 column is what selects the ratio set. The served figure
 is always an **average**: the D13 line beside it reads
-"This is [Council]'s average Band D council tax for
-[year], including county, police and fire charges; your
-exact bill depends on your home's band and parish, so
-treat this as a close estimate, not the bill itself"
-(the parish clause drops for unparished and unitary
-authorities).
+"[Council]'s average Band D council tax for [year] is
+£… — an area average, not this home's bill" (corrected
+at M6.18: this README previously quoted a superseded
+pre-build draft that called the figure "a close
+estimate" — wording D16 forbids, since the figure is
+the authority's scale, never an estimate of the home's
+bill; the brain has never served that line).
 
 Sources, both official and free. England: MHCLG's
 _Council Tax levels set by local authorities in England_

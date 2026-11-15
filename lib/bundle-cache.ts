@@ -633,6 +633,26 @@ export async function buildNearbyBundleCached(
     kinds: ["distances"],
     compute: () => buildNearbyBundle(resolution, source),
     cacheable: () => true,
+    // The M6.18 shape contract: the secondary category's
+    // answer carries the selective gloss's field
+    // (nearestSelectiveLine, key present, value possibly
+    // null). An entry written before M6.18 lacks the key,
+    // so it degrades to a recompute rather than serving
+    // the gloss's absence as current.
+    shapeOk: (bundle) => {
+      if (typeof bundle !== "object" || bundle === null) return false;
+      const categories = (bundle as { categories?: unknown }).categories;
+      if (!Array.isArray(categories)) return false;
+      const secondary = categories.find(
+        (c) =>
+          typeof c === "object" &&
+          c !== null &&
+          (c as { category?: unknown }).category === "schools-secondary",
+      );
+      return (
+        typeof secondary === "object" && secondary !== null && "nearestSelectiveLine" in secondary
+      );
+    },
   });
 }
 
@@ -674,17 +694,59 @@ export async function buildAreaBundleCached(
     // an entry written before the step degrades to a
     // recompute rather than serving sectionless. The
     // broadband and mobile keys (M6.17) are unconditional
-    // in the same way.
+    // in the same way. The M6.18 explainer fields extend
+    // the contract in step (D37): the nature section's
+    // ancient-woodland inventory line must be a string,
+    // the council-tax and benefits sections must carry
+    // their new line fields (keys present, values possibly
+    // null), and every served EPC certificate must carry
+    // its ratingLine key — an entry written before M6.18
+    // degrades to a recompute rather than serving the new
+    // lines' absence as current. Where the company section
+    // is present (flag on), its snapshots must carry the
+    // SIC line's key in the same way.
     shapeOk: (bundle) => {
       if (typeof bundle !== "object" || bundle === null) return false;
       const sections = (bundle as { sections?: unknown }).sections;
       if (typeof sections !== "object" || sections === null) return false;
-      return (
+      if (!(
         "companyOwnership" in sections === companyEnabled &&
         "buildingSafety" in sections &&
         "broadband" in sections &&
         "mobile" in sections
-      );
+      ))
+        return false;
+      const s = sections as Record<string, Record<string, unknown> | undefined>;
+      const nature = s.nature;
+      if (!nature || typeof nature.ancientWoodlandInventoryLine !== "string") return false;
+      const councilTax = s.councilTax;
+      if (!councilTax || !("bandsLine" in councilTax)) return false;
+      const benefits = s.benefits;
+      if (!benefits || !("basesLine" in benefits)) return false;
+      const epc = s.epc;
+      if (!epc || !Array.isArray(epc.certificates)) return false;
+      if (
+        !epc.certificates.every(
+          (cert) => typeof cert === "object" && cert !== null && "ratingLine" in cert,
+        )
+      )
+        return false;
+      const company = s.companyOwnership;
+      if (company) {
+        const titles = [
+          ...((company.ownTitles as unknown[]) ?? []),
+          ...((company.buildingTitles as unknown[]) ?? []),
+        ];
+        const snapshotsOk = titles.every((title) => {
+          const snapshot = (title as { snapshot?: unknown }).snapshot;
+          return (
+            snapshot === null ||
+            (typeof snapshot === "object" && snapshot !== null && "sicCodesLine" in snapshot)
+          );
+        });
+        if (!snapshotsOk) return false;
+      }
+      return true;
     },
   });
 }

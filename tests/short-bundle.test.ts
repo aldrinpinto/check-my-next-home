@@ -2076,7 +2076,13 @@ describe("short bundle — 19 Birkdale Rise, CM3 2JT (rung 1)", () => {
 
   it("area sections: EPC band, the council-tax line with its correction, NO2, road noise", async () => {
     const short = servedShort(await shortFor(BIRKDALE));
-    expect(short.sections.epc).toEqual({ state: "served", headlineBand: "B", line: null });
+    expect(short.sections.epc).toEqual({
+      state: "served",
+      headlineBand: "B",
+      headlineAssessmentLabel:
+        "predicted — a SAP assessment, the assessor's model made for a new-build home",
+      line: null,
+    });
     expect(short.sections.councilTax.state).toBe("served");
     expect(short.sections.councilTax.authority).toBe("Braintree");
     expect(short.sections.councilTax.bandDAverageLabel).toBe("£2,280.34");
@@ -2195,6 +2201,7 @@ describe("short bundle — 6 Exeter Road, E16 1GN (rung 1)", () => {
     expect(short.sections.epc).toEqual({
       state: "served",
       headlineBand: "B",
+      headlineAssessmentLabel: "an assessment of the existing home",
       line: "the register holds 2 certificates for this home — all are shown, and where they disagree both figures stand",
     });
     expect(short.sections.councilTax.line).toBe(
@@ -2271,7 +2278,13 @@ describe("short bundle — Flat 4, Minerva House, KT17 1FH (rung 1)", () => {
     });
     // The three-Flat-4s separation survives derivation: the
     // one matched certificate is Minerva's own, band B.
-    expect(short.sections.epc).toEqual({ state: "served", headlineBand: "B", line: null });
+    expect(short.sections.epc).toEqual({
+      state: "served",
+      headlineBand: "B",
+      headlineAssessmentLabel:
+        "predicted — a SAP assessment, the assessor's model made for a new-build home",
+      line: null,
+    });
     expect(short.sections.councilTax.line).toBe(
       "Band D averages £2,530.84 a year in Epsom and Ewell (the council's scale — not this home's bill)",
     );
@@ -2343,6 +2356,7 @@ describe("short bundle — rung 2 honesty (Birkdale Rise, street + postcode)", (
     expect(rung2.sections.epc).toEqual({
       state: "needs-exact-home",
       headlineBand: null,
+      headlineAssessmentLabel: null,
       line: "choose the exact home to see its energy certificates",
     });
     expect(rung2.sections.heritage.atPoint.state).toBe("needs-exact-home");
@@ -2494,6 +2508,7 @@ describe("short bundle — named states project as their own words", () => {
     expect(short.sections.epc).toEqual({
       state: "filed-zero",
       headlineBand: null,
+      headlineAssessmentLabel: null,
       line: "no energy certificate is recorded for this postcode",
     });
     expect(short.sections.crime).toEqual({
@@ -2769,7 +2784,7 @@ describe("short bundle — wording (the union of the brains' banned lists)", () 
     // only: no spread key, no spread wording.
     const short = servedShort(buildShortBundle(full));
     expect(Object.keys(short.sections.epc).sort()).toEqual(
-      ["headlineBand", "line", "state"].sort(),
+      ["headlineAssessmentLabel", "headlineBand", "line", "state"].sort(),
     );
     expect(JSON.stringify(short)).not.toContain("certificates recorded for this postcode");
   });

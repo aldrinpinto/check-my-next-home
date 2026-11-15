@@ -132,6 +132,13 @@ export type CategoryAnswer = {
   // within the radius, as a per-school fact (never an area
   // inference); null when none files there.
   nearestSelective?: { name: string; miles: number } | null;
+  // schools-secondary only (M6.18, decision D37): the
+  // selective fact's own gloss, served beside it — a family
+  // cannot tell from the word alone that "selective" means
+  // admission by entrance test (the register's own
+  // admissions-policy fact). Null where no selective school
+  // files within the radius: no figure, no line.
+  nearestSelectiveLine?: string | null;
 };
 
 export type NearbyBundle =
@@ -245,7 +252,10 @@ async function buildCategory(
       beyondNearest: null,
       line: `the ${spec.label} data is not filed yet, so no ${spec.label} answer can be given yet`,
     };
-    if (key === "schools-secondary") answer.nearestSelective = null;
+    if (key === "schools-secondary") {
+      answer.nearestSelective = null;
+      answer.nearestSelectiveLine = null;
+    }
     return answer;
   }
   const within = await source.pointsWithin(key, latitude, longitude, RADIUS_MILES);
@@ -280,6 +290,9 @@ async function buildCategory(
     const selective = named.find((m) => m.point.selective === true);
     answer.nearestSelective = selective
       ? { name: selective.point.name as string, miles: round3(selective.raw) }
+      : null;
+    answer.nearestSelectiveLine = selective
+      ? `the nearest selective secondary school is ${selective.point.name as string} — selective means admission by entrance test`
       : null;
   }
   if (places.length > 0) return answer;

@@ -125,13 +125,19 @@ export interface ShortFloodLayer {
   // the absence wording, always about the postcode point.
   line: string;
   coveringLabel: string | null;
+  // The COVERING label's EA definition, picked (M6.18,
+  // decision D37 — a narrow amendment to D28): a headline
+  // figure explains itself on the surface it is read on,
+  // and the basis line explains the map's convention, not
+  // what the zone or band means. Covering label only —
+  // proximity definitions stay at report depth. Null
+  // where no label covers the point.
+  coveringDefinition: string | null;
   coveringDetail: string | null;
   basisLine: string;
   // Each layer keeps its OWN source line: the three
   // editions revise independently, so a merged flood
-  // source line would falsify at least two of them. The
-  // EA definitions stay at report depth — no definition
-  // is picked.
+  // source line would falsify at least two of them.
   sourceLine: string | null;
 }
 
@@ -377,6 +383,7 @@ function shortFlood(bundle: Extract<FloodBundle, { rung: 1 | 2 }>): ShortFlood {
       pointState: layer.pointState,
       line: layer.line,
       coveringLabel: layer.covering?.displayLabel ?? null,
+      coveringDefinition: layer.covering?.definition ?? null,
       coveringDetail: layer.covering?.detail ?? null,
       basisLine: layer.basisLine,
       sourceLine: layer.sourceLine,
