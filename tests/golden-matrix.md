@@ -487,6 +487,158 @@ sold-prices loader. The first load above was invoked with
 a leading `--`, and all three postcodes filed. The loader
 itself is untouched by this step.
 
+### Flood in the brain (M6.5)
+
+Proved in the local rehearsal on 14–15 Nov 2026 under the
+standing scoped gate for flood work: the three EA layers
+were read live from the EA services and filed into a local
+PostGIS as a SCOPED filing — the filed shapes in a box
+around each golden point (the 2-mile serving circle's
+bounding square plus margin: 5,354 zone shapes, 1,990
+rivers & sea shapes, 3,040 surface water shapes, deduped by
+the service's feature id), at the same editions production
+holds (zones 2026-10-21, rivers & sea 2026-11-03, surface
+water 2026-11-10, each re-read from the services' own build
+stamps on the night). Every golden point's 2-mile
+neighbourhood is complete in that filing by construction,
+so the served facts below are exact, and each was
+cross-checked against an independent per-label formulation
+of the same questions (separate queries, plain box
+prefilter, no DISTINCT ON): all 12 layer cross-checks for
+the universal three plus C7 agreed to the served
+millimetre. The rule is decision D25: three products,
+never merged, each with its own basis line and its own
+source line carrying its own edition; every statement
+about the postcode point on the published map, never the
+home; rung 1 and rung 2 identical; rung 3 the named state
+only; Wales, Scotland and Northern Ireland the named
+not-covered state, detected from the filed lsoa_code's
+first letter — never outward letters (proven on C8 Cardiff
+W01001759 and Edinburgh S01014710, the Welsh answer
+additionally asserted NOT to be any layer's absence state;
+a real English SY postcode, SY1 1AD E01035061, serves).
+All distances below are PostGIS geography distances from
+the filed shapes — the serving basis.
+
+| Check                         | Figure                                                                                                                                                                                                                                                                                                                    |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Birkdale zones                | point not in FZ2/FZ3 (Zone 1 remainder); nearest edges FZ2 0.841 (river · direct rainfall model), FZ3 0.845                                                                                                                                                                                                               |
+| Birkdale rivers & sea         | no likelihood band published for the point; nearest Low 0.841, High 0.845, Medium 0.845, Very low 1.307                                                                                                                                                                                                                   |
+| Birkdale surface water        | no band reaches the point; nearest Low 0.030, Medium 0.032, High 0.079 (the pinned ≤ 0.1 mi holds)                                                                                                                                                                                                                        |
+| Exeter zones                  | FZ3 covers the point, covering detail exactly "river and sea · modelled"; FZ2 edge 0.138                                                                                                                                                                                                                                  |
+| Exeter rivers & sea           | a FILED "Very low" polygon covers the point; nearest other bands High 0.159, Low 0.497, Medium 0.741                                                                                                                                                                                                                      |
+| Exeter surface water          | no band reaches the point; nearest Low 0.005 (about 9 m — the EA WMS pixel sampling disagrees at this point; the polygon filing is what we serve), High 0.016, Medium 0.017                                                                                                                                               |
+| Epsom zones                   | point not in FZ2/FZ3; nearest FZ2 0.404, FZ3 0.412                                                                                                                                                                                                                                                                        |
+| Epsom rivers & sea            | no band published; nearest Low 0.404, High 0.412, Medium 0.412                                                                                                                                                                                                                                                            |
+| Epsom surface water           | Low AT the point; Medium 0.007, High 0.028                                                                                                                                                                                                                                                                                |
+| C7 Oxford OX1 1HD             | FZ3 covers + rivers & sea Medium covers; surface water NO band at the point — Low edge 0.002 away (see the correction note below)                                                                                                                                                                                         |
+| C2 City Island E14 0BZ        | FZ3 covers (detail "river and sea · modelled and recorded"); rivers & sea NO band at the point — Very low edge 0.001 away (see the correction note below)                                                                                                                                                                 |
+| C4 Kingston KT1 1JS           | FZ2 covers + rivers & sea Low covers                                                                                                                                                                                                                                                                                      |
+| C3 High Laver CM5 0DR         | boundary case: under the serving query (ST_Covers) the point lands OUTSIDE both polygons — zones remainder state with the FZ2 edge 0.001 away, rivers & sea absence with the Low edge 0.001 away                                                                                                                          |
+| C9 Hilgay CB6 1EH             | FZ3 covers; rivers & sea **Low** covers — the GAP left open at M5.1 ("band to read at first load") is closed by this read; surface water no band, Low 0.003                                                                                                                                                               |
+| Surface-water High at a point | no golden point has one; the branch is proven on a point chosen from the filing itself — the point-on-surface (51.517107, 0.018839) of the filed High polygon nearest the Exeter point (its edge is the 0.016 mi proximity above): through the serving source it is covered by High, with Low and Medium edges 0.001 away |
+
+**Three absences, three wordings** — Birkdale carries all
+three on one home and the suite asserts them as three
+distinct states with three distinct lines: zones "the
+postcode point is not in Flood Zone 2 or Flood Zone 3"
+(Zone 1 named only as the EA's name for the remainder);
+rivers & sea "no likelihood band is published for this
+point"; surface water "no surface-water band reaches this
+point — below the lowest band this product publishes".
+No served string says "no flood risk", and the
+banned-wording scan (safe, flood-proof, will/won't flood,
+at risk as a verdict, score/rating language, any
+insurability or lending claim) covers every served string
+and key.
+
+**Definitions, as verified against the EA's own product
+pages at build time** (each zone and band travels with
+one): FZ3 "land having a 1 in 100 or greater annual
+probability of river flooding, or a 1 in 200 or greater
+annual probability of sea flooding"; FZ2 "land having
+between a 1 in 100 and a 1 in 1,000 annual probability of
+river flooding, or between a 1 in 200 and a 1 in 1,000
+annual probability of sea flooding"; Zone 1 "land having
+a less than 1 in 1,000 annual probability of river or sea
+flooding"; High "a 1 in 30 or greater chance of flooding
+in any given year"; Medium "a chance of flooding in any
+given year between 1 in 100 and 1 in 30"; Low "a chance of
+flooding in any given year between 1 in 1,000 and 1 in
+100"; Very low "a chance of flooding in any given year of
+less than 1 in 1,000".
+
+**Divergences from the loaders' planar pins, named** (the
+pins are degrees of latitude × 69.05; the brain serves
+geography miles): Birkdale FZ2 pin 0.84 → served 0.841;
+Birkdale FZ3 pin 0.84 → 0.845; Epsom FZ2 pin 0.40 → 0.404;
+Epsom FZ3 pin 0.41 → 0.412; Epsom rivers & sea Low pin
+0.40 → 0.404. The Exeter pins and the surface-water pins
+agree with the serving basis at the printed precision
+(High 0.159; Low 0.005 / High 0.016 / Medium 0.017;
+Epsom Medium 0.007 / High 0.028; Birkdale Low 0.030 /
+Medium 0.032 / High 0.079).
+
+**Two prep expectations corrected by the filing.** The
+M5.1 prep's WMS sampling put a surface-water Low AT the
+C7 Oxford point and a filed Very low covering C2 City
+Island; on the filed polygons both points sit just
+outside — Oxford's Low edge 0.002 mi away, City Island's
+Very low edge 0.001 mi (about 2 m) away. The served
+answers above are the polygon truth, asserted as served;
+the backup home TW18 3BU (Staines) was also read and does
+carry the FZ3 + Medium pairing.
+
+**Timing and index proof (scoped filing), and what is
+owed.** EXPLAIN ANALYZE on the scoped filing shows both
+serving query shapes — the ST_Covers covering read and
+the radius-bounded ST_DWithin per-label nearest read —
+using flood_layers_geom_idx. Full-bundle times on the
+scoped filing in the local WASM engine (25 runs, means):
+Birkdale 7,380 ms, Exeter 19,710 ms, Epsom 10,056 ms,
+Oxford 10,399 ms — seconds, not the milliseconds of the
+point-data brains, because the engine evaluates spheroid
+distances over the EA's very high-vertex dissolved
+polygons (the surface-water cuts alone carry 30 million
+points). **The full-national-filing timing proof is OWED
+TO CI**: the EA geoservice degraded through the build
+night (Azure 504s, multi-minute page times) and the local
+engine's ST_MakeValid wedged on the zones' invalid shapes
+(see below), so the national filing could not be completed
+locally; the timing that matters is native PostGIS at
+national volume, which CI and the M12 production pass
+must confirm.
+
+**Filing notes from the rehearsal.** (1) The scoped
+filing holds the shapes AS PUBLISHED: 665 of the 5,354
+zone shapes are invalid as published (the band products'
+shapes are all valid); the production loader repairs at
+file time with ST_CollectionExtract(ST_MakeValid(...)),
+which the local WASM engine could not complete over these
+shapes (~77 rows in 2 hours before the run was stopped).
+Every covering shape behind a golden answer above is
+valid as published EXCEPT Oxford's FZ3 — and that shape,
+repaired in isolation, still covers the point, so no
+golden figure above depends on the repair either way.
+(2) **Loader finding, recorded:** tonight's live zones
+service carries features whose flood_source is "unknown"
+(origin "local evidence", FZ2 and FZ3 — 7 seen in the
+first 29,500 features read). The zones loader's contract
+admits only {river, sea, river and sea}, so the loader as
+shipped FAILS its live read against the current service
+(it filed cleanly on 12 Nov 2026 — the collection changed
+in place under the same edition stamp and the same
+415,408 count). The rehearsal filed those features with
+their detail verbatim ("unknown · local evidence"); none
+of them touches a golden point's answer. Whether
+"unknown" joins the published vocabulary is a founder
+decision for a later step — M6.5 does not touch the
+loaders. (3) A layer with no filing serves a per-layer
+not-filed state ("this flood map is not filed yet, so no
+answer can be given from it") rather than an absence read
+from an empty table — the same judgment call M6.4 flagged
+for crime, applied per layer here.
+
 ## E2E journeys each candidate unlocks (Playwright, QA phase)
 
 | Candidate            | Journey it unlocks                                                                                                                                                                          |
