@@ -481,7 +481,7 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
     const exeter = layers("exeter1");
     expect(exeter.get("flood_zone")?.pointState).toBe("inside");
     expect(exeter.get("flood_zone")?.covering?.label).toBe("FZ3");
-    expect(exeter.get("flood_zone")?.covering?.displayLabel).toBe("Flood zone 3");
+    expect(exeter.get("flood_zone")?.covering?.displayLabel).toBe("Flood Zone 3");
     expect(exeter.get("flood_zone")?.covering?.detail).toBe("river and sea · modelled");
     expect(exeter.get("rofrs")?.pointState).toBe("inside");
     expect(exeter.get("rofrs")?.covering?.label).toBe("Very low");
