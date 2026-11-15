@@ -108,6 +108,7 @@ export const LOADER_SCHEDULE = [
   { item: "load-company-ownership", cadence: "monthly", timeoutMinutes: 30 },
   { item: "load-imd", cadence: "static", timeoutMinutes: 30 },
   { item: "load-air-quality", cadence: "static", timeoutMinutes: 30 },
+  { item: "load-pvgis", cadence: "static", timeoutMinutes: 30 },
   { item: "load-noise", cadence: "operator" },
   { item: "load-broadband", cadence: "static", timeoutMinutes: 30 },
   { item: "load-mobile", cadence: "static", timeoutMinutes: 30 },
@@ -316,6 +317,7 @@ export const FRIENDLY_NAMES = {
   "load-dwp-uc": "Benefits figures — Universal Credit",
   "load-imd": "Deprivation — Indices of Deprivation 2025",
   "load-air-quality": "Air quality — Defra modelled background",
+  "load-pvgis": "Solar — PVGIS modelled yield for the location",
   "load-noise": "Noise — Defra modelled road, rail and airport",
   "load-broadband": "Broadband — Ofcom coverage by postcode",
   "load-mobile": "Mobile — Ofcom coverage by local authority",
@@ -492,6 +494,10 @@ function shortDetail(item) {
       return failures && Number(failures) > 0
         ? `${filed} building-safety cases filed · ${failures} published documents could not be read (named in the run record)`
         : `${filed} building-safety cases filed`;
+    }
+    case "load-pvgis": {
+      const filed = pick(/([\d,]+) cells filed/);
+      return filed ? `${filed} solar cells filed` : "updated";
     }
     case "load-company-ownership": {
       const filed = pick(/(\d+) company-owned titles filed/);
@@ -801,6 +807,7 @@ async function main() {
       await runAndLog("load-dwp-uc", ["--file", fx("dwp-uc")]);
       await runAndLog("load-imd", ["--file", fx("imd")]);
       await runAndLog("load-air-quality", ["--file", fx("air")]);
+      await runAndLog("load-pvgis", ["--file", fx("pvgis")]);
       await runAndLog("load-noise", ["--file", fx("noise")]);
       await runAndLog("load-broadband", ["--file", fx("broadband")]);
       await runAndLog("load-mobile", ["--file", fx("mobile")]);
@@ -1018,7 +1025,19 @@ async function main() {
       // so the empty-directory skip applies to them. Noise,
       // the fifth M5.9 dataset, is NOT here: since M5.15 (D19)
       // it is an operator job, planned as one just below.
-      for (const item of ["load-imd", "load-air-quality", "load-broadband", "load-mobile"]) {
+      // Solar (plan step M5.18) joins the static class here:
+      // PVGIS radiation databases revise on a multi-year cycle,
+      // so the sampled grid files exactly once and a new
+      // vintage is an operator re-run. Its cell set is derived
+      // from the postcode directory, so it is NOT directory-free
+      // either — the empty-directory skip applies to it too.
+      for (const item of [
+        "load-imd",
+        "load-air-quality",
+        "load-broadband",
+        "load-mobile",
+        "load-pvgis",
+      ]) {
         plan.push({
           item,
           due: dueDecision(await lastSuccess(item), thresholdDaysFor(item)),

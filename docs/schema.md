@@ -429,6 +429,27 @@ Family:
     control, no parent companies and no charges in
     either table — decision D15's depth boundary; the
     £7 title register stays the hand-off for those.
+30. **solar_grid** — PVGIS modelled solar yield for the
+    location (migration 0019, plan step M5.18), one row
+    per 0.1° cell whose centre the loader sampled from
+    the PVGIS PVcalc API (European Commission Joint
+    Research Centre; radiation database PVGIS-SARAH3,
+    2005–2023). PVGIS publishes no downloadable yield
+    grid — the JRC downloads are the superseded
+    PVGIS-SARAH irradiance grids only — so the grid is
+    sampled, not downloaded: one API call per populated
+    cell (the cell set is derived from the postcode
+    directory), never one per postcode. Each row files
+    the annual PV yield per kWp and the annual in-plane
+    irradiation it derives from, at the API's published
+    precision, plus the whole standard basis per row —
+    1 kWp, slope 35°, azimuth 0° (south), system loss
+    14%, building-integrated mounting, crystalline
+    silicon — so serving (M6.6, decision D26) names the
+    basis from filed data alone. The cell is a location
+    fact at a named 0.1° grain: it is never the home's
+    roof, its orientation or its yield, and no finer
+    precision is claimed than the filed cell holds.
 
 ## Physical decisions (recorded at build, M3.3)
 

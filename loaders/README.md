@@ -590,6 +590,60 @@ node loaders/load-noise.mjs --file tests/fixtures/noise   # band + file the meas
 node loaders/load-broadband.mjs --file ~/Downloads/cn-release  # file a founder-downloaded release
 ```
 
+## PVGIS solar loader (plan step M5.18)
+
+`load-pvgis.mjs` files the grid behind decision D26's
+solar section into `solar_grid` (migration 0019): PVGIS
+(European Commission Joint Research Centre) modelled PV
+yield per kWp and the annual in-plane irradiation it
+derives from, for the LOCATION — never the home's roof
+or its yield.
+
+**The route was proven at build, not assumed.** PVGIS
+publishes no downloadable yield grid: the JRC geospatial
+downloads are the first-generation PVGIS-SARAH
+long-term-average irradiance grids (ESRI ascii, 0.05°,
+2005–2016) — radiation only, from a superseded database.
+The current database, PVGIS-SARAH3 (2005–2023), is served
+only through the PVcalc API, one point at a time, and
+per-postcode calls (~1.8M) are not a national route. So
+the loader samples the API once per 0.1° cell that the
+filed postcode directory populates (cells derived from
+`postcode_cache`, the nurseries pattern), at each cell's
+centre, and files the cells in the air grid's shape. The
+0.1° grain (about 11 km north–south) is coarser than
+SARAH3's native 0.05° and is named wherever the data is
+described: at build, 10 concurrent API calls broke
+connections while 3 concurrent held at ~0.5 s per call,
+so the populated-cell count at 0.1° (a few thousand) is
+the count that fits the runner's 30-minute window. The
+golden-cell values differ from the same API at the
+golden postcode points by +7.8 / +5.8 / +0.1 kWh per
+kWp — the honest size of the grain (see
+tests/golden-matrix.md).
+
+**The standard basis** is one fixed system: 1 kWp,
+slope 35° (the standard UK roof pitch), azimuth 0°
+(PVGIS: south — an unshaded, south-facing roof), system
+loss 14% (PVGIS's own suggested figure),
+building-integrated crystalline silicon, terrain horizon
+counted. Every parameter files per row from the API
+response, and the parser refuses a response naming a
+different radiation database or echoing a different
+basis — a PVGIS version change fails the load loudly
+rather than refiling under a moved basis. The runner
+registers the loader STATIC: radiation databases revise
+on a multi-year cycle (SARAH → SARAH2 → SARAH3), so the
+grid files once and a new vintage is an operator
+re-run. A cell that fails after retries fails the whole
+load; filing is a stage-swap in one transaction.
+
+```text
+npm run load:pvgis                                       # live sample from the directory's cells → file
+npm run load:pvgis -- --verify-only                      # sample the three golden cells live; file nothing
+node loaders/load-pvgis.mjs --file tests/fixtures/pvgis  # file the captured golden-cell responses (CI)
+```
+
 ## Benefits loaders + LSOA bases (plan step M5.16)
 
 Three loaders under the one step, never merged (the flood
