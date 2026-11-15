@@ -36,9 +36,13 @@ import type { MedianAnswer, SoldPricesBundle } from "./sold-prices";
 //
 // Section order (D28): sold prices, flood, crime, EPC,
 // council tax, constraints, heritage, nature, air, noise,
-// nearby essentials. The order is the short bundle's own,
-// so both surfaces inherit it identically, and every list
-// truncates HERE, in the derivation — never in a renderer.
+// nearby essentials. Broadband joins as the twelfth
+// section (M6.17, decision D36), between noise and nearby,
+// carrying the gigabit line only — the extension by one
+// more projection this file's header promised from M6.7.
+// The order is the short bundle's own, so both surfaces
+// inherit it identically, and every list truncates HERE,
+// in the derivation — never in a renderer.
 //
 // The area input is read through projectHeadline, the
 // bundle's ONLY headline path (lib/area-bundle.ts); the
@@ -50,12 +54,12 @@ import type { MedianAnswer, SoldPricesBundle } from "./sold-prices";
 // (That settles the split the area bundle's own comment
 // anticipated before any headline surface existed.)
 //
-// Depth is structural: IMD, Census, benefits and solar have
-// no key in this shape, in any form — not even re-worded.
-// No asking price exists here (it is in no input bundle).
-// No broadband slot is reserved: when M6.17 builds the
-// broadband and mobile brain, the derivation extends by one
-// more projection, at that point.
+// Depth is structural: IMD, Census, benefits, solar and
+// mobile have no key in this shape, in any form — not even
+// re-worded. Mobile never headlines (D36): a council-grain
+// modelled figure does not sit beside the home's own
+// facts. No asking price exists here (it is in no input
+// bundle).
 
 // ------------------------------------------------------------------
 // Served shapes
@@ -72,6 +76,7 @@ export type ShortSectionKey =
   | "nature"
   | "air"
   | "noise"
+  | "broadband"
   | "nearby";
 
 export interface ShortMedian {
@@ -234,6 +239,11 @@ export type ShortAir = HeadlineProjection["air"];
 
 export type ShortNoise = HeadlineProjection["noise"];
 
+// Broadband at headline depth is the projection's own
+// pick (D36): the gigabit figure and the section's own
+// line — served, or the not-filed sentence verbatim.
+export type ShortBroadband = HeadlineProjection["broadband"];
+
 // The six daily-life categories a family checks first
 // (D28/Q2). The other fourteen stay in the full check —
 // twenty categories cannot fit a headline, and the cut
@@ -278,6 +288,7 @@ export interface ShortSections {
   nature: ShortNature;
   air: ShortAir;
   noise: ShortNoise;
+  broadband: ShortBroadband;
   nearby: ShortNearby;
 }
 
@@ -443,6 +454,7 @@ function rung3Sections(input: ShortBundleInput): ShortNamedSections {
     nature: fromArea("nature"),
     air: fromArea("air"),
     noise: fromArea("noise"),
+    broadband: fromArea("broadband"),
     nearby: named(nearby.distances),
   };
 }
@@ -473,6 +485,7 @@ function rung4Sections(input: ShortBundleInput): ShortNamedSections {
     nature: areaNamed(),
     air: areaNamed(),
     noise: areaNamed(),
+    broadband: areaNamed(),
     nearby: named(nearby.distances),
   };
 }
@@ -574,6 +587,7 @@ export function buildShortBundle(input: ShortBundleInput): ShortBundle {
     },
     air: headline.air,
     noise: headline.noise,
+    broadband: headline.broadband,
     nearby: shortNearby(nearby),
   };
 

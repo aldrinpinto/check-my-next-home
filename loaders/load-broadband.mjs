@@ -386,7 +386,7 @@ export async function loadBroadbandRows({ fileDir = null } = {}) {
     release = releaseFromNames([...files.keys()].map((k) => k.split("/").pop()));
   }
   const rows = [];
-  for (const [name, text] of files) {
+  for (const text of files.values()) {
     rows.push(...parsePostcodeCsv(text, release));
   }
   return { release, rows };

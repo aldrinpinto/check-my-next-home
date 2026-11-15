@@ -68,6 +68,16 @@
 //      per-section reason in the shipped position (the
 //      fourteenth with the company flag on). The section
 //      is report-depth only and never headlines.
+//   M6.17 (decision D36) adds the two Ofcom families,
+//      asserted in their own block below: broadband's
+//      two (served / not-filed) at postcode-premises
+//      grain, and mobile's two at named-council grain
+//      (served / not-filed) plus the per-service
+//      not-published state inside a served section —
+//      plus rung 3's two further per-section reasons
+//      (fifteen shipped, sixteen with the company flag
+//      on). Broadband headlines as the short bundle's
+//      twelfth section; mobile never headlines.
 //   Settled fixes — nature designations and nearby
 //      categories gain filed-count guards in the flood
 //      form; the sold-prices median's none-recorded line
@@ -92,6 +102,7 @@ import {
   buildAreaBundle,
   type AreaDataSource,
   type BenefitsFacts,
+  type BroadbandAnswerFacts,
   type CompanyOwnershipFacts,
   type CompanyTitleRow,
   type CouncilTaxFacts,
@@ -99,6 +110,7 @@ import {
   type EpcArtefact,
   type EpcCertificate,
   type ListedFacts,
+  type MobileAnswerFacts,
   type PhiFacts,
   type PlanningLayerFacts,
   type SolarFacts,
@@ -310,7 +322,7 @@ function expectClean(bundle: unknown) {
 // ------------------------------------------------------------------
 
 describe("matrix — the address ladder's own states", () => {
-  it("rung 3 is a wider area: every brain serves its named unavailable state, and the area bundle carries all thirteen per-section reasons", async () => {
+  it("rung 3 is a wider area: every brain serves its named unavailable state, and the area bundle carries all fifteen per-section reasons", async () => {
     const rung3: AddressResolution = {
       rung: 3,
       kind: "wider-area",
@@ -327,7 +339,7 @@ describe("matrix — the address ladder's own states", () => {
     const area = await buildAreaBundle(rung3, new MatrixAreaSource());
     if (area.kind !== "wider-area") throw new Error("expected wider-area");
     expect(area.area.reason).toBe("area answers need an exact postcode");
-    expect(Object.keys(area.area.sections)).toHaveLength(13);
+    expect(Object.keys(area.area.sections)).toHaveLength(15);
   });
 
   it("rung 4 is no location: the shared unavailable reason, no sections record", async () => {
@@ -1272,6 +1284,19 @@ class MatrixAreaSource implements AreaDataSource {
   async tribunalFacts() {
     return this.tribunal;
   }
+
+  // Broadband & mobile (M6.17): null by default (the
+  // not-filed rows); the M6.17 block sets filed answers.
+  broadband: BroadbandAnswerFacts | null = null;
+  mobile: MobileAnswerFacts | null = null;
+
+  async broadbandAnswer() {
+    return this.broadband;
+  }
+
+  async mobileAnswer() {
+    return this.mobile;
+  }
 }
 
 async function areaBundle(source: MatrixAreaSource, resolution: AddressResolution = ENG_HOME) {
@@ -2045,7 +2070,7 @@ describe("matrix — area: Census, IMD, air, noise, benefits, solar", () => {
     expect(missingCell.sections.solar.line).toBe("solar modelling is not filed for this area yet");
   });
 
-  it("rung 3: every section present only as its named state, per-section reasons intact (13)", async () => {
+  it("rung 3: every section present only as its named state, per-section reasons intact (15)", async () => {
     const bundle = await buildAreaBundle(
       { rung: 3, kind: "wider-area", outward: "CM3", label: "Wider area — CM3", postcodeCount: 1 },
       new MatrixAreaSource(),
@@ -2071,6 +2096,8 @@ describe("matrix — area: Census, IMD, air, noise, benefits, solar", () => {
       noise: { state: "unavailable", reason: "noise bands need an exact postcode" },
       benefits: { state: "unavailable", reason: "benefit counts need an exact postcode" },
       solar: { state: "unavailable", reason: "solar modelling needs an exact postcode" },
+      broadband: { state: "unavailable", reason: "broadband answers need an exact postcode" },
+      mobile: { state: "unavailable", reason: "mobile answers need an exact postcode" },
     });
   });
 });
@@ -2299,10 +2326,10 @@ describe("matrix — area: planning applications (the hand-off)", () => {
     expect(rung2.sections.planningApplications).toEqual(rung1.sections.planningApplications);
   });
 
-  it("the hand-off never reaches the short bundle — D28's eleven sections stand", async () => {
+  it("the hand-off never reaches the short bundle — D28's sections stand, twelve since D36", async () => {
     const { short } = await shortFor(ENG_HOME, new MatrixAreaSource(), headlineNearby());
     if (short.kind !== "short-bundle") throw new Error("expected a short bundle");
-    expect(Object.keys(short.sections)).toHaveLength(11);
+    expect(Object.keys(short.sections)).toHaveLength(12);
     expect("planningApplications" in short.sections).toBe(false);
   });
 
@@ -2516,14 +2543,14 @@ describe("matrix — area: company ownership (behind the flag)", () => {
     expectClean(bundle);
   });
 
-  it("rung 3 in the flag-on position: the fourteenth per-section reason joins the record", async () => {
+  it("rung 3 in the flag-on position: the sixteenth per-section reason joins the record", async () => {
     const bundle = await buildAreaBundle(
       { rung: 3, kind: "wider-area", outward: "CM3", label: "Wider area — CM3", postcodeCount: 1 },
       new MatrixAreaSource(),
       { companyOwnershipEnabled: true },
     );
     if (bundle.kind !== "wider-area") throw new Error("expected wider-area");
-    expect(Object.keys(bundle.area.sections)).toHaveLength(14);
+    expect(Object.keys(bundle.area.sections)).toHaveLength(16);
     expect(bundle.area.sections.companyOwnership).toEqual({
       state: "unavailable",
       reason: "company ownership needs an exact postcode",
@@ -2533,7 +2560,7 @@ describe("matrix — area: company ownership (behind the flag)", () => {
   it("the section never reaches the short bundle, in either flag position", async () => {
     const { short } = await shortFor(ENG_HOME, new MatrixAreaSource(), headlineNearby());
     if (short.kind !== "short-bundle") throw new Error("expected a short bundle");
-    expect(Object.keys(short.sections)).toHaveLength(11);
+    expect(Object.keys(short.sections)).toHaveLength(12);
     expect("companyOwnership" in short.sections).toBe(false);
 
     const soldSource = new MatrixSoldPricesSource();
@@ -2561,7 +2588,7 @@ describe("matrix — area: company ownership (behind the flag)", () => {
       area: areaOn,
     });
     if (shortOn.kind !== "short-bundle") throw new Error("expected a short bundle");
-    expect(Object.keys(shortOn.sections)).toHaveLength(11);
+    expect(Object.keys(shortOn.sections)).toHaveLength(12);
     expect("companyOwnership" in shortOn.sections).toBe(false);
     expect(JSON.stringify(shortOn)).not.toContain("companyOwnership");
   });
@@ -2697,7 +2724,7 @@ describe("matrix — area: building safety (M6.16, D35)", () => {
   it("the section never reaches the short bundle", async () => {
     const { short } = await shortFor(ENG_HOME, new MatrixAreaSource(), headlineNearby());
     if (short.kind !== "short-bundle") throw new Error("expected a short bundle");
-    expect(Object.keys(short.sections)).toHaveLength(11);
+    expect(Object.keys(short.sections)).toHaveLength(12);
     expect("buildingSafety" in short.sections).toBe(false);
     expect(JSON.stringify(short)).not.toContain("buildingSafety");
   });
@@ -2734,5 +2761,165 @@ describe("matrix — area: building safety (M6.16, D35)", () => {
     ]) {
       expect(text, `banned in the building-safety section: ${banned}`).not.toContain(banned);
     }
+  });
+});
+
+// --- broadband & mobile (M6.17, decision D36) -------------------------
+//
+// The census rows for the two Ofcom families. Broadband
+// (postcode-premises grain): served / not-filed. Mobile
+// (named-council grain): served / not-filed, plus the
+// per-service not-published state inside a served
+// section — a filed column Ofcom did not publish in this
+// release serves its own line, never 0. The filed answers
+// below carry the founder-harness verified figures for
+// Braintree (the M5.9 live proof) so the matrix rows
+// serve real numbers; the area-bundle suite owns the
+// verbatim golden assertions.
+
+const FILED_BROADBAND: BroadbandAnswerFacts = {
+  basis: "All premises",
+  snapshot: "2026-01",
+  gigabitCapablePct: 100,
+  superfast30Pct: 100,
+  ultrafast100Pct: 100,
+  ultrafast300Pct: 100,
+  ngaPct: 12.34,
+  unable2Pct: 0.11,
+  unable5Pct: 0.22,
+  unable10Pct: 0.33,
+  unable30Pct: 3.21,
+  unableDecentFixedOrFwaPct: 0.44,
+  decentViaFwaPct: 0.55,
+  speedBandPct: {
+    under_2: 0,
+    "2_to_5": 0,
+    "5_to_10": 0,
+    "10_to_30": 0,
+    "30_to_300": 0,
+    "300_plus": 100,
+  },
+};
+
+const FILED_MOBILE: MobileAnswerFacts = {
+  basis:
+    "Local authority area — Ofcom publishes mobile coverage at local-authority level, not by postcode",
+  snapshot: "2026-01",
+  laua: "E07000067",
+  lauaName: "Braintree",
+  services: {
+    voice: { outdoor: { noOperatorPct: 0, allOperatorsPct: 99.29, atLeastOneOperatorPct: 100 } },
+    "4g": {
+      outdoor: { noOperatorPct: 0, allOperatorsPct: 99.04, atLeastOneOperatorPct: 100 },
+      indoor: { noOperatorPct: 0.99, allOperatorsPct: 84.64, atLeastOneOperatorPct: 99 },
+    },
+    "5g_high_confidence": {
+      outdoor: { noOperatorPct: 2.1, allOperatorsPct: 42.45, atLeastOneOperatorPct: 97.9 },
+    },
+    "5g_very_high_confidence": { outdoor: null },
+    "5g_sa_high_confidence": {
+      outdoor: { noOperatorPct: 4.5, allOperatorsPct: null, atLeastOneOperatorPct: 95.5 },
+    },
+    "5g_sa_very_high_confidence": {
+      outdoor: { noOperatorPct: 4.5, allOperatorsPct: null, atLeastOneOperatorPct: 95.5 },
+    },
+  },
+};
+
+function ofcomSource(): MatrixAreaSource {
+  const source = new MatrixAreaSource();
+  source.broadband = FILED_BROADBAND;
+  source.mobile = FILED_MOBILE;
+  return source;
+}
+
+describe("matrix — area: broadband & mobile (M6.17, D36)", () => {
+  it("served: both sections serve at their own grains, under their own source lines", async () => {
+    const bundle = await areaBundle(ofcomSource(), ENG_HOME);
+    expectClean(bundle);
+    const broadband = bundle.sections.broadband;
+    expect(broadband.state).toBe("served");
+    expect(broadband.grainLine).toBe("the premises in this postcode");
+    expect(broadband.line).toBe(
+      "gigabit-capable broadband (at least 1 Gbit/s) is available to 100% of premises in this postcode",
+    );
+    const mobile = bundle.sections.mobile;
+    expect(mobile.state).toBe("served");
+    expect(mobile.council).toBe("Braintree");
+    expect(mobile.grainLine).toBe("the council area this postcode sits in");
+    expect(mobile.services).toHaveLength(6);
+  });
+
+  it("not filed: a postcode with no Ofcom answers serves both named states", async () => {
+    const bundle = await areaBundle(new MatrixAreaSource(), ENG_HOME);
+    expectClean(bundle);
+    expect(bundle.sections.broadband.state).toBe("not-filed");
+    expect(bundle.sections.broadband.line).toBe(
+      "broadband coverage is not filed for this postcode yet",
+    );
+    expect(bundle.sections.mobile.state).toBe("not-filed");
+    expect(bundle.sections.mobile.line).toBe(
+      "mobile coverage is not filed for this postcode's council area yet",
+    );
+  });
+
+  it("not published: an unpublished all-operators column serves its line inside a served service — never 0", async () => {
+    const bundle = await areaBundle(ofcomSource(), ENG_HOME);
+    const byKey = new Map(bundle.sections.mobile.services.map((s) => [s.service, s]));
+    const sa = byKey.get("5g_sa_high_confidence")!;
+    expect(sa.state).toBe("served");
+    expect(sa.outdoor?.allOperatorsPct).toBeNull();
+    expect(sa.outdoor?.allOperatorsPublished).toBe(false);
+    expect(sa.outdoor?.allOperatorsLine).toBe(
+      "the share of premises in Braintree where all four mobile networks have outdoor coverage is not published for this service",
+    );
+    // A whole service unpublished in this release serves
+    // its own state — the service never silently vanishes.
+    const vhc = byKey.get("5g_very_high_confidence")!;
+    expect(vhc.state).toBe("not-published");
+    expect(vhc.line).toBe(
+      "5G (very high confidence) coverage is not published by Ofcom in this release",
+    );
+    expect(vhc.outdoor).toBeNull();
+  });
+
+  it("rung 3 names the two new reasons; rung 2 serves exactly as rung 1", async () => {
+    const wider = await buildAreaBundle(
+      {
+        rung: 3,
+        kind: "wider-area",
+        outward: "CM3",
+        label: "Wider area — CM3, not this exact home",
+        postcodeCount: 541,
+      },
+      ofcomSource(),
+    );
+    if (wider.kind !== "wider-area") throw new Error("expected wider-area");
+    expect(wider.area.sections.broadband).toEqual({
+      state: "unavailable",
+      reason: "broadband answers need an exact postcode",
+    });
+    expect(wider.area.sections.mobile).toEqual({
+      state: "unavailable",
+      reason: "mobile answers need an exact postcode",
+    });
+
+    const rung1 = await areaBundle(ofcomSource(), ENG_HOME);
+    const rung2 = await areaBundle(ofcomSource(), addressList(ENG_DIR));
+    expect(rung2.sections.broadband).toEqual(rung1.sections.broadband);
+    expect(rung2.sections.mobile).toEqual(rung1.sections.mobile);
+  });
+
+  it("the short bundle: broadband is the twelfth section with the gigabit pick; mobile has no key in any form", async () => {
+    const { short } = await shortFor(ENG_HOME, ofcomSource(), headlineNearby());
+    if (short.kind !== "short-bundle") throw new Error("expected a short bundle");
+    expect(Object.keys(short.sections)).toHaveLength(12);
+    expect(short.sections.broadband).toEqual({
+      state: "served",
+      gigabitCapablePct: 100,
+      line: "gigabit-capable broadband (at least 1 Gbit/s) is available to 100% of premises in this postcode",
+    });
+    expect("mobile" in short.sections).toBe(false);
+    expect(JSON.stringify(short)).not.toContain("mobile");
   });
 });

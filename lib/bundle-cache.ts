@@ -111,6 +111,17 @@ import {
 //     unconditional, so an entry written before the step
 //     lacks the key and degrades to a recompute — a
 //     pre-step entry never serves sectionless.
+//   - From M6.17 the same presence rule covers the
+//     broadband and mobile keys, and the area vector
+//     carries both Ofcom loaders' stamps PLUS content
+//     hashes of the broadband and mobile answer keys:
+//     both loaders are directly runnable outside the
+//     runner (npm run load:broadband / load:mobile, and
+//     the --file route a founder-downloaded release
+//     takes) and file into postcode_cache.answers moving
+//     no stamp — the operator trap in its exact shape, so
+//     a hand-run re-filing busts the entry on the hash
+//     alone.
 
 export type CacheBrain = "crime" | "flood" | "nearby" | "area";
 
@@ -127,10 +138,13 @@ export type CacheBrain = "crime" | "flood" | "nearby" | "area";
 // air, noise, the two benefits loaders, the PVGIS grid,
 // company ownership (M6.13 — its tables are read only behind
 // the flag, but the stamp guards the cached bundle's shape
-// in either flag position) and the tribunal building-safety
+// in either flag position), the tribunal building-safety
 // decisions (M6.16 — the timed quarterly pass moves the
 // stamp; the loader's direct entry point moves no stamp,
-// so its filed count rides in the guards as well).
+// so its filed count rides in the guards as well) and the
+// two Ofcom loaders (M6.17 — STATIC class; their direct
+// entry points move no stamp, so the answers they file
+// ride in the guards as content hashes).
 export const BRAIN_DEPENDENCIES: Record<CacheBrain, readonly string[]> = {
   crime: ["load-postcodes", "load-crime"],
   flood: [
@@ -168,6 +182,8 @@ export const BRAIN_DEPENDENCIES: Record<CacheBrain, readonly string[]> = {
     "load-pvgis",
     "load-company-ownership",
     "load-tribunal-building-safety",
+    "load-broadband",
+    "load-mobile",
   ],
 };
 
@@ -239,7 +255,7 @@ function directoryGuard(resolution: Rung12Resolution): string {
 async function artefactHash(
   db: AddressQueryable,
   postcode: string,
-  key: "crime" | "epc",
+  key: "crime" | "epc" | "broadband" | "mobile",
 ): Promise<string | null> {
   const { rows } = await db.query(
     "SELECT md5((answers -> $2)::text) AS h FROM postcode_cache WHERE postcode = $1",
@@ -352,6 +368,17 @@ const GUARDS: Record<
         db,
         "SELECT count(*)::int AS n FROM tribunal_building_safety_decisions",
       ),
+      // Broadband and mobile (M6.17): both Ofcom loaders
+      // file into postcode_cache.answers from entry
+      // points that bypass the runner (their npm scripts
+      // and the --file route), moving no stamp — the
+      // operator trap in its exact shape. The filed
+      // answers' content hashes are the guards that move:
+      // a re-filed release busts the entry on the hash
+      // alone, and a cached not-filed section never
+      // survives the first filing that ends it.
+      broadbandArtefact: await artefactHash(db, postcode, "broadband"),
+      mobileArtefact: await artefactHash(db, postcode, "mobile"),
     };
   },
 };
@@ -645,12 +672,19 @@ export async function buildAreaBundleCached(
     // the section it was written with. The building-safety
     // key (M6.16) is unconditional: it must be present, so
     // an entry written before the step degrades to a
-    // recompute rather than serving sectionless.
+    // recompute rather than serving sectionless. The
+    // broadband and mobile keys (M6.17) are unconditional
+    // in the same way.
     shapeOk: (bundle) => {
       if (typeof bundle !== "object" || bundle === null) return false;
       const sections = (bundle as { sections?: unknown }).sections;
       if (typeof sections !== "object" || sections === null) return false;
-      return "companyOwnership" in sections === companyEnabled && "buildingSafety" in sections;
+      return (
+        "companyOwnership" in sections === companyEnabled &&
+        "buildingSafety" in sections &&
+        "broadband" in sections &&
+        "mobile" in sections
+      );
     },
   });
 }

@@ -5,6 +5,7 @@ import type { AddressResolution, DirectoryPostcode, ResolvedAddress } from "../l
 import {
   buildAreaBundle,
   type AreaDataSource,
+  type BroadbandAnswerFacts,
   type CensusFacts,
   type CouncilTaxFacts,
   type DesignationFacts,
@@ -1821,6 +1822,58 @@ class FakeAreaSource implements AreaDataSource {
     };
   }
 
+  // Broadband & mobile (M6.17): broadband headlines with
+  // the gigabit line, so the stub serves the verified
+  // gigabit-100 answer for the golden postcodes (the only
+  // live-verified broadband figure — the M5.9 harness).
+  // Mobile never headlines; the stub serves a filed answer
+  // so the tests can prove it still never reaches the
+  // short shape.
+  broadbandOverride: BroadbandAnswerFacts | null | undefined = undefined;
+
+  async broadbandAnswer(postcode: string): Promise<BroadbandAnswerFacts | null> {
+    if (this.broadbandOverride !== undefined) return this.broadbandOverride;
+    if (!["CM3 2JT", "E16 1GN", "KT17 1FH"].includes(postcode)) return null;
+    return {
+      basis: "All premises",
+      snapshot: "2026-01",
+      gigabitCapablePct: 100,
+      superfast30Pct: 100,
+      ultrafast100Pct: 100,
+      ultrafast300Pct: 100,
+      ngaPct: 12.34,
+      unable2Pct: 0.11,
+      unable5Pct: 0.22,
+      unable10Pct: 0.33,
+      unable30Pct: 3.21,
+      unableDecentFixedOrFwaPct: 0.44,
+      decentViaFwaPct: 0.55,
+      speedBandPct: {
+        under_2: 0,
+        "2_to_5": 0,
+        "5_to_10": 0,
+        "10_to_30": 0,
+        "30_to_300": 0,
+        "300_plus": 100,
+      },
+    };
+  }
+
+  async mobileAnswer() {
+    return {
+      basis:
+        "Local authority area — Ofcom publishes mobile coverage at local-authority level, not by postcode",
+      snapshot: "2026-01",
+      laua: "E07000067",
+      lauaName: "Braintree",
+      services: {
+        voice: {
+          outdoor: { noOperatorPct: 0, allOperatorsPct: 99.29, atLeastOneOperatorPct: 100 },
+        },
+      },
+    };
+  }
+
   // Company ownership (M6.13) is flag-gated and the short
   // bundle never carries it; these tests build with the
   // shipped (off) position, so the builder never calls
@@ -1921,6 +1974,7 @@ const SECTION_ORDER = [
   "nature",
   "air",
   "noise",
+  "broadband",
   "nearby",
 ];
 
@@ -2527,6 +2581,77 @@ describe("short bundle — the depth lock (D26/D28)", () => {
   });
 });
 
+// --- broadband headlines, mobile never does (M6.17, D36) --------------
+
+describe("short bundle — broadband & mobile (M6.17, D36)", () => {
+  it("broadband is the twelfth section, carrying the gigabit line only", async () => {
+    const short = servedShort(await shortFor(BIRKDALE));
+    expect(Object.keys(short.sections)).toHaveLength(12);
+    expect(short.sections.broadband).toEqual({
+      state: "served",
+      gigabitCapablePct: 100,
+      line: "gigabit-capable broadband (at least 1 Gbit/s) is available to 100% of premises in this postcode",
+    });
+    // Nothing else of the section travels: no category
+    // lines, no bands, no unclassified share.
+    const json = JSON.stringify(short.sections.broadband);
+    expect(json).not.toContain("superfast");
+    expect(json).not.toContain("speed band");
+  });
+
+  it("mobile never headlines — no key, no payload, in any form", async () => {
+    const short = servedShort(await shortFor(BIRKDALE));
+    expect("mobile" in short.sections).toBe(false);
+    for (const key of allKeys(short)) expect(key.toLowerCase()).not.toContain("mobile");
+    // The full bundle DOES hold a mobile answer (the fake
+    // files one) — the absence above is the derivation's
+    // lock, not missing data.
+    const bundles = await fullBundles(BIRKDALE);
+    if (bundles.area.kind !== "area-bundle") throw new Error("expected an area bundle");
+    expect(bundles.area.sections.mobile.state).toBe("served");
+  });
+
+  it("an unfiled postcode's broadband headline is the section's own not-filed line, verbatim", async () => {
+    areaSource.broadbandOverride = null;
+    try {
+      const short = servedShort(await shortFor(BIRKDALE));
+      expect(short.sections.broadband).toEqual({
+        state: "not-filed",
+        gigabitCapablePct: null,
+        line: "broadband coverage is not filed for this postcode yet",
+      });
+    } finally {
+      areaSource.broadbandOverride = undefined;
+    }
+  });
+
+  it("rungs 3 and 4 name broadband among the sections, and never mobile", async () => {
+    const WIDER: AddressResolution = {
+      rung: 3,
+      kind: "wider-area",
+      outward: "CM3",
+      label: "Wider area — CM3, not this exact home",
+      postcodeCount: 541,
+    };
+    const rung3 = await shortFor(WIDER);
+    if (rung3.kind !== "wider-area") throw new Error("expected wider-area");
+    expect(rung3.sections.broadband).toEqual({
+      state: "unavailable",
+      reason: "broadband answers need an exact postcode",
+    });
+    expect("mobile" in rung3.sections).toBe(false);
+    expect(Object.keys(rung3.sections)).toHaveLength(12);
+
+    const rung4 = await shortFor({ rung: 4, kind: "no-location" });
+    if (rung4.kind !== "no-location") throw new Error("expected no-location");
+    expect(rung4.sections.broadband).toEqual({
+      state: "unavailable",
+      reason: "area answers need an exact postcode",
+    });
+    expect("mobile" in rung4.sections).toBe(false);
+  });
+});
+
 // --- banned wording, inherited ------------------------------------
 
 describe("short bundle — wording (the union of the brains' banned lists)", () => {
@@ -2590,6 +2715,12 @@ describe("short bundle — wording (the union of the brains' banned lists)", () 
   // strips that exact sentence, then requires "valuation" to
   // appear nowhere else.
   const DISCLAIMER = "It is not a valuation of this home.";
+  // The one ruled percentage: D36's broadband headline IS a
+  // percentage — the gigabit figure — and the pick carries
+  // the section's line verbatim. The scan strips a
+  // percentage figure in that line's exact shape, then
+  // requires "%" to appear in no other served string.
+  const GIGABIT_FIGURE = /available to [\d.]+% of premises/g;
 
   it("no served string carries a banned term, and no key computes a comparison", async () => {
     const shorts: ShortBundle[] = [];
@@ -2616,7 +2747,7 @@ describe("short bundle — wording (the union of the brains' banned lists)", () 
         const stripped = text.split(DISCLAIMER).join("");
         expect(stripped.toLowerCase()).not.toContain("valuation");
         for (const term of BANNED) expect(text.toLowerCase()).not.toContain(term);
-        expect(text).not.toContain("%");
+        expect(text.replace(GIGABIT_FIGURE, "available to premises")).not.toContain("%");
       }
       for (const key of allKeys(short)) {
         expect(key).not.toMatch(

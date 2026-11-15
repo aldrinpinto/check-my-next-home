@@ -107,6 +107,23 @@ import { COMPANY_OWNERSHIP_ENABLED } from "./site";
 // register hand-off, and neither half's silence is a
 // verdict about any building — the section carries no
 // word that could make it one (D17).
+//
+// Broadband and mobile (M6.17, decision D36) are the
+// fifteenth and sixteenth sections — TWO sections, never
+// one combined "connections" section, because their
+// grains differ: broadband is a fact about the postcode's
+// premises, mobile a fact about the named council area.
+// Both read answer keys the M5.9 Ofcom loaders filed into
+// postcode_cache.answers (the crime/EPC pattern) — no
+// table, no spatial query. Every figure is a share of
+// premises where a service is AVAILABLE: never a speed a
+// home will get, never take-up, never a claim about
+// signal inside this home. Ofcom files no provider names,
+// so none can serve. A mobile figure Ofcom does not
+// publish files as null and serves as not published —
+// never 0, never a silently missing row. Broadband joins
+// the short bundle as its twelfth headline section,
+// carrying the gigabit line only; mobile never headlines.
 
 export const AREA_UNAVAILABLE_REASON = "area answers need an exact postcode";
 
@@ -591,6 +608,70 @@ export interface TribunalFacts {
   rows: TribunalDecisionRow[];
 }
 
+// The filed Ofcom broadband answer for one postcode
+// (loaders/load-broadband.mjs, the all-premises series),
+// mapped to camelCase by the source. The port carries the
+// whole filed answer; the builder chooses what serves —
+// the NGA percentage and the unable-to-receive family are
+// filed but never served (each is a headline figure read
+// from the other end, or a legacy label that overlaps
+// superfast without equalling it).
+export interface BroadbandAnswerFacts {
+  basis: string;
+  snapshot: string;
+  gigabitCapablePct: number;
+  superfast30Pct: number;
+  ultrafast100Pct: number;
+  ultrafast300Pct: number;
+  ngaPct: number;
+  unable2Pct: number;
+  unable5Pct: number;
+  unable10Pct: number;
+  unable30Pct: number;
+  unableDecentFixedOrFwaPct: number;
+  decentViaFwaPct: number;
+  speedBandPct: {
+    under_2: number;
+    "2_to_5": number;
+    "5_to_10": number;
+    "10_to_30": number;
+    "30_to_300": number;
+    "300_plus": number;
+  };
+}
+
+// One filed mobile coverage set: Ofcom's published pair
+// (no operator / all four operators) plus its own
+// sanctioned derivation (100 minus the no-operator
+// figure). A figure is null only when its column is
+// unpublished in the release — the 5G standalone
+// all-operators columns are the standing case — and the
+// set itself is null only when both are.
+export interface MobileCoverageSetFacts {
+  noOperatorPct: number | null;
+  allOperatorsPct: number | null;
+  atLeastOneOperatorPct: number | null;
+}
+
+export interface MobileServiceFacts {
+  outdoor: MobileCoverageSetFacts | null;
+  // Only 4G files an indoor set; every 5G variant is
+  // outdoor-only in the published file.
+  indoor?: MobileCoverageSetFacts | null;
+}
+
+// The filed Ofcom mobile answer for the postcode's own
+// council area (loaders/load-mobile.mjs) — an area
+// figure, filed onto every postcode in the authority,
+// never a postcode measurement.
+export interface MobileAnswerFacts {
+  basis: string;
+  snapshot: string;
+  laua: string;
+  lauaName: string;
+  services: Record<string, MobileServiceFacts>;
+}
+
 export interface AreaDataSource {
   planningLayerFacts(
     layer: PlanningLayerKind,
@@ -632,6 +713,15 @@ export interface AreaDataSource {
   // postcode's filed decision slice. Read at rungs 1 and
   // 2 alike — the tribunal answer is a postcode fact.
   tribunalFacts(postcode: string): Promise<TribunalFacts>;
+  // The postcode's filed Ofcom broadband answer, or null
+  // when the filing carries no answer for it (M6.17) —
+  // absence serves the named not-filed state, never a 0%
+  // reading.
+  broadbandAnswer(postcode: string): Promise<BroadbandAnswerFacts | null>;
+  // The filed Ofcom mobile answer for the postcode's own
+  // council area, or null when the postcode's council
+  // matched no published authority at filing time.
+  mobileAnswer(postcode: string): Promise<MobileAnswerFacts | null>;
 }
 
 // ------------------------------------------------------------------
@@ -3729,6 +3819,291 @@ function buildSolar(facts: SolarFacts): SolarSection {
 }
 
 // ------------------------------------------------------------------
+// Broadband — Ofcom Connected Nations fixed coverage, a
+// share of the postcode's premises per figure (M6.17,
+// decision D36). Availability only: a figure says a
+// service can be ordered at that share of premises, from
+// providers' returns — never the speed a home will get,
+// never take-up, never a per-address prediction. Ofcom
+// publishes percentages only at this level, and no
+// full-fibre percentage, so no served shape separates
+// full fibre from the other gigabit-capable technologies.
+// The speed bands may sum below 100: the shortfall is the
+// unclassified share (premises Ofcom could not match to a
+// provider record with a predicted speed), derived here
+// at serve time and named — never silently absorbed.
+// ------------------------------------------------------------------
+
+const BROADBAND_SOURCE_NAME = "Ofcom Connected Nations — fixed broadband coverage";
+
+export interface BroadbandBandServed {
+  key: string;
+  label: string;
+  pct: number;
+}
+
+export interface BroadbandSection extends AreaSectionMeta {
+  state: "served" | "not-filed";
+  // The gigabit line — the section's primary sentence,
+  // and the only broadband sentence the short bundle
+  // carries (D36).
+  line: string | null;
+  snapshot: string | null;
+  gigabitCapablePct: number | null;
+  superfast30Pct: number | null;
+  superfastLine: string | null;
+  ultrafast100Pct: number | null;
+  ultrafast100Line: string | null;
+  ultrafast300Pct: number | null;
+  ultrafast300Line: string | null;
+  bands: BroadbandBandServed[];
+  bandsLine: string | null;
+  // The derived unclassified share; null when the bands
+  // cover the postcode's premises within rounding.
+  unclassifiedPct: number | null;
+  unclassifiedLine: string | null;
+}
+
+const BROADBAND_BANDS: { key: keyof BroadbandAnswerFacts["speedBandPct"]; label: string }[] = [
+  { key: "under_2", label: "under 2 Mbit/s" },
+  { key: "2_to_5", label: "2 to 5 Mbit/s" },
+  { key: "5_to_10", label: "5 to 10 Mbit/s" },
+  { key: "10_to_30", label: "10 to 30 Mbit/s" },
+  { key: "30_to_300", label: "30 to 300 Mbit/s" },
+  { key: "300_plus", label: "300 Mbit/s or more" },
+];
+
+// A filed percentage, printed as published: at most two
+// decimal places, no trailing zeros (100, 99.29, 97.9).
+function fmtPct(n: number): string {
+  return String(Math.round(n * 100) / 100);
+}
+
+function buildBroadband(facts: BroadbandAnswerFacts | null): BroadbandSection {
+  const meta = {
+    // Headline depth via the projection's gigabit pick
+    // only (D36); the category lines and the band
+    // distribution are report material.
+    depth: "headline" as const,
+    grain: "postcode point" as const,
+    grainLine: "the premises in this postcode",
+    explainer:
+      "These are Ofcom's figures for the services available to order at premises in this postcode, from providers' returns. They describe availability, not the speed any one home will get, and not what anyone has bought. Ofcom publishes percentages only at postcode level, and no full-fibre percentage: gigabit-capable services include cable and other technologies as well as full fibre, and the data does not separate them.",
+  };
+  if (facts === null) {
+    return {
+      ...meta,
+      sourceName: null,
+      sourceDate: null,
+      sourceLine: null,
+      state: "not-filed",
+      line: "broadband coverage is not filed for this postcode yet",
+      snapshot: null,
+      gigabitCapablePct: null,
+      superfast30Pct: null,
+      superfastLine: null,
+      ultrafast100Pct: null,
+      ultrafast100Line: null,
+      ultrafast300Pct: null,
+      ultrafast300Line: null,
+      bands: [],
+      bandsLine: null,
+      unclassifiedPct: null,
+      unclassifiedLine: null,
+    };
+  }
+  const sourceDate = `${facts.snapshot}-01`;
+  const bands = BROADBAND_BANDS.map(({ key, label }) => ({
+    key,
+    label,
+    pct: facts.speedBandPct[key],
+  }));
+  const bandSum = bands.reduce((total, band) => total + band.pct, 0);
+  const unclassified = round1(100 - bandSum);
+  const unclassifiedPct = unclassified > 0 ? unclassified : null;
+  return {
+    ...meta,
+    sourceName: BROADBAND_SOURCE_NAME,
+    sourceDate,
+    sourceLine: `${BROADBAND_SOURCE_NAME} — data to ${monthLabel(sourceDate)}`,
+    state: "served",
+    line: `gigabit-capable broadband (at least 1 Gbit/s) is available to ${fmtPct(facts.gigabitCapablePct)}% of premises in this postcode`,
+    snapshot: facts.snapshot,
+    gigabitCapablePct: facts.gigabitCapablePct,
+    superfast30Pct: facts.superfast30Pct,
+    superfastLine: `superfast broadband (at least 30 Mbit/s) is available to ${fmtPct(facts.superfast30Pct)}% of premises in this postcode`,
+    ultrafast100Pct: facts.ultrafast100Pct,
+    ultrafast100Line: `ultrafast broadband (at least 100 Mbit/s) is available to ${fmtPct(facts.ultrafast100Pct)}% of premises in this postcode`,
+    ultrafast300Pct: facts.ultrafast300Pct,
+    ultrafast300Line: `broadband at 300 Mbit/s or more is available to ${fmtPct(facts.ultrafast300Pct)}% of premises in this postcode`,
+    bands,
+    bandsLine:
+      "each band is the share of premises in this postcode whose maximum predicted download speed falls in that range",
+    unclassifiedPct,
+    unclassifiedLine:
+      unclassifiedPct !== null
+        ? `${fmtPct(unclassifiedPct)}% of premises in this postcode could not be matched to a provider record with a predicted speed, so they appear in no speed band`
+        : null,
+  };
+}
+
+// ------------------------------------------------------------------
+// Mobile — Ofcom Connected Nations mobile coverage, at
+// LOCAL AUTHORITY grain (M6.17, decision D36): Ofcom
+// publishes no postcode-level mobile file, so the answer
+// is the postcode's own council area's figures, with the
+// council named in every line. Each service leads with
+// ONE figure — the at-least-one-operator share, the only
+// member of Ofcom's filed triple that answers whether a
+// network covers the area at all. The all-operators
+// figure serves beside it as the choice figure; the
+// no-operator figure is the lead's mirror and never
+// leads. A figure whose column is unpublished in the
+// release files as null (the 5G standalone all-operators
+// columns, every council, this release) and serves as
+// not published — never 0, never a missing row.
+// ------------------------------------------------------------------
+
+const MOBILE_SOURCE_NAME = "Ofcom Connected Nations — mobile coverage (local authority level)";
+
+export type MobileServiceKey =
+  | "voice"
+  | "4g"
+  | "5g_high_confidence"
+  | "5g_very_high_confidence"
+  | "5g_sa_high_confidence"
+  | "5g_sa_very_high_confidence";
+
+const MOBILE_SERVICES: { key: MobileServiceKey; label: string }[] = [
+  { key: "voice", label: "Voice" },
+  { key: "4g", label: "4G" },
+  { key: "5g_high_confidence", label: "5G (high confidence)" },
+  { key: "5g_very_high_confidence", label: "5G (very high confidence)" },
+  { key: "5g_sa_high_confidence", label: "5G standalone (high confidence)" },
+  { key: "5g_sa_very_high_confidence", label: "5G standalone (very high confidence)" },
+];
+
+export interface MobileSetServed {
+  atLeastOneOperatorPct: number | null;
+  allOperatorsPct: number | null;
+  // False where Ofcom does not publish the all-operators
+  // figure for this service in this release — its line
+  // then says so, in words.
+  allOperatorsPublished: boolean;
+  noOperatorPct: number | null;
+  line: string;
+  allOperatorsLine: string;
+}
+
+export interface MobileServiceServed {
+  service: MobileServiceKey;
+  label: string;
+  state: "served" | "not-published";
+  // The service's lead sentence — its outdoor lead line,
+  // or its not-published sentence where the whole filed
+  // set is unpublished.
+  line: string;
+  outdoor: MobileSetServed | null;
+  // Only 4G carries an indoor set; null for every other
+  // service, by the filing's shape, not by absence.
+  indoor: MobileSetServed | null;
+}
+
+export interface MobileSection extends AreaSectionMeta {
+  state: "served" | "not-filed";
+  line: string | null;
+  // The council the figures belong to, as filed — every
+  // served line names it, because the grain is the whole
+  // authority, never this postcode.
+  council: string | null;
+  snapshot: string | null;
+  services: MobileServiceServed[];
+}
+
+function toServedMobileSet(
+  set: MobileCoverageSetFacts,
+  place: "outdoor" | "indoor",
+  council: string,
+): MobileSetServed {
+  const placeWord = place === "outdoor" ? "outdoor" : "indoor";
+  const allPublished = set.allOperatorsPct !== null;
+  return {
+    atLeastOneOperatorPct: set.atLeastOneOperatorPct,
+    allOperatorsPct: set.allOperatorsPct,
+    allOperatorsPublished: allPublished,
+    noOperatorPct: set.noOperatorPct,
+    line:
+      set.atLeastOneOperatorPct !== null
+        ? `at least one mobile network is modelled to have ${placeWord} coverage at ${fmtPct(set.atLeastOneOperatorPct)}% of premises in ${council}`
+        : `the share of premises in ${council} where at least one mobile network has ${placeWord} coverage is not published for this service`,
+    allOperatorsLine: allPublished
+      ? `all four mobile networks are modelled to have ${placeWord} coverage at ${fmtPct(set.allOperatorsPct as number)}% of premises in ${council}`
+      : `the share of premises in ${council} where all four mobile networks have ${placeWord} coverage is not published for this service`,
+  };
+}
+
+function buildMobile(facts: MobileAnswerFacts | null): MobileSection {
+  const meta = {
+    // Report depth only (D36): a council-grain modelled
+    // figure with a not-published discipline never
+    // headlines beside the home's own facts.
+    depth: "report" as const,
+    grain: "area" as const,
+    grainLine: "the council area this postcode sits in",
+    explainer:
+      "Ofcom publishes mobile coverage for the whole council area, modelled at premises — it is not a measurement at this home, and not a promise of signal indoors. Only 4G has a published indoor figure; every 5G service is published for outdoor coverage only. A figure Ofcom does not publish is named as not published, never shown as 0. Ofcom's figures name no network, so no network can be recommended from them.",
+  };
+  if (facts === null) {
+    return {
+      ...meta,
+      sourceName: null,
+      sourceDate: null,
+      sourceLine: null,
+      state: "not-filed",
+      line: "mobile coverage is not filed for this postcode's council area yet",
+      council: null,
+      snapshot: null,
+      services: [],
+    };
+  }
+  const council = facts.lauaName;
+  const sourceDate = `${facts.snapshot}-01`;
+  const services: MobileServiceServed[] = MOBILE_SERVICES.map(({ key, label }) => {
+    const filed = facts.services[key];
+    if (!filed || filed.outdoor === null) {
+      return {
+        service: key,
+        label,
+        state: "not-published" as const,
+        line: `${label} coverage is not published by Ofcom in this release`,
+        outdoor: null,
+        indoor: null,
+      };
+    }
+    const outdoor = toServedMobileSet(filed.outdoor, "outdoor", council);
+    return {
+      service: key,
+      label,
+      state: "served" as const,
+      line: outdoor.line,
+      outdoor,
+      indoor: filed.indoor ? toServedMobileSet(filed.indoor, "indoor", council) : null,
+    };
+  });
+  return {
+    ...meta,
+    sourceName: MOBILE_SOURCE_NAME,
+    sourceDate,
+    sourceLine: `${MOBILE_SOURCE_NAME} — data to ${monthLabel(sourceDate)}`,
+    state: "served",
+    line: `modelled mobile coverage for the ${council} council area`,
+    council,
+    snapshot: facts.snapshot,
+    services,
+  };
+}
+
+// ------------------------------------------------------------------
 // The bundle
 // ------------------------------------------------------------------
 
@@ -3748,6 +4123,11 @@ export interface AreaSections {
   noise: NoiseSection;
   benefits: BenefitsSection;
   solar: SolarSection;
+  // Broadband and mobile (M6.17) are unconditional —
+  // the fifteenth and sixteenth sections, present in
+  // every bundle.
+  broadband: BroadbandSection;
+  mobile: MobileSection;
   // Company ownership (M6.13) is OPTIONAL in the type and
   // ABSENT in the object while its flag is off: the key
   // does not exist in the serialised bundle — not null,
@@ -3795,6 +4175,8 @@ const RUNG3_SECTION_REASONS: Record<string, string> = {
   noise: "noise bands need an exact postcode",
   benefits: "benefit counts need an exact postcode",
   solar: "solar modelling needs an exact postcode",
+  broadband: "broadband answers need an exact postcode",
+  mobile: "mobile answers need an exact postcode",
 };
 
 // The company-ownership rung-3 reason joins the record
@@ -3862,6 +4244,8 @@ export async function buildAreaBundle(
     benefitsFacts,
     solarFacts,
     tribunalFactsValue,
+    broadbandFacts,
+    mobileFacts,
   ] = await Promise.all([
     source.planningLayerFacts("conservation_area", latitude, longitude),
     source.planningLayerFacts("article_4_area", latitude, longitude),
@@ -3886,6 +4270,8 @@ export async function buildAreaBundle(
       : Promise.resolve({ claimantCount: null, ucPeople: null, ucHouseholds: null, bases: null }),
     source.solarCell(solarCellRef(latitude, longitude)),
     source.tribunalFacts(postcode),
+    source.broadbandAnswer(postcode),
+    source.mobileAnswer(postcode),
   ]);
 
   const epc = await buildEpc(resolution, source);
@@ -3933,6 +4319,8 @@ export async function buildAreaBundle(
       noise: buildNoise(noiseFacts, nation),
       benefits: buildBenefits(benefitsFacts, resolution.directory.lsoaCode, nation),
       solar: buildSolar(solarFacts),
+      broadband: buildBroadband(broadbandFacts),
+      mobile: buildMobile(mobileFacts),
       ...(companyOwnership ? { companyOwnership } : {}),
     },
   };
@@ -3975,6 +4363,16 @@ export interface HeadlineProjection {
     headlineBand: NoiseSection["headlineBand"];
     line: string | null;
   };
+  // Broadband headlines as the gigabit line only (D36):
+  // the pick carries the section's own line, so a named
+  // state's sentence travels verbatim (the D30 rule).
+  // Mobile has NO key here — it never headlines, in any
+  // form.
+  broadband: {
+    state: BroadbandSection["state"];
+    gigabitCapablePct: number | null;
+    line: string | null;
+  };
 }
 
 export function projectHeadline(bundle: AreaBundle): HeadlineProjection | null {
@@ -4006,6 +4404,11 @@ export function projectHeadline(bundle: AreaBundle): HeadlineProjection | null {
       state: sections.noise.state,
       headlineBand: sections.noise.headlineBand,
       line: sections.noise.line,
+    },
+    broadband: {
+      state: sections.broadband.state,
+      gigabitCapablePct: sections.broadband.gigabitCapablePct,
+      line: sections.broadband.line,
     },
   };
 }
@@ -4644,6 +5047,112 @@ export function createAreaSource(
           sourceName: (row.source_name as string | null) ?? null,
           sourceDate: (row.source_date as string | null) ?? null,
         })),
+      };
+    },
+
+    async broadbandAnswer(postcode) {
+      // The filed answer (load-broadband.mjs) mapped from
+      // its filed snake_case shape; absent key, absent
+      // postcode — both read as unfiled.
+      const { rows } = await db.query(
+        "SELECT answers -> 'broadband' AS broadband FROM postcode_cache WHERE postcode = $1",
+        [postcode],
+      );
+      const filed = rows[0]?.broadband as
+        | {
+            basis: string;
+            snapshot: string;
+            gigabit_capable_pct: number;
+            superfast_30_pct: number;
+            ultrafast_100_pct: number;
+            ultrafast_300_pct: number;
+            nga_pct: number;
+            unable_2_pct: number;
+            unable_5_pct: number;
+            unable_10_pct: number;
+            unable_30_pct: number;
+            unable_decent_fixed_or_fwa_pct: number;
+            decent_via_fwa_pct: number;
+            speed_band_pct: BroadbandAnswerFacts["speedBandPct"];
+          }
+        | null
+        | undefined;
+      if (!filed) return null;
+      return {
+        basis: filed.basis,
+        snapshot: filed.snapshot,
+        gigabitCapablePct: filed.gigabit_capable_pct,
+        superfast30Pct: filed.superfast_30_pct,
+        ultrafast100Pct: filed.ultrafast_100_pct,
+        ultrafast300Pct: filed.ultrafast_300_pct,
+        ngaPct: filed.nga_pct,
+        unable2Pct: filed.unable_2_pct,
+        unable5Pct: filed.unable_5_pct,
+        unable10Pct: filed.unable_10_pct,
+        unable30Pct: filed.unable_30_pct,
+        unableDecentFixedOrFwaPct: filed.unable_decent_fixed_or_fwa_pct,
+        decentViaFwaPct: filed.decent_via_fwa_pct,
+        speedBandPct: filed.speed_band_pct,
+      };
+    },
+
+    async mobileAnswer(postcode) {
+      const { rows } = await db.query(
+        "SELECT answers -> 'mobile' AS mobile FROM postcode_cache WHERE postcode = $1",
+        [postcode],
+      );
+      const filed = rows[0]?.mobile as
+        | {
+            basis: string;
+            snapshot: string;
+            laua: string;
+            laua_name: string;
+            services: Record<
+              string,
+              {
+                outdoor: {
+                  no_operator_pct: number | null;
+                  all_operators_pct: number | null;
+                  at_least_one_operator_pct: number | null;
+                } | null;
+                indoor?: {
+                  no_operator_pct: number | null;
+                  all_operators_pct: number | null;
+                  at_least_one_operator_pct: number | null;
+                } | null;
+              }
+            >;
+          }
+        | null
+        | undefined;
+      if (!filed) return null;
+      const mapSet = (
+        set: {
+          no_operator_pct: number | null;
+          all_operators_pct: number | null;
+          at_least_one_operator_pct: number | null;
+        } | null,
+      ): MobileCoverageSetFacts | null =>
+        set === null
+          ? null
+          : {
+              noOperatorPct: set.no_operator_pct,
+              allOperatorsPct: set.all_operators_pct,
+              atLeastOneOperatorPct: set.at_least_one_operator_pct,
+            };
+      const services: Record<string, MobileServiceFacts> = {};
+      for (const [key, service] of Object.entries(filed.services)) {
+        services[key] = {
+          outdoor: mapSet(service.outdoor),
+          ...(service.indoor !== undefined ? { indoor: mapSet(service.indoor) } : {}),
+        };
+      }
+      return {
+        basis: filed.basis,
+        snapshot: filed.snapshot,
+        laua: filed.laua,
+        lauaName: filed.laua_name,
+        services,
       };
     },
   };

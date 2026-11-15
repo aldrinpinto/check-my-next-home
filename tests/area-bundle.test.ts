@@ -11,6 +11,7 @@ import {
   solarCellRef,
   translateArticle4Codes,
   type AreaDataSource,
+  type BroadbandAnswerFacts,
   type CensusFacts,
   type CompanyOwnershipFacts,
   type CompanySnapshotRow,
@@ -21,6 +22,8 @@ import {
   type EpcCertificate,
   type ImdFacts,
   type ListedFacts,
+  type MobileAnswerFacts,
+  type MobileCoverageSetFacts,
   type PlanningLayerFacts,
   type PlanningLayerKind,
   type TribunalDecisionRow,
@@ -555,6 +558,21 @@ class FakeAreaSource implements AreaDataSource {
     this.tribunalCalls.push(postcode);
     return this.tribunalOverride ?? tribunalFactsFor(postcode);
   }
+
+  broadbandOverride: BroadbandAnswerFacts | null | undefined = undefined;
+  mobileOverride: MobileAnswerFacts | null | undefined = undefined;
+
+  async broadbandAnswer(postcode: string) {
+    return this.broadbandOverride !== undefined
+      ? this.broadbandOverride
+      : (BROADBAND_BY_POSTCODE.get(postcode) ?? null);
+  }
+
+  async mobileAnswer(postcode: string) {
+    return this.mobileOverride !== undefined
+      ? this.mobileOverride
+      : (MOBILE_BY_POSTCODE.get(postcode) ?? null);
+  }
 }
 
 // --- tribunal facts: the M5.14 fixture corpus, parsed by
@@ -779,6 +797,116 @@ const NOISE_BY_POSTCODE = new Map<
     rows: { sourceKind: string; dayBand: string | null; nightBand: string | null }[];
   }
 >();
+
+// --- Ofcom facts (M6.17): the founder-harness live
+// verifications of the real Spring 2026 release (13 Nov
+// 2026, the M5.9 proof), in the port's shape. For
+// broadband ONLY the gigabit figure was live-verified
+// (100% at all three universal postcodes); the remaining
+// served fields carry the consistent all-100 shape the
+// harness record supports and are NOT asserted as goldens
+// here — their rendering is proven on the labelled
+// synthetic witness in the M6.17 block below. The
+// filed-but-unserved fields (NGA, the unable family)
+// carry distinctive values so a test can prove they never
+// serve. For mobile, the asserted sets are exactly the
+// harness's recorded triples; the sets it did not record
+// carry values marked FILLER and are never asserted.
+
+function broadbandAnswer(partial: Partial<BroadbandAnswerFacts>): BroadbandAnswerFacts {
+  return {
+    basis: "All premises",
+    snapshot: "2026-01",
+    gigabitCapablePct: 100,
+    superfast30Pct: 100,
+    ultrafast100Pct: 100,
+    ultrafast300Pct: 100,
+    ngaPct: 12.34,
+    unable2Pct: 0.11,
+    unable5Pct: 0.22,
+    unable10Pct: 0.33,
+    unable30Pct: 3.21,
+    unableDecentFixedOrFwaPct: 0.44,
+    decentViaFwaPct: 0.55,
+    speedBandPct: {
+      under_2: 0,
+      "2_to_5": 0,
+      "5_to_10": 0,
+      "10_to_30": 0,
+      "30_to_300": 0,
+      "300_plus": 100,
+    },
+    ...partial,
+  };
+}
+
+const BROADBAND_BY_POSTCODE = new Map<string, BroadbandAnswerFacts>([
+  ["CM3 2JT", broadbandAnswer({})],
+  ["E16 1GN", broadbandAnswer({})],
+  ["KT17 1FH", broadbandAnswer({})],
+]);
+
+function coverageSet(
+  noOperatorPct: number | null,
+  allOperatorsPct: number | null,
+  atLeastOneOperatorPct: number | null,
+): MobileCoverageSetFacts {
+  return { noOperatorPct, allOperatorsPct, atLeastOneOperatorPct };
+}
+
+function mobileAnswer(
+  laua: string,
+  lauaName: string,
+  services: MobileAnswerFacts["services"],
+): MobileAnswerFacts {
+  return {
+    basis:
+      "Local authority area — Ofcom publishes mobile coverage at local-authority level, not by postcode",
+    snapshot: "2026-01",
+    laua,
+    lauaName,
+    services,
+  };
+}
+
+const MOBILE_BY_POSTCODE = new Map<string, MobileAnswerFacts>([
+  [
+    "CM3 2JT",
+    mobileAnswer("E07000067", "Braintree", {
+      voice: { outdoor: coverageSet(0, 99.29, 100) },
+      "4g": { outdoor: coverageSet(0, 99.04, 100), indoor: coverageSet(0.99, 84.64, 99) },
+      "5g_high_confidence": { outdoor: coverageSet(2.1, 42.45, 97.9) },
+      // FILLER — not recorded by the harness; never asserted.
+      "5g_very_high_confidence": { outdoor: coverageSet(0, 50.5, 100) },
+      "5g_sa_high_confidence": { outdoor: coverageSet(4.5, null, 95.5) },
+      "5g_sa_very_high_confidence": { outdoor: coverageSet(4.5, null, 95.5) },
+    }),
+  ],
+  [
+    "E16 1GN",
+    mobileAnswer("E09000025", "Newham", {
+      voice: { outdoor: coverageSet(0, 100, 100) },
+      "4g": { outdoor: coverageSet(0, 100, 100), indoor: coverageSet(0, 98.89, 100) },
+      "5g_high_confidence": { outdoor: coverageSet(0, 100, 100) },
+      "5g_very_high_confidence": { outdoor: coverageSet(0, 99.33, 100) },
+      "5g_sa_high_confidence": { outdoor: coverageSet(0, null, 100) },
+      // FILLER — not recorded by the harness; never asserted.
+      "5g_sa_very_high_confidence": { outdoor: coverageSet(1.5, null, 98.5) },
+    }),
+  ],
+  [
+    "KT17 1FH",
+    mobileAnswer("E07000208", "Epsom and Ewell", {
+      voice: { outdoor: coverageSet(0, 100, 100) },
+      "4g": { outdoor: coverageSet(0, 100, 100), indoor: coverageSet(0, 96.85, 100) },
+      "5g_high_confidence": { outdoor: coverageSet(0, 98.42, 100) },
+      "5g_very_high_confidence": { outdoor: coverageSet(0, 67.31, 100) },
+      // FILLER — not recorded by the harness; never asserted.
+      "5g_sa_high_confidence": { outdoor: coverageSet(2.5, null, 97.5) },
+      "5g_sa_very_high_confidence": { outdoor: coverageSet(1.24, null, 98.8) },
+    }),
+  ],
+]);
 
 function cert(partial: Partial<EpcCertificate> & { certificateNumber: string }): EpcCertificate {
   return {
@@ -1615,6 +1743,7 @@ describe("the ladder", () => {
       [
         "air",
         "benefits",
+        "broadband",
         "buildingSafety",
         "census",
         "constraints",
@@ -1622,6 +1751,7 @@ describe("the ladder", () => {
         "epc",
         "heritage",
         "imd",
+        "mobile",
         "nature",
         "noise",
         "planningApplications",
@@ -3042,14 +3172,14 @@ describe("company ownership — behind the flag", () => {
     } as const;
     const on = await buildAreaBundle(wider, source, ON);
     if (on.kind !== "wider-area") throw new Error("expected wider-area");
-    expect(Object.keys(on.area.sections)).toHaveLength(14);
+    expect(Object.keys(on.area.sections)).toHaveLength(16);
     expect(on.area.sections.companyOwnership).toEqual({
       state: "unavailable",
       reason: "company ownership needs an exact postcode",
     });
     const off = await buildAreaBundle(wider, source);
     if (off.kind !== "wider-area") throw new Error("expected wider-area");
-    expect(Object.keys(off.area.sections)).toHaveLength(13);
+    expect(Object.keys(off.area.sections)).toHaveLength(15);
     expect("companyOwnership" in off.area.sections).toBe(false);
   });
 
@@ -3180,7 +3310,17 @@ describe("company ownership — behind the flag", () => {
     const headline = projectHeadline(built);
     if (!headline) throw new Error("expected a headline projection");
     expect(Object.keys(headline).sort()).toEqual(
-      ["air", "constraints", "councilTax", "epc", "heritage", "nature", "noise", "postcode"].sort(),
+      [
+        "air",
+        "broadband",
+        "constraints",
+        "councilTax",
+        "epc",
+        "heritage",
+        "nature",
+        "noise",
+        "postcode",
+      ].sort(),
     );
     expect(JSON.stringify(headline)).not.toContain("SAGE HOMES");
   });
@@ -3817,6 +3957,303 @@ describe("building safety — the tribunal half serves the filed corpus (D35)", 
   });
 });
 
+// --- broadband & mobile (M6.17, decision D36) ----------------------------
+
+function allNumbersIn(value: unknown, out: number[] = []): number[] {
+  if (typeof value === "number") out.push(value);
+  else if (Array.isArray(value)) for (const v of value) allNumbersIn(v, out);
+  else if (value && typeof value === "object")
+    for (const v of Object.values(value)) allNumbersIn(v, out);
+  return out;
+}
+
+describe("broadband & mobile — the Ofcom answers (M6.17, D36)", () => {
+  it("the universal three: the gigabit line serves verbatim at 100%, under the January 2026 source line", async () => {
+    for (const resolution of [BIRKDALE, EXETER, MINERVA]) {
+      const { sections } = await bundle(resolution);
+      const section = sections.broadband;
+      expect(section.state).toBe("served");
+      expect(section.depth).toBe("headline");
+      expect(section.grainLine).toBe("the premises in this postcode");
+      expect(section.gigabitCapablePct).toBe(100);
+      expect(section.line).toBe(
+        "gigabit-capable broadband (at least 1 Gbit/s) is available to 100% of premises in this postcode",
+      );
+      expect(section.snapshot).toBe("2026-01");
+      expect(section.sourceName).toBe("Ofcom Connected Nations — fixed broadband coverage");
+      expect(section.sourceLine).toBe(
+        "Ofcom Connected Nations — fixed broadband coverage — data to January 2026",
+      );
+      // The bands as the harness record supports them:
+      // everything in the 300+ band, nothing unclassified.
+      expect(section.bands.find((b) => b.key === "300_plus")?.pct).toBe(100);
+      expect(section.unclassifiedPct).toBeNull();
+      expect(section.unclassifiedLine).toBeNull();
+    }
+  });
+
+  it("the filed-but-unserved figures never serve: no NGA percentage, no unable-to-receive figure", async () => {
+    const { sections } = await bundle(BIRKDALE);
+    const numbers = allNumbersIn(sections.broadband);
+    for (const unserved of [12.34, 0.11, 0.22, 0.33, 3.21, 0.44, 0.55])
+      expect(numbers).not.toContain(unserved);
+    const json = JSON.stringify(sections.broadband).toLowerCase();
+    expect(json).not.toContain("nga");
+    expect(json).not.toContain("unable");
+  });
+
+  it("Braintree mobile: the verified triples lead, each service with its one figure", async () => {
+    const { sections } = await bundle(BIRKDALE);
+    const section = sections.mobile;
+    expect(section.state).toBe("served");
+    expect(section.depth).toBe("report");
+    expect(section.council).toBe("Braintree");
+    expect(section.line).toBe("modelled mobile coverage for the Braintree council area");
+    expect(section.sourceLine).toBe(
+      "Ofcom Connected Nations — mobile coverage (local authority level) — data to January 2026",
+    );
+    expect(section.services.map((s) => s.service)).toEqual([
+      "voice",
+      "4g",
+      "5g_high_confidence",
+      "5g_very_high_confidence",
+      "5g_sa_high_confidence",
+      "5g_sa_very_high_confidence",
+    ]);
+    const byKey = new Map(section.services.map((s) => [s.service, s]));
+    const voice = byKey.get("voice")!;
+    expect(voice.line).toBe(
+      "at least one mobile network is modelled to have outdoor coverage at 100% of premises in Braintree",
+    );
+    expect(voice.outdoor?.allOperatorsLine).toBe(
+      "all four mobile networks are modelled to have outdoor coverage at 99.29% of premises in Braintree",
+    );
+    expect(voice.indoor).toBeNull();
+    const fourG = byKey.get("4g")!;
+    expect(fourG.outdoor?.line).toBe(
+      "at least one mobile network is modelled to have outdoor coverage at 100% of premises in Braintree",
+    );
+    expect(fourG.indoor?.line).toBe(
+      "at least one mobile network is modelled to have indoor coverage at 99% of premises in Braintree",
+    );
+    expect(fourG.indoor?.allOperatorsLine).toBe(
+      "all four mobile networks are modelled to have indoor coverage at 84.64% of premises in Braintree",
+    );
+    const fiveG = byKey.get("5g_high_confidence")!;
+    expect(fiveG.line).toBe(
+      "at least one mobile network is modelled to have outdoor coverage at 97.9% of premises in Braintree",
+    );
+    expect(fiveG.outdoor?.allOperatorsLine).toBe(
+      "all four mobile networks are modelled to have outdoor coverage at 42.45% of premises in Braintree",
+    );
+  });
+
+  it("Newham mobile: the standalone-5G all-operators figure serves as not published — never 0", async () => {
+    const { sections } = await bundle(EXETER);
+    const byKey = new Map(sections.mobile.services.map((s) => [s.service, s]));
+    const sa = byKey.get("5g_sa_high_confidence")!;
+    expect(sa.state).toBe("served");
+    expect(sa.line).toBe(
+      "at least one mobile network is modelled to have outdoor coverage at 100% of premises in Newham",
+    );
+    expect(sa.outdoor?.allOperatorsPct).toBeNull();
+    expect(sa.outdoor?.allOperatorsPublished).toBe(false);
+    expect(sa.outdoor?.allOperatorsLine).toBe(
+      "the share of premises in Newham where all four mobile networks have outdoor coverage is not published for this service",
+    );
+    const vhc = byKey.get("5g_very_high_confidence")!;
+    expect(vhc.outdoor?.allOperatorsLine).toBe(
+      "all four mobile networks are modelled to have outdoor coverage at 99.33% of premises in Newham",
+    );
+    const fourG = byKey.get("4g")!;
+    expect(fourG.indoor?.allOperatorsLine).toBe(
+      "all four mobile networks are modelled to have indoor coverage at 98.89% of premises in Newham",
+    );
+  });
+
+  it("Epsom and Ewell mobile: 5G very-high all-operators serves at 67.31%; SA very-high is not published", async () => {
+    const { sections } = await bundle(MINERVA);
+    const byKey = new Map(sections.mobile.services.map((s) => [s.service, s]));
+    const vhc = byKey.get("5g_very_high_confidence")!;
+    expect(vhc.outdoor?.allOperatorsLine).toBe(
+      "all four mobile networks are modelled to have outdoor coverage at 67.31% of premises in Epsom and Ewell",
+    );
+    const saVhc = byKey.get("5g_sa_very_high_confidence")!;
+    expect(saVhc.line).toBe(
+      "at least one mobile network is modelled to have outdoor coverage at 98.8% of premises in Epsom and Ewell",
+    );
+    expect(saVhc.outdoor?.allOperatorsPct).toBeNull();
+    expect(saVhc.outdoor?.allOperatorsPublished).toBe(false);
+    const hc = byKey.get("5g_high_confidence")!;
+    expect(hc.outdoor?.allOperatorsLine).toBe(
+      "all four mobile networks are modelled to have outdoor coverage at 98.42% of premises in Epsom and Ewell",
+    );
+  });
+
+  it("SYNTHETIC broadband: a sub-100 postcode serves its category lines and bands, the unclassified share derived and named", async () => {
+    const fresh = new FakeAreaSource();
+    fresh.broadbandOverride = broadbandAnswer({
+      gigabitCapablePct: 87.4,
+      superfast30Pct: 96.2,
+      ultrafast100Pct: 91.5,
+      ultrafast300Pct: 88.9,
+      speedBandPct: {
+        under_2: 0.4,
+        "2_to_5": 0.8,
+        "5_to_10": 1.6,
+        "10_to_30": 4.3,
+        "30_to_300": 12.5,
+        "300_plus": 69.3,
+      },
+    });
+    const { sections } = await bundle(BIRKDALE, fresh);
+    const section = sections.broadband;
+    expect(section.line).toBe(
+      "gigabit-capable broadband (at least 1 Gbit/s) is available to 87.4% of premises in this postcode",
+    );
+    expect(section.superfastLine).toBe(
+      "superfast broadband (at least 30 Mbit/s) is available to 96.2% of premises in this postcode",
+    );
+    expect(section.ultrafast100Line).toBe(
+      "ultrafast broadband (at least 100 Mbit/s) is available to 91.5% of premises in this postcode",
+    );
+    expect(section.ultrafast300Line).toBe(
+      "broadband at 300 Mbit/s or more is available to 88.9% of premises in this postcode",
+    );
+    expect(section.bands.map((b) => [b.label, b.pct])).toEqual([
+      ["under 2 Mbit/s", 0.4],
+      ["2 to 5 Mbit/s", 0.8],
+      ["5 to 10 Mbit/s", 1.6],
+      ["10 to 30 Mbit/s", 4.3],
+      ["30 to 300 Mbit/s", 12.5],
+      ["300 Mbit/s or more", 69.3],
+    ]);
+    // The bands sum to 88.9 — the derived shortfall serves
+    // as its own named line, never absorbed.
+    expect(section.unclassifiedPct).toBe(11.1);
+    expect(section.unclassifiedLine).toBe(
+      "11.1% of premises in this postcode could not be matched to a provider record with a predicted speed, so they appear in no speed band",
+    );
+  });
+
+  it("SYNTHETIC mobile: a whole-service unpublished set serves its not-published line, and no service silently vanishes", async () => {
+    const fresh = new FakeAreaSource();
+    fresh.mobileOverride = mobileAnswer("E09999999", "Synthetic Borough", {
+      voice: { outdoor: coverageSet(12.5, 40.2, 87.5) },
+      "4g": { outdoor: coverageSet(8, 55.5, 92), indoor: coverageSet(20.5, 30.25, 79.5) },
+      "5g_high_confidence": { outdoor: coverageSet(30, null, 70) },
+      "5g_very_high_confidence": { outdoor: null },
+      "5g_sa_high_confidence": { outdoor: coverageSet(45, null, 55) },
+      "5g_sa_very_high_confidence": { outdoor: coverageSet(50, null, 50) },
+    });
+    const { sections } = await bundle(BIRKDALE, fresh);
+    const section = sections.mobile;
+    expect(section.services).toHaveLength(6);
+    const byKey = new Map(section.services.map((s) => [s.service, s]));
+    expect(byKey.get("voice")?.line).toBe(
+      "at least one mobile network is modelled to have outdoor coverage at 87.5% of premises in Synthetic Borough",
+    );
+    expect(byKey.get("4g")?.indoor?.line).toBe(
+      "at least one mobile network is modelled to have indoor coverage at 79.5% of premises in Synthetic Borough",
+    );
+    const vhc = byKey.get("5g_very_high_confidence")!;
+    expect(vhc.state).toBe("not-published");
+    expect(vhc.line).toBe(
+      "5G (very high confidence) coverage is not published by Ofcom in this release",
+    );
+    expect(vhc.outdoor).toBeNull();
+    const hc = byKey.get("5g_high_confidence")!;
+    expect(hc.state).toBe("served");
+    expect(hc.outdoor?.allOperatorsPublished).toBe(false);
+    expect(hc.outdoor?.allOperatorsLine).toBe(
+      "the share of premises in Synthetic Borough where all four mobile networks have outdoor coverage is not published for this service",
+    );
+  });
+
+  it("not filed: a postcode with no Ofcom answers serves both named states, never a 0% reading", async () => {
+    const fresh = new FakeAreaSource();
+    fresh.broadbandOverride = null;
+    fresh.mobileOverride = null;
+    const { sections } = await bundle(BIRKDALE, fresh);
+    expect(sections.broadband.state).toBe("not-filed");
+    expect(sections.broadband.line).toBe("broadband coverage is not filed for this postcode yet");
+    expect(sections.broadband.gigabitCapablePct).toBeNull();
+    expect(sections.broadband.sourceLine).toBeNull();
+    expect(sections.mobile.state).toBe("not-filed");
+    expect(sections.mobile.line).toBe(
+      "mobile coverage is not filed for this postcode's council area yet",
+    );
+    expect(sections.mobile.services).toEqual([]);
+    expect(sections.mobile.council).toBeNull();
+  });
+
+  it("rung 2 serves the same two sections; rung 3 names the two new reasons", async () => {
+    const rung1 = await bundle(BIRKDALE);
+    const rung2 = await bundle(addressList(BIRKDALE_DIR));
+    expect(rung2.sections.broadband).toEqual(rung1.sections.broadband);
+    expect(rung2.sections.mobile).toEqual(rung1.sections.mobile);
+
+    const rung3 = await buildAreaBundle(
+      { rung: 3, kind: "wider-area", outward: "CM3", label: "Wider area — CM3", postcodeCount: 1 },
+      source,
+    );
+    if (rung3.kind !== "wider-area") throw new Error("expected wider-area");
+    expect(rung3.area.sections.broadband).toEqual({
+      state: "unavailable",
+      reason: "broadband answers need an exact postcode",
+    });
+    expect(rung3.area.sections.mobile).toEqual({
+      state: "unavailable",
+      reason: "mobile answers need an exact postcode",
+    });
+  });
+
+  it("the headline projection carries the gigabit pick only — and no mobile payload in any form", async () => {
+    const built = await bundle(BIRKDALE);
+    const headline = projectHeadline(built);
+    if (!headline) throw new Error("expected a headline projection");
+    expect(headline.broadband).toEqual({
+      state: "served",
+      gigabitCapablePct: 100,
+      line: "gigabit-capable broadband (at least 1 Gbit/s) is available to 100% of premises in this postcode",
+    });
+    expect("mobile" in headline).toBe(false);
+    expect(JSON.stringify(headline)).not.toContain("mobile");
+  });
+
+  it("no served wording promises a speed, names a provider, or grades coverage", async () => {
+    const bundles = [await bundle(BIRKDALE), await bundle(EXETER), await bundle(MINERVA)];
+    const fresh = new FakeAreaSource();
+    fresh.broadbandOverride = broadbandAnswer({ gigabitCapablePct: 87.4 });
+    bundles.push(await bundle(BIRKDALE, fresh));
+    for (const built of bundles) {
+      const sections = [built.sections.broadband, built.sections.mobile];
+      const text = JSON.stringify(sections).toLowerCase();
+      for (const banned of [
+        "you will get",
+        "you'll get",
+        "guaranteed",
+        "poor coverage",
+        "great coverage",
+        "best network",
+        "fastest",
+      ])
+        expect(text, `banned in the Ofcom sections: ${banned}`).not.toContain(banned);
+      // "fast"/"slow" as our adjectives — Ofcom's own
+      // category names (superfast, ultrafast) are labels,
+      // excused exactly as filed.
+      const stripped = text.replaceAll("superfast", "").replaceAll("ultrafast", "");
+      expect(stripped).not.toContain("fast");
+      expect(stripped).not.toContain("slow");
+      // "full fibre" appears only inside the explainer's
+      // separation sentence — never beside the gigabit
+      // figure as a claim.
+      expect(built.sections.broadband.line).not.toContain("fibre");
+      expect(built.sections.broadband.explainer).toContain("the data does not separate them");
+    }
+  });
+});
+
 // --- depth and the headline projection ---------------------------------
 
 describe("depth is encoded in the bundle", () => {
@@ -3830,6 +4267,8 @@ describe("depth is encoded in the bundle", () => {
     expect(sections.noise.depth).toBe("headline");
     expect(sections.solar.depth).toBe("report");
     expect(sections.planningApplications.depth).toBe("report");
+    expect(sections.broadband.depth).toBe("headline");
+    expect(sections.mobile.depth).toBe("report");
   });
 
   it("the headline projection carries NO IMD, Census or benefits payload — derivation is a projection", async () => {
@@ -3838,7 +4277,17 @@ describe("depth is encoded in the bundle", () => {
     expect(headline).not.toBeNull();
     if (!headline) return;
     expect(Object.keys(headline).sort()).toEqual(
-      ["air", "constraints", "councilTax", "epc", "heritage", "nature", "noise", "postcode"].sort(),
+      [
+        "air",
+        "broadband",
+        "constraints",
+        "councilTax",
+        "epc",
+        "heritage",
+        "nature",
+        "noise",
+        "postcode",
+      ].sort(),
     );
     const json = JSON.stringify(headline).toLowerCase();
     for (const banned of ["among the", "claimant", "census", "ethnic", "decile", "7772"])
