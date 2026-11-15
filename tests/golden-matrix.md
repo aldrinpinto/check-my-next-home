@@ -885,6 +885,123 @@ is fixture-volume only (1,716 patches); its national
 re-proof is owed at M12, as are the noise and solar
 first-pass filings that lift those sections' guards.
 
+### The short version (M6.7)
+
+`lib/short-bundle.ts` — `buildShortBundle({ nearby,
+soldPrices, crime, flood, area })`, one pure derivation
+over the five full bundles (decision D28): no data
+source, no clock, no database handle in its signature,
+so the same inputs always derive the same short bundle
+(proven by mutation: changing a source behind an
+already-built bundle changes nothing; rebuilding the
+bundle changes the output). The five inputs must share
+one rung — mixed rungs are refused — and at rungs 1–2
+one postcode. Section order: sold prices, flood, crime,
+EPC, council tax, constraints, heritage, nature, air,
+noise, nearby essentials. The area input is read only
+through `projectHeadline`, the area bundle's own
+headline path; the slimming beyond it happens over the
+projection's output.
+
+Headline goldens, proven twice — in the unit suite
+(tests/short-bundle.test.ts, fake sources carrying the
+locked figures) and against rehearsal-built REAL
+bundles (each brain's own rehearsal database: M6.2
+nearby, M6.3 sold prices + address, M6.4/M5.19-gate
+crime, M6.5 flood cuts, M6.6 area; the temporary prove
+suite was deleted after passing, per the M6.6 pattern):
+
+- Sold prices: Birkdale own £588,995 (15 Jun 2023) and
+  median £588,995 over 29 (1996-12-20 to 2026-07-20);
+  Exeter own £270,000 (17 Jan 2014), median £310,000
+  over 9; Minerva Flat 4 own £420,000 (3 Dec 2019),
+  median £399,999 over 27, building median £392,499.50
+  over 12 — each with its counted/span line and the
+  not-a-valuation explainer, never compared. The other
+  Flat 4's £341,000 appears nowhere in Minerva's short
+  bundle. At rung 2 the own-sale keys are ABSENT (not
+  null) and Exeter's £270,000 / 2014-01-17 appear
+  nowhere.
+- Crime: totals 330 / 10,722 / 1,956 with ASB as its
+  own line (65 / 1,852 / 332), stale line null on the
+  current window and verbatim ("the latest month we
+  hold is September 2026 — …") when the same filing is
+  read in January 2027.
+- Flood: all three layer lines per home, never merged,
+  each with its own source line; Birkdale's three
+  absences keep their three distinct states (zone-1,
+  no-band-published, below-lowest-band); Exeter's zones
+  disagreement (Flood Zone 3 covering, "river and sea ·
+  modelled", against a filed "Very low" likelihood
+  band); Minerva surface water inside Low. No EA
+  definition is carried — definitions stay at report
+  depth.
+- Nearby: six categories only. Nearest + count proven
+  against the real filings: primary schools (Birkdale
+  Hatfield Peverel Infant and Nursery School 0.289;
+  Minerva Ewell Grove 0.292), stations (0.563 / Royal
+  Victoria 0.414 / Ewell East 0.246), nurseries from
+  the M5.17 register extract (Shining Stars 0.110, 5
+  within; Cribs Day Nursery 0.088, 96 within; Nestots
+  0.174, 39 within).
+- Area: EPC headline band B for all three; the council
+  tax figure inside its correction line ("Band D
+  averages £2,280.34 a year in Braintree (the council's
+  scale — not this home's bill)"; £1,944.23 Newham;
+  £2,530.84 Epsom and Ewell); listed counts 102 / 213 /
+  315 with the single nearest (White Hart Cottage
+  0.187; Chapel of St George and St Helena 0.322; PIT
+  HOUSE 0.169); air NO2 as the one headline figure
+  (8.150298 / 21.71409 / 12.49256); road day band
+  (Below 55 dB / 55–59 dB / 55–59 dB). Article 4 serves
+  its plain inside line only (Ewell Village, KT17 1DR,
+  inside both the conservation area and the direction):
+  the filed codes "1A;1C;…" and their translations
+  appear nowhere in the short bundle; Braintree and
+  Newham serve the not-published line verbatim.
+
+Named-state witnesses at headline depth: Crawford
+Point E16 1EG (EPC filed-zero with no band, crime
+not-filed, the too-few median over 1 sale); Beaulieu
+CM1 6ER (loaded-none sold prices — "No sale recorded
+for this postcode since 1995" with the 2026-10-28
+edition line — and the surface-water layer not-filed);
+Scotland EH1 1AA (not-covered across sold prices,
+crime, flood, council tax and noise; heritage
+sparse-coverage with a NULL count, never 0).
+
+Structural proofs: rung 3 carries all eleven sections
+as their brains' named states with a deep figure-freedom
+scan (every leaf a string, no figure-named key below
+the section level); rung 4 the same shape from the
+no-location bundles; the depth lock (no census / IMD /
+benefits / solar key or payload anywhere in the short
+shape, asserted against a full bundle that provably
+contains them — Birkdale's 7,772, the UC counts, the
+solar yields); the banned-wording union scan (the
+D23/D24/D25/D26 lists) over nine short bundles; no "%"
+in any served string; no comparison-named key.
+
+Divergences found by the rehearsal, named plainly:
+(1) the prep's pin of 2 primary schools within 2 miles
+of Birkdale is wrong against the national schools
+filing, which serves 6 (nearest exact at 0.289) — the
+derivation projects the bundle's count faithfully, so
+the pin, not the code, is corrected here. (2) The
+M6.2 rehearsal filing's name forms differ from the
+prep's pins in two places (the GP files as "SYDNEY
+HOUSE SURGERY"; Hatfield Peverel's station files with
+a "Rail Station" suffix) — names travel verbatim from
+the bundle, so both surfaces inherit the filed form.
+(3) Exeter's station count in that filing is 101 filed
+stop points of the rail types the category reads —
+the full bundle's own countWithin, projected
+faithfully; the nearest (Royal Victoria Station,
+0.414) is exact.
+
+No broadband slot exists in the short shape: M6.17
+extends the derivation when its brain exists.
+
 ## E2E journeys each candidate unlocks (Playwright, QA phase)
 
 | Candidate            | Journey it unlocks                                                                                                                                                                          |
