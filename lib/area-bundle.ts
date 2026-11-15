@@ -16,7 +16,9 @@ import { DISTANCE_BASIS_LABEL, RADIUS_MILES } from "./nearby";
 // The brain's bundle for every dataset filed across M5 that has
 // no brain step of its own: planning constraints, heritage,
 // nature, the home's EPC, council tax, Census 2021, the IMD,
-// air, noise, DWP benefits and solar — served as ONE bundle of
+// air, noise, DWP benefits and solar — plus the planning
+// applications hand-off (M6.12), the one section that files
+// nothing at all — served as ONE bundle of
 // per-dataset sections off M6.1's AddressResolution, so M6.7's
 // short version can be DERIVED from it later as a projection,
 // never as a second read of the tables. This step also closes
@@ -65,6 +67,10 @@ import { DISTANCE_BASIS_LABEL, RADIUS_MILES } from "./nearby";
 // planning rows). A globally empty table can never impersonate
 // a local absence: the noise, priority-habitat and solar
 // sections sit behind filed-count guards in the source facts.
+// Planning applications add a twelfth shape that is not an
+// absence at all: handed-off (M6.12) — the data exists and
+// is public, and is deliberately not held, so the section
+// is a pointer to the council's own register.
 
 export const AREA_UNAVAILABLE_REASON = "area answers need an exact postcode";
 
@@ -1582,6 +1588,144 @@ function buildCouncilTax(facts: CouncilTaxFacts | null, nation: Nation): Council
 }
 
 // ------------------------------------------------------------------
+// Planning applications — the hand-off (M6.12, decision
+// D31, on D14's ruling). V1 files NO planning-applications
+// data: the official national dataset (planning.data.gov.uk's
+// planning-application dataset) is a specification with no
+// data behind it, council registers publish no feed we may
+// take, and no register is scraped, framed, embedded or
+// fetched — outbound hyperlinks only. The section is a
+// pointer, permanently, until a filing step ever replaces
+// it: the state is handed-off, the family the M6.9 census
+// did not have, because it is not an absence — it asserts
+// nothing about how many applications exist.
+//
+// The council is named from the resolution's filed
+// directory council — the same string the council-tax
+// section joins on. No second naming source exists: the
+// directory files no LPA code (the postcodes loader looks
+// the name up and discards the code). One honest limit
+// rides with the name: the directory names the council,
+// not always the planning authority — inside a national
+// park the register is the park authority's, and two
+// London development corporations are the LPA for their
+// areas. The mitigation is in the link, not the name: the
+// official signpost resolves the correct authority from
+// the postcode the family types, and the line never claims
+// the council decides every application type.
+//
+// Planning is devolved, and the hand-off's shape follows:
+// every nation has planning registers, so no nation serves
+// not-covered here — what varies is the link, because the
+// services genuinely differ. England and Wales share
+// GOV.UK's signpost (D14 named a Planning Portal postcode
+// search; the Portal runs no applications search at all —
+// it is the submission service — so GOV.UK's "Search the
+// register of planning decisions", which covers both
+// nations, is the signpost). Scotland has no national
+// public search to link to: viewing is per-council, so the
+// section names the council and carries no link. Northern
+// Ireland is the one nation with a real national register,
+// and carries its link — except Mid Ulster, the one NI
+// council that runs its own portal and is not on it.
+//
+// Every link is a plain landing page: no deep-link pattern
+// is verified for any of these form-driven services, and
+// the postcode never appears in a URL we emit. The section
+// derives from the resolution alone — no source read — so
+// under the M6.8 cache it rides inside the area bundle, and
+// the version vector's directory guard (which carries the
+// council and area-code strings) busts any entry a
+// re-filed directory row would stale. It carries no
+// load-failure state, so the cache write-skip rule is
+// untouched.
+// ------------------------------------------------------------------
+
+export interface PlanningApplicationsSection extends AreaSectionMeta {
+  state: "handed-off";
+  // The council as filed in the directory, or null where
+  // the directory row carries no council name — the section
+  // then serves its unnamed form rather than guessing.
+  council: string | null;
+  line: string;
+  link: { label: string; url: string } | null;
+}
+
+const PLANNING_SEARCH_GOVUK = {
+  label: "Search the register of planning decisions (GOV.UK)",
+  url: "https://www.gov.uk/search-register-planning-decisions",
+};
+
+const PLANNING_REGISTER_NI = {
+  label: "Northern Ireland Public Register",
+  url: "https://planningregister.planningsystemni.gov.uk/simple-search",
+};
+
+// The one Northern Ireland council not on the national
+// register, matched on its filed directory name.
+const MID_ULSTER_COUNCIL = "Mid Ulster";
+
+function buildPlanningApplications(
+  council: string | null,
+  nation: Nation,
+): PlanningApplicationsSection {
+  const meta = {
+    depth: "report" as const,
+    grain: "area" as const,
+    grainLine: "the council's planning register for this area",
+    // The section's explainer is also the text the How we
+    // check page carries for planning: why no copy is held,
+    // and D14's guardrail (an application is a proposal,
+    // not a decision, and permission is not a building)
+    // carried in the section itself.
+    explainer:
+      "Planning applications are published by the council on its own planning register. We do not hold a copy of any council's register, so this check names the council and points you to the official search instead of summarising applications it has not seen. An application is a proposal, not a decision: being published does not mean it was permitted, and permission does not mean anything has been built.",
+    sourceName: null,
+    sourceDate: null,
+    sourceLine: null,
+  };
+  const base = { ...meta, state: "handed-off" as const, council };
+
+  if (nation === "northern-ireland") {
+    if (council === MID_ULSTER_COUNCIL) {
+      return {
+        ...base,
+        line: "planning applications for this area are published by Mid Ulster District Council on its own planning portal — it is the one Northern Ireland council not on the national register; we do not hold a copy, so no applications are listed here",
+        link: null,
+      };
+    }
+    return {
+      ...base,
+      line: "planning applications for this area are published on the Northern Ireland Public Register — we do not hold a copy, so no applications are listed here; the link below takes you to the register, where you can search by postcode",
+      link: { ...PLANNING_REGISTER_NI },
+    };
+  }
+
+  if (nation === "scotland") {
+    return {
+      ...base,
+      line: council
+        ? `planning applications for this area are published by ${council} on its own website — we do not hold a copy, so no applications are listed here, and there is no single Scottish register to link to`
+        : "planning applications are published by the local council on its planning register — we do not hold a copy, so no applications are listed here",
+      link: null,
+    };
+  }
+
+  // England and Wales carry the GOV.UK signpost. The
+  // unknown nation carries no link — the link is the only
+  // part of the hand-off that is nation-shaped — so the
+  // line's link clause is served only where a link is.
+  const link = nation === "england" || nation === "wales" ? { ...PLANNING_SEARCH_GOVUK } : null;
+  return {
+    ...base,
+    line: council
+      ? `planning applications for this area are published on the planning register kept by ${council} — we do not hold a copy, so no applications are listed here${link ? "; the link below takes you to the official search, where you enter the postcode" : ""}`
+      : "planning applications are published by the local council on its planning register — we do not hold a copy, so no applications are listed here",
+    link,
+  };
+}
+
+// ------------------------------------------------------------------
 // Census 2021 — the MSOA in numbers, report depth only.
 // Percentages are computed at serve time from the filed
 // counts, EACH TABLE ON ITS OWN TOTAL: the tables' totals
@@ -2251,6 +2395,7 @@ export interface AreaSections {
   nature: NatureSection;
   epc: EpcSection;
   councilTax: CouncilTaxSection;
+  planningApplications: PlanningApplicationsSection;
   census: CensusSection;
   imd: ImdSection;
   air: AirSection;
@@ -2290,6 +2435,7 @@ const RUNG3_SECTION_REASONS: Record<string, string> = {
   nature: "nature answers need an exact postcode",
   epc: "energy certificates need an exact postcode",
   councilTax: "council tax needs an exact postcode",
+  planningApplications: "planning applications need an exact postcode",
   census: "Census figures need an exact postcode",
   imd: "area statistics need an exact postcode",
   air: "air quality needs an exact postcode",
@@ -2390,6 +2536,9 @@ export async function buildAreaBundle(
       nature: buildNature(designations, woodlandFacts, phi, nation),
       epc,
       councilTax: buildCouncilTax(councilTaxFacts, nation),
+      // The hand-off reads no source: it derives from the
+      // resolution's directory row and nation alone.
+      planningApplications: buildPlanningApplications(resolution.directory.council, nation),
       census: buildCensus(censusFacts, resolution.directory.msoaCode, nation),
       imd: buildImd(imdFacts, resolution.directory.lsoaCode, nation),
       air: buildAir(airFacts),

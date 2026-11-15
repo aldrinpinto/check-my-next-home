@@ -1148,6 +1148,22 @@ but never blocks a load. If the database is down the record
 falls back to a JSON-lines file and the email still goes out.
 `npm run canary` runs the probes only.
 
+The `planning-application` probe is the one probe whose
+warning asks for a build, not a fix: it watches
+planning.data.gov.uk's `planning-application` dataset, which
+is still a specification with no data behind it (0 entities,
+0 providers). Still empty is healthy — M5.12's deliverable
+is the hand-off the brain serves (built at M6.12: the area
+bundle's `handed-off` section, naming the council from the
+directory and pointing to the official search), and **a
+canary warning changes nothing the brain serves**: a dataset
+existing is not a dataset filed. The re-open path, the day
+either count moves off zero: founder decision → a new
+filing step built on the M5.12 prep's field mapping (its
+Section 1.3) → the `handed-off` state is replaced by filed
+sections only in that step. An unreachable source is a skip
+in its own words, never read as "still empty".
+
 ## Timers and operator jobs (plan step M5.15)
 
 The timers install at M12, when the Hetzner VPS exists — one

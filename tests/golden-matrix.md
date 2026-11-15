@@ -1164,6 +1164,97 @@ included. What D30 changed:
   noise and solar served their not-filed states. No
   migration in this step.
 
+### Planning applications — the hand-off (M6.12, decision D31)
+
+D14's deliverable, built: the area bundle gains a twelfth
+section, `planningApplications`, serving the new state
+family **handed-off** — the data exists and is public,
+and is deliberately not held, so the answer is a pointer.
+One correction to D14 rides with it: the "Planning Portal
+postcode search" the decision named does not exist (the
+Portal is the submission service and runs no applications
+search); the signpost is GOV.UK's "Search the register of
+planning decisions", which covers England and Wales in
+one target. Report depth only — the short bundle is
+unchanged (D28's eleven sections stand), and the headline
+projection cannot carry it.
+
+- The council is named from `resolution.directory.council`
+  — the same filed string the council-tax section joins
+  on (Braintree £2,280.34, Newham £1,944.23, Epsom and
+  Ewell £2,530.84 above); no second naming source, and no
+  LPA code exists in the filed data. Where the directory
+  name is null the section serves its unnamed form. One
+  named limit: the directory names the council, not
+  always the planning authority (national-park authorities
+  and the two London development corporations are the LPA
+  for their areas) — the signpost resolves the correct
+  authority from the postcode the family types, and the
+  line never claims the council decides every application.
+- Witnesses (state handed-off throughout; asserted in
+  tests/area-bundle.test.ts and the state matrix):
+  Birkdale CM3 2JT → Braintree, GOV.UK link; Exeter Road
+  E16 1GN → Newham, GOV.UK link; Minerva KT17 1FH →
+  Epsom and Ewell, GOV.UK link; Cardiff CF11 8AA →
+  Cardiff, GOV.UK link (the Wales form); Edinburgh
+  EH1 1AA → City of Edinburgh, **no link** (Scotland has
+  no national register; viewing is per-council); Belfast
+  BT1 1AA → Belfast, the Northern Ireland Public
+  Register link — the one link that lands on a real
+  register; Mid Ulster (BT45 6EB directory fixture, the
+  filed name "Mid Ulster") → the exception line naming
+  its own portal, no link. An unknown-nation resolution
+  names the council and carries no link; rung 1 serves
+  the section identically at rung 2; rung 3 carries it
+  only as its named unavailable reason ("planning
+  applications need an exact postcode" — the twelfth
+  per-section reason in the state matrix, which now
+  asserts the handed-off family in all its forms).
+- Every link is a plain landing page, asserted
+  character-for-character with no network: no deep-link
+  pattern is verified for any of these form-driven
+  services, and the postcode appears in no URL we emit.
+  Nothing is framed, embedded or fetched. The explainer
+  the section carries is the How-we-check text for
+  planning, with D14's guardrail in the section itself:
+  an application is a proposal, not a decision, and
+  permission does not mean anything has been built. The
+  NI register's own caveat rides here: nidirect states
+  the full official Planning Register is not available
+  online — the link is to its public face.
+- The canary contract (loaders/README states it in
+  full): a `planning-application` warning changes nothing
+  the brain serves — the handed-off state, its lines and
+  its links stay byte-identical until a filing step is
+  built, gated and shipped. Re-open path: canary warning
+  → founder decision → new filing step on the M5.12
+  prep's field mapping (Section 1.3) → the handed-off
+  state is replaced by filed sections only in that step.
+  The canary's one stale string was corrected in this
+  step: its warning named migration 0014, taken by
+  council tax at M5.10 — it now names no fixed number
+  ("the next free migration number"), in the warning line
+  and the module header.
+- Cache position: the section derives from the
+  resolution alone and rides inside the cached area
+  bundle; the D29 version vector's directory guard
+  carries the council and area-code strings, so a
+  re-filed directory row busts the entry by construction
+  — proven in the unit suite (a cached Braintree entry
+  serves unchanged; the same postcode re-filed as
+  Uttlesford recomputes and names Uttlesford) and again
+  in the scoped rehearsal against the real table.
+- Scoped rehearsal (PGlite, fresh database, migrations
+  applied twice, newest still 0020): the seven witnesses
+  filed as directory rows with one address each, resolved
+  through the real address source and built through the
+  real database source — every nation form served as
+  ruled; the cache then served Birkdale's second check
+  from the real bundle_cache entry (deep-equal; JSONB
+  does not preserve key order, the M6.8 finding) and a
+  council re-file busted the entry. No migration in this
+  step; docs/schema.md needs no new entry (no table).
+
 ## E2E journeys each candidate unlocks (Playwright, QA phase)
 
 | Candidate            | Journey it unlocks                                                                                                                                                                          |

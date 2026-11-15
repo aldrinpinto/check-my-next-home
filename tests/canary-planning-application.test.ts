@@ -106,6 +106,11 @@ describe("probePlanningApplication — the three states", () => {
     expect(outcome.warning).toBe(true);
     expect(outcome.logLine).toContain("143 entities from 1 providers");
     expect(outcome.logLine).toContain("re-open M5.12 as a filing step");
+    // The warning names no fixed migration number (M6.12):
+    // 0014 was taken by council tax, and a hard-coded number
+    // goes stale the same way twice.
+    expect(outcome.logLine).toContain("the next free migration number");
+    expect(outcome.logLine).not.toContain("0014");
   });
 
   it("providers alone moving off zero is also the trigger", async () => {

@@ -42,6 +42,13 @@
 //   Q6 the short bundle's EPC, council tax, air and noise
 //      sections carry their sections' own state lines
 //      verbatim from the full bundle.
+//   M6.12 (decision D31) adds one more family, asserted
+//      in its own block below: planning applications'
+//      handed-off — the data exists and is public, and is
+//      deliberately not held, so the answer is a pointer.
+//      One state across four nation forms (plus the
+//      Mid Ulster exception and the unnamed-council
+//      form), and rung 3's twelfth per-section reason.
 //   Settled fixes — nature designations and nearby
 //      categories gain filed-count guards in the flood
 //      form; the sold-prices median's none-recorded line
@@ -138,6 +145,17 @@ const NI_DIR = directory({
   lsoaCode: "N21000192",
   msoaCode: null,
 });
+// Mid Ulster — the one NI council not on the national
+// register (M6.12). The directory row is a fixture in the
+// filed form: ONSPD files the bare name "Mid Ulster".
+const MID_ULSTER_DIR = directory({
+  postcode: "BT45 6EB",
+  latitude: 54.6419,
+  longitude: -6.6069,
+  council: "Mid Ulster",
+  lsoaCode: "N21001000",
+  msoaCode: null,
+});
 const UNKNOWN_DIR = directory({ postcode: "ZZ1 1ZZ", lsoaCode: null, msoaCode: null });
 
 function home(dir: DirectoryPostcode, address: Partial<ResolvedAddress> = {}): AddressResolution {
@@ -177,6 +195,11 @@ const WAL_HOME = home(WAL_DIR, {
 });
 const SCO_HOME = home(SCO_DIR, { paon: "1", street: "PRINCES STREET", label: "1 Princes Street" });
 const NI_HOME = home(NI_DIR, { paon: "1", street: "ROYAL AVENUE", label: "1 Royal Avenue" });
+const MID_ULSTER_HOME = home(MID_ULSTER_DIR, {
+  paon: "1",
+  street: "BROAD STREET",
+  label: "1 Broad Street",
+});
 
 // The banned-wording union (the prep's Part 5 scan): no
 // served object in this file may carry a verdict word.
@@ -240,7 +263,7 @@ function expectClean(bundle: unknown) {
 // ------------------------------------------------------------------
 
 describe("matrix — the address ladder's own states", () => {
-  it("rung 3 is a wider area: every brain serves its named unavailable state, and the area bundle carries all eleven per-section reasons", async () => {
+  it("rung 3 is a wider area: every brain serves its named unavailable state, and the area bundle carries all twelve per-section reasons", async () => {
     const rung3: AddressResolution = {
       rung: 3,
       kind: "wider-area",
@@ -257,7 +280,7 @@ describe("matrix — the address ladder's own states", () => {
     const area = await buildAreaBundle(rung3, new MatrixAreaSource());
     if (area.kind !== "wider-area") throw new Error("expected wider-area");
     expect(area.area.reason).toBe("area answers need an exact postcode");
-    expect(Object.keys(area.area.sections)).toHaveLength(11);
+    expect(Object.keys(area.area.sections)).toHaveLength(12);
   });
 
   it("rung 4 is no location: the shared unavailable reason, no sections record", async () => {
@@ -1682,7 +1705,7 @@ describe("matrix — area: Census, IMD, air, noise, benefits, solar", () => {
     expect(missingCell.sections.solar.line).toBe("solar modelling is not filed for this area yet");
   });
 
-  it("rung 3: every section present only as its named state, per-section reasons intact (11)", async () => {
+  it("rung 3: every section present only as its named state, per-section reasons intact (12)", async () => {
     const bundle = await buildAreaBundle(
       { rung: 3, kind: "wider-area", outward: "CM3", label: "Wider area — CM3", postcodeCount: 1 },
       new MatrixAreaSource(),
@@ -1694,6 +1717,10 @@ describe("matrix — area: Census, IMD, air, noise, benefits, solar", () => {
       nature: { state: "unavailable", reason: "nature answers need an exact postcode" },
       epc: { state: "unavailable", reason: "energy certificates need an exact postcode" },
       councilTax: { state: "unavailable", reason: "council tax needs an exact postcode" },
+      planningApplications: {
+        state: "unavailable",
+        reason: "planning applications need an exact postcode",
+      },
       census: { state: "unavailable", reason: "Census figures need an exact postcode" },
       imd: { state: "unavailable", reason: "area statistics need an exact postcode" },
       air: { state: "unavailable", reason: "air quality needs an exact postcode" },
@@ -1831,5 +1858,131 @@ describe("matrix — the short bundle's state lines equal the full bundle's, ver
     expect(short.sections.nature.designationsLine).toBe(
       "the SSSI designation data is not filed yet, so no SSSI answer can be given yet",
     );
+  });
+});
+
+// ------------------------------------------------------------------
+// Planning applications: the handed-off family (M6.12, D31)
+// ------------------------------------------------------------------
+
+describe("matrix — area: planning applications (the hand-off)", () => {
+  const GOVUK_LINK = {
+    label: "Search the register of planning decisions (GOV.UK)",
+    url: "https://www.gov.uk/search-register-planning-decisions",
+  };
+
+  it("England: handed-off, the council named from the directory, the GOV.UK signpost", async () => {
+    const bundle = await areaBundle(new MatrixAreaSource(), ENG_HOME);
+    const planning = bundle.sections.planningApplications;
+    expect(planning.state).toBe("handed-off");
+    expect(planning.council).toBe("Braintree");
+    expect(planning.council).toBe(ENG_DIR.council);
+    expect(planning.line).toBe(
+      "planning applications for this area are published on the planning register kept by Braintree — we do not hold a copy, so no applications are listed here; the link below takes you to the official search, where you enter the postcode",
+    );
+    expect(planning.link).toEqual(GOVUK_LINK);
+    expect(planning.depth).toBe("report");
+    expect(planning.sourceLine).toBeNull();
+    expectClean(bundle);
+  });
+
+  it("Wales: the same signpost — GOV.UK's service covers England and Wales", async () => {
+    const bundle = await areaBundle(new MatrixAreaSource(), WAL_HOME);
+    const planning = bundle.sections.planningApplications;
+    expect(planning.state).toBe("handed-off");
+    expect(planning.council).toBe("Cardiff");
+    expect(planning.line).toBe(
+      "planning applications for this area are published on the planning register kept by Cardiff — we do not hold a copy, so no applications are listed here; the link below takes you to the official search, where you enter the postcode",
+    );
+    expect(planning.link).toEqual(GOVUK_LINK);
+    expectClean(bundle);
+  });
+
+  it("Scotland: handed-off with NO link — viewing is per-council, and no national register exists", async () => {
+    const bundle = await areaBundle(new MatrixAreaSource(), SCO_HOME);
+    const planning = bundle.sections.planningApplications;
+    expect(planning.state).toBe("handed-off");
+    expect(planning.council).toBe("City of Edinburgh");
+    expect(planning.line).toBe(
+      "planning applications for this area are published by City of Edinburgh on its own website — we do not hold a copy, so no applications are listed here, and there is no single Scottish register to link to",
+    );
+    expect(planning.link).toBeNull();
+    expectClean(bundle);
+  });
+
+  it("Northern Ireland: handed-off WITH the Public Register link", async () => {
+    const bundle = await areaBundle(new MatrixAreaSource(), NI_HOME);
+    const planning = bundle.sections.planningApplications;
+    expect(planning.state).toBe("handed-off");
+    expect(planning.council).toBe("Belfast");
+    expect(planning.line).toBe(
+      "planning applications for this area are published on the Northern Ireland Public Register — we do not hold a copy, so no applications are listed here; the link below takes you to the register, where you can search by postcode",
+    );
+    expect(planning.link).toEqual({
+      label: "Northern Ireland Public Register",
+      url: "https://planningregister.planningsystemni.gov.uk/simple-search",
+    });
+    expectClean(bundle);
+  });
+
+  it("Mid Ulster: the exception line — the one NI council not on the register gets no link", async () => {
+    const bundle = await areaBundle(new MatrixAreaSource(), MID_ULSTER_HOME);
+    const planning = bundle.sections.planningApplications;
+    expect(planning.state).toBe("handed-off");
+    expect(planning.council).toBe("Mid Ulster");
+    expect(planning.line).toBe(
+      "planning applications for this area are published by Mid Ulster District Council on its own planning portal — it is the one Northern Ireland council not on the national register; we do not hold a copy, so no applications are listed here",
+    );
+    expect(planning.link).toBeNull();
+    expectClean(bundle);
+  });
+
+  it("the unknown nation: the council named, no link — the link is the only nation-shaped part", async () => {
+    const bundle = await areaBundle(new MatrixAreaSource(), home(UNKNOWN_DIR));
+    const planning = bundle.sections.planningApplications;
+    expect(planning.state).toBe("handed-off");
+    expect(planning.council).toBe("Braintree");
+    expect(planning.line).toBe(
+      "planning applications for this area are published on the planning register kept by Braintree — we do not hold a copy, so no applications are listed here",
+    );
+    expect(planning.link).toBeNull();
+    expectClean(bundle);
+  });
+
+  it("rungs 1 and 2 serve the hand-off identically — it depends on the directory row alone", async () => {
+    const rung1 = await areaBundle(new MatrixAreaSource(), ENG_HOME);
+    const rung2 = await areaBundle(new MatrixAreaSource(), addressList(ENG_DIR));
+    expect(rung2.sections.planningApplications).toEqual(rung1.sections.planningApplications);
+  });
+
+  it("the hand-off never reaches the short bundle — D28's eleven sections stand", async () => {
+    const { short } = await shortFor(ENG_HOME, new MatrixAreaSource(), headlineNearby());
+    if (short.kind !== "short-bundle") throw new Error("expected a short bundle");
+    expect(Object.keys(short.sections)).toHaveLength(11);
+    expect("planningApplications" in short.sections).toBe(false);
+  });
+
+  it("the section asserts no absence: no line offers our own search or claims none exist", async () => {
+    const cases = [
+      [ENG_HOME, "CM3 2JT"],
+      [WAL_HOME, "CF11 8AA"],
+      [SCO_HOME, "EH1 1AA"],
+      [NI_HOME, "BT1 1AA"],
+      [MID_ULSTER_HOME, "BT45 6EB"],
+    ] as const;
+    for (const [resolution, postcode] of cases) {
+      const bundle = await areaBundle(new MatrixAreaSource(), resolution);
+      const planning = bundle.sections.planningApplications;
+      const text = `${planning.line} ${planning.link?.label ?? ""}`.toLowerCase();
+      for (const banned of [
+        "check planning applications",
+        "search planning applications here",
+        "view applications",
+        "no planning applications",
+        "none found",
+      ])
+        expect(text).not.toContain(banned);
+      if (planning.link) expect(planning.link.url).not.toContain(postcode);
+    }
   });
 });

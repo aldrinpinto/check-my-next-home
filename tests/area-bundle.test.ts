@@ -1015,6 +1015,35 @@ const SCOTLAND_DIR = directory({
 });
 const SCOTLAND = home(SCOTLAND_DIR, { label: "Edinburgh", paon: "1", street: "HIGH STREET" });
 
+// Northern Ireland witnesses for the M6.12 hand-off: Belfast
+// is on the national Public Register; Magherafelt's council
+// is Mid Ulster, the one council that is not (its directory
+// row is a fixture in the filed form — ONSPD files the bare
+// name "Mid Ulster").
+const BELFAST_DIR = directory({
+  postcode: "BT1 1AA",
+  latitude: 54.597,
+  longitude: -5.93,
+  council: "Belfast",
+  lsoaCode: "N21000192",
+  msoaCode: null,
+});
+const BELFAST = home(BELFAST_DIR, { label: "Belfast", paon: "1", street: "ROYAL AVENUE" });
+
+const MID_ULSTER_DIR = directory({
+  postcode: "BT45 6EB",
+  latitude: 54.641,
+  longitude: -6.606,
+  council: "Mid Ulster",
+  lsoaCode: "N21001000",
+  msoaCode: null,
+});
+const MID_ULSTER = home(MID_ULSTER_DIR, {
+  label: "Magherafelt",
+  paon: "1",
+  street: "BROAD STREET",
+});
+
 const E16_1EG_DIR = directory({
   postcode: "E16 1EG",
   latitude: 51.5155,
@@ -1293,6 +1322,7 @@ describe("the ladder", () => {
         "imd",
         "nature",
         "noise",
+        "planningApplications",
         "solar",
       ].sort(),
     );
@@ -1319,6 +1349,7 @@ describe("the ladder", () => {
       "constraints",
       "nature",
       "councilTax",
+      "planningApplications",
       "census",
       "imd",
       "air",
@@ -1879,6 +1910,165 @@ describe("council tax", () => {
   });
 });
 
+// --- Planning applications: the hand-off (M6.12, D31) -----------------
+
+describe("planning applications — the hand-off", () => {
+  const GOVUK_LINK = {
+    label: "Search the register of planning decisions (GOV.UK)",
+    url: "https://www.gov.uk/search-register-planning-decisions",
+  };
+  const NI_LINK = {
+    label: "Northern Ireland Public Register",
+    url: "https://planningregister.planningsystemni.gov.uk/simple-search",
+  };
+
+  it("the universal three: the filed council named, the GOV.UK signpost carried", async () => {
+    const cases = [
+      [BIRKDALE, BIRKDALE_DIR, "Braintree"],
+      [EXETER, EXETER_DIR, "Newham"],
+      [MINERVA, MINERVA_DIR, "Epsom and Ewell"],
+    ] as const;
+    for (const [resolution, dir, council] of cases) {
+      const { sections } = await bundle(resolution);
+      const planning = sections.planningApplications;
+      expect(planning.state).toBe("handed-off");
+      // The same string the council-tax section joins on:
+      // the resolution's own filed directory council.
+      expect(planning.council).toBe(council);
+      expect(planning.council).toBe(dir.council);
+      expect(planning.line).toBe(
+        `planning applications for this area are published on the planning register kept by ${council} — we do not hold a copy, so no applications are listed here; the link below takes you to the official search, where you enter the postcode`,
+      );
+      expect(planning.link).toEqual(GOVUK_LINK);
+      // The section carries no filed dataset to stamp.
+      expect(planning.depth).toBe("report");
+      expect(planning.grain).toBe("area");
+      expect(planning.grainLine).toBe("the council's planning register for this area");
+      expect(planning.sourceName).toBeNull();
+      expect(planning.sourceDate).toBeNull();
+      expect(planning.sourceLine).toBeNull();
+    }
+  });
+
+  it("the explainer carries D14's guardrail in the section itself", async () => {
+    const { sections } = await bundle(BIRKDALE);
+    expect(sections.planningApplications.explainer).toBe(
+      "Planning applications are published by the council on its own planning register. We do not hold a copy of any council's register, so this check names the council and points you to the official search instead of summarising applications it has not seen. An application is a proposal, not a decision: being published does not mean it was permitted, and permission does not mean anything has been built.",
+    );
+  });
+
+  it("Cardiff: the Wales form — same GOV.UK signpost, the Welsh council named", async () => {
+    const { sections } = await bundle(C8);
+    const planning = sections.planningApplications;
+    expect(planning.state).toBe("handed-off");
+    expect(planning.council).toBe("Cardiff");
+    expect(planning.line).toBe(
+      "planning applications for this area are published on the planning register kept by Cardiff — we do not hold a copy, so no applications are listed here; the link below takes you to the official search, where you enter the postcode",
+    );
+    expect(planning.link).toEqual(GOVUK_LINK);
+  });
+
+  it("Scotland: the council named and NO link — there is no single Scottish register", async () => {
+    const { sections } = await bundle(SCOTLAND);
+    const planning = sections.planningApplications;
+    expect(planning.state).toBe("handed-off");
+    expect(planning.council).toBe("City of Edinburgh");
+    expect(planning.line).toBe(
+      "planning applications for this area are published by City of Edinburgh on its own website — we do not hold a copy, so no applications are listed here, and there is no single Scottish register to link to",
+    );
+    expect(planning.link).toBeNull();
+  });
+
+  it("Northern Ireland: the one link that lands on a real register", async () => {
+    const { sections } = await bundle(BELFAST);
+    const planning = sections.planningApplications;
+    expect(planning.state).toBe("handed-off");
+    expect(planning.council).toBe("Belfast");
+    expect(planning.line).toBe(
+      "planning applications for this area are published on the Northern Ireland Public Register — we do not hold a copy, so no applications are listed here; the link below takes you to the register, where you can search by postcode",
+    );
+    expect(planning.link).toEqual(NI_LINK);
+  });
+
+  it("Mid Ulster: the exception line, and no register link that would exclude them", async () => {
+    const { sections } = await bundle(MID_ULSTER);
+    const planning = sections.planningApplications;
+    expect(planning.state).toBe("handed-off");
+    expect(planning.council).toBe("Mid Ulster");
+    expect(planning.line).toBe(
+      "planning applications for this area are published by Mid Ulster District Council on its own planning portal — it is the one Northern Ireland council not on the national register; we do not hold a copy, so no applications are listed here",
+    );
+    expect(planning.link).toBeNull();
+  });
+
+  it("an unknown nation: the council named if the directory carries one, and no link", async () => {
+    const dir = directory({
+      postcode: "ZZ1 1ZZ",
+      latitude: 51.5,
+      longitude: 0.5,
+      council: "Braintree",
+      lsoaCode: null,
+      msoaCode: null,
+    });
+    const { sections } = await bundle(home(dir, { label: "Nowhere", paon: "1" }));
+    const planning = sections.planningApplications;
+    expect(planning.state).toBe("handed-off");
+    expect(planning.council).toBe("Braintree");
+    expect(planning.line).toBe(
+      "planning applications for this area are published on the planning register kept by Braintree — we do not hold a copy, so no applications are listed here",
+    );
+    expect(planning.link).toBeNull();
+  });
+
+  it("a directory row with no council: the unnamed form, the link still by nation", async () => {
+    const dir = directory({
+      postcode: "ZZ1 1ZA",
+      latitude: 51.5,
+      longitude: 0.5,
+      council: null,
+      lsoaCode: "E01000001",
+      msoaCode: null,
+    });
+    const { sections } = await bundle(home(dir, { label: "Unnamed", paon: "1" }));
+    const planning = sections.planningApplications;
+    expect(planning.state).toBe("handed-off");
+    expect(planning.council).toBeNull();
+    expect(planning.line).toBe(
+      "planning applications are published by the local council on its planning register — we do not hold a copy, so no applications are listed here",
+    );
+    expect(planning.link).toEqual(GOVUK_LINK);
+  });
+
+  it("no emitted URL carries a postcode, and no line offers our own search", async () => {
+    const cases = [
+      [BIRKDALE, BIRKDALE_DIR],
+      [EXETER, EXETER_DIR],
+      [MINERVA, MINERVA_DIR],
+      [C8, C8_DIR],
+      [SCOTLAND, SCOTLAND_DIR],
+      [BELFAST, BELFAST_DIR],
+      [MID_ULSTER, MID_ULSTER_DIR],
+    ] as const;
+    for (const [resolution, dir] of cases) {
+      const { sections } = await bundle(resolution);
+      const planning = sections.planningApplications;
+      if (planning.link) {
+        expect(planning.link.url).not.toContain(dir.postcode);
+        expect(planning.link.url).not.toContain("?");
+      }
+      const text = `${planning.line} ${planning.link?.label ?? ""}`.toLowerCase();
+      for (const banned of [
+        "check planning applications",
+        "search planning applications here",
+        "view applications",
+        "no planning applications",
+        "none found",
+      ])
+        expect(text).not.toContain(banned);
+    }
+  });
+});
+
 // --- Census -----------------------------------------------------------
 
 describe("census", () => {
@@ -2191,6 +2381,7 @@ describe("depth is encoded in the bundle", () => {
     expect(sections.air.depth).toBe("headline");
     expect(sections.noise.depth).toBe("headline");
     expect(sections.solar.depth).toBe("report");
+    expect(sections.planningApplications.depth).toBe("report");
   });
 
   it("the headline projection carries NO IMD, Census or benefits payload — derivation is a projection", async () => {

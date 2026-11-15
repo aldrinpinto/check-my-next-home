@@ -9,8 +9,12 @@
 // data to the specification. There is nothing to load. What
 // earns a monthly look is the dataset STARTING to collect:
 // the day either count moves off zero, M5.12 re-opens as a
-// filing step (migration 0014; the field mapping is already
-// done in the M5.12 prep, Section 1.3).
+// filing step (the next free migration number; the field
+// mapping is already done in the M5.12 prep, Section 1.3).
+// The number is deliberately not named: an earlier draft of
+// this probe named 0014, which council tax has since taken
+// (corrected at M6.12) — a hard-coded number in a warning
+// goes stale the same way twice.
 //
 // Three states, kept strictly separate:
 // - 0 entities AND 0 providers: a healthy success — "still
@@ -146,7 +150,7 @@ export function probePlanningApplication() {
       warning: true,
       logLine:
         `canary planning-application · collection has started — ${entities} entities from ${providers} providers ` +
-        "on planning.data.gov.uk: re-open M5.12 as a filing step (migration 0014; field mapping in the M5.12 prep, Section 1.3)",
+        "on planning.data.gov.uk: re-open M5.12 as a filing step (the next free migration number; field mapping in the M5.12 prep, Section 1.3)",
       sourceDate: null,
     };
   })();
