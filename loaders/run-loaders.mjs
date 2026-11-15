@@ -780,10 +780,13 @@ async function main() {
       };
       await runAndLog("load-postcodes", ["--file", fx("onspd")]);
       await runAndLog("load-sold-prices", ["--file", fx("land-registry"), ...GOLDEN_POSTCODES]);
-      // The crime and EPC fixtures were captured for the two
-      // original golden postcodes (KT17's facts were locked from
-      // live sources, not fixtures), so their fixture runs take
-      // those two; sold prices tolerates all three.
+      // The crime fixture was captured for the two original
+      // golden postcodes, so its fixture run takes those two;
+      // sold prices tolerates all three. The EPC fixture also
+      // covers KT17 1FH (captured at M6.14), but the practice
+      // directory excerpt holds CM and E areas only — there is
+      // no KT17 row for the loader to file against — so its
+      // fixture run takes the original two as well.
       await runAndLog("load-crime", ["--file", fx("police-uk"), "CM3 2JT", "E16 1GN"]);
       await runAndLog("load-epc", ["--file", fx("epc"), "CM3 2JT", "E16 1GN"]);
       await runAndLog("load-schools", ["--file", fx("schools")]);

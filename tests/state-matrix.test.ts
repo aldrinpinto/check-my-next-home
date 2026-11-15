@@ -243,6 +243,12 @@ const BANNED = [
   "desirable",
   "protected",
   "no crime",
+  // The monthly lines' banned framings (M6.14, D33): the
+  // monthly figure is never the home's bill or cost.
+  "your monthly cost",
+  "cost of living",
+  "you will pay",
+  "typical monthly bill",
 ];
 
 function expectClean(bundle: unknown) {
@@ -1506,6 +1512,72 @@ describe("matrix — area: EPC", () => {
     expect(bundle.sections.epc.headlineBand).toBe("B");
   });
 
+  it("served, pre-widening artefact: the certificate carries NO cost line (M6.14, D33)", async () => {
+    // The matrix's filed certificate predates the widening —
+    // it has no cost fields, so it serves exactly as before.
+    const bundle = await areaBundle(new MatrixAreaSource());
+    expect(bundle.sections.epc.certificates[0]?.energyCosts).toBeNull();
+  });
+
+  it("served, widened artefact: the modelled costs ride with the certificate (M6.14)", async () => {
+    const source = new MatrixAreaSource();
+    source.epc = epcArtefact([
+      cert({
+        certificateNumber: "COST1",
+        addressLine1: "19 Birkdale Rise",
+        band: "B",
+        ratingCurrent: 85,
+        assessmentType: "SAP",
+        registrationDate: "2022-10-07",
+        heatingCostCurrent: 305,
+        hotWaterCostCurrent: 82,
+        lightingCostCurrent: 102,
+        heatingCostPotential: 306,
+        hotWaterCostPotential: 47,
+        lightingCostPotential: 102,
+      }),
+    ]);
+    const bundle = await areaBundle(source);
+    const costs = bundle.sections.epc.certificates[0]?.energyCosts;
+    expect(costs?.currentMonthlyLabel).toBe("£40.75");
+    expect(costs?.potentialMonthlyLabel).toBe("£37.92");
+    expect(costs?.line).toBe(
+      "the register models this home's energy costs at £40.75 a month (£489.00 a year) on a standard occupancy pattern, priced at the assessment date — a model, not a bill",
+    );
+    expectClean(bundle);
+  });
+
+  it("the empty states carry no cost line anywhere (M6.14)", async () => {
+    const filedZero = new MatrixAreaSource();
+    filedZero.epc = epcArtefact([]);
+    const zeroBundle = await areaBundle(filedZero);
+    expect(zeroBundle.sections.epc.certificates).toEqual([]);
+    expect(JSON.stringify(zeroBundle.sections.epc)).not.toContain("energy costs at");
+
+    // A cost-bearing certificate for ANOTHER home at the
+    // postcode leaks nothing into the none-matching state.
+    const noneMatching = new MatrixAreaSource();
+    noneMatching.epc = epcArtefact([
+      cert({
+        certificateNumber: "COST2",
+        addressLine1: "21 Birkdale Rise",
+        band: "C",
+        heatingCostCurrent: 500,
+        hotWaterCostCurrent: 100,
+        lightingCostCurrent: 50,
+      }),
+    ]);
+    const noneBundle = await areaBundle(noneMatching);
+    expect(noneBundle.sections.epc.state).toBe("none-matching");
+    expect(JSON.stringify(noneBundle.sections.epc)).not.toContain("energy costs at");
+
+    const notFiled = new MatrixAreaSource();
+    notFiled.epc = null;
+    const notFiledBundle = await areaBundle(notFiled);
+    expect(notFiledBundle.sections.epc.state).toBe("not-filed");
+    expect(JSON.stringify(notFiledBundle.sections.epc)).not.toContain("energy costs at");
+  });
+
   it("filed-zero: the register was loaded and holds none for this postcode", async () => {
     const source = new MatrixAreaSource();
     source.epc = epcArtefact([]);
@@ -1567,6 +1639,20 @@ describe("matrix — area: council tax", () => {
     expectClean(bundle);
   });
 
+  it("served: the monthly line is the same scale spread over 12 months (M6.14, D33)", async () => {
+    const bundle = await areaBundle(new MatrixAreaSource());
+    const tax = bundle.sections.councilTax;
+    expect(tax.monthlyLine).toBe(
+      "Braintree's average Band D council tax spread evenly over 12 months is £190.03 a month — the council's scale, not this home's bill",
+    );
+    expect(tax.bandDMonthlyPence).toBe(19003);
+    expect(tax.bands.find((b) => b.band === "A")).toMatchObject({
+      monthlyPence: 12669,
+      monthlyLabelPence: "£126.69",
+    });
+    expectClean(bundle);
+  });
+
   it("renamed (D30/Q4): an unfiled authority serves the NOT-FILED family — the gap is ours, not the council's publication", async () => {
     const source = new MatrixAreaSource();
     source.tax = null;
@@ -1577,6 +1663,12 @@ describe("matrix — area: council tax", () => {
       "this council's council tax charges are not filed yet — most councils are filed in the spring pass, and until then no figure can be given",
     );
     expect(JSON.stringify(tax)).not.toContain("not published");
+    // The monthly state flows through honestly: no monthly
+    // line, no monthly figure, where no annual figure is.
+    expect(tax.monthlyLine).toBeNull();
+    expect(tax.bandDMonthlyPence).toBeNull();
+    expect(tax.bands).toEqual([]);
+    expect(JSON.stringify(tax)).not.toContain("a month");
     expectClean(bundle);
   });
 
@@ -1587,6 +1679,60 @@ describe("matrix — area: council tax", () => {
     expect(tax.line).toBe(
       "council tax figures are not covered for Scotland — it runs a different system, and no comparable charge is filed",
     );
+    expect(tax.monthlyLine).toBeNull();
+    expect(tax.bandDMonthlyPence).toBeNull();
+  });
+
+  it("rung 2 splits by component (M6.14): the council-tax monthly line serves as at rung 1 while the EPC serves needs-exact-home", async () => {
+    const rung1 = await areaBundle(new MatrixAreaSource(), ENG_HOME);
+    const rung2 = await areaBundle(new MatrixAreaSource(), addressList(ENG_DIR));
+    expect(rung2.sections.councilTax.monthlyLine).toBe(rung1.sections.councilTax.monthlyLine);
+    expect(rung2.sections.councilTax.bandDMonthlyPence).toBe(19003);
+    expect(rung2.sections.epc.state).toBe("needs-exact-home");
+    expect(rung2.sections.epc.certificates).toEqual([]);
+  });
+});
+
+// ------------------------------------------------------------------
+// Monthly cost (M6.14, decision D33): two derived lines,
+// never a total — the refusal is structural, not wording.
+// ------------------------------------------------------------------
+
+describe("matrix — monthly cost: never a total (M6.14, D33)", () => {
+  function keysOf(value: unknown, into: string[] = []): string[] {
+    if (Array.isArray(value)) for (const item of value) keysOf(item, into);
+    else if (value && typeof value === "object")
+      for (const [key, inner] of Object.entries(value)) {
+        into.push(key);
+        keysOf(inner, into);
+      }
+    return into;
+  }
+
+  it("no total-shaped key exists in the monthly-bearing sections — full bundle or short", async () => {
+    const { short, areaBundle } = await shortFor(
+      ENG_HOME,
+      new MatrixAreaSource(),
+      headlineNearby(),
+    );
+    if (short.kind !== "short-bundle" || areaBundle.kind !== "area-bundle")
+      throw new Error("expected bundles");
+    const sections = [
+      areaBundle.sections.councilTax,
+      areaBundle.sections.epc,
+      short.sections.councilTax,
+      short.sections.epc,
+    ];
+    for (const section of sections)
+      for (const key of keysOf(section))
+        expect(key, `key "${key}"`).not.toMatch(/total|sum|combined|overall/i);
+    // And the short bundle's council-tax headline stays the
+    // D28 annual line — the monthly line is report depth.
+    expect(short.sections.councilTax.line).toBe(
+      "Band D averages £2,280.34 a year in Braintree (the council's scale — not this home's bill)",
+    );
+    expectClean(areaBundle);
+    expectClean(short);
   });
 });
 

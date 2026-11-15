@@ -995,6 +995,14 @@ EPC_BY_POSTCODE.set(
       dwellingType: "Detached house",
       assessmentType: "SAP",
       registrationDate: "2022-10-07",
+      // The register's modelled costs, as filed (M6.14):
+      // £489 a year current, £455 potential.
+      heatingCostCurrent: 305,
+      hotWaterCostCurrent: 82,
+      lightingCostCurrent: 102,
+      heatingCostPotential: 306,
+      hotWaterCostPotential: 47,
+      lightingCostPotential: 102,
     }),
   ]),
 );
@@ -1014,6 +1022,14 @@ EPC_BY_POSTCODE.set(
       dwellingType: "Ground-floor maisonette",
       assessmentType: "SAP",
       registrationDate: "2013-10-15",
+      // £351 a year on both sides (the 2013 SAP run models
+      // hot water at £0 — served as filed).
+      heatingCostCurrent: 308,
+      hotWaterCostCurrent: 0,
+      lightingCostCurrent: 43,
+      heatingCostPotential: 308,
+      hotWaterCostPotential: 0,
+      lightingCostPotential: 43,
     }),
     cert({
       certificateNumber: "2041-1785-8070-7006-5925",
@@ -1027,6 +1043,13 @@ EPC_BY_POSTCODE.set(
       dwellingType: "Ground-floor maisonette",
       assessmentType: "RdSAP",
       registrationDate: "2023-05-25",
+      // £1,104 a year on both sides.
+      heatingCostCurrent: 339,
+      hotWaterCostCurrent: 609,
+      lightingCostCurrent: 156,
+      heatingCostPotential: 339,
+      hotWaterCostPotential: 609,
+      lightingCostPotential: 156,
     }),
   ]),
 );
@@ -1047,6 +1070,15 @@ EPC_BY_POSTCODE.set(
       dwellingType: "Flat",
       assessmentType: "SAP",
       registrationDate: "2019-11-07",
+      // Captured from the register for M6.14: £278 a year
+      // on both sides (£144 heating, £73 hot water, £61
+      // lighting).
+      heatingCostCurrent: 144,
+      hotWaterCostCurrent: 73,
+      lightingCostCurrent: 61,
+      heatingCostPotential: 144,
+      hotWaterCostPotential: 73,
+      lightingCostPotential: 61,
     }),
     cert({
       certificateNumber: "8108-3446-3539-2607-0313",
@@ -1916,6 +1948,81 @@ describe("the home's EPC", () => {
     expect(epc.line).toContain("disagree");
   });
 
+  it("Birkdale: the certificate's modelled energy costs serve with it (M6.14, D33)", async () => {
+    const { sections } = await bundle(BIRKDALE);
+    const cert0 = sections.epc.certificates[0];
+    expect(cert0?.energyCosts).toMatchObject({
+      currentAnnualPence: 48900,
+      currentAnnualLabel: "£489.00",
+      currentMonthlyPence: 4075,
+      currentMonthlyLabel: "£40.75",
+      potentialAnnualPence: 45500,
+      potentialAnnualLabel: "£455.00",
+      potentialMonthlyPence: 3792,
+      potentialMonthlyLabel: "£37.92",
+    });
+    expect(cert0?.energyCosts?.line).toBe(
+      "the register models this home's energy costs at £40.75 a month (£489.00 a year) on a standard occupancy pattern, priced at the assessment date — a model, not a bill",
+    );
+    expect(cert0?.energyCosts?.potentialLine).toBe(
+      "with the improvements this certificate recommends, the same model gives £37.92 a month (£455.00 a year)",
+    );
+  });
+
+  it("Exeter: BOTH certificates' costs serve, whole and unranked — £92.00 and £29.25 a month (M6.14)", async () => {
+    const { sections } = await bundle(EXETER);
+    const costs = sections.epc.certificates.map((c) => c.energyCosts);
+    expect(costs.map((c) => c?.currentAnnualPence)).toEqual([110400, 35100]);
+    expect(costs.map((c) => c?.currentMonthlyLabel)).toEqual(["£92.00", "£29.25"]);
+    // The 2013 certificate is SAP: its cost line rides with
+    // the certificate's own predicted label, as filed.
+    expect(sections.epc.certificates[1].predicted).toBe(true);
+    expect(costs[1]?.line).toContain("£29.25 a month (£351.00 a year)");
+  });
+
+  it("Minerva: the captured certificate models £23.17 a month on both sides (M6.14)", async () => {
+    const { sections } = await bundle(MINERVA);
+    const cert0 = sections.epc.certificates[0];
+    expect(cert0?.energyCosts).toMatchObject({
+      currentAnnualPence: 27800,
+      currentMonthlyPence: 2317,
+      currentMonthlyLabel: "£23.17",
+      potentialAnnualPence: 27800,
+      potentialMonthlyLabel: "£23.17",
+    });
+  });
+
+  it("an artefact filed before the widening serves exactly as before: no cost line, no error (M6.14)", async () => {
+    // Jupiter's filed certificate carries no cost fields —
+    // the pre-widening shape.
+    const { sections } = await bundle(JUPITER);
+    expect(sections.epc.state).toBe("served");
+    const cert0 = sections.epc.certificates[0];
+    expect(cert0?.band).toBe("B");
+    expect(cert0?.floorAreaSqM).toBe(68);
+    expect(cert0?.energyCosts).toBeNull();
+
+    // A PARTIAL cost set is not a figure either.
+    class PartialSource extends FakeAreaSource {
+      override async epcArtefact() {
+        return artefact([
+          cert({
+            certificateNumber: "0000-0000-0000-0000-0099",
+            addressLine1: "19 Birkdale Rise",
+            postcode: "CM3 2JT",
+            band: "B",
+            totalFloorArea: 141,
+            assessmentType: "SAP",
+            registrationDate: "2022-10-07",
+            heatingCostCurrent: 305,
+          }),
+        ]);
+      }
+    }
+    const partial = await bundle(BIRKDALE, new PartialSource());
+    expect(partial.sections.epc.certificates[0]?.energyCosts).toBeNull();
+  });
+
   it("the three Flat 4s: each home matches ONLY its own building's certificate", async () => {
     const minerva = await bundle(MINERVA);
     expect(minerva.sections.epc.state).toBe("served");
@@ -2046,6 +2153,45 @@ describe("council tax", () => {
       H: 456068,
     });
     expect(tax.line).toContain("area average");
+    // The monthly line (M6.14, D33): the same scale spread
+    // evenly over 12 months, correction inside the line.
+    expect(tax.monthlyLine).toBe(
+      "Braintree's average Band D council tax spread evenly over 12 months is £190.03 a month — the council's scale, not this home's bill",
+    );
+    expect(tax.bandDMonthlyPence).toBe(19003);
+    expect(tax.bandDMonthlyLabel).toBe("£190.03");
+    // Every band carries its own monthly equivalent — Band
+    // A £1,520.23 a year is £126.69 a month.
+    const bandA = tax.bands.find((b) => b.band === "A");
+    expect(bandA).toMatchObject({ monthlyPence: 12669, monthlyLabelPence: "£126.69" });
+    const bandD = tax.bands.find((b) => b.band === "D");
+    expect(bandD).toMatchObject({ monthlyPence: 19003, monthlyLabelPence: "£190.03" });
+    // The explainer carries the instalment fact.
+    expect(tax.explainer).toContain("10 monthly instalments");
+  });
+
+  it("the monthly equivalent is DERIVED from the filed average, never filed itself (M6.14)", async () => {
+    class TaxVariantSource extends FakeAreaSource {
+      override async councilTaxRow() {
+        return {
+          authorityName: "Braintree",
+          nation: "england" as const,
+          taxYear: "2026-27",
+          bandDAreaAveragePence: 99999,
+          parishAveraged: false,
+          components: [{ role: "billing_authority", label: "Braintree", pence: 99999 }],
+          sourceName: "variant",
+          sourceDate: "2026-03-25",
+        };
+      }
+    }
+    const { sections } = await bundle(BIRKDALE, new TaxVariantSource());
+    const tax = sections.councilTax;
+    // £999.99 a year spread over 12 months is £83.33: the
+    // figure moved with the filed average, proving the
+    // derivation.
+    expect(tax.bandDMonthlyPence).toBe(8333);
+    expect(tax.monthlyLine).toContain("£83.33 a month");
   });
 
   it("Newham: the GLA component serves; no parish line", async () => {
@@ -2056,6 +2202,9 @@ describe("council tax", () => {
     const gla = tax.components.find((c) => c.label === "Greater London Authority");
     expect(gla).toMatchObject({ pence: 51051, labelPence: "£510.51" });
     expect(tax.parish).toBeNull();
+    // £1,944.23 a year spread over 12 months is £162.02.
+    expect(tax.bandDMonthlyPence).toBe(16202);
+    expect(tax.monthlyLine).toContain("£162.02 a month");
   });
 
   it("Epsom and Ewell: the derived band table from the filed average", async () => {
@@ -2066,6 +2215,9 @@ describe("council tax", () => {
     const bands = Object.fromEntries(tax.bands.map((b) => [b.band, b.pence]));
     expect(bands.D).toBe(253084);
     expect(bands.E).toBe(309325);
+    // £2,530.84 a year spread over 12 months is £210.90.
+    expect(tax.bandDMonthlyPence).toBe(21090);
+    expect(tax.bandDMonthlyLabel).toBe("£210.90");
   });
 
   it("an unfiled authority serves not-filed (D30: the gap is our filing backlog) — Reigate and Banstead is the witness", async () => {
@@ -2086,6 +2238,9 @@ describe("council tax", () => {
     expect(reigate.sections.councilTax.line).toBe(
       "this council's council tax charges are not filed yet — most councils are filed in the spring pass, and until then no figure can be given",
     );
+    // No monthly figure exists where no annual figure does.
+    expect(reigate.sections.councilTax.monthlyLine).toBeNull();
+    expect(reigate.sections.councilTax.bandDMonthlyPence).toBeNull();
   });
 
   it("Cardiff: Wales bands run to I, and the parish line is the community council average", async () => {
@@ -2102,6 +2257,51 @@ describe("council tax", () => {
   it("Scotland is not covered — never a borrowed figure", async () => {
     const { sections } = await bundle(SCOTLAND);
     expect(sections.councilTax.state).toBe("not-covered");
+  });
+});
+
+// --- Monthly cost: two lines, never a total (M6.14, D33) --------------
+
+describe("monthly cost — never a total (M6.14, D33)", () => {
+  function keysOf(value: unknown, into: string[] = []): string[] {
+    if (Array.isArray(value)) for (const item of value) keysOf(item, into);
+    else if (value && typeof value === "object")
+      for (const [key, inner] of Object.entries(value)) {
+        into.push(key);
+        keysOf(inner, into);
+      }
+    return into;
+  }
+
+  it("no total-shaped field exists in either monthly-bearing section, for any golden home", async () => {
+    for (const resolution of [BIRKDALE, EXETER, MINERVA]) {
+      const { sections } = await bundle(resolution);
+      for (const section of [sections.councilTax, sections.epc]) {
+        for (const key of keysOf(section))
+          expect(key, `key "${key}"`).not.toMatch(/total|sum|combined|overall/i);
+        const text = JSON.stringify(section).toLowerCase();
+        for (const phrase of [
+          "your monthly cost",
+          "cost of living",
+          "you will pay",
+          "typical monthly bill",
+          "monthly total",
+          "combined monthly",
+        ])
+          expect(text, `phrase "${phrase}"`).not.toContain(phrase);
+      }
+    }
+  });
+
+  it("the monthly lines are report depth: the headline projection cannot carry them", async () => {
+    const built = await bundle(BIRKDALE);
+    const headline = projectHeadline(built);
+    expect(headline).not.toBeNull();
+    if (!headline) return;
+    expect(Object.keys(headline.councilTax).sort()).toEqual(
+      ["authority", "bandDAverageLabel", "line", "state", "taxYear"].sort(),
+    );
+    expect(Object.keys(headline.epc).sort()).toEqual(["headlineBand", "line", "state"].sort());
   });
 });
 

@@ -63,4 +63,58 @@ describe("epc loader", () => {
       expect(search.data.length, pc).toBe(search.pagination.totalRecords);
     }
   });
+
+  it("files the register's modelled energy costs, GBP only (M6.14 widening, D33)", () => {
+    // The six cost fields, current and potential, are read
+    // from the certificate document — and a non-GBP figure
+    // is never filed as a number the product could serve.
+    for (const field of [
+      "heating_cost_current",
+      "hot_water_cost_current",
+      "lighting_cost_current",
+      "heating_cost_potential",
+      "hot_water_cost_potential",
+      "lighting_cost_potential",
+    ])
+      expect(loader).toContain(field);
+    expect(loader).toContain('cost.currency !== "GBP"');
+  });
+
+  it("fixture carries the golden modelled energy costs (M6.14)", () => {
+    const totalsAt = (pc: string, address: string, side: "current" | "potential") => {
+      const search = JSON.parse(
+        readFileSync(join(fixtureDir, fixture.postcodes[pc].searchFile), "utf8"),
+      ) as { data: { certificateNumber: string; addressLine1: string }[] };
+      const totals: number[] = [];
+      for (const stub of search.data) {
+        if (stub.addressLine1 !== address) continue;
+        const raw = JSON.parse(
+          readFileSync(join(fixtureDir, "certs", `${stub.certificateNumber}.json`), "utf8"),
+        ) as { data?: unknown } & Record<string, unknown>;
+        const doc = (raw.data ?? raw) as Record<
+          string,
+          { value: number; currency: string } | undefined
+        >;
+        const parts = [
+          doc[`heating_cost_${side}`],
+          doc[`hot_water_cost_${side}`],
+          doc[`lighting_cost_${side}`],
+        ];
+        for (const part of parts) expect(part?.currency).toBe("GBP");
+        totals.push(parts.reduce((sum, part) => sum + (part?.value ?? 0), 0));
+      }
+      return totals.sort((a, b) => a - b);
+    };
+    // 19 Birkdale Rise: £489 current, £455 potential a year.
+    expect(totalsAt("CM3 2JT", "19 Birkdale Rise", "current")).toEqual([489]);
+    expect(totalsAt("CM3 2JT", "19 Birkdale Rise", "potential")).toEqual([455]);
+    // 6 Exeter Road: the disagreement — £351 (2013) and
+    // £1,104 (2023) a year, both sides.
+    expect(totalsAt("E16 1GN", "6 Exeter Road", "current")).toEqual([351, 1104]);
+    expect(totalsAt("E16 1GN", "6 Exeter Road", "potential")).toEqual([351, 1104]);
+    // Flat 4, Minerva House: captured from the register for
+    // M6.14 — £278 a year on both sides.
+    expect(totalsAt("KT17 1FH", "Flat 4 Minerva House", "current")).toEqual([278]);
+    expect(totalsAt("KT17 1FH", "Flat 4 Minerva House", "potential")).toEqual([278]);
+  });
 });

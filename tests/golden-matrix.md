@@ -1382,6 +1382,107 @@ and the building line disappeared). The temporary
 prove suite was deleted after passing; CI's database
 job is the final word.
 
+## Monthly cost — two derived lines, never a total (M6.14, decision D33)
+
+D33 adds NO section and NO total: two derived lines inside their
+existing sections of the area bundle, each derived at build time
+from a fact already filed — nothing new is filed for either line
+except the EPC loader's widened minimisation below. A total field
+may not exist anywhere in any served shape, and the refusal is
+structural, not wording: tests scan the built bundles' keys for
+anything total-shaped (`/total|sum|combined|overall/i`) and the
+served strings for the banned monthly phrases ("your monthly
+cost", "cost of living", "you will pay", "typical monthly bill",
+"monthly total", "combined monthly"). The headline projection
+serves neither line (Q4): the short bundle's council-tax line
+stays the D28 annual line, and the EPC headline stays the band —
+the monthly lines are report depth, like the band table.
+
+Council-tax monthly line (D16 inside the line — the council's
+scale, never this home's bill). The line is the authority's filed
+Band D area average divided by 12, penny-rounded, labelled
+"spread evenly over 12 months"; each band row gains the same
+division; the section's explainer carries the 10-instalment fact
+("most councils bill over 10 monthly instalments, so each
+instalment is higher than the spread figure"):
+
+| Home                                    | Filed Band D average | Monthly line figure |
+| --------------------------------------- | -------------------- | ------------------- |
+| 19 Birkdale Rise (Braintree)            | £2,280.34            | £190.03 a month     |
+| 6 Exeter Road (Newham)                  | £1,944.23            | £162.02 a month     |
+| Flat 4, Minerva House (Epsom and Ewell) | £2,530.84            | £210.90 a month     |
+
+Birkdale's line, verbatim: "Braintree's average Band D council
+tax spread evenly over 12 months is £190.03 a month — the
+council's scale, not this home's bill". A derivation test pins
+the arithmetic itself (a variant filing of £999.99 serves £83.33
+a month), so the line is proven derived, not filed twice. States:
+the section's not-filed state carries NO monthly line (monthly
+fields null, bands empty, no monthly figure anywhere in the
+section); not-covered likewise; rung 2 serves the line as at
+rung 1 (an area fact) while the EPC serves needs-exact-home.
+
+EPC cost line (D26 per certificate, disagreements whole and
+unranked). The M4.5 loader's minimisation is widened to file the
+register's six modelled energy-cost fields (heating, hot water
+and lighting, current and potential — annual pounds as
+published, GBP only). The section sums each certificate's three
+components (all three or the side serves nothing), divides by
+12, and serves the register's own basis in the line: "the
+register models this home's energy costs at £40.75 a month
+(£489.00 a year) on a standard occupancy pattern, priced at the
+assessment date — a model, not a bill", with the potential side
+as its own line ("with the improvements this certificate
+recommends, the same model gives £37.92 a month (£455.00 a
+year)").
+
+| Certificate                       | Filed annual costs (current / potential) | Monthly (current / potential) |
+| --------------------------------- | ---------------------------------------- | ----------------------------- |
+| 19 Birkdale Rise (2022, RdSAP)    | £489 / £455                              | £40.75 / £37.92               |
+| 6 Exeter Road (2023, RdSAP)       | £1,104 / £1,104                          | £92.00 / £92.00               |
+| 6 Exeter Road (2013, SAP)         | £351 / £351                              | £29.25 / £29.25               |
+| Flat 4, Minerva House (2019, SAP) | £278 / £278                              | £23.17 / £23.17               |
+
+Exeter's two certificates BOTH serve — £92.00 and £29.25 a month
+side by side, unmerged and unranked; the 2013 certificate's £0
+hot-water cost is a modelling artefact of that vintage, served
+as filed. Minerva's raw register documents were captured for
+this step (15 Nov 2026, through the project's EPC connector):
+25 certificates for KT17 1FH fixtured in the established
+pattern; Flat 4's certificate (8401-7039-6529-6723-9906, band B,
+rating 85, 70 square metres, SAP, registered 7 Nov 2019) files
+heating £144 + hot water £73 + lighting £61 = £278 a year on
+both sides. Artefacts filed before the widening carry no cost
+fields: the section serves exactly as before, cost line absent,
+no error (a partial filing — some components missing — likewise
+serves no line for that side).
+
+Cache (D29): both lines ride inside the cached area bundle. The
+widening needed NO shape predicate: the area version vector's
+EPC artefact guard is the content hash of the whole artefact,
+so a re-filed widened artefact busts a pre-widening entry on
+its own — proven in the unit tests (entry serves costless,
+re-file recomputes, cost lines appear, no stamp moved) and in
+the scoped rehearsal below, both directions.
+
+Scoped rehearsal (15 Nov 2026, local PGlite engine, PostgreSQL
+18.6 + PostGIS 3.6.2): fresh database, migrations applied twice
+(newest still 0020 — no new migration in this step); directory
+rows seeded for the three universal postcodes; the REAL loader
+filed all three EPC fixtures (42 + 12 + 25 certificates, golden
+homes OK including the new cost goldens); council-tax rows
+inserted as filed at M5.10. Through the real address source,
+the real area source and the real cache table, all three homes
+served both lines verbatim (Birkdale £190.03 + £40.75/£37.92;
+Exeter £162.02 + £92.00 and £29.25; Minerva £210.90 + £23.17).
+Cache cycle on the real table: the widened entry served; the
+artefact was then stripped of its cost keys (pre-widening
+shape, no stamp moved) and the next build recomputed to no
+cost line; the real loader re-filed CM3 2JT and the cost lines
+returned, the entry holding the restored bundle. Temporary
+prove suites deleted after passing; CI's database job is the
+final word.
+
 ## E2E journeys each candidate unlocks (Playwright, QA phase)
 
 | Candidate            | Journey it unlocks                                                                                                                                                                          |

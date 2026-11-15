@@ -80,6 +80,18 @@ import { COMPANY_OWNERSHIP_ENABLED } from "./site";
 // behind the flag it answers the home's own title from the
 // filed CCOD/OCOD titles, with the building's own title
 // named separately where a flat's building is held on one.
+//
+// Monthly cost (M6.14, decision D33) adds NO section and NO
+// total: it is two derived lines inside the sections that
+// own the ingredients — a monthly equivalent of the
+// council-tax scale inside the council-tax section, and the
+// register's modelled energy costs inside the EPC section.
+// A summed "monthly cost of this home" is barred by
+// construction: the council-tax ingredient is the
+// authority's scale, never this home's bill (D16), and the
+// two lines' grains and bases never merge (D26) — so no
+// served shape carries a total field for them, and the
+// state matrix scans the two sections to prove it.
 
 export const AREA_UNAVAILABLE_REASON = "area answers need an exact postcode";
 
@@ -150,6 +162,16 @@ function formatPounds(pence: number): string {
   const pounds = Math.floor(pence / 100);
   const rest = pence - pounds * 100;
   return `£${pounds.toLocaleString("en-GB")}.${String(rest).padStart(2, "0")}`;
+}
+
+// A monthly equivalent: an annual pence figure spread
+// evenly over 12 months, rounded to the nearest penny
+// (M6.14, decision D33). One derivation, used by both
+// monthly lines — the council-tax scale's and the EPC
+// model's — each computed at serve time from its filed
+// annual figure, never filed itself (D16's pattern).
+function monthlyPenceOf(annualPence: number): number {
+  return Math.round(annualPence / 12);
 }
 
 // ------------------------------------------------------------------
@@ -292,7 +314,13 @@ export interface PhiFacts {
 // register's photovoltaic / solar-water-heating fields at
 // load — so no EPC solar fact can serve from what is filed;
 // the optional fields below exist so a future filing that
-// keeps them serves without a brain change.
+// keeps them serves without a brain change. The modelled
+// energy costs are the opposite case: the minimisation was
+// widened to file them at M6.14 (decision D33). They are
+// optional here because artefacts filed before the widening
+// do not carry them — a certificate read from such an
+// artefact serves exactly as it did before, with no cost
+// line, until the postcode is re-filed.
 export interface EpcCertificate {
   certificateNumber: string;
   addressLine1: string | null;
@@ -311,6 +339,15 @@ export interface EpcCertificate {
   photovoltaicSupply?: string | null;
   hasSolarPanel?: boolean | null;
   solarWaterHeating?: string | null;
+  // The register's modelled annual energy costs, in pounds
+  // as published: heating, hot water and lighting, current
+  // and potential (the M6.14 widening of the minimisation).
+  heatingCostCurrent?: number | null;
+  hotWaterCostCurrent?: number | null;
+  lightingCostCurrent?: number | null;
+  heatingCostPotential?: number | null;
+  hotWaterCostPotential?: number | null;
+  lightingCostPotential?: number | null;
 }
 
 export interface EpcArtefact {
@@ -1288,8 +1325,37 @@ function buildNature(
 // House alike, and only the building separates them.
 // SAP certificates are labelled predicted wherever they
 // appear (D7) — a modelled rating for a new-build home,
-// never a bare fact.
+// never a bare fact. The register's modelled energy costs
+// serve per certificate on the same discipline (M6.14,
+// D33): as filed, with the assessment date carried by the
+// certificate itself, disagreements whole and unranked —
+// 6 Exeter Road's two certificates model £92.00 and £29.25
+// a month, and both stand.
 // ------------------------------------------------------------------
+
+// The register's modelled energy costs for one certificate
+// (M6.14, decision D33): the filed annual figures summed
+// over heating, hot water and lighting, with the monthly
+// equivalents derived at serve time (the annual figure
+// spread over 12). Current is the home as assessed;
+// potential is the same model with the certificate's
+// recommended improvements in place. Both are the
+// register's own model — standard occupancy and heating
+// pattern, fuel prices at the assessment date — served per
+// certificate, disagreements whole and unranked, never
+// summed with anything else.
+export interface ServedEnergyCosts {
+  currentAnnualPence: number;
+  currentAnnualLabel: string;
+  currentMonthlyPence: number;
+  currentMonthlyLabel: string;
+  potentialAnnualPence: number | null;
+  potentialAnnualLabel: string | null;
+  potentialMonthlyPence: number | null;
+  potentialMonthlyLabel: string | null;
+  line: string;
+  potentialLine: string | null;
+}
 
 export interface ServedCertificate {
   certificateNumber: string;
@@ -1309,6 +1375,12 @@ export interface ServedCertificate {
   // register's own terms. The filed artefact carries none
   // today (see EpcCertificate), so this serves empty.
   solarFacts: string[];
+  // The register's modelled energy costs for THIS
+  // certificate, or null where the filed artefact predates
+  // the M6.14 widening (or the register published no
+  // complete cost set for it): the certificate then serves
+  // exactly as it did before the widening, no cost line.
+  energyCosts: ServedEnergyCosts | null;
 }
 
 export interface EpcSection extends AreaSectionMeta {
@@ -1377,6 +1449,17 @@ export function certificateMatchesHome(cert: EpcCertificate, home: ResolvedAddre
   return false;
 }
 
+// One side (current or potential) of the register's
+// modelled costs, summed over heating, hot water and
+// lighting into annual pence. Null unless all three
+// components are filed numbers: a partial cost set is not
+// a figure, and a certificate filed before the widening
+// carries none of them.
+function annualCostPence(parts: (number | null | undefined)[]): number | null {
+  if (parts.some((p) => typeof p !== "number" || !Number.isFinite(p))) return null;
+  return Math.round((parts as number[]).reduce((sum, p) => sum + p, 0) * 100);
+}
+
 function toServedCertificate(cert: EpcCertificate): ServedCertificate {
   const predicted = (cert.assessmentType ?? "").toUpperCase() === "SAP";
   const solarFacts: string[] = [];
@@ -1389,6 +1472,41 @@ function toServedCertificate(cert: EpcCertificate): ServedCertificate {
     .filter((line): line is string => Boolean(line))
     .map((line) => displayText(line.replace(/,\s*$/, "")))
     .join(", ");
+
+  const currentAnnualPence = annualCostPence([
+    cert.heatingCostCurrent,
+    cert.hotWaterCostCurrent,
+    cert.lightingCostCurrent,
+  ]);
+  const potentialAnnualPence = annualCostPence([
+    cert.heatingCostPotential,
+    cert.hotWaterCostPotential,
+    cert.lightingCostPotential,
+  ]);
+  const energyCosts: ServedEnergyCosts | null =
+    currentAnnualPence === null
+      ? null
+      : {
+          currentAnnualPence,
+          currentAnnualLabel: formatPounds(currentAnnualPence),
+          currentMonthlyPence: monthlyPenceOf(currentAnnualPence),
+          currentMonthlyLabel: formatPounds(monthlyPenceOf(currentAnnualPence)),
+          potentialAnnualPence,
+          potentialAnnualLabel:
+            potentialAnnualPence === null ? null : formatPounds(potentialAnnualPence),
+          potentialMonthlyPence:
+            potentialAnnualPence === null ? null : monthlyPenceOf(potentialAnnualPence),
+          potentialMonthlyLabel:
+            potentialAnnualPence === null
+              ? null
+              : formatPounds(monthlyPenceOf(potentialAnnualPence)),
+          line: `the register models this home's energy costs at ${formatPounds(monthlyPenceOf(currentAnnualPence))} a month (${formatPounds(currentAnnualPence)} a year) on a standard occupancy pattern, priced at the assessment date — a model, not a bill`,
+          potentialLine:
+            potentialAnnualPence === null
+              ? null
+              : `with the improvements this certificate recommends, the same model gives ${formatPounds(monthlyPenceOf(potentialAnnualPence))} a month (${formatPounds(potentialAnnualPence)} a year)`,
+        };
+
   return {
     certificateNumber: cert.certificateNumber,
     address,
@@ -1404,6 +1522,7 @@ function toServedCertificate(cert: EpcCertificate): ServedCertificate {
       : "an assessment of the existing home",
     registrationDate: cert.registrationDate,
     solarFacts,
+    energyCosts,
   };
 }
 
@@ -1531,7 +1650,10 @@ async function buildEpc(
 // at M6.9/D30 from "not published": MHCLG has published
 // their charges — the gap is our filing backlog, and the
 // line says so), and Scotland and Northern Ireland are
-// named not-covered states.
+// named not-covered states. The monthly line (M6.14, D33)
+// is a derivation of the same scale — the Band D average
+// spread evenly over 12 months, its correction inside the
+// line — and exists only inside the served state.
 // ------------------------------------------------------------------
 
 export interface CouncilTaxSection extends AreaSectionMeta {
@@ -1544,8 +1666,24 @@ export interface CouncilTaxSection extends AreaSectionMeta {
   components: { label: string; pence: number; labelPence: string }[];
   parish: { pence: number; labelPence: string; line: string } | null;
   // The authority's scale: every band's charge derived from
-  // the filed Band D average by the statutory ratios.
-  bands: { band: string; pence: number; labelPence: string }[];
+  // the filed Band D average by the statutory ratios, each
+  // with its monthly equivalent (the annual charge spread
+  // evenly over 12 months — M6.14, decision D33).
+  bands: {
+    band: string;
+    pence: number;
+    labelPence: string;
+    monthlyPence: number;
+    monthlyLabelPence: string;
+  }[];
+  // The monthly line (M6.14): the Band D average spread
+  // evenly over 12 months, carrying D16's correction inside
+  // itself — the council's scale, not this home's bill.
+  // Null in the not-filed and not-covered states: no monthly
+  // figure exists where no annual figure does.
+  monthlyLine: string | null;
+  bandDMonthlyPence: number | null;
+  bandDMonthlyLabel: string | null;
 }
 
 // The statutory ratios (Local Government Finance Act 1992
@@ -1582,7 +1720,7 @@ function buildCouncilTax(facts: CouncilTaxFacts | null, nation: Nation): Council
     grain: "area" as const,
     grainLine: "the billing authority's council tax scale for the area",
     explainer:
-      "This is the council's average Band D charge and the scale the other bands are set from — not this home's bill. Your exact bill depends on your home's band and parish.",
+      "This is the council's average Band D charge and the scale the other bands are set from — not this home's bill. Your exact bill depends on your home's band and parish. The monthly figure spreads the annual charge evenly over 12 months; most councils bill over 10 monthly instalments, so each instalment is higher than the spread figure.",
   };
   if (nation === "scotland" || nation === "northern-ireland") {
     return {
@@ -1599,6 +1737,9 @@ function buildCouncilTax(facts: CouncilTaxFacts | null, nation: Nation): Council
       components: [],
       parish: null,
       bands: [],
+      monthlyLine: null,
+      bandDMonthlyPence: null,
+      bandDMonthlyLabel: null,
     };
   }
   if (facts === null) {
@@ -1616,6 +1757,9 @@ function buildCouncilTax(facts: CouncilTaxFacts | null, nation: Nation): Council
       components: [],
       parish: null,
       bands: [],
+      monthlyLine: null,
+      bandDMonthlyPence: null,
+      bandDMonthlyLabel: null,
     };
   }
 
@@ -1638,6 +1782,7 @@ function buildCouncilTax(facts: CouncilTaxFacts | null, nation: Nation): Council
         }
       : null;
 
+  const bandDMonthlyPence = monthlyPenceOf(facts.bandDAreaAveragePence);
   return {
     ...meta,
     sourceName: facts.sourceName,
@@ -1653,8 +1798,18 @@ function buildCouncilTax(facts: CouncilTaxFacts | null, nation: Nation): Council
     parish,
     bands: BAND_RATIOS[facts.nation].map(([band, ninths]) => {
       const pence = Math.round((facts.bandDAreaAveragePence * ninths) / 9);
-      return { band, pence, labelPence: formatPounds(pence) };
+      const monthlyPence = monthlyPenceOf(pence);
+      return {
+        band,
+        pence,
+        labelPence: formatPounds(pence),
+        monthlyPence,
+        monthlyLabelPence: formatPounds(monthlyPence),
+      };
     }),
+    monthlyLine: `${facts.authorityName}'s average Band D council tax spread evenly over 12 months is ${formatPounds(bandDMonthlyPence)} a month — the council's scale, not this home's bill`,
+    bandDMonthlyPence,
+    bandDMonthlyLabel: formatPounds(bandDMonthlyPence),
   };
 }
 

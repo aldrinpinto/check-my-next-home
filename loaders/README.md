@@ -99,6 +99,11 @@ npm run load:epc -- --file tests/fixtures/epc "CM3 2JT" "E16 1GN"
 Each certificate is minimised to the fields the product shows before
 filing (address-level EPC data is personal data — we hold only what the
 site uses) and filed into the postcode's answers under the key "epc".
+Since M6.14 (decision D33) the minimisation also keeps the register's
+six modelled energy-cost fields — the annual heating, hot water and
+lighting costs, current and potential — so the EPC section can serve
+its per-certificate monthly cost line; certificates filed before the
+widening simply lack them, and the section serves without a cost line.
 Every certificate is kept: 6 Exeter Road's two band B certificates
 disagree on floor area (71 and 91 square metres) and both are filed,
 because the disagreement is itself a fact a buyer needs. Live mode reads

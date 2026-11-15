@@ -18,7 +18,12 @@
 //      so we hold only what the site uses). ALL certificates are
 //      filed, disagreements included — the plan's check is that
 //      6 Exeter Road keeps both of its certificates, 71 and 91
-//      square metres, both band B.
+//      square metres, both band B. The minimisation was widened
+//      at M6.14 (decision D33) by the register's six modelled
+//      energy-cost fields — the principle is unchanged (hold
+//      what the site uses); the site now uses these, served per
+//      certificate with the assessment date, disagreements
+//      whole.
 //   3. File into the postcode's saved answers (postcode_cache
 //      .answers, key "epc") inside one transaction, merging that
 //      key only, then read back and re-check before commit.
@@ -42,11 +47,47 @@ const SOURCE_NAME = "Get energy performance of buildings data (MHCLG)";
 // on floor area (71 vs 91 sq m, both band B) and both must be
 // filed; 19 Birkdale Rise's certificate is band B, 141 sq m,
 // registered 2022-10-07. Historical facts — they hold in fixture
-// mode and live mode alike.
+// mode and live mode alike. The cost totals (M6.14, D33) are the
+// register's modelled annual energy costs summed over heating,
+// hot water and lighting, current and potential, per certificate
+// at the address: Exeter's pair model £351 and £1,104 a year —
+// the disagreement the brain serves whole — and Flat 4, Minerva
+// House's certificate models £278 on both sides.
 const GOLDEN = {
-  "E16 1GN": { address: "6 Exeter Road", floorAreas: [71, 91], band: "B" },
-  "CM3 2JT": { address: "19 Birkdale Rise", floorAreas: [141], band: "B" },
+  "E16 1GN": {
+    address: "6 Exeter Road",
+    floorAreas: [71, 91],
+    band: "B",
+    costCurrent: [351, 1104],
+    costPotential: [351, 1104],
+  },
+  "CM3 2JT": {
+    address: "19 Birkdale Rise",
+    floorAreas: [141],
+    band: "B",
+    costCurrent: [489],
+    costPotential: [455],
+  },
+  "KT17 1FH": {
+    address: "Flat 4 Minerva House",
+    floorAreas: [70],
+    band: "B",
+    costCurrent: [278],
+    costPotential: [278],
+  },
 };
+
+// The register publishes each cost as { value, currency } —
+// annual pounds on its own modelled basis (standard occupancy
+// and heating pattern, fuel prices at the assessment date).
+// File the value only when the currency is GBP; anything else
+// is not a figure the product can serve, and files as null.
+function costOf(doc, key) {
+  const cost = doc[key];
+  if (cost === null || typeof cost !== "object") return null;
+  if (cost.currency !== "GBP") return null;
+  return typeof cost.value === "number" && Number.isFinite(cost.value) ? cost.value : null;
+}
 
 function minimise(stub, doc) {
   // dwelling_type arrives as a plain string on newer certificates
@@ -73,6 +114,15 @@ function minimise(stub, doc) {
     // predicted, per decision D7 — never shown as a bare fact.
     assessmentType: doc.assessment_type ?? null,
     registrationDate: doc.registration_date ?? stub.registrationDate ?? null,
+    // The register's modelled annual energy costs, widened in
+    // at M6.14 (decision D33): heating, hot water and lighting,
+    // current and potential, in pounds as published.
+    heatingCostCurrent: costOf(doc, "heating_cost_current"),
+    hotWaterCostCurrent: costOf(doc, "hot_water_cost_current"),
+    lightingCostCurrent: costOf(doc, "lighting_cost_current"),
+    heatingCostPotential: costOf(doc, "heating_cost_potential"),
+    hotWaterCostPotential: costOf(doc, "hot_water_cost_potential"),
+    lightingCostPotential: costOf(doc, "lighting_cost_potential"),
   };
 }
 
@@ -135,6 +185,16 @@ async function fixtureCertificates(postcode, fileDir, fixture) {
   return certificates;
 }
 
+function annualCost(cert, side) {
+  const parts = [
+    cert[`heatingCost${side}`],
+    cert[`hotWaterCost${side}`],
+    cert[`lightingCost${side}`],
+  ];
+  if (parts.some((p) => typeof p !== "number")) return null;
+  return parts.reduce((a, b) => a + b, 0);
+}
+
 function checkGolden(postcode, certificates) {
   const golden = GOLDEN[postcode];
   if (!golden) return;
@@ -148,6 +208,18 @@ function checkGolden(postcode, certificates) {
     throw new Error(
       `${postcode}: golden check failed for ${golden.address} — expected floor areas ${expected} at band ${golden.band}, found ${JSON.stringify(atAddress.map((c) => [c.totalFloorArea, c.band]))}`,
     );
+  // The modelled cost totals are golden too (M6.14): a
+  // certificate at a golden address that files no costs, or
+  // different totals, fails the load loudly rather than
+  // quietly serving a section with its cost line missing.
+  for (const side of ["Current", "Potential"]) {
+    const totals = atAddress.map((c) => annualCost(c, side)).sort((a, b) => (a ?? -1) - (b ?? -1));
+    const expectedTotals = [...golden[`cost${side}`]].sort((a, b) => a - b);
+    if (JSON.stringify(totals) !== JSON.stringify(expectedTotals))
+      throw new Error(
+        `${postcode}: golden check failed for ${golden.address} — expected annual ${side.toLowerCase()} energy costs ${JSON.stringify(expectedTotals)}, found ${JSON.stringify(totals)}`,
+      );
+  }
 }
 
 async function main() {
