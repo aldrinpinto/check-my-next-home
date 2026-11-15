@@ -167,6 +167,10 @@ jobs:
         env:
           NODE_OPTIONS: --experimental-sqlite
         run: node loaders/load-os-greenspace.mjs --file tests/fixtures/os-greenspace
+      - name: Golden replay — every golden home through every brain (plan step M6.19)
+        env:
+          GOLDEN_REPLAY: "1"
+        run: npx vitest run tests/golden-replay.test.ts
       - name: Load the EV chargers fixture (plan step M5.7)
         env:
           NODE_OPTIONS: --experimental-sqlite
