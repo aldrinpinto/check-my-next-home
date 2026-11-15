@@ -1126,7 +1126,7 @@ async function main() {
     }
   }
 
-  const { subject } = summariseRun(run.kind, items);
+  const { status, subject } = summariseRun(run.kind, items);
   const bodies = buildEmailBodies(run, items, recordNote);
   const alert = noEmail
     ? { status: "not_required", error: null }

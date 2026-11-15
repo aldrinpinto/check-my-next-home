@@ -152,6 +152,23 @@ describe("sources", () => {
     expect(runner).toContain("loader-runs-fallback.jsonl");
   });
 
+  it("main() destructures the status its DB-fallback record serialises", () => {
+    // Regression guard (latent defect found at the M6.19 gate,
+    // present since before M6.19): main() built the
+    // loader-runs-fallback.jsonl record as
+    // JSON.stringify({ run, items, alert, status, subject })
+    // but destructured only `subject` from summariseRun — so if
+    // the run-record DB write ever failed at close-out, building
+    // the fallback record threw a ReferenceError and the record
+    // was lost. main() is not exported, so — the buildEmailBodies
+    // guard above is the precedent — the wiring is pinned here
+    // against main()'s own body, and the record shape it must
+    // produce is pinned functionally in the describe below.
+    const mainBody = runner.slice(runner.indexOf("async function main()"));
+    expect(mainBody).toContain("const { status, subject } = summariseRun(run.kind, items);");
+    expect(mainBody).toContain("JSON.stringify({ run, items, alert, status, subject })");
+  });
+
   it("the canary covers every source and keeps deltas warning-grade", () => {
     for (const probe of [
       "onspd",
@@ -167,6 +184,48 @@ describe("sources", () => {
       expect(canary).toContain(probe);
     }
     expect(canary).toContain("warning-grade");
+  });
+});
+
+describe("the DB-fallback record", () => {
+  // When the run-record DB write fails at close-out, main()
+  // falls back to one JSONL line:
+  // JSON.stringify({ run, items, alert, status, subject }),
+  // with status and subject taken from summariseRun. These
+  // tests pin that both fields summariseRun supplies are the
+  // ones the record needs, for both run outcomes, and that the
+  // serialised line round-trips whole.
+  const run = {
+    id: "run-fallback",
+    kind: "load",
+    environment: "local",
+    trigger: "manual",
+    startedAt: new Date("2026-11-15T00:00:00Z"),
+  };
+  const alert = { status: "sent", error: null };
+
+  it("a failed run's fallback line carries status failed and the FAILED subject", () => {
+    const items = [
+      { item: "load-crime", status: "failed", errorMessage: "boom" },
+      { item: "load-epc", status: "succeeded", logLine: "load-epc · OK" },
+    ];
+    const { status, subject } = summariseRun(run.kind, items as never);
+    const parsed = JSON.parse(`${JSON.stringify({ run, items, alert, status, subject })}\n`);
+    expect(parsed.status).toBe("failed");
+    expect(parsed.subject).toContain("FAILED");
+    expect(parsed.subject).toContain("load-crime");
+    expect(parsed.run.id).toBe("run-fallback");
+    expect(parsed.items).toHaveLength(2);
+    expect(parsed.alert.status).toBe("sent");
+  });
+
+  it("a clean run's fallback line carries status succeeded", () => {
+    const items = [{ item: "load-epc", status: "succeeded", logLine: "load-epc · OK" }];
+    const { status, subject } = summariseRun(run.kind, items as never);
+    const parsed = JSON.parse(`${JSON.stringify({ run, items, alert, status, subject })}\n`);
+    expect(parsed.status).toBe("succeeded");
+    expect(parsed.subject).toContain("OK");
+    expect(parsed.items).toHaveLength(1);
   });
 });
 
