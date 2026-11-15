@@ -160,8 +160,10 @@ export type ShortCouncilTax = HeadlineProjection["councilTax"] & {
   // show the home's own band, so the authority's average
   // would be misread as this home's bill unless the line
   // itself prevents it. Composed here, from the
-  // projection's own fields; null in the named states,
-  // whose state names carry the meaning.
+  // projection's own fields, when the section serves; in
+  // the named states the section's own line travels
+  // verbatim instead (M6.9, decision D30) — a state with
+  // no sentence is not an answer.
   line: string | null;
 };
 
@@ -211,6 +213,10 @@ export interface ShortNature {
   state: "served";
   coverageLine: string | null;
   placesLine: string;
+  // The designation guard's line (M6.9/D30), verbatim from
+  // the full bundle — a type whose data is not filed names
+  // itself here, at headline depth too.
+  designationsLine: string | null;
   placesWithinCount: number;
   // The nearest place, its designations named together as
   // the full bundle composes them, inside flags on the
@@ -533,7 +539,7 @@ export function buildShortBundle(input: ShortBundleInput): ShortBundle {
         councilTaxHeadline.authority &&
         councilTaxHeadline.bandDAverageLabel
           ? `Band D averages ${councilTaxHeadline.bandDAverageLabel} a year in ${councilTaxHeadline.authority} (the council's scale — not this home's bill)`
-          : null,
+          : councilTaxHeadline.line,
     },
     constraints: {
       state: headline.constraints.state,
@@ -558,6 +564,7 @@ export function buildShortBundle(input: ShortBundleInput): ShortBundle {
       state: headline.nature.state,
       coverageLine: headline.nature.coverageLine,
       placesLine: headline.nature.placesLine,
+      designationsLine: headline.nature.designationsLine,
       placesWithinCount: headline.nature.placesWithinCount,
       nearestPlace: headline.nature.places[0] ?? headline.nature.beyondPlace ?? null,
       beyondLine: headline.nature.beyondLine,

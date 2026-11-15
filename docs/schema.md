@@ -278,7 +278,9 @@ Family:
     Band D (England A 6/9 to H 18/9; Wales A 6/9 to I
     21/9 on 2003 values), computed at answer time, never
     filed. An authority with no row for a year is the
-    honest "not published" state — the seed files the
+    honest "not filed" state (renamed at M6.9/D30 from
+    "not published" — MHCLG has published the charges;
+    the gap is our filing backlog) — the seed files the
     verified authorities only (see
     loaders/council-tax-spot-check.md) and the spring
     pass extends coverage; Scotland and Northern Ireland

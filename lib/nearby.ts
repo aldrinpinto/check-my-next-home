@@ -92,6 +92,12 @@ export interface NearbyDataSource {
     latitude: number,
     longitude: number,
   ): Promise<NearbyPoint | null>;
+  // The category's filed point count, table-wide — the
+  // guard every absence in this bundle stands on (M6.9,
+  // decision D30, the flood form): a category whose table
+  // holds nothing serves its not-filed state, never an
+  // absence read from an empty table.
+  filedCount(category: NearbyCategory): Promise<number>;
 }
 
 export type NearbyPlace = {
@@ -101,7 +107,7 @@ export type NearbyPlace = {
   selective?: boolean;
 };
 
-export type CategoryState = "within" | "none-within" | "empty-map" | "empty";
+export type CategoryState = "within" | "none-within" | "empty-map" | "empty" | "not-filed";
 
 export type CategoryAnswer = {
   category: NearbyCategory;
@@ -177,7 +183,13 @@ const CATEGORIES: { key: NearbyCategory; spec: CategorySpec }[] = [
   { key: "station", spec: { label: "stations", essential: true, emptyKind: "ground" } },
   { key: "bus-stop", spec: { label: "bus stops", essential: true, emptyKind: "ground" } },
   { key: "ev-chargers", spec: { label: "EV chargers", essential: true, emptyKind: "ground" } },
-  { key: "supermarket", spec: { label: "supermarkets", essential: true, emptyKind: "ground" } },
+  // Supermarkets file from the same OpenStreetMap table as
+  // the What's Nearby groups, so their empty answer takes
+  // the map wording (M6.9, decision D30): a gap in the map
+  // is not proof that none exists. The ground-truth form
+  // this category carried before D30 claimed more than
+  // the data holds.
+  { key: "supermarket", spec: { label: "supermarkets", essential: true, emptyKind: "map" } },
   {
     key: "food-and-drink",
     spec: { label: "food and drink places", essential: false, emptyKind: "map" },
@@ -217,6 +229,25 @@ async function buildCategory(
   longitude: number,
   source: NearbyDataSource,
 ): Promise<CategoryAnswer> {
+  // The filed-count guard (D30, the flood form): absence
+  // is only ever computed against a proven filing. A
+  // category whose table holds nothing — its loader has
+  // not filed yet — serves the not-filed state, never an
+  // absence and never silence.
+  if ((await source.filedCount(key)) <= 0) {
+    const answer: CategoryAnswer = {
+      category: key,
+      label: spec.label,
+      basisLabel: DISTANCE_BASIS_LABEL,
+      state: "not-filed",
+      places: [],
+      countWithin: 0,
+      beyondNearest: null,
+      line: `the ${spec.label} data is not filed yet, so no ${spec.label} answer can be given yet`,
+    };
+    if (key === "schools-secondary") answer.nearestSelective = null;
+    return answer;
+  }
   const within = await source.pointsWithin(key, latitude, longitude, RADIUS_MILES);
   const measured = within
     .map((point) => ({
@@ -261,6 +292,13 @@ async function buildCategory(
       );
       answer.beyondNearest = { name: nearest.name, miles };
       answer.line = `none within ${RADIUS_MILES} miles — nearest is ${nearest.name}, ${miles} miles away (${DISTANCE_BASIS_LABEL})`;
+    } else {
+      // No NAMED nearest exists to serve (the table holds
+      // only unnamed points, or none near): the category
+      // still owes the reader its sentence — the empty
+      // line, in the category's own honesty form — never
+      // silence (the prep's wordless case, closed by D30).
+      answer.line = emptyLine(key, spec, measured.length);
     }
     return answer;
   }
@@ -393,6 +431,14 @@ const METRES_PER_MILE = 1609.344;
 
 export function createNearbySource(db: AddressQueryable): NearbyDataSource {
   return {
+    async filedCount(category) {
+      // The count of the category's own base query — the
+      // same rows pointsWithin reads, counted table-wide.
+      const result = await db.query(
+        `SELECT count(*)::int AS n FROM (${CATEGORY_SQL[category]}) AS category_rows`,
+      );
+      return Number(result.rows[0]?.n ?? 0);
+    },
     async pointsWithin(category, latitude, longitude, radiusMiles) {
       // PostGIS geography distance and this module's haversine
       // (a spherical earth of radius 3,956) differ by well under

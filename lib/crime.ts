@@ -1,3 +1,7 @@
+import { execFile } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+
 import type { AddressQueryable, AddressResolution } from "./address";
 
 // Crime (plan step M6.4, decision D24).
@@ -40,6 +44,13 @@ import type { AddressQueryable, AddressResolution } from "./address";
 //     window and basis named — recorded is not occurred, and
 //     the answer is never worded "no crime" and never padded
 //     with a wider radius.
+//   - A covered postcode with no filed artefact is loaded on
+//     first check through the loader path (M6.9, decision
+//     D30 — the D23 pattern the sold-prices and EPC brains
+//     already use). Not-filed is served only when that load
+//     was attempted and failed, in the EPC brain's "could
+//     not be loaded" form: the state names a failed load,
+//     never a postcode nobody tried to load.
 //
 // The ladder contract: the count is a POSTCODE answer, counted
 // from the postcode point over incidents the police themselves
@@ -73,7 +84,8 @@ export const CRIME_EXPLAINER =
   "Counts of crimes the police recorded within 1 mile of the point on the map for this postcode, over the 12 months named. The circle covers the streets around the postcode, not only this street.";
 
 const UNAVAILABLE_REASON = "crime counts need an exact postcode";
-const NOT_FILED_REASON = "crime counts are not filed for this postcode yet";
+const NOT_FILED_REASON =
+  "crime counts could not be loaded for this postcode, so no crime answer can be given";
 
 // ------------------------------------------------------------------
 // Filed-data shapes
@@ -103,6 +115,12 @@ export interface FiledCrimeAnswer {
 // implementation.
 export interface CrimeDataSource {
   crimeAnswer(postcode: string): Promise<FiledCrimeAnswer | null>;
+  // Load the postcode through the existing loader path
+  // (loaders/load-crime.mjs), the D23 pattern: a covered
+  // postcode with no filed artefact is loaded on first
+  // check (D30), so not-filed means the load was attempted
+  // and failed — never that nobody looked.
+  loadPostcode(postcode: string): Promise<void>;
 }
 
 // ------------------------------------------------------------------
@@ -280,22 +298,39 @@ export async function buildCrimeBundle(
   const postcode = resolution.directory.postcode;
   const coverage = coverageOf(postcode);
   if (coverage !== "covered") {
-    const place = coverage === "scotland" ? "Scotland" : "Northern Ireland";
+    // Where the nation publishes its own recorded crime,
+    // the line names it (D30 — flood's NRW/SEPA form).
+    const reason =
+      coverage === "scotland"
+        ? "crime counts are not covered for Scotland — Police.uk publishes street-level data for England and Wales forces only; recorded crime in Scotland is published by Police Scotland"
+        : "crime counts are not covered for Northern Ireland — Police.uk publishes street-level data for England and Wales forces only; recorded crime in Northern Ireland is published by the Police Service of Northern Ireland";
     return {
       rung: resolution.rung,
       kind: "not-covered",
       postcode,
-      crime: {
-        state: "not-covered",
-        reason: `crime counts are not covered for ${place} — Police.uk publishes street-level data for England and Wales forces only`,
-      },
+      crime: { state: "not-covered", reason },
     };
   }
 
-  const filed = await source.crimeAnswer(postcode);
+  let filed = await source.crimeAnswer(postcode);
   if (!filed) {
-    // No artefact filed for this postcode: the honest answer is
-    // the named state, never an invented zero.
+    // D30 (the D23 pattern): a covered postcode with no
+    // filed artefact is loaded on first check. The loader
+    // files the artefact into the postcode's cached
+    // answers, so re-read after the load. A load that
+    // throws serves not-filed below — the only path to
+    // that state.
+    try {
+      await source.loadPostcode(postcode);
+      filed = await source.crimeAnswer(postcode);
+    } catch {
+      filed = null;
+    }
+  }
+  if (!filed) {
+    // The load was attempted and failed (or filed nothing):
+    // the honest answer is the named state, never an
+    // invented zero.
     return {
       rung: resolution.rung,
       kind: "crime",
@@ -337,7 +372,20 @@ export async function buildCrimeBundle(
 // The database source
 // ------------------------------------------------------------------
 
-export function createCrimeSource(db: AddressQueryable): CrimeDataSource {
+export interface CrimeSourceOptions {
+  // The connection the loader child process files through;
+  // defaults to the environment's DATABASE_URL (Key K6).
+  databaseUrl?: string;
+  // The loader's path; defaults to this repo's own loader.
+  crimeLoaderPath?: string;
+}
+
+const execFileAsync = promisify(execFile);
+
+export function createCrimeSource(
+  db: AddressQueryable,
+  options: CrimeSourceOptions = {},
+): CrimeDataSource {
   return {
     async crimeAnswer(postcode) {
       const { rows } = await db.query(
@@ -345,6 +393,27 @@ export function createCrimeSource(db: AddressQueryable): CrimeDataSource {
         [postcode],
       );
       return (rows[0]?.crime as FiledCrimeAnswer | null) ?? null;
+    },
+
+    async loadPostcode(postcode) {
+      const databaseUrl = options.databaseUrl ?? process.env.DATABASE_URL;
+      if (!databaseUrl)
+        throw new Error(
+          "DATABASE_URL is not set (see .env.example, Key K6) — cannot load a postcode",
+        );
+      const loaderPath =
+        options.crimeLoaderPath ??
+        fileURLToPath(new URL("../loaders/load-crime.mjs", import.meta.url));
+      // The loader takes its postcodes after a "--" separator
+      // (its own usage line: load-crime -- "CM3 2JT"); its
+      // argument filter drops the slot the separator occupies,
+      // so without it the first — here the only — postcode is
+      // silently never loaded. Pinned by a test, as in the
+      // sold-prices brain.
+      await execFileAsync(process.execPath, [loaderPath, "--", postcode], {
+        env: { ...process.env, DATABASE_URL: databaseUrl },
+        maxBuffer: 16 * 1024 * 1024,
+      });
     },
   };
 }

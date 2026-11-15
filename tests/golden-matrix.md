@@ -76,13 +76,13 @@ flood planning maps are a Natural Resources Wales product, not an EA one.
 
 ### Crime (M4.3) — counts only, never a score
 
-| Combination                 | Covered by                                                                                                                                            |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Very low count, semi-rural  | Birkdale (330 in 12 months to Sep 2026, 1 mi)                                                                                                         |
-| Very high count, inner city | Exeter (10,722, same window)                                                                                                                          |
-| Mid count, suburban flat    | Epsom (1,956, same window)                                                                                                                            |
-| Genuinely tiny rural count  | C9 (Hilgay) — counted at first load, M6.4: 7 in the same window                                                                                       |
-| Zero crimes in window       | GAP — no verified candidate; C9 counted 7 at first load, so the gap stays open — the brain's zero branch is proven on a synthetic filed answer (M6.4) |
+| Combination                 | Covered by                                                                                                                                                                                                                                        |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Very low count, semi-rural  | Birkdale (330 in 12 months to Sep 2026, 1 mi)                                                                                                                                                                                                     |
+| Very high count, inner city | Exeter (10,722, same window)                                                                                                                                                                                                                      |
+| Mid count, suburban flat    | Epsom (1,956, same window)                                                                                                                                                                                                                        |
+| Genuinely tiny rural count  | C9 (Hilgay) — counted at first load, M6.4: 7 in the same window                                                                                                                                                                                   |
+| Zero crimes in window       | CLOSED at M6.9 (D30/Q3 hunt): CA20 1EX (Wasdale Head) and LD5 4AD (Llanwrtyd Wells) filed genuine zeros live on 15 Nov 2026 — artefacts locked as fixtures and served as counts in the state matrix (see 'Empty answers, made deliberate (M6.9)') |
 
 ### EPC (M4.5)
 
@@ -267,7 +267,7 @@ Registry was decommissioned on 28 Nov 2024 and is not a source.
 | Seeded Band D filed and penny-verified — live year 2026-27 (loader goldens, asserted in tests)             | Braintree £2,280.34 (components £2,215.80 + £64.54 parish average) · Newham £1,944.23 (own £1,433.72 + GLA £510.51) · Epsom and Ewell £2,530.84 (own £239.85 + Surrey £1,938.42 + Surrey Police £352.57; no fire element — inside the county's) · plus the 10-authority spot-check set in loaders/council-tax-spot-check.md |
 | Rehearsal goldens — the fully verified 2025-26 release                                                     | Newham £1,855.96 exact · Braintree asserted on components £2,133.54 pre-parish (area £2,194.67 with the £61.13 parish average) · Epsom and Ewell £2,416.84 as the revised release prints it (the prep's £2,416.39 came from council minutes — Surrey Police 45p lower; the release files) · Cardiff £1,926.18               |
 | Welsh unitary filed with its composition (no county/GLA elements — nation held in the data)                | Cardiff £2,013.18 for 2026-27 (unitary £1,603.72 + police £405.14 + community average £4.32) · Swansea £2,238.29                                                                                                                                                                                                            |
-| Authority parsed but unfiled — the "not published" state                                                   | Reigate and Banstead + Newport sit in the fixtures as witnesses; 305 of 318 authorities parsed for 2026-27 are unfiled until the spring pass                                                                                                                                                                                |
+| Authority parsed but unfiled — the "not filed" state (renamed at M6.9/D30 from "not published")            | Reigate and Banstead + Newport sit in the fixtures as witnesses; 305 of 318 authorities parsed for 2026-27 are unfiled until the spring pass                                                                                                                                                                                |
 | Scotland / NI home: no council-tax row, named not-covered state at serving                                 | By construction — Scotland is a different system (water bundled into the bill); Northern Ireland levies domestic rates, not council tax                                                                                                                                                                                     |
 
 ### Benefits (M5.16)
@@ -463,7 +463,7 @@ not-covered state.
 | Minerva split (all 14)                                    | violent-crime 591; anti-social-behaviour 332; public-order 175; criminal-damage-arson 169; shoplifting 162; other-theft 132; vehicle-crime 122; burglary 88; drugs 73; other-crime 44; bicycle-theft 23; robbery 20; possession-of-weapons 14; theft-from-the-person 11                                              |
 | Ewell Village KT17 1DR (fixed at first load)              | 2,361, same window and basis; split (all 14): violent-crime 769; anti-social-behaviour 383; criminal-damage-arson 206; vehicle-crime 198; public-order 191; shoplifting 167; other-theft 160; burglary 91; drugs 67; other-crime 52; bicycle-theft 30; robbery 22; possession-of-weapons 16; theft-from-the-person 9 |
 | Hilgay CB6 1EH (fixed at first load)                      | 7 — the genuinely tiny rural count; only five categories have a count: violent-crime 3; criminal-damage-arson 1; other-theft 1; public-order 1; vehicle-crime 1. The nine absent slugs are not printed as measured zeros                                                                                             |
-| Zero crimes in window                                     | GAP stays open: Hilgay counted 7, not 0. The brain's zero branch ("0 recorded crimes within 1 mile of this postcode, [window]") is proven on a synthetic filed answer until a real zero is filed                                                                                                                     |
+| Zero crimes in window                                     | CLOSED at M6.9: Hilgay counted 7, not 0 — but the D30/Q3 hunt filed two genuine zeros (CA20 1EX, LD5 4AD; see 'Empty answers, made deliberate (M6.9)'). The zero branch ("0 recorded crimes within 1 mile of this postcode, [window]") is now proven on real filed answers, locked as fixtures                       |
 
 Monthly counts (the brain's order, oldest first — served
 as dated facts, asserted exactly in the suite):
@@ -1072,6 +1072,97 @@ runner pass is not the gate — CI's database job is):
   bundle, both degrade to recompute and are
   overwritten; with the cache table dropped, checks
   serve computed with no error surfacing.
+
+### Empty answers, made deliberate (M6.9, decision D30)
+
+The prep's census — 71 state slots across the six
+brains, 30 distinct state strings — is now a test
+(tests/state-matrix.test.ts, 70 tests): every brain,
+every state in the census, served through the real
+builder against a fake source and asserted, wording
+included. What D30 changed:
+
+- Crime cold load (Q1): a covered postcode with no
+  filed artefact is loaded on first check through the
+  loader path — the brain invokes load-crime.mjs with
+  the postcode after `--` (the argument-filter trap,
+  pinned by a stub-loader test) — and then serves.
+  Not-filed remains only for load-attempted-and-failed,
+  its reason in EPC's form: "crime counts could not be
+  loaded for this postcode, so no crime answer can be
+  given". Cache interplay proven with the cold load
+  live: the failure state is still write-skipped, and
+  because the version vector is read before compute, a
+  successful cold load's own filing busts the
+  just-written entry exactly once via the artefact
+  content hash, then the entry serves.
+- The zero-crimes hunt (Q3) — GAP CLOSED. Candidate
+  set (remote, crime-covered postcodes, coordinates
+  verified via postcodes.io), each loaded live through
+  the loader path on 15 November 2026, window October
+  2025 – September 2026, 1-mile basis: CA20 1EX
+  (Wasdale Head, Cumberland) **0**; NE48 1AA (Falstone,
+  Kielder, Northumberland) 6; CA9 3JH (Alston Moor,
+  Cumbria) 100; LD5 4AD (Llanwrtyd Wells, Powys) **0**;
+  SY25 6QT (Tregaron, Ceredigion) 7; LL48 6AA
+  (Penrhyndeudraeth, Gwynedd) 181. Two genuine zeros:
+  their filed artefacts are locked verbatim as
+  tests/fixtures/police-uk/zero-witness-ca20-1ex.json
+  and zero-witness-ld5-4ad.json, and the matrix serves
+  both as counts ("0 recorded crimes within 1 mile of
+  this postcode, October 2025 to September 2026",
+  breakdown empty). CA20 1EX's zero was itself served
+  through the new cold load in the scoped rehearsal.
+- Council tax (Q4): the state and line moved from the
+  not-published family to not-filed — "this council's
+  council tax charges are not filed yet — most
+  councils are filed in the spring pass, and until
+  then no figure can be given". MHCLG has published
+  the charges; the gap is our filing backlog. Article
+  4's not-published and DWP's
+  not-published-for-this-area did NOT change.
+- Supermarkets (Q5): the empty answer takes the What's
+  Nearby map wording (the same OSM table, the same
+  honesty); the ground-truth form is retired
+  everywhere, short bundle included.
+- Short-bundle lines (Q6): the headline projection now
+  carries each section's own line for EPC, council tax,
+  air and noise, and the short bundle serves them
+  verbatim in the named states (the served council-tax
+  headline keeps its D28 composed line); the nature
+  designations line travels too.
+- Settled fixes: nature designations and nearby
+  categories gained filed-count guards in the flood
+  form (a designation type with no filing names itself
+  and withholds only its own absence; rows filed under
+  an unfiled type are never served); the essential-
+  category silence (measured zero, no named nearest)
+  now serves the category's empty line; the
+  sold-prices median's none-recorded line speaks of
+  the counted set when other sales are recorded ("no
+  recorded sales in this postcode count toward a
+  median"); one polygon absence template ("no X covers
+  this postcode point in the national data" — green
+  belt joined Article 4 and monuments); one two-part
+  not-filed sentence form; not-covered lines name the
+  nation's own publisher where one exists (crime names
+  Police Scotland and the Police Service of Northern
+  Ireland; sold prices name Registers of Scotland) and
+  Census's not-covered line names the nation; Article
+  4's not-published line names the council's own
+  planning register as where the answer lives. Flood's
+  per-layer not-filed is unchanged in meaning (Q2),
+  asserted in the matrix.
+- Scoped rehearsal (PGlite, fresh migrated database):
+  the cold load served CA20 1EX's zero through
+  createCrimeSource; on the empty point tables every
+  nearby category served not-filed through
+  createNearbySource, one filed supermarket point
+  restored that category to within, and GP stayed
+  guarded; through createAreaSource the nature guard
+  named all four designation types, and council tax,
+  noise and solar served their not-filed states. No
+  migration in this step.
 
 ## E2E journeys each candidate unlocks (Playwright, QA phase)
 

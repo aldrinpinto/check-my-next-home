@@ -710,6 +710,12 @@ class FakeCrimeSource implements CrimeDataSource {
   async crimeAnswer(postcode: string) {
     return this.artefacts.get(postcode) ?? null;
   }
+  // The cold load (M6.9/D30): this fake's loads fail — an
+  // unfiled postcode (E16 1EG, CM1 6ER) serves not-filed,
+  // the load-attempted-and-failed state its witnesses use.
+  async loadPostcode(): Promise<void> {
+    throw new Error("the Police.uk load failed");
+  }
 }
 
 // The locked totals and ASB counts (M6.4): Birkdale 330 / 65,
@@ -990,6 +996,10 @@ class FakeNearbySource implements NearbyDataSource {
   }
   async nearestPoint() {
     return null;
+  }
+  // The fixture world is a filed world (M6.9/D30 guard).
+  async filedCount() {
+    return 1000;
   }
 }
 
@@ -1983,7 +1993,7 @@ describe("short bundle — 19 Birkdale Rise, CM3 2JT (rung 1)", () => {
 
   it("area sections: EPC band, the council-tax line with its correction, NO2, road noise", async () => {
     const short = servedShort(await shortFor(BIRKDALE));
-    expect(short.sections.epc).toEqual({ state: "served", headlineBand: "B" });
+    expect(short.sections.epc).toEqual({ state: "served", headlineBand: "B", line: null });
     expect(short.sections.councilTax.state).toBe("served");
     expect(short.sections.councilTax.authority).toBe("Braintree");
     expect(short.sections.councilTax.bandDAverageLabel).toBe("£2,280.34");
@@ -2006,7 +2016,7 @@ describe("short bundle — 19 Birkdale Rise, CM3 2JT (rung 1)", () => {
     const { constraints } = short.sections;
     expect(constraints.article4.state).toBe("not-published");
     expect(constraints.article4.line).toBe(
-      "Article 4 directions are not published by this council to the national dataset, so no finding can be made from the data",
+      "Article 4 directions are not published by this council to the national dataset, so no finding can be made from the data — the answer lives on the council's own planning register",
     );
     expect(constraints.article4).not.toHaveProperty("codes");
     expect(constraints.article4).not.toHaveProperty("rights");
@@ -2099,7 +2109,11 @@ describe("short bundle — 6 Exeter Road, E16 1GN (rung 1)", () => {
     });
     expect(byCategory.get("nurseries")?.countWithin).toBe(96);
     expect(byCategory.get("gp")?.nearest).toEqual({ name: "Custom House Surgery", miles: 0.24 });
-    expect(short.sections.epc).toEqual({ state: "served", headlineBand: "B" });
+    expect(short.sections.epc).toEqual({
+      state: "served",
+      headlineBand: "B",
+      line: "the register holds 2 certificates for this home — all are shown, and where they disagree both figures stand",
+    });
     expect(short.sections.councilTax.line).toBe(
       "Band D averages £1,944.23 a year in Newham (the council's scale — not this home's bill)",
     );
@@ -2174,7 +2188,7 @@ describe("short bundle — Flat 4, Minerva House, KT17 1FH (rung 1)", () => {
     });
     // The three-Flat-4s separation survives derivation: the
     // one matched certificate is Minerva's own, band B.
-    expect(short.sections.epc).toEqual({ state: "served", headlineBand: "B" });
+    expect(short.sections.epc).toEqual({ state: "served", headlineBand: "B", line: null });
     expect(short.sections.councilTax.line).toBe(
       "Band D averages £2,530.84 a year in Epsom and Ewell (the council's scale — not this home's bill)",
     );
@@ -2243,7 +2257,11 @@ describe("short bundle — rung 2 honesty (Birkdale Rise, street + postcode)", (
     expect(sold.median.counted).toBe(29);
     // Home facts serve their named states; everything
     // measured from the postcode point is identical.
-    expect(rung2.sections.epc).toEqual({ state: "needs-exact-home", headlineBand: null });
+    expect(rung2.sections.epc).toEqual({
+      state: "needs-exact-home",
+      headlineBand: null,
+      line: "choose the exact home to see its energy certificates",
+    });
     expect(rung2.sections.heritage.atPoint.state).toBe("needs-exact-home");
     expect(rung2.sections.crime).toEqual(rung1.sections.crime);
     expect(rung2.sections.flood).toEqual(rung1.sections.flood);
@@ -2390,14 +2408,22 @@ describe("short bundle — one resolution or none", () => {
 describe("short bundle — named states project as their own words", () => {
   it("Flat 24, Crawford Point (E16 1EG): EPC filed-zero, crime not-filed, the too-few median", async () => {
     const short = servedShort(await shortFor(CRAWFORD));
-    expect(short.sections.epc).toEqual({ state: "filed-zero", headlineBand: null });
+    expect(short.sections.epc).toEqual({
+      state: "filed-zero",
+      headlineBand: null,
+      line: "no energy certificate is recorded for this postcode",
+    });
     expect(short.sections.crime).toEqual({
       state: "not-filed",
-      reason: "crime counts are not filed for this postcode yet",
+      reason: "crime counts could not be loaded for this postcode, so no crime answer can be given",
     });
     // The noise table is unfiled for this postcode: its
     // named state, with no band.
-    expect(short.sections.noise).toEqual({ state: "not-filed", headlineBand: null });
+    expect(short.sections.noise).toEqual({
+      state: "not-filed",
+      headlineBand: null,
+      line: "modelled noise bands are not filed yet, so no noise answer can be given yet",
+    });
     const sold = servedSold(short);
     expect(sold.ownLastSale).toEqual({ price: 148000, date: "2009-06-05" });
     expect(sold.median.state).toBe("too-few");
@@ -2424,7 +2450,9 @@ describe("short bundle — named states project as their own words", () => {
     expect(short.sections.crime.state).toBe("not-covered");
     expect(short.sections.flood.state).toBe("not-covered");
     expect(short.sections.councilTax.state).toBe("not-covered");
-    expect(short.sections.councilTax.line).toBeNull();
+    expect(short.sections.councilTax.line).toBe(
+      "council tax figures are not covered for Scotland — it runs a different system, and no comparable charge is filed",
+    );
     expect(short.sections.noise.state).toBe("not-covered");
     // No count is served for a non-English point — never 0.
     expect(short.sections.heritage.listed.state).toBe("sparse-coverage");

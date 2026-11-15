@@ -53,10 +53,13 @@ import { DISTANCE_BASIS_LABEL, RADIUS_MILES } from "./nearby";
 // Absence is eleven different facts in this bundle, and each
 // dataset keeps its own named state: not-covered (a nation the
 // dataset does not publish for), not-published (Article 4
-// behind its publication gate; council tax for an unfiled
-// authority), not-filed (a table with no filing yet — noise
+// behind its publication gate — the publisher's gap, not
+// ours), not-filed (a table with no filing yet — noise
 // and priority habitats until their M12 operator passes, the
-// solar grid until its first pass), filed-and-empty (E16 1EG's
+// solar grid until its first pass; council tax for an
+// unfiled authority, renamed from not-published at M6.9/D30
+// because MHCLG has published the charges and the gap is
+// our spring filing backlog), filed-and-empty (E16 1EG's
 // zero certificates), filed-and-below-range (noise's "Below
 // 55 dB"), and sparse coverage (council-supplied Welsh
 // planning rows). A globally empty table can never impersonate
@@ -433,7 +436,7 @@ export interface AreaDataSource {
   // The latest filed tax year's row for the billing authority
   // the directory names, or null — an unfiled authority and a
   // name that joins to nothing both land here, and both serve
-  // the named not-published state, never a borrowed figure.
+  // the named not-filed state, never a borrowed figure.
   councilTaxRow(council: string | null): Promise<CouncilTaxFacts | null>;
   censusRow(msoaCode: string): Promise<CensusFacts | null>;
   imdRow(lsoaCode: string): Promise<ImdFacts | null>;
@@ -506,9 +509,16 @@ function buildPolygonLayer(
   };
 
   // No filing, no answer: an empty layer can prove nothing,
-  // so its absence wordings are never served from it.
+  // so its absence wordings are never served from it. The
+  // not-filed sentence is one two-part form across the
+  // bundle (M6.9, decision D30): what is missing, then what
+  // it costs the reader — the dataset's name kept in both
+  // halves.
   if (facts.filedCount <= 0) {
-    return { ...base, line: `the ${spec.label.toLowerCase()} data is not filed yet` };
+    return {
+      ...base,
+      line: `the ${spec.label.toLowerCase()} data is not filed yet, so no ${spec.label.toLowerCase()} answer can be given yet`,
+    };
   }
 
   const covering = facts.covering[0] ?? null;
@@ -666,7 +676,7 @@ const ARTICLE4_SPEC: PolygonSpec = {
     `the postcode point falls inside the ${name} Article 4 direction area — a direction that removes some permitted development rights`,
   absenceLine: (absence) =>
     absence === "not-published"
-      ? "Article 4 directions are not published by this council to the national dataset, so no finding can be made from the data"
+      ? "Article 4 directions are not published by this council to the national dataset, so no finding can be made from the data — the answer lives on the council's own planning register"
       : "no Article 4 direction area covers this postcode point in the national data",
 };
 
@@ -680,7 +690,7 @@ const GREEN_BELT_SPEC: PolygonSpec = {
   absenceLine: (absence) =>
     absence === "sparse-coverage"
       ? "the green belt data filed covers England and Wales, and no green belt is filed near this point"
-      : "the postcode point is not in a green belt in the national data",
+      : "no green belt covers this postcode point in the national data",
 };
 
 function buildConstraints(
@@ -861,7 +871,7 @@ function buildHeritage(
       beyondLine,
       line:
         listed.filedCount <= 0
-          ? "the listed buildings data is not filed yet"
+          ? "the listed buildings data is not filed yet, so no listed buildings answer can be given yet"
           : !covered
             ? `the listed buildings filed are England's National Heritage List — listed buildings in ${nationName(nation)} sit on their own register, which is not filed, so no count can be given for this point`
             : countWithin !== null && countWithin > 0
@@ -939,6 +949,14 @@ export interface NatureSection extends AreaSectionMeta {
   beyondPlace: NaturePlace | null;
   beyondLine: string | null;
   placesLine: string;
+  // The filed-count guard's line (M6.9, decision D30): one
+  // sentence per designation type whose table holds no
+  // filing, joined — that type's absence is withheld, the
+  // filed types still answer. Null when all four are filed.
+  // When all four are unfiled, placesLine itself carries
+  // the section's not-filed form and this line still names
+  // each type.
+  designationsLine: string | null;
   ancientWoodland: PolygonLayerAnswer;
   priorityHabitat: PriorityHabitatAnswer;
 }
@@ -1080,7 +1098,45 @@ function buildNature(
   phi: PhiFacts,
   nation: Nation,
 ): NatureSection {
-  const { within, beyond } = groupDesignations(designationFacts);
+  // The filed-count guard (M6.9, decision D30 — the flood
+  // form, applied per designation type): a type whose
+  // table holds no filing is removed from the grouping
+  // input entirely, so neither its absence NOR any stray
+  // row filed under it can be served as a finding, and it
+  // names itself in designationsLine instead. The filed
+  // types answer exactly as before.
+  const unfiledTypes = DESIGNATION_ORDER.filter(
+    (type) => designationFacts.byType[type].filedCount <= 0,
+  );
+  const guardedFacts: DesignationFacts =
+    unfiledTypes.length === 0
+      ? designationFacts
+      : {
+          byType: Object.fromEntries(
+            DESIGNATION_ORDER.map((type) => [
+              type,
+              unfiledTypes.includes(type)
+                ? {
+                    ...designationFacts.byType[type],
+                    covering: [],
+                    nearestWithin: [],
+                    nearestBeyond: null,
+                  }
+                : designationFacts.byType[type],
+            ]),
+          ) as DesignationFacts["byType"],
+          overlaps: designationFacts.overlaps,
+        };
+  const designationsLine =
+    unfiledTypes.length === 0
+      ? null
+      : unfiledTypes
+          .map(
+            (type) =>
+              `the ${DESIGNATION_LABELS[type]} designation data is not filed yet, so no ${DESIGNATION_LABELS[type]} answer can be given yet`,
+          )
+          .join("; ");
+  const { within, beyond } = groupDesignations(guardedFacts);
   const coverageLine =
     nation === "england"
       ? null
@@ -1090,7 +1146,7 @@ function buildNature(
     phi.filedCount <= 0
       ? {
           state: "not-filed",
-          line: "priority habitat records are not yet filed, so no habitat answer can be given yet",
+          line: "priority habitat records are not filed yet, so no habitat answer can be given yet",
         }
       : {
           state: "served",
@@ -1127,9 +1183,12 @@ function buildNature(
       ? `no designated site within ${RADIUS_MILES} miles — the nearest is ${beyond.line}, ${beyond.miles} miles away (${DISTANCE_BASIS_LABEL})`
       : null,
     placesLine:
-      within.length > 0
-        ? `${within.length} designated site${within.length === 1 ? "" : "s"} at or within ${RADIUS_MILES} miles of the postcode point`
-        : `no designated site at or within ${RADIUS_MILES} miles of the postcode point`,
+      unfiledTypes.length === DESIGNATION_ORDER.length
+        ? "nature designations are not filed yet, so no designation answer can be given yet"
+        : within.length > 0
+          ? `${within.length} designated site${within.length === 1 ? "" : "s"} at or within ${RADIUS_MILES} miles of the postcode point`
+          : `no designated site at or within ${RADIUS_MILES} miles of the postcode point`,
+    designationsLine,
     ancientWoodland: buildPolygonLayer(
       ANCIENT_WOODLAND_SPEC,
       woodlandFacts,
@@ -1391,12 +1450,15 @@ async function buildEpc(
 // ratios, labelled the council's scale so the family reads
 // their own band off it. Day one files 13 authorities
 // penny-verified; the other parsed authorities honestly
-// serve "not published" until the spring pass, and Scotland
-// and Northern Ireland are named not-covered states.
+// serve the not-filed state until the spring pass (renamed
+// at M6.9/D30 from "not published": MHCLG has published
+// their charges — the gap is our filing backlog, and the
+// line says so), and Scotland and Northern Ireland are
+// named not-covered states.
 // ------------------------------------------------------------------
 
 export interface CouncilTaxSection extends AreaSectionMeta {
-  state: "served" | "not-published" | "not-covered";
+  state: "served" | "not-filed" | "not-covered";
   line: string | null;
   authority: string | null;
   taxYear: string | null;
@@ -1468,8 +1530,8 @@ function buildCouncilTax(facts: CouncilTaxFacts | null, nation: Nation): Council
       sourceName: null,
       sourceDate: null,
       sourceLine: null,
-      state: "not-published",
-      line: "this council's council tax charges are not published in the data yet — most councils are filed in the spring pass, and until then no figure can be given",
+      state: "not-filed",
+      line: "this council's council tax charges are not filed yet — most councils are filed in the spring pass, and until then no figure can be given",
       authority: null,
       taxYear: null,
       bandDAveragePence: null,
@@ -1600,7 +1662,11 @@ function medianAgeOf(years: number[]): number {
   return years.length;
 }
 
-function buildCensus(facts: CensusFacts | null, msoaCode: string | null): CensusSection {
+function buildCensus(
+  facts: CensusFacts | null,
+  msoaCode: string | null,
+  nation: Nation,
+): CensusSection {
   const meta = {
     depth: "report" as const,
     grain: "area" as const,
@@ -1615,7 +1681,14 @@ function buildCensus(facts: CensusFacts | null, msoaCode: string | null): Census
       sourceDate: null,
       sourceLine: null,
       state: "not-covered",
-      line: "Census 2021 figures are published for England and Wales — this postcode is outside that coverage",
+      // The nation is named where the detector knows it
+      // (M6.9, decision D30 — the IMD form); a postcode
+      // whose filed codes place it nowhere keeps the
+      // boundary form.
+      line:
+        nation === "scotland" || nation === "northern-ireland"
+          ? `Census 2021 figures are published for England and Wales — ${nationName(nation)} is outside that coverage`
+          : "Census 2021 figures are published for England and Wales — this postcode is outside that coverage",
       msoaCode: null,
       msoaName: null,
       residentsTotal: null,
@@ -1911,7 +1984,7 @@ function buildNoise(facts: NoiseFacts, nation: Nation): NoiseSection {
       sourceDate: null,
       sourceLine: null,
       state: "not-filed",
-      line: "modelled noise bands are not yet filed, so no noise answer can be given yet",
+      line: "modelled noise bands are not filed yet, so no noise answer can be given yet",
       bands: [],
       headlineBand: null,
     };
@@ -2132,7 +2205,7 @@ function buildSolar(facts: SolarFacts): SolarSection {
       state: "not-filed",
       line:
         facts.gridFiledCount <= 0
-          ? "solar modelling is not yet filed, so no solar answer can be given yet"
+          ? "solar modelling is not filed yet, so no solar answer can be given yet"
           : "solar modelling is not filed for this area yet",
       cellRef: null,
       yieldKwhPerKwp: null,
@@ -2317,7 +2390,7 @@ export async function buildAreaBundle(
       nature: buildNature(designations, woodlandFacts, phi, nation),
       epc,
       councilTax: buildCouncilTax(councilTaxFacts, nation),
-      census: buildCensus(censusFacts, resolution.directory.msoaCode),
+      census: buildCensus(censusFacts, resolution.directory.msoaCode, nation),
       imd: buildImd(imdFacts, resolution.directory.lsoaCode, nation),
       air: buildAir(airFacts),
       noise: buildNoise(noiseFacts, nation),
@@ -2340,15 +2413,30 @@ export interface HeadlineProjection {
   constraints: ConstraintsSection;
   heritage: HeritageSection;
   nature: NatureSection;
-  epc: { state: EpcSection["state"]; headlineBand: string | null };
+  // The four slimmed sections carry their section's own
+  // line beside the headline facts (M6.9, decision D30):
+  // in a named state the line IS the section's answer, and
+  // a headline that dropped it would serve a state with
+  // no sentence — the other seven sections already travel
+  // whole or with their lines.
+  epc: { state: EpcSection["state"]; headlineBand: string | null; line: string | null };
   councilTax: {
     state: CouncilTaxSection["state"];
     authority: string | null;
     taxYear: string | null;
     bandDAverageLabel: string | null;
+    line: string | null;
   };
-  air: { state: AirSection["state"]; headlineFigure: AirSection["headlineFigure"] };
-  noise: { state: NoiseSection["state"]; headlineBand: NoiseSection["headlineBand"] };
+  air: {
+    state: AirSection["state"];
+    headlineFigure: AirSection["headlineFigure"];
+    line: string | null;
+  };
+  noise: {
+    state: NoiseSection["state"];
+    headlineBand: NoiseSection["headlineBand"];
+    line: string | null;
+  };
 }
 
 export function projectHeadline(bundle: AreaBundle): HeadlineProjection | null {
@@ -2359,15 +2447,28 @@ export function projectHeadline(bundle: AreaBundle): HeadlineProjection | null {
     constraints: sections.constraints,
     heritage: sections.heritage,
     nature: sections.nature,
-    epc: { state: sections.epc.state, headlineBand: sections.epc.headlineBand },
+    epc: {
+      state: sections.epc.state,
+      headlineBand: sections.epc.headlineBand,
+      line: sections.epc.line,
+    },
     councilTax: {
       state: sections.councilTax.state,
       authority: sections.councilTax.authority,
       taxYear: sections.councilTax.taxYear,
       bandDAverageLabel: sections.councilTax.bandDAverageLabel,
+      line: sections.councilTax.line,
     },
-    air: { state: sections.air.state, headlineFigure: sections.air.headlineFigure },
-    noise: { state: sections.noise.state, headlineBand: sections.noise.headlineBand },
+    air: {
+      state: sections.air.state,
+      headlineFigure: sections.air.headlineFigure,
+      line: sections.air.line,
+    },
+    noise: {
+      state: sections.noise.state,
+      headlineBand: sections.noise.headlineBand,
+      line: sections.noise.line,
+    },
   };
 }
 

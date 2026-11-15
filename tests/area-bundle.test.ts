@@ -1842,7 +1842,7 @@ describe("council tax", () => {
     expect(bands.E).toBe(309325);
   });
 
-  it("an unfiled authority serves 'not published' — Reigate and Banstead is the witness", async () => {
+  it("an unfiled authority serves not-filed (D30: the gap is our filing backlog) — Reigate and Banstead is the witness", async () => {
     const reigate = await bundle(
       home(
         directory({
@@ -1856,7 +1856,10 @@ describe("council tax", () => {
         { label: "Reigate", paon: "1", street: "HIGH STREET" },
       ),
     );
-    expect(reigate.sections.councilTax.state).toBe("not-published");
+    expect(reigate.sections.councilTax.state).toBe("not-filed");
+    expect(reigate.sections.councilTax.line).toBe(
+      "this council's council tax charges are not filed yet — most councils are filed in the spring pass, and until then no figure can be given",
+    );
   });
 
   it("Cardiff: Wales bands run to I, and the parish line is the community council average", async () => {

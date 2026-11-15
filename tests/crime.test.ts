@@ -106,6 +106,12 @@ class FakeCrimeSource implements CrimeDataSource {
   async crimeAnswer(postcode: string) {
     return this.artefacts.get(postcode) ?? null;
   }
+  // The cold load (M6.9/D30): this fake's loads fail unless
+  // a test installs its own source — so an unfiled postcode
+  // serves not-filed, the load-attempted-and-failed state.
+  async loadPostcode(): Promise<void> {
+    throw new Error("the Police.uk load failed");
+  }
 }
 
 const source = new FakeCrimeSource(ARTEFACTS);

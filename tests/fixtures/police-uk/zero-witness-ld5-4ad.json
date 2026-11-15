@@ -1,0 +1,60 @@
+{
+  "basis": "Street-level crimes recorded within 1 mile of the postcode point (Police.uk API)",
+  "total": 0,
+  "months": [
+    {
+      "count": 0,
+      "month": "2025-10"
+    },
+    {
+      "count": 0,
+      "month": "2025-11"
+    },
+    {
+      "count": 0,
+      "month": "2025-12"
+    },
+    {
+      "count": 0,
+      "month": "2026-01"
+    },
+    {
+      "count": 0,
+      "month": "2026-02"
+    },
+    {
+      "count": 0,
+      "month": "2026-03"
+    },
+    {
+      "count": 0,
+      "month": "2026-04"
+    },
+    {
+      "count": 0,
+      "month": "2026-05"
+    },
+    {
+      "count": 0,
+      "month": "2026-06"
+    },
+    {
+      "count": 0,
+      "month": "2026-07"
+    },
+    {
+      "count": 0,
+      "month": "2026-08"
+    },
+    {
+      "count": 0,
+      "month": "2026-09"
+    }
+  ],
+  "loadedAt": "2026-11-15T14:02:10.405Z",
+  "windowTo": "2026-09",
+  "categories": {},
+  "sourceDate": "2026-09",
+  "sourceName": "Police.uk street-level crime",
+  "windowFrom": "2025-10"
+}

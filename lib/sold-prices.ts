@@ -263,6 +263,13 @@ function medianAnswer(
   countedRows: SoldPriceRow[],
   where: "postcode" | "building",
   explainer: string,
+  // How many sales are recorded in the whole set (both
+  // categories). When it is above zero but nothing counts
+  // toward a median, the none-recorded line must speak of
+  // the counted set — the "No sale recorded … since 1995"
+  // sentence is true only of a set with nothing recorded
+  // at all (M6.9, decision D30).
+  recordedInSet: number,
 ): MedianAnswer {
   const counted = countedRows.length;
   if (counted === 0) {
@@ -272,7 +279,10 @@ function medianAnswer(
       counted: 0,
       spanFrom: null,
       spanTo: null,
-      line: NO_SALE_RECORDED_LINE,
+      line:
+        recordedInSet > 0
+          ? `no recorded sales in this ${where} count toward a median`
+          : NO_SALE_RECORDED_LINE,
       explainer,
     };
   }
@@ -312,7 +322,7 @@ function buildingAnswer(rows: SoldPriceRow[], paons: Set<string>): BuildingSales
     building: name ? displayText(name) : (buildingRows[0].paon as string),
     sales: counted.map(toServed),
     counted: counted.length,
-    median: medianAnswer(counted, "building", BUILDING_MEDIAN_EXPLAINER),
+    median: medianAnswer(counted, "building", BUILDING_MEDIAN_EXPLAINER, buildingRows.length),
   };
 }
 
@@ -340,15 +350,18 @@ export async function buildSoldPricesBundle(
   const postcode = resolution.directory.postcode;
   const coverage = coverageOf(postcode);
   if (coverage !== "covered") {
-    const place = coverage === "scotland" ? "Scotland" : "Northern Ireland";
+    // Scotland's own register is named (D30 — the
+    // not-covered form: the boundary, plus where the
+    // nation's own answer lives, where one exists).
+    const reason =
+      coverage === "scotland"
+        ? "sold prices are not covered for Scotland — HM Land Registry publishes Price Paid for England and Wales only; property sales in Scotland are recorded by Registers of Scotland"
+        : "sold prices are not covered for Northern Ireland — HM Land Registry publishes Price Paid for England and Wales only";
     return {
       rung: resolution.rung,
       kind: "not-covered",
       postcode,
-      soldPrices: {
-        state: "not-covered",
-        reason: `sold prices are not covered for ${place} — HM Land Registry publishes Price Paid for England and Wales only`,
-      },
+      soldPrices: { state: "not-covered", reason },
     };
   }
 
@@ -379,7 +392,7 @@ export async function buildSoldPricesBundle(
     edition,
     sourceLine,
     stateLine: loadState === "loaded-none" ? NO_SALE_RECORDED_LINE : null,
-    median: medianAnswer(counted, "postcode", MEDIAN_EXPLAINER),
+    median: medianAnswer(counted, "postcode", MEDIAN_EXPLAINER, rows.length),
     recentSales: counted.slice(0, RECENT_LIST_SIZE).map(toServed),
     recentLabel: RECENT_SALES_LABEL,
     building: null,

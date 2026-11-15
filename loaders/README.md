@@ -788,8 +788,10 @@ set of ten more, England and Wales mixed — the record,
 with every figure and both reconciliations, is
 `loaders/council-tax-spot-check.md`. **Every other
 authority is deliberately unfiled**: absence from the
-table is the named **"not published"** state at serving,
-never a zero and never an estimate. Scotland and
+table is the named **"not filed"** state at serving
+(renamed at M6.9/D30 from "not published" — the charges
+are published; the backlog is ours), never a zero and
+never an estimate. Scotland and
 Northern Ireland are likewise unfiled, permanently:
 Scotland's is a different system (water charges bundled
 into the bill) and Northern Ireland levies domestic

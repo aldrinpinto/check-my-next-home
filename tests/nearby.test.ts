@@ -650,6 +650,11 @@ const fakeSource: NearbyDataSource = {
       (p) => haversineMiles(latitude, longitude, p.latitude, p.longitude) <= radiusMiles,
     );
   },
+  // The fixture filings stand for filed national tables
+  // (the M6.9/D30 guard is pinned in the state matrix).
+  async filedCount() {
+    return 100000;
+  },
   async nearestPoint(category, latitude, longitude) {
     let best: NearbyPoint | null = null;
     let bestMiles = Infinity;
