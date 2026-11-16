@@ -852,6 +852,57 @@ export const EXPLAINER_CENSUS: CensusEntry[] = [
     "line-embedded",
     "sections.mobile.services[].line",
   ),
+  // Rows 68–71 — the crime calibration (M6.20, decision
+  // D39). The per-head figure carries its basis inside the
+  // figure object itself (residents + the basis line), and
+  // the England comparison carries England's figure inside
+  // its own line — the multiple never travels without both
+  // figures beside it, which is D39's form rule, so both
+  // rows are hard at both depths.
+  e(
+    68,
+    "crime.per-head",
+    "crime",
+    "crime",
+    "crime: per-head figure (recorded crimes per 1,000 residents, Basis B)",
+    "hard",
+    ["full", "short"],
+    "dedicated-field",
+    "crime.perHead.basisLine",
+  ),
+  e(
+    69,
+    "crime.england-comparison",
+    "crime",
+    "crime",
+    "crime: England per-head figure and the multiple against it",
+    "hard",
+    ["full", "short"],
+    "line-embedded",
+    "crime.englandFigure.line",
+  ),
+  e(
+    70,
+    "short.crime-per-head",
+    "short",
+    "crime",
+    "short crime: per-head line",
+    "hard",
+    ["short"],
+    "line-embedded",
+    "sections.crime.perHeadLine",
+  ),
+  e(
+    71,
+    "short.crime-england-comparison",
+    "short",
+    "crime",
+    "short crime: England comparison line",
+    "hard",
+    ["short"],
+    "line-embedded",
+    "sections.crime.englandLine",
+  ),
 ];
 
 // ------------------------------------------------------------------
@@ -902,6 +953,10 @@ export const FIGURE_PATH_PATTERNS: FigurePathPattern[] = [
   p("crime\\.crime\\.total", "crime.total"),
   p("crime\\.crime\\.categories\\[\\]\\.count", "crime.category-counts"),
   p("crime\\.crime\\.months\\[\\]\\.count", "crime.monthly-counts"),
+  p("crime\\.crime\\.perHead\\.residents", "crime.per-head"),
+  p("crime\\.crime\\.perHead\\.per1000", "crime.per-head"),
+  p("crime\\.crime\\.englandFigure\\.englandPer1000", "crime.england-comparison"),
+  p("crime\\.crime\\.englandFigure\\.multiple", "crime.england-comparison"),
   // Flood figures
   p("flood\\.flood\\.layers\\[\\]\\.proximity\\[\\]\\.miles", "flood.proximity-miles"),
   // Area figures — heritage / nature
@@ -1065,7 +1120,7 @@ export const NOT_A_FIGURE_ALLOWLIST: RegExp[] = [
   // Lines, explainers, definitions and source lines: the
   // census's own subject matter — their presence is what
   // direction one asserts; they are text, not figures.
-  /(Line|line|explainer|definition|howWeCheck|basisLabel|sourceLine|sourceName|reason|rights|localListsLine|coverageLine|placesLine|designationsLine|grainLine|attributionLine|snapshotLine|windowLine|totalLine|staleLine|beyondLine|insideLine|ownExplainer|address|street|town|locality|labelPence|currentAnnualLabel|currentMonthlyLabel|potentialAnnualLabel|potentialMonthlyLabel|url|link|href|recentLabel|coveringDefinition)$/,
+  /(Line|line|explainer|definition|howWeCheck|basisLabel|sourceLine|sourceName|reason|rights|localListsLine|coverageLine|placesLine|designationsLine|grainLine|attributionLine|snapshotLine|windowLine|totalLine|staleLine|beyondLine|insideLine|ownExplainer|calibrationExplainer|address|street|town|locality|labelPence|currentAnnualLabel|currentMonthlyLabel|potentialAnnualLabel|potentialMonthlyLabel|url|link|href|recentLabel|coveringDefinition)$/,
   // The crime bundle's filed basis string: the publisher's
   // artefact travelling verbatim (the prep's second-
   // direction clearance, section 3) — text, not a figure.

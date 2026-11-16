@@ -83,6 +83,7 @@ export const LOADER_SCHEDULE = [
   { item: "load-postcodes", cadence: "quarterly", timeoutMinutes: 30 },
   { item: "load-sold-prices", cadence: "monthly", timeoutMinutes: 30 },
   { item: "load-crime", cadence: "monthly", timeoutMinutes: 30 },
+  { item: "load-crime-national", cadence: "monthly", timeoutMinutes: 30 },
   { item: "load-epc", cadence: "monthly", timeoutMinutes: 30 },
   { item: "load-schools", cadence: "monthly", timeoutMinutes: 30 },
   { item: "load-health", cadence: "monthly", timeoutMinutes: 30 },
@@ -295,6 +296,7 @@ export const FRIENDLY_NAMES = {
   "load-postcodes": "Postcode directory",
   "load-sold-prices": "Sold prices",
   "load-crime": "Crime",
+  "load-crime-national": "Crime — England totals for the per-head comparison",
   "load-epc": "Energy certificates (EPC)",
   "load-schools": "Schools",
   "load-health": "Health — GPs, pharmacies, dentists, hospitals",
@@ -378,6 +380,10 @@ function shortDetail(item) {
     case "load-crime": {
       const window = pick(/window ([^·]+)/);
       return window ? `data window ${window.replace("..", " to ")}` : "updated";
+    }
+    case "load-crime-national": {
+      const total = pick(/England 12-month total ([\d,]+)/);
+      return total ? `England 12-month total ${total}` : "updated";
     }
     case "load-schools": {
       const gias = pick(/GIAS (\d{4}-\d{2}-\d{2})/);
@@ -806,6 +812,17 @@ async function main() {
       await runAndLog("load-ev-chargers", ["--file", fx("ev-chargers")]);
       await runAndLog("load-census", ["--file", fx("census")]);
       await runAndLog("load-lsoa-bases", ["--file", fx("lsoa-bases")]);
+      // The England crime totals (M6.20) run AFTER the LSOA
+      // bases in the fixture pass, deliberately: the national
+      // loader embeds the window figure into the crime
+      // artefacts the earlier crime run filed, and the
+      // embedding needs the bases filed for its denominator.
+      // Embedded in this first pass, the figure is part of
+      // the practice snapshot — and the loader's
+      // embed-only-on-change rule keeps a later pass from
+      // moving the artefacts again (the break-crime proof
+      // diffs the crime answers across its scenario run).
+      await runAndLog("load-crime-national", ["--file", fx("police-uk-national")]);
       await runAndLog("load-claimant-count", ["--file", fx("claimant-count")]);
       await runAndLog("load-dwp-uc", ["--file", fx("dwp-uc")]);
       await runAndLog("load-imd", ["--file", fx("imd")]);
@@ -1017,6 +1034,25 @@ async function main() {
         ),
         args: [],
       });
+      // England crime totals (plan step M6.20, decision D39)
+      // are the monthly class: Police.uk publishes a new
+      // month on the same rhythm as the crime counts, and
+      // each run counts only the months with no filed row
+      // (the first fill is the 12-month backfill; the filed
+      // rows are the resume state). The entry sits late in
+      // the plan deliberately: its second job is embedding
+      // the window figure into filed crime artefacts, and
+      // that pass reads whatever this run's crime load (and
+      // every earlier run) filed. It files its own table —
+      // directory-free.
+      plan.push({
+        item: "load-crime-national",
+        due: dueDecision(
+          await lastSuccess("load-crime-national"),
+          thresholdDaysFor("load-crime-national"),
+        ),
+        args: [],
+      });
       // The M5.9 datasets are the static class too: IMD is a
       // decennial-style index watched by the govuk-iod canary,
       // PCM air is republished on a multi-year cycle watched by
@@ -1080,6 +1116,7 @@ async function main() {
         "load-council-tax",
         "load-tribunal-building-safety",
         "load-company-ownership",
+        "load-crime-national",
       ]);
 
       for (const step of plan) {

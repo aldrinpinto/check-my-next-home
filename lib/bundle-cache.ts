@@ -598,6 +598,24 @@ export async function buildCrimeBundleCached(
             },
           }
         : bundle,
+    // The M6.20 shape contract (D39, in the M6.18 pattern):
+    // a served entry written before the step lacks the
+    // calibration keys entirely, so it degrades to a
+    // recompute rather than serving the calibration's
+    // absence as current. (A recompute from a pre-step
+    // artefact serves counts with calibration null —
+    // correct, and the entry it writes is shape-valid:
+    // the keys are present, their values null.) States
+    // other than served carry no calibration and are
+    // untouched by the contract.
+    shapeOk: (bundle) => {
+      if (typeof bundle !== "object" || bundle === null) return false;
+      const b = bundle as { kind?: unknown; crime?: unknown };
+      if (b.kind !== "crime") return true;
+      const crime = b.crime as Record<string, unknown> | null | undefined;
+      if (!crime || crime.state !== "served") return true;
+      return "perHead" in crime && "englandFigure" in crime && "calibrationExplainer" in crime;
+    },
   });
 }
 

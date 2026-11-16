@@ -1,4 +1,8 @@
 {
+  "basisResidents": {
+    "CM3 2JT": 6380,
+    "E16 1GN": 87519
+  },
   "datesFile": "crimes-street-dates.json",
   "points": {
     "CM3 2JT": { "lat": 51.776176, "lng": 0.60387, "prefix": "birkdale" },

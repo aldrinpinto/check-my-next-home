@@ -27,11 +27,23 @@ import type { AddressQueryable, AddressResolution } from "./address";
 //     monthly counts are facts, a direction word over them
 //     would be an interpretation, and interpretation of crime
 //     is the verdict this product refuses to sell.
-//   - NO rate, ranking, percentile or comparison, ever. A
-//     per-capita rate is not honestly computable (the 1-mile
-//     circle is not a filed area and holds no filed population),
-//     and every comparative device is the rejected crime score
-//     arriving by instalments (D5).
+//   - NO ranking, percentile or verdict, ever — and no
+//     "rate": the word is banned in this section's served
+//     text. What D39 (15 Nov 2026, amending D24) adds is two
+//     calibration figures, computed only from filed fields:
+//     a per-head figure (recorded crimes per 1,000 residents)
+//     on the population the loader files inside the artefact
+//     — Basis B, the founder's ruling: the Census 2021
+//     residents of the LSOAs containing the postcodes within
+//     the same 1 mile, counted whole — and that figure set
+//     against the England figure for the same window,
+//     computed the same way from the same data. Both figures
+//     always travel together, as a multiple, never a lone
+//     percentage and never a verdict adjective. An artefact
+//     filed before M6.20 carries neither population field,
+//     and serves its counts exactly as before with the
+//     calibration absent — never back-computed, never
+//     estimated.
 //   - Staleness: when the filed window's end is more than
 //     CRIME_STALE_AFTER_MONTHS months behind today — the loader
 //     freshness guard's own threshold, shared, not forked —
@@ -83,6 +95,16 @@ export const CRIME_STALE_AFTER_MONTHS = 3;
 export const CRIME_EXPLAINER =
   "Counts of crimes the police recorded within 1 mile of the point on the map for this postcode, over the 12 months named. The circle covers the streets around the postcode, not only this street.";
 
+// The calibration figures' standing basis text (D39/D13):
+// served with every served answer in the FLOOD_HOW_WE_CHECK
+// precedent, so the How we check page and both surfaces
+// render the same words. It states the method, both of
+// Basis B's known biases, and what a per-head figure is
+// not. The full working lives on the How we check page
+// (M7's surface); this is the beside-figure form.
+export const CRIME_CALIBRATION_EXPLAINER =
+  "Per-head figures divide the recorded count by the Census 2021 residents of the small areas that contain the postcodes inside the circle, each area counted whole. The areas reach beyond the circle, so the population is larger than the circle's own, and an area the circle only clips, holding no postcode inside the mile, is missed. The England figure is worked out the same way over the same 12 months, from the same published data. A per-head figure counts recorded crimes against residents — it is not a measure of any one person's risk, and crimes recorded in the circle include those involving people passing through.";
+
 const UNAVAILABLE_REASON = "crime counts need an exact postcode";
 const NOT_FILED_REASON =
   "crime counts could not be loaded for this postcode, so no crime answer can be given";
@@ -107,6 +129,24 @@ export interface FiledCrimeAnswer {
   sourceName: string;
   sourceDate: string;
   loadedAt: string;
+  // The calibration populations (M6.20, decision D39),
+  // filed by the loader at the same moment as the counts
+  // so numerator and denominator age together. Both are
+  // ABSENT on artefacts filed before M6.20 — absence is a
+  // named state in the served shape (calibration null),
+  // never a prompt to estimate.
+  // Basis B: the Census 2021 residents of the LSOAs
+  // containing the postcodes within the same 1 mile,
+  // counted whole (loader-computed at file time; a pinned
+  // fixture value in fixture mode).
+  basisResidents?: number;
+  // The England window figure, embedded by the national
+  // loader (load-crime-national) once every month of this
+  // artefact's window is filed: the window's England total
+  // (Police.uk archives, E01 LSOA prefix) over England's
+  // Census 2021 residents (the lsoa_bases E01 sum,
+  // 56,490,108). Null while any month is unfilled.
+  national?: { total: number; residents: number } | null;
 }
 
 // The brain's read port over the filed artefact — the same
@@ -126,6 +166,33 @@ export interface CrimeDataSource {
 // ------------------------------------------------------------------
 // Served shapes
 // ------------------------------------------------------------------
+
+// The per-head calibration (D39): the filed count read
+// against the filed Basis B population. `per1000` is the
+// figure to one decimal; `line` is its served sentence;
+// `basisLine` is the figure's own basis, travelling with
+// it (D13) — the residents count it names is this
+// circle's own.
+export interface ServedCrimePerHead {
+  residents: number;
+  per1000: number;
+  line: string;
+  basisLine: string;
+}
+
+// The England calibration (D39): this circle's per-head
+// figure set against England's for the same window, both
+// figures always in the line together. `multiple` is the
+// circle's figure divided by England's, one decimal —
+// null at a zero count (and where the multiple rounds to
+// zero for a nonzero count), where the line carries the
+// two figures only: a multiple that cannot be stated
+// honestly at one decimal is not stated.
+export interface ServedCrimeEnglandFigure {
+  englandPer1000: number;
+  multiple: number | null;
+  line: string;
+}
 
 export interface ServedCrime {
   state: "served";
@@ -148,6 +215,15 @@ export interface ServedCrime {
   sourceName: string;
   sourceLine: string;
   explainer: string;
+  // The calibration (M6.20, decision D39). perHead is
+  // null when the artefact predates the step (no basis
+  // residents filed); englandFigure is null while the
+  // window's England total is unembedded. The explainer
+  // serves either way — it is the figures' standing
+  // basis text, and its presence is part of the shape.
+  perHead: ServedCrimePerHead | null;
+  englandFigure: ServedCrimeEnglandFigure | null;
+  calibrationExplainer: string;
   // The named stale line when the filed window's end is more
   // than CRIME_STALE_AFTER_MONTHS months behind today; null
   // while the window is inside the guard's tolerance.
@@ -267,6 +343,66 @@ function staleLineFor(filed: FiledCrimeAnswer, now: Date): string | null {
 }
 
 // ------------------------------------------------------------------
+// Calibration (M6.20, decision D39) — pure functions of the
+// filed fields and the window; never of `now`, so the lines
+// freeze into the cached bundle exactly like totalLine and
+// only the stale line is recomputed at serve.
+// ------------------------------------------------------------------
+
+function round1(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
+// A per-head figure prints to one decimal — except zero,
+// which prints as the count it is ("0 recorded crimes per
+// 1,000 residents", the prep's locked zero line).
+function per1000Text(value: number): string {
+  return value === 0 ? "0" : value.toFixed(1);
+}
+
+function perHeadFor(filed: FiledCrimeAnswer): ServedCrimePerHead | null {
+  const residents = filed.basisResidents;
+  if (typeof residents !== "number" || residents <= 0) return null;
+  const per1000 = round1((filed.total / residents) * 1000);
+  return {
+    residents,
+    per1000,
+    line: `${per1000Text(per1000)} recorded crimes per 1,000 residents`,
+    basisLine: `worked out from the Census 2021 residents of the small areas that contain the postcodes within the same mile, counted whole — ${numberFormat.format(residents)} residents for this circle`,
+  };
+}
+
+function englandFigureFor(
+  filed: FiledCrimeAnswer,
+  perHead: ServedCrimePerHead,
+): ServedCrimeEnglandFigure | null {
+  const national = filed.national;
+  if (!national || national.residents <= 0) return null;
+  const englandExact = (national.total / national.residents) * 1000;
+  const englandPer1000 = round1(englandExact);
+  // The multiple is computed on the unrounded figures and
+  // stated to one decimal with "about". At a zero count —
+  // and where a nonzero count's multiple rounds to 0.0 —
+  // it is withheld: the line then carries both figures
+  // only (D39's zero rule, and its honest extension).
+  let multiple: number | null = null;
+  if (filed.total > 0 && englandExact > 0) {
+    const circleExact = (filed.total / perHead.residents) * 1000;
+    const candidate = round1(circleExact / englandExact);
+    if (candidate >= 0.1) multiple = candidate;
+  }
+  const head = `the England figure for the same 12 months is ${per1000Text(englandPer1000)} recorded crimes per 1,000 residents`;
+  return {
+    englandPer1000,
+    multiple,
+    line:
+      multiple === null
+        ? head
+        : `${head} — this circle's figure is about ${multiple.toFixed(1)} times the England figure`,
+  };
+}
+
+// ------------------------------------------------------------------
 // The bundle
 // ------------------------------------------------------------------
 
@@ -345,6 +481,11 @@ export async function buildCrimeBundle(
     .filter(([, count]) => count > 0)
     .map(([slug, count]) => ({ slug, count }))
     .sort((a, b) => b.count - a.count || a.slug.localeCompare(b.slug));
+  // Calibration follows the counts exactly (D39): a stale
+  // window's calibration describes the same last-good
+  // window, served beside the stale line unchanged.
+  const perHead = perHeadFor(filed);
+  const englandFigure = perHead ? englandFigureFor(filed, perHead) : null;
 
   return {
     rung: resolution.rung,
@@ -363,6 +504,9 @@ export async function buildCrimeBundle(
       sourceName: filed.sourceName,
       sourceLine: `${filed.sourceName} — data to ${monthLabel(filed.sourceDate)}`,
       explainer: CRIME_EXPLAINER,
+      perHead,
+      englandFigure,
+      calibrationExplainer: CRIME_CALIBRATION_EXPLAINER,
       staleLine: staleLineFor(filed, now),
     },
   };

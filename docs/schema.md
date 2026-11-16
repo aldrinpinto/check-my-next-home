@@ -499,6 +499,29 @@ Family:
     bundle whose EPC cold load failed) are never
     written, so a failed load can never be frozen into
     an entry.
+32. **crime_national_months** — England's monthly
+    recorded-crime totals (migration 0021, plan step
+    M6.20, decision D39): one row per published month
+    (`month` text, `england_total` integer, plus the
+    source name/date the count came from and the load
+    time). The numerator of the crime answer's England
+    calibration figure, counted by load-crime-national
+    from Police.uk's own monthly archives — every
+    street-level record whose LSOA code begins E01,
+    counted once, ever: rows are never updated, and the
+    filed rows are the loader's resume state. The
+    denominator is not stored here — it is computed at
+    embed time as the sum over lsoa_bases' E01 rows
+    (Census 2021 residents, 56,490,108 on the full
+    filing), the same filed source as every circle's
+    own basis. The window figure {total, residents} is
+    embedded into each filed crime artefact
+    (postcode_cache.answers → crime.national) once all
+    12 months of its window are counted; the crime
+    artefact also gains `basisResidents`, filed by
+    load-crime at file time — the Census 2021 residents
+    of the LSOAs containing the postcodes within the
+    same 1 mile, counted whole (Basis B).
 
 ## Physical decisions (recorded at build, M3.3)
 

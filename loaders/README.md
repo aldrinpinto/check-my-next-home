@@ -80,6 +80,46 @@ for E16 1GN, summed from the API's own 1-mile responses. Those frozen
 totals are asserted in fixture mode, where the fixture holds the captured
 API responses; CI runs the fixture load on every push.
 
+Since M6.20 (decision D39) the artefact also carries `basisResidents` —
+the Census 2021 residents of the LSOAs containing the postcodes within
+the same 1 mile, counted whole (Basis B) — computed at file time from the
+filed directory + `lsoa_bases`, and the England embedding `national`
+{total, residents} once the window's months are all counted (below).
+Fixture mode files the fixture's pinned basis verbatim and never
+computes: CI's `lsoa_bases` fixture holds only the three golden rows, so
+a computation there would silently file the rejected own-LSOA basis.
+
+## Crime — England totals (plan step M6.20) — `load-crime-national.mjs`
+
+The numerator of the crime answer's England calibration figure, filed
+into `crime_national_months` (migration 0021). Police.uk publishes the
+same street-level dataset as a data archive
+(`https://data.police.uk/data/archive/<yyyy-mm>.zip`). THE ARCHIVE IS
+CUMULATIVE: the zip named for a month is the archive as of that month,
+holding one folder per month over a rolling multi-year window (the
+2026-09 archive holds 2023-10..2026-09). The loader stream-counts the
+counted month's OWN folder inside the latest archive — the outcomes
+files describe the same records and are never counted — taking every
+record whose LSOA code begins E01. Counting the whole zip over-counts
+by the number of months it holds (the first backfill attempt produced
+16,220,417 for "one month": 37 months at ~440,000 each). A month with a filed row is never recounted: the first
+fill is the 12-month backfill, and the filed rows are the resume state.
+The freshness guard is load-crime's, shared (same endpoint, same
+three-month tolerance). After counting, the loader embeds the window
+figure {total, residents} into every filed crime artefact whose window
+is fully counted (the denominator is the `lsoa_bases` E01 sum,
+56,490,108 on the full filing), skipping any artefact whose embedding is
+already the computed figure.
+
+```bash
+npm run load:crime-national                       # count what's missing + embed
+npm run load:crime-national -- --verify-only      # guard + report only, nothing filed
+npm run load:crime-national -- --file tests/fixtures/police-uk-national
+```
+
+Registered monthly in the runner's schedule (D19 family): Police.uk
+publishes on the same rhythm as the counts it calibrates.
+
 ## Energy certificates (plan step M4.5) — `load-epc.mjs`
 
 EPC facts per postcode from the Get energy performance of buildings data

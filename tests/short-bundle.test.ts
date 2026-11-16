@@ -723,10 +723,22 @@ class FakeCrimeSource implements CrimeDataSource {
 // The locked totals and ASB counts (M6.4): Birkdale 330 / 65,
 // Exeter 10,722 / 1,852, Minerva 1,956 / 332, Ewell Village
 // 2,361 at first load. E16 1EG and CM1 6ER hold no artefact —
-// the not-filed witness.
+// the not-filed witness. Birkdale's artefact also carries
+// the M6.20 calibration fields (its measured Basis B
+// population; a synthetic England embedding at 100.0 per
+// 1,000) so the short calibration lines are asserted; the
+// other homes' artefacts predate the step, so their short
+// calibration lines are null.
 const crimeSource = new FakeCrimeSource(
   new Map([
-    ["CM3 2JT", crimeArtefact(330, 65)],
+    [
+      "CM3 2JT",
+      {
+        ...crimeArtefact(330, 65),
+        basisResidents: 6380,
+        national: { total: 5649011, residents: 56490108 },
+      },
+    ],
     ["E16 1GN", crimeArtefact(10722, 1852)],
     ["KT17 1FH", crimeArtefact(1956, 332)],
     ["KT17 1DR", crimeArtefact(2361, 402)],
@@ -2016,6 +2028,19 @@ describe("short bundle — 19 Birkdale Rise, CM3 2JT (rung 1)", () => {
     expect(crime.asb).toEqual({ count: 65 });
     expect(crime.staleLine).toBeNull();
     expect(crime.sourceLine).toBe("Police.uk street-level crime — data to September 2026");
+    // The M6.20 calibration lines (decision D39) ride the
+    // derivation from the full bundle — the per-head line,
+    // and the England line carrying both figures.
+    expect(crime.perHeadLine).toBe("51.7 recorded crimes per 1,000 residents");
+    expect(crime.englandLine).toBe(
+      "the England figure for the same 12 months is 100.0 recorded crimes per 1,000 residents — this circle's figure is about 0.5 times the England figure",
+    );
+  });
+
+  it("crime: a pre-M6.20 artefact derives null calibration lines — never estimated", async () => {
+    const crime = servedCrime(servedShort(await shortFor(EXETER)));
+    expect(crime.perHeadLine).toBeNull();
+    expect(crime.englandLine).toBeNull();
   });
 
   it("flood: three layer lines, three absences, never merged", async () => {

@@ -202,8 +202,14 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
     await cp(join(REPO, "tests/fixtures/police-uk"), crimeDir, { recursive: true });
     const fixture = JSON.parse(await readFile(join(crimeDir, "fixture.json"), "utf8")) as {
       points: Record<string, { lat: number; lng: number; prefix: string }>;
+      basisResidents: Record<string, number>;
     };
     fixture.points["KT17 1FH"] = { lat: 51.344571, lng: -0.247104, prefix: "epsom" };
+    // Minerva's Basis B pin (M6.20, decision D39): the
+    // committed fixture pins Birkdale's and Exeter's; the
+    // assembled copy adds the third universal home's
+    // measured 39,926.
+    fixture.basisResidents["KT17 1FH"] = 39926;
     fixture.points["KT17 1DR"] = { lat: 51.350243, lng: -0.256581, prefix: "ewell" };
     fixture.points["CB6 1EH"] = { lat: 52.507481, lng: 0.33491, prefix: "hilgay" };
     await writeFile(join(crimeDir, "fixture.json"), JSON.stringify(fixture, null, 2));
@@ -297,6 +303,26 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
         [JSON.stringify({ crime: artefact }), pc],
       );
     }
+
+    // The England totals (M6.20, decision D39) through the
+    // real national loader in fixture mode: it files the
+    // fixture's synthetic 12 months and embeds the window
+    // figure into every crime artefact above. The embedding's
+    // denominator here is the replay corpus's excerpted
+    // lsoa_bases (the three golden LSOAs, 5,899 residents) —
+    // NOT England's 56,490,108 — so the replay asserts the
+    // embedding's arithmetic identity on the excerpt, and
+    // the real England figure stays the golden matrix's
+    // M6.20 lock from the loader's live backfill.
+    await run(
+      "node",
+      [
+        join(REPO, "loaders/load-crime-national.mjs"),
+        "--file",
+        join(REPO, "tests/fixtures/police-uk-national"),
+      ],
+      { env, maxBuffer: 64 * 1024 * 1024 },
+    );
 
     // Every home through every brain, once.
     const addressSource = createAddressSource(pool);
@@ -411,7 +437,58 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
         throw new Error(`${tag}: expected served zero`);
       expect(c.crime.total).toBe(0);
       expect(c.crime.totalLine).toContain("0 recorded crimes within 1 mile of this postcode");
+      // The witnesses' committed artefacts predate M6.20 and
+      // carry no filed basis — calibration is absent, never
+      // estimated (the zero-with-basis behaviour is pinned
+      // in tests/crime.test.ts on the measured populations).
+      expect(c.crime.perHead).toBeNull();
+      expect(c.crime.englandFigure).toBeNull();
     }
+  });
+
+  it("crime calibration (M6.20, D39): per-head goldens and the embedded England figure", () => {
+    // The per-head goldens are the prep's measured figures,
+    // served through the real loader's fixture pins.
+    const perHead = (tag: string) => {
+      const c = get(tag).crime;
+      if (c.kind !== "crime" || c.crime.state !== "served")
+        throw new Error(`${tag}: expected served crime`);
+      return c.crime.perHead;
+    };
+    expect(perHead("birkdale1")).toEqual({
+      residents: 6380,
+      per1000: 51.7,
+      line: "51.7 recorded crimes per 1,000 residents",
+      basisLine: expect.stringContaining("6,380 residents for this circle"),
+    });
+    expect(perHead("exeter1")?.per1000).toBe(122.5);
+    expect(perHead("minerva1")?.per1000).toBe(49.0);
+    // The England embedding landed through the real national
+    // loader: on this excerpted corpus the denominator is
+    // the three golden LSOAs' 5,899 residents, so the served
+    // England figure is the fixture total's arithmetic on
+    // the excerpt — asserted as an identity, not a value.
+    // (The real figure, on the full bases, is the golden
+    // matrix's M6.20 lock from the live backfill.)
+    const fixtureTotal = 5503997;
+    const expectedEngland = Math.round(((fixtureTotal / 5899) * 1000 + Number.EPSILON) * 10) / 10;
+    for (const tag of ["birkdale1", "exeter1", "minerva1"]) {
+      const c = get(tag).crime;
+      if (c.kind !== "crime" || c.crime.state !== "served")
+        throw new Error(`${tag}: expected served crime`);
+      expect(c.crime.englandFigure?.englandPer1000).toBe(expectedEngland);
+      // On the excerpt the multiples round to 0.0 and are
+      // withheld — the line carries the figures only.
+      expect(c.crime.englandFigure?.multiple).toBeNull();
+      expect(c.crime.englandFigure?.line).not.toContain("times");
+    }
+    // Cardiff's capture carries no basis: no calibration,
+    // even with the embedding filed.
+    const cardiff = get("cardiff2").crime;
+    if (cardiff.kind !== "crime" || cardiff.crime.state !== "served")
+      throw new Error("cardiff crime not served");
+    expect(cardiff.crime.perHead).toBeNull();
+    expect(cardiff.crime.englandFigure).toBeNull();
   });
 
   it("regional witnesses: Scotland — the not-covered combination", () => {

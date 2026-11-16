@@ -16,6 +16,15 @@
 // kind and rung the front end branches on, plus the key-changing
 // state variants (a section whose keys appear or disappear with
 // its state).
+//
+// RE-PIN RECORD: M6.20 (decision D39) deliberately widened the
+// frozen crime shape after this freeze — the served crime
+// section gained perHead, englandFigure and
+// calibrationExplainer, the short bundle's crime section gained
+// perHeadLine and englandLine, and a crime.served-pre-calibration
+// pin was added for the pre-step artefact shape. Authorised by
+// the founder's D39 ruling; recorded here and in the golden
+// matrix so the change is never mistaken for drift.
 
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -394,6 +403,12 @@ describe("contract — sold prices", () => {
 function crimeArtefact(total: number): FiledCrimeAnswer {
   return {
     total,
+    // The M6.20 calibration fields (decision D39), as the
+    // loader files them: Birkdale's measured Basis B
+    // population, and the England embedding at the practice
+    // fixture's synthetic total over the real denominator.
+    basisResidents: 6380,
+    national: { total: 5503997, residents: 56490108 },
     windowFrom: "2025-10",
     windowTo: "2026-09",
     months: [
@@ -433,6 +448,19 @@ describe("contract — crime", () => {
     const source = new FakeCrimeSource();
     const now = new Date("2026-11-15T00:00:00.000Z");
     pin("crime.served", await buildCrimeBundle(ENG_HOME, source, { now }));
+    // The pre-M6.20 artefact shape: counts served,
+    // calibration absent (nulls), the explainer present.
+    // This pin is the deliberate post-freeze shape change's
+    // other half — M6.20 (decision D39) widened the served
+    // crime shape after M6.19 froze it, and the freeze
+    // record in tests/fixtures/replay/bundle-shapes.json
+    // was re-pinned for it with the founder's authority.
+    const preStep = crimeArtefact(330);
+    delete preStep.basisResidents;
+    delete preStep.national;
+    source.artefact = preStep;
+    pin("crime.served-pre-calibration", await buildCrimeBundle(ENG_HOME, source, { now }));
+    source.artefact = crimeArtefact(330);
     pin(
       "crime.served-stale",
       await buildCrimeBundle(ENG_HOME, source, { now: new Date("2027-02-01T00:00:00.000Z") }),

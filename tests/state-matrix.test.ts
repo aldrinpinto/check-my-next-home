@@ -810,6 +810,43 @@ describe("matrix — crime", () => {
     expectClean(bundle);
   });
 
+  it("served with calibration (M6.20, D39): the per-head figure and the England line join the counts", async () => {
+    const source = new MatrixCrimeSource();
+    source.artefacts.set("CM3 2JT", {
+      ...crimeArtefact(330),
+      basisResidents: 6380,
+      national: { total: 5649011, residents: 56490108 },
+    });
+    const bundle = await buildCrimeBundle(ENG_HOME, source, { now: CRIME_NOW });
+    if (bundle.kind !== "crime" || bundle.crime.state !== "served")
+      throw new Error("expected served crime");
+    expect(bundle.crime.perHead?.per1000).toBe(51.7);
+    expect(bundle.crime.englandFigure?.englandPer1000).toBe(100.0);
+    expect(bundle.crime.englandFigure?.multiple).toBe(0.5);
+    expectClean(bundle);
+  });
+
+  it("served pre-calibration: a pre-M6.20 artefact serves its counts, calibration absent", async () => {
+    const source = new MatrixCrimeSource();
+    source.artefacts.set("CM3 2JT", crimeArtefact(330));
+    const bundle = await buildCrimeBundle(ENG_HOME, source, { now: CRIME_NOW });
+    if (bundle.kind !== "crime" || bundle.crime.state !== "served")
+      throw new Error("expected served crime");
+    expect(bundle.crime.perHead).toBeNull();
+    expect(bundle.crime.englandFigure).toBeNull();
+    expect(bundle.crime.calibrationExplainer).toContain("counted whole");
+  });
+
+  it("served, basis filed, England not yet embedded: per-head serves, the comparison waits", async () => {
+    const source = new MatrixCrimeSource();
+    source.artefacts.set("CM3 2JT", { ...crimeArtefact(330), basisResidents: 6380 });
+    const bundle = await buildCrimeBundle(ENG_HOME, source, { now: CRIME_NOW });
+    if (bundle.kind !== "crime" || bundle.crime.state !== "served")
+      throw new Error("expected served crime");
+    expect(bundle.crime.perHead?.per1000).toBe(51.7);
+    expect(bundle.crime.englandFigure).toBeNull();
+  });
+
   it("stale: an old window serves last-good WITH the stale line; counts are never suppressed", async () => {
     const source = new MatrixCrimeSource();
     source.artefacts.set("CM3 2JT", crimeArtefact(330));

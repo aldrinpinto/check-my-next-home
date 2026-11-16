@@ -1661,3 +1661,67 @@ one-off scoped rehearsals into committed proofs:
    gaps, the Stat-Xplore national pull with its count-band
    check, the council-tax spring pass, and the
    company-ownership exposure decision.
+
+## Crime calibration — per-head figures and the England comparison (M6.20, decision D39)
+
+D39 amended D24: the crime answer gains a per-head figure
+(recorded crimes per 1,000 residents) and an England
+comparison, under the guardrails that both figures always
+show together, the comparison is a multiple never a lone
+percentage, no verdict adjective is ever attached, and the
+word "rate" is never used. The basis is Basis B: the crime
+loader files, inside the artefact, the Census 2021 residents
+of the LSOAs containing the postcodes within the same 1
+mile, counted whole; the brain stays a pure artefact read
+and the D29 cache vector is unchanged (the cache's crime
+shape guard gained a calibration-presence check instead).
+
+1. **Per-head goldens** (measured at the step's prep on the
+   full filed directory + the full TS021 file; served
+   through the real loader's fixture pins and asserted in
+   tests/crime.test.ts and the golden replay): Birkdale
+   330 over 6,380 residents = **51.7** per 1,000; Exeter
+   10,722 over 87,519 = **122.5**; Minerva 1,956 over
+   39,926 = **49.0**. The rejected bases are recorded so
+   they are never re-proposed: own-LSOA (Exeter 5,575.7),
+   own-MSOA (1,122.0), filed-boundary intersection,
+   area-apportionment.
+2. **The England figure** (locked at this step's backfill,
+   counted from the verified 2026-09 cumulative archive —
+   see the backend report for the archive discovery):
+   the 12 window months count 457,065 (2025-10), 432,011,
+   416,388, 401,765, 387,961, 447,342, 439,606, 468,361,
+   468,246, 503,213, 473,619 and 443,069 (2026-09, counted
+   twice, identical) — a 12-month England total of
+   **5,338,646** recorded crimes over the denominator
+   56,490,108 = **94.5 per 1,000 residents**. The served
+   multiples on the universal homes: Birkdale **0.5 times**
+   the England figure, Exeter **1.3 times**, Minerva
+   **0.5 times**. (The prep's illustrative 94.0 was a draft
+   placeholder; the counted figure is 94.5, and no test
+   asserts it — the brain's arithmetic is pinned on
+   synthetic figures, the served value on this lock.)
+3. **Zero witnesses.** CA20 1EX (Wasdale Head; basis 1,328
+   residents — its circle is its own LSOA) and LD5 4AD
+   (Llanwrtyd Wells; 1,767) serve per-head 0 with the
+   comparison carrying both figures and no multiple,
+   pinned in tests/crime.test.ts. Their committed replay
+   artefacts predate the step and carry no basis, so the
+   replay asserts calibration-absent for them — never
+   estimated. A multiple that rounds to 0.0 for a nonzero
+   count is likewise withheld (the figures only).
+4. **Contract re-pin (authorised).** The M6.19 freeze was
+   deliberately re-pinned for this step: crime.served and
+   crime.served-stale gained perHead, englandFigure and
+   calibrationExplainer; short.rung1/short.rung2 gained
+   perHeadLine and englandLine; a new pin,
+   crime.served-pre-calibration, holds the pre-step shape
+   (counts served, calibration null). 44 pins in total.
+   The explainer census gained rows 68–71 for the new
+   figures (71 families, 42 hard).
+5. **Named trap, pinned.** CI's lsoa_bases fixture holds
+   only the three golden LSOA rows; the loader's fixture
+   mode reads basis residents from the fixture pin
+   (6,380 / 87,519 / 39,926) and never computes, and a
+   fake-pool test pins the live computation's multi-LSOA
+   sum against the own-LSOA degradation.

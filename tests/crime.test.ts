@@ -9,6 +9,7 @@ import {
   type LoadedAddressParts,
 } from "../lib/address";
 import {
+  CRIME_CALIBRATION_EXPLAINER,
   CRIME_EXPLAINER,
   CRIME_STALE_AFTER_MONTHS,
   buildCrimeBundle,
@@ -100,6 +101,23 @@ const ARTEFACTS = new Map<string, FiledCrimeAnswer>([
   ["KT17 1DR", filedArtefact("ewell", "2026-11-14T00:00:00.000Z")],
   ["CB6 1EH", filedArtefact("hilgay", "2026-11-14T00:00:00.000Z")],
 ]);
+
+// The Basis B populations (M6.20, decision D39), measured at
+// the step's prep on the full filed directory + the full
+// TS021 file: the Census 2021 residents of the LSOAs
+// containing the postcodes within the same 1 mile, counted
+// whole. The loader files this figure inside the artefact;
+// the captures above predate it, so the three universal
+// homes' artefacts are completed with the measured values.
+const BASIS_RESIDENTS: Record<string, number> = {
+  "CM3 2JT": 6380,
+  "E16 1GN": 87519,
+  "KT17 1FH": 39926,
+};
+for (const [pc, residents] of Object.entries(BASIS_RESIDENTS)) {
+  const artefact = ARTEFACTS.get(pc);
+  if (artefact) artefact.basisResidents = residents;
+}
 
 class FakeCrimeSource implements CrimeDataSource {
   constructor(private artefacts: Map<string, FiledCrimeAnswer>) {}
@@ -648,6 +666,205 @@ describe("crime — zero counts and the not-filed state", () => {
     if (bundle.kind !== "crime") throw new Error("expected a crime bundle");
     expect(bundle.crime.state).toBe("not-filed");
     expect(JSON.stringify(bundle)).not.toContain("total");
+  });
+});
+
+describe("crime — calibration (M6.20, decision D39)", () => {
+  // A synthetic England figure for the arithmetic proofs:
+  // 5,649,011 over the real denominator 56,490,108 is
+  // 100.0 per 1,000. The REAL England figure is pinned by
+  // the national loader's backfill and recorded in the
+  // golden matrix — no comparison golden is asserted here.
+  const NATIONAL = { total: 5649011, residents: 56490108 };
+
+  function withNational(postcode: string): FakeCrimeSource {
+    const artefact = ARTEFACTS.get(postcode) as FiledCrimeAnswer;
+    return new FakeCrimeSource(new Map([[postcode, { ...artefact, national: NATIONAL }]]));
+  }
+
+  it("serves the per-head figure on the filed Basis B population — the prep's measured goldens", async () => {
+    const birkdale = await bundleFor("19 Birkdale Rise, CM3 2JT");
+    if (birkdale.kind !== "crime" || birkdale.crime.state !== "served")
+      throw new Error("expected a served crime bundle");
+    expect(birkdale.crime.perHead).toEqual({
+      residents: 6380,
+      per1000: 51.7,
+      line: "51.7 recorded crimes per 1,000 residents",
+      basisLine:
+        "worked out from the Census 2021 residents of the small areas that contain the postcodes within the same mile, counted whole — 6,380 residents for this circle",
+    });
+    // No England embedding on the artefact: the comparison
+    // is absent, the per-head figure unaffected.
+    expect(birkdale.crime.englandFigure).toBeNull();
+    expect(birkdale.crime.calibrationExplainer).toBe(CRIME_CALIBRATION_EXPLAINER);
+
+    const exeter = await bundleFor("6 Exeter Road, E16 1GN");
+    if (exeter.kind !== "crime" || exeter.crime.state !== "served")
+      throw new Error("expected a served crime bundle");
+    expect(exeter.crime.perHead?.per1000).toBe(122.5);
+    expect(exeter.crime.perHead?.line).toBe("122.5 recorded crimes per 1,000 residents");
+    expect(exeter.crime.perHead?.basisLine).toContain("87,519 residents for this circle");
+
+    const minerva = await bundleFor("Flat 4, Minerva House, KT17 1FH");
+    if (minerva.kind !== "crime" || minerva.crime.state !== "served")
+      throw new Error("expected a served crime bundle");
+    expect(minerva.crime.perHead?.per1000).toBe(49.0);
+    expect(minerva.crime.perHead?.line).toBe("49.0 recorded crimes per 1,000 residents");
+    expect(minerva.crime.perHead?.basisLine).toContain("39,926 residents for this circle");
+  });
+
+  it("sets the circle's figure against England's — both figures together, as a multiple", async () => {
+    const birkdale = await buildCrimeBundle(
+      await resolveAddressInput("19 Birkdale Rise, CM3 2JT", addressSource),
+      withNational("CM3 2JT"),
+      { now: NOW },
+    );
+    if (birkdale.kind !== "crime" || birkdale.crime.state !== "served")
+      throw new Error("expected a served crime bundle");
+    expect(birkdale.crime.englandFigure).toEqual({
+      englandPer1000: 100.0,
+      multiple: 0.5,
+      line: "the England figure for the same 12 months is 100.0 recorded crimes per 1,000 residents — this circle's figure is about 0.5 times the England figure",
+    });
+
+    const exeter = await buildCrimeBundle(
+      await resolveAddressInput("6 Exeter Road, E16 1GN", addressSource),
+      withNational("E16 1GN"),
+      { now: NOW },
+    );
+    if (exeter.kind !== "crime" || exeter.crime.state !== "served")
+      throw new Error("expected a served crime bundle");
+    expect(exeter.crime.englandFigure?.multiple).toBe(1.2);
+    expect(exeter.crime.englandFigure?.line).toContain("about 1.2 times the England figure");
+  });
+
+  it("serves a Welsh home's own per-head figure against the England figure D39 names", async () => {
+    // The Welsh copy carries a basis by hand (Hilgay's
+    // artefact has none in this suite): the point is the
+    // nation's treatment, not the arithmetic (proven above).
+    const welshArtefact: FiledCrimeAnswer = {
+      ...(ARTEFACTS.get("CB6 1EH") as FiledCrimeAnswer),
+      basisResidents: 39926,
+      national: NATIONAL,
+    };
+    const welsh = new FakeCrimeSource(new Map([["CF11 8AA", welshArtefact]]));
+    const bundle = await buildCrimeBundle(rung2Resolution("CF11 8AA"), welsh, { now: NOW });
+    if (bundle.kind !== "crime" || bundle.crime.state !== "served")
+      throw new Error("expected a served crime bundle");
+    expect(bundle.crime.perHead).not.toBeNull();
+    expect(bundle.crime.englandFigure?.line).toContain("the England figure for the same 12 months");
+  });
+
+  it("at a zero count the per-head figure serves as 0.0 and the comparison carries no multiple", async () => {
+    // The two M6.9 zero witnesses and their measured Basis
+    // B populations (prep: Wasdale Head's circle is its own
+    // LSOA, 1,328 residents; Llanwrtyd Wells', 1,767).
+    for (const [postcode, residents] of [
+      ["CA20 1EX", 1328],
+      ["LD5 4AD", 1767],
+    ] as const) {
+      const zero: FiledCrimeAnswer = {
+        total: 0,
+        windowFrom: "2025-10",
+        windowTo: "2026-09",
+        months: [
+          "2025-10",
+          "2025-11",
+          "2025-12",
+          "2026-01",
+          "2026-02",
+          "2026-03",
+          "2026-04",
+          "2026-05",
+          "2026-06",
+          "2026-07",
+          "2026-08",
+          "2026-09",
+        ].map((month) => ({ month, count: 0 })),
+        categories: {},
+        basis: LOADER_BASIS,
+        sourceName: LOADER_SOURCE_NAME,
+        sourceDate: "2026-09",
+        loadedAt: "2026-11-14T00:00:00.000Z",
+        basisResidents: residents,
+        national: NATIONAL,
+      };
+      const bundle = await buildCrimeBundle(
+        rung2Resolution(postcode),
+        new FakeCrimeSource(new Map([[postcode, zero]])),
+        { now: NOW },
+      );
+      if (bundle.kind !== "crime" || bundle.crime.state !== "served")
+        throw new Error("expected a served crime bundle");
+      expect(bundle.crime.perHead).toEqual({
+        residents,
+        per1000: 0,
+        line: "0 recorded crimes per 1,000 residents",
+        basisLine: expect.stringContaining(
+          `${residents.toLocaleString("en-GB")} residents for this circle`,
+        ),
+      });
+      expect(bundle.crime.englandFigure?.multiple).toBeNull();
+      expect(bundle.crime.englandFigure?.line).toBe(
+        "the England figure for the same 12 months is 100.0 recorded crimes per 1,000 residents",
+      );
+      expect(bundle.crime.englandFigure?.line).not.toContain("times");
+    }
+  });
+
+  it("withholds a multiple that rounds to 0.0 for a nonzero count — the figures only", async () => {
+    // The honest extension of the zero rule: 7 crimes over
+    // an illustrative 2,000 residents is 3.5 per 1,000,
+    // whose multiple against 100.0 is 0.035 — "about 0.0
+    // times" would be a falsehood in the settled form.
+    const tiny: FiledCrimeAnswer = {
+      ...(ARTEFACTS.get("CB6 1EH") as FiledCrimeAnswer),
+      basisResidents: 2000,
+      national: NATIONAL,
+    };
+    const bundle = await buildCrimeBundle(
+      rung2Resolution("CB6 1EH"),
+      new FakeCrimeSource(new Map([["CB6 1EH", tiny]])),
+      { now: NOW },
+    );
+    if (bundle.kind !== "crime" || bundle.crime.state !== "served")
+      throw new Error("expected a served crime bundle");
+    expect(bundle.crime.perHead?.per1000).toBe(3.5);
+    expect(bundle.crime.englandFigure?.multiple).toBeNull();
+    expect(bundle.crime.englandFigure?.line).not.toContain("times");
+  });
+
+  it("a pre-M6.20 artefact serves its counts with calibration absent — never estimated", async () => {
+    const bundle = await bundleFor("KT17 1DR");
+    if (bundle.kind !== "crime" || bundle.crime.state !== "served")
+      throw new Error("expected a served crime bundle");
+    expect(bundle.crime.total).toBe(2361);
+    expect(bundle.crime.perHead).toBeNull();
+    expect(bundle.crime.englandFigure).toBeNull();
+    expect(bundle.crime.calibrationExplainer).toBe(CRIME_CALIBRATION_EXPLAINER);
+  });
+
+  it("calibration follows the counts into a stale window, unchanged", async () => {
+    const fresh = await buildCrimeBundle(
+      await resolveAddressInput("19 Birkdale Rise, CM3 2JT", addressSource),
+      withNational("CM3 2JT"),
+      { now: NOW },
+    );
+    const stale = await buildCrimeBundle(
+      await resolveAddressInput("19 Birkdale Rise, CM3 2JT", addressSource),
+      withNational("CM3 2JT"),
+      { now: new Date("2027-01-15T00:00:00.000Z") },
+    );
+    if (
+      fresh.kind !== "crime" ||
+      fresh.crime.state !== "served" ||
+      stale.kind !== "crime" ||
+      stale.crime.state !== "served"
+    )
+      throw new Error("expected served crime bundles");
+    expect(stale.crime.staleLine).not.toBeNull();
+    expect(stale.crime.perHead).toEqual(fresh.crime.perHead);
+    expect(stale.crime.englandFigure).toEqual(fresh.crime.englandFigure);
   });
 });
 

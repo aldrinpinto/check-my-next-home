@@ -473,6 +473,13 @@ class CensusCrimeSource implements CrimeDataSource {
   async crimeAnswer(): Promise<FiledCrimeAnswer> {
     return {
       total: 330,
+      // The M6.20 calibration fields (decision D39):
+      // Birkdale's measured Basis B population, and a
+      // synthetic England embedding (5,310,070 over the real
+      // denominator is 94.0 per 1,000 — arithmetic for the
+      // census walk, not a pinned figure).
+      basisResidents: 6380,
+      national: { total: 5310070, residents: 56490108 },
       windowFrom: "2025-10",
       windowTo: "2026-09",
       months: CRIME_MONTHS.map((month) => ({ month, count: 10 })),
@@ -537,13 +544,13 @@ type Golden = Awaited<ReturnType<typeof goldenBundles>>;
 // ------------------------------------------------------------------
 
 describe("explainer census — the register", () => {
-  it("enumerates the prep census: 67 families, 38 hard, ids unique and stable in row order", () => {
-    expect(EXPLAINER_CENSUS).toHaveLength(67);
+  it("enumerates the prep census: 71 families, 42 hard, ids unique and stable in row order", () => {
+    expect(EXPLAINER_CENSUS).toHaveLength(71);
     expect(EXPLAINER_CENSUS.map((entry) => entry.row)).toEqual(
-      Array.from({ length: 67 }, (_, i) => i + 1),
+      Array.from({ length: 71 }, (_, i) => i + 1),
     );
-    expect(new Set(EXPLAINER_CENSUS.map((entry) => entry.id)).size).toBe(67);
-    expect(EXPLAINER_CENSUS.filter((entry) => entry.hardness === "hard")).toHaveLength(38);
+    expect(new Set(EXPLAINER_CENSUS.map((entry) => entry.id)).size).toBe(71);
+    expect(EXPLAINER_CENSUS.filter((entry) => entry.hardness === "hard")).toHaveLength(42);
     // Every figure-path pattern names census ids that exist.
     const ids = new Set(EXPLAINER_CENSUS.map((entry) => entry.id));
     for (const { censusIds } of FIGURE_PATH_PATTERNS)
@@ -634,6 +641,18 @@ const HARD_LINES: Record<string, (b: Golden) => unknown> = {
   "area.broadband.gigabit-pct": (b) => b.area.sections.broadband.explainer,
   "area.broadband.bands-unclassified": (b) => b.area.sections.broadband.unclassifiedLine,
   "area.mobile.operator-pct": (b) => b.area.sections.mobile.services.map((s) => s.line),
+  "crime.per-head": (b) =>
+    b.crime.kind === "crime" && b.crime.crime.state === "served"
+      ? b.crime.crime.perHead?.basisLine
+      : null,
+  "crime.england-comparison": (b) =>
+    b.crime.kind === "crime" && b.crime.crime.state === "served"
+      ? b.crime.crime.englandFigure?.line
+      : null,
+  "short.crime-per-head": (b) =>
+    b.short.sections.crime.state === "served" ? b.short.sections.crime.perHeadLine : null,
+  "short.crime-england-comparison": (b) =>
+    b.short.sections.crime.state === "served" ? b.short.sections.crime.englandLine : null,
 };
 
 describe("explainer census — direction one (hard ⇒ line present, both depths)", () => {

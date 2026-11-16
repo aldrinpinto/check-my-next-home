@@ -156,6 +156,14 @@ export type ShortCrime =
       // beside it. The full category breakdown stays at
       // report depth.
       asb: { count: number } | null;
+      // The calibration lines at headline depth (M6.20,
+      // decision D39 — both figures headline). Each is the
+      // full answer's own line, picked verbatim; null
+      // while the filed artefact carries no calibration
+      // (a pre-M6.20 artefact, or a window whose England
+      // total is not yet embedded).
+      perHeadLine: string | null;
+      englandLine: string | null;
       // The stale line travels verbatim when the filed
       // window is old — a headline total with no stale line
       // would present old data as current.
@@ -402,6 +410,8 @@ function shortCrime(bundle: Extract<CrimeBundle, { rung: 1 | 2 }>): ShortCrime {
     totalLine: crime.totalLine,
     windowLine: crime.windowLine,
     asb: asb ? { count: asb.count } : null,
+    perHeadLine: crime.perHead?.line ?? null,
+    englandLine: crime.englandFigure?.line ?? null,
     staleLine: crime.staleLine,
     sourceLine: crime.sourceLine,
     explainer: crime.explainer,

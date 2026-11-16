@@ -29,9 +29,32 @@
 // sum of the 12 monthly counts, window ending at the latest
 // published month); the frozen approved totals are asserted in
 // fixture mode, where the data is the captured window itself.
+//
+// M6.20 (decision D39) — the calibration populations file at
+// the same moment, inside the same artefact, so numerator and
+// denominator age together:
+//   basisResidents — Basis B, the founder's ruling: the Census
+//     2021 residents of the LSOAs containing the postcodes
+//     within the same 1 mile of the postcode point, counted
+//     whole. Live mode computes it from the filed directory +
+//     lsoa_bases (computeBasisResidents below). FIXTURE MODE
+//     NEVER COMPUTES IT: CI's lsoa_bases fixture holds only
+//     the three golden LSOA rows, so a live computation there
+//     would silently degrade to the rejected own-LSOA basis
+//     while every count golden still passed — the fixture
+//     pins the value per postcode (fixture.basisResidents,
+//     the APPROVED_TOTALS precedent), and a postcode with no
+//     pin files no basis.
+//   national — the window's England figure { total,
+//     residents }, read from crime_national_months (migration
+//     0021, loader load-crime-national) when every month of
+//     the window is filed there; null otherwise. The national
+//     loader refreshes the embedding in already-filed
+//     artefacts as later months land.
 
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import pg from "pg";
 
 const DATES_URL = "https://data.police.uk/api/crimes-street-dates";
@@ -44,7 +67,7 @@ const WINDOW_MONTHS = 12;
 // asserted in fixture mode only (the live window rolls forward).
 const APPROVED_TOTALS = { "CM3 2JT": 330, "E16 1GN": 10722 };
 
-function monthIndex(yyyyMm) {
+export function monthIndex(yyyyMm) {
   const [y, m] = yyyyMm.split("-").map(Number);
   return y * 12 + (m - 1);
 }
@@ -53,9 +76,81 @@ function monthName(index) {
   const m = (index % 12) + 1;
   return `${y}-${String(m).padStart(2, "0")}`;
 }
-function windowMonths(latest) {
+export function windowMonths(latest) {
   const end = monthIndex(latest);
   return Array.from({ length: WINDOW_MONTHS }, (_, i) => monthName(end - (WINDOW_MONTHS - 1) + i));
+}
+
+// The loaders' haversine, verbatim in form (load-transport.mjs):
+// earth radius 3,956 miles — the product's one distance basis.
+export function haversineMiles(aLat, aLng, bLat, bLng) {
+  const R = 3956;
+  const r = Math.PI / 180;
+  const h =
+    Math.sin(((bLat - aLat) * r) / 2) ** 2 +
+    Math.cos(aLat * r) * Math.cos(bLat * r) * Math.sin(((bLng - aLng) * r) / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+// Basis B (M6.20, decision D39): the Census 2021 residents of
+// the LSOAs containing the postcodes within 1 mile of the
+// point, each LSOA counted whole. The candidate set is a
+// generous degree box over the filed directory; the cut is
+// the haversine itself, so the set is exactly the prep's
+// measured set. Returns null — the named absence — when any
+// LSOA in the set has no lsoa_bases row (a partial sum would
+// be a wrong figure wearing a right one's clothes), or when
+// the set is empty.
+export async function computeBasisResidents(client, point) {
+  const latDelta = 1.05 / 69.0;
+  const lngDelta = 1.05 / (69.0 * Math.cos((point.lat * Math.PI) / 180));
+  const { rows } = await client.query(
+    `SELECT lsoa_code, latitude, longitude FROM postcode_cache
+      WHERE lsoa_code IS NOT NULL
+        AND latitude BETWEEN $1 AND $2
+        AND longitude BETWEEN $3 AND $4`,
+    [point.lat - latDelta, point.lat + latDelta, point.lng - lngDelta, point.lng + lngDelta],
+  );
+  const lsoas = new Set();
+  for (const row of rows) {
+    if (haversineMiles(point.lat, point.lng, row.latitude, row.longitude) <= 1) {
+      lsoas.add(row.lsoa_code);
+    }
+  }
+  if (lsoas.size === 0) return null;
+  const { rows: bases } = await client.query(
+    "SELECT lsoa_code, residents FROM lsoa_bases WHERE lsoa_code = ANY($1)",
+    [[...lsoas]],
+  );
+  if (bases.length !== lsoas.size) return null;
+  return bases.reduce((sum, row) => sum + row.residents, 0);
+}
+
+// The England denominator: England's Census 2021 residents
+// from the same filed source as every circle's basis — the
+// sum over lsoa_bases' E01 rows (56,490,108 on the full
+// filing). Null while the bases are unfiled.
+export async function englandResidents(client) {
+  const { rows } = await client.query(
+    "SELECT COALESCE(SUM(residents), 0)::int AS residents, COUNT(*)::int AS areas FROM lsoa_bases WHERE lsoa_code LIKE 'E01%'",
+  );
+  return rows[0].areas > 0 ? rows[0].residents : null;
+}
+
+// The window's England figure for embedding, or null while
+// any month of the window is uncounted in
+// crime_national_months (migration 0021) or the denominator
+// is unfiled. Shared with load-crime-national, which embeds
+// the same figure into already-filed artefacts.
+export async function nationalForWindow(client, months) {
+  const { rows } = await client.query(
+    "SELECT month, england_total FROM crime_national_months WHERE month = ANY($1)",
+    [months],
+  );
+  if (rows.length !== months.length) return null;
+  const residents = await englandResidents(client);
+  if (residents === null) return null;
+  return { total: rows.reduce((sum, row) => sum + row.england_total, 0), residents };
 }
 
 async function fetchJson(url) {
@@ -157,7 +252,7 @@ async function main() {
         throw new Error(
           `${pc}: fixture total is ${total}, but the approved report says ${APPROVED_TOTALS[pc]} — the counting basis has changed`,
         );
-      answers.set(pc, {
+      const answer = {
         total,
         windowFrom: months[0],
         windowTo: latest,
@@ -167,7 +262,27 @@ async function main() {
         sourceName: SOURCE_NAME,
         sourceDate: latest,
         loadedAt: new Date().toISOString(),
-      });
+      };
+      // M6.20 (D39): the calibration populations file with
+      // the counts, in the same artefact. Fixture mode takes
+      // the pinned basis from the fixture and NEVER computes
+      // one (CI's lsoa_bases fixture holds only the three
+      // golden rows — a computation there silently degrades
+      // to the rejected own-LSOA basis); a postcode with no
+      // pin files no basis. Live mode computes Basis B from
+      // the filed directory + lsoa_bases.
+      if (fixture) {
+        const pinned = fixture.basisResidents?.[pc];
+        if (typeof pinned === "number") answer.basisResidents = pinned;
+      } else {
+        const basisResidents = await computeBasisResidents(client, point);
+        if (basisResidents !== null) answer.basisResidents = basisResidents;
+      }
+      // The England embedding: the window's filed national
+      // figure, or null while any month is uncounted (the
+      // national loader refreshes it later as months land).
+      if (client) answer.national = await nationalForWindow(client, months);
+      answers.set(pc, answer);
     }
 
     const summary = () =>
@@ -207,7 +322,8 @@ async function main() {
           !filed ||
           filed.total !== expected.total ||
           filed.windowTo !== latest ||
-          filed.months?.length !== WINDOW_MONTHS
+          filed.months?.length !== WINDOW_MONTHS ||
+          filed.basisResidents !== expected.basisResidents
         )
           throw new Error(
             `${pc}: the filed crime answer does not match the counted figures — rolling back`,
@@ -224,7 +340,9 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(`load-crime FAILED: ${error.message}`);
-  process.exitCode = 1;
-});
+if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href) {
+  main().catch((error) => {
+    console.error(`load-crime FAILED: ${error.message}`);
+    process.exitCode = 1;
+  });
+}
