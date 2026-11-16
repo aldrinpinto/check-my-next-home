@@ -11,6 +11,7 @@ import {
 } from "../lib/address";
 import {
   DISTANCE_BASIS_LABEL,
+  RADIUS_MILES,
   SCHOOL_DEADLINES_ENGLAND_LINE,
   SCHOOL_DEADLINE_PRIMARY,
   SCHOOL_DEADLINE_SECONDARY,
@@ -282,6 +283,12 @@ function parseCsv(text: string): Record<string, string>[] {
 type SchoolRow = {
   name: string;
   phase: string | null;
+  // The register's type and sixth-form flag as filed
+  // (M6.33): the sixth-forms selection and the secondary
+  // marker are written out against these below, mirroring
+  // the brain's SQL clause for clause.
+  type: string | null;
+  sixthFormFlag: string | null;
   admissionsPolicy: string | null;
   latitude: number;
   longitude: number;
@@ -348,6 +355,8 @@ const schoolRows: SchoolRow[] = (() => {
     rows.push({
       name: (row["EstablishmentName"] ?? "").trim(),
       phase: blank(row["PhaseOfEducation (name)"]),
+      type: blank(row["TypeOfEstablishment (name)"]),
+      sixthFormFlag: blank(row["OfficialSixthForm (name)"]),
       admissionsPolicy: blank(row["AdmissionsPolicy (name)"]),
       latitude: lat,
       longitude: lng,
@@ -616,6 +625,35 @@ const TABLES: Record<string, NearbyPoint[]> = {
       latitude: s.latitude,
       longitude: s.longitude,
       selective: s.admissionsPolicy === "Selective",
+      // The brain's CASE over the filed flag, written out
+      // (M6.33, D64 ruling 7): true/false on the flag's
+      // own two values, null on anything else filed.
+      sixthForm:
+        s.sixthFormFlag === "Has a sixth form"
+          ? true
+          : s.sixthFormFlag === "Does not have a sixth form"
+            ? false
+            : null,
+    })),
+  // Sixth forms and colleges (M6.33, D51/D64): the brain's
+  // selection written out — the phase clause (every
+  // "16 plus" row) or the flag clause (flagged, any phase
+  // except Secondary), minus the D64 type exclusions.
+  "sixth-forms": schoolRows
+    .filter(
+      (s) =>
+        (s.phase === "16 plus" ||
+          (s.sixthFormFlag === "Has a sixth form" && s.phase !== "Secondary")) &&
+        !/special/i.test(s.type ?? "") &&
+        !/independent/i.test(s.type ?? "") &&
+        s.type !== "British schools overseas" &&
+        s.type !== "Welsh establishment",
+    )
+    .map((s) => ({
+      name: s.name,
+      latitude: s.latitude,
+      longitude: s.longitude,
+      detail: s.type,
     })),
   nurseries: nurseryRows,
   gp: healthRows
@@ -695,6 +733,26 @@ const TABLES: Record<string, NearbyPoint[]> = {
   parks: parkRows.map((p) => ({ name: p.name, latitude: p.latitude, longitude: p.longitude })),
 };
 
+// The sixth-forms beyond pool (M6.33, D64 ruling 4): the
+// within selection UNION the flagged secondaries, under
+// the same type exclusions — the mirror of the brain's
+// CATEGORY_NEAREST_SQL.
+const SIXTH_FORMS_BEYOND: NearbyPoint[] = schoolRows
+  .filter(
+    (s) =>
+      (s.phase === "16 plus" || s.sixthFormFlag === "Has a sixth form") &&
+      !/special/i.test(s.type ?? "") &&
+      !/independent/i.test(s.type ?? "") &&
+      s.type !== "British schools overseas" &&
+      s.type !== "Welsh establishment",
+  )
+  .map((s) => ({
+    name: s.name,
+    latitude: s.latitude,
+    longitude: s.longitude,
+    detail: s.type,
+  }));
+
 const fakeSource: NearbyDataSource = {
   async pointsWithin(category, latitude, longitude, radiusMiles) {
     return (TABLES[category] ?? []).filter(
@@ -707,10 +765,16 @@ const fakeSource: NearbyDataSource = {
     return 100000;
   },
   async nearestPoint(category, latitude, longitude) {
+    // The sixth-forms beyond read mirrors the real source:
+    // the wider pool, and only points strictly beyond the
+    // radius may be named (a flagged secondary inside it
+    // is never the beyond name).
+    const pool = category === "sixth-forms" ? SIXTH_FORMS_BEYOND : (TABLES[category] ?? []);
     let best: NearbyPoint | null = null;
     let bestMiles = Infinity;
-    for (const p of TABLES[category] ?? []) {
+    for (const p of pool) {
       const d = haversineMiles(latitude, longitude, p.latitude, p.longitude);
+      if (category === "sixth-forms" && d <= RADIUS_MILES) continue;
       if (d < bestMiles) {
         bestMiles = d;
         best = p;
@@ -780,12 +844,13 @@ describe("nearby basis (M6.2)", () => {
     }
   });
 
-  it("serves the twenty-one categories in the documented order", async () => {
+  it("serves the twenty-two categories in the documented order", async () => {
     const bundle = await bundleFor("CM3 2JT");
     if (bundle.kind !== "distances") throw new Error("expected distances");
     expect(bundle.categories.map((c) => c.category)).toEqual([
       "schools-primary",
       "schools-secondary",
+      "sixth-forms",
       "nurseries",
       "gp",
       "dentist",
@@ -1316,5 +1381,84 @@ describe("nearby bundle — school application deadlines (M6.22, D42)", () => {
     const bundle = await bundleFor("CB6 1EH");
     if (bundle.kind !== "distances") throw new Error("expected distances");
     expect(bundle.schoolDeadlines).toBeNull();
+  });
+});
+
+// --- sixth forms (M6.33, decisions D51 and D64) ----------------------
+// The fixture-basis outcomes, computed from the same filed
+// fixture rows the mirror above files (the national outcomes
+// are the prep's measured goldens, recorded in
+// docs/backend-m6.33.md).
+
+describe("nearby bundle — sixth forms (M6.33, D51/D64)", () => {
+  it("Minerva: the category serves NESCOT alone — an FE college whose flag files 'Not applicable', entering on the phase clause alone", async () => {
+    const bundle = await bundleFor("KT17 1FH");
+    const cat = category(bundle, "sixth-forms");
+    expect(cat.label).toBe("sixth forms and colleges");
+    expect(cat.state).toBe("within");
+    expect(cat.countWithin).toBe(1);
+    expect(cat.places).toEqual([
+      {
+        name: "North East Surrey College of Technology",
+        miles: 0.174,
+        detail: "Further education",
+      },
+    ]);
+    // No marker, no rating: the category's places serve
+    // name, type as filed, distance — nothing else.
+    expect(cat.places[0]).not.toHaveProperty("sixthForm");
+    expect(cat.places[0]).not.toHaveProperty("cqcRating");
+    expect(cat.places[0]).not.toHaveProperty("selective");
+  });
+
+  it("Minerva: every served secondary carries the marker, true where the flag files 'Has a sixth form'", async () => {
+    const bundle = await bundleFor("KT17 1FH");
+    const secondary = category(bundle, "schools-secondary");
+    expect(secondary.places.map((p) => [p.name, p.sixthForm])).toEqual([
+      ["Glyn School", true],
+      ["Blenheim High School", true],
+      ["Nonsuch High School for Girls", true],
+    ]);
+    // The primary list carries no marker — the field is
+    // the secondary category's own.
+    for (const place of category(bundle, "schools-primary").places)
+      expect(place).not.toHaveProperty("sixthForm");
+  });
+
+  it("Exeter: the served secondaries carry the marker false, and the category names its beyond from the flagged-secondary pool", async () => {
+    const bundle = await bundleFor("6 Exeter Road, E16 1GN");
+    const secondary = category(bundle, "schools-secondary");
+    expect(secondary.places.map((p) => [p.name, p.sixthForm])).toEqual([
+      ["Rokeby School", false],
+      ["Royal Docks Academy", false],
+      ["Cumberland Community School", false],
+    ]);
+    // The fixture cut holds no within-selection row near
+    // Exeter (the national three — East London Arts &
+    // Music, New City College, Oasis School 21 — are the
+    // prep's live-extract goldens), so the category takes
+    // the beyond path and names a flagged secondary under
+    // ruling 4.
+    const cat = category(bundle, "sixth-forms");
+    expect(cat.state).toBe("none-within");
+    expect(cat.places).toEqual([]);
+    expect(cat.countWithin).toBe(0);
+    expect(cat.beyondNearest).toEqual({ name: "Bexley Grammar School", miles: 5.484 });
+    expect(cat.line).toBe(
+      "none within 2 miles — nearest is Bexley Grammar School, 5.484 miles away (straight-line distance from the postcode point)",
+    );
+  });
+
+  it("Birkdale: the category's beyond name is the flagged secondary, not a within-selection row", async () => {
+    const bundle = await bundleFor("19 Birkdale Rise, CM3 2JT");
+    const secondary = category(bundle, "schools-secondary");
+    expect(secondary.places.map((p) => [p.name, p.sixthForm])).toEqual([["Lift Maltings", false]]);
+    const cat = category(bundle, "sixth-forms");
+    expect(cat.state).toBe("none-within");
+    expect(cat.countWithin).toBe(0);
+    expect(cat.beyondNearest).toEqual({ name: "Lift New Rickstones", miles: 3.212 });
+    expect(cat.line).toBe(
+      "none within 2 miles — nearest is Lift New Rickstones, 3.212 miles away (straight-line distance from the postcode point)",
+    );
   });
 });

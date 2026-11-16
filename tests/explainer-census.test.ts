@@ -511,6 +511,11 @@ class CensusNearbySource implements NearbyDataSource {
           longitude: DIR.longitude,
           detail: null,
           selective: true,
+          // The sixth-form marker (M6.33): the census
+          // walk must meet the marker leaf on a served
+          // place, so its not-a-figure clearance is
+          // exercised, not just declared.
+          sixthForm: true,
         },
       ];
     if (category === "schools-primary")

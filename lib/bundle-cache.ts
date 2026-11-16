@@ -360,10 +360,19 @@ const GUARDS: Record<
   },
 
   async nearby(db, resolution) {
-    // Every nearby filing is a runner class — its stamp
-    // moves — so the directory guard is the only extra.
-    void db;
-    return { directory: directoryGuard(resolution) };
+    return {
+      directory: directoryGuard(resolution),
+      // The schools count (M6.33, decision D64 ruling 9):
+      // the schools loader is a runner class whose stamp
+      // moves on runner runs, but schools is also the one
+      // nearby filing an operator hand-runs
+      // (`load:schools`), and a hand-run filing moves no
+      // stamp — the filed count closes that hole, on the
+      // M6.30 pattern. The count is over the whole filed
+      // table: a re-filing rewrites the table wholesale,
+      // so any movement in it can move a schools answer.
+      schoolsFiled: await countOf(db, "SELECT count(*)::int AS n FROM schools"),
+    };
   },
 
   async area(db, resolution) {
@@ -835,7 +844,17 @@ export async function buildNearbyBundleCached(
     // flag position being built for is on — an entry
     // written before the step, or under the other flag
     // position, degrades to a recompute, which is what
-    // makes the D60 flip purge-free.
+    // makes the D60 flip purge-free. The M6.33 contract
+    // extends it in the M6.24/M6.25 pattern: the categories
+    // must include the sixth-forms answer, and every place
+    // the secondary answer serves must carry the sixthForm
+    // key (the filed flag, or null where none files) — an
+    // entry written before the step degrades to a
+    // recompute rather than serving markerless secondary
+    // rows, or a bundle with no sixth-forms answer, as
+    // current. No loader stamp in the version vector moves
+    // when the step deploys (the schools filing is
+    // unchanged), so only this presence rule catches it.
     shapeOk: (bundle) => {
       if (typeof bundle !== "object" || bundle === null) return false;
       if ("industrialSites" in bundle !== industrialEnabled) return false;
@@ -849,12 +868,15 @@ export async function buildNearbyBundleCached(
         );
       const secondary = byCategory("schools-secondary");
       const maternity = byCategory("maternity");
+      const sixthForms = byCategory("sixth-forms");
       if (!(
         typeof secondary === "object" &&
         secondary !== null &&
         "nearestSelectiveLine" in secondary &&
         typeof maternity === "object" &&
-        maternity !== null
+        maternity !== null &&
+        typeof sixthForms === "object" &&
+        sixthForms !== null
       ))
         return false;
       for (const key of ["gp", "ae", "maternity"]) {
@@ -863,6 +885,11 @@ export async function buildNearbyBundleCached(
         for (const place of answer.places) {
           if (typeof place !== "object" || place === null || !("cqcRating" in place)) return false;
         }
+      }
+      const secondaryAnswer = secondary as { places?: unknown };
+      if (!Array.isArray(secondaryAnswer.places)) return false;
+      for (const place of secondaryAnswer.places) {
+        if (typeof place !== "object" || place === null || !("sixthForm" in place)) return false;
       }
       return true;
     },

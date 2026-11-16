@@ -205,6 +205,31 @@
 // recorded here so the change is never mistaken for
 // drift. (Draft state at M6.32's D58 draft; re-verified
 // at integration.)
+//
+// RE-PIN RECORD: M6.33 (decisions D51 and D64)
+// deliberately widened the frozen nearby shape — the
+// schools-secondary places gain the sixthForm marker
+// (the filed flag as filed: true, false, or null), and
+// the categories gain a twenty-second answer, "sixth
+// forms and colleges". ONE pin moved (nearby.served),
+// differing by exactly the marker on the secondary
+// category's places: the boolean variant on the nearest
+// place, the null variant on the second (this fake's
+// pins). The new category's own answer shape already
+// stood among the distinct category shapes (its places
+// carry name, miles and a filed detail string, as other
+// categories' do), so nearby.beyond-only,
+// nearby.none-anywhere and nearby.not-filed did NOT
+// move — in those modes every category's places are
+// empty and the answer shapes coincide — and the
+// rung-3/4 pins did not move (no categories record). No
+// short pin moved: the headline derivation reads names
+// and miles only and never picks the category, proven
+// by an identity test in the short-bundle suite. All 48
+// pins stand. Authorised by the founder's D51/D64
+// rulings; recorded here so the change is never mistaken
+// for drift. (Draft state at M6.33's D58 draft; the
+// integration re-verifies the leaf-diff.)
 
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -473,14 +498,20 @@ class FakeNearbySource implements NearbyDataSource {
     // rating pair (M6.25): the nearest rated, the second
     // carrying the null absence — both place variants pin.
     const rated = category === "gp" || category === "ae" || category === "maternity";
+    // The secondary points carry the sixth-form marker
+    // (M6.33): the nearest flagged true, the second
+    // carrying the null absence — both place variants pin.
+    const secondary = category === "schools-secondary";
     const base = [
       point("Nearest One", 0.1, {
         ...(category.startsWith("schools") ? { selective: false } : {}),
         ...(rated ? { cqcRating: { rating: "Good", date: "2026-01-15" } } : {}),
+        ...(secondary ? { sixthForm: true } : {}),
       }),
       point("Second One", 0.5, {
         detail: "a filed detail",
         ...(rated ? { cqcRating: null } : {}),
+        ...(secondary ? { sixthForm: null } : {}),
       }),
       point(null, 1.5),
     ];

@@ -1441,8 +1441,16 @@ export const FIGURE_PATH_PATTERNS: FigurePathPattern[] = [
 // registered above. A path here is an explicit exemption,
 // reviewed like a census entry — never a silent skip.
 export const NOT_A_FIGURE_ALLOWLIST: RegExp[] = [
-  // Structural scalars on every bundle
-  /(^|\.)(rung|kind|state|depth|grain|pointState|pctState|numberState|calculated|predicted|additionalProprietor|parishAveraged|isSingleFlat|isHomeBuilding|allOperatorsPublished|councilPublishes|selective|partOf|inside|mounting|pvTechnology|radiationDb|monthlyLabelPence|bandDMonthlyLabel|maintainerRecorded)$/,
+  // Structural scalars on every bundle. M6.33 (DRAFT
+  // state — the integration re-verifies): sixthForm, the
+  // secondary places' filed-flag marker (M6.33, D51/D64),
+  // rides this group beside selective — a filed boolean
+  // (or its null absence), not a figure; the category's
+  // distances ride the nearby.distance-miles family and
+  // its type-as-filed detail rides the names group below,
+  // so the step adds no census family (the totals stand
+  // at 88 families / 55 hard).
+  /(^|\.)(rung|kind|state|depth|grain|pointState|pctState|numberState|calculated|predicted|additionalProprietor|parishAveraged|isSingleFlat|isHomeBuilding|allOperatorsPublished|councilPublishes|selective|sixthForm|partOf|inside|mounting|pvTechnology|radiationDb|monthlyLabelPence|bandDMonthlyLabel|maintainerRecorded)$/,
   // Dates and date-like labels
   /(^|\.)(date|saleDate|registrationDate|incorporationDate|decisionDate|decisionDateLabel|sourceDate|loadedAt|month|monthLabel|windowFrom|windowTo|spanFrom|spanTo|taxYear|year|snapshot|edition|windowLine|spanLine|fromLabel|toLabel|loadState|pollutant|checkedAt|timeRaised)$/,
   // Identifiers and codes that name, not measure

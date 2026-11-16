@@ -2385,3 +2385,101 @@ Inventory within two miles, filed into `industrial_sites`
    shapeOk presence rule tying the key to the flag
    position, which is what makes the D60 flip purge-free
    (the flip drill is proven in the cache suite).
+
+## Sixth forms (M6.33, decisions D51 and D64)
+
+The nearby bundle gains a twenty-second category,
+"sixth forms and colleges", immediately after
+schools-secondary, read from the same schools filing as
+the school lists — no new loader, no new table — and
+the schools-secondary places gain the `sixthForm`
+marker: the register's filed flag as filed, true only
+on "Has a sixth form", false only on "Does not have a
+sixth form", null where the register files neither
+(never derived from age ranges). The category's
+selection is mainstream only (D64): every "16 plus"
+phase row (further education colleges, 16-19 academies
+and free schools) plus the flagged rows of every other
+phase except Secondary — special-sector types out,
+independent types out, British schools overseas out,
+Welsh establishments out, and 'Sixth form centres' /
+'Special post 16 institution' out at V1 (the first by
+construction: phase and flag both file "Not
+applicable"). Places serve name, the type as filed and
+distance — no Ofsted element (D64 ruling 5). The
+within list never repeats a school the secondary list
+serves; the category's beyond-nearest alone may draw
+on flagged secondaries (ruling 4), and only strictly
+beyond the radius.
+
+1. **The selection (pinned).** Measured on the full
+   live GIAS extract of 16 Nov 2026 (27,159 open
+   establishments — exactly the filed count): the D64
+   selection holds 410 rows nationally (the prep's
+   mainstream variant counted 456; D64's Welsh clause
+   removes its 46 Welsh rows). Composition: 207 FE
+   colleges, 82 further 16-plus rows (16-19 academies
+   and free schools among them), 95 flagged all-through
+   schools, and a tail of 26 flagged rows in other
+   phases (alternative provision and pupil referral
+   units among them — they ride the flag clause as the
+   prep's counted variant held them; D64 named no
+   exclusion for them). Secondaries file the flag
+   "Has" 1,890 of 3,173; the marker's null values file
+   as 88 "Not applicable" and 2 blank among secondaries
+   (the figure 82 sometimes quoted is the 16-plus
+   sector's own flag-Has count in the same enumeration).
+   No independent-type row files a Primary or Secondary
+   phase, so no independent school appears in any served
+   school list before or after the step.
+2. **The goldens (national, from the live extract).**
+   Minerva KT17 1FH — the category serves NESCOT alone:
+   North East Surrey College of Technology (URN
+   130822), type "Further education", phase "16 plus",
+   flag "Not applicable", 0.174 miles — it enters on the
+   phase clause alone. Exeter E16 1GN — eight within,
+   the served three East London Arts & Music (1.445),
+   New City College (1.692), Oasis School 21 (1.758, an
+   all-through school on the flag clause). Birkdale
+   CM3 2JT — none within; the beyond name is Lift New
+   Rickstones, a flagged secondary at 3.212 miles under
+   ruling 4 (the pure category rule would have named
+   Beaulieu Park School at 4.664). Markers: Minerva's
+   served secondaries all true (Glyn, Blenheim,
+   Nonsuch); Exeter's all false (Rokeby, Royal Docks,
+   Cumberland); Birkdale's Lift Maltings false.
+3. **The replay (fixture filing).** The schools fixture
+   cut holds one within-selection row (NESCOT), so the
+   replay asserts Minerva's category verbatim, the
+   markers true at Minerva and false at Exeter and
+   Birkdale, Birkdale's beyond name (Lift New
+   Rickstones, 3.212 — the fixture cut includes it, so
+   the national golden reproduces), Exeter's beyond
+   name on the fixture basis (Bexley Grammar School,
+   5.484 — the national three are not in the cut), and a
+   second ruling-4 witness at City Island (St
+   Bonaventure's RC School, 2.088). The marker's null
+   value has no witness among the fixture's served
+   secondaries; it is pinned in tests/sixth-forms
+   .test.ts and in the contracts pin (the null variant
+   on the fake's second secondary place).
+4. **Contracts.** One pin moved (nearby.served),
+   differing by exactly the marker's two variants on the
+   secondary places; the new category's answer shape
+   already stood among the distinct category shapes, so
+   nearby.beyond-only, nearby.none-anywhere and
+   nearby.not-filed did not move, nor did the rung pins
+   or any short pin — the short bundle is identical with
+   the category removed and the marker stripped, proven
+   in the short-bundle suite. 48 pins stand, with the
+   re-pin record in tests/bundle-contracts.test.ts. The
+   explainer census gains no family — the marker's field
+   name joins the not-a-figure allowlist beside
+   `selective`, the distances ride
+   nearby.distance-miles and the type-as-filed detail
+   the names group: 88 families / 55 hard stand. The
+   cache gains the `schoolsFiled` guard on the nearby
+   version vector (D64 ruling 9 — a hand-run
+   `load:schools` moves no runner stamp; the count
+   closes the hole, the M6.30 pattern) and the shapeOk
+   presence rules for the category and the marker key.

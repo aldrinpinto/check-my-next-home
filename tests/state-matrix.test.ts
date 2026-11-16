@@ -417,6 +417,7 @@ class MatrixNearbySource implements NearbyDataSource {
 const ALL_CATEGORIES: NearbyCategory[] = [
   "schools-primary",
   "schools-secondary",
+  "sixth-forms",
   "nurseries",
   "gp",
   "dentist",
@@ -543,6 +544,40 @@ describe("matrix — nearby", () => {
     expect(answer.state).toBe("none-within");
     expect(answer.beyondNearest).toBeNull();
     expect(answer.line).toBe("no GP surgeries within 2 miles of the postcode point");
+  });
+
+  it("sixth forms and colleges (M6.33, D51/D64): within, none-within and not-filed in the category's own words", async () => {
+    const withinSource = new MatrixNearbySource();
+    filedEverywhere(withinSource);
+    withinSource.points.set("sixth-forms", [
+      { ...northOf(ENG_DIR, "A College", 0.5), detail: "Further education" },
+    ]);
+    const within = await categoryOf(withinSource, "sixth-forms");
+    expect(within.answer.label).toBe("sixth forms and colleges");
+    expect(within.answer.state).toBe("within");
+    expect(within.answer.places[0]?.name).toBe("A College");
+    expect(within.answer.places[0]?.detail).toBe("Further education");
+    expect(within.answer.line).toBeNull();
+
+    const noneSource = new MatrixNearbySource();
+    filedEverywhere(noneSource);
+    noneSource.nearest.set("sixth-forms", northOf(ENG_DIR, "Far College", 3.208));
+    const none = await categoryOf(noneSource, "sixth-forms");
+    expect(none.answer.state).toBe("none-within");
+    expect(none.answer.beyondNearest?.name).toBe("Far College");
+    expect(none.answer.beyondNearest?.miles).toBeCloseTo(3.208, 1);
+    expect(none.answer.line).toContain("none within 2 miles — nearest is Far College");
+
+    const unfiledSource = new MatrixNearbySource();
+    filedEverywhere(unfiledSource);
+    unfiledSource.filed.set("sixth-forms", 0);
+    const unfiled = await categoryOf(unfiledSource, "sixth-forms");
+    expect(unfiled.answer.state).toBe("not-filed");
+    expect(unfiled.answer.line).toBe(
+      "the sixth forms and colleges data is not filed yet, so no sixth forms and colleges answer can be given yet",
+    );
+    expect(unfiled.answer.places).toEqual([]);
+    expectClean(unfiled.bundle);
   });
 });
 

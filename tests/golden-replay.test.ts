@@ -953,6 +953,106 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
     expect(JSON.stringify(stored.short)).not.toContain("Pollution Inventory");
   });
 
+  it("sixth forms (M6.33, D51/D64): the category and the marker serve through the real source on the fixture filing", () => {
+    const nearby = (tag: string) => {
+      const n = get(tag).nearby;
+      if (n.kind !== "distances") throw new Error(`${tag}: expected distances`);
+      return n;
+    };
+    const category = (tag: string, key: string) => {
+      const found = nearby(tag).categories.find((c) => c.category === key);
+      if (!found) throw new Error(`${tag}: no ${key} answer`);
+      return found;
+    };
+    // The replay world files the fixture cut of the
+    // register (70 rows around the golden homes): the
+    // only within-selection row it holds is NESCOT, so
+    // most homes take the beyond path — the national
+    // outcomes (Exeter's three within; 410 rows selected)
+    // are the prep's live-extract goldens, recorded in
+    // docs/backend-m6.33.md.
+    expect(nearby("birkdale1").categories).toHaveLength(22);
+    expect(
+      nearby("birkdale1")
+        .categories.map((c) => c.category)
+        .slice(0, 3),
+    ).toEqual(["schools-primary", "schools-secondary", "sixth-forms"]);
+
+    // Minerva: NESCOT alone within the radius, on the
+    // phase clause (its filed flag is "Not applicable"),
+    // serving name, type as filed, distance.
+    const minervaCat = category("minerva1", "sixth-forms");
+    expect(minervaCat.state).toBe("within");
+    expect(minervaCat.countWithin).toBe(1);
+    expect(minervaCat.places).toHaveLength(1);
+    expect(minervaCat.places[0]?.name).toBe("North East Surrey College of Technology");
+    expect(minervaCat.places[0]?.detail).toBe("Further education");
+    expect(Math.abs((minervaCat.places[0]?.miles ?? 0) - 0.174)).toBeLessThan(0.005);
+    expect(minervaCat.places[0]).not.toHaveProperty("sixthForm");
+
+    // The marker on the served secondaries, as filed:
+    // Minerva's three all file "Has a sixth form".
+    expect(
+      category("minerva1", "schools-secondary").places.map((p) => [p.name, p.sixthForm]),
+    ).toEqual([
+      ["Glyn School", true],
+      ["Blenheim High School", true],
+      ["Nonsuch High School for Girls", true],
+    ]);
+    // Exeter's three all file "Does not have a sixth
+    // form"; Birkdale's one files the same.
+    expect(
+      category("exeter1", "schools-secondary").places.map((p) => [p.name, p.sixthForm]),
+    ).toEqual([
+      ["Rokeby School", false],
+      ["Royal Docks Academy", false],
+      ["Cumberland Community School", false],
+    ]);
+    expect(
+      category("birkdale1", "schools-secondary").places.map((p) => [p.name, p.sixthForm]),
+    ).toEqual([["Lift Maltings", false]]);
+    // The marker's null value has no witness among the
+    // fixture's served secondaries (every one files Has
+    // or Does-not); it is pinned in tests/sixth-forms
+    // .test.ts and in the contracts pin. Here the key's
+    // presence is asserted on every served secondary at
+    // every golden home.
+    for (const tag of Object.keys(HOMES)) {
+      const n = get(tag).nearby;
+      if (n.kind !== "distances") continue;
+      const secondary = n.categories.find((c) => c.category === "schools-secondary");
+      for (const place of secondary?.places ?? []) expect(place).toHaveProperty("sixthForm");
+    }
+
+    // Birkdale: nothing within on the fixture filing;
+    // the beyond name is the flagged secondary the D64
+    // ruling names nationally — Lift New Rickstones,
+    // 3.212 miles — drawn from the wider pool (ruling 4).
+    const birkdaleCat = category("birkdale1", "sixth-forms");
+    expect(birkdaleCat.state).toBe("none-within");
+    expect(birkdaleCat.countWithin).toBe(0);
+    expect(birkdaleCat.beyondNearest?.name).toBe("Lift New Rickstones");
+    expect(Math.abs((birkdaleCat.beyondNearest?.miles ?? 0) - 3.212)).toBeLessThan(0.005);
+    expect(birkdaleCat.line).toContain("nearest is Lift New Rickstones");
+
+    // Exeter: the beyond path on the fixture filing
+    // names Bexley Grammar School, a flagged secondary —
+    // the national within three are not in the fixture
+    // cut (see the note above).
+    const exeterCat = category("exeter1", "sixth-forms");
+    expect(exeterCat.state).toBe("none-within");
+    expect(exeterCat.beyondNearest?.name).toBe("Bexley Grammar School");
+    expect(Math.abs((exeterCat.beyondNearest?.miles ?? 0) - 5.484)).toBeLessThan(0.005);
+
+    // City Island: a second ruling-4 witness through the
+    // real source — St Bonaventure's RC School, a flagged
+    // secondary just beyond the radius.
+    const cityCat = category("cityIsland2", "sixth-forms");
+    expect(cityCat.state).toBe("none-within");
+    expect(cityCat.beyondNearest?.name).toBe("St Bonaventure's RC School");
+    expect(Math.abs((cityCat.beyondNearest?.miles ?? 0) - 2.088)).toBeLessThan(0.005);
+  });
+
   it("live flood warnings + school deadlines (M6.22, D42): composition over the real flood source; the deadline line at the regional witnesses", async () => {
     // The two EA alerts captured live at the step's first
     // contact, replayed through the fake warning source

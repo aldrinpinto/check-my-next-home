@@ -77,12 +77,14 @@
             "detail": "null",
             "miles": "number",
             "name": "string",
-            "selective": "boolean"
+            "selective": "boolean",
+            "sixthForm": "boolean"
           },
           {
             "detail": "string",
             "miles": "number",
-            "name": "string"
+            "name": "string",
+            "sixthForm": "null"
           }
         ],
         "state": "string"

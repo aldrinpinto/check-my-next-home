@@ -106,6 +106,36 @@ import { INDUSTRIAL_SITES_ENABLED } from "./site";
 // only: the short bundle's derivation never reads the
 // block, so the short answer is byte-identical with the
 // flag on or off.
+//
+// Sixth-form serving (M6.33, decisions D51 and D64): a
+// twenty-second category, "sixth forms and colleges",
+// read from the SAME schools filing as the school lists —
+// no new loader, no new table. Its selection is the
+// register's own sixth-form evidence, mainstream only:
+// every "16 plus" phase row (further education colleges,
+// 16-19 academies and free schools) plus the rows of any
+// other phase except Secondary whose filed sixth-form
+// flag reads "Has a sixth form" (all-through schools
+// among them) — special-sector types are out (D64),
+// independent types are out, Welsh establishments are
+// out, and the 'Sixth form centres' and 'Special post 16
+// institution' types are out at V1. Places serve name,
+// the type as filed, and distance — no Ofsted element
+// (the filed join carries almost none for 16-plus
+// provision). The within list never repeats a school the
+// secondary list serves; the category's beyond-nearest,
+// alone in the brain, may draw on flagged secondaries
+// (D64 ruling 4) — the nearest sixth-form evidence
+// beyond the radius, named from the wider pool. The
+// schools-secondary places themselves gain a marker:
+// sixthForm, the filed flag as filed — true only on
+// "Has a sixth form", false only on "Does not have a
+// sixth form", null where the register files neither —
+// never derived from age ranges (the register contradicts
+// its own age ranges in a minority of rows, and the flag
+// is the fact). Report depth only: the short bundle's
+// six headline categories (D28) are unchanged, and its
+// derivation never reads the marker or the category.
 
 export const DISTANCE_BASIS_LABEL = "straight-line distance from the postcode point";
 export const RADIUS_MILES = 2;
@@ -132,6 +162,7 @@ function round3(miles: number): number {
 export type NearbyCategory =
   | "schools-primary"
   | "schools-secondary"
+  | "sixth-forms"
   | "nurseries"
   | "gp"
   | "dentist"
@@ -183,6 +214,12 @@ export type NearbyPoint = {
   // category's points — dentists and pharmacies file no
   // ratings, so their points never carry the field.
   cqcRating?: CqcRating | null;
+  // Secondary schools only (M6.33, D51/D64): the filed
+  // sixth-form flag as filed — true on "Has a sixth
+  // form", false on "Does not have a sixth form", null
+  // where the register files neither. Absent entirely on
+  // every other category's points.
+  sixthForm?: boolean | null;
 };
 
 // The brain's read port over the filed point tables — the same
@@ -264,6 +301,12 @@ export type NearbyPlace = {
   // category's places: dentists and pharmacies serve
   // exactly as they did before the step.
   cqcRating?: CqcRating | null;
+  // Secondary schools only (M6.33, D51/D64): the filed
+  // sixth-form flag as filed, present on every place the
+  // secondary category serves — true, false, or null
+  // where the register files neither value. Never
+  // present on any other category's places.
+  sixthForm?: boolean | null;
 };
 
 export type CategoryState = "within" | "none-within" | "empty-map" | "empty" | "not-filed";
@@ -577,6 +620,16 @@ const CATEGORIES: { key: NearbyCategory; spec: CategorySpec }[] = [
     key: "schools-secondary",
     spec: { label: "secondary schools", essential: true, emptyKind: "ground" },
   },
+  {
+    key: "sixth-forms",
+    // Sixth forms and colleges (M6.33, D51/D64): an
+    // essential education answer in the secondary
+    // family's slot — absence stated as a ground fact,
+    // with the single nearest named beyond the radius
+    // from the category's wider beyond pool (see
+    // CATEGORY_NEAREST_SQL).
+    spec: { label: "sixth forms and colleges", essential: true, emptyKind: "ground" },
+  },
   { key: "nurseries", spec: { label: "nurseries", essential: false, emptyKind: "register" } },
   { key: "gp", spec: { label: "GP surgeries", essential: true, emptyKind: "ground" } },
   { key: "dentist", spec: { label: "dentists", essential: true, emptyKind: "ground" } },
@@ -676,6 +729,12 @@ async function buildCategory(
     // never set for any other category, whatever the
     // source hands over.
     if (RATED_CATEGORIES.has(key)) place.cqcRating = m.point.cqcRating ?? null;
+    // The sixth-form marker is the secondary category's
+    // own (M6.33, D51/D64): present on every place it
+    // serves — the filed flag as filed (true, false, or
+    // null) — and never set for any other category,
+    // whatever the source hands over.
+    if (key === "schools-secondary") place.sixthForm = m.point.sixthForm ?? null;
     return place;
   });
   const answer: CategoryAnswer = {
@@ -783,7 +842,12 @@ export async function buildNearbyBundle(
 // One base SELECT per category over the filed tables (the
 // loaders own the filing rules; this is only the read shape).
 // Every query yields name / latitude / longitude / detail /
-// selective so the mapping below is uniform. The three
+// selective so the mapping below is uniform. The
+// schools-secondary query additionally yields the filed
+// sixth-form flag mapped to the marker's three values by
+// a CASE over the flag's own words (M6.33, D64 ruling 7):
+// any other filed value — "Not applicable", or no value
+// at all — yields NULL, the marker's named absence. The three
 // health queries (gp, ae, maternity) additionally yield the
 // location's filed CQC rating pair (M6.25) through a LEFT
 // JOIN on the loader's own filed link — cqc_ratings files
@@ -799,8 +863,40 @@ const CATEGORY_SQL: Record<NearbyCategory, string> = {
       (admissions_policy = 'Selective') AS selective
     FROM schools WHERE phase = 'Primary' AND geom IS NOT NULL`,
   "schools-secondary": `SELECT name, latitude, longitude, NULL::text AS detail,
-      (admissions_policy = 'Selective') AS selective
+      (admissions_policy = 'Selective') AS selective,
+      CASE sixth_form
+        WHEN 'Has a sixth form' THEN true
+        WHEN 'Does not have a sixth form' THEN false
+      END AS sixth_form
     FROM schools WHERE phase = 'Secondary' AND geom IS NOT NULL`,
+  // Sixth forms and colleges (M6.33, D51/D64): the
+  // register's sixth-form evidence, mainstream only. The
+  // phase clause takes every "16 plus" row — further
+  // education colleges, 16-19 academies and free schools
+  // (their flag mostly files "Not applicable": the phase
+  // is the evidence, as NESCOT at the Minerva golden
+  // proves); the flag clause takes the flagged rows of
+  // every other phase except Secondary — all-through
+  // schools among them — so a school the secondary list
+  // serves never repeats here. The type exclusions are
+  // D64's: no special-sector type (any type naming
+  // "special", which also takes out 'Special post 16
+  // institution'), no independent type, no British
+  // schools overseas, no Welsh establishments; 'Sixth
+  // form centres' file phase and flag both "Not
+  // applicable", so the two clauses already leave them
+  // out — ruling 8 holds by construction. The served
+  // detail is the type as filed (D64 ruling 5).
+  "sixth-forms": `SELECT name, latitude, longitude, school_type AS detail,
+      NULL::boolean AS selective
+    FROM schools
+    WHERE (phase = '16 plus'
+        OR (sixth_form = 'Has a sixth form' AND phase IS DISTINCT FROM 'Secondary'))
+      AND school_type NOT ILIKE '%special%'
+      AND school_type NOT ILIKE '%independent%'
+      AND school_type <> 'British schools overseas'
+      AND school_type <> 'Welsh establishment'
+      AND geom IS NOT NULL`,
   nurseries: `SELECT name, latitude, longitude, NULL::text AS detail,
       NULL::boolean AS selective
     FROM nurseries WHERE geom IS NOT NULL`,
@@ -884,6 +980,29 @@ const CATEGORY_SQL: Record<NearbyCategory, string> = {
     FROM greenspace_points WHERE point_role = 'centre' AND geom IS NOT NULL`,
 };
 
+// Per-category overrides for the beyond read (nearestPoint),
+// where the pool the beyond name may be drawn from is wider
+// than the within selection. Only sixth-forms has one
+// (M6.33, D64 ruling 4): the beyond pool is the within
+// selection UNION the flagged secondaries — algebraically
+// (phase = '16 plus' OR the flag reads "Has a sixth form"),
+// under the same D64 type exclusions. The within list
+// itself stays duplication-free: a flagged secondary
+// serves in the secondary list and is named here only
+// when it is the nearest sixth-form evidence beyond the
+// radius and nothing in the within selection is.
+const CATEGORY_NEAREST_SQL: Partial<Record<NearbyCategory, string>> = {
+  "sixth-forms": `SELECT name, latitude, longitude, school_type AS detail,
+      NULL::boolean AS selective
+    FROM schools
+    WHERE (phase = '16 plus' OR sixth_form = 'Has a sixth form')
+      AND school_type NOT ILIKE '%special%'
+      AND school_type NOT ILIKE '%independent%'
+      AND school_type <> 'British schools overseas'
+      AND school_type <> 'Welsh establishment'
+      AND geom IS NOT NULL`,
+};
+
 function toPoint(row: Record<string, unknown>): NearbyPoint {
   const point: NearbyPoint = {
     name: typeof row.name === "string" ? row.name : null,
@@ -904,6 +1023,13 @@ function toPoint(row: Record<string, unknown>): NearbyPoint {
             date: typeof row.cqc_rating_date === "string" ? row.cqc_rating_date : null,
           }
         : null;
+  }
+  // The secondary query yields the marker column (the
+  // CASE's true, false, or NULL); every other category's
+  // query does not select it, so the field stays absent
+  // there by construction.
+  if ("sixth_form" in row) {
+    point.sixthForm = typeof row.sixth_form === "boolean" ? row.sixth_form : null;
   }
   return point;
 }
@@ -936,10 +1062,20 @@ export function createNearbySource(db: AddressQueryable): NearbyDataSource {
       return result.rows.map(toPoint);
     },
     async nearestPoint(category, latitude, longitude) {
+      // The sixth-forms beyond read (M6.33, D64 ruling 4)
+      // draws on a wider pool than its within selection,
+      // so its nearest overall can sit INSIDE the radius —
+      // a flagged secondary the within list deliberately
+      // does not repeat. A beyond name inside the radius
+      // would contradict the line it rides on, so this
+      // read takes a wider distance-ordered window and
+      // keeps only points strictly beyond the radius on
+      // the brain's own haversine basis.
+      const beyondOnly = category === "sixth-forms";
       const result = await db.query(
-        `${CATEGORY_SQL[category]}
+        `${CATEGORY_NEAREST_SQL[category] ?? CATEGORY_SQL[category]}
          ORDER BY geom <-> ST_SetSRID(ST_MakePoint($1, $2), 4326)
-         LIMIT 8`,
+         LIMIT ${beyondOnly ? 64 : 8}`,
         [longitude, latitude],
       );
       let best: NearbyPoint | null = null;
@@ -947,6 +1083,7 @@ export function createNearbySource(db: AddressQueryable): NearbyDataSource {
       for (const row of result.rows) {
         const point = toPoint(row);
         const miles = haversineMiles(latitude, longitude, point.latitude, point.longitude);
+        if (beyondOnly && miles <= RADIUS_MILES) continue;
         if (miles < bestMiles) {
           bestMiles = miles;
           best = point;
