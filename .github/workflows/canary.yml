@@ -40,4 +40,5 @@ jobs:
       - name: Run the canary
         env:
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          OPEN_CHARGE_MAP_API_KEY: ${{ secrets.OPEN_CHARGE_MAP_API_KEY }}
         run: npm run canary
