@@ -7,6 +7,13 @@ without re-deriving the loader's CQC ratings aggregation inline
 (that pipeline is the loader's own, proven by
 `tests/load-health.test.ts`).
 
+`health-ratings.json` — the `cqc_ratings` rows from the same
+filing (added at M6.25, when the brain began serving them),
+keyed by the rated point's ODS code: the portable form of the
+loader's filed `health_point_id` link. One row per rated point
+(499 in this capture: 494 on GP practice points, 5 on hospital
+points; none on branch surgeries, dentists or pharmacies).
+
 Provenance: generated 14 Nov 2026 by running the loader in
 fixture mode against the local PGlite rehearsal database and
 dumping the filed table:
@@ -18,6 +25,10 @@ SELECT service_type, ods_code, name, parent_ods_code,
        has_emergency_department, cqc_population_groups,
        latitude, longitude
 FROM health_points ORDER BY service_type, ods_code
+SELECT hp.ods_code, cr.cqc_location_id, cr.rating,
+       cr.rating_date::text AS rating_date, cr.report_url
+FROM cqc_ratings cr JOIN health_points hp ON hp.id = cr.health_point_id
+ORDER BY hp.ods_code
 ```
 
 Regenerated 16 Nov 2026 for M6.24 with the same recipe: the
@@ -26,6 +37,10 @@ only change against the previous capture is the added
 pre-existing field is identical, and exactly the four
 hospitals whose ratings rows carry a Maternity group
 (R1HNH, RAJ32, RVR05, RVR50) file it.
+
+The ratings capture was added 16 Nov 2026 for M6.25 from the
+same filing (the loader reported 499 ratings joined, golden
+homes OK): the points capture is unchanged.
 
 The run filed 2,322 rows (522 practices, 133 branch surgeries,
 834 pharmacies, 779 dentists, 54 hospitals) from the ODS

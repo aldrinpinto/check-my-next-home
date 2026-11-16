@@ -466,6 +466,19 @@ class CensusNearbySource implements NearbyDataSource {
           detail: null,
         },
       ];
+    // A rated GP point (M6.25): the census walk must meet
+    // the rating leaf on a served place, so the
+    // registration is exercised, not just declared.
+    if (category === "gp")
+      return [
+        {
+          name: "Village Surgery",
+          latitude: DIR.latitude + 0.4 / 69.0,
+          longitude: DIR.longitude,
+          detail: null,
+          cqcRating: { rating: "Good", date: "2026-01-15" },
+        },
+      ];
     return [];
   }
   async nearestPoint() {
@@ -607,12 +620,12 @@ type Golden = Awaited<ReturnType<typeof goldenBundles>>;
 // ------------------------------------------------------------------
 
 describe("explainer census — the register", () => {
-  it("enumerates the census: 78 families (71 to M6.20, rows 72–75 added at M6.21, rows 76–78 at M6.22), 46 hard, ids unique and stable in row order", () => {
-    expect(EXPLAINER_CENSUS).toHaveLength(78);
+  it("enumerates the census: 79 families (71 to M6.20, rows 72–75 added at M6.21, rows 76–78 at M6.22, row 79 at M6.25), 46 hard, ids unique and stable in row order", () => {
+    expect(EXPLAINER_CENSUS).toHaveLength(79);
     expect(EXPLAINER_CENSUS.map((entry) => entry.row)).toEqual(
-      Array.from({ length: 78 }, (_, i) => i + 1),
+      Array.from({ length: 79 }, (_, i) => i + 1),
     );
-    expect(new Set(EXPLAINER_CENSUS.map((entry) => entry.id)).size).toBe(78);
+    expect(new Set(EXPLAINER_CENSUS.map((entry) => entry.id)).size).toBe(79);
     expect(EXPLAINER_CENSUS.filter((entry) => entry.hardness === "hard")).toHaveLength(46);
     // Every figure-path pattern names census ids that exist.
     const ids = new Set(EXPLAINER_CENSUS.map((entry) => entry.id));
@@ -832,6 +845,12 @@ describe("explainer census — direction two (self ⇒ no note field)", () => {
       ["area.census.table-counts", b.area.sections.census.tables[0]?.rows[0]],
       ["area.epc.floor-area", b.area.sections.epc.certificates[0]],
       ["nearby.detail-facts", b.nearby.categories[0]?.places[0]],
+      // The CQC rating object (row 79, self): the
+      // regulator's word carries no note of ours.
+      [
+        "nearby.cqc-rating",
+        b.nearby.categories.find((c) => c.category === "gp")?.places[0]?.cqcRating,
+      ],
     ];
     for (const [id, obj] of selfObjects) {
       if (typeof obj !== "object" || obj === null) throw new Error(`no object for ${id}`);

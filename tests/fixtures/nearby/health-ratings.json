@@ -1,0 +1,3495 @@
+[
+ {
+  "ods_code": "1-128733123",
+  "cqc_location_id": "1-128733123",
+  "rating": "Good",
+  "rating_date": "2026-08-26",
+  "report_url": "http://www.cqc.org.uk/location/1-128733123"
+ },
+ {
+  "ods_code": "E87066",
+  "cqc_location_id": "1-10015733020",
+  "rating": "Good",
+  "rating_date": "2024-01-03",
+  "report_url": "http://www.cqc.org.uk/location/1-10015733020"
+ },
+ {
+  "ods_code": "E87069",
+  "cqc_location_id": "1-553864576",
+  "rating": "Good",
+  "rating_date": "2026-04-29",
+  "report_url": "http://www.cqc.org.uk/location/1-553864576"
+ },
+ {
+  "ods_code": "E87714",
+  "cqc_location_id": "1-9012708041",
+  "rating": "Good",
+  "rating_date": "2021-12-31",
+  "report_url": "http://www.cqc.org.uk/location/1-9012708041"
+ },
+ {
+  "ods_code": "E87739",
+  "cqc_location_id": "1-547739555",
+  "rating": "Good",
+  "rating_date": "2016-10-19",
+  "report_url": "http://www.cqc.org.uk/location/1-547739555"
+ },
+ {
+  "ods_code": "E87740",
+  "cqc_location_id": "1-548202361",
+  "rating": "Outstanding",
+  "rating_date": "2022-10-06",
+  "report_url": "http://www.cqc.org.uk/location/1-548202361"
+ },
+ {
+  "ods_code": "E87772",
+  "cqc_location_id": "1-12565559770",
+  "rating": "Good",
+  "rating_date": "2021-12-10",
+  "report_url": "http://www.cqc.org.uk/location/1-12565559770"
+ },
+ {
+  "ods_code": "F81011",
+  "cqc_location_id": "1-8055053718",
+  "rating": "Good",
+  "rating_date": "2023-09-08",
+  "report_url": "http://www.cqc.org.uk/location/1-8055053718"
+ },
+ {
+  "ods_code": "F81022",
+  "cqc_location_id": "1-541720941",
+  "rating": "Good",
+  "rating_date": "2017-07-10",
+  "report_url": "http://www.cqc.org.uk/location/1-541720941"
+ },
+ {
+  "ods_code": "F81030",
+  "cqc_location_id": "1-559576290",
+  "rating": "Good",
+  "rating_date": "2015-11-12",
+  "report_url": "http://www.cqc.org.uk/location/1-559576290"
+ },
+ {
+  "ods_code": "F81062",
+  "cqc_location_id": "1-548936644",
+  "rating": "Good",
+  "rating_date": "2018-04-27",
+  "report_url": "http://www.cqc.org.uk/location/1-548936644"
+ },
+ {
+  "ods_code": "F81071",
+  "cqc_location_id": "1-547773961",
+  "rating": "Good",
+  "rating_date": "2017-06-27",
+  "report_url": "http://www.cqc.org.uk/location/1-547773961"
+ },
+ {
+  "ods_code": "F81083",
+  "cqc_location_id": "1-558401507",
+  "rating": "Good",
+  "rating_date": "2017-03-10",
+  "report_url": "http://www.cqc.org.uk/location/1-558401507"
+ },
+ {
+  "ods_code": "F81099",
+  "cqc_location_id": "1-559678013",
+  "rating": "Good",
+  "rating_date": "2017-06-30",
+  "report_url": "http://www.cqc.org.uk/location/1-559678013"
+ },
+ {
+  "ods_code": "F81100",
+  "cqc_location_id": "1-2822396194",
+  "rating": "Good",
+  "rating_date": "2024-09-18",
+  "report_url": "http://www.cqc.org.uk/location/1-2822396194"
+ },
+ {
+  "ods_code": "F81105",
+  "cqc_location_id": "1-567768266",
+  "rating": "Good",
+  "rating_date": "2016-12-22",
+  "report_url": "http://www.cqc.org.uk/location/1-567768266"
+ },
+ {
+  "ods_code": "F81114",
+  "cqc_location_id": "1-581797350",
+  "rating": "Good",
+  "rating_date": "2015-12-24",
+  "report_url": "http://www.cqc.org.uk/location/1-581797350"
+ },
+ {
+  "ods_code": "F81117",
+  "cqc_location_id": "1-21090659290",
+  "rating": "Good",
+  "rating_date": "2019-12-02",
+  "report_url": "http://www.cqc.org.uk/location/1-21090659290"
+ },
+ {
+  "ods_code": "F81122",
+  "cqc_location_id": "1-566501076",
+  "rating": "Good",
+  "rating_date": "2016-07-07",
+  "report_url": "http://www.cqc.org.uk/location/1-566501076"
+ },
+ {
+  "ods_code": "F81149",
+  "cqc_location_id": "1-2820701716",
+  "rating": "Good",
+  "rating_date": "2019-04-05",
+  "report_url": "http://www.cqc.org.uk/location/1-2820701716"
+ },
+ {
+  "ods_code": "F81173",
+  "cqc_location_id": "1-4616244080",
+  "rating": "Good",
+  "rating_date": "2026-07-17",
+  "report_url": "http://www.cqc.org.uk/location/1-4616244080"
+ },
+ {
+  "ods_code": "F81193",
+  "cqc_location_id": "1-9773862088",
+  "rating": "Good",
+  "rating_date": "2021-09-27",
+  "report_url": "http://www.cqc.org.uk/location/1-9773862088"
+ },
+ {
+  "ods_code": "F81665",
+  "cqc_location_id": "1-6581314848",
+  "rating": "Good",
+  "rating_date": "2022-10-13",
+  "report_url": "http://www.cqc.org.uk/location/1-6581314848"
+ },
+ {
+  "ods_code": "F81674",
+  "cqc_location_id": "1-19898620850",
+  "rating": "Good",
+  "rating_date": "2022-12-07",
+  "report_url": "http://www.cqc.org.uk/location/1-19898620850"
+ },
+ {
+  "ods_code": "F82001",
+  "cqc_location_id": "1-584799345",
+  "rating": "Requires improvement",
+  "rating_date": "2022-09-13",
+  "report_url": "http://www.cqc.org.uk/location/1-584799345"
+ },
+ {
+  "ods_code": "F82005",
+  "cqc_location_id": "1-537602333",
+  "rating": "Good",
+  "rating_date": "2017-04-26",
+  "report_url": "http://www.cqc.org.uk/location/1-537602333"
+ },
+ {
+  "ods_code": "F82015",
+  "cqc_location_id": "1-544348179",
+  "rating": "Good",
+  "rating_date": "2019-07-19",
+  "report_url": "http://www.cqc.org.uk/location/1-544348179"
+ },
+ {
+  "ods_code": "F82017",
+  "cqc_location_id": "1-3234326755",
+  "rating": "Good",
+  "rating_date": "2018-07-25",
+  "report_url": "http://www.cqc.org.uk/location/1-3234326755"
+ },
+ {
+  "ods_code": "F82018",
+  "cqc_location_id": "1-546149998",
+  "rating": "Requires improvement",
+  "rating_date": "2022-04-12",
+  "report_url": "http://www.cqc.org.uk/location/1-546149998"
+ },
+ {
+  "ods_code": "F82019",
+  "cqc_location_id": "1-609934909",
+  "rating": "Good",
+  "rating_date": "2021-08-31",
+  "report_url": "http://www.cqc.org.uk/location/1-609934909"
+ },
+ {
+  "ods_code": "F82025",
+  "cqc_location_id": "1-582326413",
+  "rating": "Good",
+  "rating_date": "2026-08-24",
+  "report_url": "http://www.cqc.org.uk/location/1-582326413"
+ },
+ {
+  "ods_code": "F82027",
+  "cqc_location_id": "1-22158619315",
+  "rating": "Good",
+  "rating_date": "2025-12-08",
+  "report_url": "http://www.cqc.org.uk/location/1-22158619315"
+ },
+ {
+  "ods_code": "F82034",
+  "cqc_location_id": "1-24857954416",
+  "rating": "Good",
+  "rating_date": "2022-10-20",
+  "report_url": "http://www.cqc.org.uk/location/1-24857954416"
+ },
+ {
+  "ods_code": "F82038",
+  "cqc_location_id": "1-584952137",
+  "rating": "Good",
+  "rating_date": "2019-03-20",
+  "report_url": "http://www.cqc.org.uk/location/1-584952137"
+ },
+ {
+  "ods_code": "F82040",
+  "cqc_location_id": "1-626549300",
+  "rating": "Good",
+  "rating_date": "2017-04-06",
+  "report_url": "http://www.cqc.org.uk/location/1-626549300"
+ },
+ {
+  "ods_code": "F82042",
+  "cqc_location_id": "1-583969135",
+  "rating": "Good",
+  "rating_date": "2026-06-25",
+  "report_url": "http://www.cqc.org.uk/location/1-583969135"
+ },
+ {
+  "ods_code": "F82051",
+  "cqc_location_id": "1-559160107",
+  "rating": "Requires improvement",
+  "rating_date": "2022-10-26",
+  "report_url": "http://www.cqc.org.uk/location/1-559160107"
+ },
+ {
+  "ods_code": "F82604",
+  "cqc_location_id": "1-13451958887",
+  "rating": "Good",
+  "rating_date": "2022-07-11",
+  "report_url": "http://www.cqc.org.uk/location/1-13451958887"
+ },
+ {
+  "ods_code": "F82612",
+  "cqc_location_id": "1-567937486",
+  "rating": "Good",
+  "rating_date": "2017-01-23",
+  "report_url": "http://www.cqc.org.uk/location/1-567937486"
+ },
+ {
+  "ods_code": "F82625",
+  "cqc_location_id": "1-2793694187",
+  "rating": "Good",
+  "rating_date": "2026-04-07",
+  "report_url": "http://www.cqc.org.uk/location/1-2793694187"
+ },
+ {
+  "ods_code": "F82634",
+  "cqc_location_id": "1-2687718289",
+  "rating": "Good",
+  "rating_date": "2019-10-18",
+  "report_url": "http://www.cqc.org.uk/location/1-2687718289"
+ },
+ {
+  "ods_code": "F82642",
+  "cqc_location_id": "1-542030223",
+  "rating": "Good",
+  "rating_date": "2017-10-12",
+  "report_url": "http://www.cqc.org.uk/location/1-542030223"
+ },
+ {
+  "ods_code": "F82647",
+  "cqc_location_id": "1-27109768921",
+  "rating": "Inadequate",
+  "rating_date": "2023-05-11",
+  "report_url": "http://www.cqc.org.uk/location/1-27109768921"
+ },
+ {
+  "ods_code": "F82650",
+  "cqc_location_id": "1-540761669",
+  "rating": "Good",
+  "rating_date": "2026-06-02",
+  "report_url": "http://www.cqc.org.uk/location/1-540761669"
+ },
+ {
+  "ods_code": "F82660",
+  "cqc_location_id": "1-15976778707",
+  "rating": "Good",
+  "rating_date": "2025-06-26",
+  "report_url": "http://www.cqc.org.uk/location/1-15976778707"
+ },
+ {
+  "ods_code": "F82661",
+  "cqc_location_id": "1-548317352",
+  "rating": "Good",
+  "rating_date": "2026-08-12",
+  "report_url": "http://www.cqc.org.uk/location/1-548317352"
+ },
+ {
+  "ods_code": "F82677",
+  "cqc_location_id": "1-20397718723",
+  "rating": "Inadequate",
+  "rating_date": "2022-09-26",
+  "report_url": "http://www.cqc.org.uk/location/1-20397718723"
+ },
+ {
+  "ods_code": "F82678",
+  "cqc_location_id": "1-529661202",
+  "rating": "Good",
+  "rating_date": "2026-07-21",
+  "report_url": "http://www.cqc.org.uk/location/1-529661202"
+ },
+ {
+  "ods_code": "F82680",
+  "cqc_location_id": "1-3182924246",
+  "rating": "Good",
+  "rating_date": "2021-10-15",
+  "report_url": "http://www.cqc.org.uk/location/1-3182924246"
+ },
+ {
+  "ods_code": "F82686",
+  "cqc_location_id": "1-13421652447",
+  "rating": "Good",
+  "rating_date": "2026-03-19",
+  "report_url": "http://www.cqc.org.uk/location/1-13421652447"
+ },
+ {
+  "ods_code": "F83002",
+  "cqc_location_id": "1-547455868",
+  "rating": "Good",
+  "rating_date": "2016-04-08",
+  "report_url": "http://www.cqc.org.uk/location/1-547455868"
+ },
+ {
+  "ods_code": "F83006",
+  "cqc_location_id": "1-597402907",
+  "rating": "Good",
+  "rating_date": "2018-11-13",
+  "report_url": "http://www.cqc.org.uk/location/1-597402907"
+ },
+ {
+  "ods_code": "F83008",
+  "cqc_location_id": "1-566608030",
+  "rating": "Good",
+  "rating_date": "2017-11-16",
+  "report_url": "http://www.cqc.org.uk/location/1-566608030"
+ },
+ {
+  "ods_code": "F83010",
+  "cqc_location_id": "1-550738505",
+  "rating": "Good",
+  "rating_date": "2019-02-14",
+  "report_url": "http://www.cqc.org.uk/location/1-550738505"
+ },
+ {
+  "ods_code": "F83012",
+  "cqc_location_id": "1-568497242",
+  "rating": "Good",
+  "rating_date": "2017-03-02",
+  "report_url": "http://www.cqc.org.uk/location/1-568497242"
+ },
+ {
+  "ods_code": "F83021",
+  "cqc_location_id": "1-583929825",
+  "rating": "Good",
+  "rating_date": "2024-05-15",
+  "report_url": "http://www.cqc.org.uk/location/1-583929825"
+ },
+ {
+  "ods_code": "F83032",
+  "cqc_location_id": "1-549980068",
+  "rating": "Good",
+  "rating_date": "2016-08-25",
+  "report_url": "http://www.cqc.org.uk/location/1-549980068"
+ },
+ {
+  "ods_code": "F83033",
+  "cqc_location_id": "1-10846738635",
+  "rating": "Good",
+  "rating_date": "2023-02-17",
+  "report_url": "http://www.cqc.org.uk/location/1-10846738635"
+ },
+ {
+  "ods_code": "F83034",
+  "cqc_location_id": "1-20628995652",
+  "rating": "Good",
+  "rating_date": "2017-08-30",
+  "report_url": "http://www.cqc.org.uk/location/1-20628995652"
+ },
+ {
+  "ods_code": "F83045",
+  "cqc_location_id": "1-542499627",
+  "rating": "Good",
+  "rating_date": "2026-05-27",
+  "report_url": "http://www.cqc.org.uk/location/1-542499627"
+ },
+ {
+  "ods_code": "F83053",
+  "cqc_location_id": "1-6516820270",
+  "rating": "Good",
+  "rating_date": "2024-02-05",
+  "report_url": "http://www.cqc.org.uk/location/1-6516820270"
+ },
+ {
+  "ods_code": "F83056",
+  "cqc_location_id": "1-2163425946",
+  "rating": "Good",
+  "rating_date": "2017-02-21",
+  "report_url": "http://www.cqc.org.uk/location/1-2163425946"
+ },
+ {
+  "ods_code": "F83063",
+  "cqc_location_id": "1-572907531",
+  "rating": "Good",
+  "rating_date": "2018-05-17",
+  "report_url": "http://www.cqc.org.uk/location/1-572907531"
+ },
+ {
+  "ods_code": "F83635",
+  "cqc_location_id": "1-14142156446",
+  "rating": "Good",
+  "rating_date": "2020-10-27",
+  "report_url": "http://www.cqc.org.uk/location/1-14142156446"
+ },
+ {
+  "ods_code": "F83660",
+  "cqc_location_id": "1-543975260",
+  "rating": "Good",
+  "rating_date": "2020-05-01",
+  "report_url": "http://www.cqc.org.uk/location/1-543975260"
+ },
+ {
+  "ods_code": "F83664",
+  "cqc_location_id": "1-537673398",
+  "rating": "Good",
+  "rating_date": "2016-10-19",
+  "report_url": "http://www.cqc.org.uk/location/1-537673398"
+ },
+ {
+  "ods_code": "F83666",
+  "cqc_location_id": "1-569226633",
+  "rating": "Good",
+  "rating_date": "2017-03-30",
+  "report_url": "http://www.cqc.org.uk/location/1-569226633"
+ },
+ {
+  "ods_code": "F83673",
+  "cqc_location_id": "1-4409713509",
+  "rating": "Good",
+  "rating_date": "2019-01-17",
+  "report_url": "http://www.cqc.org.uk/location/1-4409713509"
+ },
+ {
+  "ods_code": "F83680",
+  "cqc_location_id": "1-17596427502",
+  "rating": "Requires improvement",
+  "rating_date": "2022-12-08",
+  "report_url": "http://www.cqc.org.uk/location/1-17596427502"
+ },
+ {
+  "ods_code": "F83681",
+  "cqc_location_id": "1-547485178",
+  "rating": "Good",
+  "rating_date": "2026-04-09",
+  "report_url": "http://www.cqc.org.uk/location/1-547485178"
+ },
+ {
+  "ods_code": "F83683",
+  "cqc_location_id": "1-3983066499",
+  "rating": "Good",
+  "rating_date": "2018-11-14",
+  "report_url": "http://www.cqc.org.uk/location/1-3983066499"
+ },
+ {
+  "ods_code": "F83686",
+  "cqc_location_id": "1-4449779856",
+  "rating": "Good",
+  "rating_date": "2026-09-29",
+  "report_url": "http://www.cqc.org.uk/location/1-4449779856"
+ },
+ {
+  "ods_code": "F84003",
+  "cqc_location_id": "1-545387866",
+  "rating": "Good",
+  "rating_date": "2017-04-10",
+  "report_url": "http://www.cqc.org.uk/location/1-545387866"
+ },
+ {
+  "ods_code": "F84004",
+  "cqc_location_id": "1-550093537",
+  "rating": "Good",
+  "rating_date": "2018-03-21",
+  "report_url": "http://www.cqc.org.uk/location/1-550093537"
+ },
+ {
+  "ods_code": "F84006",
+  "cqc_location_id": "1-552208026",
+  "rating": "Good",
+  "rating_date": "2024-02-27",
+  "report_url": "http://www.cqc.org.uk/location/1-552208026"
+ },
+ {
+  "ods_code": "F84008",
+  "cqc_location_id": "1-566623603",
+  "rating": "Good",
+  "rating_date": "2026-07-07",
+  "report_url": "http://www.cqc.org.uk/location/1-566623603"
+ },
+ {
+  "ods_code": "F84009",
+  "cqc_location_id": "1-549825936",
+  "rating": "Good",
+  "rating_date": "2017-06-14",
+  "report_url": "http://www.cqc.org.uk/location/1-549825936"
+ },
+ {
+  "ods_code": "F84010",
+  "cqc_location_id": "1-539009738",
+  "rating": "Good",
+  "rating_date": "2022-11-08",
+  "report_url": "http://www.cqc.org.uk/location/1-539009738"
+ },
+ {
+  "ods_code": "F84012",
+  "cqc_location_id": "1-549593531",
+  "rating": "Requires improvement",
+  "rating_date": "2025-10-31",
+  "report_url": "http://www.cqc.org.uk/location/1-549593531"
+ },
+ {
+  "ods_code": "F84013",
+  "cqc_location_id": "1-552175206",
+  "rating": "Good",
+  "rating_date": "2021-07-02",
+  "report_url": "http://www.cqc.org.uk/location/1-552175206"
+ },
+ {
+  "ods_code": "F84014",
+  "cqc_location_id": "1-545390829",
+  "rating": "Good",
+  "rating_date": "2024-04-11",
+  "report_url": "http://www.cqc.org.uk/location/1-545390829"
+ },
+ {
+  "ods_code": "F84015",
+  "cqc_location_id": "1-17130858399",
+  "rating": "Good",
+  "rating_date": "2026-09-28",
+  "report_url": "http://www.cqc.org.uk/location/1-17130858399"
+ },
+ {
+  "ods_code": "F84016",
+  "cqc_location_id": "1-545732535",
+  "rating": "Good",
+  "rating_date": "2016-07-18",
+  "report_url": "http://www.cqc.org.uk/location/1-545732535"
+ },
+ {
+  "ods_code": "F84017",
+  "cqc_location_id": "1-547524452",
+  "rating": "Good",
+  "rating_date": "2017-09-18",
+  "report_url": "http://www.cqc.org.uk/location/1-547524452"
+ },
+ {
+  "ods_code": "F84018",
+  "cqc_location_id": "1-562014382",
+  "rating": "Good",
+  "rating_date": "2016-11-23",
+  "report_url": "http://www.cqc.org.uk/location/1-562014382"
+ },
+ {
+  "ods_code": "F84021",
+  "cqc_location_id": "1-550118475",
+  "rating": "Good",
+  "rating_date": "2018-01-08",
+  "report_url": "http://www.cqc.org.uk/location/1-550118475"
+ },
+ {
+  "ods_code": "F84022",
+  "cqc_location_id": "1-3779814420",
+  "rating": "Good",
+  "rating_date": "2021-10-15",
+  "report_url": "http://www.cqc.org.uk/location/1-3779814420"
+ },
+ {
+  "ods_code": "F84025",
+  "cqc_location_id": "1-8081562218",
+  "rating": "Requires improvement",
+  "rating_date": "2026-06-02",
+  "report_url": "http://www.cqc.org.uk/location/1-8081562218"
+ },
+ {
+  "ods_code": "F84030",
+  "cqc_location_id": "1-544344892",
+  "rating": "Good",
+  "rating_date": "2016-08-04",
+  "report_url": "http://www.cqc.org.uk/location/1-544344892"
+ },
+ {
+  "ods_code": "F84031",
+  "cqc_location_id": "1-15972023267",
+  "rating": "Outstanding",
+  "rating_date": "2026-03-02",
+  "report_url": "http://www.cqc.org.uk/location/1-15972023267"
+ },
+ {
+  "ods_code": "F84033",
+  "cqc_location_id": "1-549465349",
+  "rating": "Good",
+  "rating_date": "2026-09-28",
+  "report_url": "http://www.cqc.org.uk/location/1-549465349"
+ },
+ {
+  "ods_code": "F84034",
+  "cqc_location_id": "1-551051138",
+  "rating": "Good",
+  "rating_date": "2022-11-09",
+  "report_url": "http://www.cqc.org.uk/location/1-551051138"
+ },
+ {
+  "ods_code": "F84035",
+  "cqc_location_id": "1-7375332347",
+  "rating": "Outstanding",
+  "rating_date": "2026-07-02",
+  "report_url": "http://www.cqc.org.uk/location/1-7375332347"
+ },
+ {
+  "ods_code": "F84036",
+  "cqc_location_id": "1-572223055",
+  "rating": "Good",
+  "rating_date": "2024-03-28",
+  "report_url": "http://www.cqc.org.uk/location/1-572223055"
+ },
+ {
+  "ods_code": "F84038",
+  "cqc_location_id": "1-7973557259",
+  "rating": "Good",
+  "rating_date": "2021-09-27",
+  "report_url": "http://www.cqc.org.uk/location/1-7973557259"
+ },
+ {
+  "ods_code": "F84044",
+  "cqc_location_id": "1-569712605",
+  "rating": "Good",
+  "rating_date": "2019-09-02",
+  "report_url": "http://www.cqc.org.uk/location/1-569712605"
+ },
+ {
+  "ods_code": "F84047",
+  "cqc_location_id": "1-541836459",
+  "rating": "Good",
+  "rating_date": "2026-06-01",
+  "report_url": "http://www.cqc.org.uk/location/1-541836459"
+ },
+ {
+  "ods_code": "F84050",
+  "cqc_location_id": "1-2379611272",
+  "rating": "Good",
+  "rating_date": "2022-06-08",
+  "report_url": "http://www.cqc.org.uk/location/1-2379611272"
+ },
+ {
+  "ods_code": "F84051",
+  "cqc_location_id": "1-549016815",
+  "rating": "Good",
+  "rating_date": "2017-03-02",
+  "report_url": "http://www.cqc.org.uk/location/1-549016815"
+ },
+ {
+  "ods_code": "F84052",
+  "cqc_location_id": "1-582393811",
+  "rating": "Good",
+  "rating_date": "2021-10-28",
+  "report_url": "http://www.cqc.org.uk/location/1-582393811"
+ },
+ {
+  "ods_code": "F84053",
+  "cqc_location_id": "1-544144429",
+  "rating": "Good",
+  "rating_date": "2017-11-09",
+  "report_url": "http://www.cqc.org.uk/location/1-544144429"
+ },
+ {
+  "ods_code": "F84054",
+  "cqc_location_id": "1-574169355",
+  "rating": "Good",
+  "rating_date": "2016-07-05",
+  "report_url": "http://www.cqc.org.uk/location/1-574169355"
+ },
+ {
+  "ods_code": "F84055",
+  "cqc_location_id": "1-558062627",
+  "rating": "Good",
+  "rating_date": "2017-03-31",
+  "report_url": "http://www.cqc.org.uk/location/1-558062627"
+ },
+ {
+  "ods_code": "F84060",
+  "cqc_location_id": "1-6578424960",
+  "rating": "Good",
+  "rating_date": "2024-01-03",
+  "report_url": "http://www.cqc.org.uk/location/1-6578424960"
+ },
+ {
+  "ods_code": "F84062",
+  "cqc_location_id": "1-537753699",
+  "rating": "Good",
+  "rating_date": "2016-12-02",
+  "report_url": "http://www.cqc.org.uk/location/1-537753699"
+ },
+ {
+  "ods_code": "F84063",
+  "cqc_location_id": "1-545668813",
+  "rating": "Good",
+  "rating_date": "2018-09-13",
+  "report_url": "http://www.cqc.org.uk/location/1-545668813"
+ },
+ {
+  "ods_code": "F84069",
+  "cqc_location_id": "1-565663926",
+  "rating": "Requires improvement",
+  "rating_date": "2026-06-28",
+  "report_url": "http://www.cqc.org.uk/location/1-565663926"
+ },
+ {
+  "ods_code": "F84070",
+  "cqc_location_id": "1-550985357",
+  "rating": "Good",
+  "rating_date": "2023-01-19",
+  "report_url": "http://www.cqc.org.uk/location/1-550985357"
+ },
+ {
+  "ods_code": "F84072",
+  "cqc_location_id": "1-561992693",
+  "rating": "Good",
+  "rating_date": "2026-03-18",
+  "report_url": "http://www.cqc.org.uk/location/1-561992693"
+ },
+ {
+  "ods_code": "F84074",
+  "cqc_location_id": "1-537878483",
+  "rating": "Good",
+  "rating_date": "2025-01-03",
+  "report_url": "http://www.cqc.org.uk/location/1-537878483"
+ },
+ {
+  "ods_code": "F84077",
+  "cqc_location_id": "1-547934052",
+  "rating": "Good",
+  "rating_date": "2018-11-20",
+  "report_url": "http://www.cqc.org.uk/location/1-547934052"
+ },
+ {
+  "ods_code": "F84079",
+  "cqc_location_id": "1-545525509",
+  "rating": "Good",
+  "rating_date": "2018-11-07",
+  "report_url": "http://www.cqc.org.uk/location/1-545525509"
+ },
+ {
+  "ods_code": "F84080",
+  "cqc_location_id": "1-549945959",
+  "rating": "Good",
+  "rating_date": "2019-07-23",
+  "report_url": "http://www.cqc.org.uk/location/1-549945959"
+ },
+ {
+  "ods_code": "F84081",
+  "cqc_location_id": "1-564522240",
+  "rating": "Good",
+  "rating_date": "2026-06-09",
+  "report_url": "http://www.cqc.org.uk/location/1-564522240"
+ },
+ {
+  "ods_code": "F84083",
+  "cqc_location_id": "1-547715603",
+  "rating": "Requires improvement",
+  "rating_date": "2026-07-10",
+  "report_url": "http://www.cqc.org.uk/location/1-547715603"
+ },
+ {
+  "ods_code": "F84086",
+  "cqc_location_id": "1-547357171",
+  "rating": "Good",
+  "rating_date": "2019-07-18",
+  "report_url": "http://www.cqc.org.uk/location/1-547357171"
+ },
+ {
+  "ods_code": "F84087",
+  "cqc_location_id": "1-15154804175",
+  "rating": "Good",
+  "rating_date": "2020-11-26",
+  "report_url": "http://www.cqc.org.uk/location/1-15154804175"
+ },
+ {
+  "ods_code": "F84088",
+  "cqc_location_id": "1-543805984",
+  "rating": "Good",
+  "rating_date": "2021-10-22",
+  "report_url": "http://www.cqc.org.uk/location/1-543805984"
+ },
+ {
+  "ods_code": "F84092",
+  "cqc_location_id": "1-573891997",
+  "rating": "Good",
+  "rating_date": "2018-03-08",
+  "report_url": "http://www.cqc.org.uk/location/1-573891997"
+ },
+ {
+  "ods_code": "F84093",
+  "cqc_location_id": "1-542785477",
+  "rating": "Good",
+  "rating_date": "2025-04-03",
+  "report_url": "http://www.cqc.org.uk/location/1-542785477"
+ },
+ {
+  "ods_code": "F84096",
+  "cqc_location_id": "1-584605195",
+  "rating": "Good",
+  "rating_date": "2024-10-30",
+  "report_url": "http://www.cqc.org.uk/location/1-584605195"
+ },
+ {
+  "ods_code": "F84097",
+  "cqc_location_id": "1-554713049",
+  "rating": "Good",
+  "rating_date": "2017-01-10",
+  "report_url": "http://www.cqc.org.uk/location/1-554713049"
+ },
+ {
+  "ods_code": "F84105",
+  "cqc_location_id": "1-547645135",
+  "rating": "Good",
+  "rating_date": "2017-04-12",
+  "report_url": "http://www.cqc.org.uk/location/1-547645135"
+ },
+ {
+  "ods_code": "F84111",
+  "cqc_location_id": "1-545686588",
+  "rating": "Good",
+  "rating_date": "2021-05-10",
+  "report_url": "http://www.cqc.org.uk/location/1-545686588"
+ },
+ {
+  "ods_code": "F84114",
+  "cqc_location_id": "1-13082701059",
+  "rating": "Good",
+  "rating_date": "2026-06-01",
+  "report_url": "http://www.cqc.org.uk/location/1-13082701059"
+ },
+ {
+  "ods_code": "F84115",
+  "cqc_location_id": "1-565793477",
+  "rating": "Good",
+  "rating_date": "2026-08-03",
+  "report_url": "http://www.cqc.org.uk/location/1-565793477"
+ },
+ {
+  "ods_code": "F84117",
+  "cqc_location_id": "1-568303498",
+  "rating": "Good",
+  "rating_date": "2019-12-02",
+  "report_url": "http://www.cqc.org.uk/location/1-568303498"
+ },
+ {
+  "ods_code": "F84118",
+  "cqc_location_id": "1-9068060386",
+  "rating": "Good",
+  "rating_date": "2024-02-05",
+  "report_url": "http://www.cqc.org.uk/location/1-9068060386"
+ },
+ {
+  "ods_code": "F84119",
+  "cqc_location_id": "1-567930349",
+  "rating": "Good",
+  "rating_date": "2026-10-19",
+  "report_url": "http://www.cqc.org.uk/location/1-567930349"
+ },
+ {
+  "ods_code": "F84121",
+  "cqc_location_id": "1-571092727",
+  "rating": "Good",
+  "rating_date": "2018-04-20",
+  "report_url": "http://www.cqc.org.uk/location/1-571092727"
+ },
+ {
+  "ods_code": "F84122",
+  "cqc_location_id": "1-2492254163",
+  "rating": "Good",
+  "rating_date": "2023-01-19",
+  "report_url": "http://www.cqc.org.uk/location/1-2492254163"
+ },
+ {
+  "ods_code": "F84123",
+  "cqc_location_id": "1-12604919917",
+  "rating": "Requires improvement",
+  "rating_date": "2024-01-12",
+  "report_url": "http://www.cqc.org.uk/location/1-12604919917"
+ },
+ {
+  "ods_code": "F84124",
+  "cqc_location_id": "1-17977901066",
+  "rating": "Good",
+  "rating_date": "2017-08-07",
+  "report_url": "http://www.cqc.org.uk/location/1-17977901066"
+ },
+ {
+  "ods_code": "F84601",
+  "cqc_location_id": "1-8570597747",
+  "rating": "Good",
+  "rating_date": "2023-07-27",
+  "report_url": "http://www.cqc.org.uk/location/1-8570597747"
+ },
+ {
+  "ods_code": "F84619",
+  "cqc_location_id": "1-512837076",
+  "rating": "Good",
+  "rating_date": "2026-01-19",
+  "report_url": "http://www.cqc.org.uk/location/1-512837076"
+ },
+ {
+  "ods_code": "F84620",
+  "cqc_location_id": "1-14831713041",
+  "rating": "Good",
+  "rating_date": "2023-08-22",
+  "report_url": "http://www.cqc.org.uk/location/1-14831713041"
+ },
+ {
+  "ods_code": "F84621",
+  "cqc_location_id": "1-7370714443",
+  "rating": "Good",
+  "rating_date": "2022-08-12",
+  "report_url": "http://www.cqc.org.uk/location/1-7370714443"
+ },
+ {
+  "ods_code": "F84632",
+  "cqc_location_id": "RWKX1",
+  "rating": "Outstanding",
+  "rating_date": "2017-08-18",
+  "report_url": "http://www.cqc.org.uk/location/RWKX1"
+ },
+ {
+  "ods_code": "F84635",
+  "cqc_location_id": "1-551158548",
+  "rating": "Good",
+  "rating_date": "2026-08-17",
+  "report_url": "http://www.cqc.org.uk/location/1-551158548"
+ },
+ {
+  "ods_code": "F84636",
+  "cqc_location_id": "1-566468824",
+  "rating": "Good",
+  "rating_date": "2017-07-18",
+  "report_url": "http://www.cqc.org.uk/location/1-566468824"
+ },
+ {
+  "ods_code": "F84641",
+  "cqc_location_id": "1-2389339854",
+  "rating": "Good",
+  "rating_date": "2022-10-18",
+  "report_url": "http://www.cqc.org.uk/location/1-2389339854"
+ },
+ {
+  "ods_code": "F84642",
+  "cqc_location_id": "1-2781329601",
+  "rating": "Good",
+  "rating_date": "2017-08-09",
+  "report_url": "http://www.cqc.org.uk/location/1-2781329601"
+ },
+ {
+  "ods_code": "F84647",
+  "cqc_location_id": "1-551713566",
+  "rating": "Good",
+  "rating_date": "2025-10-31",
+  "report_url": "http://www.cqc.org.uk/location/1-551713566"
+ },
+ {
+  "ods_code": "F84656",
+  "cqc_location_id": "1-551713757",
+  "rating": "Good",
+  "rating_date": "2019-07-19",
+  "report_url": "http://www.cqc.org.uk/location/1-551713757"
+ },
+ {
+  "ods_code": "F84658",
+  "cqc_location_id": "1-12515324040",
+  "rating": "Good",
+  "rating_date": "2024-04-11",
+  "report_url": "http://www.cqc.org.uk/location/1-12515324040"
+ },
+ {
+  "ods_code": "F84660",
+  "cqc_location_id": "1-566398006",
+  "rating": "Good",
+  "rating_date": "2026-07-27",
+  "report_url": "http://www.cqc.org.uk/location/1-566398006"
+ },
+ {
+  "ods_code": "F84666",
+  "cqc_location_id": "1-557933815",
+  "rating": "Good",
+  "rating_date": "2020-03-04",
+  "report_url": "http://www.cqc.org.uk/location/1-557933815"
+ },
+ {
+  "ods_code": "F84668",
+  "cqc_location_id": "1-512603193",
+  "rating": "Good",
+  "rating_date": "2020-01-22",
+  "report_url": "http://www.cqc.org.uk/location/1-512603193"
+ },
+ {
+  "ods_code": "F84669",
+  "cqc_location_id": "1-4580023130",
+  "rating": "Good",
+  "rating_date": "2019-02-07",
+  "report_url": "http://www.cqc.org.uk/location/1-4580023130"
+ },
+ {
+  "ods_code": "F84670",
+  "cqc_location_id": "1-6650245190",
+  "rating": "Good",
+  "rating_date": "2021-07-26",
+  "report_url": "http://www.cqc.org.uk/location/1-6650245190"
+ },
+ {
+  "ods_code": "F84672",
+  "cqc_location_id": "1-8847812485",
+  "rating": "Good",
+  "rating_date": "2017-06-06",
+  "report_url": "http://www.cqc.org.uk/location/1-8847812485"
+ },
+ {
+  "ods_code": "F84677",
+  "cqc_location_id": "1-544067094",
+  "rating": "Good",
+  "rating_date": "2018-10-31",
+  "report_url": "http://www.cqc.org.uk/location/1-544067094"
+ },
+ {
+  "ods_code": "F84681",
+  "cqc_location_id": "1-13454402963",
+  "rating": "Good",
+  "rating_date": "2025-10-10",
+  "report_url": "http://www.cqc.org.uk/location/1-13454402963"
+ },
+ {
+  "ods_code": "F84686",
+  "cqc_location_id": "1-547610610",
+  "rating": "Good",
+  "rating_date": "2017-01-19",
+  "report_url": "http://www.cqc.org.uk/location/1-547610610"
+ },
+ {
+  "ods_code": "F84692",
+  "cqc_location_id": "1-545808087",
+  "rating": "Good",
+  "rating_date": "2019-02-14",
+  "report_url": "http://www.cqc.org.uk/location/1-545808087"
+ },
+ {
+  "ods_code": "F84694",
+  "cqc_location_id": "1-571556246",
+  "rating": "Good",
+  "rating_date": "2026-06-24",
+  "report_url": "http://www.cqc.org.uk/location/1-571556246"
+ },
+ {
+  "ods_code": "F84696",
+  "cqc_location_id": "1-572958025",
+  "rating": "Good",
+  "rating_date": "2026-02-13",
+  "report_url": "http://www.cqc.org.uk/location/1-572958025"
+ },
+ {
+  "ods_code": "F84698",
+  "cqc_location_id": "1-20393877634",
+  "rating": "Good",
+  "rating_date": "2016-11-02",
+  "report_url": "http://www.cqc.org.uk/location/1-20393877634"
+ },
+ {
+  "ods_code": "F84710",
+  "cqc_location_id": "1-14879683612",
+  "rating": "Good",
+  "rating_date": "2025-06-13",
+  "report_url": "http://www.cqc.org.uk/location/1-14879683612"
+ },
+ {
+  "ods_code": "F84716",
+  "cqc_location_id": "1-1249279161",
+  "rating": "Good",
+  "rating_date": "2023-10-20",
+  "report_url": "http://www.cqc.org.uk/location/1-1249279161"
+ },
+ {
+  "ods_code": "F84717",
+  "cqc_location_id": "1-549227595",
+  "rating": "Good",
+  "rating_date": "2026-09-04",
+  "report_url": "http://www.cqc.org.uk/location/1-549227595"
+ },
+ {
+  "ods_code": "F84718",
+  "cqc_location_id": "1-551113144",
+  "rating": "Good",
+  "rating_date": "2016-07-12",
+  "report_url": "http://www.cqc.org.uk/location/1-551113144"
+ },
+ {
+  "ods_code": "F84719",
+  "cqc_location_id": "1-537850840",
+  "rating": "Good",
+  "rating_date": "2019-12-10",
+  "report_url": "http://www.cqc.org.uk/location/1-537850840"
+ },
+ {
+  "ods_code": "F84720",
+  "cqc_location_id": "1-551001666",
+  "rating": "Good",
+  "rating_date": "2016-06-16",
+  "report_url": "http://www.cqc.org.uk/location/1-551001666"
+ },
+ {
+  "ods_code": "F84724",
+  "cqc_location_id": "1-544271127",
+  "rating": "Outstanding",
+  "rating_date": "2017-02-03",
+  "report_url": "http://www.cqc.org.uk/location/1-544271127"
+ },
+ {
+  "ods_code": "F84729",
+  "cqc_location_id": "1-2080560501",
+  "rating": "Good",
+  "rating_date": "2026-09-07",
+  "report_url": "http://www.cqc.org.uk/location/1-2080560501"
+ },
+ {
+  "ods_code": "F84730",
+  "cqc_location_id": "1-8578423602",
+  "rating": "Good",
+  "rating_date": "2022-07-15",
+  "report_url": "http://www.cqc.org.uk/location/1-8578423602"
+ },
+ {
+  "ods_code": "F84731",
+  "cqc_location_id": "1-489161504",
+  "rating": "Good",
+  "rating_date": "2019-08-05",
+  "report_url": "http://www.cqc.org.uk/location/1-489161504"
+ },
+ {
+  "ods_code": "F84733",
+  "cqc_location_id": "RWK64",
+  "rating": "Good",
+  "rating_date": "2016-11-23",
+  "report_url": "http://www.cqc.org.uk/location/RWK64"
+ },
+ {
+  "ods_code": "F84735",
+  "cqc_location_id": "1-546193133",
+  "rating": "Good",
+  "rating_date": "2016-12-12",
+  "report_url": "http://www.cqc.org.uk/location/1-546193133"
+ },
+ {
+  "ods_code": "F84739",
+  "cqc_location_id": "1-496379288",
+  "rating": "Good",
+  "rating_date": "2026-08-20",
+  "report_url": "http://www.cqc.org.uk/location/1-496379288"
+ },
+ {
+  "ods_code": "F84740",
+  "cqc_location_id": "RWK98",
+  "rating": "Good",
+  "rating_date": "2017-11-03",
+  "report_url": "http://www.cqc.org.uk/location/RWK98"
+ },
+ {
+  "ods_code": "F84741",
+  "cqc_location_id": "1-9232011420",
+  "rating": "Good",
+  "rating_date": "2025-07-23",
+  "report_url": "http://www.cqc.org.uk/location/1-9232011420"
+ },
+ {
+  "ods_code": "F84747",
+  "cqc_location_id": "1-585077196",
+  "rating": "Good",
+  "rating_date": "2017-02-14",
+  "report_url": "http://www.cqc.org.uk/location/1-585077196"
+ },
+ {
+  "ods_code": "F84749",
+  "cqc_location_id": "1-9152464154",
+  "rating": "Good",
+  "rating_date": "2022-10-11",
+  "report_url": "http://www.cqc.org.uk/location/1-9152464154"
+ },
+ {
+  "ods_code": "F85007",
+  "cqc_location_id": "1-592722799",
+  "rating": "Good",
+  "rating_date": "2023-01-20",
+  "report_url": "http://www.cqc.org.uk/location/1-592722799"
+ },
+ {
+  "ods_code": "F85013",
+  "cqc_location_id": "1-569259821",
+  "rating": "Good",
+  "rating_date": "2026-05-14",
+  "report_url": "http://www.cqc.org.uk/location/1-569259821"
+ },
+ {
+  "ods_code": "F85028",
+  "cqc_location_id": "1-550196059",
+  "rating": "Requires improvement",
+  "rating_date": "2022-06-07",
+  "report_url": "http://www.cqc.org.uk/location/1-550196059"
+ },
+ {
+  "ods_code": "F85067",
+  "cqc_location_id": "1-6553317627",
+  "rating": "Good",
+  "rating_date": "2026-07-23",
+  "report_url": "http://www.cqc.org.uk/location/1-6553317627"
+ },
+ {
+  "ods_code": "F85071",
+  "cqc_location_id": "1-542627206",
+  "rating": "Good",
+  "rating_date": "2020-01-14",
+  "report_url": "http://www.cqc.org.uk/location/1-542627206"
+ },
+ {
+  "ods_code": "F85623",
+  "cqc_location_id": "1-496222451",
+  "rating": "Good",
+  "rating_date": "2024-05-20",
+  "report_url": "http://www.cqc.org.uk/location/1-496222451"
+ },
+ {
+  "ods_code": "F85628",
+  "cqc_location_id": "1-4327653192",
+  "rating": "Good",
+  "rating_date": "2018-08-29",
+  "report_url": "http://www.cqc.org.uk/location/1-4327653192"
+ },
+ {
+  "ods_code": "F86001",
+  "cqc_location_id": "1-16281868308",
+  "rating": "Good",
+  "rating_date": "2024-09-27",
+  "report_url": "http://www.cqc.org.uk/location/1-16281868308"
+ },
+ {
+  "ods_code": "F86004",
+  "cqc_location_id": "1-541803173",
+  "rating": "Good",
+  "rating_date": "2017-04-25",
+  "report_url": "http://www.cqc.org.uk/location/1-541803173"
+ },
+ {
+  "ods_code": "F86005",
+  "cqc_location_id": "1-7294856075",
+  "rating": "Good",
+  "rating_date": "2025-12-11",
+  "report_url": "http://www.cqc.org.uk/location/1-7294856075"
+ },
+ {
+  "ods_code": "F86006",
+  "cqc_location_id": "1-549985942",
+  "rating": "Good",
+  "rating_date": "2018-09-21",
+  "report_url": "http://www.cqc.org.uk/location/1-549985942"
+ },
+ {
+  "ods_code": "F86008",
+  "cqc_location_id": "1-561454985",
+  "rating": "Good",
+  "rating_date": "2025-11-14",
+  "report_url": "http://www.cqc.org.uk/location/1-561454985"
+ },
+ {
+  "ods_code": "F86009",
+  "cqc_location_id": "1-586321288",
+  "rating": "Good",
+  "rating_date": "2026-03-27",
+  "report_url": "http://www.cqc.org.uk/location/1-586321288"
+ },
+ {
+  "ods_code": "F86010",
+  "cqc_location_id": "1-549913696",
+  "rating": "Good",
+  "rating_date": "2018-06-15",
+  "report_url": "http://www.cqc.org.uk/location/1-549913696"
+ },
+ {
+  "ods_code": "F86011",
+  "cqc_location_id": "1-572958578",
+  "rating": "Good",
+  "rating_date": "2019-12-02",
+  "report_url": "http://www.cqc.org.uk/location/1-572958578"
+ },
+ {
+  "ods_code": "F86012",
+  "cqc_location_id": "1-567857585",
+  "rating": "Good",
+  "rating_date": "2017-04-03",
+  "report_url": "http://www.cqc.org.uk/location/1-567857585"
+ },
+ {
+  "ods_code": "F86013",
+  "cqc_location_id": "1-1728262354",
+  "rating": "Good",
+  "rating_date": "2017-10-20",
+  "report_url": "http://www.cqc.org.uk/location/1-1728262354"
+ },
+ {
+  "ods_code": "F86018",
+  "cqc_location_id": "1-537836336",
+  "rating": "Requires improvement",
+  "rating_date": "2024-09-02",
+  "report_url": "http://www.cqc.org.uk/location/1-537836336"
+ },
+ {
+  "ods_code": "F86020",
+  "cqc_location_id": "1-569467561",
+  "rating": "Good",
+  "rating_date": "2016-11-22",
+  "report_url": "http://www.cqc.org.uk/location/1-569467561"
+ },
+ {
+  "ods_code": "F86022",
+  "cqc_location_id": "1-559517846",
+  "rating": "Good",
+  "rating_date": "2016-08-17",
+  "report_url": "http://www.cqc.org.uk/location/1-559517846"
+ },
+ {
+  "ods_code": "F86023",
+  "cqc_location_id": "1-567028097",
+  "rating": "Good",
+  "rating_date": "2016-09-08",
+  "report_url": "http://www.cqc.org.uk/location/1-567028097"
+ },
+ {
+  "ods_code": "F86025",
+  "cqc_location_id": "1-544293809",
+  "rating": "Good",
+  "rating_date": "2022-01-06",
+  "report_url": "http://www.cqc.org.uk/location/1-544293809"
+ },
+ {
+  "ods_code": "F86026",
+  "cqc_location_id": "1-19567761642",
+  "rating": "Requires improvement",
+  "rating_date": "2023-11-22",
+  "report_url": "http://www.cqc.org.uk/location/1-19567761642"
+ },
+ {
+  "ods_code": "F86028",
+  "cqc_location_id": "1-554102447",
+  "rating": "Good",
+  "rating_date": "2017-12-11",
+  "report_url": "http://www.cqc.org.uk/location/1-554102447"
+ },
+ {
+  "ods_code": "F86030",
+  "cqc_location_id": "1-559780387",
+  "rating": "Good",
+  "rating_date": "2016-12-06",
+  "report_url": "http://www.cqc.org.uk/location/1-559780387"
+ },
+ {
+  "ods_code": "F86032",
+  "cqc_location_id": "1-542030196",
+  "rating": "Good",
+  "rating_date": "2017-03-16",
+  "report_url": "http://www.cqc.org.uk/location/1-542030196"
+ },
+ {
+  "ods_code": "F86034",
+  "cqc_location_id": "1-505152769",
+  "rating": "Good",
+  "rating_date": "2019-02-22",
+  "report_url": "http://www.cqc.org.uk/location/1-505152769"
+ },
+ {
+  "ods_code": "F86036",
+  "cqc_location_id": "1-569200427",
+  "rating": "Good",
+  "rating_date": "2024-02-27",
+  "report_url": "http://www.cqc.org.uk/location/1-569200427"
+ },
+ {
+  "ods_code": "F86038",
+  "cqc_location_id": "1-5562103116",
+  "rating": "Good",
+  "rating_date": "2019-06-21",
+  "report_url": "http://www.cqc.org.uk/location/1-5562103116"
+ },
+ {
+  "ods_code": "F86040",
+  "cqc_location_id": "1-3878655897",
+  "rating": "Good",
+  "rating_date": "2019-06-14",
+  "report_url": "http://www.cqc.org.uk/location/1-3878655897"
+ },
+ {
+  "ods_code": "F86042",
+  "cqc_location_id": "1-2622718308",
+  "rating": "Good",
+  "rating_date": "2018-10-04",
+  "report_url": "http://www.cqc.org.uk/location/1-2622718308"
+ },
+ {
+  "ods_code": "F86044",
+  "cqc_location_id": "1-546109592",
+  "rating": "Good",
+  "rating_date": "2025-07-11",
+  "report_url": "http://www.cqc.org.uk/location/1-546109592"
+ },
+ {
+  "ods_code": "F86045",
+  "cqc_location_id": "1-2731443921",
+  "rating": "Good",
+  "rating_date": "2017-08-31",
+  "report_url": "http://www.cqc.org.uk/location/1-2731443921"
+ },
+ {
+  "ods_code": "F86058",
+  "cqc_location_id": "1-21614838484",
+  "rating": "Good",
+  "rating_date": "2020-02-11",
+  "report_url": "http://www.cqc.org.uk/location/1-21614838484"
+ },
+ {
+  "ods_code": "F86060",
+  "cqc_location_id": "1-556735363",
+  "rating": "Good",
+  "rating_date": "2023-02-16",
+  "report_url": "http://www.cqc.org.uk/location/1-556735363"
+ },
+ {
+  "ods_code": "F86062",
+  "cqc_location_id": "1-547967785",
+  "rating": "Requires improvement",
+  "rating_date": "2026-05-07",
+  "report_url": "http://www.cqc.org.uk/location/1-547967785"
+ },
+ {
+  "ods_code": "F86064",
+  "cqc_location_id": "1-556429326",
+  "rating": "Good",
+  "rating_date": "2017-03-31",
+  "report_url": "http://www.cqc.org.uk/location/1-556429326"
+ },
+ {
+  "ods_code": "F86066",
+  "cqc_location_id": "1-550851096",
+  "rating": "Good",
+  "rating_date": "2018-06-15",
+  "report_url": "http://www.cqc.org.uk/location/1-550851096"
+ },
+ {
+  "ods_code": "F86074",
+  "cqc_location_id": "1-566361598",
+  "rating": "Good",
+  "rating_date": "2017-08-31",
+  "report_url": "http://www.cqc.org.uk/location/1-566361598"
+ },
+ {
+  "ods_code": "F86081",
+  "cqc_location_id": "1-21523423379",
+  "rating": "Good",
+  "rating_date": "2019-03-25",
+  "report_url": "http://www.cqc.org.uk/location/1-21523423379"
+ },
+ {
+  "ods_code": "F86082",
+  "cqc_location_id": "1-1646570594",
+  "rating": "Good",
+  "rating_date": "2026-09-01",
+  "report_url": "http://www.cqc.org.uk/location/1-1646570594"
+ },
+ {
+  "ods_code": "F86083",
+  "cqc_location_id": "1-9940362115",
+  "rating": "Good",
+  "rating_date": "2022-05-16",
+  "report_url": "http://www.cqc.org.uk/location/1-9940362115"
+ },
+ {
+  "ods_code": "F86085",
+  "cqc_location_id": "1-509917429",
+  "rating": "Good",
+  "rating_date": "2023-11-30",
+  "report_url": "http://www.cqc.org.uk/location/1-509917429"
+ },
+ {
+  "ods_code": "F86086",
+  "cqc_location_id": "1-542116984",
+  "rating": "Good",
+  "rating_date": "2019-06-03",
+  "report_url": "http://www.cqc.org.uk/location/1-542116984"
+ },
+ {
+  "ods_code": "F86087",
+  "cqc_location_id": "1-568506944",
+  "rating": "Good",
+  "rating_date": "2025-09-10",
+  "report_url": "http://www.cqc.org.uk/location/1-568506944"
+ },
+ {
+  "ods_code": "F86088",
+  "cqc_location_id": "1-549749183",
+  "rating": "Good",
+  "rating_date": "2017-05-22",
+  "report_url": "http://www.cqc.org.uk/location/1-549749183"
+ },
+ {
+  "ods_code": "F86607",
+  "cqc_location_id": "1-544301070",
+  "rating": "Good",
+  "rating_date": "2019-05-10",
+  "report_url": "http://www.cqc.org.uk/location/1-544301070"
+ },
+ {
+  "ods_code": "F86612",
+  "cqc_location_id": "1-4573186351",
+  "rating": "Good",
+  "rating_date": "2026-07-08",
+  "report_url": "http://www.cqc.org.uk/location/1-4573186351"
+ },
+ {
+  "ods_code": "F86621",
+  "cqc_location_id": "1-547920608",
+  "rating": "Good",
+  "rating_date": "2026-10-27",
+  "report_url": "http://www.cqc.org.uk/location/1-547920608"
+ },
+ {
+  "ods_code": "F86624",
+  "cqc_location_id": "1-533274630",
+  "rating": "Good",
+  "rating_date": "2026-10-02",
+  "report_url": "http://www.cqc.org.uk/location/1-533274630"
+ },
+ {
+  "ods_code": "F86625",
+  "cqc_location_id": "1-535054296",
+  "rating": "Good",
+  "rating_date": "2018-08-24",
+  "report_url": "http://www.cqc.org.uk/location/1-535054296"
+ },
+ {
+  "ods_code": "F86626",
+  "cqc_location_id": "1-496516656",
+  "rating": "Good",
+  "rating_date": "2021-04-30",
+  "report_url": "http://www.cqc.org.uk/location/1-496516656"
+ },
+ {
+  "ods_code": "F86637",
+  "cqc_location_id": "1-564529110",
+  "rating": "Good",
+  "rating_date": "2017-09-29",
+  "report_url": "http://www.cqc.org.uk/location/1-564529110"
+ },
+ {
+  "ods_code": "F86638",
+  "cqc_location_id": "1-2980614680",
+  "rating": "Good",
+  "rating_date": "2020-03-05",
+  "report_url": "http://www.cqc.org.uk/location/1-2980614680"
+ },
+ {
+  "ods_code": "F86641",
+  "cqc_location_id": "1-554196987",
+  "rating": "Good",
+  "rating_date": "2026-07-20",
+  "report_url": "http://www.cqc.org.uk/location/1-554196987"
+ },
+ {
+  "ods_code": "F86644",
+  "cqc_location_id": "1-484571424",
+  "rating": "Good",
+  "rating_date": "2024-03-20",
+  "report_url": "http://www.cqc.org.uk/location/1-484571424"
+ },
+ {
+  "ods_code": "F86650",
+  "cqc_location_id": "1-17982977574",
+  "rating": "Good",
+  "rating_date": "2017-07-18",
+  "report_url": "http://www.cqc.org.uk/location/1-17982977574"
+ },
+ {
+  "ods_code": "F86657",
+  "cqc_location_id": "1-581625308",
+  "rating": "Good",
+  "rating_date": "2026-09-16",
+  "report_url": "http://www.cqc.org.uk/location/1-581625308"
+ },
+ {
+  "ods_code": "F86658",
+  "cqc_location_id": "1-2266239500",
+  "rating": "Good",
+  "rating_date": "2018-09-18",
+  "report_url": "http://www.cqc.org.uk/location/1-2266239500"
+ },
+ {
+  "ods_code": "F86666",
+  "cqc_location_id": "1-1422043053",
+  "rating": "Good",
+  "rating_date": "2025-05-12",
+  "report_url": "http://www.cqc.org.uk/location/1-1422043053"
+ },
+ {
+  "ods_code": "F86679",
+  "cqc_location_id": "1-542072910",
+  "rating": "Good",
+  "rating_date": "2021-11-22",
+  "report_url": "http://www.cqc.org.uk/location/1-542072910"
+ },
+ {
+  "ods_code": "F86689",
+  "cqc_location_id": "1-1651768751",
+  "rating": "Good",
+  "rating_date": "2019-04-01",
+  "report_url": "http://www.cqc.org.uk/location/1-1651768751"
+ },
+ {
+  "ods_code": "F86691",
+  "cqc_location_id": "1-569398740",
+  "rating": "Good",
+  "rating_date": "2020-02-27",
+  "report_url": "http://www.cqc.org.uk/location/1-569398740"
+ },
+ {
+  "ods_code": "F86692",
+  "cqc_location_id": "1-550622209",
+  "rating": "Good",
+  "rating_date": "2017-01-13",
+  "report_url": "http://www.cqc.org.uk/location/1-550622209"
+ },
+ {
+  "ods_code": "F86698",
+  "cqc_location_id": "1-8887981459",
+  "rating": "Good",
+  "rating_date": "2021-10-01",
+  "report_url": "http://www.cqc.org.uk/location/1-8887981459"
+ },
+ {
+  "ods_code": "F86701",
+  "cqc_location_id": "1-14197430008",
+  "rating": "Good",
+  "rating_date": "2017-06-02",
+  "report_url": "http://www.cqc.org.uk/location/1-14197430008"
+ },
+ {
+  "ods_code": "F86702",
+  "cqc_location_id": "1-483719807",
+  "rating": "Good",
+  "rating_date": "2017-11-16",
+  "report_url": "http://www.cqc.org.uk/location/1-483719807"
+ },
+ {
+  "ods_code": "F86705",
+  "cqc_location_id": "1-512302739",
+  "rating": "Good",
+  "rating_date": "2016-04-20",
+  "report_url": "http://www.cqc.org.uk/location/1-512302739"
+ },
+ {
+  "ods_code": "F86707",
+  "cqc_location_id": "1-541857390",
+  "rating": "Good",
+  "rating_date": "2018-03-19",
+  "report_url": "http://www.cqc.org.uk/location/1-541857390"
+ },
+ {
+  "ods_code": "F86708",
+  "cqc_location_id": "1-552398224",
+  "rating": "Good",
+  "rating_date": "2018-11-26",
+  "report_url": "http://www.cqc.org.uk/location/1-552398224"
+ },
+ {
+  "ods_code": "F86712",
+  "cqc_location_id": "1-567983267",
+  "rating": "Good",
+  "rating_date": "2026-03-22",
+  "report_url": "http://www.cqc.org.uk/location/1-567983267"
+ },
+ {
+  "ods_code": "F86731",
+  "cqc_location_id": "1-8008390803",
+  "rating": "Good",
+  "rating_date": "2024-04-09",
+  "report_url": "http://www.cqc.org.uk/location/1-8008390803"
+ },
+ {
+  "ods_code": "G83001",
+  "cqc_location_id": "1-585133416",
+  "rating": "Good",
+  "rating_date": "2016-09-22",
+  "report_url": "http://www.cqc.org.uk/location/1-585133416"
+ },
+ {
+  "ods_code": "G83002",
+  "cqc_location_id": "1-7960243806",
+  "rating": "Good",
+  "rating_date": "2020-03-02",
+  "report_url": "http://www.cqc.org.uk/location/1-7960243806"
+ },
+ {
+  "ods_code": "G83006",
+  "cqc_location_id": "1-537760619",
+  "rating": "Good",
+  "rating_date": "2016-04-29",
+  "report_url": "http://www.cqc.org.uk/location/1-537760619"
+ },
+ {
+  "ods_code": "G83009",
+  "cqc_location_id": "1-562029218",
+  "rating": "Good",
+  "rating_date": "2020-01-09",
+  "report_url": "http://www.cqc.org.uk/location/1-562029218"
+ },
+ {
+  "ods_code": "G83010",
+  "cqc_location_id": "1-559926380",
+  "rating": "Good",
+  "rating_date": "2023-12-11",
+  "report_url": "http://www.cqc.org.uk/location/1-559926380"
+ },
+ {
+  "ods_code": "G83012",
+  "cqc_location_id": "1-598717401",
+  "rating": "Good",
+  "rating_date": "2017-04-25",
+  "report_url": "http://www.cqc.org.uk/location/1-598717401"
+ },
+ {
+  "ods_code": "G83013",
+  "cqc_location_id": "1-543956685",
+  "rating": "Good",
+  "rating_date": "2016-09-29",
+  "report_url": "http://www.cqc.org.uk/location/1-543956685"
+ },
+ {
+  "ods_code": "G83016",
+  "cqc_location_id": "1-551736200",
+  "rating": "Requires improvement",
+  "rating_date": "2026-01-20",
+  "report_url": "http://www.cqc.org.uk/location/1-551736200"
+ },
+ {
+  "ods_code": "G83018",
+  "cqc_location_id": "1-550165740",
+  "rating": "Good",
+  "rating_date": "2025-09-24",
+  "report_url": "http://www.cqc.org.uk/location/1-550165740"
+ },
+ {
+  "ods_code": "G83019",
+  "cqc_location_id": "1-541790426",
+  "rating": "Good",
+  "rating_date": "2026-08-13",
+  "report_url": "http://www.cqc.org.uk/location/1-541790426"
+ },
+ {
+  "ods_code": "G83021",
+  "cqc_location_id": "1-2132581064",
+  "rating": "Good",
+  "rating_date": "2018-03-07",
+  "report_url": "http://www.cqc.org.uk/location/1-2132581064"
+ },
+ {
+  "ods_code": "G83024",
+  "cqc_location_id": "1-566937832",
+  "rating": "Good",
+  "rating_date": "2024-01-08",
+  "report_url": "http://www.cqc.org.uk/location/1-566937832"
+ },
+ {
+  "ods_code": "G83025",
+  "cqc_location_id": "1-547848577",
+  "rating": "Good",
+  "rating_date": "2025-08-04",
+  "report_url": "http://www.cqc.org.uk/location/1-547848577"
+ },
+ {
+  "ods_code": "G83026",
+  "cqc_location_id": "1-561595264",
+  "rating": "Good",
+  "rating_date": "2017-03-27",
+  "report_url": "http://www.cqc.org.uk/location/1-561595264"
+ },
+ {
+  "ods_code": "G83027",
+  "cqc_location_id": "1-562265948",
+  "rating": "Good",
+  "rating_date": "2018-08-17",
+  "report_url": "http://www.cqc.org.uk/location/1-562265948"
+ },
+ {
+  "ods_code": "G83028",
+  "cqc_location_id": "1-5583738743",
+  "rating": "Good",
+  "rating_date": "2024-02-06",
+  "report_url": "http://www.cqc.org.uk/location/1-5583738743"
+ },
+ {
+  "ods_code": "G83030",
+  "cqc_location_id": "1-549543739",
+  "rating": "Good",
+  "rating_date": "2024-06-06",
+  "report_url": "http://www.cqc.org.uk/location/1-549543739"
+ },
+ {
+  "ods_code": "G83031",
+  "cqc_location_id": "1-545974884",
+  "rating": "Good",
+  "rating_date": "2024-03-15",
+  "report_url": "http://www.cqc.org.uk/location/1-545974884"
+ },
+ {
+  "ods_code": "G83033",
+  "cqc_location_id": "1-13031013503",
+  "rating": "Good",
+  "rating_date": "2020-01-30",
+  "report_url": "http://www.cqc.org.uk/location/1-13031013503"
+ },
+ {
+  "ods_code": "G83039",
+  "cqc_location_id": "1-578188955",
+  "rating": "Good",
+  "rating_date": "2016-11-04",
+  "report_url": "http://www.cqc.org.uk/location/1-578188955"
+ },
+ {
+  "ods_code": "G83044",
+  "cqc_location_id": "1-542117448",
+  "rating": "Good",
+  "rating_date": "2025-11-19",
+  "report_url": "http://www.cqc.org.uk/location/1-542117448"
+ },
+ {
+  "ods_code": "G83049",
+  "cqc_location_id": "1-547765682",
+  "rating": "Good",
+  "rating_date": "2021-10-29",
+  "report_url": "http://www.cqc.org.uk/location/1-547765682"
+ },
+ {
+  "ods_code": "G83052",
+  "cqc_location_id": "1-484451693",
+  "rating": "Good",
+  "rating_date": "2020-03-27",
+  "report_url": "http://www.cqc.org.uk/location/1-484451693"
+ },
+ {
+  "ods_code": "G83053",
+  "cqc_location_id": "1-552705177",
+  "rating": "Good",
+  "rating_date": "2020-02-06",
+  "report_url": "http://www.cqc.org.uk/location/1-552705177"
+ },
+ {
+  "ods_code": "G83057",
+  "cqc_location_id": "1-573771085",
+  "rating": "Good",
+  "rating_date": "2020-04-09",
+  "report_url": "http://www.cqc.org.uk/location/1-573771085"
+ },
+ {
+  "ods_code": "G83058",
+  "cqc_location_id": "1-582186402",
+  "rating": "Good",
+  "rating_date": "2016-12-22",
+  "report_url": "http://www.cqc.org.uk/location/1-582186402"
+ },
+ {
+  "ods_code": "G83060",
+  "cqc_location_id": "1-542519665",
+  "rating": "Good",
+  "rating_date": "2021-10-06",
+  "report_url": "http://www.cqc.org.uk/location/1-542519665"
+ },
+ {
+  "ods_code": "G83065",
+  "cqc_location_id": "1-582417534",
+  "rating": "Good",
+  "rating_date": "2018-02-28",
+  "report_url": "http://www.cqc.org.uk/location/1-582417534"
+ },
+ {
+  "ods_code": "G83067",
+  "cqc_location_id": "1-544557602",
+  "rating": "Good",
+  "rating_date": "2025-09-01",
+  "report_url": "http://www.cqc.org.uk/location/1-544557602"
+ },
+ {
+  "ods_code": "G83628",
+  "cqc_location_id": "1-635610999",
+  "rating": "Good",
+  "rating_date": "2018-11-01",
+  "report_url": "http://www.cqc.org.uk/location/1-635610999"
+ },
+ {
+  "ods_code": "G83631",
+  "cqc_location_id": "1-542869147",
+  "rating": "Good",
+  "rating_date": "2019-02-05",
+  "report_url": "http://www.cqc.org.uk/location/1-542869147"
+ },
+ {
+  "ods_code": "G83633",
+  "cqc_location_id": "1-15617557667",
+  "rating": "Good",
+  "rating_date": "2019-12-17",
+  "report_url": "http://www.cqc.org.uk/location/1-15617557667"
+ },
+ {
+  "ods_code": "G83635",
+  "cqc_location_id": "1-606141899",
+  "rating": "Good",
+  "rating_date": "2026-07-07",
+  "report_url": "http://www.cqc.org.uk/location/1-606141899"
+ },
+ {
+  "ods_code": "G83641",
+  "cqc_location_id": "1-24769367298",
+  "rating": "Requires improvement",
+  "rating_date": "2020-02-17",
+  "report_url": "http://www.cqc.org.uk/location/1-24769367298"
+ },
+ {
+  "ods_code": "G83647",
+  "cqc_location_id": "1-22137663145",
+  "rating": "Good",
+  "rating_date": "2017-02-16",
+  "report_url": "http://www.cqc.org.uk/location/1-22137663145"
+ },
+ {
+  "ods_code": "G83651",
+  "cqc_location_id": "1-537744626",
+  "rating": "Good",
+  "rating_date": "2016-09-29",
+  "report_url": "http://www.cqc.org.uk/location/1-537744626"
+ },
+ {
+  "ods_code": "G83654",
+  "cqc_location_id": "1-569472341",
+  "rating": "Good",
+  "rating_date": "2026-05-19",
+  "report_url": "http://www.cqc.org.uk/location/1-569472341"
+ },
+ {
+  "ods_code": "G83673",
+  "cqc_location_id": "1-582186176",
+  "rating": "Good",
+  "rating_date": "2018-08-30",
+  "report_url": "http://www.cqc.org.uk/location/1-582186176"
+ },
+ {
+  "ods_code": "G83680",
+  "cqc_location_id": "1-2734632829",
+  "rating": "Good",
+  "rating_date": "2024-12-24",
+  "report_url": "http://www.cqc.org.uk/location/1-2734632829"
+ },
+ {
+  "ods_code": "G84003",
+  "cqc_location_id": "1-568421957",
+  "rating": "Good",
+  "rating_date": "2016-05-31",
+  "report_url": "http://www.cqc.org.uk/location/1-568421957"
+ },
+ {
+  "ods_code": "G84010",
+  "cqc_location_id": "1-543874932",
+  "rating": "Good",
+  "rating_date": "2016-09-22",
+  "report_url": "http://www.cqc.org.uk/location/1-543874932"
+ },
+ {
+  "ods_code": "G84016",
+  "cqc_location_id": "1-559854074",
+  "rating": "Good",
+  "rating_date": "2017-01-11",
+  "report_url": "http://www.cqc.org.uk/location/1-559854074"
+ },
+ {
+  "ods_code": "G84629",
+  "cqc_location_id": "1-514335207",
+  "rating": "Good",
+  "rating_date": "2017-11-09",
+  "report_url": "http://www.cqc.org.uk/location/1-514335207"
+ },
+ {
+  "ods_code": "G85001",
+  "cqc_location_id": "1-544424476",
+  "rating": "Good",
+  "rating_date": "2021-09-06",
+  "report_url": "http://www.cqc.org.uk/location/1-544424476"
+ },
+ {
+  "ods_code": "G85004",
+  "cqc_location_id": "1-6644092473",
+  "rating": "Requires improvement",
+  "rating_date": "2023-12-20",
+  "report_url": "http://www.cqc.org.uk/location/1-6644092473"
+ },
+ {
+  "ods_code": "G85006",
+  "cqc_location_id": "1-572860778",
+  "rating": "Good",
+  "rating_date": "2025-01-13",
+  "report_url": "http://www.cqc.org.uk/location/1-572860778"
+ },
+ {
+  "ods_code": "G85013",
+  "cqc_location_id": "1-676838858",
+  "rating": "Good",
+  "rating_date": "2020-02-28",
+  "report_url": "http://www.cqc.org.uk/location/1-676838858"
+ },
+ {
+  "ods_code": "G85015",
+  "cqc_location_id": "1-545225942",
+  "rating": "Good",
+  "rating_date": "2022-05-17",
+  "report_url": "http://www.cqc.org.uk/location/1-545225942"
+ },
+ {
+  "ods_code": "G85016",
+  "cqc_location_id": "1-545385044",
+  "rating": "Good",
+  "rating_date": "2025-01-23",
+  "report_url": "http://www.cqc.org.uk/location/1-545385044"
+ },
+ {
+  "ods_code": "G85020",
+  "cqc_location_id": "1-5232119796",
+  "rating": "Good",
+  "rating_date": "2024-12-24",
+  "report_url": "http://www.cqc.org.uk/location/1-5232119796"
+ },
+ {
+  "ods_code": "G85023",
+  "cqc_location_id": "1-646266447",
+  "rating": "Good",
+  "rating_date": "2017-11-03",
+  "report_url": "http://www.cqc.org.uk/location/1-646266447"
+ },
+ {
+  "ods_code": "G85024",
+  "cqc_location_id": "1-549806034",
+  "rating": "Good",
+  "rating_date": "2021-12-20",
+  "report_url": "http://www.cqc.org.uk/location/1-549806034"
+ },
+ {
+  "ods_code": "G85026",
+  "cqc_location_id": "1-569709197",
+  "rating": "Good",
+  "rating_date": "2017-05-22",
+  "report_url": "http://www.cqc.org.uk/location/1-569709197"
+ },
+ {
+  "ods_code": "G85028",
+  "cqc_location_id": "1-558204196",
+  "rating": "Good",
+  "rating_date": "2017-01-12",
+  "report_url": "http://www.cqc.org.uk/location/1-558204196"
+ },
+ {
+  "ods_code": "G85029",
+  "cqc_location_id": "1-3253726908",
+  "rating": "Good",
+  "rating_date": "2018-06-15",
+  "report_url": "http://www.cqc.org.uk/location/1-3253726908"
+ },
+ {
+  "ods_code": "G85030",
+  "cqc_location_id": "1-1230668964",
+  "rating": "Good",
+  "rating_date": "2017-08-15",
+  "report_url": "http://www.cqc.org.uk/location/1-1230668964"
+ },
+ {
+  "ods_code": "G85031",
+  "cqc_location_id": "1-565650650",
+  "rating": "Requires improvement",
+  "rating_date": "2023-10-06",
+  "report_url": "http://www.cqc.org.uk/location/1-565650650"
+ },
+ {
+  "ods_code": "G85032",
+  "cqc_location_id": "1-559571507",
+  "rating": "Good",
+  "rating_date": "2017-07-26",
+  "report_url": "http://www.cqc.org.uk/location/1-559571507"
+ },
+ {
+  "ods_code": "G85034",
+  "cqc_location_id": "1-542937588",
+  "rating": "Good",
+  "rating_date": "2025-04-01",
+  "report_url": "http://www.cqc.org.uk/location/1-542937588"
+ },
+ {
+  "ods_code": "G85038",
+  "cqc_location_id": "1-550921798",
+  "rating": "Good",
+  "rating_date": "2025-11-26",
+  "report_url": "http://www.cqc.org.uk/location/1-550921798"
+ },
+ {
+  "ods_code": "G85040",
+  "cqc_location_id": "1-3081438228",
+  "rating": "Good",
+  "rating_date": "2017-09-08",
+  "report_url": "http://www.cqc.org.uk/location/1-3081438228"
+ },
+ {
+  "ods_code": "G85042",
+  "cqc_location_id": "1-544652987",
+  "rating": "Good",
+  "rating_date": "2016-11-04",
+  "report_url": "http://www.cqc.org.uk/location/1-544652987"
+ },
+ {
+  "ods_code": "G85046",
+  "cqc_location_id": "1-545916138",
+  "rating": "Good",
+  "rating_date": "2025-05-28",
+  "report_url": "http://www.cqc.org.uk/location/1-545916138"
+ },
+ {
+  "ods_code": "G85051",
+  "cqc_location_id": "1-569402977",
+  "rating": "Good",
+  "rating_date": "2017-05-26",
+  "report_url": "http://www.cqc.org.uk/location/1-569402977"
+ },
+ {
+  "ods_code": "G85052",
+  "cqc_location_id": "1-507512480",
+  "rating": "Good",
+  "rating_date": "2017-01-23",
+  "report_url": "http://www.cqc.org.uk/location/1-507512480"
+ },
+ {
+  "ods_code": "G85053",
+  "cqc_location_id": "1-551713715",
+  "rating": "Good",
+  "rating_date": "2025-08-01",
+  "report_url": "http://www.cqc.org.uk/location/1-551713715"
+ },
+ {
+  "ods_code": "G85054",
+  "cqc_location_id": "1-20710845688",
+  "rating": "Good",
+  "rating_date": "2024-01-05",
+  "report_url": "http://www.cqc.org.uk/location/1-20710845688"
+ },
+ {
+  "ods_code": "G85057",
+  "cqc_location_id": "1-543965384",
+  "rating": "Requires improvement",
+  "rating_date": "2022-11-24",
+  "report_url": "http://www.cqc.org.uk/location/1-543965384"
+ },
+ {
+  "ods_code": "G85061",
+  "cqc_location_id": "1-569085237",
+  "rating": "Good",
+  "rating_date": "2022-11-21",
+  "report_url": "http://www.cqc.org.uk/location/1-569085237"
+ },
+ {
+  "ods_code": "G85073",
+  "cqc_location_id": "1-552471883",
+  "rating": "Good",
+  "rating_date": "2025-12-02",
+  "report_url": "http://www.cqc.org.uk/location/1-552471883"
+ },
+ {
+  "ods_code": "G85076",
+  "cqc_location_id": "1-551713681",
+  "rating": "Good",
+  "rating_date": "2025-07-14",
+  "report_url": "http://www.cqc.org.uk/location/1-551713681"
+ },
+ {
+  "ods_code": "G85084",
+  "cqc_location_id": "1-544523146",
+  "rating": "Good",
+  "rating_date": "2016-08-01",
+  "report_url": "http://www.cqc.org.uk/location/1-544523146"
+ },
+ {
+  "ods_code": "G85085",
+  "cqc_location_id": "1-552977127",
+  "rating": "Good",
+  "rating_date": "2017-01-05",
+  "report_url": "http://www.cqc.org.uk/location/1-552977127"
+ },
+ {
+  "ods_code": "G85086",
+  "cqc_location_id": "1-550010446",
+  "rating": "Good",
+  "rating_date": "2016-09-30",
+  "report_url": "http://www.cqc.org.uk/location/1-550010446"
+ },
+ {
+  "ods_code": "G85087",
+  "cqc_location_id": "1-4919207297",
+  "rating": "Good",
+  "rating_date": "2023-03-08",
+  "report_url": "http://www.cqc.org.uk/location/1-4919207297"
+ },
+ {
+  "ods_code": "G85091",
+  "cqc_location_id": "1-493951095",
+  "rating": "Good",
+  "rating_date": "2023-11-27",
+  "report_url": "http://www.cqc.org.uk/location/1-493951095"
+ },
+ {
+  "ods_code": "G85096",
+  "cqc_location_id": "1-545963718",
+  "rating": "Good",
+  "rating_date": "2026-07-02",
+  "report_url": "http://www.cqc.org.uk/location/1-545963718"
+ },
+ {
+  "ods_code": "G85100",
+  "cqc_location_id": "1-545476520",
+  "rating": "Good",
+  "rating_date": "2016-04-06",
+  "report_url": "http://www.cqc.org.uk/location/1-545476520"
+ },
+ {
+  "ods_code": "G85102",
+  "cqc_location_id": "1-13547217116",
+  "rating": "Good",
+  "rating_date": "2025-09-15",
+  "report_url": "http://www.cqc.org.uk/location/1-13547217116"
+ },
+ {
+  "ods_code": "G85105",
+  "cqc_location_id": "1-592925703",
+  "rating": "Good",
+  "rating_date": "2026-08-10",
+  "report_url": "http://www.cqc.org.uk/location/1-592925703"
+ },
+ {
+  "ods_code": "G85114",
+  "cqc_location_id": "1-542048670",
+  "rating": "Good",
+  "rating_date": "2022-11-01",
+  "report_url": "http://www.cqc.org.uk/location/1-542048670"
+ },
+ {
+  "ods_code": "G85119",
+  "cqc_location_id": "1-551713741",
+  "rating": "Good",
+  "rating_date": "2018-04-26",
+  "report_url": "http://www.cqc.org.uk/location/1-551713741"
+ },
+ {
+  "ods_code": "G85120",
+  "cqc_location_id": "1-25665492446",
+  "rating": "Requires improvement",
+  "rating_date": "2021-10-01",
+  "report_url": "http://www.cqc.org.uk/location/1-25665492446"
+ },
+ {
+  "ods_code": "G85121",
+  "cqc_location_id": "1-511284959",
+  "rating": "Good",
+  "rating_date": "2016-10-28",
+  "report_url": "http://www.cqc.org.uk/location/1-511284959"
+ },
+ {
+  "ods_code": "G85123",
+  "cqc_location_id": "1-537705643",
+  "rating": "Good",
+  "rating_date": "2017-11-17",
+  "report_url": "http://www.cqc.org.uk/location/1-537705643"
+ },
+ {
+  "ods_code": "G85125",
+  "cqc_location_id": "1-18125733921",
+  "rating": "Good",
+  "rating_date": "2018-07-18",
+  "report_url": "http://www.cqc.org.uk/location/1-18125733921"
+ },
+ {
+  "ods_code": "G85127",
+  "cqc_location_id": "1-544535446",
+  "rating": "Good",
+  "rating_date": "2023-12-22",
+  "report_url": "http://www.cqc.org.uk/location/1-544535446"
+ },
+ {
+  "ods_code": "G85130",
+  "cqc_location_id": "1-552683925",
+  "rating": "Good",
+  "rating_date": "2019-10-15",
+  "report_url": "http://www.cqc.org.uk/location/1-552683925"
+ },
+ {
+  "ods_code": "G85132",
+  "cqc_location_id": "1-9435345335",
+  "rating": "Good",
+  "rating_date": "2025-07-22",
+  "report_url": "http://www.cqc.org.uk/location/1-9435345335"
+ },
+ {
+  "ods_code": "G85134",
+  "cqc_location_id": "1-574806176",
+  "rating": "Good",
+  "rating_date": "2019-08-29",
+  "report_url": "http://www.cqc.org.uk/location/1-574806176"
+ },
+ {
+  "ods_code": "G85135",
+  "cqc_location_id": "1-558395475",
+  "rating": "Good",
+  "rating_date": "2016-07-05",
+  "report_url": "http://www.cqc.org.uk/location/1-558395475"
+ },
+ {
+  "ods_code": "G85136",
+  "cqc_location_id": "1-18386402298",
+  "rating": "Good",
+  "rating_date": "2017-01-30",
+  "report_url": "http://www.cqc.org.uk/location/1-18386402298"
+ },
+ {
+  "ods_code": "G85137",
+  "cqc_location_id": "1-566576366",
+  "rating": "Good",
+  "rating_date": "2023-12-13",
+  "report_url": "http://www.cqc.org.uk/location/1-566576366"
+ },
+ {
+  "ods_code": "G85138",
+  "cqc_location_id": "1-546222308",
+  "rating": "Good",
+  "rating_date": "2019-03-05",
+  "report_url": "http://www.cqc.org.uk/location/1-546222308"
+ },
+ {
+  "ods_code": "G85623",
+  "cqc_location_id": "1-2715509380",
+  "rating": "Good",
+  "rating_date": "2023-06-13",
+  "report_url": "http://www.cqc.org.uk/location/1-2715509380"
+ },
+ {
+  "ods_code": "G85632",
+  "cqc_location_id": "1-543846160",
+  "rating": "Good",
+  "rating_date": "2017-03-30",
+  "report_url": "http://www.cqc.org.uk/location/1-543846160"
+ },
+ {
+  "ods_code": "G85633",
+  "cqc_location_id": "1-537784578",
+  "rating": "Not Rated",
+  "rating_date": null,
+  "report_url": "http://www.cqc.org.uk/location/1-537784578"
+ },
+ {
+  "ods_code": "G85642",
+  "cqc_location_id": "1-556158120",
+  "rating": "Good",
+  "rating_date": "2023-11-03",
+  "report_url": "http://www.cqc.org.uk/location/1-556158120"
+ },
+ {
+  "ods_code": "G85644",
+  "cqc_location_id": "1-585254496",
+  "rating": "Good",
+  "rating_date": "2016-11-03",
+  "report_url": "http://www.cqc.org.uk/location/1-585254496"
+ },
+ {
+  "ods_code": "G85651",
+  "cqc_location_id": "1-565650623",
+  "rating": "Requires improvement",
+  "rating_date": "2023-09-19",
+  "report_url": "http://www.cqc.org.uk/location/1-565650623"
+ },
+ {
+  "ods_code": "G85681",
+  "cqc_location_id": "1-537675048",
+  "rating": "Requires improvement",
+  "rating_date": "2023-07-20",
+  "report_url": "http://www.cqc.org.uk/location/1-537675048"
+ },
+ {
+  "ods_code": "G85685",
+  "cqc_location_id": "1-537741307",
+  "rating": "Good",
+  "rating_date": "2017-01-30",
+  "report_url": "http://www.cqc.org.uk/location/1-537741307"
+ },
+ {
+  "ods_code": "G85690",
+  "cqc_location_id": "1-2726419117",
+  "rating": "Good",
+  "rating_date": "2018-01-15",
+  "report_url": "http://www.cqc.org.uk/location/1-2726419117"
+ },
+ {
+  "ods_code": "G85695",
+  "cqc_location_id": "1-487354436",
+  "rating": "Good",
+  "rating_date": "2025-03-20",
+  "report_url": "http://www.cqc.org.uk/location/1-487354436"
+ },
+ {
+  "ods_code": "G85696",
+  "cqc_location_id": "1-551409676",
+  "rating": "Good",
+  "rating_date": "2016-07-28",
+  "report_url": "http://www.cqc.org.uk/location/1-551409676"
+ },
+ {
+  "ods_code": "G85698",
+  "cqc_location_id": "1-569367445",
+  "rating": "Good",
+  "rating_date": "2024-03-28",
+  "report_url": "http://www.cqc.org.uk/location/1-569367445"
+ },
+ {
+  "ods_code": "G85711",
+  "cqc_location_id": "1-646266631",
+  "rating": "Good",
+  "rating_date": "2018-06-25",
+  "report_url": "http://www.cqc.org.uk/location/1-646266631"
+ },
+ {
+  "ods_code": "G85715",
+  "cqc_location_id": "1-5746161600",
+  "rating": "Good",
+  "rating_date": "2019-12-12",
+  "report_url": "http://www.cqc.org.uk/location/1-5746161600"
+ },
+ {
+  "ods_code": "G85716",
+  "cqc_location_id": "1-572931726",
+  "rating": "Good",
+  "rating_date": "2017-03-03",
+  "report_url": "http://www.cqc.org.uk/location/1-572931726"
+ },
+ {
+  "ods_code": "G85722",
+  "cqc_location_id": "1-496038174",
+  "rating": "Good",
+  "rating_date": "2016-10-19",
+  "report_url": "http://www.cqc.org.uk/location/1-496038174"
+ },
+ {
+  "ods_code": "G85726",
+  "cqc_location_id": "1-542141098",
+  "rating": "Requires improvement",
+  "rating_date": "2025-11-13",
+  "report_url": "http://www.cqc.org.uk/location/1-542141098"
+ },
+ {
+  "ods_code": "G85727",
+  "cqc_location_id": "1-567806611",
+  "rating": "Good",
+  "rating_date": "2016-10-06",
+  "report_url": "http://www.cqc.org.uk/location/1-567806611"
+ },
+ {
+  "ods_code": "G85736",
+  "cqc_location_id": "1-547385888",
+  "rating": "Good",
+  "rating_date": "2016-06-08",
+  "report_url": "http://www.cqc.org.uk/location/1-547385888"
+ },
+ {
+  "ods_code": "H81011",
+  "cqc_location_id": "1-594075789",
+  "rating": "Good",
+  "rating_date": "2026-03-30",
+  "report_url": "http://www.cqc.org.uk/location/1-594075789"
+ },
+ {
+  "ods_code": "H81017",
+  "cqc_location_id": "1-542423707",
+  "rating": "Good",
+  "rating_date": "2018-05-31",
+  "report_url": "http://www.cqc.org.uk/location/1-542423707"
+ },
+ {
+  "ods_code": "H81038",
+  "cqc_location_id": "1-547268606",
+  "rating": "Good",
+  "rating_date": "2019-04-02",
+  "report_url": "http://www.cqc.org.uk/location/1-547268606"
+ },
+ {
+  "ods_code": "H81051",
+  "cqc_location_id": "1-549386295",
+  "rating": "Good",
+  "rating_date": "2018-06-26",
+  "report_url": "http://www.cqc.org.uk/location/1-549386295"
+ },
+ {
+  "ods_code": "H81065",
+  "cqc_location_id": "1-570122242",
+  "rating": "Good",
+  "rating_date": "2026-05-29",
+  "report_url": "http://www.cqc.org.uk/location/1-570122242"
+ },
+ {
+  "ods_code": "H81070",
+  "cqc_location_id": "1-551317371",
+  "rating": "Good",
+  "rating_date": "2018-02-22",
+  "report_url": "http://www.cqc.org.uk/location/1-551317371"
+ },
+ {
+  "ods_code": "H81071",
+  "cqc_location_id": "1-11129683981",
+  "rating": "Good",
+  "rating_date": "2022-11-10",
+  "report_url": "http://www.cqc.org.uk/location/1-11129683981"
+ },
+ {
+  "ods_code": "H81074",
+  "cqc_location_id": "1-543687531",
+  "rating": "Good",
+  "rating_date": "2018-02-22",
+  "report_url": "http://www.cqc.org.uk/location/1-543687531"
+ },
+ {
+  "ods_code": "H81078",
+  "cqc_location_id": "1-561985756",
+  "rating": "Good",
+  "rating_date": "2017-01-10",
+  "report_url": "http://www.cqc.org.uk/location/1-561985756"
+ },
+ {
+  "ods_code": "H81080",
+  "cqc_location_id": "1-547243358",
+  "rating": "Good",
+  "rating_date": "2025-08-13",
+  "report_url": "http://www.cqc.org.uk/location/1-547243358"
+ },
+ {
+  "ods_code": "H81081",
+  "cqc_location_id": "1-547877795",
+  "rating": "Good",
+  "rating_date": "2016-12-29",
+  "report_url": "http://www.cqc.org.uk/location/1-547877795"
+ },
+ {
+  "ods_code": "H81086",
+  "cqc_location_id": "1-545198403",
+  "rating": "Good",
+  "rating_date": "2017-02-08",
+  "report_url": "http://www.cqc.org.uk/location/1-545198403"
+ },
+ {
+  "ods_code": "H81091",
+  "cqc_location_id": "1-23667097853",
+  "rating": "Good",
+  "rating_date": "2020-08-20",
+  "report_url": "http://www.cqc.org.uk/location/1-23667097853"
+ },
+ {
+  "ods_code": "H81099",
+  "cqc_location_id": "1-543536620",
+  "rating": "Good",
+  "rating_date": "2016-10-14",
+  "report_url": "http://www.cqc.org.uk/location/1-543536620"
+ },
+ {
+  "ods_code": "H81103",
+  "cqc_location_id": "1-542373167",
+  "rating": "Good",
+  "rating_date": "2017-01-31",
+  "report_url": "http://www.cqc.org.uk/location/1-542373167"
+ },
+ {
+  "ods_code": "H81107",
+  "cqc_location_id": "1-583754009",
+  "rating": "Good",
+  "rating_date": "2018-07-27",
+  "report_url": "http://www.cqc.org.uk/location/1-583754009"
+ },
+ {
+  "ods_code": "H81109",
+  "cqc_location_id": "1-547170679",
+  "rating": "Good",
+  "rating_date": "2026-06-25",
+  "report_url": "http://www.cqc.org.uk/location/1-547170679"
+ },
+ {
+  "ods_code": "H81126",
+  "cqc_location_id": "1-589473845",
+  "rating": "Good",
+  "rating_date": "2016-10-25",
+  "report_url": "http://www.cqc.org.uk/location/1-589473845"
+ },
+ {
+  "ods_code": "H81128",
+  "cqc_location_id": "1-543128312",
+  "rating": "Good",
+  "rating_date": "2019-03-01",
+  "report_url": "http://www.cqc.org.uk/location/1-543128312"
+ },
+ {
+  "ods_code": "H81133",
+  "cqc_location_id": "1-584765205",
+  "rating": "Good",
+  "rating_date": "2016-08-19",
+  "report_url": "http://www.cqc.org.uk/location/1-584765205"
+ },
+ {
+  "ods_code": "H81618",
+  "cqc_location_id": "1-23875105760",
+  "rating": "Good",
+  "rating_date": "2023-06-30",
+  "report_url": "http://www.cqc.org.uk/location/1-23875105760"
+ },
+ {
+  "ods_code": "H81656",
+  "cqc_location_id": "1-567911350",
+  "rating": "Good",
+  "rating_date": "2026-08-17",
+  "report_url": "http://www.cqc.org.uk/location/1-567911350"
+ },
+ {
+  "ods_code": "H81672",
+  "cqc_location_id": "1-5464493529",
+  "rating": "Good",
+  "rating_date": "2019-02-28",
+  "report_url": "http://www.cqc.org.uk/location/1-5464493529"
+ },
+ {
+  "ods_code": "H83007",
+  "cqc_location_id": "1-15776665906",
+  "rating": "Good",
+  "rating_date": "2019-07-03",
+  "report_url": "http://www.cqc.org.uk/location/1-15776665906"
+ },
+ {
+  "ods_code": "H83009",
+  "cqc_location_id": "1-544222897",
+  "rating": "Good",
+  "rating_date": "2017-05-10",
+  "report_url": "http://www.cqc.org.uk/location/1-544222897"
+ },
+ {
+  "ods_code": "H83011",
+  "cqc_location_id": "1-506348126",
+  "rating": "Good",
+  "rating_date": "2016-09-21",
+  "report_url": "http://www.cqc.org.uk/location/1-506348126"
+ },
+ {
+  "ods_code": "H83013",
+  "cqc_location_id": "1-566567555",
+  "rating": "Good",
+  "rating_date": "2016-07-04",
+  "report_url": "http://www.cqc.org.uk/location/1-566567555"
+ },
+ {
+  "ods_code": "H83015",
+  "cqc_location_id": "1-566814487",
+  "rating": "Good",
+  "rating_date": "2017-02-17",
+  "report_url": "http://www.cqc.org.uk/location/1-566814487"
+ },
+ {
+  "ods_code": "H83016",
+  "cqc_location_id": "1-1321486430",
+  "rating": "Good",
+  "rating_date": "2017-06-02",
+  "report_url": "http://www.cqc.org.uk/location/1-1321486430"
+ },
+ {
+  "ods_code": "H83017",
+  "cqc_location_id": "1-542012857",
+  "rating": "Good",
+  "rating_date": "2025-06-10",
+  "report_url": "http://www.cqc.org.uk/location/1-542012857"
+ },
+ {
+  "ods_code": "H83019",
+  "cqc_location_id": "1-564472477",
+  "rating": "Good",
+  "rating_date": "2016-05-12",
+  "report_url": "http://www.cqc.org.uk/location/1-564472477"
+ },
+ {
+  "ods_code": "H83020",
+  "cqc_location_id": "1-547856633",
+  "rating": "Good",
+  "rating_date": "2017-10-31",
+  "report_url": "http://www.cqc.org.uk/location/1-547856633"
+ },
+ {
+  "ods_code": "H83021",
+  "cqc_location_id": "1-500727537",
+  "rating": "Good",
+  "rating_date": "2016-10-26",
+  "report_url": "http://www.cqc.org.uk/location/1-500727537"
+ },
+ {
+  "ods_code": "H83024",
+  "cqc_location_id": "1-552427993",
+  "rating": "Good",
+  "rating_date": "2016-08-01",
+  "report_url": "http://www.cqc.org.uk/location/1-552427993"
+ },
+ {
+  "ods_code": "H83031",
+  "cqc_location_id": "1-572111926",
+  "rating": "Good",
+  "rating_date": "2016-11-04",
+  "report_url": "http://www.cqc.org.uk/location/1-572111926"
+ },
+ {
+  "ods_code": "H83042",
+  "cqc_location_id": "1-547843891",
+  "rating": "Good",
+  "rating_date": "2026-08-10",
+  "report_url": "http://www.cqc.org.uk/location/1-547843891"
+ },
+ {
+  "ods_code": "H83051",
+  "cqc_location_id": "1-22738549495",
+  "rating": "Good",
+  "rating_date": "2016-11-18",
+  "report_url": "http://www.cqc.org.uk/location/1-22738549495"
+ },
+ {
+  "ods_code": "H83052",
+  "cqc_location_id": "1-510221406",
+  "rating": "Good",
+  "rating_date": "2026-07-05",
+  "report_url": "http://www.cqc.org.uk/location/1-510221406"
+ },
+ {
+  "ods_code": "H83624",
+  "cqc_location_id": "1-3217701083",
+  "rating": "Good",
+  "rating_date": "2017-06-27",
+  "report_url": "http://www.cqc.org.uk/location/1-3217701083"
+ },
+ {
+  "ods_code": "H83627",
+  "cqc_location_id": "1-564441702",
+  "rating": "Good",
+  "rating_date": "2021-09-10",
+  "report_url": "http://www.cqc.org.uk/location/1-564441702"
+ },
+ {
+  "ods_code": "H83631",
+  "cqc_location_id": "1-541901273",
+  "rating": "Good",
+  "rating_date": "2021-10-18",
+  "report_url": "http://www.cqc.org.uk/location/1-541901273"
+ },
+ {
+  "ods_code": "H84002",
+  "cqc_location_id": "1-558041794",
+  "rating": "Good",
+  "rating_date": "2016-07-27",
+  "report_url": "http://www.cqc.org.uk/location/1-558041794"
+ },
+ {
+  "ods_code": "H84010",
+  "cqc_location_id": "1-543870924",
+  "rating": "Good",
+  "rating_date": "2017-03-07",
+  "report_url": "http://www.cqc.org.uk/location/1-543870924"
+ },
+ {
+  "ods_code": "H84015",
+  "cqc_location_id": "1-25607737847",
+  "rating": "Good",
+  "rating_date": "2022-12-23",
+  "report_url": "http://www.cqc.org.uk/location/1-25607737847"
+ },
+ {
+  "ods_code": "H84016",
+  "cqc_location_id": "1-552497644",
+  "rating": "Good",
+  "rating_date": "2025-09-11",
+  "report_url": "http://www.cqc.org.uk/location/1-552497644"
+ },
+ {
+  "ods_code": "H84020",
+  "cqc_location_id": "1-550173004",
+  "rating": "Good",
+  "rating_date": "2017-07-10",
+  "report_url": "http://www.cqc.org.uk/location/1-550173004"
+ },
+ {
+  "ods_code": "H84025",
+  "cqc_location_id": "1-569312512",
+  "rating": "Good",
+  "rating_date": "2017-02-13",
+  "report_url": "http://www.cqc.org.uk/location/1-569312512"
+ },
+ {
+  "ods_code": "H84027",
+  "cqc_location_id": "1-584680858",
+  "rating": "Good",
+  "rating_date": "2023-12-07",
+  "report_url": "http://www.cqc.org.uk/location/1-584680858"
+ },
+ {
+  "ods_code": "H84030",
+  "cqc_location_id": "1-23583492345",
+  "rating": "Requires improvement",
+  "rating_date": "2022-08-12",
+  "report_url": "http://www.cqc.org.uk/location/1-23583492345"
+ },
+ {
+  "ods_code": "H84032",
+  "cqc_location_id": "1-552661885",
+  "rating": "Good",
+  "rating_date": "2025-12-11",
+  "report_url": "http://www.cqc.org.uk/location/1-552661885"
+ },
+ {
+  "ods_code": "H84033",
+  "cqc_location_id": "1-569980268",
+  "rating": "Good",
+  "rating_date": "2017-05-22",
+  "report_url": "http://www.cqc.org.uk/location/1-569980268"
+ },
+ {
+  "ods_code": "H84034",
+  "cqc_location_id": "1-584681094",
+  "rating": "Good",
+  "rating_date": "2019-02-11",
+  "report_url": "http://www.cqc.org.uk/location/1-584681094"
+ },
+ {
+  "ods_code": "H84042",
+  "cqc_location_id": "1-548988724",
+  "rating": "Good",
+  "rating_date": "2017-03-07",
+  "report_url": "http://www.cqc.org.uk/location/1-548988724"
+ },
+ {
+  "ods_code": "H84050",
+  "cqc_location_id": "1-548397240",
+  "rating": "Good",
+  "rating_date": "2026-08-27",
+  "report_url": "http://www.cqc.org.uk/location/1-548397240"
+ },
+ {
+  "ods_code": "H84051",
+  "cqc_location_id": "1-572190129",
+  "rating": "Good",
+  "rating_date": "2017-01-30",
+  "report_url": "http://www.cqc.org.uk/location/1-572190129"
+ },
+ {
+  "ods_code": "H84054",
+  "cqc_location_id": "1-514268665",
+  "rating": "Good",
+  "rating_date": "2017-06-13",
+  "report_url": "http://www.cqc.org.uk/location/1-514268665"
+ },
+ {
+  "ods_code": "H84059",
+  "cqc_location_id": "1-549102823",
+  "rating": "Good",
+  "rating_date": "2017-03-06",
+  "report_url": "http://www.cqc.org.uk/location/1-549102823"
+ },
+ {
+  "ods_code": "H84061",
+  "cqc_location_id": "1-545606146",
+  "rating": "Outstanding",
+  "rating_date": "2026-03-18",
+  "report_url": "http://www.cqc.org.uk/location/1-545606146"
+ },
+ {
+  "ods_code": "H84062",
+  "cqc_location_id": "1-1126352622",
+  "rating": "Good",
+  "rating_date": "2026-05-18",
+  "report_url": "http://www.cqc.org.uk/location/1-1126352622"
+ },
+ {
+  "ods_code": "H84618",
+  "cqc_location_id": "1-15640538095",
+  "rating": "Good",
+  "rating_date": "2026-10-20",
+  "report_url": "http://www.cqc.org.uk/location/1-15640538095"
+ },
+ {
+  "ods_code": "H84619",
+  "cqc_location_id": "1-547244115",
+  "rating": "Good",
+  "rating_date": "2016-12-07",
+  "report_url": "http://www.cqc.org.uk/location/1-547244115"
+ },
+ {
+  "ods_code": "H84635",
+  "cqc_location_id": "1-542120737",
+  "rating": "Good",
+  "rating_date": "2016-12-12",
+  "report_url": "http://www.cqc.org.uk/location/1-542120737"
+ },
+ {
+  "ods_code": "H85011",
+  "cqc_location_id": "1-544399741",
+  "rating": "Good",
+  "rating_date": "2023-10-31",
+  "report_url": "http://www.cqc.org.uk/location/1-544399741"
+ },
+ {
+  "ods_code": "H85018",
+  "cqc_location_id": "1-584820523",
+  "rating": "Good",
+  "rating_date": "2016-12-05",
+  "report_url": "http://www.cqc.org.uk/location/1-584820523"
+ },
+ {
+  "ods_code": "H85020",
+  "cqc_location_id": "1-2215797504",
+  "rating": "Good",
+  "rating_date": "2017-01-11",
+  "report_url": "http://www.cqc.org.uk/location/1-2215797504"
+ },
+ {
+  "ods_code": "H85021",
+  "cqc_location_id": "1-552527797",
+  "rating": "Requires improvement",
+  "rating_date": "2025-01-09",
+  "report_url": "http://www.cqc.org.uk/location/1-552527797"
+ },
+ {
+  "ods_code": "H85022",
+  "cqc_location_id": "1-566354858",
+  "rating": "Good",
+  "rating_date": "2026-06-30",
+  "report_url": "http://www.cqc.org.uk/location/1-566354858"
+ },
+ {
+  "ods_code": "H85023",
+  "cqc_location_id": "1-2210776964",
+  "rating": "Good",
+  "rating_date": "2023-08-30",
+  "report_url": "http://www.cqc.org.uk/location/1-2210776964"
+ },
+ {
+  "ods_code": "H85024",
+  "cqc_location_id": "1-558070433",
+  "rating": "Good",
+  "rating_date": "2021-11-15",
+  "report_url": "http://www.cqc.org.uk/location/1-558070433"
+ },
+ {
+  "ods_code": "H85025",
+  "cqc_location_id": "1-549409673",
+  "rating": "Good",
+  "rating_date": "2026-08-17",
+  "report_url": "http://www.cqc.org.uk/location/1-549409673"
+ },
+ {
+  "ods_code": "H85026",
+  "cqc_location_id": "1-556503327",
+  "rating": "Good",
+  "rating_date": "2025-10-29",
+  "report_url": "http://www.cqc.org.uk/location/1-556503327"
+ },
+ {
+  "ods_code": "H85027",
+  "cqc_location_id": "1-575644799",
+  "rating": "Good",
+  "rating_date": "2016-12-14",
+  "report_url": "http://www.cqc.org.uk/location/1-575644799"
+ },
+ {
+  "ods_code": "H85028",
+  "cqc_location_id": "1-6989164183",
+  "rating": "Good",
+  "rating_date": "2021-07-02",
+  "report_url": "http://www.cqc.org.uk/location/1-6989164183"
+ },
+ {
+  "ods_code": "H85029",
+  "cqc_location_id": "1-584832384",
+  "rating": "Outstanding",
+  "rating_date": "2018-11-05",
+  "report_url": "http://www.cqc.org.uk/location/1-584832384"
+ },
+ {
+  "ods_code": "H85030",
+  "cqc_location_id": "1-571084640",
+  "rating": "Good",
+  "rating_date": "2016-04-14",
+  "report_url": "http://www.cqc.org.uk/location/1-571084640"
+ },
+ {
+  "ods_code": "H85031",
+  "cqc_location_id": "1-561338699",
+  "rating": "Good",
+  "rating_date": "2017-03-21",
+  "report_url": "http://www.cqc.org.uk/location/1-561338699"
+ },
+ {
+  "ods_code": "H85033",
+  "cqc_location_id": "1-545576677",
+  "rating": "Good",
+  "rating_date": "2026-10-20",
+  "report_url": "http://www.cqc.org.uk/location/1-545576677"
+ },
+ {
+  "ods_code": "H85037",
+  "cqc_location_id": "1-545611283",
+  "rating": "Good",
+  "rating_date": "2026-01-06",
+  "report_url": "http://www.cqc.org.uk/location/1-545611283"
+ },
+ {
+  "ods_code": "H85038",
+  "cqc_location_id": "1-568996478",
+  "rating": "Good",
+  "rating_date": "2016-03-17",
+  "report_url": "http://www.cqc.org.uk/location/1-568996478"
+ },
+ {
+  "ods_code": "H85041",
+  "cqc_location_id": "1-548384498",
+  "rating": "Good",
+  "rating_date": "2026-09-14",
+  "report_url": "http://www.cqc.org.uk/location/1-548384498"
+ },
+ {
+  "ods_code": "H85051",
+  "cqc_location_id": "1-555730049",
+  "rating": "Good",
+  "rating_date": "2017-11-30",
+  "report_url": "http://www.cqc.org.uk/location/1-555730049"
+ },
+ {
+  "ods_code": "H85053",
+  "cqc_location_id": "1-566469442",
+  "rating": "Good",
+  "rating_date": "2022-05-17",
+  "report_url": "http://www.cqc.org.uk/location/1-566469442"
+ },
+ {
+  "ods_code": "H85055",
+  "cqc_location_id": "1-542686247",
+  "rating": "Good",
+  "rating_date": "2018-07-19",
+  "report_url": "http://www.cqc.org.uk/location/1-542686247"
+ },
+ {
+  "ods_code": "H85057",
+  "cqc_location_id": "1-542442487",
+  "rating": "Good",
+  "rating_date": "2017-07-05",
+  "report_url": "http://www.cqc.org.uk/location/1-542442487"
+ },
+ {
+  "ods_code": "H85063",
+  "cqc_location_id": "1-586187273",
+  "rating": "Good",
+  "rating_date": "2022-03-22",
+  "report_url": "http://www.cqc.org.uk/location/1-586187273"
+ },
+ {
+  "ods_code": "H85070",
+  "cqc_location_id": "1-550716019",
+  "rating": "Good",
+  "rating_date": "2025-12-01",
+  "report_url": "http://www.cqc.org.uk/location/1-550716019"
+ },
+ {
+  "ods_code": "H85076",
+  "cqc_location_id": "1-542370297",
+  "rating": "Outstanding",
+  "rating_date": "2026-05-13",
+  "report_url": "http://www.cqc.org.uk/location/1-542370297"
+ },
+ {
+  "ods_code": "H85078",
+  "cqc_location_id": "1-2243265720",
+  "rating": "Requires improvement",
+  "rating_date": "2026-07-02",
+  "report_url": "http://www.cqc.org.uk/location/1-2243265720"
+ },
+ {
+  "ods_code": "H85090",
+  "cqc_location_id": "1-605982467",
+  "rating": "Good",
+  "rating_date": "2023-05-19",
+  "report_url": "http://www.cqc.org.uk/location/1-605982467"
+ },
+ {
+  "ods_code": "H85092",
+  "cqc_location_id": "1-549089425",
+  "rating": "Good",
+  "rating_date": "2016-10-20",
+  "report_url": "http://www.cqc.org.uk/location/1-549089425"
+ },
+ {
+  "ods_code": "H85095",
+  "cqc_location_id": "1-542632589",
+  "rating": "Good",
+  "rating_date": "2016-05-12",
+  "report_url": "http://www.cqc.org.uk/location/1-542632589"
+ },
+ {
+  "ods_code": "H85100",
+  "cqc_location_id": "1-567694710",
+  "rating": "Good",
+  "rating_date": "2017-06-15",
+  "report_url": "http://www.cqc.org.uk/location/1-567694710"
+ },
+ {
+  "ods_code": "H85101",
+  "cqc_location_id": "1-550840971",
+  "rating": "Good",
+  "rating_date": "2017-11-23",
+  "report_url": "http://www.cqc.org.uk/location/1-550840971"
+ },
+ {
+  "ods_code": "H85105",
+  "cqc_location_id": "1-544647382",
+  "rating": "Good",
+  "rating_date": "2026-07-23",
+  "report_url": "http://www.cqc.org.uk/location/1-544647382"
+ },
+ {
+  "ods_code": "H85110",
+  "cqc_location_id": "1-5163829957",
+  "rating": "Good",
+  "rating_date": "2021-09-08",
+  "report_url": "http://www.cqc.org.uk/location/1-5163829957"
+ },
+ {
+  "ods_code": "H85112",
+  "cqc_location_id": "1-2025137681",
+  "rating": "Good",
+  "rating_date": "2017-03-15",
+  "report_url": "http://www.cqc.org.uk/location/1-2025137681"
+ },
+ {
+  "ods_code": "H85113",
+  "cqc_location_id": "1-545374788",
+  "rating": "Good",
+  "rating_date": "2023-12-22",
+  "report_url": "http://www.cqc.org.uk/location/1-545374788"
+ },
+ {
+  "ods_code": "H85115",
+  "cqc_location_id": "1-552466894",
+  "rating": "Good",
+  "rating_date": "2016-10-04",
+  "report_url": "http://www.cqc.org.uk/location/1-552466894"
+ },
+ {
+  "ods_code": "H85116",
+  "cqc_location_id": "1-549230365",
+  "rating": "Good",
+  "rating_date": "2017-06-01",
+  "report_url": "http://www.cqc.org.uk/location/1-549230365"
+ },
+ {
+  "ods_code": "H85618",
+  "cqc_location_id": "1-547512809",
+  "rating": "Good",
+  "rating_date": "2022-12-26",
+  "report_url": "http://www.cqc.org.uk/location/1-547512809"
+ },
+ {
+  "ods_code": "H85634",
+  "cqc_location_id": "1-550017768",
+  "rating": "Good",
+  "rating_date": "2026-02-02",
+  "report_url": "http://www.cqc.org.uk/location/1-550017768"
+ },
+ {
+  "ods_code": "H85649",
+  "cqc_location_id": "1-549874784",
+  "rating": "Good",
+  "rating_date": "2025-12-03",
+  "report_url": "http://www.cqc.org.uk/location/1-549874784"
+ },
+ {
+  "ods_code": "H85653",
+  "cqc_location_id": "1-562775882",
+  "rating": "Good",
+  "rating_date": "2025-11-20",
+  "report_url": "http://www.cqc.org.uk/location/1-562775882"
+ },
+ {
+  "ods_code": "H85656",
+  "cqc_location_id": "1-549393285",
+  "rating": "Good",
+  "rating_date": "2024-03-20",
+  "report_url": "http://www.cqc.org.uk/location/1-549393285"
+ },
+ {
+  "ods_code": "H85662",
+  "cqc_location_id": "1-485285503",
+  "rating": "Good",
+  "rating_date": "2025-11-11",
+  "report_url": "http://www.cqc.org.uk/location/1-485285503"
+ },
+ {
+  "ods_code": "H85680",
+  "cqc_location_id": "1-566547629",
+  "rating": "Good",
+  "rating_date": "2022-04-08",
+  "report_url": "http://www.cqc.org.uk/location/1-566547629"
+ },
+ {
+  "ods_code": "H85683",
+  "cqc_location_id": "1-549327639",
+  "rating": "Good",
+  "rating_date": "2019-02-28",
+  "report_url": "http://www.cqc.org.uk/location/1-549327639"
+ },
+ {
+  "ods_code": "H85686",
+  "cqc_location_id": "1-568404690",
+  "rating": "Good",
+  "rating_date": "2017-08-17",
+  "report_url": "http://www.cqc.org.uk/location/1-568404690"
+ },
+ {
+  "ods_code": "H85693",
+  "cqc_location_id": "1-7852314395",
+  "rating": "Good",
+  "rating_date": "2023-08-17",
+  "report_url": "http://www.cqc.org.uk/location/1-7852314395"
+ },
+ {
+  "ods_code": "R1HNH",
+  "cqc_location_id": "R1HNH",
+  "rating": "Requires improvement",
+  "rating_date": "2026-07-17",
+  "report_url": "http://www.cqc.org.uk/location/R1HNH"
+ },
+ {
+  "ods_code": "RAJ32",
+  "cqc_location_id": "RAJ32",
+  "rating": "Requires improvement",
+  "rating_date": "2025-09-17",
+  "report_url": "http://www.cqc.org.uk/location/RAJ32"
+ },
+ {
+  "ods_code": "RVR05",
+  "cqc_location_id": "RVR05",
+  "rating": "Requires improvement",
+  "rating_date": "2026-06-11",
+  "report_url": "http://www.cqc.org.uk/location/RVR05"
+ },
+ {
+  "ods_code": "RVR50",
+  "cqc_location_id": "RVR50",
+  "rating": "Good",
+  "rating_date": "2026-06-11",
+  "report_url": "http://www.cqc.org.uk/location/RVR50"
+ },
+ {
+  "ods_code": "Y00020",
+  "cqc_location_id": "1-547737886",
+  "rating": "Good",
+  "rating_date": "2020-04-03",
+  "report_url": "http://www.cqc.org.uk/location/1-547737886"
+ },
+ {
+  "ods_code": "Y00090",
+  "cqc_location_id": "1-609304505",
+  "rating": "Good",
+  "rating_date": "2017-03-22",
+  "report_url": "http://www.cqc.org.uk/location/1-609304505"
+ },
+ {
+  "ods_code": "Y00155",
+  "cqc_location_id": "1-15275128212",
+  "rating": "Requires improvement",
+  "rating_date": "2025-01-22",
+  "report_url": "http://www.cqc.org.uk/location/1-15275128212"
+ },
+ {
+  "ods_code": "Y00403",
+  "cqc_location_id": "1-497344598",
+  "rating": "Good",
+  "rating_date": "2016-06-17",
+  "report_url": "http://www.cqc.org.uk/location/1-497344598"
+ },
+ {
+  "ods_code": "Y00918",
+  "cqc_location_id": "1-506457724",
+  "rating": "Good",
+  "rating_date": "2017-10-26",
+  "report_url": "http://www.cqc.org.uk/location/1-506457724"
+ },
+ {
+  "ods_code": "Y01280",
+  "cqc_location_id": "1-494257660",
+  "rating": "Good",
+  "rating_date": "2024-07-24",
+  "report_url": "http://www.cqc.org.uk/location/1-494257660"
+ },
+ {
+  "ods_code": "Y01719",
+  "cqc_location_id": "1-1870662386",
+  "rating": "Good",
+  "rating_date": "2018-01-29",
+  "report_url": "http://www.cqc.org.uk/location/1-1870662386"
+ },
+ {
+  "ods_code": "Y01795",
+  "cqc_location_id": "1-9775048645",
+  "rating": "Good",
+  "rating_date": "2024-06-17",
+  "report_url": "http://www.cqc.org.uk/location/1-9775048645"
+ },
+ {
+  "ods_code": "Y01839",
+  "cqc_location_id": "1-12896720766",
+  "rating": "Requires improvement",
+  "rating_date": "2026-02-02",
+  "report_url": "http://www.cqc.org.uk/location/1-12896720766"
+ },
+ {
+  "ods_code": "Y02117",
+  "cqc_location_id": "1-3054545928",
+  "rating": "Good",
+  "rating_date": "2018-01-12",
+  "report_url": "http://www.cqc.org.uk/location/1-3054545928"
+ },
+ {
+  "ods_code": "Y02423",
+  "cqc_location_id": "1-4750841069",
+  "rating": "Good",
+  "rating_date": "2017-01-30",
+  "report_url": "http://www.cqc.org.uk/location/1-4750841069"
+ },
+ {
+  "ods_code": "Y02575",
+  "cqc_location_id": "1-9194332708",
+  "rating": "Good",
+  "rating_date": "2026-01-08",
+  "report_url": "http://www.cqc.org.uk/location/1-9194332708"
+ },
+ {
+  "ods_code": "Y02611",
+  "cqc_location_id": "1-2163956898",
+  "rating": "Good",
+  "rating_date": "2026-07-01",
+  "report_url": "http://www.cqc.org.uk/location/1-2163956898"
+ },
+ {
+  "ods_code": "Y02674",
+  "cqc_location_id": "1-9043841510",
+  "rating": "Good",
+  "rating_date": "2022-11-28",
+  "report_url": "http://www.cqc.org.uk/location/1-9043841510"
+ },
+ {
+  "ods_code": "Y02928",
+  "cqc_location_id": "1-2116821146",
+  "rating": "Good",
+  "rating_date": "2018-07-16",
+  "report_url": "http://www.cqc.org.uk/location/1-2116821146"
+ },
+ {
+  "ods_code": "Y02974",
+  "cqc_location_id": "1-28825798517",
+  "rating": "Good",
+  "rating_date": "2018-06-05",
+  "report_url": "http://www.cqc.org.uk/location/1-28825798517"
+ },
+ {
+  "ods_code": "Y02987",
+  "cqc_location_id": "1-2781298948",
+  "rating": "Good",
+  "rating_date": "2019-07-11",
+  "report_url": "http://www.cqc.org.uk/location/1-2781298948"
+ },
+ {
+  "ods_code": "Y03023",
+  "cqc_location_id": "1-544585608",
+  "rating": "Outstanding",
+  "rating_date": "2017-01-26",
+  "report_url": "http://www.cqc.org.uk/location/1-544585608"
+ },
+ {
+  "ods_code": "Y03049",
+  "cqc_location_id": "1-19884223182",
+  "rating": "Good",
+  "rating_date": "2019-04-08",
+  "report_url": "http://www.cqc.org.uk/location/1-19884223182"
+ },
+ {
+  "ods_code": "Y03063",
+  "cqc_location_id": "1-2978412676",
+  "rating": "Good",
+  "rating_date": "2024-01-03",
+  "report_url": "http://www.cqc.org.uk/location/1-2978412676"
+ },
+ {
+  "ods_code": "Y03103",
+  "cqc_location_id": "1-9806139403",
+  "rating": "Good",
+  "rating_date": "2021-12-15",
+  "report_url": "http://www.cqc.org.uk/location/1-9806139403"
+ },
+ {
+  "ods_code": "Y03135",
+  "cqc_location_id": "1-7375819097",
+  "rating": "Good",
+  "rating_date": "2021-11-15",
+  "report_url": "http://www.cqc.org.uk/location/1-7375819097"
+ },
+ {
+  "ods_code": "Y03755",
+  "cqc_location_id": "1-12163124152",
+  "rating": "Good",
+  "rating_date": "2024-01-16",
+  "report_url": "http://www.cqc.org.uk/location/1-12163124152"
+ },
+ {
+  "ods_code": "Y04273",
+  "cqc_location_id": "1-1249233224",
+  "rating": "Good",
+  "rating_date": "2016-11-22",
+  "report_url": "http://www.cqc.org.uk/location/1-1249233224"
+ },
+ {
+  "ods_code": "Y05023",
+  "cqc_location_id": "1-21262348909",
+  "rating": "Good",
+  "rating_date": "2019-07-08",
+  "report_url": "http://www.cqc.org.uk/location/1-21262348909"
+ },
+ {
+  "ods_code": "Y05330",
+  "cqc_location_id": "1-4327653240",
+  "rating": "Good",
+  "rating_date": "2018-11-15",
+  "report_url": "http://www.cqc.org.uk/location/1-4327653240"
+ }
+]

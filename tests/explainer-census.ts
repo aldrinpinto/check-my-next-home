@@ -1004,6 +1004,20 @@ export const EXPLAINER_CENSUS: CensusEntry[] = [
     "schoolDeadlines.line",
     "D42: the statutory national closing dates in the School Admissions Code for England — the line itself names the Code and carries the supplementary-form caveat beside the dates. Wales serves its named council line under the same entry; Scotland and Northern Ireland serve nothing. Kept current by the plan's annual ops check.",
   ),
+  // M6.25 (founder ruling at M6.23) — the CQC rating word on
+  // the nearby health rows, row 79.
+  e(
+    79,
+    "nearby.cqc-rating",
+    "nearby",
+    "nearby",
+    "the location's overall CQC rating word on GP, A&E and maternity places",
+    "self",
+    ["full"],
+    "none",
+    null,
+    "The regulator's own published label, filed at M4.7 and served verbatim — a filed fact, not a score of ours (D9 bars our scores, never a regulator's published word). Self-explanatory by D13: the word is the explanation. The date beside it is the rating's Publication Date as CQC's file carries it, filed as what it is; the date leaf is covered by the date allowance in NOT_A_FIGURE below. Full depth only — the short bundle's derivation never reads the field.",
+  ),
 ];
 
 // ------------------------------------------------------------------
@@ -1041,6 +1055,7 @@ export const FIGURE_PATH_PATTERNS: FigurePathPattern[] = [
   p("nearby\\.categories\\[\\]\\.beyondNearest\\.miles", "nearby.distance-miles"),
   p("nearby\\.categories\\[\\]\\.nearestSelective\\.miles", "nearby.nearest-selective"),
   p("nearby\\.categories\\[\\]\\.nearestSelectiveLine", "nearby.nearest-selective"),
+  p("nearby\\.categories\\[\\]\\.places\\[\\]\\.cqcRating\\.rating", "nearby.cqc-rating"),
   // Sold prices figures
   p("soldPrices\\.ownHistory\\[\\]\\.price", "sold.own-sale"),
   p("soldPrices\\.median\\.value", "sold.postcode-median"),

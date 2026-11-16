@@ -51,8 +51,30 @@ import type { AddressQueryable, AddressResolution } from "./address";
 // health service (the single nearest is named beyond the
 // radius), absence stated as a ground fact. It is NOT a
 // headline category — the short bundle's six (D28) are
-// unchanged, and no rating field joins the served shape
-// (ratings serving is M6.25's step, not this one's).
+// unchanged.
+//
+// CQC ratings on health rows (M6.25, founder ruling at
+// M6.23): the places the GP, A&E and maternity categories
+// serve carry the location's overall CQC rating, joined
+// from the filed cqc_ratings table (filed since M4.7).
+// The join is the loader's own filed link —
+// cqc_ratings.health_point_id to health_points.id, which
+// the loader populates for every rating it files (its
+// source-side match is by exact code, never by name; at
+// most one rating row files per point). The rating serves
+// exactly as published and never recomputed; a maternity
+// row carries the location's OVERALL rating, never a
+// maternity-specific one. A health place with no filed
+// rating serves the rating field as null — the named
+// absence — never an inferred or neighbouring rating.
+// Dentists and pharmacies carry no rating field at all:
+// no ratings file for them (pharmacies answer to a
+// different regulator; dentists are registered, not
+// rated). Welsh points are never rated (CQC covers
+// England only), so a Welsh health place serves the null
+// absence like any unrated place. Ratings are full-check
+// depth only: the short bundle's derivation never reads
+// them (D28).
 
 export const DISTANCE_BASIS_LABEL = "straight-line distance from the postcode point";
 export const RADIUS_MILES = 2;
@@ -99,6 +121,21 @@ export type NearbyCategory =
   | "pet-boarding"
   | "parks";
 
+// A location's overall CQC rating, exactly as filed in
+// cqc_ratings (M6.25): the rating word is CQC's own
+// published value ("Outstanding", "Good",
+// "Requires improvement", "Inadequate", or "Not Rated"
+// where CQC files that), and the date is the rating's
+// Publication Date in CQC's file, filed as what it is —
+// null where the file carries no date for the rating
+// (the fixture's one "Not Rated" row files none). Never
+// recomputed, never a service- or population-specific
+// rating: the overall, always.
+export type CqcRating = {
+  rating: string;
+  date: string | null;
+};
+
 export type NearbyPoint = {
   name: string | null;
   latitude: number;
@@ -109,6 +146,12 @@ export type NearbyPoint = {
   detail?: string | null;
   // Schools only: the register's own admissions-policy fact.
   selective?: boolean;
+  // Health points only (GP, A&E, maternity): the location's
+  // filed overall CQC rating, or null where no rating is
+  // filed for the point. Absent entirely on every other
+  // category's points — dentists and pharmacies file no
+  // ratings, so their points never carry the field.
+  cqcRating?: CqcRating | null;
 };
 
 // The brain's read port over the filed point tables — the same
@@ -140,6 +183,14 @@ export type NearbyPlace = {
   miles: number;
   detail: string | null;
   selective?: boolean;
+  // GP, A&E and maternity places only (M6.25): the
+  // location's overall CQC rating as filed, present on
+  // every place those categories serve — the rating
+  // object where one is filed, null where none is (the
+  // named absence). Never present on any other
+  // category's places: dentists and pharmacies serve
+  // exactly as they did before the step.
+  cqcRating?: CqcRating | null;
 };
 
 export type CategoryState = "within" | "none-within" | "empty-map" | "empty" | "not-filed";
@@ -239,6 +290,12 @@ export type NearbyBundle =
       kind: "no-location";
       distances: { state: "unavailable"; reason: string };
     };
+
+// The categories whose served places carry the location's
+// overall CQC rating (M6.25): the three health categories
+// the filed ratings cover. Dentists and pharmacies are
+// deliberately absent — no ratings file for them.
+const RATED_CATEGORIES: ReadonlySet<NearbyCategory> = new Set(["gp", "ae", "maternity"]);
 
 type CategorySpec = {
   label: string;
@@ -355,6 +412,12 @@ async function buildCategory(
       detail: m.point.detail ?? null,
     };
     if (m.point.selective !== undefined) place.selective = m.point.selective;
+    // The rating field is the health categories' own
+    // (M6.25): present on every place they serve — the
+    // filed rating, or null where none is filed — and
+    // never set for any other category, whatever the
+    // source hands over.
+    if (RATED_CATEGORIES.has(key)) place.cqcRating = m.point.cqcRating ?? null;
     return place;
   });
   const answer: CategoryAnswer = {
@@ -436,7 +499,17 @@ export async function buildNearbyBundle(
 // One base SELECT per category over the filed tables (the
 // loaders own the filing rules; this is only the read shape).
 // Every query yields name / latitude / longitude / detail /
-// selective so the mapping below is uniform.
+// selective so the mapping below is uniform. The three
+// health queries (gp, ae, maternity) additionally yield the
+// location's filed CQC rating pair (M6.25) through a LEFT
+// JOIN on the loader's own filed link — cqc_ratings files
+// at most one row per point (the loader files the single
+// latest overall rating, or none), so the join never
+// multiplies a place, and the filedCount subquery counts
+// places, not ratings. The rating date casts to text in
+// the query itself, so the served string is the filed
+// date exactly (the sold-prices pattern) — never a parsed
+// Date reformatted under a local timezone.
 const CATEGORY_SQL: Record<NearbyCategory, string> = {
   "schools-primary": `SELECT name, latitude, longitude, NULL::text AS detail,
       (admissions_policy = 'Selective') AS selective
@@ -447,10 +520,12 @@ const CATEGORY_SQL: Record<NearbyCategory, string> = {
   nurseries: `SELECT name, latitude, longitude, NULL::text AS detail,
       NULL::boolean AS selective
     FROM nurseries WHERE geom IS NOT NULL`,
-  gp: `SELECT name, latitude, longitude, NULL::text AS detail,
-      NULL::boolean AS selective
-    FROM health_points
-    WHERE service_type IN ('gp_practice', 'gp_branch_surgery') AND geom IS NOT NULL`,
+  gp: `SELECT hp.name, hp.latitude, hp.longitude, NULL::text AS detail,
+      NULL::boolean AS selective,
+      cr.rating AS cqc_rating, cr.rating_date::text AS cqc_rating_date
+    FROM health_points hp
+    LEFT JOIN cqc_ratings cr ON cr.health_point_id = hp.id
+    WHERE hp.service_type IN ('gp_practice', 'gp_branch_surgery') AND hp.geom IS NOT NULL`,
   dentist: `SELECT name, latitude, longitude, NULL::text AS detail,
       NULL::boolean AS selective
     FROM health_points WHERE service_type = 'dentist' AND geom IS NOT NULL`,
@@ -460,20 +535,24 @@ const CATEGORY_SQL: Record<NearbyCategory, string> = {
   // A&E is the nearest hospital whose emergency flag is YES —
   // the three-state flag: no-data hospitals (NULL) are never
   // counted either way (D22).
-  ae: `SELECT name, latitude, longitude, NULL::text AS detail,
-      NULL::boolean AS selective
-    FROM health_points
-    WHERE service_type = 'hospital' AND has_emergency_department IS TRUE AND geom IS NOT NULL`,
+  ae: `SELECT hp.name, hp.latitude, hp.longitude, NULL::text AS detail,
+      NULL::boolean AS selective,
+      cr.rating AS cqc_rating, cr.rating_date::text AS cqc_rating_date
+    FROM health_points hp
+    LEFT JOIN cqc_ratings cr ON cr.health_point_id = hp.id
+    WHERE hp.service_type = 'hospital' AND hp.has_emergency_department IS TRUE AND hp.geom IS NOT NULL`,
   // Maternity units are the hospitals whose filed ratings
   // population groups include Maternity (migration 0023) —
   // the directory's service types cannot select them. The
   // pipe-wrapping makes the membership test exact: a group
   // files only as a whole pipe-delimited member.
-  maternity: `SELECT name, latitude, longitude, NULL::text AS detail,
-      NULL::boolean AS selective
-    FROM health_points
-    WHERE service_type = 'hospital' AND geom IS NOT NULL
-      AND ('|' || cqc_population_groups || '|') LIKE '%|Maternity|%'`,
+  maternity: `SELECT hp.name, hp.latitude, hp.longitude, NULL::text AS detail,
+      NULL::boolean AS selective,
+      cr.rating AS cqc_rating, cr.rating_date::text AS cqc_rating_date
+    FROM health_points hp
+    LEFT JOIN cqc_ratings cr ON cr.health_point_id = hp.id
+    WHERE hp.service_type = 'hospital' AND hp.geom IS NOT NULL
+      AND ('|' || hp.cqc_population_groups || '|') LIKE '%|Maternity|%'`,
   station: `SELECT name, latitude, longitude, NULL::text AS detail,
       NULL::boolean AS selective
     FROM transport_stops WHERE stop_type IN ('RLY', 'MET', 'TMU') AND geom IS NOT NULL`,
@@ -529,6 +608,19 @@ function toPoint(row: Record<string, unknown>): NearbyPoint {
     detail: typeof row.detail === "string" ? row.detail : null,
   };
   if (typeof row.selective === "boolean") point.selective = row.selective;
+  // The health queries yield the rating columns (null
+  // across the LEFT JOIN where no rating files); every
+  // other category's query does not select them, so the
+  // field stays absent there by construction.
+  if ("cqc_rating" in row) {
+    point.cqcRating =
+      typeof row.cqc_rating === "string" && row.cqc_rating !== ""
+        ? {
+            rating: row.cqc_rating,
+            date: typeof row.cqc_rating_date === "string" ? row.cqc_rating_date : null,
+          }
+        : null;
+  }
   return point;
 }
 

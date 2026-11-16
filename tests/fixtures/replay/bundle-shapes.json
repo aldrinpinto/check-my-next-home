@@ -6012,6 +6012,32 @@
         "line": "null",
         "places": [
           {
+            "cqcRating": "null",
+            "detail": "string",
+            "miles": "number",
+            "name": "string"
+          },
+          {
+            "cqcRating": {
+              "date": "string",
+              "rating": "string"
+            },
+            "detail": "null",
+            "miles": "number",
+            "name": "string"
+          }
+        ],
+        "state": "string"
+      },
+      {
+        "basisLabel": "string",
+        "beyondNearest": "null",
+        "category": "string",
+        "countWithin": "number",
+        "label": "string",
+        "line": "null",
+        "places": [
+          {
             "detail": "null",
             "miles": "number",
             "name": "string",

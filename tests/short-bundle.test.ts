@@ -2147,6 +2147,37 @@ describe("short bundle — 19 Birkdale Rise, CM3 2JT (rung 1)", () => {
     expect(short.sections.nearby.categories.map((c) => c.category)).not.toContain("maternity");
   });
 
+  it("nearby: the M6.25 CQC ratings leave the short bundle shape-identical", async () => {
+    // Ratings are full-check depth (D28's headlines carry
+    // names and miles only). The proof is identity: the
+    // short bundle derived from a nearby bundle whose
+    // health places carry ratings equals, field for field,
+    // the short bundle derived from the same bundle
+    // without them — the derivation never reads the field.
+    // (The filed ratings themselves are pinned in
+    // tests/nearby.test.ts; here a rating is placed on the
+    // Exeter GP place so a value is present to be ignored.)
+    const inputs = await fullBundles(EXETER);
+    if (inputs.nearby.kind !== "distances") throw new Error("expected distances");
+    const rated = {
+      ...inputs.nearby,
+      categories: inputs.nearby.categories.map((c) =>
+        c.category === "gp"
+          ? {
+              ...c,
+              places: c.places.map((place, i) =>
+                i === 0 ? { ...place, cqcRating: { rating: "Good", date: "2026-06-01" } } : place,
+              ),
+            }
+          : c,
+      ),
+    };
+    const withRatings = buildShortBundle({ ...inputs, nearby: rated });
+    const withoutRatings = buildShortBundle(inputs);
+    expect(withRatings).toEqual(withoutRatings);
+    expect(JSON.stringify(servedShort(withRatings))).not.toContain("cqcRating");
+  });
+
   it("area sections: EPC band, the council-tax line with its correction, NO2, road noise", async () => {
     const short = servedShort(await shortFor(BIRKDALE));
     expect(short.sections.epc).toEqual({

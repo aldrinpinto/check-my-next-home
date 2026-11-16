@@ -849,6 +849,58 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
     expect(edinburghNearby.schoolDeadlines).toBeNull();
   });
 
+  it("CQC ratings (M6.25): the filed ratings serve through the real source, on the loader's own join", () => {
+    // The ratings were filed at M4.7 and served by no brain
+    // until this step. Through the real database source the
+    // join is cqc_ratings.health_point_id — the link the
+    // loader itself filed — and the values are the filed
+    // ones, exactly.
+    const placesOf = (tag: string, category: string) => {
+      const nearby = get(tag).nearby;
+      if (nearby.kind !== "distances") throw new Error(`expected distances for ${tag}`);
+      const answer = nearby.categories.find((c) => c.category === category);
+      if (!answer) throw new Error(`no ${category} answer for ${tag}`);
+      return answer.places;
+    };
+    // Exeter: Newham's Requires improvement on both its
+    // rows (the maternity row carries the OVERALL rating),
+    // and Custom House's Good at the head of the GP list.
+    expect(placesOf("exeter1", "ae")[0]).toMatchObject({
+      name: "Newham University Hospital",
+      cqcRating: { rating: "Requires improvement", date: "2026-07-17" },
+    });
+    expect(placesOf("exeter1", "maternity")[0]).toMatchObject({
+      name: "Newham University Hospital",
+      cqcRating: { rating: "Requires improvement", date: "2026-07-17" },
+    });
+    expect(placesOf("exeter1", "gp")[0]).toMatchObject({
+      name: "CUSTOM HOUSE SURGERY",
+      cqcRating: { rating: "Good", date: "2026-06-01" },
+    });
+    // Minerva: Epsom General's Good on both its rows.
+    expect(placesOf("minerva1", "ae")[0]).toMatchObject({
+      name: "Epsom General Hospital",
+      cqcRating: { rating: "Good", date: "2026-06-11" },
+    });
+    expect(placesOf("minerva1", "maternity")[0]).toMatchObject({
+      name: "Epsom General Hospital",
+      cqcRating: { rating: "Good", date: "2026-06-11" },
+    });
+    // Birkdale: the branch serves the null absence; Douglas
+    // Grove carries its filed Good.
+    expect(placesOf("birkdale1", "gp").map((p) => [p.name, p.cqcRating])).toEqual([
+      ["SYDNEY HOUSE SURGERY", null],
+      ["DOUGLAS GROVE SURGERY", { rating: "Good", date: "2026-07-17" }],
+    ]);
+    // Dentists carry no rating field at all.
+    for (const place of placesOf("exeter1", "dentist")) expect("cqcRating" in place).toBe(false);
+    // Wales is never rated (CQC covers England only; the
+    // loader files no rating row for a Welsh point): every
+    // Cardiff health place serves the null absence.
+    for (const category of ["gp", "ae", "maternity"])
+      for (const place of placesOf("cardiff2", category)) expect(place.cqcRating).toBeNull();
+  });
+
   it("short bundle: the universal headlines carry the locked figures", () => {
     const birkdale = get("birkdale1").short;
     expect(Object.keys(birkdale.sections).sort()).toHaveLength(12);

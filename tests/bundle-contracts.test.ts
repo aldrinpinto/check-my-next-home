@@ -63,6 +63,15 @@
 // does not derive from the category at all. All 46 pins stand
 // unmoved; recorded here so the absence of a re-pin is a
 // checked fact, not an oversight.
+//
+// RE-PIN RECORD: M6.25 (founder ruling at M6.23) put the
+// filed CQC ratings on the nearby bundle's health rows — the
+// GP, A&E and maternity places gain cqcRating (the location's
+// overall rating object as filed, or null where none files).
+// One pin moved: nearby.served (the health places' variants
+// gain both forms). Dentists and pharmacies serve exactly as
+// before, and the short bundle's derivation never reads the
+// field, so no other pin moved; all 46 pins stand.
 
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -326,9 +335,19 @@ class FakeNearbySource implements NearbyDataSource {
   }
   async pointsWithin(category: NearbyCategory) {
     if (this.mode !== "full") return [];
+    // The health categories' points carry the filed CQC
+    // rating pair (M6.25): the nearest rated, the second
+    // carrying the null absence — both place variants pin.
+    const rated = category === "gp" || category === "ae" || category === "maternity";
     const base = [
-      point("Nearest One", 0.1, category.startsWith("schools") ? { selective: false } : {}),
-      point("Second One", 0.5, { detail: "a filed detail" }),
+      point("Nearest One", 0.1, {
+        ...(category.startsWith("schools") ? { selective: false } : {}),
+        ...(rated ? { cqcRating: { rating: "Good", date: "2026-01-15" } } : {}),
+      }),
+      point("Second One", 0.5, {
+        detail: "a filed detail",
+        ...(rated ? { cqcRating: null } : {}),
+      }),
       point(null, 1.5),
     ];
     return base;

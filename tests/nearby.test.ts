@@ -16,6 +16,7 @@ import {
   SCHOOL_DEADLINE_SECONDARY,
   buildNearbyBundle,
   haversineMiles,
+  type CqcRating,
   type NearbyBundle,
   type NearbyDataSource,
   type NearbyPoint,
@@ -358,11 +359,34 @@ const schoolRows: SchoolRow[] = (() => {
 // --- health rows (the loader's own filing, dumped — see
 // tests/fixtures/nearby/README.md) -------------------------------
 
+// The filed CQC ratings, captured from the same loader
+// filing as the points (see tests/fixtures/nearby/
+// README.md): one row per rated point, keyed by the
+// point's ODS code — the portable form of the loader's
+// filed health_point_id link. A point with no row here
+// files no rating: the fake's LEFT JOIN, mirroring the
+// brain's real source.
+const healthRatings = new Map<string, CqcRating>(
+  (
+    JSON.parse(
+      readFileSync(join(process.cwd(), "tests/fixtures/nearby/health-ratings.json"), "utf8"),
+    ) as {
+      ods_code: string;
+      rating: string;
+      rating_date: string | null;
+    }[]
+  ).map((r) => [r.ods_code, { rating: r.rating, date: r.rating_date }]),
+);
+
 type HealthRow = {
   name: string;
+  odsCode: string;
   serviceType: string;
   emergency: boolean | null;
   populationGroups: string[];
+  // The point's filed overall CQC rating, or null where
+  // the loader filed none (M6.25).
+  cqcRating: CqcRating | null;
   latitude: number;
   longitude: number;
 };
@@ -371,6 +395,7 @@ const healthRows: HealthRow[] = (
     readFileSync(join(process.cwd(), "tests/fixtures/nearby/health-points.json"), "utf8"),
   ) as {
     name: string;
+    ods_code: string;
     service_type: string;
     has_emergency_department: boolean | null;
     cqc_population_groups: string | null;
@@ -379,9 +404,11 @@ const healthRows: HealthRow[] = (
   }[]
 ).map((r) => ({
   name: r.name,
+  odsCode: r.ods_code,
   serviceType: r.service_type,
   emergency: r.has_emergency_department,
   populationGroups: r.cqc_population_groups ? r.cqc_population_groups.split("|") : [],
+  cqcRating: healthRatings.get(r.ods_code) ?? null,
   latitude: Number(r.latitude),
   longitude: Number(r.longitude),
 }));
@@ -593,7 +620,12 @@ const TABLES: Record<string, NearbyPoint[]> = {
   nurseries: nurseryRows,
   gp: healthRows
     .filter((h) => h.serviceType === "gp_practice" || h.serviceType === "gp_branch_surgery")
-    .map((h) => ({ name: h.name, latitude: h.latitude, longitude: h.longitude })),
+    .map((h) => ({
+      name: h.name,
+      latitude: h.latitude,
+      longitude: h.longitude,
+      cqcRating: h.cqcRating,
+    })),
   dentist: healthRows
     .filter((h) => h.serviceType === "dentist")
     .map((h) => ({ name: h.name, latitude: h.latitude, longitude: h.longitude })),
@@ -602,10 +634,20 @@ const TABLES: Record<string, NearbyPoint[]> = {
     .map((h) => ({ name: h.name, latitude: h.latitude, longitude: h.longitude })),
   ae: healthRows
     .filter((h) => h.serviceType === "hospital" && h.emergency === true)
-    .map((h) => ({ name: h.name, latitude: h.latitude, longitude: h.longitude })),
+    .map((h) => ({
+      name: h.name,
+      latitude: h.latitude,
+      longitude: h.longitude,
+      cqcRating: h.cqcRating,
+    })),
   maternity: healthRows
     .filter((h) => h.serviceType === "hospital" && h.populationGroups.includes("Maternity"))
-    .map((h) => ({ name: h.name, latitude: h.latitude, longitude: h.longitude })),
+    .map((h) => ({
+      name: h.name,
+      latitude: h.latitude,
+      longitude: h.longitude,
+      cqcRating: h.cqcRating,
+    })),
   station: transportRows
     .filter((t) => STATION_TYPES.has(t.type))
     .map((t) => ({ name: t.name, latitude: t.latitude, longitude: t.longitude })),
@@ -1053,6 +1095,95 @@ describe("nearby bundle — Flat 4, Minerva House, KT17 1FH", () => {
     const none = category(birkdale, "nurseries");
     expect(none.state).toBe("empty");
     expect(none.line).toContain("no nursery within 2 miles");
+  });
+});
+
+// --- CQC ratings on health rows (M6.25) ----------------------
+// The ratings are the loader's filed rows (cqc_ratings,
+// filed since M4.7), joined on the loader's own filed
+// link. The goldens below are the filed values for the
+// golden homes' served places, read off the fixture
+// capture the fake files — never re-derived here.
+
+describe("nearby CQC ratings (M6.25)", () => {
+  const ratingsOf = (bundle: NearbyBundle, key: string) =>
+    category(bundle, key).places.map((p) => [p.name, p.cqcRating]);
+
+  it("the fixture capture is the loader's filed join: every rating resolves to a filed point, on rated types only", () => {
+    // 499 ratings filed from the fixture corpus: 494 on GP
+    // practice points, 5 on hospital points — none on a
+    // branch surgery, a dentist or a pharmacy (no ratings
+    // file for them), and every one keyed to a point the
+    // same filing holds.
+    expect(healthRatings.size).toBe(499);
+    const byCode = new Map(healthRows.map((h) => [h.odsCode, h]));
+    for (const code of healthRatings.keys()) {
+      const point = byCode.get(code);
+      if (!point) throw new Error(`rating filed for unknown point ${code}`);
+      expect(["gp_practice", "hospital"]).toContain(point.serviceType);
+    }
+  });
+
+  it("Birkdale: the branch serves unrated, Douglas Grove carries its filed Good", async () => {
+    const bundle = await bundleFor("CM3 2JT");
+    expect(ratingsOf(bundle, "gp")).toEqual([
+      // The Sidney House branch files no rating — branches
+      // are never the rated location.
+      ["SYDNEY HOUSE SURGERY", null],
+      ["DOUGLAS GROVE SURGERY", { rating: "Good", date: "2026-07-17" }],
+    ]);
+    // A&E and maternity serve no places here (Broomfield
+    // is the beyond-radius nearest for both) — the beyond
+    // pointer carries name and miles only, as it does for
+    // every filed fact.
+    expect(category(bundle, "ae").places).toEqual([]);
+    expect(category(bundle, "maternity").places).toEqual([]);
+  });
+
+  it("Exeter: Newham carries Requires improvement on both its rows; the GP list mixes rated and unrated as filed", async () => {
+    const bundle = await bundleFor("E16 1GN");
+    expect(ratingsOf(bundle, "ae")).toEqual([
+      ["Newham University Hospital", { rating: "Requires improvement", date: "2026-07-17" }],
+    ]);
+    // The maternity row carries the location's OVERALL
+    // rating — the same filed row, never a
+    // maternity-specific rating.
+    expect(ratingsOf(bundle, "maternity")).toEqual([
+      ["Newham University Hospital", { rating: "Requires improvement", date: "2026-07-17" }],
+    ]);
+    expect(ratingsOf(bundle, "gp")).toEqual([
+      ["CUSTOM HOUSE SURGERY", { rating: "Good", date: "2026-06-01" }],
+      // Cumberland files no rating row: the null absence,
+      // never a neighbour's rating borrowed.
+      ["CUMBERLAND MEDICAL CENTRE", null],
+      ["CARPENTERS PRACTICE - ST LUKE'S PRACTICE SITE", null],
+    ]);
+  });
+
+  it("Minerva: Epsom General carries Good on both its rows; the tied GP pair splits as filed", async () => {
+    const bundle = await bundleFor("KT17 1FH");
+    expect(ratingsOf(bundle, "ae")).toEqual([
+      ["Epsom General Hospital", { rating: "Good", date: "2026-06-11" }],
+    ]);
+    expect(ratingsOf(bundle, "maternity")).toEqual([
+      ["Epsom General Hospital", { rating: "Good", date: "2026-06-11" }],
+    ]);
+    expect(ratingsOf(bundle, "gp").slice(0, 2)).toEqual([
+      ["FOUNTAIN PRACTICE", null],
+      ["SPRING STREET SURGERY", { rating: "Good", date: "2020-08-20" }],
+    ]);
+  });
+
+  it("every health place carries the key; dentists and pharmacies never do", async () => {
+    for (const input of ["CM3 2JT", "E16 1GN", "KT17 1FH"]) {
+      const bundle = await bundleFor(input);
+      for (const key of ["gp", "ae", "maternity"])
+        for (const place of category(bundle, key).places)
+          expect("cqcRating" in place, `${input} ${key} ${place.name}`).toBe(true);
+      for (const key of ["dentist", "pharmacy"])
+        for (const place of category(bundle, key).places)
+          expect("cqcRating" in place, `${input} ${key} ${place.name}`).toBe(false);
+    }
   });
 });
 

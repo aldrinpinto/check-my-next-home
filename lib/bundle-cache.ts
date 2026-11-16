@@ -748,31 +748,41 @@ export async function buildNearbyBundleCached(
     // include the maternity answer — an entry written
     // before the step holds twenty categories and degrades
     // to a recompute rather than serving a bundle with no
-    // maternity answer as current.
+    // maternity answer as current. The M6.25 contract
+    // extends it once more: every place the GP, A&E and
+    // maternity answers serve must carry the cqcRating key
+    // (the filed rating, or null where none files) — an
+    // entry written before the step serves those places
+    // without the key and degrades to a recompute rather
+    // than serving ratingless health rows as current.
     shapeOk: (bundle) => {
       if (typeof bundle !== "object" || bundle === null) return false;
       if (!("schoolDeadlines" in bundle)) return false;
       const categories = (bundle as { categories?: unknown }).categories;
       if (!Array.isArray(categories)) return false;
-      const secondary = categories.find(
-        (c) =>
-          typeof c === "object" &&
-          c !== null &&
-          (c as { category?: unknown }).category === "schools-secondary",
-      );
-      const maternity = categories.find(
-        (c) =>
-          typeof c === "object" &&
-          c !== null &&
-          (c as { category?: unknown }).category === "maternity",
-      );
-      return (
+      const byCategory = (key: string) =>
+        categories.find(
+          (c) =>
+            typeof c === "object" && c !== null && (c as { category?: unknown }).category === key,
+        );
+      const secondary = byCategory("schools-secondary");
+      const maternity = byCategory("maternity");
+      if (!(
         typeof secondary === "object" &&
         secondary !== null &&
         "nearestSelectiveLine" in secondary &&
         typeof maternity === "object" &&
         maternity !== null
-      );
+      ))
+        return false;
+      for (const key of ["gp", "ae", "maternity"]) {
+        const answer = byCategory(key) as { places?: unknown } | undefined;
+        if (!answer || !Array.isArray(answer.places)) return false;
+        for (const place of answer.places) {
+          if (typeof place !== "object" || place === null || !("cqcRating" in place)) return false;
+        }
+      }
+      return true;
     },
   });
 }

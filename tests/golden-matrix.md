@@ -2022,3 +2022,73 @@ check, and the step was re-scoped before any code shipped.
    maternity presence check in the established pattern:
    a pre-M6.24 entry (twenty categories) degrades to a
    recompute, proven by test.
+
+## CQC ratings on health rows (M6.25, founder ruling at M6.23)
+
+The ratings have been filed since M4.7 (the cqc_ratings
+table) but no brain served them — the M6.23 sweep's "as
+served" premise was wrong, found at M6.24's first check.
+This step serves them on the nearby answer's health rows.
+
+1. **The join (proven at the first check, before any
+   serving code).** The loader files every rating with
+   the health point's own id — cqc_ratings.health_point_id
+   to health_points.id — having matched the ratings file
+   to the point by exact code (Location ID, or the
+   Location ODS Code), never by name. At most one rating
+   row files per point: the latest overall rating, with
+   same-day conflicting ratings withheld and logged (the
+   loader's tie rule). The fixture filing proves the link
+   complete: 499 ratings filed, 0 with a null point link —
+   494 on GP practice points, 5 on hospital points, none
+   on branch surgeries, dentists or pharmacies, none on a
+   Welsh point (CQC covers England only). The brain joins
+   on that filed link; no key was invented.
+2. **The served field.** Every place the GP, A&E and
+   maternity categories serve carries cqcRating: the
+   location's overall rating exactly as filed — the
+   rating word ("Good", "Requires improvement",
+   "Outstanding", "Inadequate", or "Not Rated" where CQC
+   files that) and the rating's Publication Date as CQC's
+   file carries it (the filed rating_date is that
+   publication date; the one "Not Rated" row files no
+   date, and serves null). A maternity row carries the
+   location's OVERALL rating, never a maternity-specific
+   one. A health place with no filed rating serves
+   cqcRating null — the named absence, never an inferred
+   or neighbouring rating. Dentists and pharmacies carry
+   no rating field at all (no ratings file for them), and
+   the beyond-radius pointer stays name-and-miles, as it
+   does for every filed fact. Ratings are full-check
+   depth: the short bundle's derivation never reads the
+   field, proven by an identity test.
+3. **Goldens** (computed from the filed fixture data
+   through the real code; locked in tests/nearby.test.ts,
+   and through the real database source in the golden
+   replay's M6.25 cell):
+   - **19 Birkdale Rise CM3 2JT** — GP: SYDNEY HOUSE
+     SURGERY (the Sidney House branch) unrated — branches
+     are never the rated location; DOUGLAS GROVE SURGERY
+     Good, 2026-07-17. A&E and maternity serve no places
+     (Broomfield is the beyond-radius nearest for both).
+   - **6 Exeter Road E16 1GN** — A&E and maternity:
+     Newham University Hospital, Requires improvement,
+     2026-07-17. GP: CUSTOM HOUSE SURGERY Good,
+     2026-06-01; CUMBERLAND MEDICAL CENTRE unrated;
+     CARPENTERS PRACTICE - ST LUKE'S PRACTICE SITE
+     unrated.
+   - **Flat 4, Minerva House KT17 1FH** — A&E and
+     maternity: Epsom General Hospital, Good, 2026-06-11.
+     GP: FOUNTAIN PRACTICE unrated; SPRING STREET SURGERY
+     Good, 2020-08-20.
+4. **Contracts.** One bundle-shape pin moved:
+   nearby.served (the health places' variants gain the
+   rating object and the null form); all 46 pins stand,
+   with the re-pin record in tests/bundle-contracts
+   .test.ts. The explainer census gains row 79
+   (nearby.cqc-rating, self — the regulator's published
+   word is its own explanation): 79 families / 46 hard.
+   The cache's stored-shape contract extends in the
+   established pattern: a pre-M6.25 entry whose health
+   places lack the rating key degrades to a recompute,
+   proven by test.
