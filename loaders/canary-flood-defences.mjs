@@ -33,7 +33,7 @@
 // and one run line, like canary-planning-application.mjs.
 
 const PACKAGE_URL =
-  "https://environment.data.gov.uk/api/3/action/package_show?id=aims-spatial-flood-defences-inc-standardised-attributes";
+  "https://www.data.gov.uk/api/3/action/package_show?id=aims-spatial-flood-defences-inc-standardised-attributes";
 const PACKAGE_NAME = "aims-spatial-flood-defences-inc-standardised-attributes";
 const GPKG_RESOURCE_NAME = "AIMS_Spatial_Flood_Defences_inc_standardised_attributes.gpkg.zip";
 const FILE_DATASET_ID = "3aa34e3d-1d6d-4345-a655-64a683e06b6b";
@@ -107,10 +107,10 @@ export function probeFloodDefences() {
     try {
       response = await fetchRetry(PACKAGE_URL, { headers: PROBE_HEADERS });
     } catch (error) {
-      return sourceUnreachable(`environment.data.gov.uk did not answer (${error.message})`);
+      return sourceUnreachable(`www.data.gov.uk did not answer (${error.message})`);
     }
     if (response.status === 503 || response.status === 403)
-      return sourceUnreachable(`environment.data.gov.uk answered HTTP ${response.status}`);
+      return sourceUnreachable(`www.data.gov.uk answered HTTP ${response.status}`);
     if (!response.ok) throw new Error(`HTTP ${response.status} for the AIMS defences CKAN record`);
     let body = null;
     try {

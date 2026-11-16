@@ -387,6 +387,36 @@ describe("charging-zone register canaries (prep check 20)", () => {
     const outcome = await probeCazRegister();
     expect(outcome.warning).toBeUndefined();
     expect(outcome.logLine).toContain("7 of 7");
+    expect(outcome.logLine).toContain("7 table rows");
+  });
+
+  it("a GOV.UK page whose cities section carries no table rows is a shape change, not a row count", async () => {
+    stubPage(
+      `<html><body><h2>Cities with Clean Air Zones</h2><p>Bath, Birmingham, Bradford, Bristol, Portsmouth, Sheffield and Tyneside.</p><h2>Types of Clean Air Zones</h2></body></html>`,
+    );
+    await expect(probeCazRegister()).rejects.toThrow(
+      /changed shape — the cities table was not found/,
+    );
+  });
+
+  it("an escaped copy of the content ahead of the rendered body does not hide the cities table", async () => {
+    // GOV.UK embeds the guidance in a JSON payload whose markup
+    // is escaped text: the headings and city names read there as
+    // plain text, but the table is not markup. The probe must
+    // slice the rendered section that follows, not that copy.
+    const escapedCopy =
+      `<script type="application/json">{"content":"` +
+      `\\u003ch2\\u003eCities with Clean Air Zones\\u003c/h2\\u003e` +
+      `\\u003cp\\u003eBath, Birmingham, Bradford, Bristol, Portsmouth, Sheffield and Tyneside.\\u003c/p\\u003e` +
+      `\\u003ctable\\u003e\\u003ctr\\u003e\\u003ctd\\u003eBath\\u003c/td\\u003e\\u003c/tr\\u003e\\u003c/table\\u003e` +
+      `\\u003ch2\\u003eTypes of Clean Air Zones\\u003c/h2\\u003e"}</script>`;
+    stubPage(
+      `<html><body>${escapedCopy}${cazPage(["Bath", "Birmingham", "Bradford", "Bristol", "Portsmouth", "Sheffield", "Tyneside"])}</body></html>`,
+    );
+    const outcome = await probeCazRegister();
+    expect(outcome.warning).toBeUndefined();
+    expect(outcome.logLine).toContain("7 of 7");
+    expect(outcome.logLine).toContain("7 table rows");
   });
 
   it("a vanished CAZ warns (never fails) and names it", async () => {

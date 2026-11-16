@@ -1972,17 +1972,44 @@ export function probeCazRegister() {
     if (!response.ok)
       throw new Error(`HTTP ${response.status} for the GOV.UK Clean Air Zone guidance`);
     const html = await response.text();
-    const start = html.indexOf("Cities with Clean Air Zones");
-    const end = html.indexOf("Types of Clean Air Zones");
-    if (start === -1 || end === -1 || end < start)
+    // GOV.UK serves this guidance with an escaped copy of the
+    // content (a JSON payload in which the table is escaped
+    // text, not markup) and a contents list ahead of the
+    // rendered body, so the first heading occurrence need not
+    // be the rendered section: in the escaped copy the city
+    // names read as plain text but no real table markup
+    // exists. Slice the first heading occurrence whose
+    // stretch to the following "Types" heading carries a
+    // real table — the rendered copy — and let the row-count
+    // guard below judge it; if no stretch carries a table,
+    // the page has changed shape.
+    let region = null;
+    for (
+      let start = html.indexOf("Cities with Clean Air Zones");
+      start !== -1;
+      start = html.indexOf("Cities with Clean Air Zones", start + 1)
+    ) {
+      const end = html.indexOf("Types of Clean Air Zones", start);
+      if (end === -1) break;
+      const candidate = html.slice(start, end);
+      if (candidate.includes("<table")) {
+        region = candidate;
+        break;
+      }
+    }
+    if (region === null)
       throw new Error(
         "the GOV.UK Clean Air Zone guidance changed shape — the cities table was not found",
       );
-    const region = html.slice(start, end);
     const expected = CHARGING_SCHEMES.filter((scheme) => scheme.family === "caz");
     const cities = expected.map((scheme) => scheme.name.split(" ")[0]);
     const missing = cities.filter((city) => !region.includes(city));
-    const rows = (region.match(/<tr[\s>]/g) ?? []).length - 1;
+    const trCount = (region.match(/<tr[\s>]/g) ?? []).length;
+    if (trCount === 0)
+      throw new Error(
+        "the GOV.UK Clean Air Zone guidance changed shape — the cities table was not found",
+      );
+    const rows = trCount - 1;
     const base = `canary govuk-caz · ${cities.length - missing.length} of ${cities.length} registered Clean Air Zones named on GOV.UK · ${rows} table rows`;
     const warnings = [];
     if (missing.length > 0)
