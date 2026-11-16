@@ -564,6 +564,27 @@ Family:
     name-to-entity bridge (M12.10(b)) before it can
     answer true — until then absences serve the
     not-published state, the Article 4 pattern.
+35. **flood_defences** — the Environment Agency's AIMS
+    register of recorded flood defences (migration 0024,
+    plan step M6.27, decisions D49/D54): one row per
+    recorded asset — its publisher key, type, protection
+    type, maintainer and operator categories, condition
+    grade code, design and current standards of
+    protection, watercourse and inspection date — with
+    the asset's line (a MultiLineString, GiST-indexed).
+    Lines file as published: no ST_MakeValid is applied
+    (a line has no area semantics and serving needs only
+    distance), and invalid lines are counted in the
+    loader's log, never dropped or repaired. The table is
+    single-edition, swapped entire by the quarterly
+    loader (load-flood-defences), whose fail-closed
+    vocabulary contract guarantees the maintainer and
+    operator columns can only ever hold the publisher's
+    categories — never a person's name. The brain serves
+    the register at report depth as the flood answer's
+    sibling block; last_inspection_date files but is
+    never served in V1 — the brain's read port does not
+    carry it.
 
 ## Physical decisions (recorded at build, M3.3)
 

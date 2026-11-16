@@ -1032,6 +1032,32 @@ export const EXPLAINER_CENSUS: CensusEntry[] = [
     "sections.epc.certificates[].construction.uValueLine",
     "D48: each certificate's recorded construction descriptions serve verbatim, per certificate, at report depth — disagreements between a home's certificates stand whole. A U-value exists only as text inside a new-build SAP description ('Average thermal transmittance 0.27 W/m²K'), never extracted, computed or converted: there is no numeric U-value field in the served shape. The block's basis line (construction.line) states what the descriptions are and what an '(assumed)' marker means; this row's line serves wherever a transmittance description appears. The groups' per-element 0–5 efficiency ratings are dropped at filing and never serve. Full depth only — the short bundle's derivation never reads the block.",
   ),
+  // M6.27 (decisions D49 and D54) — the recorded flood
+  // defences block, rows 81–82.
+  e(
+    81,
+    "flood.defences",
+    "flood",
+    "flood",
+    "the recorded defences within two miles: the true count, each defence's maintainer category and condition grade",
+    "hard",
+    ["full"],
+    "dedicated-field",
+    "flood.defences.caveat",
+    "D49/D54: the EA's AIMS register served as a list — nearest first, capped, with the overflow line carrying the true total. The block's structural caveat is the family's line: defences reduce the chance of flooding, they do not remove it, and the register is the EA's record of the defences it owns, manages or inspects. The maintainer serves as its filed category verbatim (the loader's fail-closed vocabulary contract is what makes a category safe to print; 'Unknown' serves as its named absence) and the condition in the EA's grade words mapped from the filed code — publisher categories and grades, never a judgement of ours, and no line claims a defence protects this home. The RoFRS bridge line and each defence's own named-absence lines ride in the same family. Report depth only — the short bundle's derivation never reads the block.",
+  ),
+  e(
+    82,
+    "flood.defences-sop",
+    "flood",
+    "flood",
+    "a defence's design and current standards of protection (the 1-in-n figures)",
+    "hard",
+    ["full"],
+    "line-embedded",
+    "flood.defences.defences[].designSopExplainer",
+    "D49: a bare '1 in 100' is meaningless, so each standard-of-protection figure travels with its pinned D13 line beside it — the design standard explained on every defence that files one, the current standard by its twin line (defences[].currentSopExplainer). The Agency's quality flag on the design standard (designSopQuality) is publisher text served only where a design standard itself is filed. No figure is converted, combined or compared, and an unfiled standard serves its named absence, never a borrowed one.",
+  ),
 ];
 
 // ------------------------------------------------------------------
@@ -1272,6 +1298,17 @@ export const FIGURE_PATH_PATTERNS: FigurePathPattern[] = [
   // is ours, named in its own line).
   p("flood\\.flood\\.liveWarnings\\.warnings\\[\\]\\.severityLevel", "flood.live-warnings"),
   p("flood\\.flood\\.liveWarnings\\.overflowCount", "flood.live-warnings"),
+  // M6.27 figures — the recorded defences block (rows
+  // 81–82). Distances ride the flood proximity family, as
+  // every flood distance does.
+  p("flood\\.flood\\.defences\\.defences\\[\\]\\.miles", "flood.proximity-miles"),
+  p("flood\\.flood\\.defences\\.totalWithin", "flood.defences"),
+  p("flood\\.flood\\.defences\\.caveat", "flood.defences"),
+  p("flood\\.flood\\.defences\\.defences\\[\\]\\.maintainer", "flood.defences"),
+  p("flood\\.flood\\.defences\\.defences\\[\\]\\.condition", "flood.defences"),
+  p("flood\\.flood\\.defences\\.defences\\[\\]\\.designSop", "flood.defences-sop"),
+  p("flood\\.flood\\.defences\\.defences\\[\\]\\.currentSop", "flood.defences-sop"),
+  p("flood\\.flood\\.defences\\.defences\\[\\]\\.designSopQuality", "flood.defences-sop"),
   p(
     "short\\.sections\\.flood\\.liveWarnings\\.warnings\\[\\]\\.severityLevel",
     "short.flood-live-warnings",
@@ -1287,17 +1324,17 @@ export const FIGURE_PATH_PATTERNS: FigurePathPattern[] = [
 // reviewed like a census entry — never a silent skip.
 export const NOT_A_FIGURE_ALLOWLIST: RegExp[] = [
   // Structural scalars on every bundle
-  /(^|\.)(rung|kind|state|depth|grain|pointState|pctState|numberState|calculated|predicted|additionalProprietor|parishAveraged|isSingleFlat|isHomeBuilding|allOperatorsPublished|councilPublishes|selective|partOf|inside|mounting|pvTechnology|radiationDb|monthlyLabelPence|bandDMonthlyLabel)$/,
+  /(^|\.)(rung|kind|state|depth|grain|pointState|pctState|numberState|calculated|predicted|additionalProprietor|parishAveraged|isSingleFlat|isHomeBuilding|allOperatorsPublished|councilPublishes|selective|partOf|inside|mounting|pvTechnology|radiationDb|monthlyLabelPence|bandDMonthlyLabel|maintainerRecorded)$/,
   // Dates and date-like labels
   /(^|\.)(date|saleDate|registrationDate|incorporationDate|decisionDate|decisionDateLabel|sourceDate|loadedAt|month|monthLabel|windowFrom|windowTo|spanFrom|spanTo|taxYear|year|snapshot|edition|windowLine|spanLine|fromLabel|toLabel|loadState|pollutant|checkedAt|timeRaised)$/,
   // Identifiers and codes that name, not measure
-  /(^|\.)(postcode|id|listEntryId|certificateNumber|titleNumber|companyNumber|caseRef|buildingKey|cellRef|lsoaCode|msoaCode|code|slug|category|layer|series|service|sourceKind|dataset|tenure|proprietorshipCategory|countryIncorporated|key|reference|sequence)$/,
+  /(^|\.)(postcode|id|assetId|listEntryId|certificateNumber|titleNumber|companyNumber|caseRef|buildingKey|cellRef|lsoaCode|msoaCode|code|slug|category|layer|series|service|sourceKind|dataset|tenure|proprietorshipCategory|countryIncorporated|key|reference|sequence)$/,
   // Names, labels and publisher wording (the words, not figures)
-  /(^|\.)(name|label|title|band|potentialBand|grade|type|typeLabel|dwellingType|assessmentType|authority|council|msoaName|lsoaName|unit|building|habitat|detail|coveringDetail|dayBand|nightBand|summary|propertyText|companyName|proprietorName|status|planningPermissionStatus|kindLine|group|groups|severity|areaDescription|riverOrSea|message)$/,
+  /(^|\.)(name|label|title|band|potentialBand|grade|type|typeLabel|dwellingType|assessmentType|authority|council|msoaName|lsoaName|unit|building|habitat|detail|coveringDetail|dayBand|nightBand|summary|propertyText|companyName|proprietorName|status|planningPermissionStatus|kindLine|group|groups|severity|areaDescription|riverOrSea|message|protectionType|watercourse)$/,
   // Lines, explainers, definitions and source lines: the
   // census's own subject matter — their presence is what
   // direction one asserts; they are text, not figures.
-  /(Line|line|explainer|definition|howWeCheck|basisLabel|sourceLine|sourceName|reason|rights|localListsLine|coverageLine|placesLine|designationsLine|grainLine|attributionLine|snapshotLine|windowLine|totalLine|staleLine|beyondLine|insideLine|ownExplainer|calibrationExplainer|address|street|town|locality|labelPence|currentAnnualLabel|currentMonthlyLabel|potentialAnnualLabel|potentialMonthlyLabel|url|link|href|recentLabel|coveringDefinition)$/,
+  /(Line|line|explainer|definition|howWeCheck|basisLabel|sourceLine|sourceName|reason|rights|localListsLine|coverageLine|placesLine|designationsLine|grainLine|attributionLine|snapshotLine|windowLine|totalLine|staleLine|beyondLine|insideLine|ownExplainer|calibrationExplainer|designSopExplainer|currentSopExplainer|address|street|town|locality|labelPence|currentAnnualLabel|currentMonthlyLabel|potentialAnnualLabel|potentialMonthlyLabel|url|link|href|recentLabel|coveringDefinition)$/,
   // The crime bundle's filed basis string: the publisher's
   // artefact travelling verbatim (the prep's second-
   // direction clearance, section 3) — text, not a figure.

@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 import type { AddressResolution, DirectoryPostcode } from "../lib/address";
 import {
+  CURRENT_SOP_EXPLAINER,
+  DEFENCES_LIST_CAP,
+  DESIGN_SOP_EXPLAINER,
   FLOOD_BAND_DEFINITIONS,
+  FLOOD_DEFENCES_BRIDGE,
+  FLOOD_DEFENCES_CAVEAT,
+  FLOOD_DEFENCES_NONE_LINE,
+  FLOOD_DEFENCES_NOT_FILED_LINE,
+  FLOOD_DEFENCES_TITLE,
   FLOOD_HOW_WE_CHECK,
   FLOOD_WARNING_ATTRIBUTION,
   FLOOD_WARNING_LINK,
@@ -13,6 +21,9 @@ import {
   parseFloodWarningItems,
   type FloodBundle,
   type FloodDataSource,
+  type FloodDefenceRow,
+  type FloodDefencesBlock,
+  type FloodDefencesFacts,
   type FloodLayerFacts,
   type FloodLayerType,
   type FloodWarningItem,
@@ -78,11 +89,30 @@ function fileFacts(directory: DirectoryPostcode, layers: Record<FloodLayerType, 
   FACTS.set(`${directory.latitude},${directory.longitude}`, layers);
 }
 
+// The defences facts (M6.27), keyed the same way; a point
+// with no entry reads the unfiled table.
+const DEFENCES = new Map<string, FloodDefencesFacts>();
+
+function fileDefences(directory: DirectoryPostcode, facts: FloodDefencesFacts) {
+  DEFENCES.set(`${directory.latitude},${directory.longitude}`, facts);
+}
+
+const NO_DEFENCES: FloodDefencesFacts = {
+  filedCount: 0,
+  totalWithin: 0,
+  sourceName: null,
+  sourceDate: null,
+  defences: [],
+};
+
 class FakeFloodSource implements FloodDataSource {
   async layerFacts(layer: FloodLayerType, latitude: number, longitude: number) {
     const record = FACTS.get(`${latitude},${longitude}`);
     if (!record) throw new Error(`no fake facts for ${latitude},${longitude}`);
     return record[layer];
+  }
+  async defencesNear(latitude: number, longitude: number) {
+    return DEFENCES.get(`${latitude},${longitude}`) ?? NO_DEFENCES;
   }
 }
 
@@ -1008,7 +1038,15 @@ describe("flood — live warnings compose at serve time (M6.22, D42)", () => {
     if (bundle.kind !== "flood" || bundle.flood.state !== "served")
       throw new Error("expected a served flood bundle");
     // The block is the section's first element, structurally.
-    expect(Object.keys(bundle.flood)).toEqual(["state", "liveWarnings", "layers", "howWeCheck"]);
+    // (M6.27: the defences sibling sits between the layers
+    // and the closing limits copy.)
+    expect(Object.keys(bundle.flood)).toEqual([
+      "state",
+      "liveWarnings",
+      "layers",
+      "defences",
+      "howWeCheck",
+    ]);
     const block = bundle.flood.liveWarnings;
     if (!block) throw new Error("expected a composed live-warnings block");
     expect(block.state).toBe("warnings");
@@ -1367,5 +1405,382 @@ describe("flood — the live warning source and parser (M6.22)", () => {
       })) as unknown as typeof fetch;
     const warnings = createFloodWarningSource({ fetchImpl: hanging, timeoutMs: 25 });
     await expect(warnings.warningsNear(52.034, -2.424)).rejects.toThrow("aborted");
+  });
+});
+
+// ------------------------------------------------------------------
+// Recorded flood defences (M6.27, decisions D49 and D54) — the
+// AIMS register as a sibling block: report depth only, capped,
+// every absence named, framed by the pinned caveat and the
+// RoFRS bridge line.
+// ------------------------------------------------------------------
+
+const DEFENCES_SOURCE = "Environment Agency — AIMS Spatial Flood Defences";
+
+function defenceRow(partial: Partial<FloodDefenceRow>): FloodDefenceRow {
+  return {
+    assetId: "1",
+    assetName: "Not Available",
+    assetSubType: "Wall",
+    protectionType: "Fluvial",
+    assetMaintainer: "Environment Agency",
+    currentCondition: "3",
+    designSop: 100,
+    designSopDqf: "Good",
+    currentSop: null,
+    waterCourseName: "River Test",
+    miles: 0.5,
+    ...partial,
+  };
+}
+
+function defencesFacts(partial: Partial<FloodDefencesFacts>): FloodDefencesFacts {
+  return {
+    filedCount: 141458,
+    totalWithin: 1,
+    sourceName: DEFENCES_SOURCE,
+    sourceDate: "2026-11-13",
+    defences: [defenceRow({})],
+    ...partial,
+  };
+}
+
+async function defencesBlock(dir: DirectoryPostcode, rung: 1 | 2 = 1): Promise<FloodDefencesBlock> {
+  const bundle = await buildFloodBundle(rung === 1 ? rung1(dir) : rung2(dir), source);
+  if (bundle.kind !== "flood" || bundle.flood.state !== "served")
+    throw new Error("expected a served flood bundle");
+  return bundle.flood.defences;
+}
+
+describe("flood — recorded defences (M6.27, D49/D54)", () => {
+  it("serves the nearest defence in full as filed, framed by the pinned caveat and bridge", async () => {
+    fileDefences(
+      BIRKDALE,
+      defencesFacts({
+        totalWithin: 2,
+        defences: [
+          defenceRow({
+            assetId: "73925",
+            assetSubType: "Natural High Ground",
+            assetMaintainer: "Environment Agency",
+            currentCondition: "3",
+            designSop: 10,
+            designSopDqf: null,
+            waterCourseName: "River Ter",
+            miles: 0.851,
+          }),
+          defenceRow({
+            assetId: "155192",
+            assetSubType: "Natural High Ground",
+            assetMaintainer: "Private individual, Company or Charity",
+            currentCondition: "",
+            designSop: 10,
+            designSopDqf: null,
+            waterCourseName: "River Chelmer",
+            miles: 1.581,
+          }),
+        ],
+      }),
+    );
+    const block = await defencesBlock(BIRKDALE);
+    expect(block.state).toBe("served");
+    expect(block.title).toBe(FLOOD_DEFENCES_TITLE);
+    expect(block.title).toBe("Recorded flood defences near this postcode point");
+    expect(block.caveat).toBe(FLOOD_DEFENCES_CAVEAT);
+    // Birkdale's rivers & sea layer is filed, so the bridge
+    // serves, verbatim.
+    expect(block.bridgeLine).toBe(FLOOD_DEFENCES_BRIDGE);
+    expect(block.totalWithin).toBe(2);
+    expect(block.overflowLine).toBeNull();
+    expect(block.line).toBeNull();
+    expect(block.sourceLine).toBe(
+      "Environment Agency — AIMS Spatial Flood Defences — data to 13 November 2026",
+    );
+    const [first, second] = block.defences;
+    expect(first).toMatchObject({
+      assetId: "73925",
+      type: "Natural High Ground",
+      name: null, // 'Not Available' serves as its named absence
+      protectionType: "Fluvial",
+      watercourse: "River Ter",
+      maintainer: "Environment Agency",
+      maintainerRecorded: true,
+      condition: "Fair",
+      conditionLine: "condition: Fair",
+      designSop: 10,
+      designSopLine: "design standard: 1 in 10",
+      designSopExplainer: DESIGN_SOP_EXPLAINER,
+      currentSop: null,
+      currentSopLine: "no current standard is recorded for this defence",
+      miles: 0.851,
+    });
+    // The '' condition is the absence of a grade, not grade 0.
+    expect(second.condition).toBeNull();
+    expect(second.conditionLine).toBe("no condition is recorded for this defence");
+    expect(second.maintainer).toBe("Private individual, Company or Charity");
+  });
+
+  it("serves every vocabulary maintainer as its filed category — 'Unknown' as its named absence", async () => {
+    const categories = [
+      "Environment Agency",
+      "Internal Drainage Board",
+      "Local Authority",
+      "Network Rail",
+      "Not Maintained",
+      "Other Public Body",
+      "Private individual, Company or Charity",
+      "Transport Authority",
+      "Unknown",
+      "Water Company",
+    ];
+    fileDefences(
+      EPSOM,
+      defencesFacts({
+        totalWithin: categories.length,
+        defences: categories.map((c, i) =>
+          defenceRow({ assetId: String(i + 1), assetMaintainer: c, miles: 0.1 * (i + 1) }),
+        ),
+      }),
+    );
+    const block = await defencesBlock(EPSOM);
+    for (const [i, category] of categories.entries()) {
+      const served = block.defences[i];
+      if (category === "Unknown") {
+        expect(served.maintainer).toBe("no maintainer is recorded for this defence");
+        expect(served.maintainerRecorded).toBe(false);
+      } else {
+        expect(served.maintainer).toBe(category);
+        expect(served.maintainerRecorded).toBe(true);
+      }
+      // No maintainer string outside the vocabulary (or its
+      // one named absence) can appear in served output.
+      expect([...categories, "no maintainer is recorded for this defence"]).toContain(
+        served.maintainer,
+      );
+    }
+  });
+
+  it("caps the list at the pinned cap and carries the true total on the overflow line", async () => {
+    const many = Array.from({ length: DEFENCES_LIST_CAP }, (_, i) =>
+      defenceRow({ assetId: String(1000 + i), miles: 0.01 * (i + 1) }),
+    );
+    fileDefences(EXETER, defencesFacts({ totalWithin: 443, defences: many }));
+    const block = await defencesBlock(EXETER);
+    expect(block.defences).toHaveLength(DEFENCES_LIST_CAP);
+    expect(block.totalWithin).toBe(443);
+    expect(block.overflowLine).toBe("and 418 more recorded defences within two miles");
+    // At exactly the cap there is no overflow line.
+    fileDefences(EXETER, defencesFacts({ totalWithin: DEFENCES_LIST_CAP, defences: many }));
+    const exact = await defencesBlock(EXETER);
+    expect(exact.overflowLine).toBeNull();
+  });
+
+  it("the bridge serves only where the rivers & sea layer is filed — the other arm", async () => {
+    const unfiledRofrs = directory("XX3 3XX", 51.6, 0.6, "E01000003");
+    fileFacts(unfiledRofrs, {
+      flood_zone: facts({ sourceName: ZONES_SOURCE, sourceDate: "2026-10-21" }),
+      rofrs: {
+        filedCount: 0,
+        covering: [],
+        nearestWithin: [],
+        nearestBeyond: null,
+        sourceName: null,
+        sourceDate: null,
+      },
+      rofsw: facts({ sourceName: ROFSW_SOURCE, sourceDate: "2026-11-10" }),
+    });
+    fileDefences(unfiledRofrs, defencesFacts({}));
+    const block = await defencesBlock(unfiledRofrs);
+    expect(block.state).toBe("served");
+    expect(block.bridgeLine).toBeNull();
+    expect(block.caveat).toBe(FLOOD_DEFENCES_CAVEAT);
+  });
+
+  it("serves the named absence within the radius, carrying the coverage limit", async () => {
+    const remote = directory("XX4 4XX", 52.6, -1.6, "E01000004");
+    fileFacts(remote, {
+      flood_zone: facts({ sourceName: ZONES_SOURCE, sourceDate: "2026-10-21" }),
+      rofrs: facts({ sourceName: ROFRS_SOURCE, sourceDate: "2026-11-03" }),
+      rofsw: facts({ sourceName: ROFSW_SOURCE, sourceDate: "2026-11-10" }),
+    });
+    fileDefences(remote, defencesFacts({ totalWithin: 0, defences: [] }));
+    const block = await defencesBlock(remote);
+    expect(block.state).toBe("none-within-radius");
+    expect(block.line).toBe(FLOOD_DEFENCES_NONE_LINE);
+    expect(block.line).toContain(
+      "no EA-recorded flood defence is mapped within 2 miles of this postcode point",
+    );
+    expect(block.line).toContain("defences recorded by other bodies");
+    expect(block.caveat).toBeNull();
+    expect(block.bridgeLine).toBeNull();
+    expect(block.defences).toEqual([]);
+    expect(block.totalWithin).toBe(0);
+    expect(block.sourceLine).toBe(
+      "Environment Agency — AIMS Spatial Flood Defences — data to 13 November 2026",
+    );
+  });
+
+  it("serves the not-filed state when the table is empty — never an absence", async () => {
+    const block = await defencesBlock(OXFORD);
+    expect(block.state).toBe("not-filed");
+    expect(block.line).toBe(FLOOD_DEFENCES_NOT_FILED_LINE);
+    expect(block.line).toBe(
+      "recorded flood defences are not filed yet, so no answer can be given from them",
+    );
+    expect(block.caveat).toBeNull();
+    expect(block.bridgeLine).toBeNull();
+    expect(block.totalWithin).toBeNull();
+    expect(block.sourceLine).toBeNull();
+  });
+
+  it("named absences per field: grade '0' is Unchecked, an unfiled standard borrows nothing", async () => {
+    fileDefences(
+      KINGSTON,
+      defencesFacts({
+        totalWithin: 3,
+        defences: [
+          defenceRow({ assetId: "a", currentCondition: "0", miles: 0.1 }),
+          defenceRow({
+            assetId: "b",
+            currentCondition: null,
+            designSop: null,
+            designSopDqf: "Good", // a quality flag with no standard serves nothing
+            currentSop: 50,
+            waterCourseName: "",
+            miles: 0.2,
+          }),
+          defenceRow({ assetId: "c", designSop: null, designSopDqf: null, miles: 0.3 }),
+        ],
+      }),
+    );
+    const block = await defencesBlock(KINGSTON);
+    const [a, b, c] = block.defences;
+    expect(a.condition).toBe("Unchecked");
+    expect(a.conditionLine).toBe("condition: Unchecked");
+    expect(b.condition).toBeNull();
+    expect(b.conditionLine).toBe("no condition is recorded for this defence");
+    expect(b.designSop).toBeNull();
+    expect(b.designSopLine).toBe("no design standard is recorded for this defence");
+    expect(b.designSopExplainer).toBeNull();
+    expect(b.designSopQuality).toBeNull();
+    expect(b.currentSop).toBe(50);
+    expect(b.currentSopLine).toBe("current standard: 1 in 50");
+    expect(b.currentSopExplainer).toBe(CURRENT_SOP_EXPLAINER);
+    expect(b.watercourse).toBeNull();
+    expect(c.designSopQuality).toBeNull();
+  });
+
+  it("no line in the block claims a defence protects this home (the no-protection scan)", async () => {
+    const block = await defencesBlock(BIRKDALE);
+    const strings: string[] = [];
+    const walk = (v: unknown) => {
+      if (typeof v === "string") strings.push(v);
+      else if (Array.isArray(v)) v.forEach(walk);
+      else if (v && typeof v === "object") Object.values(v).forEach(walk);
+    };
+    walk(block);
+    const banned = [
+      "protects this home",
+      "protecting this home",
+      "defends this home",
+      "this home is protected",
+      "safe",
+      "flood-proof",
+      "will flood",
+      "won't flood",
+      "no flood risk",
+    ];
+    for (const text of strings)
+      for (const term of banned) expect(text.toLowerCase()).not.toContain(term);
+    // The framing string is the pinned title.
+    expect(block.title).toBe("Recorded flood defences near this postcode point");
+  });
+
+  it("rung 3 and the not-covered nations carry no defences payload", async () => {
+    const rung3 = await buildFloodBundle(
+      { rung: 3, kind: "wider-area", outward: "CM3", label: "Wider area", postcodeCount: 1 },
+      source,
+    );
+    expect("defences" in rung3.flood).toBe(false);
+    const welsh = await buildFloodBundle(
+      rung2(directory("CF11 8AA", 51.467947, -3.192837, "W01001759")),
+      source,
+    );
+    expect(welsh.kind).toBe("not-covered");
+    expect("defences" in welsh.flood).toBe(false);
+  });
+
+  it("the database source reads the defences table: totals, the cap, the radius cut", async () => {
+    const seen: string[] = [];
+    const db = {
+      async query(text: string) {
+        seen.push(text);
+        if (text.includes("FROM flood_defences LIMIT 1"))
+          return { rows: [{ source_name: DEFENCES_SOURCE, source_date: "2026-11-13" }] };
+        if (text.includes("count(*)") && text.includes("ST_Distance")) return { rows: [{ n: 26 }] };
+        if (text.includes("SELECT count(*)::int AS n FROM flood_defences"))
+          return { rows: [{ n: 141458 }] };
+        if (text.includes("ORDER BY miles, asset_id")) {
+          return {
+            rows: [
+              {
+                asset_id: "73925",
+                asset_name: "Not Available",
+                asset_sub_type: "Natural High Ground",
+                protection_type: "Fluvial",
+                asset_maintainer: "Environment Agency",
+                current_condition: "3",
+                design_sop: 10,
+                design_sop_dqf: null,
+                current_sop: null,
+                water_course_name: "River Ter",
+                miles: 0.851,
+              },
+              {
+                asset_id: "99999",
+                asset_name: "Not Available",
+                asset_sub_type: "Wall",
+                protection_type: "Fluvial",
+                asset_maintainer: "Unknown",
+                current_condition: "",
+                design_sop: null,
+                design_sop_dqf: null,
+                current_sop: null,
+                water_course_name: "",
+                miles: 2.4, // beyond the radius — the source's own cut drops it
+              },
+            ],
+          };
+        }
+        throw new Error(`unexpected query: ${text}`);
+      },
+    };
+    const dbSource = createFloodSource(db);
+    const result = await dbSource.defencesNear(51.776176, 0.60387);
+    expect(result.filedCount).toBe(141458);
+    expect(result.totalWithin).toBe(26);
+    expect(result.defences).toHaveLength(1);
+    expect(result.defences[0].assetId).toBe("73925");
+    expect(result.sourceName).toBe(DEFENCES_SOURCE);
+    expect(result.sourceDate).toBe("2026-11-13");
+    expect(seen.some((q) => q.includes("ST_DWithin"))).toBe(true);
+    expect(seen.some((q) => q.includes("LIMIT"))).toBe(true);
+  });
+
+  it("the database source short-circuits an unfiled defences table", async () => {
+    const seen: string[] = [];
+    const db = {
+      async query(text: string) {
+        seen.push(text);
+        if (text.includes("LIMIT 1")) return { rows: [] };
+        if (text.includes("count(*)")) return { rows: [{ n: 0 }] };
+        throw new Error(`unexpected query: ${text}`);
+      },
+    };
+    const dbSource = createFloodSource(db);
+    const result = await dbSource.defencesNear(51.5, 0.5);
+    expect(result.filedCount).toBe(0);
+    expect(result.defences).toEqual([]);
+    expect(seen).toHaveLength(2);
   });
 });

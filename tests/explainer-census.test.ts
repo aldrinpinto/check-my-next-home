@@ -49,6 +49,7 @@ import { buildCrimeBundle, type CrimeDataSource, type FiledCrimeAnswer } from ".
 import {
   buildFloodBundle,
   type FloodDataSource,
+  type FloodDefencesFacts,
   type FloodLayerFacts,
   type FloodWarningItem,
 } from "../lib/flood";
@@ -584,6 +585,46 @@ class CensusFloodSource implements FloodDataSource {
       return { ...base, covering: [{ riskLabel: "Very low", detail: ">0 m" }] };
     return { ...base, nearestWithin: [{ riskLabel: "Low", detail: ">0 m", miles: 0.01 }] };
   }
+  // The M6.27 defences facts: a served block whose first
+  // defence carries a design standard (so direction one
+  // exercises rows 81–82 and the leaf walk registers the
+  // block's paths).
+  async defencesNear(): Promise<FloodDefencesFacts> {
+    return {
+      filedCount: 141458,
+      totalWithin: 3,
+      sourceName: "Environment Agency — AIMS Spatial Flood Defences",
+      sourceDate: "2026-11-13",
+      defences: [
+        {
+          assetId: "73925",
+          assetName: "Not Available",
+          assetSubType: "Natural High Ground",
+          protectionType: "Fluvial",
+          assetMaintainer: "Environment Agency",
+          currentCondition: "3",
+          designSop: 10,
+          designSopDqf: "Good",
+          currentSop: null,
+          waterCourseName: "River Ter",
+          miles: 0.851,
+        },
+        {
+          assetId: "14473",
+          assetName: "Not Available",
+          assetSubType: "Wall",
+          protectionType: "Tidal",
+          assetMaintainer: "Private individual, Company or Charity",
+          currentCondition: "",
+          designSop: 1000,
+          designSopDqf: null,
+          currentSop: 200,
+          waterCourseName: "River Lea or Lee",
+          miles: 0.9,
+        },
+      ],
+    };
+  }
 }
 
 // The M6.22 warning source for the census golden: the
@@ -629,13 +670,13 @@ type Golden = Awaited<ReturnType<typeof goldenBundles>>;
 // ------------------------------------------------------------------
 
 describe("explainer census — the register", () => {
-  it("enumerates the census: 80 families (71 to M6.20, rows 72–75 added at M6.21, rows 76–78 at M6.22, row 79 at M6.25, row 80 at M6.26), 47 hard, ids unique and stable in row order", () => {
-    expect(EXPLAINER_CENSUS).toHaveLength(80);
+  it("enumerates the census: 82 families (71 to M6.20, rows 72–75 added at M6.21, rows 76–78 at M6.22, row 79 at M6.25, row 80 at M6.26, rows 81–82 at M6.27), 49 hard, ids unique and stable in row order", () => {
+    expect(EXPLAINER_CENSUS).toHaveLength(82);
     expect(EXPLAINER_CENSUS.map((entry) => entry.row)).toEqual(
-      Array.from({ length: 80 }, (_, i) => i + 1),
+      Array.from({ length: 82 }, (_, i) => i + 1),
     );
-    expect(new Set(EXPLAINER_CENSUS.map((entry) => entry.id)).size).toBe(80);
-    expect(EXPLAINER_CENSUS.filter((entry) => entry.hardness === "hard")).toHaveLength(47);
+    expect(new Set(EXPLAINER_CENSUS.map((entry) => entry.id)).size).toBe(82);
+    expect(EXPLAINER_CENSUS.filter((entry) => entry.hardness === "hard")).toHaveLength(49);
     // Every figure-path pattern names census ids that exist.
     const ids = new Set(EXPLAINER_CENSUS.map((entry) => entry.id));
     for (const { censusIds } of FIGURE_PATH_PATTERNS)
@@ -751,6 +792,14 @@ const HARD_LINES: Record<string, (b: Golden) => unknown> = {
       ? b.short.sections.flood.liveWarnings?.warnings.map((w) => w.line)
       : null,
   "nearby.school-deadlines": (b) => b.nearby.schoolDeadlines?.line,
+  "flood.defences": (b) =>
+    b.flood.kind === "flood" && b.flood.flood.state === "served"
+      ? b.flood.flood.defences.caveat
+      : null,
+  "flood.defences-sop": (b) =>
+    b.flood.kind === "flood" && b.flood.flood.state === "served"
+      ? b.flood.flood.defences.defences.map((d) => d.designSopExplainer)
+      : null,
 };
 
 describe("explainer census — direction one (hard ⇒ line present, both depths)", () => {

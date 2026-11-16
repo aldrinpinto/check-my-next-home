@@ -20,6 +20,7 @@ import { buildCrimeBundle, type CrimeDataSource, type FiledCrimeAnswer } from ".
 import {
   buildFloodBundle,
   type FloodDataSource,
+  type FloodDefencesFacts,
   type FloodLayerFacts,
   type FloodLayerType,
 } from "../lib/flood";
@@ -923,6 +924,19 @@ class FakeFloodSource implements FloodDataSource {
     const record = FLOOD_FACTS.get(`${latitude},${longitude}`);
     if (!record) throw new Error(`no fake flood facts for ${latitude},${longitude}`);
     return record[layer];
+  }
+  // M6.27: unfiled by default in this fake world; the
+  // identity test below files a served block to prove the
+  // short derivation never reads it.
+  defencesFacts: FloodDefencesFacts = {
+    filedCount: 0,
+    totalWithin: 0,
+    sourceName: null,
+    sourceDate: null,
+    defences: [],
+  };
+  async defencesNear() {
+    return this.defencesFacts;
   }
 }
 
@@ -2225,6 +2239,86 @@ describe("short bundle — 19 Birkdale Rise, CM3 2JT (rung 1)", () => {
     const serialised = JSON.stringify(servedShort(withBlock));
     expect(serialised).not.toContain("construction");
     expect(serialised).not.toContain("thermal transmittance");
+  });
+
+  it("flood: the M6.27 defences block leaves the short bundle shape-identical", async () => {
+    // Recorded defences are report depth (D49); the headline
+    // flood projection picks the live-warnings subset and the
+    // layers only. The proof is identity, not inspection: the
+    // short bundle derived from a flood bundle carrying a
+    // served defences block equals, field for field, the one
+    // derived from the same bundle with the block in its
+    // not-filed form — the derivation never reads it.
+    floodSource.defencesFacts = {
+      filedCount: 141458,
+      totalWithin: 1,
+      sourceName: "Environment Agency — AIMS Spatial Flood Defences",
+      sourceDate: "2026-11-13",
+      defences: [
+        {
+          assetId: "73925",
+          assetName: "Not Available",
+          assetSubType: "Natural High Ground",
+          protectionType: "Fluvial",
+          assetMaintainer: "Environment Agency",
+          currentCondition: "3",
+          designSop: 10,
+          designSopDqf: null,
+          currentSop: null,
+          waterCourseName: "River Ter",
+          miles: 0.851,
+        },
+      ],
+    };
+    try {
+      const inputs = await fullBundles(BIRKDALE);
+      if (inputs.flood.kind !== "flood" || inputs.flood.flood.state !== "served")
+        throw new Error("expected a served flood bundle");
+      // The block must actually be present, and served, for
+      // the identity to prove anything.
+      expect(inputs.flood.flood.defences.state).toBe("served");
+      expect(inputs.flood.flood.defences.defences[0].assetId).toBe("73925");
+      const withBlock = buildShortBundle(inputs);
+      const withoutBlock = buildShortBundle({
+        ...inputs,
+        flood: {
+          ...inputs.flood,
+          flood: {
+            ...inputs.flood.flood,
+            defences: {
+              state: "not-filed",
+              title: "Recorded flood defences near this postcode point",
+              caveat: null,
+              bridgeLine: null,
+              defences: [],
+              totalWithin: null,
+              overflowLine: null,
+              line: "recorded flood defences are not filed yet, so no answer can be given from them",
+              sourceName: null,
+              sourceDate: null,
+              sourceLine: null,
+            },
+          },
+        },
+      });
+      expect(withBlock).toEqual(withoutBlock);
+      const serialised = JSON.stringify(servedShort(withBlock));
+      // The block's own markers only — the layers' basis
+      // lines legitimately speak of defences in their own
+      // words, and are not the block.
+      expect(serialised).not.toContain("Recorded flood defences");
+      expect(serialised).not.toContain("AIMS");
+      expect(serialised).not.toContain("73925");
+      expect(serialised).not.toContain("design standard");
+    } finally {
+      floodSource.defencesFacts = {
+        filedCount: 0,
+        totalWithin: 0,
+        sourceName: null,
+        sourceDate: null,
+        defences: [],
+      };
+    }
   });
 
   it("area sections: EPC band, the council-tax line with its correction, NO2, road noise", async () => {

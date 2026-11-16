@@ -5711,6 +5711,19 @@
   },
   "flood.served-mixed": {
     "flood": {
+      "defences": {
+        "bridgeLine": "null",
+        "caveat": "null",
+        "defences": [],
+        "line": "string",
+        "overflowLine": "null",
+        "sourceDate": "null",
+        "sourceLine": "null",
+        "sourceName": "null",
+        "state": "string",
+        "title": "string",
+        "totalWithin": "null"
+      },
       "howWeCheck": "string",
       "layers": [
         {
@@ -5787,6 +5800,19 @@
   },
   "flood.served-warnings": {
     "flood": {
+      "defences": {
+        "bridgeLine": "null",
+        "caveat": "null",
+        "defences": [],
+        "line": "string",
+        "overflowLine": "null",
+        "sourceDate": "null",
+        "sourceLine": "null",
+        "sourceName": "null",
+        "state": "string",
+        "title": "string",
+        "totalWithin": "null"
+      },
       "howWeCheck": "string",
       "layers": [
         {

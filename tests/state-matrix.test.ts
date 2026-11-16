@@ -131,7 +131,12 @@ import {
   type CrimeDataSource,
   type FiledCrimeAnswer,
 } from "../lib/crime";
-import { buildFloodBundle, type FloodDataSource, type FloodLayerFacts } from "../lib/flood";
+import {
+  buildFloodBundle,
+  type FloodDataSource,
+  type FloodDefencesFacts,
+  type FloodLayerFacts,
+} from "../lib/flood";
 import {
   SCHOOL_DEADLINES_ENGLAND_LINE,
   SCHOOL_DEADLINES_WALES_LINE,
@@ -1026,6 +1031,18 @@ class MatrixFloodSource implements FloodDataSource {
   };
   async layerFacts(layer: string) {
     return this.layers[layer];
+  }
+  // M6.27: unfiled by default — the matrix's defences cells
+  // set their own facts where the block is the subject.
+  defencesFacts: FloodDefencesFacts = {
+    filedCount: 0,
+    totalWithin: 0,
+    sourceName: null,
+    sourceDate: null,
+    defences: [],
+  };
+  async defencesNear() {
+    return this.defencesFacts;
   }
 }
 

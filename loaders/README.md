@@ -394,6 +394,35 @@ fragile (Exeter's point sits in no polygon, with Low about
 assertions. Modes: `--verify-only`,
 `--file tests/fixtures/flood-surface-water`.
 
+## Recorded flood defences loader (plan step M6.27)
+
+`load-flood-defences.mjs` files the Environment Agency's
+AIMS Spatial Flood Defences register (AfA345, Open
+Government Licence) into `flood_defences` (migration 0024)
+— the recorded defences themselves: type, watercourse,
+maintainer and operator categories, condition grade, and
+design / current standards of protection, each asset's
+line transformed from British National Grid with the house
+proj4 definition. There is no OGC collection for this
+product: the national GeoPackage (141,458 features in the
+13 Nov 2026 build) downloads whole from the Data Sharing
+Platform file endpoint, and the edition stamp is the zip
+member's own date, read from the zip directory — the CKAN
+record's modified date is the metadata's, never the
+data's. Filing is the flood loaders' staged single-edition
+swap, with two deliberate differences: NO ST_MakeValid (a
+line has no area semantics; invalid lines are counted in
+the log line, filed as published, never dropped or
+repaired), and a FAIL-CLOSED closed-vocabulary contract —
+the maintainer (10 values), operator (9), condition codes
+('' / '0'–'5' / NULL) and asset sub-types (14) are pinned,
+and any out-of-vocabulary value fails the run and files
+nothing, so no person's name can ever be filed as a
+maintainer. `last_inspection_date` files (converted from
+the published DD/MM/YYYY text) but is not served in V1.
+Quarterly on the runner. Modes: `--verify-only`,
+`--file tests/fixtures/flood-defences`.
+
 ## Transport loader (plan step M5.5)
 
 `load-transport.mjs` files NaPTAN stops and stations from the

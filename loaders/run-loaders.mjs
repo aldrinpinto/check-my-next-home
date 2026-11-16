@@ -98,6 +98,7 @@ export const LOADER_SCHEDULE = [
   { item: "load-flood-zones", cadence: "quarterly", timeoutMinutes: 30 },
   { item: "load-flood-rivers-sea", cadence: "quarterly", timeoutMinutes: 30 },
   { item: "load-flood-surface-water", cadence: "quarterly", timeoutMinutes: 30 },
+  { item: "load-flood-defences", cadence: "quarterly", timeoutMinutes: 30 },
   { item: "load-transport", cadence: "quarterly", timeoutMinutes: 30 },
   { item: "load-osm-places", cadence: "quarterly", timeoutMinutes: 30 },
   { item: "load-os-greenspace", cadence: "quarterly", timeoutMinutes: 30 },
@@ -313,6 +314,7 @@ export const FRIENDLY_NAMES = {
   "load-flood-zones": "Flood zones — the planning map, defences ignored",
   "load-flood-rivers-sea": "Flood likelihood — rivers and sea, defences counted",
   "load-flood-surface-water": "Flood likelihood — surface water",
+  "load-flood-defences": "Flood defences — the EA's recorded defences (AIMS)",
   "load-transport": "Transport — bus stops and stations",
   "load-osm-places": "Nearby places — vets, shops, eating places, parks and more",
   "load-os-greenspace": "Parks — official green spaces",
@@ -458,6 +460,10 @@ function shortDetail(item) {
     case "load-flood-surface-water": {
       const filed = pick(/(\d+) features filed/);
       return filed ? `${filed} surface water shapes filed` : "updated";
+    }
+    case "load-flood-defences": {
+      const filed = pick(/(\d+) features filed/);
+      return filed ? `${filed} flood defences filed` : "updated";
     }
     case "load-transport": {
       const filed = pick(/(\d+) transport stops filed/);
@@ -812,6 +818,7 @@ async function main() {
       await runAndLog("load-flood-zones", ["--file", fx("flood-zones")]);
       await runAndLog("load-flood-rivers-sea", ["--file", fx("flood-rivers-sea")]);
       await runAndLog("load-flood-surface-water", ["--file", fx("flood-surface-water")]);
+      await runAndLog("load-flood-defences", ["--file", fx("flood-defences")]);
       await runAndLog("load-transport", ["--file", fx("transport")]);
       await runAndLog("load-osm-places", ["--file", fx("osm-places")]);
       await runAndLog("load-os-greenspace", ["--file", fx("os-greenspace")]);
@@ -935,6 +942,7 @@ async function main() {
         "load-flood-zones",
         "load-flood-rivers-sea",
         "load-flood-surface-water",
+        "load-flood-defences",
         "load-transport",
         "load-osm-places",
         "load-os-greenspace",
@@ -1108,6 +1116,7 @@ async function main() {
         "load-flood-zones",
         "load-flood-rivers-sea",
         "load-flood-surface-water",
+        "load-flood-defences",
         "load-transport",
         "load-osm-places",
         "load-os-greenspace",

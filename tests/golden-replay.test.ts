@@ -979,6 +979,73 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
     }
   });
 
+  it("recorded defences (M6.27, D49/D54): the AIMS register serves through the real source, capped, as filed", () => {
+    // The defences fixture is filed by the REAL loader in
+    // the runner's fixture pass (the CI database job), so
+    // the blocks below prove the whole path: the published
+    // GeoPackage subset through the vocabulary contract and
+    // the staged swap into the brain's PostGIS geography
+    // read — the serving basis, which is what these figures
+    // lock (the loader's BNG-plane pins are its own filing
+    // checks, in the loader suite).
+    const defencesOf = (tag: string) => {
+      const f = get(tag).flood;
+      if (f.kind !== "flood" || f.flood.state !== "served")
+        throw new Error(`${tag}: expected a served flood bundle`);
+      return f.flood.defences;
+    };
+    // Birkdale: 26 within two miles, the River Ter natural
+    // high ground nearest, in full.
+    const birkdale = defencesOf("birkdale1");
+    expect(birkdale.state).toBe("served");
+    expect(birkdale.totalWithin).toBe(26);
+    expect(birkdale.defences).toHaveLength(25);
+    expect(birkdale.overflowLine).toBe("and 1 more recorded defences within two miles");
+    expect(birkdale.caveat).toContain("Flood defences reduce the chance of flooding");
+    expect(birkdale.bridgeLine).toContain("already counts the flood defences in place");
+    const bFirst = birkdale.defences[0];
+    expect(bFirst.assetId).toBe("73925");
+    expect(bFirst.type).toBe("Natural High Ground");
+    expect(bFirst.watercourse).toBe("River Ter");
+    expect(bFirst.maintainer).toBe("Environment Agency");
+    expect(bFirst.condition).toBe("Fair");
+    expect(bFirst.designSop).toBe(10);
+    expect(bFirst.miles).toBeCloseTo(0.851, 2);
+    // Exeter: 443 within two miles — the cap serves 25 and
+    // the overflow line carries the true total. The nearest
+    // is the tied Lea wall pair (assets 14473 and 8140 at
+    // the same distance; the asset_id tie-break orders
+    // them deterministically).
+    const exeter = defencesOf("exeter1");
+    expect(exeter.state).toBe("served");
+    expect(exeter.totalWithin).toBe(443);
+    expect(exeter.defences).toHaveLength(25);
+    expect(exeter.overflowLine).toBe("and 418 more recorded defences within two miles");
+    const eFirst = exeter.defences[0];
+    expect(["14473", "8140"]).toContain(eFirst.assetId);
+    expect(eFirst.type).toBe("Wall");
+    expect(eFirst.protectionType).toBe("Tidal");
+    expect(eFirst.watercourse).toBe("River Lea or Lee");
+    expect(eFirst.maintainer).toBe("Private individual, Company or Charity");
+    expect(eFirst.condition).toBeNull();
+    expect(eFirst.designSop).toBe(1000);
+    expect(eFirst.miles).toBeCloseTo(0.579, 2);
+    // Minerva: 52 within two miles, the Hogsmill natural
+    // high ground nearest.
+    const minerva = defencesOf("minerva1");
+    expect(minerva.state).toBe("served");
+    expect(minerva.totalWithin).toBe(52);
+    expect(minerva.defences).toHaveLength(25);
+    expect(minerva.overflowLine).toBe("and 27 more recorded defences within two miles");
+    const mFirst = minerva.defences[0];
+    expect(mFirst.assetId).toBe("80375");
+    expect(mFirst.type).toBe("Natural High Ground");
+    expect(mFirst.watercourse).toBe("Hogsmill River");
+    expect(mFirst.maintainer).toBe("Private individual, Company or Charity");
+    expect(mFirst.designSop).toBe(25);
+    expect(mFirst.miles).toBeCloseTo(0.429, 2);
+  });
+
   it("short bundle: the universal headlines carry the locked figures", () => {
     const birkdale = get("birkdale1").short;
     expect(Object.keys(birkdale.sections).sort()).toHaveLength(12);

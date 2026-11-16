@@ -20,6 +20,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { probePlanningApplication } from "./canary-planning-application.mjs";
+import { probeFloodDefences } from "./canary-flood-defences.mjs";
 import { probeCouncilTax } from "./canary-council-tax.mjs";
 import { probeBsrRegister } from "./canary-bsr-register.mjs";
 import {
@@ -1864,6 +1865,7 @@ export async function runCanaryProbes() {
   await run("flood-zones", () => probeFloodProduct("flood-zones"));
   await run("flood-rivers-sea", () => probeFloodProduct("flood-rivers-sea"));
   await run("flood-surface-water", () => probeFloodProduct("flood-surface-water"));
+  await run("flood-defences", probeFloodDefences);
   await run("naptan", probeNaptan);
   await run("geofabrik", probeGeofabrik);
   await run("os-greenspace", probeOsGreenspace);

@@ -85,6 +85,21 @@
 // suite. All 46 pins stand. Authorised by the founder's D48
 // ruling; recorded here and in the golden matrix so the
 // change is never mistaken for drift.
+//
+// RE-PIN RECORD: M6.27 (decisions D49 and D54) deliberately
+// widened the frozen flood shape — the served flood answer
+// gains defences (the recorded-defences sibling block: the
+// EA's AIMS register served at report depth, capped, with
+// its caveat, bridge and named states). Two pins moved
+// (flood.served-mixed, flood.served-warnings — the two pins
+// whose bundles serve a flood answer; in this fake world
+// the defences table is unfiled, so both gain the block in
+// its not-filed form). The short pins did not move — the
+// headline projection picks named fields and never reads
+// the block, proven by an identity test in the flood suite.
+// All 46 pins stand. Authorised by the founder's D49/D54
+// rulings; recorded here so the change is never mistaken
+// for drift.
 
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -569,6 +584,11 @@ class FakeFloodSource implements FloodDataSource {
   layers = new Map<string, FloodLayerFacts>();
   async layerFacts(layer: string) {
     return this.layers.get(layer) ?? floodLayer({});
+  }
+  // M6.27: the defences table is unfiled in this fake world,
+  // so both served pins gain the block in its not-filed form.
+  async defencesNear() {
+    return { filedCount: 0, totalWithin: 0, sourceName: null, sourceDate: null, defences: [] };
   }
 }
 

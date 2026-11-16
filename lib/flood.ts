@@ -105,6 +105,31 @@ import { DISTANCE_BASIS_LABEL, RADIUS_MILES } from "./nearby";
 // this point or this home — the served wording attributes
 // it to the area, exactly as the filed lines attribute
 // their facts to the postcode point.
+//
+// Recorded flood defences (M6.27, decisions D49 and D54)
+// join the answer as a SIBLING block, not a fourth layer:
+// the Environment Agency's AIMS register of the defences it
+// owns, manages or inspects, filed at migration 0024. The
+// block is report depth only — the headline derivation picks
+// named fields, so it never travels. Serving follows the
+// register's own shape: the nearest defences within 2 miles,
+// nearest first, each in full as filed (type, watercourse,
+// maintainer category, condition grade, design and current
+// standards of protection, each absence named), capped at
+// DEFENCES_LIST_CAP with an overflow line carrying the true
+// total. Two pinned sentences frame it: the structural
+// caveat (defences reduce the chance of flooding; they do
+// not remove it — and the register is the EA's record, not
+// every defence that exists) and, where the rivers & sea
+// layer is filed, the bridge line (that likelihood already
+// counts these defences — the list is the record behind it,
+// never a second reduction). The maintainer serves as its
+// filed CATEGORY, verbatim — the loader's fail-closed
+// vocabulary contract is what makes that safe — and the
+// filed 'Unknown' serves as its named absence. No line in
+// the block claims a defence protects this home: a defence
+// on a different watercourse, or downstream, may do nothing
+// for this point, and the block never says otherwise.
 
 export const FLOOD_UNAVAILABLE_REASON = "flood answers need an exact postcode";
 
@@ -487,11 +512,50 @@ export interface FloodLayerFacts {
   sourceDate: string | null;
 }
 
+// One filed defence as the source reads it, at full filed
+// precision; the brain composes the served form. The filed
+// last_inspection_date is deliberately NOT on this port
+// (D54: filed, not served).
+export interface FloodDefenceRow {
+  assetId: string;
+  // As filed — the placeholder 'Not Available' included; the
+  // brain maps it to its named absence.
+  assetName: string | null;
+  assetSubType: string | null;
+  protectionType: string | null;
+  // The filed category, verbatim (the loader files it
+  // trimmed and vocabulary-checked).
+  assetMaintainer: string | null;
+  // The filed condition code: '0'–'5', '' (no grade
+  // recorded — a state distinct from the recorded grade
+  // '0'), or null.
+  currentCondition: string | null;
+  designSop: number | null;
+  designSopDqf: string | null;
+  currentSop: number | null;
+  waterCourseName: string | null;
+  miles: number;
+}
+
+export interface FloodDefencesFacts {
+  // The whole-table filed count — the not-filed predicate.
+  filedCount: number;
+  // The true count within the serving radius (the D54
+  // overflow line's total).
+  totalWithin: number;
+  sourceName: string | null;
+  sourceDate: string | null;
+  // The nearest defences within the radius, nearest first
+  // (asset_id the tie-break), already cut at the list cap.
+  defences: FloodDefenceRow[];
+}
+
 // The brain's read port over the filed shapes — the same
 // pattern as the sibling brains: tests drive a fake;
 // createFloodSource below is the only database implementation.
 export interface FloodDataSource {
   layerFacts(layer: FloodLayerType, latitude: number, longitude: number): Promise<FloodLayerFacts>;
+  defencesNear(latitude: number, longitude: number): Promise<FloodDefencesFacts>;
 }
 
 // ------------------------------------------------------------------
@@ -548,6 +612,124 @@ export interface ServedFloodLayer {
   sourceLine: string | null;
 }
 
+// ------------------------------------------------------------------
+// Recorded flood defences (M6.27, decisions D49 and D54)
+// ------------------------------------------------------------------
+
+// The D54 list cap: the nearest defences serve in full, and
+// past the cap the overflow line carries the true total.
+// The prep's recommended value, adopted with D54 — a named
+// constant, reversible on the founder's word.
+export const DEFENCES_LIST_CAP = 25;
+
+export const FLOOD_DEFENCES_TITLE = "Recorded flood defences near this postcode point";
+
+// The structural caveat (D49, pinned): it states what a
+// defence does and the register's coverage limit in the
+// same breath, and it travels with every served list — it
+// is the block's framing, not an optional footnote.
+export const FLOOD_DEFENCES_CAVEAT =
+  "Flood defences reduce the chance of flooding; they do not remove it. Defences can be overtopped or fail, and this list is the Environment Agency's record of the defences it owns, manages or inspects — defences recorded by other bodies, and defences on smaller watercourses, are not in it.";
+
+// The bridge to the rivers & sea layer (D49, pinned): that
+// likelihood already counts these defences and their
+// condition, so the list is the record behind the band —
+// never a further reduction on top of it. Served only where
+// the defences list serves AND the rivers & sea layer is
+// filed (the prep's pinned predicate).
+export const FLOOD_DEFENCES_BRIDGE =
+  "The rivers and sea likelihood above already counts the flood defences in place and their condition. The list below is that record — the defences themselves, as the Environment Agency files them — not a further reduction on top of it.";
+
+// The named absence (D49): the coverage limit travels with
+// it, in the caveat's own terms, so an empty list can never
+// read as "no defences exist".
+export const FLOOD_DEFENCES_NONE_LINE =
+  "no EA-recorded flood defence is mapped within 2 miles of this postcode point. The record covers the defences the Environment Agency owns, manages or inspects — defences recorded by other bodies, and defences on smaller watercourses, are not in it.";
+
+export const FLOOD_DEFENCES_NOT_FILED_LINE =
+  "recorded flood defences are not filed yet, so no answer can be given from them";
+
+// The condition grades in the Agency's own words, mapped
+// from the filed TEXT codes (the FLOOD_ZONE_DEFINITIONS
+// idiom — a pinned table, never free text). The filed ''
+// and NULL are NOT grade 0: they are the absence of a grade,
+// served by the named-absence line below.
+export const DEFENCE_CONDITION_GRADES: Record<string, string> = {
+  "0": "Unchecked",
+  "1": "Very Good",
+  "2": "Good",
+  "3": "Fair",
+  "4": "Poor",
+  "5": "Very Poor",
+};
+export const DEFENCE_NO_CONDITION_LINE = "no condition is recorded for this defence";
+export const DEFENCE_NO_MAINTAINER_LINE = "no maintainer is recorded for this defence";
+export const DEFENCE_NO_DESIGN_SOP_LINE = "no design standard is recorded for this defence";
+export const DEFENCE_NO_CURRENT_SOP_LINE = "no current standard is recorded for this defence";
+
+// The D13 lines for the standards of protection: a bare
+// "1 in 100" is meaningless, so each figure travels with
+// its own explanation, pinned verbatim (D49).
+export const DESIGN_SOP_EXPLAINER =
+  "the design standard is the size of flood the defence was built to hold back, written as a yearly chance — '1 in 100' means a flood with a 1% chance of happening in any year.";
+export const CURRENT_SOP_EXPLAINER =
+  "the current standard is the size of flood this defence is currently recorded as holding back, written as a yearly chance — '1 in 100' means a flood with a 1% chance of happening in any year.";
+
+export interface ServedFloodDefence {
+  assetId: string;
+  // The filed asset sub-type, verbatim ("Natural High
+  // Ground", "Wall", …).
+  type: string | null;
+  // The filed name where the register carries one; the
+  // placeholder 'Not Available' and the empty string serve
+  // as null — the register names almost nothing.
+  name: string | null;
+  protectionType: string | null;
+  watercourse: string | null;
+  // The maintainer line that serves: the filed category
+  // verbatim, or the named absence where the register
+  // records 'Unknown' (or nothing).
+  maintainer: string;
+  maintainerRecorded: boolean;
+  // The condition in the Agency's grade words, or null
+  // where no grade is recorded.
+  condition: string | null;
+  conditionLine: string;
+  designSop: number | null;
+  designSopLine: string;
+  designSopExplainer: string | null;
+  // The Agency's quality flag on the design standard —
+  // served only where a design standard itself is filed.
+  designSopQuality: string | null;
+  currentSop: number | null;
+  currentSopLine: string;
+  currentSopExplainer: string | null;
+  miles: number;
+}
+
+export interface FloodDefencesBlock {
+  state: "served" | "none-within-radius" | "not-filed";
+  title: string;
+  // The structural caveat — served state only.
+  caveat: string | null;
+  // The RoFRS bridge — served state, and only where the
+  // rivers & sea layer is filed.
+  bridgeLine: string | null;
+  defences: ServedFloodDefence[];
+  // The true count within 2 miles (null when not filed).
+  totalWithin: number | null;
+  // "and N more recorded defences within two miles" where
+  // the cap is reached; the count is the true total less
+  // the number served.
+  overflowLine: string | null;
+  // The named-absence / not-filed sentence; null when the
+  // list serves.
+  line: string | null;
+  sourceName: string | null;
+  sourceDate: string | null;
+  sourceLine: string | null;
+}
+
 export type FloodBundle =
   | {
       rung: 1 | 2;
@@ -563,6 +745,11 @@ export type FloodBundle =
         // the wired path always carries the composed block.
         liveWarnings: FloodLiveWarnings | null;
         layers: ServedFloodLayer[];
+        // The recorded-defences block (M6.27, D49/D54):
+        // a sibling of the layers, report depth only. A
+        // stored cache entry keeps it — it is filed data,
+        // unlike the live warnings.
+        defences: FloodDefencesBlock;
         howWeCheck: string;
       };
     }
@@ -815,6 +1002,94 @@ function buildLayer(spec: LayerSpec, facts: FloodLayerFacts): ServedFloodLayer {
   return layer;
 }
 
+// One filed defence, served in full as filed (D49/D54):
+// every absence is its own named line, never a borrowed
+// value and never silence.
+function serveDefence(row: FloodDefenceRow): ServedFloodDefence {
+  const maintainerRecorded =
+    row.assetMaintainer !== null && row.assetMaintainer !== "" && row.assetMaintainer !== "Unknown";
+  const condition =
+    row.currentCondition !== null && row.currentCondition !== ""
+      ? (DEFENCE_CONDITION_GRADES[row.currentCondition] ?? null)
+      : null;
+  return {
+    assetId: row.assetId,
+    type: row.assetSubType,
+    name: row.assetName && row.assetName !== "Not Available" ? row.assetName : null,
+    protectionType: row.protectionType,
+    watercourse: row.waterCourseName ? row.waterCourseName : null,
+    maintainer: maintainerRecorded ? (row.assetMaintainer as string) : DEFENCE_NO_MAINTAINER_LINE,
+    maintainerRecorded,
+    condition,
+    conditionLine: condition ? `condition: ${condition}` : DEFENCE_NO_CONDITION_LINE,
+    designSop: row.designSop,
+    designSopLine:
+      row.designSop !== null
+        ? `design standard: 1 in ${row.designSop}`
+        : DEFENCE_NO_DESIGN_SOP_LINE,
+    designSopExplainer: row.designSop !== null ? DESIGN_SOP_EXPLAINER : null,
+    designSopQuality: row.designSop !== null ? row.designSopDqf : null,
+    currentSop: row.currentSop,
+    currentSopLine:
+      row.currentSop !== null
+        ? `current standard: 1 in ${row.currentSop}`
+        : DEFENCE_NO_CURRENT_SOP_LINE,
+    currentSopExplainer: row.currentSop !== null ? CURRENT_SOP_EXPLAINER : null,
+    miles: round3(row.miles),
+  };
+}
+
+// The defences block (M6.27). The bridge predicate is the
+// prep's pinned one: the list serves AND the rivers & sea
+// layer's facts are filed — where that layer serves an
+// absence the bridge still holds (the likelihood exists and
+// counts defences); where it is not filed there is no
+// likelihood for the bridge to describe.
+function buildDefencesBlock(
+  facts: FloodDefencesFacts,
+  rofrsFacts: FloodLayerFacts,
+): FloodDefencesBlock {
+  const sourceLine =
+    facts.sourceName && facts.sourceDate
+      ? `${facts.sourceName} — data to ${dateLabel(facts.sourceDate)}`
+      : null;
+  const base: FloodDefencesBlock = {
+    state: "not-filed",
+    title: FLOOD_DEFENCES_TITLE,
+    caveat: null,
+    bridgeLine: null,
+    defences: [],
+    totalWithin: null,
+    overflowLine: null,
+    line: null,
+    sourceName: facts.sourceName,
+    sourceDate: facts.sourceDate,
+    sourceLine,
+  };
+  if (facts.filedCount <= 0) {
+    return { ...base, line: FLOOD_DEFENCES_NOT_FILED_LINE, sourceLine: null };
+  }
+  if (facts.totalWithin <= 0) {
+    return {
+      ...base,
+      state: "none-within-radius",
+      totalWithin: 0,
+      line: FLOOD_DEFENCES_NONE_LINE,
+    };
+  }
+  const defences = facts.defences.map(serveDefence);
+  const overflow = facts.totalWithin - defences.length;
+  return {
+    ...base,
+    state: "served",
+    caveat: FLOOD_DEFENCES_CAVEAT,
+    bridgeLine: rofrsFacts.filedCount > 0 ? FLOOD_DEFENCES_BRIDGE : null,
+    defences,
+    totalWithin: facts.totalWithin,
+    overflowLine: overflow > 0 ? `and ${overflow} more recorded defences within two miles` : null,
+  };
+}
+
 // ------------------------------------------------------------------
 // The bundle
 // ------------------------------------------------------------------
@@ -850,9 +1125,20 @@ export async function buildFloodBundle(
 
   const { latitude, longitude } = resolution.directory;
   const layers: ServedFloodLayer[] = [];
+  const factsByLayer = new Map<FloodLayerType, FloodLayerFacts>();
   for (const spec of LAYER_SPECS) {
-    layers.push(buildLayer(spec, await source.layerFacts(spec.type, latitude, longitude)));
+    const facts = await source.layerFacts(spec.type, latitude, longitude);
+    factsByLayer.set(spec.type, facts);
+    layers.push(buildLayer(spec, facts));
   }
+  // The recorded defences (M6.27): composed here, for the
+  // served England state at rungs 1–2 only — the not-covered
+  // nations and the named rung states carry no defences
+  // payload, and the headline derivation never sees it.
+  const defences = buildDefencesBlock(
+    await source.defencesNear(latitude, longitude),
+    factsByLayer.get("rofrs") as FloodLayerFacts,
+  );
   // The live warnings compose only here — a served England
   // answer at rungs 1–2, where a point exists to check
   // against. The not-covered nations and the named rung
@@ -870,7 +1156,7 @@ export async function buildFloodBundle(
     rung: resolution.rung,
     kind: "flood",
     postcode,
-    flood: { state: "served", liveWarnings, layers, howWeCheck: FLOOD_HOW_WE_CHECK },
+    flood: { state: "served", liveWarnings, layers, defences, howWeCheck: FLOOD_HOW_WE_CHECK },
   };
 }
 
@@ -987,6 +1273,68 @@ export function createFloodSource(db: AddressQueryable): FloodDataSource {
         nearestBeyond,
         sourceName: (edition.rows[0]?.source_name as string | null) ?? null,
         sourceDate: (edition.rows[0]?.source_date as string | null) ?? null,
+      };
+    },
+
+    // The recorded defences read (M6.27): the whole-table
+    // count is the not-filed predicate; the within-radius
+    // count is the true total the overflow line carries;
+    // the rows are the nearest DEFENCES_LIST_CAP, cut by
+    // the geography distance the same query computes (the
+    // ST_DWithin prefilter only bounds the work, on
+    // flood_defences_geom_idx). Ordering is distance then
+    // asset_id — one wall files as many near-equidistant
+    // segments, so the tie-break keeps the list stable
+    // between reads.
+    async defencesNear(latitude, longitude) {
+      const edition = await db.query(
+        "SELECT source_name, source_date::text AS source_date FROM flood_defences LIMIT 1",
+      );
+      const { rows: countRows } = await db.query("SELECT count(*)::int AS n FROM flood_defences");
+      const filedCount = Number(countRows[0]?.n ?? 0);
+      if (filedCount <= 0) {
+        return { filedCount, totalWithin: 0, sourceName: null, sourceDate: null, defences: [] };
+      }
+      const metres = RADIUS_MILES * METRES_PER_MILE;
+      const here = "ST_SetSRID(ST_MakePoint($1, $2), 4326)";
+      const { rows: totalRows } = await db.query(
+        `SELECT count(*)::int AS n FROM flood_defences
+         WHERE ST_DWithin(geom, ${here}, $3)
+           AND ST_Distance(geom::geography, ${here}::geography) <= $4`,
+        [longitude, latitude, degreeRadius(metres, latitude), metres],
+      );
+      const { rows } = await db.query(
+        `SELECT asset_id, asset_name, asset_sub_type, protection_type,
+                asset_maintainer, current_condition, design_sop,
+                design_sop_dqf, current_sop, water_course_name,
+                ST_Distance(geom::geography, ${here}::geography) / ${METRES_PER_MILE} AS miles
+         FROM flood_defences
+         WHERE ST_DWithin(geom, ${here}, $3)
+         ORDER BY miles, asset_id
+         LIMIT $4`,
+        [longitude, latitude, degreeRadius(metres, latitude), DEFENCES_LIST_CAP],
+      );
+      const defences = rows
+        .map((row) => ({
+          assetId: row.asset_id as string,
+          assetName: (row.asset_name as string | null) ?? null,
+          assetSubType: (row.asset_sub_type as string | null) ?? null,
+          protectionType: (row.protection_type as string | null) ?? null,
+          assetMaintainer: (row.asset_maintainer as string | null) ?? null,
+          currentCondition: (row.current_condition as string | null) ?? null,
+          designSop: (row.design_sop as number | null) ?? null,
+          designSopDqf: (row.design_sop_dqf as string | null) ?? null,
+          currentSop: (row.current_sop as number | null) ?? null,
+          waterCourseName: (row.water_course_name as string | null) ?? null,
+          miles: Number(row.miles),
+        }))
+        .filter((row) => row.miles <= RADIUS_MILES);
+      return {
+        filedCount,
+        totalWithin: Number(totalRows[0]?.n ?? 0),
+        sourceName: (edition.rows[0]?.source_name as string | null) ?? null,
+        sourceDate: (edition.rows[0]?.source_date as string | null) ?? null,
+        defences,
       };
     },
   };

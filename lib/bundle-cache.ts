@@ -175,6 +175,7 @@ export const BRAIN_DEPENDENCIES: Record<CacheBrain, readonly string[]> = {
     "load-flood-zones",
     "load-flood-rivers-sea",
     "load-flood-surface-water",
+    "load-flood-defences",
   ],
   nearby: [
     "load-postcodes",
@@ -326,6 +327,10 @@ const GUARDS: Record<
       floodZone: byLayer.get("flood_zone") ?? 0,
       rofrs: byLayer.get("rofrs") ?? 0,
       rofsw: byLayer.get("rofsw") ?? 0,
+      // The defences count (M6.27): the sibling block's
+      // table rides the same guard, so its first filing
+      // busts a cached not-filed block the same way.
+      floodDefences: await countOf(db, "SELECT count(*)::int AS n FROM flood_defences"),
     };
   },
 
@@ -709,14 +714,19 @@ export async function buildFloodBundleCached(
     // the liveWarnings key entirely, so it degrades to a
     // recompute rather than serving the block's absence as
     // current. (The stored value is null by design — the
-    // key's presence is the contract.)
+    // key's presence is the contract.) The defences key
+    // (M6.27) extends the same contract: a pre-M6.27 entry
+    // carries no defences block and degrades to a recompute;
+    // the stored form KEEPS the block (it is filed data,
+    // unlike the live warnings), so presence is again the
+    // whole test.
     shapeOk: (bundle) => {
       if (typeof bundle !== "object" || bundle === null) return false;
       const b = bundle as { kind?: unknown; flood?: unknown };
       if (b.kind !== "flood") return true;
       const flood = b.flood as Record<string, unknown> | null | undefined;
       if (!flood || flood.state !== "served") return true;
-      return "liveWarnings" in flood;
+      return "liveWarnings" in flood && "defences" in flood;
     },
   });
 }
