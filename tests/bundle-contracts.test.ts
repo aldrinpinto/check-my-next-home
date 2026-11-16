@@ -117,6 +117,25 @@
 // identity test in the short-bundle suite. All 48 pins
 // stand. Authorised by the founder's D49/D55 rulings;
 // recorded here so the change is never mistaken for drift.
+//
+// RE-PIN RECORD: M6.29 (decisions D50 and D57) deliberately
+// widened the frozen area shape — the air section gains
+// yardsticks (the yardstick block: each figure's position
+// against the UK legal limit and the WHO 2021 guideline
+// at report depth, with the block's basis line; the key
+// is present always, its value null in the not-filed
+// state). Eight pins moved (area.flag-on-building,
+// area.flag-on-no-match, area.flag-on-own-title,
+// area.rung1-empty, area.rung1-rich, area.rung1-scotland,
+// area.rung2, area.tribunal-served); the rung-3/4 pins
+// did not move — their air entries are state stubs with
+// no section body — and the short pins did not move: the
+// headline projection picks air as exactly {state,
+// headlineFigure, line}, proven by an identity test in
+// the short suite. All 48 pins stand. Authorised by the
+// founder's D50/D57 rulings; recorded here and in the
+// golden matrix so the change is never mistaken for
+// drift.
 
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";

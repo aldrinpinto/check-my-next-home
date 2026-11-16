@@ -4101,11 +4101,105 @@ function buildImd(facts: ImdFacts | null, lsoaCode: string | null, nation: Natio
 // ------------------------------------------------------------------
 // Air — the three modelled concentrations for the 1 km
 // square containing the postcode point, exactly as
-// published, labelled modelled. There is NO comparison to
-// statutory limits in the answer: a limit line beside a
-// concentration is a pass/fail verdict wearing a reference
-// line's clothes, and the limits belong in How-we-check.
+// published, labelled modelled. At report depth each
+// figure also carries its yardstick lines (D50, amending
+// D26): the figure's position against the UK legal limit
+// and the WHO 2021 guideline, both named with owner and
+// statistic. The position is a scale for reading the
+// figure, never a compliance finding — whether a legal
+// limit is met is decided for whole zones from monitoring
+// and modelling together, not from one square's modelled
+// figure and never for an individual home; the block's
+// basis line says so and travels with it. The headline
+// figure stays bare: NO2 only, no yardstick content.
 // ------------------------------------------------------------------
+
+// The six yardsticks (D50/D57) — constants served at
+// answer time, never filed (the D16 pattern). UK legal
+// limits, annual mean: the Air Quality Standards
+// Regulations 2010 (SI 2010/1001), Schedule 2 as amended
+// — PM2.5's 20 is the stage-2 limit value in force since
+// 1 January 2020 (the made text's 25 was stage 1;
+// Schedule 3's 25 is a target value, not a limit; and
+// the 10-by-2040 target under the Environmental Targets
+// (Fine Particulate Matter) (England) Regulations 2023
+// is never a yardstick). WHO guidelines, annual mean:
+// the World Health Organization's global air quality
+// guidelines (2021) — WHO's own term is "guideline",
+// never a limit. The limit values are the operative
+// values UK-wide, and both yardsticks are annual-mean
+// statistics, matching the filed PCM annual-mean
+// background figures exactly.
+export const AIR_YARDSTICKS = {
+  basisLine:
+    "A figure's position against these yardsticks is a scale for reading the figure. Whether a legal limit is met is decided for whole zones from monitoring and modelling together — not from one square's modelled background figure, and never for an individual home.",
+  pollutants: [
+    { pollutant: "NO2", ukLimit: 40, whoGuideline: 10 },
+    { pollutant: "PM2.5", ukLimit: 20, whoGuideline: 5 },
+    { pollutant: "PM10", ukLimit: 40, whoGuideline: 15 },
+  ],
+} as const;
+
+export type AirYardstickPosition = "below-both" | "between" | "above-uk-limit";
+
+export interface AirYardstickPollutant {
+  pollutant: "NO2" | "PM2.5" | "PM10";
+  value: number;
+  ukLimit: number;
+  whoGuideline: number;
+  position: AirYardstickPosition;
+  yardstickLine: string;
+  summaryLine: string;
+}
+
+export interface AirYardsticks {
+  basisLine: string;
+  pollutants: AirYardstickPollutant[];
+}
+
+// The yardstick block for one served square: a pure
+// function of the filed figures and the constants.
+// Case logic on the figure as filed, full precision
+// (D57): above the limit, else above the guideline,
+// else below both. A figure exactly AT the limit has
+// not exceeded it, so it reads "within"; a figure
+// exactly AT the guideline takes the below family's
+// "at" form. The figure itself is never embedded in
+// the yardstick prose — the section's table carries it.
+function buildAirYardsticks(facts: AirFacts): AirYardsticks {
+  const valueOf = (pollutant: "NO2" | "PM2.5" | "PM10"): number =>
+    pollutant === "NO2" ? facts.no2 : pollutant === "PM2.5" ? facts.pm25 : facts.pm10;
+  return {
+    basisLine: AIR_YARDSTICKS.basisLine,
+    pollutants: AIR_YARDSTICKS.pollutants.map((entry) => {
+      const value = valueOf(entry.pollutant);
+      let position: AirYardstickPosition;
+      let summaryLine: string;
+      if (value > entry.ukLimit) {
+        position = "above-uk-limit";
+        summaryLine = "above the UK legal limit, and above the stricter WHO guideline";
+      } else if (value > entry.whoGuideline) {
+        position = "between";
+        summaryLine = "within the UK legal limit, but above the stricter WHO guideline";
+      } else if (value === entry.whoGuideline) {
+        position = "below-both";
+        summaryLine = "within the UK legal limit, and at the stricter WHO guideline";
+      } else {
+        position = "below-both";
+        summaryLine = "within the UK legal limit, and below the stricter WHO guideline";
+      }
+      return {
+        pollutant: entry.pollutant,
+        value,
+        ukLimit: entry.ukLimit,
+        whoGuideline: entry.whoGuideline,
+        position,
+        yardstickLine: `${entry.pollutant} yardsticks: the UK legal limit is ${entry.ukLimit} µg/m³ as an annual mean (the Air Quality Standards Regulations 2010), and the World Health Organization's 2021 guideline is ${entry.whoGuideline} µg/m³ as an annual mean.`,
+        summaryLine,
+      };
+    }),
+  };
+}
 
 export interface AirSection extends AreaSectionMeta {
   state: "served" | "not-filed";
@@ -4116,6 +4210,12 @@ export interface AirSection extends AreaSectionMeta {
   pm10: number | null;
   unit: string;
   headlineFigure: { pollutant: "NO2"; value: number; line: string } | null;
+  // Report depth only (D50): present always — the block
+  // on a served section, null in the not-filed state.
+  // The headline projection never picks it (Section 4
+  // of the M6.29 prep; identity-proven in the short
+  // suite).
+  yardsticks: AirYardsticks | null;
 }
 
 function buildAir(facts: AirFacts | null): AirSection {
@@ -4143,6 +4243,7 @@ function buildAir(facts: AirFacts | null): AirSection {
       pm10: null,
       unit: "µg/m³",
       headlineFigure: null,
+      yardsticks: null,
     };
   }
   return {
@@ -4162,6 +4263,7 @@ function buildAir(facts: AirFacts | null): AirSection {
       value: facts.no2,
       line: `modelled NO2 ${facts.no2} µg/m³ (annual mean, ${facts.year})`,
     },
+    yardsticks: buildAirYardsticks(facts),
   };
 }
 

@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { AddressResolution, DirectoryPostcode, ResolvedAddress } from "../lib/address";
 import {
   buildAreaBundle,
+  projectHeadline,
   type AreaDataSource,
   type BroadbandAnswerFacts,
   type CensusFacts,
@@ -2397,6 +2398,55 @@ describe("short bundle — 19 Birkdale Rise, CM3 2JT (rung 1)", () => {
     } finally {
       floodSource.climateFactsByLayer = {};
     }
+  });
+
+  it("area: the M6.29 air yardsticks block leaves the short bundle and the headline projection untouched", async () => {
+    // Yardstick lines are report depth (D50); the
+    // headline projection picks air as exactly {state,
+    // headlineFigure, line}, and the short bundle derives
+    // its air section from that projection. The proof is
+    // identity, not inspection: the short bundle derived
+    // from an area bundle whose air section carries a
+    // served yardsticks block equals, field for field,
+    // the one derived from the same bundle with the block
+    // in its not-filed (null) form — the derivation never
+    // reads it.
+    const inputs = await fullBundles(BIRKDALE);
+    if (inputs.area.kind !== "area-bundle") throw new Error("expected an area bundle");
+    // The block must actually be present, and served, for
+    // the identity to prove anything.
+    expect(inputs.area.sections.air.yardsticks?.pollutants).toHaveLength(3);
+    expect(inputs.area.sections.air.yardsticks?.pollutants[1].position).toBe("between");
+    const withBlock = buildShortBundle(inputs);
+    const withoutBlock = buildShortBundle({
+      ...inputs,
+      area: {
+        ...inputs.area,
+        sections: {
+          ...inputs.area.sections,
+          air: { ...inputs.area.sections.air, yardsticks: null },
+        },
+      },
+    });
+    expect(withBlock).toEqual(withoutBlock);
+    const serialised = JSON.stringify(servedShort(withBlock));
+    expect(serialised).not.toContain("yardstick");
+    expect(serialised).not.toContain("WHO guideline");
+    expect(serialised).not.toContain("legal limit");
+    // The headline projection itself: air picked as
+    // exactly the three established fields, and the NO2
+    // headline line byte-identical to its pre-step form —
+    // the headline stays bare.
+    const headline = projectHeadline(inputs.area);
+    if (!headline) throw new Error("expected a headline projection");
+    expect(Object.keys(headline.air).sort()).toEqual(["headlineFigure", "line", "state"]);
+    expect(headline.air.headlineFigure?.line).toBe(
+      "modelled NO2 8.150298 µg/m³ (annual mean, 2024)",
+    );
+    const headlineSerialised = JSON.stringify(headline);
+    expect(headlineSerialised).not.toContain("yardstick");
+    expect(headlineSerialised).not.toContain("WHO guideline");
+    expect(headlineSerialised).not.toContain("legal limit");
   });
 
   it("area sections: EPC band, the council-tax line with its correction, NO2, road noise", async () => {

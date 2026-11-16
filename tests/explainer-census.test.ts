@@ -689,13 +689,13 @@ type Golden = Awaited<ReturnType<typeof goldenBundles>>;
 // ------------------------------------------------------------------
 
 describe("explainer census — the register", () => {
-  it("enumerates the census: 84 families (71 to M6.20, rows 72–75 added at M6.21, rows 76–78 at M6.22, row 79 at M6.25, row 80 at M6.26, rows 81–82 at M6.27, rows 83–84 at M6.28), 51 hard, ids unique and stable in row order", () => {
-    expect(EXPLAINER_CENSUS).toHaveLength(84);
+  it("enumerates the census: 85 families (71 to M6.20, rows 72–75 added at M6.21, rows 76–78 at M6.22, row 79 at M6.25, row 80 at M6.26, rows 81–82 at M6.27, rows 83–84 at M6.28, row 85 at M6.29), 52 hard, ids unique and stable in row order", () => {
+    expect(EXPLAINER_CENSUS).toHaveLength(85);
     expect(EXPLAINER_CENSUS.map((entry) => entry.row)).toEqual(
-      Array.from({ length: 84 }, (_, i) => i + 1),
+      Array.from({ length: 85 }, (_, i) => i + 1),
     );
-    expect(new Set(EXPLAINER_CENSUS.map((entry) => entry.id)).size).toBe(84);
-    expect(EXPLAINER_CENSUS.filter((entry) => entry.hardness === "hard")).toHaveLength(51);
+    expect(new Set(EXPLAINER_CENSUS.map((entry) => entry.id)).size).toBe(85);
+    expect(EXPLAINER_CENSUS.filter((entry) => entry.hardness === "hard")).toHaveLength(52);
     // Every figure-path pattern names census ids that exist.
     const ids = new Set(EXPLAINER_CENSUS.map((entry) => entry.id));
     for (const { censusIds } of FIGURE_PATH_PATTERNS)
@@ -826,6 +826,10 @@ const HARD_LINES: Record<string, (b: Golden) => unknown> = {
   "flood.climate-scenario": (b) =>
     b.flood.kind === "flood" && b.flood.flood.state === "served"
       ? b.flood.flood.climate.sources.map((s) => s.scenarioLine)
+      : null,
+  "area.air.yardsticks": (b) =>
+    b.area.sections.air.state === "served"
+      ? b.area.sections.air.yardsticks?.pollutants.map((p) => p.yardstickLine)
       : null,
 };
 

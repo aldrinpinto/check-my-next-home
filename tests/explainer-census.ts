@@ -25,13 +25,15 @@
 //     shipping unregistered fails the suite naming its
 //     path.
 //
-// One dependency is recorded here, not built (D37): the
-// air section's D13 compliance is discharged by the
+// One dependency was recorded here at M6.18, not built
+// (D37): the air section's D13 compliance rested on the
 // How-we-check page carrying the statutory-limits
-// material (prep row 46). The page is M7's; if M7 drops
-// it, that row's compliance lapses — the register entry
-// `area.air.concentrations` carries the dependency in its
-// note so the page step inherits it as an obligation.
+// material (prep row 46). M6.29 (D50/D57) discharges it
+// jointly: the yardstick lines serve in the answer at
+// report depth (row 85), and the page carries the
+// limits material in full at M7.12 — the register
+// entry `area.air.concentrations` records the joint
+// discharge in its note.
 
 export type CensusHardness = "hard" | "self";
 
@@ -600,7 +602,7 @@ export const EXPLAINER_CENSUS: CensusEntry[] = [
     ["full", "short"],
     "explainer",
     "sections.air.explainer",
-    "POINTER-CRITICAL (prep PARTIAL): beside-figure compliance covers the modelled basis only. What the values mean against statutory limits is discharged ONLY by the How-we-check page carrying the limits material at M7 — recorded here as a dependency, not built at M6.18 (D37). If the page drops it, this row's compliance lapses.",
+    "Re-pointed at M6.29 (D50/D57): beside-figure compliance here covers the modelled basis only. What the values mean against the statutory limits is now discharged jointly — in the answer at report depth by the yardstick lines (row 85, area.air.yardsticks), and in full on the air How-we-check page carrying the limits material at M7.12, with their instruments (D52/R8). The dependency recorded at M6.18 (D37) is discharged on those two legs together; the modelled-basis explainer itself is unchanged.",
   ),
   e(
     47,
@@ -1084,6 +1086,20 @@ export const EXPLAINER_CENSUS: CensusEntry[] = [
     "flood.climate.sources[].scenarioLine",
     "D55: a scenario band without its basis named is a bare figure, so each source's scenario line travels with its answer in every state — rivers UKCP18 / RCP 8.5 / Central covering 2040–2069, the sea Higher Central covering 2036–2065 with cumulative sea level rise to 2065, surface water Central covering 2040–2060. The epoch years inside the line are the explanation the figure travels with: each half carries its own bounds, and the EA service's blended span (between 2036 and 2069) never serves. No 2080s horizon serves anywhere in the block.",
   ),
+  // M6.29 (decisions D50 and D57) — the air yardstick
+  // lines, row 85.
+  e(
+    85,
+    "area.air.yardsticks",
+    "area",
+    "air",
+    "the air figures against the UK legal limit and the WHO 2021 guideline, per pollutant",
+    "hard",
+    ["full"],
+    "line-embedded",
+    "sections.air.yardsticks.pollutants[].yardstickLine",
+    "D50/D57: at report depth each air figure's position against the two yardsticks serves beside it — the yardstick line names both yardsticks with owner and statistic (the UK legal limit under the Air Quality Standards Regulations 2010 as amended; the World Health Organization's 2021 guideline — always a guideline, never a limit), the summary line carries the position in the pinned forms, and the block's basis line carries the not-a-compliance-finding basis: whether a legal limit is met is decided for whole zones, never from one square's modelled figure and never for an individual home. The PM2.5 statutory target (10 by 2040) is never substituted for the limit. Report depth only — the short bundle's derivation never reads the field.",
+  ),
 ];
 
 // ------------------------------------------------------------------
@@ -1204,6 +1220,10 @@ export const FIGURE_PATH_PATTERNS: FigurePathPattern[] = [
   p("area\\.sections\\.imd\\.domains\\[\\]\\.decile", "area.imd.domain-deciles"),
   p("area\\.sections\\.air\\.(no2|pm25|pm10)", "area.air.concentrations"),
   p("area\\.sections\\.air\\.headlineFigure\\.value", "area.air.concentrations"),
+  p(
+    "area\\.sections\\.air\\.yardsticks\\.pollutants\\[\\]\\.(value|ukLimit|whoGuideline)",
+    "area.air.yardsticks",
+  ),
   p("area\\.sections\\.benefits\\.series\\[\\]\\.count", "area.benefits.series-counts"),
   p("area\\.sections\\.benefits\\.series\\[\\]\\.pct", "area.benefits.claimant-pct"),
   p("area\\.sections\\.benefits\\.bases\\.(residents|households)", "area.benefits.bases"),
@@ -1383,6 +1403,12 @@ export const NOT_A_FIGURE_ALLOWLIST: RegExp[] = [
   // the two scenario products a block entry serves — a
   // structural name, not a figure.
   /^flood\.flood\.climate\.sources\[\]\.source$/,
+  // The yardstick case label (M6.29): which of the
+  // three position families a figure falls in — a
+  // labelled state, not a figure; its beside-figure
+  // lines are the census family (area.air.yardsticks),
+  // asserted in direction one.
+  /^area\.sections\.air\.yardsticks\.pollutants\[\]\.position$/,
   // The resolution's own address parts and counts of
   // addresses (the census row 1 watch: not brain figures).
   /^address\./,

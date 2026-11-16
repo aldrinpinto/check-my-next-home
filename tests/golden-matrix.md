@@ -792,8 +792,16 @@ renderer); the score and rank are never served, asserted
 absent at serialisation. Air reproduces the locked PCM
 2024 triples exactly (Birkdale NO2 8.150298, Exeter
 21.71409, the Epsom flat 12.49256 µg/m³), NO2 the one
-headline figure, no comparison to statutory limits
-anywhere in the answer. Noise (fixture filing): Birkdale
+headline figure. At report depth each figure carries
+its yardstick lines (M6.29, D50/D57): the positions
+computed from the locked triples are Birkdale below
+both / between / below both, Exeter between ×3, the
+Epsom flat between / between / below both — below-both
+×3, between ×6 (each between carrying the pinned
+summary "within the UK legal limit, but above the
+stricter WHO guideline" verbatim), above ×0. The
+headline NO2 stays bare, and no yardstick content
+reaches the short bundle. Noise (fixture filing): Birkdale
 road Below 55 / Below 50, rail and airport no-modelled;
 Exeter road 55–59 / Below 50, airport Below 55 by day and
 no-modelled by night (the two states distinct); C1's rail

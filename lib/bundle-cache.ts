@@ -863,7 +863,13 @@ export async function buildAreaBundleCached(
     // degrades to a recompute rather than serving the new
     // lines' absence as current. Where the company section
     // is present (flag on), its snapshots must carry the
-    // SIC line's key in the same way.
+    // SIC line's key in the same way. The air section's
+    // yardsticks key (M6.29) is unconditional in the same
+    // way: the yardsticks derive from code constants and
+    // the already-filed figures, no loader stamp in the
+    // version vector moves when the step deploys, so only
+    // this presence rule stops a pre-step entry serving
+    // the block's absence as current (the M6.25 pattern).
     shapeOk: (bundle) => {
       if (typeof bundle !== "object" || bundle === null) return false;
       const sections = (bundle as { sections?: unknown }).sections;
@@ -917,6 +923,13 @@ export async function buildAreaBundleCached(
         )
       )
         return false;
+      // The M6.29 presence rule, in the same pattern: the
+      // air section must carry its yardsticks key (present
+      // on every served bundle; the value is null in the
+      // not-filed state) — an entry written before the
+      // step lacks it and degrades to a recompute.
+      const air = s.air;
+      if (!air || !("yardsticks" in air)) return false;
       const company = s.companyOwnership;
       if (company) {
         const titles = [

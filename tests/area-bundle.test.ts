@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { AddressResolution, DirectoryPostcode, ResolvedAddress } from "../lib/address";
 import {
+  AIR_YARDSTICKS,
   buildAreaBundle,
   certificateMatchesHome,
   companyTitleMatch,
@@ -3613,7 +3614,10 @@ describe("air", () => {
       value: 8.150298,
     });
     expect(birkdale.sections.air.headlineFigure?.line).toContain("modelled");
-    // No comparison to statutory limits anywhere in the answer.
+    // The section line and explainer carry no limit
+    // comparison — since M6.29 (D50) the comparison
+    // serves only in the yardsticks block, at report
+    // depth, in the tests below.
     expect((birkdale.sections.air.line ?? "").toLowerCase()).not.toContain("limit");
     expect(birkdale.sections.air.explainer.toLowerCase()).not.toContain("limit");
 
@@ -3621,6 +3625,165 @@ describe("air", () => {
     if (exeter.sections.air.state === "served") expect(exeter.sections.air.no2).toBe(21.71409);
     const minerva = await bundle(MINERVA);
     if (minerva.sections.air.state === "served") expect(minerva.sections.air.no2).toBe(12.49256);
+  });
+
+  it("the yardstick constants are the pinned six, in one place (M6.29)", () => {
+    // Pinned against the instruments: UK legal limits
+    // from SI 2010/1001 Schedule 2 as amended; WHO
+    // guidelines from the WHO 2021 air quality
+    // guidelines. Pollutant order NO2, PM2.5, PM10.
+    expect(AIR_YARDSTICKS.pollutants).toEqual([
+      { pollutant: "NO2", ukLimit: 40, whoGuideline: 10 },
+      { pollutant: "PM2.5", ukLimit: 20, whoGuideline: 5 },
+      { pollutant: "PM10", ukLimit: 40, whoGuideline: 15 },
+    ]);
+    // The PM2.5 guard: the limit is the stage-2 value
+    // 20 — the 2040 target (10) is never a yardstick
+    // limit, and appears as no pollutant's limit here.
+    expect(AIR_YARDSTICKS.pollutants.find((p) => p.pollutant === "PM2.5")?.ukLimit).toBe(20);
+    expect(AIR_YARDSTICKS.pollutants.some((p) => (p.ukLimit as number) === 10)).toBe(false);
+    expect(AIR_YARDSTICKS.basisLine).toBe(
+      "A figure's position against these yardsticks is a scale for reading the figure. Whether a legal limit is met is decided for whole zones from monitoring and modelling together — not from one square's modelled background figure, and never for an individual home.",
+    );
+  });
+
+  it("the yardstick block serves the golden positions with the pinned lines verbatim (M6.29)", async () => {
+    const birkdale = await bundle(BIRKDALE);
+    if (birkdale.sections.air.state !== "served") throw new Error("expected served");
+    const yardsticks = birkdale.sections.air.yardsticks;
+    expect(yardsticks?.basisLine).toBe(AIR_YARDSTICKS.basisLine);
+    // Pollutant order is NO2, PM2.5, PM10 (D50's listing).
+    expect(yardsticks?.pollutants.map((p) => p.pollutant)).toEqual(["NO2", "PM2.5", "PM10"]);
+    const byPollutant = Object.fromEntries(
+      (yardsticks?.pollutants ?? []).map((p) => [p.pollutant, p]),
+    );
+    // Birkdale: NO2 below both, PM2.5 between, PM10 below both.
+    expect(byPollutant.NO2).toMatchObject({
+      value: 8.150298,
+      ukLimit: 40,
+      whoGuideline: 10,
+      position: "below-both",
+      summaryLine: "within the UK legal limit, and below the stricter WHO guideline",
+    });
+    expect(byPollutant.NO2?.yardstickLine).toBe(
+      "NO2 yardsticks: the UK legal limit is 40 µg/m³ as an annual mean (the Air Quality Standards Regulations 2010), and the World Health Organization's 2021 guideline is 10 µg/m³ as an annual mean.",
+    );
+    expect(byPollutant["PM2.5"]).toMatchObject({
+      value: 7.124671,
+      ukLimit: 20,
+      whoGuideline: 5,
+      position: "between",
+      // D50's pinned summary, character for character.
+      summaryLine: "within the UK legal limit, but above the stricter WHO guideline",
+    });
+    expect(byPollutant.PM10).toMatchObject({ value: 12.54823, position: "below-both" });
+    // The figure is never embedded in the yardstick prose.
+    for (const p of yardsticks?.pollutants ?? [])
+      expect(p.yardstickLine).not.toContain(String(p.value));
+
+    const exeter = await bundle(EXETER);
+    if (exeter.sections.air.state !== "served") throw new Error("expected served");
+    // Exeter: all three between.
+    expect(exeter.sections.air.yardsticks?.pollutants.map((p) => p.position)).toEqual([
+      "between",
+      "between",
+      "between",
+    ]);
+    expect(
+      exeter.sections.air.yardsticks?.pollutants.every(
+        (p) => p.summaryLine === "within the UK legal limit, but above the stricter WHO guideline",
+      ),
+    ).toBe(true);
+
+    const minerva = await bundle(MINERVA);
+    if (minerva.sections.air.state !== "served") throw new Error("expected served");
+    // Minerva: NO2 between, PM2.5 between, PM10 below both.
+    expect(minerva.sections.air.yardsticks?.pollutants.map((p) => p.position)).toEqual([
+      "between",
+      "between",
+      "below-both",
+    ]);
+  });
+
+  // A source whose air square is whatever the test sets —
+  // the above-limit case has no golden witness (prep
+  // Section 2), so it is fixtured synthetically here, and
+  // the boundary cases with it.
+  class SyntheticAirSource extends FakeAreaSource {
+    syntheticAir: { year: number; no2: number; pm25: number; pm10: number } | null = null;
+    async airSquare() {
+      if (!this.syntheticAir) return null;
+      return {
+        ...this.syntheticAir,
+        sourceName: "Defra — Pollution Climate Mapping (PCM)",
+        sourceDate: "2025-06-30",
+      };
+    }
+  }
+
+  it("the above-limit case serves its summary with the basis line (M6.29)", async () => {
+    const src = new SyntheticAirSource();
+    src.syntheticAir = { year: 2024, no2: 45.5, pm25: 20.5, pm10: 41 };
+    const built = await bundle(BIRKDALE, src);
+    if (built.sections.air.state !== "served") throw new Error("expected served");
+    const yardsticks = built.sections.air.yardsticks;
+    expect(yardsticks?.pollutants.map((p) => p.position)).toEqual([
+      "above-uk-limit",
+      "above-uk-limit",
+      "above-uk-limit",
+    ]);
+    for (const p of yardsticks?.pollutants ?? [])
+      expect(p.summaryLine).toBe("above the UK legal limit, and above the stricter WHO guideline");
+    // The basis line travels with the block, verbatim —
+    // the summary never stands alone (D57).
+    expect(yardsticks?.basisLine).toBe(AIR_YARDSTICKS.basisLine);
+  });
+
+  it("the boundary semantics: at the limit reads within, at the guideline takes the at form (M6.29)", async () => {
+    const src = new SyntheticAirSource();
+    // NO2 exactly at its limit, PM2.5 exactly at its
+    // guideline, PM10 marginally above its limit.
+    src.syntheticAir = { year: 2024, no2: 40, pm25: 5, pm10: 40.000001 };
+    const built = await bundle(BIRKDALE, src);
+    if (built.sections.air.state !== "served") throw new Error("expected served");
+    const byPollutant = Object.fromEntries(
+      (built.sections.air.yardsticks?.pollutants ?? []).map((p) => [p.pollutant, p]),
+    );
+    expect(byPollutant.NO2?.position).toBe("between");
+    expect(byPollutant.NO2?.summaryLine).toBe(
+      "within the UK legal limit, but above the stricter WHO guideline",
+    );
+    expect(byPollutant["PM2.5"]?.position).toBe("below-both");
+    expect(byPollutant["PM2.5"]?.summaryLine).toBe(
+      "within the UK legal limit, and at the stricter WHO guideline",
+    );
+    expect(byPollutant.PM10?.position).toBe("above-uk-limit");
+
+    // Marginally above the guideline flips to between;
+    // marginally below stays below-both; exactly at the
+    // PM10 guideline takes the at form.
+    src.syntheticAir = { year: 2024, no2: 10.000001, pm25: 4.999999, pm10: 15 };
+    const flipped = await bundle(BIRKDALE, src);
+    if (flipped.sections.air.state !== "served") throw new Error("expected served");
+    const flippedBy = Object.fromEntries(
+      (flipped.sections.air.yardsticks?.pollutants ?? []).map((p) => [p.pollutant, p]),
+    );
+    expect(flippedBy.NO2?.position).toBe("between");
+    expect(flippedBy["PM2.5"]?.position).toBe("below-both");
+    expect(flippedBy["PM2.5"]?.summaryLine).toBe(
+      "within the UK legal limit, and below the stricter WHO guideline",
+    );
+    expect(flippedBy.PM10?.position).toBe("below-both");
+    expect(flippedBy.PM10?.summaryLine).toBe(
+      "within the UK legal limit, and at the stricter WHO guideline",
+    );
+  });
+
+  it("an unfiled square serves the not-filed state with the yardsticks key present, value null (M6.29)", async () => {
+    const src = new SyntheticAirSource();
+    const built = await bundle(BIRKDALE, src);
+    expect(built.sections.air.state).toBe("not-filed");
+    expect(built.sections.air).toHaveProperty("yardsticks", null);
   });
 });
 

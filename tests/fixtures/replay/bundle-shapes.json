@@ -23,6 +23,20 @@
         "sourceName": "string",
         "state": "string",
         "unit": "string",
+        "yardsticks": {
+          "basisLine": "string",
+          "pollutants": [
+            {
+              "pollutant": "string",
+              "position": "string",
+              "summaryLine": "string",
+              "ukLimit": "number",
+              "value": "number",
+              "whoGuideline": "number",
+              "yardstickLine": "string"
+            }
+          ]
+        },
         "year": "number"
       },
       "benefits": {
@@ -756,6 +770,20 @@
         "sourceName": "string",
         "state": "string",
         "unit": "string",
+        "yardsticks": {
+          "basisLine": "string",
+          "pollutants": [
+            {
+              "pollutant": "string",
+              "position": "string",
+              "summaryLine": "string",
+              "ukLimit": "number",
+              "value": "number",
+              "whoGuideline": "number",
+              "yardstickLine": "string"
+            }
+          ]
+        },
         "year": "number"
       },
       "benefits": {
@@ -1526,6 +1554,20 @@
         "sourceName": "string",
         "state": "string",
         "unit": "string",
+        "yardsticks": {
+          "basisLine": "string",
+          "pollutants": [
+            {
+              "pollutant": "string",
+              "position": "string",
+              "summaryLine": "string",
+              "ukLimit": "number",
+              "value": "number",
+              "whoGuideline": "number",
+              "yardstickLine": "string"
+            }
+          ]
+        },
         "year": "number"
       },
       "benefits": {
@@ -2255,6 +2297,7 @@
         "sourceName": "null",
         "state": "string",
         "unit": "string",
+        "yardsticks": "null",
         "year": "null"
       },
       "benefits": {
@@ -2704,6 +2747,20 @@
         "sourceName": "string",
         "state": "string",
         "unit": "string",
+        "yardsticks": {
+          "basisLine": "string",
+          "pollutants": [
+            {
+              "pollutant": "string",
+              "position": "string",
+              "summaryLine": "string",
+              "ukLimit": "number",
+              "value": "number",
+              "whoGuideline": "number",
+              "yardstickLine": "string"
+            }
+          ]
+        },
         "year": "number"
       },
       "benefits": {
@@ -3459,6 +3516,20 @@
         "sourceName": "string",
         "state": "string",
         "unit": "string",
+        "yardsticks": {
+          "basisLine": "string",
+          "pollutants": [
+            {
+              "pollutant": "string",
+              "position": "string",
+              "summaryLine": "string",
+              "ukLimit": "number",
+              "value": "number",
+              "whoGuideline": "number",
+              "yardstickLine": "string"
+            }
+          ]
+        },
         "year": "number"
       },
       "benefits": {
@@ -4012,6 +4083,20 @@
         "sourceName": "string",
         "state": "string",
         "unit": "string",
+        "yardsticks": {
+          "basisLine": "string",
+          "pollutants": [
+            {
+              "pollutant": "string",
+              "position": "string",
+              "summaryLine": "string",
+              "ukLimit": "number",
+              "value": "number",
+              "whoGuideline": "number",
+              "yardstickLine": "string"
+            }
+          ]
+        },
         "year": "number"
       },
       "benefits": {
@@ -4783,6 +4868,20 @@
         "sourceName": "string",
         "state": "string",
         "unit": "string",
+        "yardsticks": {
+          "basisLine": "string",
+          "pollutants": [
+            {
+              "pollutant": "string",
+              "position": "string",
+              "summaryLine": "string",
+              "ukLimit": "number",
+              "value": "number",
+              "whoGuideline": "number",
+              "yardstickLine": "string"
+            }
+          ]
+        },
         "year": "number"
       },
       "benefits": {
