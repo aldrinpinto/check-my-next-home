@@ -38,6 +38,22 @@
 // the rung-3/4 pins did not move — no section serves there.
 // Authorised by the founder's D41 ruling; recorded here and in
 // the golden matrix so the change is never mistaken for drift.
+//
+// RE-PIN RECORD: M6.22 (decision D42) deliberately widened the
+// frozen flood, short and nearby shapes — the served flood
+// section gained the liveWarnings key (null when the bundle is
+// built without a warning source), the short bundle's flood
+// section gained the same key, and the nearby distances shape
+// gained the schoolDeadlines key. Two pins were added:
+// flood.served-warnings (the composed block — two captured EA
+// alerts at report depth, message in full) and
+// short.flood-warnings (the same warnings at headline depth,
+// no message field by construction). The pins that moved:
+// flood.served-mixed, short.rung1, short.rung2 and the four
+// nearby served pins; the not-covered and rung pins did not
+// move — no live block serves there. Authorised by the
+// founder's D42 ruling; recorded here and in the golden matrix
+// so the change is never mistaken for drift.
 
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -79,6 +95,12 @@ import {
 // fixture (the area-bundle test's pattern), so the census
 // section's served shape is pinned against real table fragments.
 import { DATASETS, buildRows, parseDatasetCsv } from "../loaders/load-census.mjs";
+import {
+  BURE_ITEM,
+  LEADON_ITEM,
+  WARNING_NOW,
+  FakeFloodWarningSource,
+} from "./flood-warning-fixtures";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -525,6 +547,15 @@ describe("contract — flood", () => {
     );
     source.layers.set("rofsw", floodLayer({ filedCount: 0, sourceName: null, sourceDate: null }));
     pin("flood.served-mixed", await buildFloodBundle(ENG_HOME, source));
+    // M6.22: the composed live-warnings form — the two EA
+    // alerts captured live at the step's first contact,
+    // replayed through the fake source.
+    const warnings = new FakeFloodWarningSource();
+    warnings.items = [LEADON_ITEM, BURE_ITEM];
+    pin(
+      "flood.served-warnings",
+      await buildFloodBundle(ENG_HOME, source, { warningSource: warnings, now: WARNING_NOW }),
+    );
     pin("flood.not-covered", await buildFloodBundle(SCO_HOME, source));
     pin("flood.rung3", await buildFloodBundle(WIDER, source));
     pin("flood.rung4", await buildFloodBundle(NO_LOCATION, source));
@@ -1096,5 +1127,23 @@ describe("contract — short bundle", () => {
     pin("short.rung3", await build(WIDER));
     pin("short.rung4", await build(NO_LOCATION));
     pin("short.scotland", await build(SCO_HOME));
+
+    // M6.22: the composed headline form — the same two
+    // captured alerts, headline depth (no message field).
+    const warnings = new FakeFloodWarningSource();
+    warnings.items = [LEADON_ITEM, BURE_ITEM];
+    pin(
+      "short.flood-warnings",
+      buildShortBundle({
+        nearby: await buildNearbyBundle(ENG_HOME, nearbySource),
+        soldPrices: await buildSoldPricesBundle(ENG_HOME, soldSource),
+        crime: await buildCrimeBundle(ENG_HOME, crimeSource, { now }),
+        flood: await buildFloodBundle(ENG_HOME, floodSource, {
+          warningSource: warnings,
+          now: WARNING_NOW,
+        }),
+        area: await buildAreaBundle(ENG_HOME, areaSource),
+      }),
+    );
   });
 });

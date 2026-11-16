@@ -966,6 +966,44 @@ export const EXPLAINER_CENSUS: CensusEntry[] = [
     "sections.epc.certificates[].improvements.steps[].line",
     "D41: the register's modelled steps in register sequence — never advice, and the savings are never summed; the block's closing line carries only the final step's cumulative ratings.",
   ),
+  // M6.22 (decision D42) — live flood warnings + school
+  // deadlines, rows 76–78.
+  e(
+    76,
+    "flood.live-warnings",
+    "flood",
+    "flood",
+    "live warning severity level (the EA's 1–3) + the count beyond the block's cap",
+    "hard",
+    ["full"],
+    "line-embedded",
+    "flood.liveWarnings.warnings[].line",
+    "D42: the severity is the EA's own scale, served as its verbatim label joined to the EA's area name in the warning's own line; the block carries the EA attribution and the official-service link, and the checked-at stamp times the fact. The EA's message text is publisher text, quoted under that attribution — not a figure of ours.",
+  ),
+  e(
+    77,
+    "short.flood-live-warnings",
+    "short",
+    "flood",
+    "live warning severity level at headline depth",
+    "hard",
+    ["short"],
+    "line-embedded",
+    "sections.flood.liveWarnings.warnings[].line",
+    "D42: the headline carries severity, area, raised time and the official link — never the EA's message (report depth, row 76). The named no-warning line does not travel to this depth; the failure line does.",
+  ),
+  e(
+    78,
+    "nearby.school-deadlines",
+    "nearby",
+    "nearby",
+    "school application closing dates (31 October secondary / 15 January primary)",
+    "hard",
+    ["full"],
+    "line-embedded",
+    "schoolDeadlines.line",
+    "D42: the statutory national closing dates in the School Admissions Code for England — the line itself names the Code and carries the supplementary-form caveat beside the dates. Wales serves its named council line under the same entry; Scotland and Northern Ireland serve nothing. Kept current by the plan's annual ops check.",
+  ),
 ];
 
 // ------------------------------------------------------------------
@@ -1193,6 +1231,16 @@ export const FIGURE_PATH_PATTERNS: FigurePathPattern[] = [
     "area\\.sections\\.epc\\.certificates\\[\\]\\.improvements\\.steps\\[\\]\\.(typicalSavingPence|typicalSavingLabel|indicativeCost|energyRatingAfter|environmentalRatingAfter)",
     "area.epc.improvements",
   ),
+  // M6.22 figures — live flood warnings (the severity
+  // level is the EA's numbered scale; the overflow count
+  // is ours, named in its own line).
+  p("flood\\.flood\\.liveWarnings\\.warnings\\[\\]\\.severityLevel", "flood.live-warnings"),
+  p("flood\\.flood\\.liveWarnings\\.overflowCount", "flood.live-warnings"),
+  p(
+    "short\\.sections\\.flood\\.liveWarnings\\.warnings\\[\\]\\.severityLevel",
+    "short.flood-live-warnings",
+  ),
+  p("short\\.sections\\.flood\\.liveWarnings\\.overflowCount", "short.flood-live-warnings"),
 ];
 
 // Values that are not figures at all: dates, identifiers,
@@ -1205,11 +1253,11 @@ export const NOT_A_FIGURE_ALLOWLIST: RegExp[] = [
   // Structural scalars on every bundle
   /(^|\.)(rung|kind|state|depth|grain|pointState|pctState|numberState|calculated|predicted|additionalProprietor|parishAveraged|isSingleFlat|isHomeBuilding|allOperatorsPublished|councilPublishes|selective|partOf|inside|mounting|pvTechnology|radiationDb|monthlyLabelPence|bandDMonthlyLabel)$/,
   // Dates and date-like labels
-  /(^|\.)(date|saleDate|registrationDate|incorporationDate|decisionDate|decisionDateLabel|sourceDate|loadedAt|month|monthLabel|windowFrom|windowTo|spanFrom|spanTo|taxYear|year|snapshot|edition|windowLine|spanLine|fromLabel|toLabel|loadState|pollutant)$/,
+  /(^|\.)(date|saleDate|registrationDate|incorporationDate|decisionDate|decisionDateLabel|sourceDate|loadedAt|month|monthLabel|windowFrom|windowTo|spanFrom|spanTo|taxYear|year|snapshot|edition|windowLine|spanLine|fromLabel|toLabel|loadState|pollutant|checkedAt|timeRaised)$/,
   // Identifiers and codes that name, not measure
   /(^|\.)(postcode|id|listEntryId|certificateNumber|titleNumber|companyNumber|caseRef|buildingKey|cellRef|lsoaCode|msoaCode|code|slug|category|layer|series|service|sourceKind|dataset|tenure|proprietorshipCategory|countryIncorporated|key|reference|sequence)$/,
   // Names, labels and publisher wording (the words, not figures)
-  /(^|\.)(name|label|title|band|potentialBand|grade|type|typeLabel|dwellingType|assessmentType|authority|council|msoaName|lsoaName|unit|building|habitat|detail|coveringDetail|dayBand|nightBand|summary|propertyText|companyName|proprietorName|status|planningPermissionStatus|kindLine|group|groups)$/,
+  /(^|\.)(name|label|title|band|potentialBand|grade|type|typeLabel|dwellingType|assessmentType|authority|council|msoaName|lsoaName|unit|building|habitat|detail|coveringDetail|dayBand|nightBand|summary|propertyText|companyName|proprietorName|status|planningPermissionStatus|kindLine|group|groups|severity|areaDescription|riverOrSea|message)$/,
   // Lines, explainers, definitions and source lines: the
   // census's own subject matter — their presence is what
   // direction one asserts; they are text, not figures.

@@ -81,6 +81,30 @@ import { DISTANCE_BASIS_LABEL, RADIUS_MILES } from "./nearby";
 //   - The answer never advises on insurance and never claims
 //     anything about insurability or lending; the limits are
 //     stated in FLOOD_HOW_WE_CHECK below.
+//
+// Live warnings (M6.22, decision D42) ride on top of the filed
+// answer without touching it: the Environment Agency's live
+// warnings for the areas around the point are fetched at
+// serve time — one fetch per check, through the cached
+// builder's serve-time hook (the mechanism crime's stale line
+// uses) — and are NEVER stored, cached or memoised, so a
+// cached bundle picks up a newly raised warning on its next
+// read and drops a lapsed one the same way. Only severity
+// levels 1–3 serve (level 4, "Warning no longer in force",
+// never does). Severity labels, area descriptions and
+// message text are the EA's verbatim words under its
+// required attribution; the block always sits beside the
+// link to the official Check for flooding service, because
+// the EA offers no service guarantee and states its API is
+// not a safety channel — we are never the warning channel.
+// Both empty states are named, never silent: a successful
+// fetch with nothing in force serves its timestamped line,
+// and a failed fetch serves its own line, because silence
+// could read as "no warning" when the check never ran. A
+// warning is a fact about the EA's named area, never about
+// this point or this home — the served wording attributes
+// it to the area, exactly as the filed lines attribute
+// their facts to the postcode point.
 
 export const FLOOD_UNAVAILABLE_REASON = "flood answers need an exact postcode";
 
@@ -90,6 +114,320 @@ export const FLOOD_UNAVAILABLE_REASON = "flood answers need an exact postcode";
 // presented in full.
 export const FLOOD_HOW_WE_CHECK =
   "These answers describe the postcode point on the Environment Agency's published maps, not the property: a postcode covers more ground than one home, and the point can fall in a different mapped area from the building itself. We hold no record of past flooding at any home — holding no record does not mean a home has never flooded. Insurers and lenders run their own models on the building itself; nothing here says whether a home can be insured or borrowed against, and these answers are not a substitute for an insurer's or lender's own check. A small number of the Environment Agency's flood-zone shapes do not state whether the flooding is from rivers, the sea or another source.";
+
+// ------------------------------------------------------------------
+// Live flood warnings (M6.22, decision D42)
+// ------------------------------------------------------------------
+
+// The EA's required attribution sentence, verbatim (the API
+// reference's terms: "please acknowledge this with the
+// following attribution statement"). It rides every warning
+// block, in every state — the check itself is EA data.
+export const FLOOD_WARNING_ATTRIBUTION =
+  "this uses Environment Agency flood and river level data from the real-time data API (Beta)";
+
+// The official service every block links: the EA states its
+// API does not replace the channels by which it notifies the
+// public, so the design answers structurally — the link is
+// part of the block, not a footnote.
+export const FLOOD_WARNING_LINK = {
+  label: "the official Check for flooding service",
+  url: "https://www.gov.uk/check-flooding",
+} as const;
+
+// The geo-filter reach: the API's `dist` is in KILOMETRES,
+// measured to the flood area (the reference documentation's
+// parameter table: "warnings applying to flood areas which
+// are within r km of the given latitude/longitude… may be
+// approximated by a bounding box"; pinned live at build —
+// a point inside the River Leadon area matched at dist 0,
+// and a point ~14.9 km east of the area's envelope matched
+// only from dist 16, never at 14). 3.22 km is the product's
+// one proximity radius — 2 miles (D22) — in the API's unit.
+export const FLOOD_WARNING_DIST_KM = 3.22;
+
+// D42's budget: one attempt, 2 seconds. Any failure —
+// timeout, non-200, unparseable body — degrades to the
+// filed answer plus the named failure line; the check never
+// blocks and never fails because of the warnings feed.
+export const FLOOD_WARNING_TIMEOUT_MS = 2000;
+
+// At most this many warnings serve in the block; any beyond
+// it are counted and named in the overflow line, never
+// silently dropped.
+export const FLOOD_WARNING_MAX_SHOWN = 5;
+
+// The failed-fetch line (D42, verbatim).
+export const FLOOD_WARNINGS_UNAVAILABLE_LINE = "Live flood warnings could not be checked just now";
+
+// One warning as the EA publishes it — the parsed item the
+// warning source returns. Every text field is the EA's
+// verbatim words; nothing here is our prose.
+export interface FloodWarningItem {
+  // The EA's severity label ("Severe flood warning",
+  // "Flood warning", "Flood alert", "Warning no longer in
+  // force"), verbatim.
+  severity: string;
+  // The EA's severity level, 1 (most severe) to 4.
+  severityLevel: number;
+  // The EA's name for the warned area ("River Leadon
+  // catchment"), verbatim.
+  description: string;
+  // The warned area's river or sea name, as published;
+  // null where the area carries none.
+  riverOrSea: string | null;
+  // The EA's full current-situation message, verbatim.
+  message: string;
+  // The EA's raised timestamp, verbatim — a NAIVE
+  // Europe/London local time with no offset
+  // ("2026-11-15T16:35:59"). It is parsed as London local
+  // components, never through a UTC conversion.
+  timeRaised: string;
+}
+
+// The brain's read port over the EA's live feed — the same
+// pattern as the sibling brains: tests drive a fake;
+// createFloodWarningSource below is the only live
+// implementation.
+export interface FloodWarningSource {
+  warningsNear(latitude: number, longitude: number): Promise<FloodWarningItem[]>;
+}
+
+// One warning as served: the EA's words, plus two composed
+// lines of our own (the headline line and the raised line),
+// both banned-wording-checked like all our prose. The
+// verbatim fields are publisher text, marked as such by
+// their names — wording scans quote them, never judge them
+// as our claims.
+export interface ServedFloodWarning {
+  severityLevel: number;
+  severity: string;
+  areaDescription: string;
+  riverOrSea: string | null;
+  // The EA's message IN FULL (report depth). The short
+  // bundle's headline form drops this field by construction.
+  message: string;
+  timeRaised: string;
+  // "raised at 16:35 on 15 November 2026" — composed from
+  // the EA's naive London timestamp's own components.
+  raisedLine: string;
+  // The never-truncated headline line: the EA's severity
+  // label and area description, verbatim, joined.
+  line: string;
+}
+
+// The live-warnings block, composed at serve time and
+// attached to the served bundle only — it exists in no
+// stored form (the cache stores this field as null).
+export interface FloodLiveWarnings {
+  // warnings: at least one live warning serves.
+  // none: the fetch succeeded and nothing is in force.
+  // unavailable: the fetch failed; the filed answer stands.
+  state: "warnings" | "none" | "unavailable";
+  // When the check ran, Europe/London ("16:35 on
+  // 15 November 2026") — a report read later can never
+  // mistake the block for a live one.
+  checkedAt: string;
+  // The named line for the none and unavailable states
+  // (D42: both are named, never silent); null when warnings
+  // serve — the warnings speak.
+  line: string | null;
+  // Most severe first (severity level ascending, then
+  // earliest raised), capped at FLOOD_WARNING_MAX_SHOWN.
+  warnings: ServedFloodWarning[];
+  // How many live warnings sit beyond the cap, when any.
+  overflowCount: number | null;
+  overflowLine: string | null;
+  attributionLine: string;
+  link: { label: string; url: string };
+}
+
+export interface FloodBundleOptions {
+  // The live-warnings source. Absent, the bundle serves
+  // the filed answer alone (liveWarnings null): the plain
+  // builder's form, and the cache's stored form.
+  warningSource?: FloodWarningSource;
+  // The serve instant the block's checked-at stamp and the
+  // composition are made at. Injectable for tests.
+  now?: Date;
+}
+
+const LONDON_FORMAT = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Europe/London",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+  day: "numeric",
+  month: "long",
+  year: "numeric",
+});
+
+// "16:35 on 15 November 2026" — the instant rendered in
+// Europe/London, the product's one timezone for live facts.
+function londonStamp(instant: Date): string {
+  const parts = new Map(
+    LONDON_FORMAT.formatToParts(instant).map((part) => [part.type, part.value]),
+  );
+  return `${parts.get("hour")}:${parts.get("minute")} on ${parts.get("day")} ${parts.get("month")} ${parts.get("year")}`;
+}
+
+// The EA's timestamps are naive Europe/London local time:
+// their components ARE the London wall-clock reading, so the
+// raised line is composed from the components directly. A
+// Date parse would read them as UTC (or the host's zone)
+// and shift the hour — the exact misread the M6.22 build
+// proof pins against.
+function raisedLineFor(timeRaised: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(timeRaised);
+  if (!match) throw new Error(`unparseable flood warning timestamp: ${timeRaised}`);
+  const [, , month, day, hour, minute] = match;
+  return `raised at ${hour}:${minute} on ${Number(day)} ${MONTH_NAMES[Number(month) - 1]} ${match[1]}`;
+}
+
+function toServedWarning(item: FloodWarningItem): ServedFloodWarning {
+  return {
+    severityLevel: item.severityLevel,
+    severity: item.severity,
+    areaDescription: item.description,
+    riverOrSea: item.riverOrSea,
+    message: item.message,
+    timeRaised: item.timeRaised,
+    raisedLine: raisedLineFor(item.timeRaised),
+    line: `${item.severity} — ${item.description}`,
+  };
+}
+
+// Compose the block for one check. Never throws: any
+// failure of the source — timeout, HTTP error, unparseable
+// body — is the unavailable state, by design (D42).
+export async function composeFloodLiveWarnings(
+  source: FloodWarningSource,
+  latitude: number,
+  longitude: number,
+  now: Date,
+): Promise<FloodLiveWarnings> {
+  const checkedAt = londonStamp(now);
+  const base = {
+    checkedAt,
+    attributionLine: FLOOD_WARNING_ATTRIBUTION,
+    link: { label: FLOOD_WARNING_LINK.label, url: FLOOD_WARNING_LINK.url },
+  };
+  let items: FloodWarningItem[];
+  try {
+    items = await source.warningsNear(latitude, longitude);
+  } catch {
+    return {
+      ...base,
+      state: "unavailable",
+      line: FLOOD_WARNINGS_UNAVAILABLE_LINE,
+      warnings: [],
+      overflowCount: null,
+      overflowLine: null,
+    };
+  }
+  // Severity levels 1–3 only: level 4 ("Warning no longer
+  // in force") never serves, however it arrived.
+  const live = items
+    .filter((item) => item.severityLevel >= 1 && item.severityLevel <= 3)
+    .sort((a, b) => a.severityLevel - b.severityLevel || a.timeRaised.localeCompare(b.timeRaised));
+  if (live.length === 0) {
+    return {
+      ...base,
+      state: "none",
+      line: `No flood warning in force for this area — checked at ${checkedAt}`,
+      warnings: [],
+      overflowCount: null,
+      overflowLine: null,
+    };
+  }
+  const shown = live.slice(0, FLOOD_WARNING_MAX_SHOWN);
+  const overflow = live.length - shown.length;
+  return {
+    ...base,
+    state: "warnings",
+    line: null,
+    warnings: shown.map(toServedWarning),
+    overflowCount: overflow > 0 ? overflow : null,
+    overflowLine:
+      overflow > 0
+        ? `${overflow} more flood ${overflow === 1 ? "warning is" : "warnings are"} in force for areas near this postcode — see the official Check for flooding service for the full list`
+        : null,
+  };
+}
+
+// Parse one /id/floods response body into warning items.
+// Throws on any shape failure — the caller (the source)
+// lets it propagate, and the composition degrades the whole
+// fetch to the unavailable state rather than serving a
+// half-read warning.
+export function parseFloodWarningItems(body: unknown): FloodWarningItem[] {
+  if (typeof body !== "object" || body === null)
+    throw new Error("flood warnings response is not an object");
+  const items = (body as { items?: unknown }).items;
+  if (!Array.isArray(items)) throw new Error("flood warnings response has no items list");
+  return items.map((raw, index) => {
+    if (typeof raw !== "object" || raw === null)
+      throw new Error(`flood warning ${index} is not an object`);
+    const item = raw as Record<string, unknown>;
+    const floodArea =
+      typeof item.floodArea === "object" && item.floodArea !== null
+        ? (item.floodArea as Record<string, unknown>)
+        : {};
+    const severity = item.severity;
+    const severityLevel = item.severityLevel;
+    const description = item.description;
+    const message = item.message;
+    const timeRaised = item.timeRaised;
+    if (
+      typeof severity !== "string" ||
+      typeof severityLevel !== "number" ||
+      typeof description !== "string" ||
+      typeof message !== "string" ||
+      typeof timeRaised !== "string" ||
+      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(timeRaised)
+    )
+      throw new Error(`flood warning ${index} is missing a required field`);
+    return {
+      severity,
+      severityLevel,
+      description,
+      riverOrSea: typeof floodArea.riverOrSea === "string" ? floodArea.riverOrSea : null,
+      message,
+      timeRaised,
+    };
+  });
+}
+
+const FLOOD_WARNINGS_URL = "https://environment.data.gov.uk/flood-monitoring/id/floods";
+
+// The live warning source: one GET of the EA's geo-filtered
+// floods list per call, one attempt, the D42 timeout. The
+// request asks for min-severity=3 (the EA's documented
+// common pattern) AND the composition filters levels 1–3
+// again — the filter is ours, not delegated.
+export function createFloodWarningSource(
+  options: { fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): FloodWarningSource {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const timeoutMs = options.timeoutMs ?? FLOOD_WARNING_TIMEOUT_MS;
+  return {
+    async warningsNear(latitude, longitude) {
+      const url = `${FLOOD_WARNINGS_URL}?lat=${latitude}&long=${longitude}&dist=${FLOOD_WARNING_DIST_KM}&min-severity=3`;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const response = await fetchImpl(url, {
+          signal: controller.signal,
+          headers: { accept: "application/json" },
+        });
+        if (!response.ok) throw new Error(`flood warnings request failed: HTTP ${response.status}`);
+        return parseFloodWarningItems(await response.json());
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+  };
+}
 
 // ------------------------------------------------------------------
 // The publisher's definitions, as published (D25/Q7 — verified
@@ -217,6 +555,13 @@ export type FloodBundle =
       postcode: string;
       flood: {
         state: "served";
+        // The live-warnings block (M6.22, D42), composed at
+        // serve time and served FIRST, ahead of the filed
+        // layers. Null in exactly two forms: the plain
+        // builder called without a warning source, and the
+        // bundle cache's STORED form — a served bundle from
+        // the wired path always carries the composed block.
+        liveWarnings: FloodLiveWarnings | null;
         layers: ServedFloodLayer[];
         howWeCheck: string;
       };
@@ -477,6 +822,7 @@ function buildLayer(spec: LayerSpec, facts: FloodLayerFacts): ServedFloodLayer {
 export async function buildFloodBundle(
   resolution: AddressResolution,
   source: FloodDataSource,
+  options: FloodBundleOptions = {},
 ): Promise<FloodBundle> {
   if (resolution.rung === 3)
     return {
@@ -507,11 +853,24 @@ export async function buildFloodBundle(
   for (const spec of LAYER_SPECS) {
     layers.push(buildLayer(spec, await source.layerFacts(spec.type, latitude, longitude)));
   }
+  // The live warnings compose only here — a served England
+  // answer at rungs 1–2, where a point exists to check
+  // against. The not-covered nations and the named rung
+  // states never trigger a fetch (composition is England's,
+  // and rung 3 stays figure-free by construction).
+  const liveWarnings = options.warningSource
+    ? await composeFloodLiveWarnings(
+        options.warningSource,
+        latitude,
+        longitude,
+        options.now ?? new Date(),
+      )
+    : null;
   return {
     rung: resolution.rung,
     kind: "flood",
     postcode,
-    flood: { state: "served", layers, howWeCheck: FLOOD_HOW_WE_CHECK },
+    flood: { state: "served", liveWarnings, layers, howWeCheck: FLOOD_HOW_WE_CHECK },
   };
 }
 

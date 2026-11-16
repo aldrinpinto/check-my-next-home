@@ -3,16 +3,30 @@ import type { AddressResolution, DirectoryPostcode } from "../lib/address";
 import {
   FLOOD_BAND_DEFINITIONS,
   FLOOD_HOW_WE_CHECK,
+  FLOOD_WARNING_ATTRIBUTION,
+  FLOOD_WARNING_LINK,
   FLOOD_ZONE_1_DEFINITION,
   FLOOD_ZONE_DEFINITIONS,
   buildFloodBundle,
   createFloodSource,
+  createFloodWarningSource,
+  parseFloodWarningItems,
   type FloodBundle,
   type FloodDataSource,
   type FloodLayerFacts,
   type FloodLayerType,
+  type FloodWarningItem,
   type ServedFloodLayer,
 } from "../lib/flood";
+import {
+  BURE_ITEM,
+  BURE_RAW,
+  LAPSED_ITEM,
+  LEADON_ITEM,
+  LEADON_RAW,
+  WARNING_NOW,
+  FakeFloodWarningSource,
+} from "./flood-warning-fixtures";
 
 // Flood in the brain (plan step M6.5, decision D25).
 //
@@ -959,5 +973,399 @@ describe("flood — wording (D25's banned-wording scan)", () => {
     expect(FLOOD_HOW_WE_CHECK).toContain("not the property");
     expect(FLOOD_HOW_WE_CHECK).toContain("no record of past flooding");
     expect(FLOOD_HOW_WE_CHECK).toContain("their own models");
+  });
+});
+
+// ------------------------------------------------------------------
+// Live warnings (M6.22, decision D42) — composed at serve time
+// from the EA's live feed, replaying the two items captured
+// live in the M6.22 prep (tests/flood-warning-fixtures.ts).
+// ------------------------------------------------------------------
+
+function warningItem(partial: Partial<FloodWarningItem>): FloodWarningItem {
+  return { ...LEADON_ITEM, ...partial };
+}
+
+async function composedBundle(
+  warnings: FakeFloodWarningSource,
+  dir: DirectoryPostcode = BIRKDALE,
+  rung: 1 | 2 = 1,
+  now: Date = WARNING_NOW,
+): Promise<FloodBundle> {
+  return buildFloodBundle(rung === 1 ? rung1(dir) : rung2(dir), source, {
+    warningSource: warnings,
+    now,
+  });
+}
+
+describe("flood — live warnings compose at serve time (M6.22, D42)", () => {
+  it("serves the two captured live items FIRST, verbatim, ahead of the filed layers", async () => {
+    const warnings = new FakeFloodWarningSource();
+    // Deliberately unordered in the payload: same severity,
+    // so the raised time orders them (Bure 09:00, Leadon 16:35).
+    warnings.items = [LEADON_ITEM, BURE_ITEM];
+    const bundle = await composedBundle(warnings);
+    if (bundle.kind !== "flood" || bundle.flood.state !== "served")
+      throw new Error("expected a served flood bundle");
+    // The block is the section's first element, structurally.
+    expect(Object.keys(bundle.flood)).toEqual(["state", "liveWarnings", "layers", "howWeCheck"]);
+    const block = bundle.flood.liveWarnings;
+    if (!block) throw new Error("expected a composed live-warnings block");
+    expect(block.state).toBe("warnings");
+    expect(block.line).toBeNull();
+    expect(block.warnings.map((w) => w.areaDescription)).toEqual([
+      "The tidal Rivers Bure, Ant and Thurne",
+      "River Leadon catchment",
+    ]);
+    const leadon = block.warnings[1];
+    // The EA's words, verbatim — label, area, river, message.
+    expect(leadon.severity).toBe("Flood alert");
+    expect(leadon.severityLevel).toBe(3);
+    expect(leadon.riverOrSea).toBe("Leadon, Glynch");
+    expect(leadon.message).toBe(LEADON_ITEM.message);
+    expect(leadon.message).toContain("Flooding is possible on Sunday 15 November");
+    // The composed lines: the never-truncated headline, and
+    // the raised time read from the naive London timestamp's
+    // own components.
+    expect(leadon.line).toBe("Flood alert — River Leadon catchment");
+    expect(leadon.timeRaised).toBe("2026-11-15T16:35:59");
+    expect(leadon.raisedLine).toBe("raised at 16:35 on 15 November 2026");
+    // The block's furniture: checked-at stamp, the EA's
+    // attribution sentence, the official-service link.
+    expect(block.checkedAt).toBe("06:54 on 16 November 2026");
+    expect(block.attributionLine).toBe(FLOOD_WARNING_ATTRIBUTION);
+    expect(block.link).toEqual({ label: FLOOD_WARNING_LINK.label, url: FLOOD_WARNING_LINK.url });
+    expect(block.link.url).toBe("https://www.gov.uk/check-flooding");
+    expect(block.overflowCount).toBeNull();
+    expect(block.overflowLine).toBeNull();
+    // The filed layers are untouched by the composition.
+    expect(bundle.flood.layers).toHaveLength(3);
+    expect(bundle.flood.layers.map((l) => l.layer)).toEqual(["flood_zone", "rofrs", "rofsw"]);
+    // The fetch was made for the postcode point, once.
+    expect(warnings.calls).toEqual([
+      { latitude: BIRKDALE.latitude, longitude: BIRKDALE.longitude },
+    ]);
+  });
+
+  it("orders most severe first, then earliest raised", async () => {
+    const warnings = new FakeFloodWarningSource();
+    warnings.items = [
+      warningItem({
+        severity: "Flood alert",
+        severityLevel: 3,
+        description: "Area Three",
+        timeRaised: "2026-11-15T08:00:00",
+      }),
+      warningItem({
+        severity: "Severe flood warning",
+        severityLevel: 1,
+        description: "Area One",
+        timeRaised: "2026-11-15T09:00:00",
+      }),
+      warningItem({
+        severity: "Flood warning",
+        severityLevel: 2,
+        description: "Area Two",
+        timeRaised: "2026-11-15T07:00:00",
+      }),
+    ];
+    const bundle = await composedBundle(warnings);
+    if (bundle.kind !== "flood" || bundle.flood.state !== "served")
+      throw new Error("expected a served flood bundle");
+    expect(bundle.flood.liveWarnings?.warnings.map((w) => w.areaDescription)).toEqual([
+      "Area One",
+      "Area Two",
+      "Area Three",
+    ]);
+  });
+
+  it("never serves a level-4 item (warnings no longer in force)", async () => {
+    const onlyLapsed = new FakeFloodWarningSource();
+    onlyLapsed.items = [LAPSED_ITEM];
+    const bundle = await composedBundle(onlyLapsed);
+    if (bundle.kind !== "flood" || bundle.flood.state !== "served")
+      throw new Error("expected a served flood bundle");
+    expect(bundle.flood.liveWarnings?.state).toBe("none");
+    expect(bundle.flood.liveWarnings?.warnings).toEqual([]);
+
+    const mixed = new FakeFloodWarningSource();
+    mixed.items = [LAPSED_ITEM, LEADON_ITEM];
+    const mixedBundle = await composedBundle(mixed);
+    if (mixedBundle.kind !== "flood" || mixedBundle.flood.state !== "served")
+      throw new Error("expected a served flood bundle");
+    expect(mixedBundle.flood.liveWarnings?.warnings.map((w) => w.areaDescription)).toEqual([
+      "River Leadon catchment",
+    ]);
+  });
+
+  it("caps the block at five and names the overflow, never dropping it silently", async () => {
+    const warnings = new FakeFloodWarningSource();
+    warnings.items = [1, 2, 3, 4, 5, 6, 7].map((n) =>
+      warningItem({
+        description: `Area ${n}`,
+        timeRaised: `2026-11-15T0${n}:00:00`,
+      }),
+    );
+    const bundle = await composedBundle(warnings);
+    if (bundle.kind !== "flood" || bundle.flood.state !== "served")
+      throw new Error("expected a served flood bundle");
+    const block = bundle.flood.liveWarnings;
+    expect(block?.warnings).toHaveLength(5);
+    expect(block?.overflowCount).toBe(2);
+    expect(block?.overflowLine).toBe(
+      "2 more flood warnings are in force for areas near this postcode — see the official Check for flooding service for the full list",
+    );
+  });
+
+  it("the empty fetch serves the NAMED no-warning line, timestamped in London time", async () => {
+    const warnings = new FakeFloodWarningSource();
+    warnings.items = [];
+    const bundle = await composedBundle(warnings);
+    if (bundle.kind !== "flood" || bundle.flood.state !== "served")
+      throw new Error("expected a served flood bundle");
+    const block = bundle.flood.liveWarnings;
+    expect(block?.state).toBe("none");
+    expect(block?.line).toBe(
+      "No flood warning in force for this area — checked at 06:54 on 16 November 2026",
+    );
+    expect(block?.warnings).toEqual([]);
+    // The named line rides beside the official link too.
+    expect(block?.link.url).toBe("https://www.gov.uk/check-flooding");
+  });
+
+  it("a failed fetch serves the NAMED failure line and the filed answer complete, and never throws", async () => {
+    const warnings = new FakeFloodWarningSource();
+    warnings.error = new Error("the feed is down");
+    const bundle = await composedBundle(warnings);
+    if (bundle.kind !== "flood" || bundle.flood.state !== "served")
+      throw new Error("expected a served flood bundle");
+    const block = bundle.flood.liveWarnings;
+    expect(block?.state).toBe("unavailable");
+    expect(block?.line).toBe("Live flood warnings could not be checked just now");
+    expect(block?.warnings).toEqual([]);
+    // The filed answer stands complete and unchanged.
+    expect(bundle.flood.layers).toHaveLength(3);
+    const zones = layer(bundle.flood.layers, "flood_zone");
+    expect(zones.pointState).toBe("zone-1");
+    expect(zones.line).toBe(
+      "the postcode point is not in Flood Zone 2 or Flood Zone 3 on the Environment Agency's planning map",
+    );
+  });
+
+  it("composes identically at rungs 1 and 2, and not at all without a warning source", async () => {
+    const warnings = new FakeFloodWarningSource();
+    warnings.items = [LEADON_ITEM];
+    const one = await composedBundle(warnings, BIRKDALE, 1);
+    const two = await composedBundle(warnings, BIRKDALE, 2);
+    if (one.kind !== "flood" || two.kind !== "flood") throw new Error("expected flood bundles");
+    expect(two.flood.liveWarnings).toEqual(one.flood.liveWarnings);
+
+    const plain = await buildFloodBundle(rung1(BIRKDALE), source);
+    if (plain.kind !== "flood" || plain.flood.state !== "served")
+      throw new Error("expected a served flood bundle");
+    expect(plain.flood.liveWarnings).toBeNull();
+  });
+
+  it("never fetches for the not-covered nations or at rungs 3 and 4", async () => {
+    const warnings = new FakeFloodWarningSource();
+    warnings.items = [LEADON_ITEM];
+    const cardiff = directory("CF11 8AA", 51.467947, -3.192837, "W01001759");
+    const welsh = await buildFloodBundle(rung2(cardiff), source, {
+      warningSource: warnings,
+      now: WARNING_NOW,
+    });
+    expect(welsh.kind).toBe("not-covered");
+    await buildFloodBundle(
+      { rung: 3, kind: "wider-area", outward: "CM3", label: "Wider area", postcodeCount: 1 },
+      source,
+      { warningSource: warnings, now: WARNING_NOW },
+    );
+    await buildFloodBundle({ rung: 4, kind: "no-location" }, source, {
+      warningSource: warnings,
+      now: WARNING_NOW,
+    });
+    expect(warnings.calls).toEqual([]);
+  });
+
+  it("the checked-at stamp is Europe/London, not UTC (a summer instant renders BST)", async () => {
+    const warnings = new FakeFloodWarningSource();
+    warnings.items = [];
+    // 16:35 UTC in July is 17:35 in London; a UTC misread
+    // would stamp 16:35.
+    const bundle = await composedBundle(
+      warnings,
+      BIRKDALE,
+      1,
+      new Date("2026-07-15T16:35:00.000Z"),
+    );
+    if (bundle.kind !== "flood" || bundle.flood.state !== "served")
+      throw new Error("expected a served flood bundle");
+    expect(bundle.flood.liveWarnings?.checkedAt).toBe("17:35 on 15 July 2026");
+    expect(bundle.flood.liveWarnings?.line).toBe(
+      "No flood warning in force for this area — checked at 17:35 on 15 July 2026",
+    );
+  });
+
+  it("the block's own prose passes the flood banned-wording scan; the EA's verbatim fields are quoted, not scanned as ours", async () => {
+    const warnings = new FakeFloodWarningSource();
+    warnings.items = [LEADON_ITEM, BURE_ITEM];
+    const bundle = await composedBundle(warnings);
+    if (bundle.kind !== "flood" || bundle.flood.state !== "served")
+      throw new Error("expected a served flood bundle");
+    const block = bundle.flood.liveWarnings;
+    if (!block) throw new Error("expected a composed block");
+    // Publisher text is identified by field: severity,
+    // areaDescription and message are the EA's words, served
+    // verbatim (asserted in the composition test above) and
+    // excluded from OUR wording scan — the noise bands'
+    // verbatim-text precedent. Everything else in the block
+    // is our prose and is scanned in full.
+    const ours: unknown = {
+      ...block,
+      warnings: block.warnings.map((w) => ({
+        ...w,
+        severity: "",
+        areaDescription: "",
+        message: "",
+      })),
+    };
+    const BANNED = [
+      "safe",
+      "flood-proof",
+      "floodproof",
+      "will flood",
+      "won't flood",
+      "no flood risk",
+      "at risk",
+      "insurable",
+      "uninsurable",
+      "score",
+      "rating",
+      "rated",
+      "you may struggle",
+      "lenders require",
+    ];
+    const strings: string[] = [];
+    const collect = (value: unknown) => {
+      if (typeof value === "string") strings.push(value);
+      else if (Array.isArray(value)) value.forEach(collect);
+      else if (value && typeof value === "object") Object.values(value).forEach(collect);
+    };
+    collect(ours);
+    for (const text of strings)
+      for (const term of BANNED) expect(text.toLowerCase()).not.toContain(term);
+    // No key in the composed bundle computes a verdict.
+    const keys: string[] = [];
+    const collectKeys = (value: unknown) => {
+      if (Array.isArray(value)) value.forEach(collectKeys);
+      else if (value && typeof value === "object")
+        for (const [k, v] of Object.entries(value)) {
+          keys.push(k);
+          collectKeys(v);
+        }
+    };
+    collectKeys(bundle);
+    for (const key of keys)
+      expect(key).not.toMatch(/score|rate|rank|percent|verdict|defended|insur/i);
+  });
+});
+
+describe("flood — the live warning source and parser (M6.22)", () => {
+  it("parses the captured live responses into items, verbatim", () => {
+    const items = parseFloodWarningItems({ items: [LEADON_RAW, BURE_RAW] });
+    expect(items).toHaveLength(2);
+    expect(items[0]).toEqual({
+      severity: "Flood alert",
+      severityLevel: 3,
+      description: "River Leadon catchment",
+      riverOrSea: "Leadon, Glynch",
+      message: LEADON_ITEM.message,
+      timeRaised: "2026-11-15T16:35:59",
+    });
+    expect(items[1].riverOrSea).toBe("Bure, Ant, Thurne");
+    expect(items[1].description).toBe("The tidal Rivers Bure, Ant and Thurne");
+  });
+
+  it("refuses malformed bodies loudly (the composition turns the throw into the named failure line)", () => {
+    expect(() => parseFloodWarningItems(null)).toThrow();
+    expect(() => parseFloodWarningItems({})).toThrow();
+    expect(() => parseFloodWarningItems({ items: [{ severity: "Flood alert" }] })).toThrow();
+    expect(() =>
+      parseFloodWarningItems({
+        items: [
+          {
+            severity: "Flood alert",
+            severityLevel: 3,
+            description: "Somewhere",
+            message: "Text",
+            timeRaised: "15 November 2026",
+          },
+        ],
+      }),
+    ).toThrow();
+  });
+
+  function fakeFetch(respond: (url: string) => Promise<unknown>, seen: string[]): typeof fetch {
+    return (async (url: unknown) => {
+      seen.push(String(url));
+      return respond(String(url));
+    }) as typeof fetch;
+  }
+
+  it("requests the geo-filtered list with the pinned reach and severity pattern", async () => {
+    const seen: string[] = [];
+    const fetchImpl = fakeFetch(
+      async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ items: [LEADON_RAW] }),
+      }),
+      seen,
+    );
+    const warnings = createFloodWarningSource({ fetchImpl });
+    const items = await warnings.warningsNear(52.034, -2.424);
+    expect(items).toEqual([LEADON_ITEM]);
+    expect(seen).toHaveLength(1);
+    const url = new URL(seen[0]);
+    expect(url.origin + url.pathname).toBe(
+      "https://environment.data.gov.uk/flood-monitoring/id/floods",
+    );
+    expect(url.searchParams.get("lat")).toBe("52.034");
+    expect(url.searchParams.get("long")).toBe("-2.424");
+    // dist is kilometres to the flood area (the API's
+    // documented unit, live-pinned at build): 3.22 km is
+    // the product's 2-mile radius.
+    expect(url.searchParams.get("dist")).toBe("3.22");
+    expect(url.searchParams.get("min-severity")).toBe("3");
+  });
+
+  it("rejects on a non-200 response and on an unparseable body", async () => {
+    const seen: string[] = [];
+    const httpError = createFloodWarningSource({
+      fetchImpl: fakeFetch(async () => ({ ok: false, status: 503, json: async () => ({}) }), seen),
+    });
+    await expect(httpError.warningsNear(52.034, -2.424)).rejects.toThrow("HTTP 503");
+    const garbage = createFloodWarningSource({
+      fetchImpl: fakeFetch(
+        async () => ({
+          ok: true,
+          status: 200,
+          json: async () => {
+            throw new Error("not json");
+          },
+        }),
+        seen,
+      ),
+    });
+    await expect(garbage.warningsNear(52.034, -2.424)).rejects.toThrow("not json");
+  });
+
+  it("aborts at the timeout: a hanging feed rejects instead of blocking the check", async () => {
+    const hanging = (async (_url: unknown, init: { signal: AbortSignal }) =>
+      new Promise((_resolve, reject) => {
+        init.signal.addEventListener("abort", () => reject(new Error("aborted")));
+      })) as unknown as typeof fetch;
+    const warnings = createFloodWarningSource({ fetchImpl: hanging, timeoutMs: 25 });
+    await expect(warnings.warningsNear(52.034, -2.424)).rejects.toThrow("aborted");
   });
 });

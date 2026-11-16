@@ -1834,3 +1834,109 @@ report depth, rung 1 only, never summed.
    the short bundle derives the two constraints
    sub-blocks under D28's rules and the heritage layers
    take the monuments' place (full bundle only).
+
+## Live flood warnings + school deadlines (M6.22, decision D42)
+
+D42 adds the one live element to an otherwise filed
+product: flood warnings are fetched from the Environment
+Agency's flood-monitoring API at serve time and composed
+into the flood bundle — never filed, never stored — and
+the schools answer gains the statutory application
+deadlines. Nothing in this section is a filed golden: the
+warning goldens are the two alerts captured live at the
+step's first contact (16 Nov 2026, ~07:01), replayed
+through a fake source in the unit suites and the golden
+replay alike.
+
+1. **The dist finding (the prep's one unverified point,
+   closed at first contact).** The EA reference
+   documentation's parameter table states dist is in
+   kilometres, measured to the flood area ("warnings
+   applying to flood areas which are within r km of the
+   given latitude/longitude"), possibly approximated by a
+   bounding box. Proven live with two points: Ledbury
+   (52.034, −2.424), inside the River Leadon flood area,
+   matched at dist 0 and every larger value tried; a
+   point ~14.9 km east of the area envelope's east edge
+   returned nothing at dist 6 and dist 14, and the
+   warning at dist 16, 20 and 25 — a crossover at the
+   envelope distance, not the centroid distance (~24 km).
+   The chosen value is **dist = 3.22 km**, the product's
+   2-mile proximity radius (D22), measured to the EA's
+   area exactly as served wording requires (a warning is
+   attributed to the EA's named area, never to the
+   postcode point). min-severity=3 was verified live to
+   return severity levels ≤ 3; the 1–3 filter is still
+   applied client-side, never delegated.
+2. **Warning goldens** (the captured pair, verbatim):
+   **River Leadon catchment** (flood area 031WAF213,
+   "Flood alert", severity level 3, riverOrSea "Leadon,
+   Glynch", raised 2026-11-15T16:35:59) and **The tidal
+   Rivers Bure, Ant and Thurne** (054WATBT1, "Flood
+   alert", level 3, "Bure, Ant, Thurne", raised
+   2026-11-15T09:00:34). Composed order is severity,
+   then earliest raised: Bure before Leadon. The full
+   bundle carries each message in full; the short bundle
+   carries severity, area, raised line and the official
+   link — no message field by construction. Severity
+   level 4 never serves (proven against a synthetic
+   lapsed item in the documented label "Warning no
+   longer in force"; no level-4 item was live at
+   capture). The block caps at 5 with a named overflow
+   line. Attribution verbatim: "this uses Environment
+   Agency flood and river level data from the real-time
+   data API (Beta)"; the link is the official Check for
+   flooding service (https://www.gov.uk/check-flooding).
+3. **The two named empty states.** Success with none:
+   "No flood warning in force for this area — checked at
+   [time]" with the Europe/London stamp ("06:54 on 16
+   November 2026" at the fixture instant; a BST instant
+   renders BST). Failure: "Live flood warnings could not
+   be checked just now". At headline depth the
+   no-warning line does not travel (the block names its
+   state and stamp only); the failure line does — a
+   silent headline would read as "no warning". Neither
+   state, nor any warning, is stored: the bundle cache
+   strips the block to null in the stored entry and
+   recomposes it per serve through the onServe hook (the
+   crime stale-line pattern), proven by tests where a
+   warning raised after caching serves on the next read
+   and a lapsed one disappears, the stored entry
+   byte-identical throughout.
+4. **School deadline goldens.** England: "School
+   application deadlines in England: 31 October for
+   secondary places and 15 January for primary places —
+   the national closing dates set in the School
+   Admissions Code, for a place the following September.
+   Some schools also ask for a supplementary form, which
+   can have its own deadline." — served in the nearby
+   bundle at the universal homes (the line also rides
+   the report's closing notes at M8, from this same
+   served shape). Wales (Cardiff CF11 8AA): "School
+   application deadlines in Wales are set by each
+   council — check the council's own admissions pages
+   for this year's dates." Scotland (Edinburgh) and
+   Northern Ireland: nothing served. The nation is read
+   from the filed LSOA code's first letter (the flood
+   brain's precedent); an unreadable code serves
+   nothing — the failure direction is always away from
+   serving the English dates. The dates are constants
+   citing the Code in code; the plan's annual ops check
+   keeps them current (there is no code mechanism to
+   wire into — the check is the plan's ops row).
+5. **Contract re-pin (authorised).** The served flood
+   shape gained the liveWarnings key (null uncomposed),
+   the short flood section the same, and the nearby
+   distances shape the schoolDeadlines key; two pins
+   were added (flood.served-warnings,
+   short.flood-warnings). Seven pins moved
+   (flood.served-mixed, short.rung1, short.rung2,
+   nearby.served, nearby.beyond-only,
+   nearby.none-anywhere, nearby.not-filed) and two were
+   added. The explainer census gained rows 76–78 (78
+   families, 46 hard: the severity level and overflow
+   count registered hard at both depths; the deadline
+   dates hard with the Code named in their own line).
+   The cache's stored-shape contract gained presence
+   checks for both new keys, in the established
+   degrade-to-recompute pattern.

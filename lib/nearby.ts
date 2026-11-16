@@ -19,6 +19,24 @@ import type { AddressQueryable, AddressResolution } from "./address";
 // states the postcode it serves. A wider area (rung 3) gets NO
 // distance payload — a named state instead — because a distance
 // to "somewhere in CM3" would be a false fact about a home.
+//
+// School application deadlines (M6.22, decision D42) ride in
+// this bundle as one line per check, attached to the schools
+// answers: 31 October (secondary) and 15 January (primary)
+// are the statutory national closing dates in the School
+// Admissions Code for England — they do not vary by council,
+// which is what makes a single national pair honest. The
+// line carries the one real caveat beside the dates: some
+// schools ask for a supplementary form, which can have its
+// own deadline. Wales serves a named line pointing to the
+// council's own published dates (Welsh admissions run under
+// the Welsh code, with council-set dates — the English dates
+// must not serve there); Scotland and Northern Ireland serve
+// nothing. The nation is read from the resolution's filed
+// area code, the flood brain's precedent — never outward
+// letters. The dates are constants below, kept current by
+// the plan's annual ops check, which verifies the pair
+// against the current Code before they can go stale.
 
 export const DISTANCE_BASIS_LABEL = "straight-line distance from the postcode point";
 export const RADIUS_MILES = 2;
@@ -141,6 +159,46 @@ export type CategoryAnswer = {
   nearestSelectiveLine?: string | null;
 };
 
+// The school application deadlines line (M6.22, D42): one
+// per check, not per school. England serves the statutory
+// dates; Wales serves the named council line; Scotland and
+// Northern Ireland serve nothing (the bundle field is null).
+export interface SchoolDeadlines {
+  state: "england" | "wales";
+  line: string;
+}
+
+// The statutory national closing dates in the School
+// Admissions Code for England (the mandatory code under the
+// School Standards and Framework Act 1998), restated by
+// councils as "national closing date (statutory)" and
+// unchanged year to year. Kept current by the plan's annual
+// ops check, which verifies this pair against the current
+// Code / GOV.UK admissions guidance once a year.
+export const SCHOOL_DEADLINE_SECONDARY = "31 October";
+export const SCHOOL_DEADLINE_PRIMARY = "15 January";
+
+export const SCHOOL_DEADLINES_ENGLAND_LINE = `School application deadlines in England: ${SCHOOL_DEADLINE_SECONDARY} for secondary places and ${SCHOOL_DEADLINE_PRIMARY} for primary places — the national closing dates set in the School Admissions Code, for a place the following September. Some schools also ask for a supplementary form, which can have its own deadline.`;
+
+export const SCHOOL_DEADLINES_WALES_LINE =
+  "School application deadlines in Wales are set by each council — check the council's own admissions pages for this year's dates.";
+
+// The nation, read from the resolution's own filed fact —
+// the first letter of the directory's lsoa_code (E… England,
+// W… Wales, S… Scotland, N… Northern Ireland) — never from
+// outward postcode letters, which straddle the Welsh border
+// (the flood brain's coverage rule, D25).
+function schoolDeadlinesFor(lsoaCode: string | null): SchoolDeadlines | null {
+  switch ((lsoaCode ?? "").charAt(0)) {
+    case "E":
+      return { state: "england", line: SCHOOL_DEADLINES_ENGLAND_LINE };
+    case "W":
+      return { state: "wales", line: SCHOOL_DEADLINES_WALES_LINE };
+    default:
+      return null;
+  }
+}
+
 export type NearbyBundle =
   | {
       rung: 1 | 2;
@@ -148,6 +206,11 @@ export type NearbyBundle =
       postcode: string;
       basisLabel: string;
       categories: CategoryAnswer[];
+      // One deadlines line per check (M6.22, D42), carried
+      // in the full bundle only — the short bundle's school
+      // headlines stay nearest-plus-count (D28). The report
+      // renders this same line in its closing notes (M8).
+      schoolDeadlines: SchoolDeadlines | null;
     }
   | {
       rung: 3;
@@ -346,6 +409,7 @@ export async function buildNearbyBundle(
     postcode: resolution.directory.postcode,
     basisLabel: DISTANCE_BASIS_LABEL,
     categories,
+    schoolDeadlines: schoolDeadlinesFor(resolution.directory.lsoaCode),
   };
 }
 

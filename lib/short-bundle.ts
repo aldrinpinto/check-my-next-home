@@ -154,8 +154,51 @@ export interface ShortFloodLayer {
   sourceLine: string | null;
 }
 
+// The live-warnings block at headline depth (M6.22,
+// decision D42): the same serve-time composition as the
+// full bundle's, projected — the severity line, the area,
+// the raised time and the official link, NEVER the EA's
+// message text (that is report depth). The block precedes
+// the layer lines, as it precedes the layers in the full
+// section. The named no-warning line does NOT travel to
+// headline depth (the M6.22 prep's pin: it lives in the
+// full answer and the report); the failure line DOES —
+// silence in the headline during a flood would read as
+// "no warning", the exact overclaim the named states
+// exist to prevent.
+export interface ShortFloodWarning {
+  severityLevel: number;
+  severity: string;
+  areaDescription: string;
+  riverOrSea: string | null;
+  timeRaised: string;
+  raisedLine: string;
+  line: string;
+}
+
+export interface ShortFloodLiveWarnings {
+  state: "warnings" | "none" | "unavailable";
+  checkedAt: string;
+  // The failure line only; null in the warnings and none
+  // states (see the header above).
+  line: string | null;
+  warnings: ShortFloodWarning[];
+  overflowCount: number | null;
+  overflowLine: string | null;
+  attributionLine: string;
+  link: { label: string; url: string };
+}
+
 export type ShortFlood =
-  { state: "not-covered"; reason: string } | { state: "served"; layers: ShortFloodLayer[] };
+  | { state: "not-covered"; reason: string }
+  | {
+      state: "served";
+      // Null where the full bundle was not composed (the
+      // plain builder's form) — the wired path always
+      // composes.
+      liveWarnings: ShortFloodLiveWarnings | null;
+      layers: ShortFloodLayer[];
+    };
 
 export type ShortCrime =
   | { state: "not-filed" | "not-covered"; reason: string }
@@ -416,8 +459,29 @@ function shortSoldPrices(bundle: Extract<SoldPricesBundle, { rung: 1 | 2 }>): Sh
 
 function shortFlood(bundle: Extract<FloodBundle, { rung: 1 | 2 }>): ShortFlood {
   if (bundle.kind === "not-covered") return { state: "not-covered", reason: bundle.flood.reason };
+  const live = bundle.flood.liveWarnings;
   return {
     state: "served",
+    liveWarnings: live
+      ? {
+          state: live.state,
+          checkedAt: live.checkedAt,
+          line: live.state === "unavailable" ? live.line : null,
+          warnings: live.warnings.map((warning) => ({
+            severityLevel: warning.severityLevel,
+            severity: warning.severity,
+            areaDescription: warning.areaDescription,
+            riverOrSea: warning.riverOrSea,
+            timeRaised: warning.timeRaised,
+            raisedLine: warning.raisedLine,
+            line: warning.line,
+          })),
+          overflowCount: live.overflowCount,
+          overflowLine: live.overflowLine,
+          attributionLine: live.attributionLine,
+          link: live.link,
+        }
+      : null,
     layers: bundle.flood.layers.map((layer) => ({
       layer: layer.layer,
       title: layer.title,

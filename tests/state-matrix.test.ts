@@ -78,6 +78,13 @@
 //      (fifteen shipped, sixteen with the company flag
 //      on). Broadband headlines as the short bundle's
 //      twelfth section; mobile never headlines.
+//   M6.22 (decision D42) adds two serve-time families,
+//      asserted in their own block below: the flood
+//      bundle's live-warnings block (warnings / none /
+//      unavailable — composed at serve time from the EA's
+//      live feed, never a filed state, never stored) and
+//      the nearby bundle's school-deadlines line (england
+//      / wales / nothing, read from the filed area code).
 //   Settled fixes — nature designations and nearby
 //      categories gain filed-count guards in the flood
 //      form; the sold-prices median's none-recorded line
@@ -126,11 +133,14 @@ import {
 } from "../lib/crime";
 import { buildFloodBundle, type FloodDataSource, type FloodLayerFacts } from "../lib/flood";
 import {
+  SCHOOL_DEADLINES_ENGLAND_LINE,
+  SCHOOL_DEADLINES_WALES_LINE,
   buildNearbyBundle,
   type NearbyCategory,
   type NearbyDataSource,
   type NearbyPoint,
 } from "../lib/nearby";
+import { LEADON_ITEM, WARNING_NOW, FakeFloodWarningSource } from "./flood-warning-fixtures";
 import { buildShortBundle } from "../lib/short-bundle";
 import {
   buildSoldPricesBundle,
@@ -1113,6 +1123,104 @@ describe("matrix — flood", () => {
       kind: "no-location",
       flood: { state: "unavailable", reason: "flood answers need an exact postcode" },
     });
+  });
+});
+
+// ------------------------------------------------------------------
+// Live flood warnings + school deadlines (M6.22, decision D42)
+// ------------------------------------------------------------------
+
+describe("matrix — flood live warnings and school deadlines (M6.22, D42)", () => {
+  it("warnings: a live warning serves in its block, ahead of the layers, in the EA's words", async () => {
+    const warnings = new FakeFloodWarningSource();
+    warnings.items = [LEADON_ITEM];
+    const bundle = await buildFloodBundle(ENG_HOME, new MatrixFloodSource(), {
+      warningSource: warnings,
+      now: WARNING_NOW,
+    });
+    if (bundle.kind !== "flood" || bundle.flood.state !== "served")
+      throw new Error("expected a served flood bundle");
+    const block = bundle.flood.liveWarnings;
+    expect(block?.state).toBe("warnings");
+    expect(block?.warnings[0].line).toBe("Flood alert — River Leadon catchment");
+    expect(block?.warnings[0].message).toBe(LEADON_ITEM.message);
+    expect(bundle.flood.layers).toHaveLength(3);
+    expectClean(bundle);
+  });
+
+  it("none: a successful empty fetch serves the named, timestamped line — never silence", async () => {
+    const warnings = new FakeFloodWarningSource();
+    warnings.items = [];
+    const bundle = await buildFloodBundle(ENG_HOME, new MatrixFloodSource(), {
+      warningSource: warnings,
+      now: WARNING_NOW,
+    });
+    if (bundle.kind !== "flood" || bundle.flood.state !== "served")
+      throw new Error("expected a served flood bundle");
+    expect(bundle.flood.liveWarnings?.state).toBe("none");
+    expect(bundle.flood.liveWarnings?.line).toBe(
+      "No flood warning in force for this area — checked at 06:54 on 16 November 2026",
+    );
+    expectClean(bundle);
+  });
+
+  it("unavailable: a failed fetch serves its named line — never silence, never read as 'no warning'", async () => {
+    const warnings = new FakeFloodWarningSource();
+    warnings.error = new Error("the feed is down");
+    const bundle = await buildFloodBundle(ENG_HOME, new MatrixFloodSource(), {
+      warningSource: warnings,
+      now: WARNING_NOW,
+    });
+    if (bundle.kind !== "flood" || bundle.flood.state !== "served")
+      throw new Error("expected a served flood bundle");
+    expect(bundle.flood.liveWarnings?.state).toBe("unavailable");
+    expect(bundle.flood.liveWarnings?.line).toBe(
+      "Live flood warnings could not be checked just now",
+    );
+    expect(bundle.flood.layers).toHaveLength(3);
+    expectClean(bundle);
+  });
+
+  it("school deadlines: England serves the statutory line; Wales the council line; Scotland and Northern Ireland nothing", async () => {
+    const source = new MatrixNearbySource();
+    filedEverywhere(source);
+    const england = await buildNearbyBundle(ENG_HOME, source);
+    if (england.kind !== "distances") throw new Error("expected distances");
+    expect(england.schoolDeadlines).toEqual({
+      state: "england",
+      line: SCHOOL_DEADLINES_ENGLAND_LINE,
+    });
+    expect(england.schoolDeadlines?.line).toContain("31 October");
+    expect(england.schoolDeadlines?.line).toContain("15 January");
+    expect(england.schoolDeadlines?.line).toContain("supplementary form");
+
+    const wales = await buildNearbyBundle(WAL_HOME, source);
+    if (wales.kind !== "distances") throw new Error("expected distances");
+    expect(wales.schoolDeadlines).toEqual({ state: "wales", line: SCHOOL_DEADLINES_WALES_LINE });
+    // The English dates must not serve in Wales.
+    expect(wales.schoolDeadlines?.line).not.toContain("31 October");
+
+    const scotland = await buildNearbyBundle(SCO_HOME, source);
+    if (scotland.kind !== "distances") throw new Error("expected distances");
+    expect(scotland.schoolDeadlines).toBeNull();
+    const ni = await buildNearbyBundle(NI_HOME, source);
+    if (ni.kind !== "distances") throw new Error("expected distances");
+    expect(ni.schoolDeadlines).toBeNull();
+    expectClean(england);
+  });
+
+  it("school deadlines: nothing at rung 3 — the wider-area bundle carries no line", async () => {
+    const rung3: AddressResolution = {
+      rung: 3,
+      kind: "wider-area",
+      outward: "CM3",
+      label: "Wider area — CM3",
+      postcodeCount: 1,
+    };
+    const bundle = await buildNearbyBundle(rung3, new MatrixNearbySource());
+    expect(bundle.kind).toBe("wider-area");
+    expect(JSON.stringify(bundle)).not.toContain("31 October");
+    expect(JSON.stringify(bundle)).not.toContain("deadlines");
   });
 });
 

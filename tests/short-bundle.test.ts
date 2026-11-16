@@ -33,6 +33,12 @@ import {
 import { DATASETS, buildRows, parseDatasetCsv } from "../loaders/load-census.mjs";
 import { imdSummaryFor } from "../loaders/load-imd.mjs";
 import { BANNED_WORDING, GIGABIT_FIGURE, VALUATION_DISCLAIMER } from "./banned-wording";
+import {
+  BURE_ITEM,
+  LEADON_ITEM,
+  WARNING_NOW,
+  FakeFloodWarningSource,
+} from "./flood-warning-fixtures";
 
 // The short-version bundle (plan step M6.7, decision D28).
 //
@@ -2805,5 +2811,85 @@ describe("short bundle — wording (the union of the brains' banned lists)", () 
       ["headlineAssessmentLabel", "headlineBand", "line", "state"].sort(),
     );
     expect(JSON.stringify(short)).not.toContain("certificates recorded for this postcode");
+  });
+});
+
+// --- live flood warnings at headline depth (M6.22, D42) --------
+
+describe("short bundle — live flood warnings (M6.22, decision D42)", () => {
+  async function shortWithWarnings(warnings: FakeFloodWarningSource): Promise<ServedShort> {
+    const full = await fullBundles(BIRKDALE);
+    const flood = await buildFloodBundle(BIRKDALE, floodSource, {
+      warningSource: warnings,
+      now: WARNING_NOW,
+    });
+    return servedShort(buildShortBundle({ ...full, flood }));
+  }
+
+  it("the warning block precedes the layer lines, carrying severity, area and link — never the EA's message", async () => {
+    const warnings = new FakeFloodWarningSource();
+    warnings.items = [LEADON_ITEM, BURE_ITEM];
+    const short = await shortWithWarnings(warnings);
+    const flood = servedFlood(short);
+    // First in the section, structurally.
+    expect(Object.keys(flood)).toEqual(["state", "liveWarnings", "layers"]);
+    const block = flood.liveWarnings;
+    if (!block) throw new Error("expected a composed headline block");
+    expect(block.state).toBe("warnings");
+    expect(block.warnings.map((w) => w.line)).toEqual([
+      "Flood alert — The tidal Rivers Bure, Ant and Thurne",
+      "Flood alert — River Leadon catchment",
+    ]);
+    expect(block.warnings[0].raisedLine).toBe("raised at 09:00 on 15 November 2026");
+    expect(block.link.url).toBe("https://www.gov.uk/check-flooding");
+    expect(block.attributionLine).toContain("Environment Agency flood and river level data");
+    // The EA's message text is report depth only: no message
+    // field, and no fragment of either message, anywhere in
+    // the short bundle.
+    for (const warning of block.warnings) expect(warning).not.toHaveProperty("message");
+    const serialised = JSON.stringify(short);
+    expect(serialised).not.toContain("impassable");
+    expect(serialised).not.toContain("Potter Heigham");
+    // The layers still follow, unchanged.
+    expect(flood.layers).toHaveLength(3);
+  });
+
+  it("the no-warning line stays at report depth: the headline block names the state, not the line", async () => {
+    const warnings = new FakeFloodWarningSource();
+    warnings.items = [];
+    const short = await shortWithWarnings(warnings);
+    const block = servedFlood(short).liveWarnings;
+    if (!block) throw new Error("expected a composed headline block");
+    expect(block.state).toBe("none");
+    expect(block.line).toBeNull();
+    expect(block.checkedAt).toBe("06:54 on 16 November 2026");
+    expect(JSON.stringify(short)).not.toContain("No flood warning in force");
+  });
+
+  it("the failure line DOES travel to headline depth — silence would read as 'no warning'", async () => {
+    const warnings = new FakeFloodWarningSource();
+    warnings.error = new Error("the feed is down");
+    const short = await shortWithWarnings(warnings);
+    const block = servedFlood(short).liveWarnings;
+    if (!block) throw new Error("expected a composed headline block");
+    expect(block.state).toBe("unavailable");
+    expect(block.line).toBe("Live flood warnings could not be checked just now");
+  });
+
+  it("an uncomposed full bundle projects to a null headline block", async () => {
+    const short = servedShort(await shortFor(BIRKDALE));
+    expect(servedFlood(short).liveWarnings).toBeNull();
+  });
+
+  it("the composed headline passes the banned-wording union scan (the EA's headline words are its labels, not our prose)", async () => {
+    const warnings = new FakeFloodWarningSource();
+    warnings.items = [LEADON_ITEM, BURE_ITEM];
+    const short = await shortWithWarnings(warnings);
+    for (const text of allStrings(short))
+      for (const term of BANNED_WORDING) expect(text.toLowerCase()).not.toContain(term);
+    for (const key of allKeys(short))
+      expect(key).not.toMatch(
+        /gap|percent|difference|trend|direction|score|rate|rank|verdict|compar/i,
+      );
   });
 });

@@ -17,8 +17,11 @@ import {
 } from "./crime";
 import {
   buildFloodBundle,
+  composeFloodLiveWarnings,
   createFloodSource,
+  createFloodWarningSource,
   type FloodBundle,
+  type FloodBundleOptions,
   type FloodDataSource,
 } from "./flood";
 import {
@@ -80,6 +83,13 @@ import {
 //     entry stores the bundle with the line stripped, and
 //     the line is recomputed at serve from the cached
 //     window end (crimeStaleLineForWindow).
+//   - Flood's live-warnings block is never stored either
+//     (M6.22, decision D42) — it is not even derivable from
+//     stored fields: the entry stores the filed answer with
+//     the block stripped to null, and every serve composes
+//     the block fresh from the Environment Agency's live
+//     feed through the same onServe hook, so a cached
+//     bundle can neither freeze a warning nor hide one.
 //   - Writes SKIP any bundle carrying a load-failure state:
 //     a crime bundle in its not-filed state, and an area
 //     bundle whose EPC section is not-filed (the state a
@@ -534,8 +544,11 @@ interface ServeOptions<TBundle> {
   // served form (crime stores its stale line stripped).
   storable?: (bundle: TBundle) => unknown;
   // The served form of a stored bundle (crime recomputes
-  // its stale line here, at serve, from the cached window).
-  onServe?: (bundle: TBundle) => TBundle;
+  // its stale line here, at serve, from the cached window;
+  // flood re-composes its live-warnings block here, at
+  // serve, from the live feed — M6.22 — so the hook may be
+  // asynchronous; a synchronous hook is awaited unchanged).
+  onServe?: (bundle: TBundle) => TBundle | Promise<TBundle>;
   // A further shape contract on the stored bundle, beyond
   // key agreement: a stored bundle that fails it degrades
   // to a recompute, never to a serve (the area bundle's
@@ -567,7 +580,7 @@ async function serveCached<TBundle>(
       (!opts.shapeOk || opts.shapeOk(entry.bundle))
     ) {
       const stored = entry.bundle as TBundle;
-      return opts.onServe ? opts.onServe(stored) : stored;
+      return opts.onServe ? await opts.onServe(stored) : stored;
     }
   }
 
@@ -647,18 +660,64 @@ export async function buildFloodBundleCached(
   resolution: AddressResolution,
   source: FloodDataSource,
   cache: BundleCache,
+  options: FloodBundleOptions = {},
 ): Promise<FloodBundle> {
-  if (resolution.rung === 3 || resolution.rung === 4) return buildFloodBundle(resolution, source);
+  if (resolution.rung === 3 || resolution.rung === 4)
+    return buildFloodBundle(resolution, source, options);
   return serveCached(cache, {
     brain: "flood",
     resolution,
     homeKey: "",
     kinds: ["flood", "not-covered"],
-    compute: () => buildFloodBundle(resolution, source),
+    compute: () => buildFloodBundle(resolution, source, options),
     // Flood's per-layer not-filed states cache safely: the
     // layers' filed counts are in the version's guards, so
     // a first filing busts the entry whoever ran it.
     cacheable: () => true,
+    // The live-warnings block (M6.22, decision D42) is
+    // never stored: the entry holds the filed answer with
+    // the block stripped to null, and the block is composed
+    // fresh on every serve — the crime stale-line pattern,
+    // one step further (crime's line is recomputed from
+    // stored fields; flood's block is re-fetched from the
+    // live feed). A bundle cached before a warning is
+    // raised serves the warning on its next read; a lapsed
+    // warning disappears with no cache write in between.
+    storable: (bundle) =>
+      bundle.kind === "flood" && bundle.flood.state === "served"
+        ? { ...bundle, flood: { ...bundle.flood, liveWarnings: null } }
+        : bundle,
+    onServe: async (bundle) => {
+      if (bundle.kind !== "flood" || bundle.flood.state !== "served" || !options.warningSource)
+        return bundle;
+      const { latitude, longitude } = resolution.directory;
+      return {
+        ...bundle,
+        flood: {
+          ...bundle.flood,
+          liveWarnings: await composeFloodLiveWarnings(
+            options.warningSource,
+            latitude,
+            longitude,
+            options.now ?? new Date(),
+          ),
+        },
+      };
+    },
+    // The M6.22 shape contract, in the established pattern:
+    // a stored served entry written before the step lacks
+    // the liveWarnings key entirely, so it degrades to a
+    // recompute rather than serving the block's absence as
+    // current. (The stored value is null by design — the
+    // key's presence is the contract.)
+    shapeOk: (bundle) => {
+      if (typeof bundle !== "object" || bundle === null) return false;
+      const b = bundle as { kind?: unknown; flood?: unknown };
+      if (b.kind !== "flood") return true;
+      const flood = b.flood as Record<string, unknown> | null | undefined;
+      if (!flood || flood.state !== "served") return true;
+      return "liveWarnings" in flood;
+    },
   });
 }
 
@@ -680,9 +739,14 @@ export async function buildNearbyBundleCached(
     // (nearestSelectiveLine, key present, value possibly
     // null). An entry written before M6.18 lacks the key,
     // so it degrades to a recompute rather than serving
-    // the gloss's absence as current.
+    // the gloss's absence as current. The M6.22 contract
+    // extends it in the same pattern: the bundle carries
+    // the schoolDeadlines key (present, value null outside
+    // England and Wales) — an entry written before the
+    // step lacks it and degrades to a recompute.
     shapeOk: (bundle) => {
       if (typeof bundle !== "object" || bundle === null) return false;
+      if (!("schoolDeadlines" in bundle)) return false;
       const categories = (bundle as { categories?: unknown }).categories;
       if (!Array.isArray(categories)) return false;
       const secondary = categories.find(
@@ -839,12 +903,18 @@ export function createCachedBrains(db: AddressQueryable): CachedBrains {
   const cache = createBundleCache(db);
   const crimeSource = createCrimeSource(db);
   const floodSource = createFloodSource(db);
+  // The live flood-warnings feed (M6.22): composed at serve
+  // time through the cached flood builder, never stored.
+  const floodWarningSource = createFloodWarningSource();
   const nearbySource = createNearbySource(db);
   const areaSource = createAreaSource(db);
   return {
     buildCrimeBundle: (resolution, options) =>
       buildCrimeBundleCached(resolution, crimeSource, cache, options),
-    buildFloodBundle: (resolution) => buildFloodBundleCached(resolution, floodSource, cache),
+    buildFloodBundle: (resolution) =>
+      buildFloodBundleCached(resolution, floodSource, cache, {
+        warningSource: floodWarningSource,
+      }),
     buildNearbyBundle: (resolution) => buildNearbyBundleCached(resolution, nearbySource, cache),
     buildAreaBundle: (resolution) => buildAreaBundleCached(resolution, areaSource, cache),
   };

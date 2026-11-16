@@ -46,7 +46,13 @@ import {
   type TribunalFacts,
 } from "../lib/area-bundle";
 import { buildCrimeBundle, type CrimeDataSource, type FiledCrimeAnswer } from "../lib/crime";
-import { buildFloodBundle, type FloodDataSource, type FloodLayerFacts } from "../lib/flood";
+import {
+  buildFloodBundle,
+  type FloodDataSource,
+  type FloodLayerFacts,
+  type FloodWarningItem,
+} from "../lib/flood";
+import { LEADON_ITEM, WARNING_NOW } from "./flood-warning-fixtures";
 import {
   buildNearbyBundle,
   type NearbyCategory,
@@ -558,13 +564,25 @@ class CensusFloodSource implements FloodDataSource {
   }
 }
 
+// The M6.22 warning source for the census golden: the
+// captured Leadon alert, composed at serve time, so the
+// walk and direction one cover the live-warnings block.
+class CensusWarningSource {
+  async warningsNear(): Promise<FloodWarningItem[]> {
+    return [LEADON_ITEM];
+  }
+}
+
 async function goldenBundles() {
   const nearby = await buildNearbyBundle(HOME, new CensusNearbySource());
   const soldPrices = await buildSoldPricesBundle(HOME, new CensusSoldSource());
   const crime = await buildCrimeBundle(HOME, new CensusCrimeSource(), {
     now: new Date("2026-11-15T00:00:00.000Z"),
   });
-  const flood = await buildFloodBundle(HOME, new CensusFloodSource());
+  const flood = await buildFloodBundle(HOME, new CensusFloodSource(), {
+    warningSource: new CensusWarningSource(),
+    now: WARNING_NOW,
+  });
   const area = await buildAreaBundle(HOME, new CensusAreaSource());
   const areaWithCompany = await buildAreaBundle(HOME, new CensusAreaSource(), {
     companyOwnershipEnabled: true,
@@ -589,13 +607,13 @@ type Golden = Awaited<ReturnType<typeof goldenBundles>>;
 // ------------------------------------------------------------------
 
 describe("explainer census — the register", () => {
-  it("enumerates the census: 75 families (71 to M6.20, rows 72–75 added at M6.21), 43 hard, ids unique and stable in row order", () => {
-    expect(EXPLAINER_CENSUS).toHaveLength(75);
+  it("enumerates the census: 78 families (71 to M6.20, rows 72–75 added at M6.21, rows 76–78 at M6.22), 46 hard, ids unique and stable in row order", () => {
+    expect(EXPLAINER_CENSUS).toHaveLength(78);
     expect(EXPLAINER_CENSUS.map((entry) => entry.row)).toEqual(
-      Array.from({ length: 75 }, (_, i) => i + 1),
+      Array.from({ length: 78 }, (_, i) => i + 1),
     );
-    expect(new Set(EXPLAINER_CENSUS.map((entry) => entry.id)).size).toBe(75);
-    expect(EXPLAINER_CENSUS.filter((entry) => entry.hardness === "hard")).toHaveLength(43);
+    expect(new Set(EXPLAINER_CENSUS.map((entry) => entry.id)).size).toBe(78);
+    expect(EXPLAINER_CENSUS.filter((entry) => entry.hardness === "hard")).toHaveLength(46);
     // Every figure-path pattern names census ids that exist.
     const ids = new Set(EXPLAINER_CENSUS.map((entry) => entry.id));
     for (const { censusIds } of FIGURE_PATH_PATTERNS)
@@ -700,6 +718,15 @@ const HARD_LINES: Record<string, (b: Golden) => unknown> = {
     b.short.sections.crime.state === "served" ? b.short.sections.crime.englandLine : null,
   "area.epc.improvements": (b) =>
     b.area.sections.epc.certificates.flatMap((c) => c.improvements?.steps.map((s) => s.line) ?? []),
+  "flood.live-warnings": (b) =>
+    b.flood.kind === "flood" && b.flood.flood.state === "served"
+      ? b.flood.flood.liveWarnings?.warnings.map((w) => w.line)
+      : null,
+  "short.flood-live-warnings": (b) =>
+    b.short.sections.flood.state === "served"
+      ? b.short.sections.flood.liveWarnings?.warnings.map((w) => w.line)
+      : null,
+  "nearby.school-deadlines": (b) => b.nearby.schoolDeadlines?.line,
 };
 
 describe("explainer census — direction one (hard ⇒ line present, both depths)", () => {

@@ -66,7 +66,19 @@ import { createAddressSource, resolveAddressInput, type AddressResolution } from
 import { buildAreaBundle, createAreaSource, type AreaBundle } from "../lib/area-bundle";
 import { buildCrimeBundle, createCrimeSource, type CrimeBundle } from "../lib/crime";
 import { buildFloodBundle, createFloodSource, type FloodBundle } from "../lib/flood";
-import { buildNearbyBundle, createNearbySource, type NearbyBundle } from "../lib/nearby";
+import {
+  SCHOOL_DEADLINES_ENGLAND_LINE,
+  SCHOOL_DEADLINES_WALES_LINE,
+  buildNearbyBundle,
+  createNearbySource,
+  type NearbyBundle,
+} from "../lib/nearby";
+import {
+  BURE_ITEM,
+  LEADON_ITEM,
+  WARNING_NOW,
+  FakeFloodWarningSource,
+} from "./flood-warning-fixtures";
 import { buildShortBundle, type ShortBundle } from "../lib/short-bundle";
 import {
   buildSoldPricesBundle,
@@ -769,6 +781,72 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
       );
       expect(flat4?.improvements?.state).toBe("none-published");
     }
+  });
+
+  it("live flood warnings + school deadlines (M6.22, D42): composition over the real flood source; the deadline line at the regional witnesses", async () => {
+    // The two EA alerts captured live at the step's first
+    // contact, replayed through the fake warning source
+    // against Birkdale's real filed flood layers: the
+    // composition is serve-time only — the stored replay
+    // bundle above carries liveWarnings null.
+    expect(get("birkdale1").flood.kind).toBe("flood");
+    const stored = get("birkdale1").flood;
+    if (stored.kind === "flood" && stored.flood.state === "served")
+      expect(stored.flood.liveWarnings).toBeNull();
+
+    const warnings = new FakeFloodWarningSource();
+    warnings.items = [LEADON_ITEM, BURE_ITEM];
+    const flood = await buildFloodBundle(get("birkdale1").resolution, createFloodSource(pool), {
+      warningSource: warnings,
+      now: WARNING_NOW,
+    });
+    if (flood.kind !== "flood" || flood.flood.state !== "served")
+      throw new Error("expected a served flood bundle");
+    expect(flood.flood.liveWarnings?.state).toBe("warnings");
+    expect(flood.flood.liveWarnings?.warnings.map((w) => w.line)).toEqual([
+      "Flood alert — The tidal Rivers Bure, Ant and Thurne",
+      "Flood alert — River Leadon catchment",
+    ]);
+    expect(flood.flood.liveWarnings?.warnings[1]?.message).toBe(LEADON_ITEM.message);
+    expect(flood.flood.liveWarnings?.checkedAt).toBe("06:54 on 16 November 2026");
+
+    // The derived short carries the headline form — and
+    // nowhere the EA's message text.
+    const short = buildShortBundle({
+      nearby: get("birkdale1").nearby,
+      soldPrices: get("birkdale1").sold,
+      crime: get("birkdale1").crime,
+      flood,
+      area: get("birkdale1").area,
+    });
+    if (short.kind !== "short-bundle") throw new Error("expected a short bundle");
+    expect(short.sections.flood.state).toBe("served");
+    if (short.sections.flood.state === "served") {
+      expect(short.sections.flood.liveWarnings?.warnings).toHaveLength(2);
+      expect(short.sections.flood.liveWarnings?.warnings[0]?.line).toBe(
+        "Flood alert — The tidal Rivers Bure, Ant and Thurne",
+      );
+    }
+    expect(JSON.stringify(short)).not.toContain("impassable");
+
+    // School deadlines at the regional witnesses, from the
+    // stored nearby bundles: England's statutory line,
+    // Wales's council line, nothing for Scotland.
+    const birkdaleNearby = get("birkdale1").nearby;
+    if (birkdaleNearby.kind !== "distances") throw new Error("expected distances");
+    expect(birkdaleNearby.schoolDeadlines).toEqual({
+      state: "england",
+      line: SCHOOL_DEADLINES_ENGLAND_LINE,
+    });
+    const cardiffNearby = get("cardiff2").nearby;
+    if (cardiffNearby.kind !== "distances") throw new Error("expected distances");
+    expect(cardiffNearby.schoolDeadlines).toEqual({
+      state: "wales",
+      line: SCHOOL_DEADLINES_WALES_LINE,
+    });
+    const edinburghNearby = get("edinburgh2").nearby;
+    if (edinburghNearby.kind !== "distances") throw new Error("expected distances");
+    expect(edinburghNearby.schoolDeadlines).toBeNull();
   });
 
   it("short bundle: the universal headlines carry the locked figures", () => {

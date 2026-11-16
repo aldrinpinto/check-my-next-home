@@ -11,6 +11,9 @@ import {
 } from "../lib/address";
 import {
   DISTANCE_BASIS_LABEL,
+  SCHOOL_DEADLINES_ENGLAND_LINE,
+  SCHOOL_DEADLINE_PRIMARY,
+  SCHOOL_DEADLINE_SECONDARY,
   buildNearbyBundle,
   haversineMiles,
   type NearbyBundle,
@@ -1107,5 +1110,36 @@ describe("nearby bundle — ladder rungs (M6.2)", () => {
       kind: "no-location",
       distances: { state: "unavailable", reason: "distances need an exact postcode" },
     });
+  });
+});
+
+describe("nearby bundle — school application deadlines (M6.22, D42)", () => {
+  it("the pinned constants are the School Admissions Code's national closing dates", () => {
+    expect(SCHOOL_DEADLINE_SECONDARY).toBe("31 October");
+    expect(SCHOOL_DEADLINE_PRIMARY).toBe("15 January");
+    expect(SCHOOL_DEADLINES_ENGLAND_LINE).toBe(
+      "School application deadlines in England: 31 October for secondary places and 15 January for primary places — the national closing dates set in the School Admissions Code, for a place the following September. Some schools also ask for a supplementary form, which can have its own deadline.",
+    );
+  });
+
+  it("an England home serves the one national line, at both rungs", async () => {
+    const rung1 = await bundleFor("19 Birkdale Rise, CM3 2JT");
+    if (rung1.kind !== "distances") throw new Error("expected distances");
+    expect(rung1.schoolDeadlines).toEqual({
+      state: "england",
+      line: SCHOOL_DEADLINES_ENGLAND_LINE,
+    });
+    const rung2 = await bundleFor("Birkdale Rise, CM3 2JT");
+    if (rung2.kind !== "distances") throw new Error("expected distances");
+    expect(rung2.schoolDeadlines).toEqual(rung1.schoolDeadlines);
+  });
+
+  it("a postcode whose filed area code does not place it serves nothing — never the English dates by default", async () => {
+    // The Hilgay fixture directory carries no LSOA code:
+    // the nation cannot be read, so no line serves (the
+    // failure direction is always away from serving).
+    const bundle = await bundleFor("CB6 1EH");
+    if (bundle.kind !== "distances") throw new Error("expected distances");
+    expect(bundle.schoolDeadlines).toBeNull();
   });
 });
