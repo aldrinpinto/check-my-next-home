@@ -27,13 +27,23 @@ export function pageMetadata({
     // og:description, og:type and og:url are derived from the
     // SAME per-page title, description and canonical the search
     // metadata carries, so a shared link can never drift from
-    // the search wording. Deliberately NO og:image yet — the
-    // image lands at M7.1 from the brand asset pack.
+    // the search wording. The og:image landed at M7.1: one
+    // composed card for the whole site (the lockup on Cream,
+    // name + tagline — the pairing the social-card rule
+    // requires), served from the canonical host.
     openGraph: {
       title,
       description,
       type: "website",
       url: path,
+      images: [
+        {
+          url: OG_IMAGE_PATH,
+          width: OG_IMAGE_WIDTH,
+          height: OG_IMAGE_HEIGHT,
+          alt: OG_IMAGE_ALT,
+        },
+      ],
     },
     // Play/test environments stay out of search engines (M2.7 — also
     // enforced by the X-Robots-Tag header in public/_headers). Only the
@@ -41,6 +51,24 @@ export function pageMetadata({
     robots: isProductionEnv() ? undefined : { index: false, follow: false },
   };
 }
+
+// The Open Graph card (M7.1): composed from the brand pack as
+// a static 1200x630 asset — the Roof-Tick lockup on Cream with
+// the name and the D12 tagline, so a shared link shows the
+// brand pairing, never a bare square avatar platforms would
+// crop. The PNG itself is carried as public/og-image.png.b64
+// and materialised at build time (scripts/
+// materialise-binary-assets.mjs).
+export const OG_IMAGE_PATH = "/og-image.png";
+export const OG_IMAGE_WIDTH = 1200;
+export const OG_IMAGE_HEIGHT = 630;
+export const OG_IMAGE_ALT = `${SITE_NAME} — ${SITE_TAGLINE}`;
+
+// The served brand mark: the master SVG under public/brand/.
+// Structured data names it by its canonical-host URL, so the
+// schema and the header always point at one location.
+export const LOGO_PATH = "/brand/logo-mark.svg";
+export const LOGO_URL = `${SITE_URL}${LOGO_PATH}`;
 
 // M6.10 (decision D38) — the locked SEO wording set: every public
 // page's title and meta description, fixed here as constants, ONE
@@ -190,13 +218,16 @@ export const HOME_PAGE_SEO = PAGE_SEO["/"];
 
 // Structured data, sitewide (card D: "Structured data only where
 // honest"). Organization + WebSite only, and only facts that are true
-// today: no logo (not finalised), no search action (no live site search
-// to point at yet). Rendered by app/JsonLd.tsx.
+// today: no search action (no live site search to point at yet). The
+// logo joined at M7.1, when the brand pack was applied — M2.11
+// shipped without one because the logo was not final then.
+// Rendered by app/JsonLd.tsx.
 export const ORGANIZATION_SCHEMA = {
   "@context": "https://schema.org",
   "@type": "Organization",
   name: SITE_NAME,
   url: `${SITE_URL}/`,
+  logo: LOGO_URL,
 } as const;
 
 export const WEBSITE_SCHEMA = {

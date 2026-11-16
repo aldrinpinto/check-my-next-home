@@ -61,9 +61,21 @@ describe("metadata helper (M2.11)", () => {
     });
   });
 
-  it("carries no og:image yet — the image lands at M7.1 from the brand pack", () => {
+  it("carries the og:image composed at M7.1 from the brand pack", () => {
+    // Until M7.1 this pin held the images field undefined —
+    // the image had not landed. The pin change IS the record
+    // that it has: one composed card (lockup on Cream, name +
+    // tagline), at the pinned dimensions, resolved against the
+    // canonical host at render.
     const meta = pageMetadata({ title: "T", description: "d", path: "/" });
-    expect(meta.openGraph?.images).toBeUndefined();
+    expect(meta.openGraph?.images).toEqual([
+      {
+        url: "/og-image.png",
+        width: 1200,
+        height: 630,
+        alt: "Check My Next Home — Check the house. Choose the home.",
+      },
+    ]);
   });
 });
 
@@ -121,10 +133,12 @@ describe("structured data (M2.11)", () => {
 
   it("adds nothing the honesty rule forbids (M6.10, D38)", () => {
     // No SearchAction (no live site search to point at), no
-    // logo until M7.1 applies the brand pack, no ratings
-    // schema of any kind, ever.
+    // ratings schema of any kind, ever. The logo was the one
+    // absence M7.1 was due to close, and it is closed with
+    // exactly the served mark's canonical URL — nothing else
+    // the rule forbids has joined it.
     expect("potentialAction" in WEBSITE_SCHEMA).toBe(false);
-    expect("logo" in ORGANIZATION_SCHEMA).toBe(false);
+    expect(ORGANIZATION_SCHEMA.logo).toBe(`${SITE_URL}/brand/logo-mark.svg`);
     expect(JSON.stringify([ORGANIZATION_SCHEMA, WEBSITE_SCHEMA])).not.toMatch(
       /AggregateRating|Review|SearchAction/i,
     );

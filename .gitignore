@@ -34,5 +34,17 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# Binary site assets (M7.1) — materialised from their committed
+# .b64 sources by scripts/materialise-binary-assets.mjs on every
+# build/dev run; only the .b64 text is ever committed.
+/app/favicon.ico
+/app/icon.png
+/app/apple-icon.png
+/public/og-image.png
+
+# Playwright (M7.1) — run artefacts, never committed
+/test-results/
+/playwright-report/
+
 # Loader runner fallback record (M4.8) — a local safety net, never committed
 loader-runs-fallback.jsonl

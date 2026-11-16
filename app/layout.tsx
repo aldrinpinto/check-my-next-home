@@ -3,6 +3,8 @@ import "./globals.css";
 import { TEST_BANNER_TEXT, showTestBanner } from "../lib/site";
 import { HOME_PAGE_SEO, pageMetadata } from "../lib/seo";
 import JsonLd from "./JsonLd";
+import SiteHeader from "../components/SiteHeader";
+import SiteFooter from "../components/SiteFooter";
 
 // M2.11: page metadata comes from the SEO helper — every page gets its
 // own title, description and canonical URL. The helper keeps play/test
@@ -36,7 +38,9 @@ export default function RootLayout({
             {TEST_BANNER_TEXT}
           </div>
         )}
+        <SiteHeader />
         {children}
+        <SiteFooter />
         <JsonLd />
       </body>
     </html>

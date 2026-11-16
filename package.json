@@ -2,8 +2,11 @@
   "name": "check-my-next-home",
   "private": true,
   "scripts": {
+    "prebuild": "node scripts/materialise-binary-assets.mjs",
     "build": "next build",
+    "predev": "node scripts/materialise-binary-assets.mjs",
     "dev": "next dev",
+    "test:e2e": "playwright test",
     "format": "prettier --write .",
     "lint": "eslint .",
     "start": "next start",
@@ -70,6 +73,7 @@
     "yauzl": "^3.4.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.1",
     "@types/node": "^26.6.6",
     "@types/pg": "^8.20.0",
     "@types/react": "^19.3.0",

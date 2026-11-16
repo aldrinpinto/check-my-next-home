@@ -1,3 +1,103 @@
+/* Check My Next Home — the look & feel kit (plan step M7.1).
+ *
+ * One stylesheet for the whole product: the website now, the
+ * paid report at M8 later. Plain CSS custom properties and
+ * classes — no framework — so the report can carry the same kit.
+ * Every later step builds from these blocks and tokens; a block
+ * or value a page needs that is not here is added HERE, once,
+ * never invented inside a page.
+ *
+ * Colour roles follow the brand sheet's table (docs/brand.md):
+ * Forest is headings and buttons; Deep forest is dark surfaces
+ * and the footer; Brass is the tick, rules and highlights;
+ * Brass pale is brass on dark; Cream is the light background.
+ * Ink #17201E is the text colour (named in the Final Design
+ * record; R1 of the pre-M7 sweep carried it into M7.1's text so
+ * the kit never invents a grey). There is no dark mode in V1
+ * (D44) — this kit is light mode only, and no
+ * prefers-color-scheme block may ever be added here.
+ *
+ * Breakpoints (CSS custom properties cannot drive media
+ * queries in plain CSS, so the values are pinned here and used
+ * literally below):
+ *   small   — max-width: 30rem (480px): stacked forms, among
+ *             them the table's stacked-row form; covers the
+ *             360px phone width the checks assert at.
+ *   desktop — min-width: 48rem (768px): the header's full row
+ *             layout and inline navigation.
+ */
+
+:root {
+  /* Brand colours — Theme 2, Forest + Brass (docs/brand.md),
+     plus Ink, the text colour. */
+  --cmnh-forest: #2f5d3e;
+  --cmnh-forest-deep: #1e402c;
+  --cmnh-brass: #c29a3b;
+  --cmnh-brass-pale: #e4cf9a;
+  --cmnh-cream: #fdf8e8;
+  --cmnh-ink: #17201e;
+  --cmnh-white: #ffffff;
+
+  /* Functional colours — NOT brand colours, in the same way
+     the TEST strip's amber is deliberately not one (see the
+     banner below). Success needs no new colour: Forest carries
+     it. Error has no brand carrier, so it is pinned here, once. */
+  --cmnh-error: #b3261e;
+
+  /* Colour roles. */
+  --colour-heading: var(--cmnh-forest);
+  --colour-text: var(--cmnh-ink);
+  --colour-background: var(--cmnh-white);
+  --colour-surface: var(--cmnh-cream);
+  --colour-dark-surface: var(--cmnh-forest-deep);
+  --colour-on-dark: var(--cmnh-cream);
+  --colour-accent-on-dark: var(--cmnh-brass-pale);
+  --colour-error: var(--cmnh-error);
+  --colour-success: var(--cmnh-forest);
+
+  /* Type — the system stack: no download against the
+     performance budget, no licence. Sizes are a fixed scale,
+     pinned here so no page picks its own. */
+  --font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-size-caption: 0.8125rem;
+  --font-size-small: 0.875rem;
+  --font-size-body: 1rem;
+  --font-size-lead: 1.125rem;
+  --font-size-h3: 1.25rem;
+  --font-size-h2: 1.5rem;
+  --font-size-h1: 2rem;
+  --line-height-body: 1.5;
+  --line-height-heading: 1.2;
+
+  /* Spacing — one scale, used for every margin, padding and
+     gap in the kit. */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-7: 2rem;
+  --space-8: 3rem;
+  --space-9: 4rem;
+
+  /* Containers — the reading column the skeleton already used,
+     and the wide measure results and tables need. */
+  --container-reading: 44rem;
+  --container-wide: 72rem;
+
+  /* Interaction. The minimum tap target is 44px (2.75rem).
+     The focus style is ONE pinned style — a 3px solid outline
+     with a 2px offset — whose colour token swaps by surface:
+     Forest on light surfaces, Brass pale on dark ones. Its
+     contrast is verified in the build and recorded in
+     docs/frontend-m7.1.md. */
+  --tap-target: 2.75rem;
+  --focus-colour: var(--cmnh-forest);
+  --focus-colour-on-dark: var(--cmnh-brass-pale);
+  --radius: 0.5rem;
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -5,32 +105,85 @@
 }
 
 body {
-  font-family:
-    system-ui,
-    -apple-system,
-    "Segoe UI",
-    Roboto,
-    Helvetica,
-    Arial,
-    sans-serif;
-  line-height: 1.5;
-  color: #1a1a1a;
-  background: #ffffff;
+  font-family: var(--font-family);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+  color: var(--colour-text);
+  background: var(--colour-background);
 }
 
 main {
-  max-width: 44rem;
+  max-width: var(--container-reading);
   margin: 0 auto;
-  padding: 4rem 1.25rem;
+  padding: var(--space-7) var(--space-4);
+}
+
+.main--wide {
+  max-width: var(--container-wide);
+}
+
+h1,
+h2,
+h3 {
+  color: var(--colour-heading);
+  line-height: var(--line-height-heading);
 }
 
 h1 {
-  font-size: 2rem;
-  margin-bottom: 1rem;
+  font-size: var(--font-size-h1);
+  margin-bottom: var(--space-4);
+}
+
+h2 {
+  font-size: var(--font-size-h2);
+  margin-bottom: var(--space-3);
+}
+
+h3 {
+  font-size: var(--font-size-h3);
+  margin-bottom: var(--space-3);
 }
 
 p {
-  margin-bottom: 0.75rem;
+  margin-bottom: var(--space-3);
+}
+
+/* The one pinned focus style (D44 accessibility standards).
+   Every interactive block inherits it; no block restyles it. */
+:focus-visible {
+  outline: 3px solid var(--focus-colour);
+  outline-offset: 2px;
+}
+
+.site-footer :focus-visible {
+  outline-color: var(--focus-colour-on-dark);
+}
+
+/* D44: prefers-reduced-motion disables all non-essential
+   animation. The kit itself carries no decorative motion —
+   state changes only — and this block pins the standard for
+   anything later steps add. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* M2.8 — TEST banner strip (play site only; hidden when the environment
@@ -43,4 +196,510 @@ p {
   font-weight: 700;
   letter-spacing: 0.08em;
   padding: 0.5rem 1rem;
+}
+
+/* --- Header shell -------------------------------------------------
+   White header (brand decision): the Roof-Tick mark plus the
+   name and tagline as LIVE TEXT from lib/site.ts — never a
+   baked lockup image, so the wording can never drift from the
+   one source (the drift this guards against is recorded in
+   lib/site.ts). The tagline sits small in Brass beneath the
+   name (the header/hero Option 1 lockup, carried by M7.2);
+   the lockup is the brand's logotype. The manifesto is never
+   in the header (D12). */
+.site-header {
+  background: var(--cmnh-white);
+  border-bottom: 3px solid var(--cmnh-brass);
+}
+
+.site-header__inner {
+  max-width: var(--container-wide);
+  margin: 0 auto;
+  padding: var(--space-3) var(--space-4);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-6);
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  text-decoration: none;
+  color: var(--colour-text);
+}
+
+.brand__mark {
+  height: var(--tap-target);
+  width: auto;
+  display: block;
+}
+
+.brand__name {
+  display: block;
+  font-size: var(--font-size-lead);
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--cmnh-forest);
+}
+
+.brand__tagline {
+  display: block;
+  font-size: var(--font-size-small);
+  line-height: 1.2;
+  color: var(--cmnh-brass);
+}
+
+.site-nav {
+  margin-left: auto;
+}
+
+.site-nav__list {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-5);
+}
+
+.site-nav__link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-target);
+  padding: var(--space-2) var(--space-1);
+  color: var(--colour-text);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.site-nav__link:hover {
+  color: var(--cmnh-forest);
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+}
+
+/* The Shortlist count badge. The styling is defined now; the
+   count itself arrives at M7.5 with the shortlist. */
+.shortlist-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5rem;
+  height: 1.5rem;
+  margin-left: var(--space-2);
+  padding: 0 var(--space-2);
+  border-radius: 999px;
+  background: var(--cmnh-forest);
+  color: var(--cmnh-cream);
+  font-size: var(--font-size-caption);
+  font-weight: 700;
+}
+
+/* --- Footer shell -------------------------------------------------
+   Deep Forest, the reversed mark, the name and tagline as live
+   text. The link list fills in as pages land. */
+.site-footer {
+  background: var(--colour-dark-surface);
+  color: var(--colour-on-dark);
+  margin-top: var(--space-9);
+}
+
+.site-footer__inner {
+  max-width: var(--container-wide);
+  margin: 0 auto;
+  padding: var(--space-7) var(--space-4);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-5) var(--space-7);
+}
+
+.site-footer .brand {
+  color: var(--colour-on-dark);
+}
+
+.site-footer .brand__name {
+  color: var(--colour-on-dark);
+}
+
+.site-footer .brand__tagline {
+  color: var(--colour-accent-on-dark);
+}
+
+.site-footer__nav {
+  margin-left: auto;
+}
+
+.site-footer__list {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-5);
+}
+
+.site-footer__link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-target);
+  padding: var(--space-2) var(--space-1);
+  color: var(--colour-on-dark);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.site-footer__link:hover {
+  color: var(--colour-accent-on-dark);
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+}
+
+/* --- Buttons ------------------------------------------------------ */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--tap-target);
+  padding: var(--space-2) var(--space-5);
+  font: inherit;
+  font-weight: 600;
+  border: 2px solid transparent;
+  border-radius: var(--radius);
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.btn--primary {
+  background: var(--cmnh-forest);
+  color: var(--cmnh-white);
+}
+
+.btn--primary:hover {
+  background: var(--cmnh-forest-deep);
+}
+
+.btn--quiet {
+  background: transparent;
+  color: var(--cmnh-forest);
+  border-color: var(--cmnh-forest);
+}
+
+.btn--quiet:hover {
+  background: var(--cmnh-cream);
+}
+
+.btn[disabled],
+.btn[aria-disabled="true"] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.btn--primary[disabled]:hover,
+.btn--primary[aria-disabled="true"]:hover {
+  background: var(--cmnh-forest);
+}
+
+.btn--quiet[disabled]:hover,
+.btn--quiet[aria-disabled="true"]:hover {
+  background: transparent;
+}
+
+/* --- Links -------------------------------------------------------- */
+a {
+  color: var(--cmnh-forest);
+}
+
+a:hover {
+  color: var(--cmnh-forest-deep);
+  text-decoration-thickness: 2px;
+}
+
+/* --- Form fields ----------------------------------------------------
+   One text-input block: label, input, and the inline hint,
+   error and success messages the forms (search, calculators,
+   the claim page) all share. Error and success are carried by
+   wording and weight as well as colour — never colour alone. */
+.field {
+  margin-bottom: var(--space-5);
+}
+
+.field__label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: var(--space-2);
+}
+
+.field__hint {
+  font-size: var(--font-size-small);
+  margin-bottom: var(--space-2);
+}
+
+.field__input {
+  display: block;
+  width: 100%;
+  min-height: var(--tap-target);
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+  color: var(--colour-text);
+  background: var(--cmnh-white);
+  border: 2px solid var(--cmnh-ink);
+  border-radius: var(--radius);
+}
+
+.field__input[aria-invalid="true"] {
+  border-color: var(--colour-error);
+}
+
+.field__input[disabled] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.field__message {
+  font-size: var(--font-size-small);
+  margin-top: var(--space-2);
+  margin-bottom: 0;
+}
+
+.field__message--error {
+  color: var(--colour-error);
+  font-weight: 600;
+}
+
+.field__message--success {
+  color: var(--colour-success);
+  font-weight: 600;
+}
+
+/* --- Cards -------------------------------------------------------- */
+.card {
+  background: var(--colour-surface);
+  border: 1px solid var(--cmnh-brass-pale);
+  border-radius: var(--radius);
+  padding: var(--space-5);
+  margin-bottom: var(--space-5);
+}
+
+.card__title {
+  font-size: var(--font-size-h3);
+  margin-bottom: var(--space-3);
+}
+
+.card > :last-child {
+  margin-bottom: 0;
+}
+
+/* --- Pills ----------------------------------------------------------
+   One family, two variants. The distance pill carries colour
+   on the miles figure only — the rest of the pill is neutral.
+   The fact pill carries no colour at all: it is the summary
+   strip's pill (M7.4), logic-filled fact text. */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--cmnh-ink);
+  border-radius: 999px;
+  background: var(--cmnh-white);
+  font-size: var(--font-size-small);
+}
+
+.pill__figure {
+  color: var(--cmnh-forest);
+  font-weight: 700;
+}
+
+.pill--fact {
+  background: var(--colour-surface);
+}
+
+/* --- Tabs -----------------------------------------------------------
+   The standard tab pattern (D44): arrow keys move between
+   tabs, Home and End jump, activation is automatic. The
+   behaviour lives in components/Tabs.tsx; these are its
+   styles. */
+.tabs__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  border-bottom: 2px solid var(--cmnh-brass-pale);
+}
+
+.tabs__tab {
+  appearance: none;
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -2px;
+  min-height: var(--tap-target);
+  padding: var(--space-3) var(--space-4);
+  font: inherit;
+  font-weight: 600;
+  color: var(--colour-text);
+  cursor: pointer;
+}
+
+.tabs__tab:hover {
+  background: var(--cmnh-cream);
+}
+
+.tabs__tab[aria-selected="true"] {
+  color: var(--cmnh-forest);
+  border-bottom-color: var(--cmnh-forest);
+}
+
+.tabs__panel {
+  padding: var(--space-5) 0;
+}
+
+/* --- Tables ---------------------------------------------------------
+   The results table. Below the small breakpoint it takes its
+   stacked-row form: each row a block, each cell a labelled
+   line (the label comes from the cell's data-label). */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: var(--space-5);
+}
+
+.table caption {
+  text-align: left;
+  font-weight: 600;
+  color: var(--colour-heading);
+  margin-bottom: var(--space-3);
+}
+
+.table th {
+  text-align: left;
+  color: var(--colour-heading);
+  border-bottom: 2px solid var(--cmnh-brass);
+  padding: var(--space-2) var(--space-3);
+}
+
+.table td {
+  border-bottom: 1px solid var(--cmnh-brass-pale);
+  padding: var(--space-2) var(--space-3);
+  vertical-align: top;
+}
+
+@media (max-width: 30rem) {
+  .table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .table tr {
+    display: block;
+    padding: var(--space-3) 0;
+    border-bottom: 2px solid var(--cmnh-brass-pale);
+  }
+
+  .table td {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-4);
+    border-bottom: none;
+    padding: var(--space-1) 0;
+  }
+
+  .table td::before {
+    content: attr(data-label);
+    font-weight: 600;
+    color: var(--colour-heading);
+  }
+}
+
+/* --- Notices --------------------------------------------------------
+   One notice block for the lines that travel with the facts:
+   a warning (the flood warning renders first, M7.4), a stale
+   line, and a named-gap line. The label is wording, not just
+   colour. */
+.notice {
+  border-left: 4px solid var(--cmnh-ink);
+  background: var(--cmnh-white);
+  padding: var(--space-4);
+  margin-bottom: var(--space-5);
+}
+
+.notice__label {
+  display: block;
+  font-weight: 700;
+  margin-bottom: var(--space-1);
+}
+
+.notice > :last-child {
+  margin-bottom: 0;
+}
+
+.notice--warning {
+  border-left-color: var(--cmnh-brass);
+  background: var(--colour-surface);
+}
+
+.notice--stale {
+  border-left-color: var(--cmnh-ink);
+  background: var(--cmnh-white);
+}
+
+.notice--gap {
+  border-left-color: var(--cmnh-forest-deep);
+  background: var(--colour-surface);
+}
+
+/* --- Captions and source lines ------------------------------------- */
+.caption,
+.source-line {
+  font-size: var(--font-size-small);
+}
+
+.source-line {
+  margin-bottom: var(--space-3);
+}
+
+/* --- Kitchen-sink helpers -------------------------------------------
+   The gallery page's own furniture (swatches, specimens). The
+   page itself is environment-gated and never ships to the real
+   site (app/kitchen-sink/page.tsx). */
+.swatch-grid {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
+  gap: var(--space-4);
+  margin-bottom: var(--space-5);
+}
+
+.swatch {
+  border: 1px solid var(--cmnh-brass-pale);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.swatch__chip {
+  height: var(--space-8);
+}
+
+.swatch__label {
+  display: block;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-small);
+}
+
+.kit-section {
+  margin-bottom: var(--space-8);
+}
+
+.type-lead {
+  font-size: var(--font-size-lead);
+}
+
+.type-small {
+  font-size: var(--font-size-small);
+}
+
+.type-caption {
+  font-size: var(--font-size-caption);
 }
