@@ -74,17 +74,99 @@
         "nearestSelectiveLine": "null",
         "places": [
           {
+            "destinations": {
+              "ks4": {
+                "apprenticeships": {
+                  "low": "boolean",
+                  "value": "number"
+                },
+                "cohortCount": "number",
+                "cohortLine": "string",
+                "cohortYear": "string",
+                "education": {
+                  "low": "boolean",
+                  "value": "number"
+                },
+                "employment": {
+                  "low": "boolean",
+                  "value": "number"
+                },
+                "higherEducation": "null",
+                "overall": {
+                  "low": "boolean",
+                  "value": "number"
+                },
+                "state": "string",
+                "sustainedLine": "string"
+              },
+              "ks5": "null"
+            },
+            "detail": "string",
+            "miles": "number",
+            "name": "string",
+            "sixthForm": "null",
+            "urn": "string"
+          },
+          {
+            "destinations": {
+              "ks4": {
+                "apprenticeships": {
+                  "low": "boolean",
+                  "value": "number"
+                },
+                "cohortCount": "number",
+                "cohortLine": "string",
+                "cohortYear": "string",
+                "education": {
+                  "low": "boolean",
+                  "value": "number"
+                },
+                "employment": {
+                  "low": "boolean",
+                  "value": "number"
+                },
+                "higherEducation": "null",
+                "overall": {
+                  "low": "boolean",
+                  "value": "number"
+                },
+                "state": "string",
+                "sustainedLine": "string"
+              },
+              "ks5": {
+                "apprenticeships": {
+                  "low": "boolean",
+                  "value": "number"
+                },
+                "cohortCount": "number",
+                "cohortLine": "string",
+                "cohortYear": "string",
+                "education": {
+                  "low": "boolean",
+                  "value": "number"
+                },
+                "employment": {
+                  "low": "boolean",
+                  "value": "number"
+                },
+                "higherEducation": {
+                  "low": "boolean",
+                  "value": "number"
+                },
+                "overall": {
+                  "low": "boolean",
+                  "value": "number"
+                },
+                "state": "string",
+                "sustainedLine": "string"
+              }
+            },
             "detail": "null",
             "miles": "number",
             "name": "string",
             "selective": "boolean",
-            "sixthForm": "boolean"
-          },
-          {
-            "detail": "string",
-            "miles": "number",
-            "name": "string",
-            "sixthForm": "null"
+            "sixthForm": "boolean",
+            "urn": "string"
           }
         ],
         "state": "string"

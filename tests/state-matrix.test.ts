@@ -141,6 +141,7 @@ import {
   SCHOOL_DEADLINES_ENGLAND_LINE,
   SCHOOL_DEADLINES_WALES_LINE,
   buildNearbyBundle,
+  type DestinationsReleaseFacts,
   type IndustrialSitesFacts,
   type NearbyCategory,
   type NearbyDataSource,
@@ -411,6 +412,19 @@ class MatrixNearbySource implements NearbyDataSource {
   };
   async industrialSiteFacts() {
     return this.industrialFacts;
+  }
+  // The destinations release facts (M6.34): a settable
+  // field in the class's own idiom — the default files
+  // the release, so the matrix's secondary places compose
+  // their stages against it; the destinations suite owns
+  // the block's own states.
+  destinationsFacts: DestinationsReleaseFacts = {
+    filedCount: 7291,
+    ks4: { cohortYear: "2023/24", sourceDate: "2026-10-15" },
+    ks5: { cohortYear: "2023/24", sourceDate: "2026-10-15" },
+  };
+  async destinationsRelease() {
+    return this.destinationsFacts;
   }
 }
 

@@ -1053,6 +1053,164 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
     expect(Math.abs((cityCat.beyondNearest?.miles ?? 0) - 2.088)).toBeLessThan(0.005);
   });
 
+  it("school destinations (M6.34, D51/D65): both stages served on the core three through the real source; 16-plus rows filed but never served", async () => {
+    // The destinations filing is the runner's fixture pass
+    // over the cut-down real release files (the loader's
+    // own goldens, tests/load-school-destinations.test
+    // .ts); the shares below are the release's filed
+    // values for the 2023/24 cohort, read off the files at
+    // the step's first checks.
+    const category = (tag: string, key: string) => {
+      const n = get(tag).nearby;
+      if (n.kind !== "distances") throw new Error("expected distances");
+      const found = n.categories.find((c) => c.category === key);
+      if (!found) throw new Error(`category ${key} missing at ${tag}`);
+      return found;
+    };
+    const served = (tag: string, name: string): { ks4: unknown; ks5: unknown; urn?: string } => {
+      const secondary = category(tag, "schools-secondary");
+      const place = secondary.places.find((p) => p.name === name);
+      if (!place?.destinations) throw new Error(`no destinations for ${name} at ${tag}`);
+      return place as never;
+    };
+    const shares = (stage: unknown) => {
+      const s = stage as {
+        state: string;
+        cohortCount?: number;
+        overall?: { value: number | null };
+        education?: { value: number | null };
+        higherEducation?: { value: number | null } | null;
+        apprenticeships?: { value: number | null };
+        employment?: { value: number | null };
+      };
+      return [
+        s.state,
+        s.cohortCount,
+        s.overall?.value,
+        s.education?.value,
+        s.higherEducation?.value ?? null,
+        s.apprenticeships?.value,
+        s.employment?.value,
+      ];
+    };
+
+    // Birkdale: the one secondary's KS4 block, exact; no
+    // KS5 block (the marker is false).
+    const maltings = served("birkdale1", "Lift Maltings");
+    expect(maltings.urn).toBe("135653");
+    expect(shares(maltings.ks4)).toEqual(["served", 171, 84.8, 72.5, null, 5.3, 7.0]);
+    expect(maltings.ks5).toBeNull();
+
+    // Exeter: all three secondaries' KS4 blocks, exact;
+    // no KS5 blocks (all three markers false).
+    expect(shares(served("exeter1", "Rokeby School").ks4)).toEqual([
+      "served",
+      146,
+      90.4,
+      90.4,
+      null,
+      1.4,
+      2.7,
+    ]);
+    expect(shares(served("exeter1", "Royal Docks Academy").ks4)).toEqual([
+      "served",
+      168,
+      82.1,
+      81.5,
+      null,
+      0.6,
+      8.3,
+    ]);
+    expect(shares(served("exeter1", "Cumberland Community School").ks4)).toEqual([
+      "served",
+      297,
+      88.6,
+      88.2,
+      null,
+      0.7,
+      4.7,
+    ]);
+    for (const name of ["Rokeby School", "Royal Docks Academy", "Cumberland Community School"])
+      expect(served("exeter1", name).ks5).toBeNull();
+
+    // Minerva: both stages on all three sixth-form
+    // secondaries, exact — including the KS5 HE shares.
+    expect(shares(served("minerva1", "Glyn School").ks4)).toEqual([
+      "served",
+      251,
+      96.4,
+      88.0,
+      null,
+      7.2,
+      1.2,
+    ]);
+    expect(shares(served("minerva1", "Glyn School").ks5)).toEqual([
+      "served",
+      253,
+      87.4,
+      63.2,
+      61.7,
+      4.0,
+      20.2,
+    ]);
+    expect(shares(served("minerva1", "Blenheim High School").ks4)).toEqual([
+      "served",
+      205,
+      95.6,
+      93.7,
+      null,
+      1.5,
+      0.5,
+    ]);
+    expect(shares(served("minerva1", "Blenheim High School").ks5)).toEqual([
+      "served",
+      93,
+      81.7,
+      57.0,
+      53.8,
+      2.2,
+      22.6,
+    ]);
+    expect(shares(served("minerva1", "Nonsuch High School for Girls").ks4)).toEqual([
+      "served",
+      209,
+      97.1,
+      95.2,
+      null,
+      0.0,
+      1.9,
+    ]);
+    expect(shares(served("minerva1", "Nonsuch High School for Girls").ks5)).toEqual([
+      "served",
+      230,
+      92.2,
+      83.5,
+      82.6,
+      2.2,
+      6.5,
+    ]);
+
+    // Every served secondary place at every golden home
+    // carries the destinations key (the M6.34 contract).
+    for (const tag of Object.keys(HOMES)) {
+      const n = get(tag).nearby;
+      if (n.kind !== "distances") continue;
+      const secondary = n.categories.find((c) => c.category === "schools-secondary");
+      for (const place of secondary?.places ?? []) expect(place).toHaveProperty("destinations");
+    }
+
+    // Minerva's sixth-forms place is NESCOT: its KS5 row
+    // is in the filing (cohort 953, 70.4% overall — the
+    // loader suite's golden), but ruling 5 keeps 16-plus
+    // providers out of serving: the place carries
+    // neither a destinations block nor a URN.
+    const sixthForms = category("minerva1", "sixth-forms");
+    const nescot = sixthForms.places.find((p) => p.name.includes("Surrey College"));
+    if (!nescot) throw new Error("expected NESCOT among Minerva's sixth-forms places");
+    expect(nescot).not.toHaveProperty("destinations");
+    expect(nescot).not.toHaveProperty("urn");
+  });
+
   it("live flood warnings + school deadlines (M6.22, D42): composition over the real flood source; the deadline line at the regional witnesses", async () => {
     // The two EA alerts captured live at the step's first
     // contact, replayed through the fake warning source

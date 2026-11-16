@@ -123,6 +123,11 @@ export const LOADER_SCHEDULE = [
   // when a run fails. The canary (ea-pollution-inventory)
   // is what hears about the next vintage first.
   { item: "load-pollution-inventory", cadence: "static", timeoutMinutes: 30 },
+  // School destinations publish each October with a
+  // spring revision: quarterly catches both, and the
+  // loader no-ops while the release edition stands
+  // (plan step M6.34, decision D65).
+  { item: "load-school-destinations", cadence: "quarterly", timeoutMinutes: 30 },
   { item: "load-pvgis", cadence: "static", timeoutMinutes: 30 },
   { item: "load-noise", cadence: "operator" },
   { item: "load-broadband", cadence: "static", timeoutMinutes: 30 },
@@ -313,6 +318,7 @@ export const FRIENDLY_NAMES = {
   "load-crime-national": "Crime — England totals for the per-head comparison",
   "load-epc": "Energy certificates (EPC)",
   "load-schools": "Schools",
+  "load-school-destinations": "School destinations — DfE leavers' destinations",
   "load-health": "Health — GPs, pharmacies, dentists, hospitals",
   "load-nurseries": "Nurseries — Ofsted childcare register, group settings only",
   "load-planning-areas": "Planning areas — conservation areas and Article 4",
@@ -392,6 +398,7 @@ export const FRIENDLY_NAMES = {
   "govuk-caz": "Clean Air Zone register — GOV.UK's published list (canary)",
   "scotland-lez": "Low Emission Zone register — Scotland's published count (canary)",
   "ea-pollution-inventory": "Industrial sites source (canary)",
+  "ees-destinations": "School destinations source (canary)",
   "defra-noise": "Noise source (canary)",
   "ofcom-broadband": "Broadband source (canary)",
   "ofcom-mobile": "Mobile source (canary)",
@@ -558,6 +565,12 @@ function shortDetail(item) {
     case "load-pollution-inventory": {
       const filed = pick(/([\d,]+) sites filed/);
       return filed ? `${filed} industrial sites filed` : "updated";
+    }
+    case "load-school-destinations": {
+      if (line.includes("edition unchanged")) return "already on the current release";
+      const ks4 = pick(/KS4 ([\d,]+) institutions/);
+      const ks5 = pick(/KS5 ([\d,]+) institutions/);
+      return ks4 && ks5 ? `${ks4} key stage 4 and ${ks5} 16-19 destination rows filed` : "updated";
     }
     default:
       return "updated";
@@ -888,6 +901,7 @@ async function main() {
       await runAndLog("load-imd", ["--file", fx("imd")]);
       await runAndLog("load-air-quality", ["--file", fx("air")]);
       await runAndLog("load-pollution-inventory", ["--file", fx("pollution-inventory")]);
+      await runAndLog("load-school-destinations", ["--file", fx("school-destinations")]);
       await runAndLog("load-pvgis", ["--file", fx("pvgis")]);
       await runAndLog("load-noise", ["--file", fx("noise")]);
       await runAndLog("load-broadband", ["--file", fx("broadband")]);

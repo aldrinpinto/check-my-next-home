@@ -48,6 +48,7 @@
     "load:imd": "node loaders/load-imd.mjs",
     "load:air-quality": "node loaders/load-air-quality.mjs",
     "load:pollution-inventory": "node loaders/load-pollution-inventory.mjs",
+    "load:school-destinations": "node loaders/load-school-destinations.mjs",
     "load:pvgis": "node loaders/load-pvgis.mjs",
     "load:noise": "node loaders/load-noise.mjs",
     "load:broadband": "node loaders/load-broadband.mjs",

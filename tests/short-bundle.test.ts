@@ -1063,6 +1063,16 @@ class FakeNearbySource implements NearbyDataSource {
       sites: [],
     };
   }
+  // The destinations release (M6.34): filed — the short
+  // derivation never reads the places' blocks either; the
+  // identity proof lives in the destinations suite.
+  async destinationsRelease() {
+    return {
+      filedCount: 7291,
+      ks4: { cohortYear: "2023/24", sourceDate: "2026-10-15" },
+      ks5: { cohortYear: "2023/24", sourceDate: "2026-10-15" },
+    };
+  }
 }
 
 const nearbySource = new FakeNearbySource();
@@ -2346,6 +2356,45 @@ describe("short bundle — 19 Birkdale Rise, CM3 2JT (rung 1)", () => {
     const short = servedShort(withStep);
     expect(short.sections.nearby.categories.map((c) => c.category)).not.toContain("sixth-forms");
     expect(JSON.stringify(short)).not.toContain("sixthForm");
+  });
+
+  it("nearby: the M6.34 destinations blocks leave the short bundle shape-identical", async () => {
+    // Destinations are report depth only (D65 ruling 4);
+    // the headline derivation reads names and miles only.
+    // The proof is identity, not inspection: the short
+    // bundle derived from the full nearby bundle equals,
+    // field for field, the short bundle derived from the
+    // same bundle with the destinations blocks and the
+    // URNs stripped from its secondary places — as if the
+    // step did not exist.
+    const inputs = await fullBundles(BIRKDALE);
+    if (inputs.nearby.kind !== "distances") throw new Error("expected distances");
+    const secondary = inputs.nearby.categories.find((c) => c.category === "schools-secondary");
+    expect(secondary?.places.some((p) => p.destinations !== undefined)).toBe(true);
+    const withStep = buildShortBundle(inputs);
+    const withoutStep = buildShortBundle({
+      ...inputs,
+      nearby: {
+        ...inputs.nearby,
+        categories: inputs.nearby.categories.map((c) =>
+          c.category === "schools-secondary"
+            ? {
+                ...c,
+                places: c.places.map((place) => {
+                  const stripped = { ...place };
+                  delete (stripped as { destinations?: unknown }).destinations;
+                  delete (stripped as { urn?: unknown }).urn;
+                  return stripped;
+                }),
+              }
+            : c,
+        ),
+      },
+    });
+    expect(withStep).toEqual(withoutStep);
+    const short = servedShort(withStep);
+    expect(JSON.stringify(short)).not.toContain("destinations");
+    expect(JSON.stringify(short)).not.toContain("136534");
   });
 
   it("nearby: the M6.25 CQC ratings leave the short bundle shape-identical", async () => {

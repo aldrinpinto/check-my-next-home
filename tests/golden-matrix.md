@@ -2483,3 +2483,67 @@ beyond the radius.
    `load:schools` moves no runner stamp; the count
    closes the hole, the M6.30 pattern) and the shapeOk
    presence rules for the category and the marker key.
+
+## School destinations (M6.34, decisions D51 and D65)
+
+The destinations outcomes
+below are on the fixture basis: the runner's fixture
+pass files the cut-down real release files (the 2023/24
+cohort, Provisional, published 15 October 2026), and the
+replay asserts through the real source. The national
+goldens stand in the loader suite, measured on the full
+release files at the step's first checks.
+
+1. **Birkdale.** The one served secondary, Lift
+   Maltings (URN 135653 — the release file's name for it
+   is "Maltings Academy"; the URN is the join), carries
+   its KS4 block exact: cohort 171, 84.8% overall
+   sustained, 72.5% education, 5.3% apprenticeships,
+   7.0% employment. No KS5 block — the school's
+   sixth-form marker is false.
+2. **Exeter.** All three served secondaries carry KS4
+   blocks exact (Rokeby: 146 leavers, 90.4 / 90.4 / 1.4
+   / 2.7; Royal Docks Academy: 168, 82.1 / 81.5 / 0.6 /
+   8.3; Cumberland Community School: 297, 88.6 / 88.2 /
+   0.7 / 4.7) and no KS5 blocks — all three markers are
+   false, so Exeter's served list would have carried no
+   destinations at all under a KS5-only scope (D65
+   ruling 1).
+3. **Minerva.** Both stages on all three sixth-form
+   secondaries, exact, including the KS5 higher
+   education shares (Glyn: KS4 251 leavers, 96.4 / 88.0
+   / 7.2 / 1.2; KS5 253, 87.4 overall, 61.7% HE.
+   Blenheim: KS4 205, 95.6 / 93.7 / 1.5 / 0.5; KS5 93,
+   81.7, 53.8% HE. Nonsuch: KS4 209, 97.1 / 95.2 / 0 /
+   1.9; KS5 230, 92.2, 82.6% HE). NESCOT's KS5 row is in
+   the filing (cohort 953, 70.4% overall, 11.1% HE) and
+   its sixth-forms place carries neither a destinations
+   block nor a URN (ruling 5).
+4. **States.** The suppressed state (a filed row whose
+   shares the source suppressed — cohorts under six)
+   and the no-row state (Plashet School, URN 152267, a
+   fixture secondary with no KS4 headline row in the
+   release) are pinned in the serving and loader suites
+   on the prep's adopted wordings, verbatim; the
+   suppressed SERVING state has no golden-replay witness
+   (no served secondary in the golden set is suppressed
+   nationally) and is proven in the brain suite, the
+   M6.33 marker-null precedent. The not-filed state
+   serves from the release read, never from an empty
+   table.
+5. **Contracts.** One pin moved (nearby.served),
+   differing by exactly the destinations blocks and the
+   URN key on the secondary places — proven by leaf
+   diff: the new shape with those keys stripped is the
+   old shape, and no other pin moved. No short pin
+   moved: destinations are report depth only (ruling
+   4), proven by short-bundle identity with the blocks
+   stripped. The explainer census gains six hard
+   families (rows 89–94: the cohort count and the five
+   served shares), 94 families / 61 hard; each stage's
+   cohort line carries the cohort figure's beside-figure
+   line and the sustained line carries the shares'. The
+   cache gains the loader in the nearby brain's
+   dependencies, the `destinationsFiled` guard (a
+   hand-run filing busts on the count alone) and the
+   shapeOk presence rule for the destinations key.

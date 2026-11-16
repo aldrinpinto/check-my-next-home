@@ -230,6 +230,33 @@
 // rulings; recorded here so the change is never mistaken
 // for drift. (Draft state at M6.33's D58 draft; the
 // integration re-verifies the leaf-diff.)
+//
+// RE-PIN RECORD: M6.34 (decisions D51 and D65)
+// deliberately widened the frozen nearby shape — the
+// schools-secondary places gain urn (the register's own
+// key for the school) and destinations (the composed
+// leavers'-destinations block: the KS4 stage on every
+// place, the KS5 stage where the sixth-form marker is
+// true, each stage served, suppressed, no-row or
+// not-filed). ONE pin moved (nearby.served), differing
+// by exactly urn + destinations on the secondary
+// category's places — verified by leaf-diff: the new
+// shape with those two keys stripped is the old shape,
+// set-canonical, and no other pin in the 48 moved. In
+// this fake's full mode the nearest secondary (marker
+// true) pins both stages served; the second (marker
+// null) pins its KS4 stage served with ks5 null; the
+// beyond-only, none-anywhere and not-filed modes serve
+// no secondary places, so their pins did not move, and
+// the rung-3/4 pins did not move (no categories record).
+// No short pin moved: destinations are report depth
+// only (D65 ruling 4) and the headline derivation never
+// reads the block, proven by an identity test in the
+// school-destinations suite. All 48 pins stand.
+// Authorised by the founder's D51/D65 rulings; recorded
+// here so the change is never mistaken for drift.
+// (Re-verified at integration: the leaf-diff
+// reproduced exactly against main's pre-step shapes.)
 
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -257,6 +284,7 @@ import { buildCrimeBundle, type CrimeDataSource, type FiledCrimeAnswer } from ".
 import { buildFloodBundle, type FloodDataSource, type FloodLayerFacts } from "../lib/flood";
 import {
   buildNearbyBundle,
+  type DestinationRowFact,
   type IndustrialSitesFacts,
   type NearbyCategory,
   type NearbyDataSource,
@@ -502,16 +530,67 @@ class FakeNearbySource implements NearbyDataSource {
     // (M6.33): the nearest flagged true, the second
     // carrying the null absence — both place variants pin.
     const secondary = category === "schools-secondary";
+    // The secondary points also carry the URN and the
+    // filed destinations rows (M6.34): the nearest (a
+    // sixth-form school) files both stages served; the
+    // second files a KS4 row and no KS5 row — the brain
+    // composes both places' blocks, and the second's KS5
+    // stage stays null behind its null marker.
+    const destinations: Record<
+      string,
+      { ks4: DestinationRowFact | null; ks5: DestinationRowFact | null }
+    > = {
+      nearest: {
+        ks4: {
+          cohortYear: "2023/24",
+          version: "Provisional",
+          cohortCount: 251,
+          state: "served",
+          overall: { value: 96.4, low: false },
+          education: { value: 88.0, low: false },
+          higherEducation: { value: null, low: false },
+          apprenticeships: { value: 7.2, low: false },
+          employment: { value: 1.2, low: false },
+        },
+        ks5: {
+          cohortYear: "2023/24",
+          version: "Provisional",
+          cohortCount: 253,
+          state: "served",
+          overall: { value: 87.4, low: false },
+          education: { value: 63.2, low: false },
+          higherEducation: { value: 61.7, low: false },
+          apprenticeships: { value: 4.0, low: false },
+          employment: { value: 20.2, low: false },
+        },
+      },
+      second: {
+        ks4: {
+          cohortYear: "2023/24",
+          version: "Provisional",
+          cohortCount: 146,
+          state: "served",
+          overall: { value: 90.4, low: false },
+          education: { value: 90.4, low: false },
+          higherEducation: { value: null, low: false },
+          apprenticeships: { value: 0, low: false },
+          employment: { value: 0, low: false },
+        },
+        ks5: null,
+      },
+    };
     const base = [
       point("Nearest One", 0.1, {
         ...(category.startsWith("schools") ? { selective: false } : {}),
         ...(rated ? { cqcRating: { rating: "Good", date: "2026-01-15" } } : {}),
-        ...(secondary ? { sixthForm: true } : {}),
+        ...(secondary
+          ? { sixthForm: true, urn: "136534", destinations: destinations.nearest }
+          : {}),
       }),
       point("Second One", 0.5, {
         detail: "a filed detail",
         ...(rated ? { cqcRating: null } : {}),
-        ...(secondary ? { sixthForm: null } : {}),
+        ...(secondary ? { sixthForm: null, urn: "148901", destinations: destinations.second } : {}),
       }),
       point(null, 1.5),
     ];
@@ -561,6 +640,18 @@ class FakeNearbySource implements NearbyDataSource {
           ],
         },
       ],
+    };
+  }
+  // The destinations release facts (M6.34): filed in
+  // every mode but unfiled — the unfiled mode's places
+  // compose the not-filed stage, the other modes' the
+  // served and no-row stages.
+  async destinationsRelease() {
+    if (this.mode === "unfiled") return { filedCount: 0, ks4: null, ks5: null };
+    return {
+      filedCount: 7291,
+      ks4: { cohortYear: "2023/24", sourceDate: "2026-10-15" },
+      ks5: { cohortYear: "2023/24", sourceDate: "2026-10-15" },
     };
   }
 }

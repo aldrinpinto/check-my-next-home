@@ -150,6 +150,9 @@ class FakeSource implements NearbyDataSource {
   async industrialSiteFacts() {
     return { filedCount: 0, dataYear: null, sourceName: null, sourceDate: null, sites: [] };
   }
+  async destinationsRelease() {
+    return { filedCount: 0, ks4: null, ks5: null };
+  }
 }
 
 function directory(partial: Partial<DirectoryPostcode> & { postcode: string }): DirectoryPostcode {

@@ -516,6 +516,35 @@ class CensusNearbySource implements NearbyDataSource {
           // place, so its not-a-figure clearance is
           // exercised, not just declared.
           sixthForm: true,
+          // The URN and destinations facts (M6.34): both
+          // stages filed served, so the leaf walk meets
+          // every destinations figure leaf and direction
+          // one reads the stages' own lines.
+          urn: "136534",
+          destinations: {
+            ks4: {
+              cohortYear: "2023/24",
+              version: "Provisional",
+              cohortCount: 251,
+              state: "served",
+              overall: { value: 96.4, low: false },
+              education: { value: 88.0, low: false },
+              higherEducation: { value: null, low: false },
+              apprenticeships: { value: 7.2, low: false },
+              employment: { value: 1.2, low: false },
+            },
+            ks5: {
+              cohortYear: "2023/24",
+              version: "Provisional",
+              cohortCount: 253,
+              state: "served",
+              overall: { value: 87.4, low: false },
+              education: { value: 63.2, low: false },
+              higherEducation: { value: 61.7, low: false },
+              apprenticeships: { value: 4.0, low: false },
+              employment: { value: 20.2, low: false },
+            },
+          },
         },
       ];
     if (category === "schools-primary")
@@ -582,6 +611,16 @@ class CensusNearbySource implements NearbyDataSource {
           ],
         },
       ],
+    };
+  }
+  // The destinations release facts (M6.34): the census
+  // world's filing — both stages' cohort and publication
+  // date for the secondary place's lines to compose from.
+  async destinationsRelease() {
+    return {
+      filedCount: 7291,
+      ks4: { cohortYear: "2023/24", sourceDate: "2026-10-15" },
+      ks5: { cohortYear: "2023/24", sourceDate: "2026-10-15" },
     };
   }
 }
@@ -776,13 +815,13 @@ type Golden = Awaited<ReturnType<typeof goldenBundles>>;
 // ------------------------------------------------------------------
 
 describe("explainer census — the register", () => {
-  it("enumerates the census: 88 families (71 to M6.20, rows 72–75 added at M6.21, rows 76–78 at M6.22, row 79 at M6.25, row 80 at M6.26, rows 81–82 at M6.27, rows 83–84 at M6.28, row 85 at M6.29, row 86 at M6.30, row 87 at M6.31, row 88 at M6.32), 55 hard, ids unique and stable in row order", () => {
-    expect(EXPLAINER_CENSUS).toHaveLength(88);
+  it("enumerates the census: 94 families (71 to M6.20, rows 72–75 added at M6.21, rows 76–78 at M6.22, row 79 at M6.25, row 80 at M6.26, rows 81–82 at M6.27, rows 83–84 at M6.28, row 85 at M6.29, row 86 at M6.30, row 87 at M6.31, row 88 at M6.32, rows 89–94 at M6.34), 61 hard, ids unique and stable in row order", () => {
+    expect(EXPLAINER_CENSUS).toHaveLength(94);
     expect(EXPLAINER_CENSUS.map((entry) => entry.row)).toEqual(
-      Array.from({ length: 88 }, (_, i) => i + 1),
+      Array.from({ length: 94 }, (_, i) => i + 1),
     );
-    expect(new Set(EXPLAINER_CENSUS.map((entry) => entry.id)).size).toBe(88);
-    expect(EXPLAINER_CENSUS.filter((entry) => entry.hardness === "hard")).toHaveLength(55);
+    expect(new Set(EXPLAINER_CENSUS.map((entry) => entry.id)).size).toBe(94);
+    expect(EXPLAINER_CENSUS.filter((entry) => entry.hardness === "hard")).toHaveLength(61);
     // Every figure-path pattern names census ids that exist.
     const ids = new Set(EXPLAINER_CENSUS.map((entry) => entry.id));
     for (const { censusIds } of FIGURE_PATH_PATTERNS)
@@ -804,6 +843,15 @@ describe("explainer census — the register", () => {
 // ------------------------------------------------------------------
 // Direction one — every hard figure's named line is present
 // ------------------------------------------------------------------
+
+// The census home's secondary place's destinations
+// block (M6.34): the HARD_LINES extractors for rows
+// 89–94 read its stages' lines.
+function censusDestinations(b: Golden) {
+  if (b.nearby.kind !== "distances") return null;
+  const answer = b.nearby.categories.find((c) => c.category === "schools-secondary");
+  return answer?.places[0]?.destinations ?? null;
+}
 
 const HARD_LINES: Record<string, (b: Golden) => unknown> = {
   "nearby.nearest-selective": (b) =>
@@ -925,6 +973,35 @@ const HARD_LINES: Record<string, (b: Golden) => unknown> = {
   // so the line is present on the golden bundle.
   "nearby.industrial-sites.releases": (b) =>
     b.nearby.kind === "distances" ? b.nearby.industrialSites?.thresholdLine : null,
+  // The destinations lines (M6.34, rows 89–94): the
+  // census home's secondary place serves both stages
+  // filed — the cohort line for the cohort family, the
+  // sustained line for each share family (the KS5 stage's
+  // for the higher-education family).
+  "nearby.destinations.cohort": (b) => {
+    const d = censusDestinations(b);
+    return d?.ks4.state === "served" ? d.ks4.cohortLine : null;
+  },
+  "nearby.destinations.overall": (b) => {
+    const d = censusDestinations(b);
+    return d?.ks4.state === "served" ? d.ks4.sustainedLine : null;
+  },
+  "nearby.destinations.education": (b) => {
+    const d = censusDestinations(b);
+    return d?.ks4.state === "served" ? d.ks4.sustainedLine : null;
+  },
+  "nearby.destinations.he": (b) => {
+    const d = censusDestinations(b);
+    return d?.ks5 && d.ks5.state === "served" ? d.ks5.sustainedLine : null;
+  },
+  "nearby.destinations.apprenticeships": (b) => {
+    const d = censusDestinations(b);
+    return d?.ks4.state === "served" ? d.ks4.sustainedLine : null;
+  },
+  "nearby.destinations.employment": (b) => {
+    const d = censusDestinations(b);
+    return d?.ks4.state === "served" ? d.ks4.sustainedLine : null;
+  },
 };
 
 describe("explainer census — direction one (hard ⇒ line present, both depths)", () => {

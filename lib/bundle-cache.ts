@@ -196,6 +196,11 @@ export const BRAIN_DEPENDENCIES: Record<CacheBrain, readonly string[]> = {
     // class, so its stamp moves on every filing run and
     // GUARDS.nearby needs no count for it.
     "load-pollution-inventory",
+    // load-school-destinations files the destinations
+    // rows the secondary places' blocks read (M6.34): a
+    // filing — the first one above all — is a
+    // nearby-version change.
+    "load-school-destinations",
   ],
   area: [
     "load-postcodes",
@@ -372,6 +377,16 @@ const GUARDS: Record<
       // table: a re-filing rewrites the table wholesale,
       // so any movement in it can move a schools answer.
       schoolsFiled: await countOf(db, "SELECT count(*)::int AS n FROM schools"),
+      // The destinations count (M6.34): the destinations
+      // loader is a runner class whose stamp moves on
+      // runner runs, but a first or corrective filing can
+      // also be hand-run (`load:school-destinations`),
+      // moving no stamp — the filed count closes that
+      // hole, on the M6.30/M6.33 pattern. The count is
+      // over the whole filed table: a filing swaps the
+      // table wholesale, so any movement in it can move a
+      // destinations block.
+      destinationsFiled: await countOf(db, "SELECT count(*)::int AS n FROM school_destinations"),
     };
   },
 
@@ -855,6 +870,12 @@ export async function buildNearbyBundleCached(
     // current. No loader stamp in the version vector moves
     // when the step deploys (the schools filing is
     // unchanged), so only this presence rule catches it.
+    // The M6.34 contract extends it in the same pattern:
+    // every place the secondary answer serves must carry
+    // the destinations key (the composed block, present in
+    // every state including not-filed) — an entry written
+    // before the step degrades to a recompute rather than
+    // serving destinationless secondary rows as current.
     shapeOk: (bundle) => {
       if (typeof bundle !== "object" || bundle === null) return false;
       if ("industrialSites" in bundle !== industrialEnabled) return false;
@@ -890,6 +911,7 @@ export async function buildNearbyBundleCached(
       if (!Array.isArray(secondaryAnswer.places)) return false;
       for (const place of secondaryAnswer.places) {
         if (typeof place !== "object" || place === null || !("sixthForm" in place)) return false;
+        if (!("destinations" in place)) return false;
       }
       return true;
     },

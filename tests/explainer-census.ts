@@ -1145,6 +1145,91 @@ export const EXPLAINER_CENSUS: CensusEntry[] = [
     "industrialSites.thresholdLine",
     "D50/D60/D62: every quantity in the block is the operator's own report to the Environment Agency for the named year, and the block says so on its reported line; the threshold line beside the figures states what a reporting threshold is and that below it is not a measurement of zero — a below-threshold return files no quantity at all (quantity NULL + the flag), structurally distinct from a quantified return of 0. Figures are never totalled and never ranked across substances or sites: substances are incommensurable. The block serves behind INDUSTRIAL_SITES_ENABLED (D60) at the end of What's Nearby, England only — Wales, Scotland and Northern Ireland serve the named not-covered state naming their own inventories. Report depth only — the short bundle's derivation never reads the block.",
   ),
+  // M6.34 (decisions D51 and D65) — the leavers'
+  // destinations families, rows 89–94. DRAFT STATE (D58
+  // overlap build): the row numbers assume M6.32's row 88
+  // lands first, as the queue order has it (M6.33 added no
+  // family); integration re-verifies against the true
+  // tree. One hard family per served share, per the step
+  // text, with the cohort family counted separately: the
+  // cohort count is itself a published figure whose line
+  // must name the cohort and the publication lag. Every
+  // family's line lives on the stage object itself — the
+  // cohort line for the count, the sustained line for the
+  // five shares — so the block's figures never travel
+  // without them.
+  e(
+    89,
+    "nearby.destinations.cohort",
+    "nearby",
+    "schools",
+    "the destinations cohort (the leavers counted, per school, per stage)",
+    "hard",
+    ["full"],
+    "line-embedded",
+    "categories[].places[].destinations.ks4.cohortLine / .ks5.cohortLine",
+    "D51/D65: the cohort count is DfE's published count of the school's leavers for the named cohort year, and its line names the cohort (the students who finished key stage 4, or 16 to 19 study, in the leaver year), states that this is the most recent cohort DfE has published, and names the publication month — the roughly two-year publication lag stays visible beside the figure, never buried. Report depth only — the short bundle's derivation never reads the block.",
+  ),
+  e(
+    90,
+    "nearby.destinations.overall",
+    "nearby",
+    "schools",
+    "the overall sustained destination share (per school, per stage)",
+    "hard",
+    ["full"],
+    "line-embedded",
+    "categories[].places[].destinations.ks4.sustainedLine / .ks5.sustainedLine",
+    "D51/D65: the release's headline measure — the share of the cohort in a sustained education, employment or apprenticeship destination — served verbatim as published, under the stage's sustained line (stayed in the destination for at least six months of the following school year). A share the release marks 'low' (a positive share under 0.5%) serves as a flagged value, never a zero. No national figure stands beside a school's (declined under D51, held in D65), and the not-sustained and not-captured remainders never serve. Report depth only.",
+  ),
+  e(
+    91,
+    "nearby.destinations.education",
+    "nearby",
+    "schools",
+    "the sustained education share (per school, per stage)",
+    "hard",
+    ["full"],
+    "line-embedded",
+    "categories[].places[].destinations.ks4.sustainedLine / .ks5.sustainedLine",
+    "D51/D65: the share of the cohort in a sustained education destination, served verbatim as published under the stage's sustained line and cohort line. The KS4 file's education split (school sixth form / sixth form college / further education) is not filed and never serves — D65's field set is the four headline shares plus higher education at KS5. Report depth only.",
+  ),
+  e(
+    92,
+    "nearby.destinations.he",
+    "nearby",
+    "schools",
+    "the higher education share (16 to 19 stage only)",
+    "hard",
+    ["full"],
+    "line-embedded",
+    "categories[].places[].destinations.ks5.sustainedLine",
+    "D51/D65: of the 16 to 19 cohort, the share in a sustained higher education destination — a plain published destination category of the release, served verbatim under the stage's sustained line. It is NOT a Russell Group figure: the 16-19 release file carries no Russell Group column at all, so the exclusion cannot leak from this source, and no such figure serves from any other. KS5 stage only; the KS4 stage carries the field as null. Report depth only.",
+  ),
+  e(
+    93,
+    "nearby.destinations.apprenticeships",
+    "nearby",
+    "schools",
+    "the sustained apprenticeships share (per school, per stage)",
+    "hard",
+    ["full"],
+    "line-embedded",
+    "categories[].places[].destinations.ks4.sustainedLine / .ks5.sustainedLine",
+    "D51/D65: the share of the cohort in a sustained apprenticeship, served verbatim as published under the stage's sustained line and cohort line. Report depth only.",
+  ),
+  e(
+    94,
+    "nearby.destinations.employment",
+    "nearby",
+    "schools",
+    "the sustained employment share (per school, per stage)",
+    "hard",
+    ["full"],
+    "line-embedded",
+    "categories[].places[].destinations.ks4.sustainedLine / .ks5.sustainedLine",
+    "D51/D65: the share of the cohort in sustained employment, served verbatim as published under the stage's sustained line and cohort line. Report depth only.",
+  ),
 ];
 
 // ------------------------------------------------------------------
@@ -1190,6 +1275,33 @@ export const FIGURE_PATH_PATTERNS: FigurePathPattern[] = [
   p(
     "nearby\\.industrialSites\\.sites\\[\\]\\.releases\\[\\]\\.(quantityKg|thresholdKg)",
     "nearby.industrial-sites.releases",
+  ),
+  // School destinations (M6.34): the cohort count and
+  // the five served shares on the secondary places'
+  // destinations stages.
+  p(
+    "nearby\\.categories\\[\\]\\.places\\[\\]\\.destinations\\.(ks4|ks5)\\.cohortCount",
+    "nearby.destinations.cohort",
+  ),
+  p(
+    "nearby\\.categories\\[\\]\\.places\\[\\]\\.destinations\\.(ks4|ks5)\\.overall\\.value",
+    "nearby.destinations.overall",
+  ),
+  p(
+    "nearby\\.categories\\[\\]\\.places\\[\\]\\.destinations\\.(ks4|ks5)\\.education\\.value",
+    "nearby.destinations.education",
+  ),
+  p(
+    "nearby\\.categories\\[\\]\\.places\\[\\]\\.destinations\\.(ks4|ks5)\\.higherEducation\\.value",
+    "nearby.destinations.he",
+  ),
+  p(
+    "nearby\\.categories\\[\\]\\.places\\[\\]\\.destinations\\.(ks4|ks5)\\.apprenticeships\\.value",
+    "nearby.destinations.apprenticeships",
+  ),
+  p(
+    "nearby\\.categories\\[\\]\\.places\\[\\]\\.destinations\\.(ks4|ks5)\\.employment\\.value",
+    "nearby.destinations.employment",
   ),
   // Sold prices figures
   p("soldPrices\\.ownHistory\\[\\]\\.price", "sold.own-sale"),
@@ -1449,10 +1561,19 @@ export const NOT_A_FIGURE_ALLOWLIST: RegExp[] = [
   // distances ride the nearby.distance-miles family and
   // its type-as-filed detail rides the names group below,
   // so the step adds no census family (the totals stand
-  // at 88 families / 55 hard).
-  /(^|\.)(rung|kind|state|depth|grain|pointState|pctState|numberState|calculated|predicted|additionalProprietor|parishAveraged|isSingleFlat|isHomeBuilding|allOperatorsPublished|councilPublishes|selective|sixthForm|partOf|inside|mounting|pvTechnology|radiationDb|monthlyLabelPence|bandDMonthlyLabel|maintainerRecorded)$/,
-  // Dates and date-like labels
-  /(^|\.)(date|saleDate|registrationDate|incorporationDate|decisionDate|decisionDateLabel|sourceDate|loadedAt|month|monthLabel|windowFrom|windowTo|spanFrom|spanTo|taxYear|year|snapshot|edition|windowLine|spanLine|fromLabel|toLabel|loadState|pollutant|checkedAt|timeRaised)$/,
+  // at 88 families / 55 hard). M6.34 adds low to this
+  // group: a destinations share's low flag is the
+  // release's publication marker for that share (a
+  // positive share under 0.5%) — a structural state of
+  // the figure, whose value leaf is registered (rows
+  // 89–94).
+  /(^|\.)(rung|kind|state|depth|grain|pointState|pctState|numberState|calculated|predicted|additionalProprietor|parishAveraged|isSingleFlat|isHomeBuilding|allOperatorsPublished|councilPublishes|selective|sixthForm|partOf|inside|mounting|pvTechnology|radiationDb|monthlyLabelPence|bandDMonthlyLabel|maintainerRecorded|low)$/,
+  // Dates and date-like labels. M6.34 adds cohortYear:
+  // a destinations stage's cohort label ("2023/24") is
+  // the cohort's name — its count and shares are the
+  // registered figures (rows 89–94), and every
+  // beside-figure line carries the year in words.
+  /(^|\.)(date|saleDate|registrationDate|incorporationDate|decisionDate|decisionDateLabel|sourceDate|loadedAt|month|monthLabel|windowFrom|windowTo|spanFrom|spanTo|taxYear|year|snapshot|edition|windowLine|spanLine|fromLabel|toLabel|loadState|pollutant|checkedAt|timeRaised|cohortYear)$/,
   // Identifiers and codes that name, not measure
   /(^|\.)(postcode|id|assetId|listEntryId|certificateNumber|titleNumber|companyNumber|caseRef|buildingKey|cellRef|lsoaCode|msoaCode|code|slug|category|layer|series|service|sourceKind|dataset|tenure|proprietorshipCategory|countryIncorporated|key|reference|sequence)$/,
   // Names, labels and publisher wording (the words, not figures)
@@ -1507,6 +1628,13 @@ export const NOT_A_FIGURE_ALLOWLIST: RegExp[] = [
   /^nearby\.industrialSites\.sites\[\]\.(permitId|operator|siteAddress|sitePostcode|activityDescription|sector|subSector|noAirReturns)$/,
   /^nearby\.industrialSites\.sites\[\]\.belowThreshold\[\]$/,
   /^nearby\.industrialSites\.sites\[\]\.releases\[\]\.substance$/,
+  // The secondary places' URN (M6.34): the register's
+  // own identifier for the school — the key the
+  // destinations join stands on, served so the row can
+  // be traced to the register — an identifier, not a
+  // figure. The destinations stages' figures are
+  // registered (rows 89–94).
+  /^nearby\.categories\[\]\.places\[\]\.urn$/,
   // The resolution's own address parts and counts of
   // addresses (the census row 1 watch: not brain figures).
   /^address\./,

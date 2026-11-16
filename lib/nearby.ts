@@ -136,6 +136,22 @@ import { INDUSTRIAL_SITES_ENABLED } from "./site";
 // is the fact). Report depth only: the short bundle's
 // six headline categories (D28) are unchanged, and its
 // derivation never reads the marker or the category.
+//
+// Leavers' destinations (M6.34, D51/D65) ride on the
+// secondary places themselves: each carries its URN (the
+// register's own key, the only safe join — the
+// destinations file carries schools under earlier names)
+// and a destinations block holding the two stages' answers
+// as DfE published them — key stage 4 for every served
+// secondary, 16 to 19 additionally where the school's
+// marker is exactly "has a sixth form". The shares serve
+// verbatim with their cohort year and the sustained
+// definition beside them; the not-sustained and
+// not-captured remainders never serve, no national figure
+// stands beside a school's, and 16-plus providers never
+// serve destinations (their rows file anyway). Report
+// depth only: the short bundle's derivation never reads
+// the block.
 
 export const DISTANCE_BASIS_LABEL = "straight-line distance from the postcode point";
 export const RADIUS_MILES = 2;
@@ -198,6 +214,46 @@ export type CqcRating = {
   date: string | null;
 };
 
+// One filed destinations share (M6.34): the value as
+// published, or null exactly when low is true — the
+// release's "low" marker, a positive share under 0.5%,
+// filed as a flagged value and never as a zero.
+export type DestinationShareFact = {
+  value: number | null;
+  low: boolean;
+};
+
+// One institution's filed destinations row for one
+// stage, as the loader filed it (M6.34): the latest
+// published cohort's count, version and state, and the
+// D65 field set. state "suppressed" carries every share
+// null — the release suppresses all of a small cohort's
+// shares together. higherEducation is null-valued on a
+// KS4 row (the KS4 file carries no such column).
+export type DestinationRowFact = {
+  cohortYear: string;
+  version: string;
+  cohortCount: number;
+  state: "served" | "suppressed";
+  overall: DestinationShareFact;
+  education: DestinationShareFact;
+  higherEducation: DestinationShareFact;
+  apprenticeships: DestinationShareFact;
+  employment: DestinationShareFact;
+};
+
+// The destinations release as filed, table-wide (M6.34):
+// the count the not-filed state stands on, and each
+// stage's cohort and publication date — the release
+// facts the absence lines and the cohort lines are
+// composed from. Both stages file together or neither
+// does, so a filed table always carries both entries.
+export type DestinationsReleaseFacts = {
+  filedCount: number;
+  ks4: { cohortYear: string; sourceDate: string } | null;
+  ks5: { cohortYear: string; sourceDate: string } | null;
+};
+
 export type NearbyPoint = {
   name: string | null;
   latitude: number;
@@ -220,6 +276,14 @@ export type NearbyPoint = {
   // where the register files neither. Absent entirely on
   // every other category's points.
   sixthForm?: boolean | null;
+  // Secondary schools only (M6.34, D51/D65): the
+  // register's URN for the school — the key the
+  // destinations join stands on — and the school's filed
+  // destinations rows, one per stage, null where the
+  // release files no row for the school. Absent entirely
+  // on every other category's points.
+  urn?: string;
+  destinations?: { ks4: DestinationRowFact | null; ks5: DestinationRowFact | null };
 };
 
 // The brain's read port over the filed point tables — the same
@@ -252,6 +316,11 @@ export interface NearbyDataSource {
   // and the serving rules. Read only for an English home
   // while INDUSTRIAL_SITES_ENABLED is on.
   industrialSiteFacts(latitude: number, longitude: number): Promise<IndustrialSitesFacts>;
+  // The destinations release facts (M6.34): the filed
+  // count and each stage's cohort and publication date,
+  // table-wide — read once per bundle and composed
+  // against the secondary places' filed rows.
+  destinationsRelease(): Promise<DestinationsReleaseFacts>;
 }
 
 // One filed site near the point, with its releases to air
@@ -288,6 +357,48 @@ export type IndustrialSitesFacts = {
   sites: IndustrialSiteFact[];
 };
 
+// One stage's served destinations answer (M6.34, D65).
+// A served stage carries the published shares verbatim
+// under two lines that travel with them: the cohort line
+// (who these leavers are, how many, and that this is the
+// most recent cohort DfE has published, with the
+// publication month — the lag stays visible) and the
+// sustained line (the definition every share stands
+// under). higherEducation is the KS5 stage's fifth
+// share; it is null on a KS4 stage, whose file carries
+// no such column. The suppressed and no-row stages carry
+// the prep's adopted wordings (D65 ruling 7), pinned
+// verbatim in the tests; the not-filed stage is the
+// house D30 form. No state carries the release's
+// not-sustained or not-captured remainders, and no
+// national figure ever stands beside a school's.
+export type DestinationsStageAnswer =
+  | {
+      state: "served";
+      cohortYear: string;
+      cohortCount: number;
+      cohortLine: string;
+      sustainedLine: string;
+      overall: DestinationShareFact;
+      education: DestinationShareFact;
+      higherEducation: DestinationShareFact | null;
+      apprenticeships: DestinationShareFact;
+      employment: DestinationShareFact;
+    }
+  | { state: "suppressed"; cohortYear: string; line: string }
+  | { state: "no-row"; cohortYear: string; line: string }
+  | { state: "not-filed"; line: string };
+
+// A secondary place's destinations block (M6.34): the
+// KS4 stage always; the KS5 stage only where the
+// school's sixth-form marker is exactly true — a school
+// whose register entry files neither value, or "does
+// not have", carries ks5 null, never a guessed block.
+export type PlaceDestinations = {
+  ks4: DestinationsStageAnswer;
+  ks5: DestinationsStageAnswer | null;
+};
+
 export type NearbyPlace = {
   name: string;
   miles: number;
@@ -307,6 +418,14 @@ export type NearbyPlace = {
   // where the register files neither value. Never
   // present on any other category's places.
   sixthForm?: boolean | null;
+  // Secondary schools only (M6.34, D51/D65): the
+  // register's URN and the school's destinations block,
+  // present on every place the secondary category
+  // serves. Never present on any other category's
+  // places — 16-plus providers serve in the sixth-forms
+  // category and carry neither (D65 ruling 5).
+  urn?: string;
+  destinations?: PlaceDestinations;
 };
 
 export type CategoryState = "within" | "none-within" | "empty-map" | "empty" | "not-filed";
@@ -678,12 +797,103 @@ function emptyLine(key: NearbyCategory, spec: CategorySpec, countWithin: number)
   return `no ${spec.label} within ${RADIUS_MILES} miles of the postcode point`;
 }
 
+// --- leavers' destinations (M6.34, D51/D65) --------------
+
+// The not-filed line, in the house D30 form: the data is
+// not filed yet, so the answer cannot be shown.
+export const DESTINATIONS_NOT_FILED_LINE =
+  "The destinations data is not filed yet, so leavers' destinations cannot be shown for this check.";
+// The sustained definition (the step's pinned phrase):
+// the D13 line every served share stands under.
+export const DESTINATIONS_SUSTAINED_LINE =
+  "Sustained means the student stayed in the destination for at least six months of the following school year.";
+
+const MONTH_NAMES = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+// "2023/24" names the cohort that finished in 2024.
+function leaverYearOf(cohortYear: string): number {
+  return Number(cohortYear.slice(0, 4)) + 1;
+}
+
+function publishedMonthYear(sourceDate: string): string {
+  const [year, month] = sourceDate.split("-");
+  return `${MONTH_NAMES[Number(month) - 1]} ${year}`;
+}
+
+function destinationsStage(
+  stage: "ks4" | "ks5",
+  fact: DestinationRowFact | null,
+  releaseEntry: { cohortYear: string; sourceDate: string } | null,
+): DestinationsStageAnswer {
+  // A stage whose release entry is missing — the table
+  // unfiled, or a filing that broke the loader's
+  // both-or-neither contract — serves the not-filed
+  // state, whatever row the join produced.
+  if (releaseEntry === null) return { state: "not-filed", line: DESTINATIONS_NOT_FILED_LINE };
+  if (fact === null)
+    return {
+      state: "no-row",
+      cohortYear: releaseEntry.cohortYear,
+      line: `DfE publishes no destinations row for this school for the ${releaseEntry.cohortYear} leavers`,
+    };
+  if (fact.state === "suppressed")
+    return {
+      state: "suppressed",
+      cohortYear: fact.cohortYear,
+      line: `DfE does not publish destination shares for this school's ${leaverYearOf(fact.cohortYear)} leavers — the cohort was too small to publish (fewer than six leavers)`,
+    };
+  const leaverYear = leaverYearOf(fact.cohortYear);
+  return {
+    state: "served",
+    cohortYear: fact.cohortYear,
+    cohortCount: fact.cohortCount,
+    cohortLine: `The ${fact.cohortCount} students who finished ${stage === "ks4" ? "key stage 4" : "16 to 19 study"} in ${leaverYear} are the most recent cohort the Department for Education has published (published ${publishedMonthYear(releaseEntry.sourceDate)}).`,
+    sustainedLine: DESTINATIONS_SUSTAINED_LINE,
+    overall: fact.overall,
+    education: fact.education,
+    higherEducation: stage === "ks5" ? fact.higherEducation : null,
+    apprenticeships: fact.apprenticeships,
+    employment: fact.employment,
+  };
+}
+
+function composeDestinations(
+  point: NearbyPoint,
+  release: DestinationsReleaseFacts,
+): PlaceDestinations {
+  const facts = point.destinations ?? { ks4: null, ks5: null };
+  return {
+    ks4: destinationsStage("ks4", facts.ks4, release.filedCount > 0 ? release.ks4 : null),
+    // The KS5 stage serves only where the marker is
+    // exactly true (D65 ruling 1): a false or null
+    // marker carries no 16 to 19 block at all.
+    ks5:
+      point.sixthForm === true
+        ? destinationsStage("ks5", facts.ks5, release.filedCount > 0 ? release.ks5 : null)
+        : null,
+  };
+}
+
 async function buildCategory(
   key: NearbyCategory,
   spec: CategorySpec,
   latitude: number,
   longitude: number,
   source: NearbyDataSource,
+  destinationsRelease: DestinationsReleaseFacts,
 ): Promise<CategoryAnswer> {
   // The filed-count guard (D30, the flood form): absence
   // is only ever computed against a proven filing. A
@@ -734,7 +944,17 @@ async function buildCategory(
     // serves — the filed flag as filed (true, false, or
     // null) — and never set for any other category,
     // whatever the source hands over.
-    if (key === "schools-secondary") place.sixthForm = m.point.sixthForm ?? null;
+    if (key === "schools-secondary") {
+      place.sixthForm = m.point.sixthForm ?? null;
+      // The destinations block is the secondary
+      // category's own (M6.34, D51/D65): the URN the
+      // join stood on, and the composed block — present
+      // on every place it serves, in every state
+      // including not-filed — and never set for any
+      // other category, whatever the source hands over.
+      place.urn = m.point.urn;
+      place.destinations = composeDestinations(m.point, destinationsRelease);
+    }
     return place;
   });
   const answer: CategoryAnswer = {
@@ -809,8 +1029,14 @@ export async function buildNearbyBundle(
     };
   const { latitude, longitude } = resolution.directory;
   const categories: CategoryAnswer[] = [];
+  // The destinations release facts (M6.34) are read once
+  // per bundle and composed against the secondary
+  // places' filed rows inside buildCategory.
+  const destinationsRelease = await source.destinationsRelease();
   for (const { key, spec } of CATEGORIES)
-    categories.push(await buildCategory(key, spec, latitude, longitude, source));
+    categories.push(
+      await buildCategory(key, spec, latitude, longitude, source, destinationsRelease),
+    );
   const bundle: Extract<NearbyBundle, { kind: "distances" }> = {
     rung: resolution.rung,
     kind: "distances",
@@ -857,18 +1083,42 @@ export async function buildNearbyBundle(
 // places, not ratings. The rating date casts to text in
 // the query itself, so the served string is the filed
 // date exactly (the sold-prices pattern) — never a parsed
-// Date reformatted under a local timezone.
+// Date reformatted under a local timezone. The
+// schools-secondary query additionally yields the URN and
+// the school's filed destinations rows (M6.34) through two
+// LEFT JOINs on school_destinations — keyed (urn, stage),
+// so each join matches at most one row and never multiplies
+// a place, and the filedCount subquery counts places, not
+// destination rows.
 const CATEGORY_SQL: Record<NearbyCategory, string> = {
   "schools-primary": `SELECT name, latitude, longitude, NULL::text AS detail,
       (admissions_policy = 'Selective') AS selective
     FROM schools WHERE phase = 'Primary' AND geom IS NOT NULL`,
-  "schools-secondary": `SELECT name, latitude, longitude, NULL::text AS detail,
-      (admissions_policy = 'Selective') AS selective,
-      CASE sixth_form
+  "schools-secondary": `SELECT s.name, s.latitude, s.longitude, NULL::text AS detail,
+      (s.admissions_policy = 'Selective') AS selective,
+      CASE s.sixth_form
         WHEN 'Has a sixth form' THEN true
         WHEN 'Does not have a sixth form' THEN false
-      END AS sixth_form
-    FROM schools WHERE phase = 'Secondary' AND geom IS NOT NULL`,
+      END AS sixth_form,
+      s.urn AS urn,
+      d4.cohort_year AS d4_cohort_year, d4.version AS d4_version,
+      d4.cohort_count AS d4_cohort_count, d4.state AS d4_state,
+      d4.overall AS d4_overall, d4.overall_low AS d4_overall_low,
+      d4.education AS d4_education, d4.education_low AS d4_education_low,
+      d4.higher_education AS d4_higher_education, d4.higher_education_low AS d4_higher_education_low,
+      d4.apprenticeships AS d4_apprenticeships, d4.apprenticeships_low AS d4_apprenticeships_low,
+      d4.employment AS d4_employment, d4.employment_low AS d4_employment_low,
+      d5.cohort_year AS d5_cohort_year, d5.version AS d5_version,
+      d5.cohort_count AS d5_cohort_count, d5.state AS d5_state,
+      d5.overall AS d5_overall, d5.overall_low AS d5_overall_low,
+      d5.education AS d5_education, d5.education_low AS d5_education_low,
+      d5.higher_education AS d5_higher_education, d5.higher_education_low AS d5_higher_education_low,
+      d5.apprenticeships AS d5_apprenticeships, d5.apprenticeships_low AS d5_apprenticeships_low,
+      d5.employment AS d5_employment, d5.employment_low AS d5_employment_low
+    FROM schools s
+    LEFT JOIN school_destinations d4 ON d4.urn = s.urn AND d4.stage = 'ks4'
+    LEFT JOIN school_destinations d5 ON d5.urn = s.urn AND d5.stage = 'ks5'
+    WHERE s.phase = 'Secondary' AND s.geom IS NOT NULL`,
   // Sixth forms and colleges (M6.33, D51/D64): the
   // register's sixth-form evidence, mainstream only. The
   // phase clause takes every "16 plus" row — further
@@ -1031,6 +1281,39 @@ function toPoint(row: Record<string, unknown>): NearbyPoint {
   if ("sixth_form" in row) {
     point.sixthForm = typeof row.sixth_form === "boolean" ? row.sixth_form : null;
   }
+  // The secondary query also yields the URN and the two
+  // destinations joins' columns (null across a LEFT JOIN
+  // where the release files no row for the school); every
+  // other category's query does not select them, so the
+  // fields stay absent there by construction.
+  if ("urn" in row) {
+    point.urn = typeof row.urn === "string" ? row.urn : undefined;
+    const share = (value: unknown, low: unknown): DestinationShareFact => ({
+      value: typeof value === "number" ? value : null,
+      low: low === true,
+    });
+    const fact = (prefix: "d4" | "d5"): DestinationRowFact | null => {
+      if (typeof row[`${prefix}_state`] !== "string") return null;
+      return {
+        cohortYear: String(row[`${prefix}_cohort_year`]),
+        version: String(row[`${prefix}_version`]),
+        cohortCount: Number(row[`${prefix}_cohort_count`]),
+        state: row[`${prefix}_state`] === "suppressed" ? "suppressed" : "served",
+        overall: share(row[`${prefix}_overall`], row[`${prefix}_overall_low`]),
+        education: share(row[`${prefix}_education`], row[`${prefix}_education_low`]),
+        higherEducation: share(
+          row[`${prefix}_higher_education`],
+          row[`${prefix}_higher_education_low`],
+        ),
+        apprenticeships: share(
+          row[`${prefix}_apprenticeships`],
+          row[`${prefix}_apprenticeships_low`],
+        ),
+        employment: share(row[`${prefix}_employment`], row[`${prefix}_employment_low`]),
+      };
+    };
+    point.destinations = { ks4: fact("d4"), ks5: fact("d5") };
+  }
   return point;
 }
 
@@ -1159,6 +1442,32 @@ export function createNearbySource(db: AddressQueryable): NearbyDataSource {
         sourceDate: typeof meta.rows[0]?.source_date === "string" ? meta.rows[0].source_date : null,
         sites: [...byPermit.values()],
       };
+    },
+    // The destinations release read (M6.34): the filed
+    // count the not-filed state stands on, and each
+    // stage's cohort and publication date — the loader
+    // files both stages in one swap, so a filed table
+    // carries exactly one cohort per stage. The date
+    // casts to text in the query — the filed date
+    // exactly.
+    async destinationsRelease() {
+      const counted = await db.query("SELECT count(*)::int AS n FROM school_destinations");
+      const filedCount = Number(counted.rows[0]?.n ?? 0);
+      if (filedCount === 0) return { filedCount: 0, ks4: null, ks5: null };
+      const meta = await db.query(
+        `SELECT stage, cohort_year, source_date::text AS source_date
+         FROM school_destinations GROUP BY stage, cohort_year, source_date`,
+      );
+      const facts: DestinationsReleaseFacts = { filedCount, ks4: null, ks5: null };
+      for (const row of meta.rows) {
+        const entry = {
+          cohortYear: String(row.cohort_year),
+          sourceDate: String(row.source_date),
+        };
+        if (row.stage === "ks4") facts.ks4 = entry;
+        else if (row.stage === "ks5") facts.ks5 = entry;
+      }
+      return facts;
     },
   };
 }

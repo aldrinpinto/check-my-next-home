@@ -18,6 +18,7 @@ import {
   buildNearbyBundle,
   haversineMiles,
   type CqcRating,
+  type DestinationRowFact,
   type NearbyBundle,
   type NearbyDataSource,
   type NearbyPoint,
@@ -281,6 +282,7 @@ function parseCsv(text: string): Record<string, string>[] {
 }
 
 type SchoolRow = {
+  urn: string;
   name: string;
   phase: string | null;
   // The register's type and sixth-form flag as filed
@@ -353,6 +355,7 @@ const schoolRows: SchoolRow[] = (() => {
     }
     if (lat === null || lng === null) continue;
     rows.push({
+      urn: (row["URN"] ?? "").trim(),
       name: (row["EstablishmentName"] ?? "").trim(),
       phase: blank(row["PhaseOfEducation (name)"]),
       type: blank(row["TypeOfEstablishment (name)"]),
@@ -364,6 +367,117 @@ const schoolRows: SchoolRow[] = (() => {
   }
   return rows;
 })();
+
+// --- destinations rows (mirror of
+// loaders/load-school-destinations.mjs) -------------------
+//
+// The filed destinations, re-derived from the loader's own
+// fixture cut with its rules written out: headline rows
+// only (Total breakdown, Percentage; KS5 also the Total
+// cohort level), the newest cohort, consortium groups
+// resolved to their combined row (identical figures, or
+// the row whose cohort is the sum of the others'), "c" as
+// the suppressed state, "low" as a flagged null share.
+const destinationFacts = (() => {
+  type Share = { value: number | null; low: boolean };
+  const share = (cell: string): Share | "c" => {
+    const v = (cell ?? "").trim();
+    if (v === "c") return "c";
+    if (v === "low") return { value: null, low: true };
+    return { value: Number(v), low: false };
+  };
+  const FIELDS: Record<"ks4" | "ks5", [string, string][]> = {
+    ks4: [
+      ["overall", "overall"],
+      ["education", "education"],
+      ["appren", "apprenticeships"],
+      ["all_work", "employment"],
+    ],
+    ks5: [
+      ["overall", "overall"],
+      ["education", "education"],
+      ["he", "higherEducation"],
+      ["appren", "apprenticeships"],
+      ["all_work", "employment"],
+    ],
+  };
+  const byUrn = new Map<
+    string,
+    { ks4: DestinationRowFact | null; ks5: DestinationRowFact | null }
+  >();
+  for (const stage of ["ks4", "ks5"] as const) {
+    const text = readFileSync(
+      join(process.cwd(), `tests/fixtures/school-destinations/${stage}.csv`),
+      "utf8",
+    );
+    const rows = parseCsv(text).filter(
+      (r) =>
+        r.breakdown_topic === "Total" &&
+        r.breakdown === "Total" &&
+        r.data_type === "Percentage" &&
+        (stage === "ks4" || (r.cohort_level_group === "Total" && r.cohort_level === "Total")),
+    );
+    const newest = rows
+      .map((r) => r.time_period)
+      .sort()
+      .at(-1);
+    const groups = new Map<string, Record<string, string>[]>();
+    for (const r of rows) {
+      if (r.time_period !== newest) continue;
+      const list = groups.get(r.school_urn) ?? [];
+      list.push(r);
+      groups.set(r.school_urn, list);
+    }
+    for (const [urn, group] of groups) {
+      let row = group[0];
+      if (group.length > 1) {
+        const signature = (r: Record<string, string>) =>
+          JSON.stringify([r.cohort_count, ...FIELDS[stage].map(([c]) => r[c])]);
+        if (!group.every((r) => signature(r) === signature(group[0]))) {
+          row =
+            group.find(
+              (r) =>
+                Number(r.cohort_count) ===
+                group.reduce((sum, o) => (o === r ? sum : sum + Number(o.cohort_count)), 0),
+            ) ?? group[0];
+        }
+      }
+      const cells = new Map(FIELDS[stage].map(([col, field]) => [field, share(row[col])]));
+      const suppressed = [...cells.values()].every((c) => c === "c");
+      const blank: Share = { value: null, low: false };
+      const pick = (field: string): Share => {
+        const cell = cells.get(field);
+        return suppressed || cell === undefined || cell === "c" ? blank : cell;
+      };
+      const fact: DestinationRowFact = {
+        cohortYear: "2023/24",
+        version: (row.version ?? "").trim(),
+        cohortCount: Number(row.cohort_count),
+        state: suppressed ? "suppressed" : "served",
+        overall: pick("overall"),
+        education: pick("education"),
+        higherEducation: pick("higherEducation"),
+        apprenticeships: pick("apprenticeships"),
+        employment: pick("employment"),
+      };
+      const entry = byUrn.get(urn) ?? { ks4: null, ks5: null };
+      entry[stage] = fact;
+      byUrn.set(urn, entry);
+    }
+  }
+  return byUrn;
+})();
+// The fixture filing's release facts: 75 rows filed from
+// the cut (36 KS4 + 39 KS5), cohort 2023/24, published
+// 15 October 2026 (the fixture README records the cut).
+const destinationsReleaseFacts = {
+  filedCount: [...destinationFacts.values()].reduce(
+    (n, e) => n + (e.ks4 ? 1 : 0) + (e.ks5 ? 1 : 0),
+    0,
+  ),
+  ks4: { cohortYear: "2023/24", sourceDate: "2026-10-15" },
+  ks5: { cohortYear: "2023/24", sourceDate: "2026-10-15" },
+};
 
 // --- health rows (the loader's own filing, dumped — see
 // tests/fixtures/nearby/README.md) -------------------------------
@@ -634,6 +748,12 @@ const TABLES: Record<string, NearbyPoint[]> = {
           : s.sixthFormFlag === "Does not have a sixth form"
             ? false
             : null,
+      // The URN and the filed destinations rows the
+      // loader's joins yield (M6.34): both stages' facts
+      // ride the point; the brain composes the served
+      // block and gates the KS5 stage on the marker.
+      urn: s.urn,
+      destinations: destinationFacts.get(s.urn) ?? { ks4: null, ks5: null },
     })),
   // Sixth forms and colleges (M6.33, D51/D64): the brain's
   // selection written out — the phase clause (every
@@ -794,6 +914,11 @@ const fakeSource: NearbyDataSource = {
       sourceDate: "2025-11-20",
       sites: [],
     };
+  },
+  // The destinations release (M6.34): the fixture
+  // filing's facts, derived from the loader's cut above.
+  async destinationsRelease() {
+    return destinationsReleaseFacts;
   },
 };
 

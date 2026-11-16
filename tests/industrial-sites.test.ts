@@ -62,6 +62,9 @@ class FakeSource implements NearbyDataSource {
     this.industrialCalls++;
     return this.facts;
   }
+  async destinationsRelease() {
+    return { filedCount: 0, ks4: null, ks5: null };
+  }
 }
 
 function directory(partial: Partial<DirectoryPostcode> & { postcode: string }): DirectoryPostcode {

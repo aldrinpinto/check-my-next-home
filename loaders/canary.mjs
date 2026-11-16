@@ -40,6 +40,12 @@ import {
   PI_RECORD_URL,
   latestResource as latestPiResource,
 } from "./load-pollution-inventory.mjs";
+import {
+  MEASURED_RELEASE_PIN as DESTINATIONS_PIN,
+  PUBLICATIONS as DESTINATIONS_PUBLICATIONS,
+  catalogueUrl as destinationsCatalogueUrl,
+  parseCatalogue as parseDestinationsCatalogue,
+} from "./load-school-destinations.mjs";
 
 const MONTHS = {
   January: "01",
@@ -2076,6 +2082,49 @@ export function probePollutionInventory() {
   })();
 }
 
+// School destinations (plan step M6.34, decision D65):
+// the two DfE Explore Education Statistics publications
+// the destinations loader discovers its data sets from.
+// The probe runs the loader's own discovery over both
+// catalogue pages: healthy while both publications'
+// latest release IS the pinned one (the 2024/25 release,
+// published 15 October 2026); WARNING the day either
+// moves — a new October release or the spring revision
+// of the standing one — naming the re-run, because the
+// quarterly loader files the moved release on its next
+// run and the filed cohort keeps serving, its year named
+// in every answer, until it does. FAILED when a
+// catalogue page does not answer or discovery refuses
+// (a page-shape change reaches the loader the same way).
+export function probeDestinations() {
+  return (async () => {
+    const found = {};
+    for (const [key, publication] of Object.entries(DESTINATIONS_PUBLICATIONS)) {
+      const response = await fetchRetry(destinationsCatalogueUrl(publication.publicationId));
+      if (!response.ok)
+        throw new Error(`HTTP ${response.status} for the ${key} destinations catalogue page`);
+      found[key] = parseDestinationsCatalogue(await response.text(), publication);
+    }
+    const base =
+      `canary ees-destinations · latest destinations release "${found.ks4.release}", published ${found.ks4.published}` +
+      ` · the pinned release is "${DESTINATIONS_PIN.release}", published ${DESTINATIONS_PIN.published} (cohort ${DESTINATIONS_PIN.cohortYear})`;
+    const warnings = [];
+    if (
+      found.ks4.release !== DESTINATIONS_PIN.release ||
+      found.ks4.published !== DESTINATIONS_PIN.published ||
+      found.ks5.release !== DESTINATIONS_PIN.release ||
+      found.ks5.published !== DESTINATIONS_PIN.published
+    )
+      warnings.push(
+        "a destinations release has moved — re-run load-school-destinations (the quarterly loader files the new release; a new October cohort's goldens are measured and pinned at that filing, and this pin updated)",
+      );
+    const today = new Date().toISOString().slice(0, 10);
+    if (warnings.length > 0)
+      return { warning: true, logLine: `${base} · ${warnings.join(" · ")}`, sourceDate: today };
+    return { logLine: base, sourceDate: today };
+  })();
+}
+
 // Noise (plan step M5.9): Defra Round 4 services on the Data
 // Services Platform. Arms: all three services still offer their
 // Lday/Lnight layers; and one golden point sample — Birkdale's
@@ -2266,6 +2315,7 @@ export async function runCanaryProbes() {
   await run("govuk-caz", probeCazRegister);
   await run("scotland-lez", probeScotlandLez);
   await run("ea-pollution-inventory", probePollutionInventory);
+  await run("ees-destinations", probeDestinations);
   await run("defra-noise", probeDefraNoise);
   await run("ofcom-broadband", () => probeOfcom("broadband"));
   await run("ofcom-mobile", () => probeOfcom("mobile"));

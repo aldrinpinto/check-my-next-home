@@ -698,6 +698,54 @@ Family:
     overwrites the last good vintage; the deletion path
     (D60/D62) is two DELETEs in one transaction, the
     loader's exported deletePollutionInventory.
+39. **school_destinations** — where each school's
+    leavers went next, as the Department for Education
+    publishes it in the two Explore Education Statistics
+    destination measures (migration 0028, plan step
+    M6.34, decisions D51 and D65). One row per
+    institution per stage, keyed on (urn, stage) with
+    stage 'ks4' (key stage 4 leavers) or 'ks5' (16 to 19
+    study leavers), holding the latest published cohort
+    only — the product serves one cohort per school, and
+    each new release carries the older cohorts again if
+    a future ruling ever wants them. `urn` is the GIAS
+    URN as text, joining `schools.urn` exactly (the
+    release files carry an earlier name for some schools
+    — "Maltings Academy" against GIAS "Lift Maltings" —
+    so the URN is the only join key; no name is filed).
+    `cohort_year` is the leavers' school year as text
+    ("2023/24"), `version` the release's version for the
+    cohort ("Provisional" in October, "Revised" in
+    spring — the loader files by version and a Revised
+    pull supersedes), `cohort_count` the cohort size as
+    filed (filed even when the shares are suppressed —
+    suppression never hides that a cohort existed).
+    The D65 field set: `overall`, `education`,
+    `higher_education` (KS5 only; NULL on every KS4
+    row), `apprenticeships` and `employment` — the
+    sustained destination shares in percent, each
+    nullable with a companion `<name>_low` flag: a cell
+    the source publishes as "low" (a positive share
+    under 0.5%) files as NULL with the flag set, never
+    as zero, the migration-0027 pattern. `state` is
+    'served' or 'suppressed' (the source's marker "c" —
+    cohorts of fewer than six leavers, every share
+    suppressed; a suppressed row files with all shares
+    NULL and all flags false). No column can hold the
+    not-sustained or not-captured remainders, a national
+    figure, or a Russell Group figure — the step's
+    never-serve rules are structural. `source_name`,
+    `source_date` (the release's publication date; both
+    files of a release share it — the loader files both
+    or neither) and `loaded_at` complete the row. Filed
+    quarterly by load-school-destinations, which swaps
+    the whole release in one transaction (stage →
+    validate → delete → insert), so a failed run keeps
+    the last good release; edition detection no-ops a
+    pull whose (stage, cohort_year, version,
+    source_date) already stands. 16-plus providers' rows
+    file here like any other institution's; the serving
+    layer never reads them (D65 ruling 5).
     Serving sits behind INDUSTRIAL_SITES_ENABLED
     (lib/site.ts, default ON under D60): the flag
     governs serving only — filing proceeds while it is
