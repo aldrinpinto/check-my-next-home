@@ -136,6 +136,27 @@
 // founder's D50/D57 rulings; recorded here and in the
 // golden matrix so the change is never mistaken for
 // drift.
+//
+// RE-PIN RECORD: M6.30 (decision D59) deliberately
+// widened the frozen area shape — the air section gains
+// aqma (the Air Quality Management Areas block: the
+// declared-area fact for the postcode point at report
+// depth, with its basis line and the dataset edition
+// date; the key is present always, in both air arms).
+// Eight pins moved (area.flag-on-building,
+// area.flag-on-no-match, area.flag-on-own-title,
+// area.rung1-empty, area.rung1-rich, area.rung1-scotland,
+// area.rung2, area.tribunal-served — the same family
+// M6.29 moved), each differing by exactly the added
+// aqma key in its not-filed form (this fake's world
+// files no AQMA layer); the rung-3/4 pins did not move
+// and the short pins did not move: the headline
+// projection picks air as exactly {state,
+// headlineFigure, line}, proven by an identity test in
+// the short suite. All 48 pins stand. Authorised by the
+// founder's D59 ruling; recorded here so the change is
+// never mistaken for drift. (Draft state at M6.30's
+// D58 draft; re-verified at integration.)
 
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -1034,6 +1055,18 @@ class FakeAreaSource implements AreaDataSource {
       pm10: 12.54823,
       sourceName: "Defra — Pollution Climate Mapping (PCM)",
       sourceDate: "2025-06-30",
+    };
+  }
+  async aqmaFacts() {
+    // This fake's world files no AQMA layer, in either
+    // mode — every area pin gains the block in its
+    // not-filed form (the M6.28 climate pattern).
+    return {
+      filedCount: 0,
+      covering: [],
+      nearestWithin: null,
+      sourceName: null,
+      sourceDate: null,
     };
   }
   async noiseRows() {

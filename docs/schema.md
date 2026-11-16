@@ -193,7 +193,13 @@ Family:
 16. **planning_layers** — planning constraint shapes (conservation
     areas, Article 4 areas, green belt, scheduled monuments, and
     the nature layers: SSSI, SAC, SPA, Ramsar, ancient woodland
-    and priority habitat). Since migration 0007 each shape also
+    and priority habitat). Air Quality Management Areas file
+    here too (M6.30, `constraint_type` 'aqma'): the area's name,
+    its declaring authority in the organisation field, the
+    declared pollutant codes in the detail field and the
+    publisher's AQMA_REF in the source reference — the
+    publisher's file carries no per-area dates, so the dataset
+    edition date is the only date the answers serve. Since migration 0007 each shape also
     carries its source reference, the supplying organisation's
     platform entity number and the source quality flag, plus a
     detail field (for an Article 4 area, the

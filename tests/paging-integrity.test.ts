@@ -7,6 +7,7 @@ import { readLive as readFloodSurfaceWaterLive } from "../loaders/load-flood-sur
 import {
   neCount,
   probeAncientWoodlandRevised,
+  probeAqma,
   probeFloodProduct,
   probeFloodSurfaceWaterClimate,
 } from "../loaders/canary.mjs";
@@ -430,5 +431,85 @@ describe("canary probes — flood surface water climate (M6.28)", () => {
   it("fails when the collections document no longer names the collection", async () => {
     stubFetch(surfaceWaterClimateRoute({ collections: { collections: [] } }));
     await expect(probeFloodSurfaceWaterClimate()).rejects.toThrow(/no longer names rofsw_cc01/);
+  });
+});
+
+// --- canary probe: Air Quality Management Areas (M6.30) --------
+
+function aqmaCensusFeatures(counts: Record<string, number>) {
+  const features: { attributes: { LA_ONS_ID: string } }[] = [];
+  for (const [letter, n] of Object.entries(counts))
+    for (let i = 0; i < n; i += 1)
+      features.push({ attributes: { LA_ONS_ID: `${letter}09000025` } });
+  return features;
+}
+
+function aqmaRoute(overrides: { meta?: unknown; count?: unknown; census?: unknown }) {
+  return (url: string) => {
+    if (url.includes("returnCountOnly=true")) return overrides.count ?? { count: 374 };
+    if (url.includes("outFields=LA_ONS_ID"))
+      return (
+        overrides.census ?? {
+          features: aqmaCensusFeatures({ E: 310, W: 32, S: 14, N: 18 }),
+        }
+      );
+    if (url.includes("MapServer?f=json"))
+      return (
+        overrides.meta ?? {
+          serviceDescription:
+            "This file contains the digital vector boundaries for the AQMAs. Published: 2026_10_20",
+        }
+      );
+    throw new Error(`unexpected url ${url}`);
+  };
+}
+
+describe("canary probe — Air Quality Management Areas (M6.30)", () => {
+  it("passes on the filed shape: edition parsed, count in band, all four nations present", async () => {
+    stubFetch(aqmaRoute({}));
+    const result = await probeAqma();
+    expect(result.warning).toBeUndefined();
+    expect(result.sourceDate).toBe("2026-10-20");
+    expect(result.logLine).toContain("canary aqma · 374 areas · edition 2026-10-20");
+    expect(result.logLine).toContain("England 310 · Wales 32 · Scotland 14 · Northern Ireland 18");
+  });
+
+  it("warns — does not fail — when the count leaves the loader's band", async () => {
+    stubFetch(aqmaRoute({ count: { count: 500 } }));
+    const result = await probeAqma();
+    expect(result.warning).toBe(true);
+    expect(result.logLine).toContain("outside the loader's band 337–411");
+  });
+
+  it("warns when a nation is missing from the file", async () => {
+    stubFetch(aqmaRoute({ census: { features: aqmaCensusFeatures({ E: 310, W: 32, S: 14 }) } }));
+    const result = await probeAqma();
+    expect(result.warning).toBe(true);
+    expect(result.logLine).toContain("no areas file for Northern Ireland");
+  });
+
+  it("warns when the edition is more than ~200 days old", async () => {
+    stubFetch(
+      aqmaRoute({
+        meta: {
+          serviceDescription:
+            "This file contains the digital vector boundaries for the AQMAs. Published: 2025_01_05",
+        },
+      }),
+    );
+    const result = await probeAqma();
+    expect(result.warning).toBe(true);
+    expect(result.sourceDate).toBe("2025-01-05");
+    expect(result.logLine).toContain("days old — beyond the ~200-day ambition");
+  });
+
+  it("fails when the edition cannot be parsed", async () => {
+    stubFetch(aqmaRoute({ meta: { serviceDescription: "no date here" } }));
+    await expect(probeAqma()).rejects.toThrow(/Published/);
+  });
+
+  it("fails when the count response is an error envelope", async () => {
+    stubFetch(aqmaRoute({ count: ERROR_ENVELOPE }));
+    await expect(probeAqma()).rejects.toThrow(/error envelope/);
   });
 });

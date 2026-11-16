@@ -564,6 +564,43 @@ export interface AirFacts {
   sourceDate: string | null;
 }
 
+// One filed Air Quality Management Area as the brain
+// reads it (M6.30, decision D59): the published name,
+// the declaring authority as published, and the filed
+// pollutant codes (detail, semicolon-joined in register
+// order). The read is dedicated — PlanningShapeRow
+// carries no organisation, and no other layer serves an
+// authority — so planning_layers' aqma rows are read
+// through this port, with the layerFacts geometry
+// predicates.
+export interface AqmaRow {
+  name: string | null;
+  authority: string | null;
+  // The pollutant codes as filed ("NO2; PM10"); the
+  // brain composes the words.
+  detail: string | null;
+}
+
+export interface AqmaNearestRow extends AqmaRow {
+  miles: number;
+}
+
+export interface AqmaFacts {
+  // The layer's filed area count — absence is only ever
+  // computed against a proven filing, so an unfiled
+  // layer serves its not-filed state, never an absence.
+  filedCount: number;
+  // Covering areas in the layerFacts covering order
+  // (ORDER BY name); the brain serves the first only.
+  covering: AqmaRow[];
+  // The single nearest area within the serving radius,
+  // read only when nothing covers the point. No beyond
+  // read: the none state names no distance.
+  nearestWithin: AqmaNearestRow | null;
+  sourceName: string | null;
+  sourceDate: string | null;
+}
+
 export interface NoiseFacts {
   // The table's filed row count — the guard. Noise's first
   // national pass is an M12 operator job; until it lands the
@@ -829,6 +866,13 @@ export interface AreaDataSource {
   censusRow(msoaCode: string): Promise<CensusFacts | null>;
   imdRow(lsoaCode: string): Promise<ImdFacts | null>;
   airSquare(latitude: number, longitude: number): Promise<AirFacts | null>;
+  // The filed Air Quality Management Areas around the
+  // point (M6.30): a dedicated read of planning_layers'
+  // aqma rows, carrying the declaring authority no other
+  // layer serves. Independent of the PCM square — an air
+  // not-filed section can still carry a served AQMA
+  // block and vice versa.
+  aqmaFacts(latitude: number, longitude: number): Promise<AqmaFacts>;
   noiseRows(postcode: string): Promise<NoiseFacts>;
   benefits(lsoaCode: string): Promise<BenefitsFacts>;
   solarCell(cellRef: string): Promise<SolarFacts>;
@@ -4216,9 +4260,160 @@ export interface AirSection extends AreaSectionMeta {
   // of the M6.29 prep; identity-proven in the short
   // suite).
   yardsticks: AirYardsticks | null;
+  // Report depth only (M6.30, decision D59): present
+  // always, in both arms — the AQMA facts are
+  // independent of the PCM square, so the block is
+  // composed from its own facts read and attached
+  // whether or not the air section itself is filed.
+  // The headline projection never picks it, exactly as
+  // with the yardsticks (identity-proven in the short
+  // suite).
+  aqma: AirAqmaBlock;
 }
 
-function buildAir(facts: AirFacts | null): AirSection {
+// ------------------------------------------------------------------
+// Air Quality Management Areas — the declared-area fact
+// for the postcode point, from the filed UK-wide set
+// (M6.30, decision D59). The boundaries file carries
+// no per-area dates, so the block carries the DATASET
+// EDITION date; the register pages that hold per-area
+// dates are never read (the house files published
+// downloads). Distances are boundary distances on the
+// bundle's existing basis: PostGIS geography distance
+// from the point to the polygon IS the distance to its
+// nearest boundary point, and the nearest line says so
+// in words and carries the D22 label.
+// ------------------------------------------------------------------
+
+export interface AirAqmaBlock {
+  state: "inside" | "nearest" | "none" | "not-filed";
+  // The state line (the not-filed state: the D30
+  // two-part line).
+  line: string;
+  // The D13 designation line; null when not-filed.
+  basisLine: string | null;
+  name: string | null;
+  authority: string | null;
+  // The pollutant words, composed in the brain from
+  // the filed codes.
+  pollutants: string[] | null;
+  // Nearest only, 2dp — the boundary distance.
+  miles: number | null;
+  filedCount: number | null;
+  sourceName: string | null;
+  sourceDate: string | null;
+}
+
+const AQMA_BASIS_LINE =
+  "An Air Quality Management Area is an area a council has declared because the national air quality objectives are not being met there, or are not likely to be met. The council must publish an action plan for improving air quality in the area. It is a management designation for the area: it is not a measurement of the air at this home, and it does not say what the air at this home is like.";
+
+const AQMA_POLLUTANT_WORDS: Record<string, string> = {
+  NO2: "nitrogen dioxide (NO2)",
+  PM10: "particulate matter (PM10)",
+  SO2: "sulphur dioxide (SO2)",
+  BENZENE: "benzene (C6H6)",
+};
+
+const AQMA_MONTH_NAMES = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+function aqmaEditionInWords(sourceDate: string | null): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(sourceDate ?? "");
+  if (!match) return sourceDate ?? "";
+  return `${Number(match[3])} ${AQMA_MONTH_NAMES[Number(match[2]) - 1]} ${match[1]}`;
+}
+
+function joinWords(words: string[]): string {
+  if (words.length <= 1) return words.join("");
+  if (words.length === 2) return `${words[0]} and ${words[1]}`;
+  return `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}`;
+}
+
+function aqmaPollutantWords(detail: string | null): string[] {
+  if (!detail) return [];
+  return detail
+    .split(";")
+    .map((code) => code.trim())
+    .filter((code) => code !== "")
+    .map((code) => AQMA_POLLUTANT_WORDS[code] ?? code);
+}
+
+function buildAqma(facts: AqmaFacts): AirAqmaBlock {
+  const base: AirAqmaBlock = {
+    state: "not-filed",
+    line: "",
+    basisLine: null,
+    name: null,
+    authority: null,
+    pollutants: null,
+    miles: null,
+    filedCount: null,
+    sourceName: null,
+    sourceDate: null,
+  };
+  // No filing, no answer: an empty layer can prove
+  // nothing, so its absence wordings are never served
+  // from it. The not-filed sentence is the bundle's one
+  // two-part form (M6.9, decision D30).
+  if (facts.filedCount <= 0) {
+    return {
+      ...base,
+      line: "Air Quality Management Area — the Air Quality Management Area data is not filed yet, so no Air Quality Management Area answer can be given yet",
+    };
+  }
+  const filed = {
+    ...base,
+    basisLine: AQMA_BASIS_LINE,
+    filedCount: facts.filedCount,
+    sourceName: facts.sourceName,
+    sourceDate: facts.sourceDate,
+  };
+  const covering = facts.covering[0] ?? null;
+  if (covering) {
+    const pollutants = aqmaPollutantWords(covering.detail);
+    return {
+      ...filed,
+      state: "inside",
+      line: `This postcode point falls inside the ${covering.name}, declared by ${covering.authority} for ${joinWords(pollutants)}.`,
+      name: covering.name,
+      authority: covering.authority,
+      pollutants,
+    };
+  }
+  if (facts.nearestWithin) {
+    const nearest = facts.nearestWithin;
+    const pollutants = aqmaPollutantWords(nearest.detail);
+    const miles = Math.round(nearest.miles * 100) / 100;
+    return {
+      ...filed,
+      state: "nearest",
+      line: `This postcode point is not inside an Air Quality Management Area. The nearest is the ${nearest.name} (${nearest.authority}), declared for ${joinWords(pollutants)}: its nearest boundary is ${miles.toFixed(2)} miles from the postcode point (straight-line distance from the postcode point).`,
+      name: nearest.name,
+      authority: nearest.authority,
+      pollutants,
+      miles,
+    };
+  }
+  return {
+    ...filed,
+    state: "none",
+    line: `No Air Quality Management Area covers this postcode point, and none comes within 2 miles of it. This was checked against the complete filed set of ${facts.filedCount} declared areas (Defra UK-AIR, edition ${aqmaEditionInWords(facts.sourceDate)}).`,
+  };
+}
+
+function buildAir(facts: AirFacts | null, aqmaFacts: AqmaFacts): AirSection {
   const meta = {
     // Headline depth via headlineFigure only (the NO2
     // figure); the full three-pollutant table is report
@@ -4244,6 +4439,7 @@ function buildAir(facts: AirFacts | null): AirSection {
       unit: "µg/m³",
       headlineFigure: null,
       yardsticks: null,
+      aqma: buildAqma(aqmaFacts),
     };
   }
   return {
@@ -4264,6 +4460,7 @@ function buildAir(facts: AirFacts | null): AirSection {
       line: `modelled NO2 ${facts.no2} µg/m³ (annual mean, ${facts.year})`,
     },
     yardsticks: buildAirYardsticks(facts),
+    aqma: buildAqma(aqmaFacts),
   };
 }
 
@@ -5026,6 +5223,7 @@ export async function buildAreaBundle(
     censusFacts,
     imdFacts,
     airFacts,
+    aqmaFactsValue,
     noiseFacts,
     benefitsFacts,
     solarFacts,
@@ -5057,6 +5255,7 @@ export async function buildAreaBundle(
       ? source.imdRow(resolution.directory.lsoaCode)
       : Promise.resolve(null),
     source.airSquare(latitude, longitude),
+    source.aqmaFacts(latitude, longitude),
     source.noiseRows(postcode),
     resolution.directory.lsoaCode
       ? source.benefits(resolution.directory.lsoaCode)
@@ -5116,7 +5315,7 @@ export async function buildAreaBundle(
       buildingSafety: buildBuildingSafety(resolution, tribunalFactsValue, nation),
       census: buildCensus(censusFacts, resolution.directory.msoaCode, nation),
       imd: buildImd(imdFacts, resolution.directory.lsoaCode, nation),
-      air: buildAir(airFacts),
+      air: buildAir(airFacts, aqmaFactsValue),
       noise: buildNoise(noiseFacts, nation),
       benefits: buildBenefits(benefitsFacts, resolution.directory.lsoaCode, nation),
       solar: buildSolar(solarFacts),
@@ -5346,6 +5545,61 @@ export function createAreaSource(
 
   return {
     planningLayerFacts: layerFacts,
+
+    // The AQMA read (M6.30): the layerFacts predicates
+    // over planning_layers' aqma rows, selecting the
+    // declaring authority (organisation) no other layer
+    // serves. No beyond-radius read — the none state
+    // names no distance, so nothing beyond 2 miles is
+    // ever measured.
+    async aqmaFacts(latitude, longitude) {
+      const edition = await db.query(
+        "SELECT source_name, source_date::text AS source_date FROM planning_layers WHERE constraint_type = 'aqma' LIMIT 1",
+      );
+      const { rows: countRows } = await db.query(
+        "SELECT count(*)::int AS n FROM planning_layers WHERE constraint_type = 'aqma'",
+      );
+      const filedCount = Number(countRows[0]?.n ?? 0);
+      const sourceName = (edition.rows[0]?.source_name as string | null) ?? null;
+      const sourceDate = (edition.rows[0]?.source_date as string | null) ?? null;
+      if (filedCount <= 0) {
+        return { filedCount, covering: [], nearestWithin: null, sourceName, sourceDate };
+      }
+      const { rows: coveringRows } = await db.query(
+        `SELECT name, organisation, detail FROM planning_layers
+         WHERE constraint_type = 'aqma' AND ST_Covers(geom, ${point12})
+         ORDER BY name`,
+        [longitude, latitude],
+      );
+      const covering = coveringRows.map((row) => ({
+        name: (row.name as string | null) ?? null,
+        authority: (row.organisation as string | null) ?? null,
+        detail: (row.detail as string | null) ?? null,
+      }));
+      let nearestWithin: AqmaNearestRow | null = null;
+      if (covering.length === 0) {
+        const metres = RADIUS_MILES * METRES_PER_MILE;
+        const { rows } = await db.query(
+          `SELECT name, organisation, detail,
+                  ST_Distance(geom::geography, ${point12}::geography) / ${METRES_PER_MILE} AS miles
+           FROM planning_layers
+           WHERE constraint_type = 'aqma' AND ST_DWithin(geom, ${point12}, $3)
+           ORDER BY ST_Distance(geom::geography, ${point12}::geography)
+           LIMIT 1`,
+          [longitude, latitude, degreeRadius(metres, latitude)],
+        );
+        const row = rows[0];
+        if (row && Number(row.miles) <= RADIUS_MILES) {
+          nearestWithin = {
+            name: (row.name as string | null) ?? null,
+            authority: (row.organisation as string | null) ?? null,
+            detail: (row.detail as string | null) ?? null,
+            miles: Number(row.miles),
+          };
+        }
+      }
+      return { filedCount, covering, nearestWithin, sourceName, sourceDate };
+    },
 
     async designationFacts(latitude, longitude) {
       const types = Object.keys(DESIGNATION_LABELS) as DesignationKind[];

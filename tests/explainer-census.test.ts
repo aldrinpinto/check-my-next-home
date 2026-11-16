@@ -359,6 +359,24 @@ class CensusAreaSource implements AreaDataSource {
       sourceDate: "2025-06-30",
     };
   }
+  async aqmaFacts() {
+    // A filed nearest-state block on every census
+    // bundle: the walk must classify the block's figure
+    // leaves (miles, filedCount) and direction one must
+    // find the family's line (row 86, area.air.aqma).
+    return {
+      filedCount: 374,
+      covering: [],
+      nearestWithin: {
+        name: "Sutton AQMA",
+        authority: "London Borough of Sutton",
+        detail: "NO2; PM10",
+        miles: 0.929,
+      },
+      sourceName: "Defra UK-AIR — Air Quality Management Areas",
+      sourceDate: "2026-10-20",
+    };
+  }
   async noiseRows() {
     return {
       filedCount: 100,
@@ -689,13 +707,13 @@ type Golden = Awaited<ReturnType<typeof goldenBundles>>;
 // ------------------------------------------------------------------
 
 describe("explainer census — the register", () => {
-  it("enumerates the census: 85 families (71 to M6.20, rows 72–75 added at M6.21, rows 76–78 at M6.22, row 79 at M6.25, row 80 at M6.26, rows 81–82 at M6.27, rows 83–84 at M6.28, row 85 at M6.29), 52 hard, ids unique and stable in row order", () => {
-    expect(EXPLAINER_CENSUS).toHaveLength(85);
+  it("enumerates the census: 86 families (71 to M6.20, rows 72–75 added at M6.21, rows 76–78 at M6.22, row 79 at M6.25, row 80 at M6.26, rows 81–82 at M6.27, rows 83–84 at M6.28, row 85 at M6.29, row 86 at M6.30), 53 hard, ids unique and stable in row order", () => {
+    expect(EXPLAINER_CENSUS).toHaveLength(86);
     expect(EXPLAINER_CENSUS.map((entry) => entry.row)).toEqual(
-      Array.from({ length: 85 }, (_, i) => i + 1),
+      Array.from({ length: 86 }, (_, i) => i + 1),
     );
-    expect(new Set(EXPLAINER_CENSUS.map((entry) => entry.id)).size).toBe(85);
-    expect(EXPLAINER_CENSUS.filter((entry) => entry.hardness === "hard")).toHaveLength(52);
+    expect(new Set(EXPLAINER_CENSUS.map((entry) => entry.id)).size).toBe(86);
+    expect(EXPLAINER_CENSUS.filter((entry) => entry.hardness === "hard")).toHaveLength(53);
     // Every figure-path pattern names census ids that exist.
     const ids = new Set(EXPLAINER_CENSUS.map((entry) => entry.id));
     for (const { censusIds } of FIGURE_PATH_PATTERNS)
@@ -831,6 +849,7 @@ const HARD_LINES: Record<string, (b: Golden) => unknown> = {
     b.area.sections.air.state === "served"
       ? b.area.sections.air.yardsticks?.pollutants.map((p) => p.yardstickLine)
       : null,
+  "area.air.aqma": (b) => b.area.sections.air.aqma.basisLine,
 };
 
 describe("explainer census — direction one (hard ⇒ line present, both depths)", () => {

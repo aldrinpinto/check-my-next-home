@@ -2187,3 +2187,55 @@ hot water) — as a per-certificate block at report depth.
    postcode; the brain always emits the construction
    key on a served certificate (the block, or null for
    a pre-widening artefact).
+
+## Air Quality Management Areas (M6.30, decision D59)
+
+The air section gains the `aqma` block at report depth:
+the declared Air Quality Management Areas from Defra
+UK-AIR (Ricardo's service, edition 2026-10-20 — 374 areas
+UK-wide: England 310, Wales 32, Scotland 14, Northern
+Ireland 18), filed into `planning_layers` as
+`constraint_type='aqma'` by the quarterly `load-aqma`.
+The file publishes no per-area dates, so the block's
+source line carries the dataset edition date and nothing
+else is dated. Distances are boundary distances on the
+D22 basis; only the nearest area within 2 miles is ever
+named.
+
+1. **The filing (pinned).** Keyed on AQMA_REF; name,
+   declaring authority and the declared pollutant codes
+   (register order NO2, PM10, SO2, BENZENE) filed per
+   area; the nation derives from the first letter of
+   LA_ONS_ID. The fail-closed contract: total within
+   ±10% of the 374 snapshot (337–411) and nation floors
+   England ≥200, Wales ≥10, Scotland ≥5, Northern
+   Ireland ≥5, plus per-feature checks — a breach
+   refuses the filing and keeps the last good copy.
+   Filing is a single-edition swap, so a revoked area
+   leaves the table (witnessed by the edition-B fixture
+   cut without Sutton AQMA, ref 1545).
+2. **The goldens (edition 2026-10-20).** Birkdale —
+   none within 2 miles (nearest MDC AQMA No.1 at
+   4.301); Exeter — inside "Newham AQMA (No. 2)",
+   London Borough of Newham, nitrogen dioxide (NO2)
+   and particulate matter (PM10); Minerva — nearest
+   Sutton AQMA (London Borough of Sutton) at 0.929 on
+   the golden-check basis (Kingston upon Thames AQMA
+   second at 1.999, inside the radius, never served);
+   Cardiff — nearest Cardiff City Centre AQMA at 0.883;
+   Edinburgh EH1 1AA — inside "AQMA No. 1 City Centre"
+   (ref 69, Edinburgh City Council), the Scottish inside
+   witness. Where several areas cover the point, only
+   the first by covering order is named.
+3. **Contracts.** Eight area pins moved (the added
+   `sections.air.aqma` key, not-filed form); no short
+   pin moved; 48 pins stand, with the re-pin record in
+   tests/bundle-contracts.test.ts. The explainer census
+   gains row 86 (area.air.aqma, hard): 86 families / 53
+   hard. The cache gains the `load-aqma` dependency and
+   the `aqmaFiled` guard (the priorityHabitats
+   pattern), plus the M6.25-pattern shapeOk presence
+   rule for the `aqma` key — the area version vector
+   has no planning component. The headline and the
+   short bundle are unchanged, proven by an identity
+   test (Exeter inside vs not-filed deep-equal).

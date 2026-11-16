@@ -5,6 +5,18 @@
     "rung": "number",
     "sections": {
       "air": {
+        "aqma": {
+          "authority": "null",
+          "basisLine": "null",
+          "filedCount": "null",
+          "line": "string",
+          "miles": "null",
+          "name": "null",
+          "pollutants": "null",
+          "sourceDate": "null",
+          "sourceName": "null",
+          "state": "string"
+        },
         "depth": "string",
         "explainer": "string",
         "grain": "string",
@@ -752,6 +764,18 @@
     "rung": "number",
     "sections": {
       "air": {
+        "aqma": {
+          "authority": "null",
+          "basisLine": "null",
+          "filedCount": "null",
+          "line": "string",
+          "miles": "null",
+          "name": "null",
+          "pollutants": "null",
+          "sourceDate": "null",
+          "sourceName": "null",
+          "state": "string"
+        },
         "depth": "string",
         "explainer": "string",
         "grain": "string",
@@ -1536,6 +1560,18 @@
     "rung": "number",
     "sections": {
       "air": {
+        "aqma": {
+          "authority": "null",
+          "basisLine": "null",
+          "filedCount": "null",
+          "line": "string",
+          "miles": "null",
+          "name": "null",
+          "pollutants": "null",
+          "sourceDate": "null",
+          "sourceName": "null",
+          "state": "string"
+        },
         "depth": "string",
         "explainer": "string",
         "grain": "string",
@@ -2283,6 +2319,18 @@
     "rung": "number",
     "sections": {
       "air": {
+        "aqma": {
+          "authority": "null",
+          "basisLine": "null",
+          "filedCount": "null",
+          "line": "string",
+          "miles": "null",
+          "name": "null",
+          "pollutants": "null",
+          "sourceDate": "null",
+          "sourceName": "null",
+          "state": "string"
+        },
         "depth": "string",
         "explainer": "string",
         "grain": "string",
@@ -2729,6 +2777,18 @@
     "rung": "number",
     "sections": {
       "air": {
+        "aqma": {
+          "authority": "null",
+          "basisLine": "null",
+          "filedCount": "null",
+          "line": "string",
+          "miles": "null",
+          "name": "null",
+          "pollutants": "null",
+          "sourceDate": "null",
+          "sourceName": "null",
+          "state": "string"
+        },
         "depth": "string",
         "explainer": "string",
         "grain": "string",
@@ -3498,6 +3558,18 @@
     "rung": "number",
     "sections": {
       "air": {
+        "aqma": {
+          "authority": "null",
+          "basisLine": "null",
+          "filedCount": "null",
+          "line": "string",
+          "miles": "null",
+          "name": "null",
+          "pollutants": "null",
+          "sourceDate": "null",
+          "sourceName": "null",
+          "state": "string"
+        },
         "depth": "string",
         "explainer": "string",
         "grain": "string",
@@ -4065,6 +4137,18 @@
     "rung": "number",
     "sections": {
       "air": {
+        "aqma": {
+          "authority": "null",
+          "basisLine": "null",
+          "filedCount": "null",
+          "line": "string",
+          "miles": "null",
+          "name": "null",
+          "pollutants": "null",
+          "sourceDate": "null",
+          "sourceName": "null",
+          "state": "string"
+        },
         "depth": "string",
         "explainer": "string",
         "grain": "string",
@@ -4850,6 +4934,18 @@
     "rung": "number",
     "sections": {
       "air": {
+        "aqma": {
+          "authority": "null",
+          "basisLine": "null",
+          "filedCount": "null",
+          "line": "string",
+          "miles": "null",
+          "name": "null",
+          "pollutants": "null",
+          "sourceDate": "null",
+          "sourceName": "null",
+          "state": "string"
+        },
         "depth": "string",
         "explainer": "string",
         "grain": "string",

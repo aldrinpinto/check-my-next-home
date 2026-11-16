@@ -28,6 +28,12 @@ import {
   fetchDiscovery as fetchUcDiscovery,
   monthsBetween as ucMonthsBetween,
 } from "./load-dwp-uc.mjs";
+import {
+  BAND_HIGH as AQMA_BAND_HIGH,
+  BAND_LOW as AQMA_BAND_LOW,
+  NATION_NAMES as AQMA_NATION_NAMES,
+  parseEdition as parseAqmaEdition,
+} from "./load-aqma.mjs";
 
 const MONTHS = {
   January: "01",
@@ -1846,6 +1852,87 @@ export function probeDefraPcm() {
   })();
 }
 
+// Air Quality Management Areas (plan step M6.30): the
+// Ricardo ArcGIS service for Defra UK-AIR, layer 0 "All
+// pollutants" — the loader's own source. One probe reads
+// the service description (the edition date, parsed by
+// the loader's own parser), the layer-0 count, and the
+// LA_ONS_ID census (no geometry — 374 tiny rows).
+// Verdicts, per the step's prep: healthy; WARN when the
+// edition is more than ~200 days old (the flood freshness
+// pattern — a revocation can sit in the register until
+// UK-AIR republishes, and the warn bounds the lag), when
+// the count leaves the loader's ±10% band, or when any
+// nation is missing from the file; FAILED when the
+// service does not answer after the standard retry or
+// the edition cannot be parsed. The loader's contract
+// (band + per-nation floors, enforced at filing) remains
+// the authority — the probe warns early, it never blocks.
+const AQMA_SERVICE_BASE =
+  "https://ukair.maps.rcdo.co.uk/ukairserver/rest/services/AQMA/aqma_boundaries/MapServer";
+
+export function probeAqma() {
+  return (async () => {
+    const metaResponse = await fetchRetry(`${AQMA_SERVICE_BASE}?f=json`);
+    if (!metaResponse.ok)
+      throw new Error(`HTTP ${metaResponse.status} for the AQMA service metadata`);
+    const meta = await metaResponse.json();
+    assertNoErrorEnvelope(meta, "the AQMA service metadata");
+    const edition = parseAqmaEdition(meta);
+    const countParams = new URLSearchParams({
+      where: "1=1",
+      returnCountOnly: "true",
+      f: "json",
+    });
+    const countResponse = await fetchRetry(`${AQMA_SERVICE_BASE}/0/query?${countParams}`);
+    if (!countResponse.ok) throw new Error(`HTTP ${countResponse.status} for the AQMA count`);
+    const countBody = await countResponse.json();
+    assertNoErrorEnvelope(countBody, "the AQMA count");
+    if (typeof countBody.count !== "number")
+      throw new Error("the AQMA count response changed shape");
+    const censusParams = new URLSearchParams({
+      where: "1=1",
+      outFields: "LA_ONS_ID",
+      returnGeometry: "false",
+      resultRecordCount: "2000",
+      f: "json",
+    });
+    const censusResponse = await fetchRetry(`${AQMA_SERVICE_BASE}/0/query?${censusParams}`);
+    if (!censusResponse.ok) throw new Error(`HTTP ${censusResponse.status} for the AQMA census`);
+    const censusBody = await censusResponse.json();
+    assertNoErrorEnvelope(censusBody, "the AQMA census");
+    const perNation = { E: 0, W: 0, S: 0, N: 0 };
+    for (const feature of censusBody.features ?? []) {
+      const letter = (feature.attributes?.LA_ONS_ID ?? "").charAt(0);
+      if (letter in perNation) perNation[letter] += 1;
+    }
+    const censusLine = Object.entries(perNation)
+      .map(([letter, n]) => `${AQMA_NATION_NAMES[letter]} ${n}`)
+      .join(" · ");
+    const base = `canary aqma · ${countBody.count} areas · edition ${edition} · ${censusLine}`;
+    const warnings = [];
+    const age = Math.floor(ageDays(edition));
+    if (age > 200)
+      warnings.push(
+        `edition is ${age} days old — beyond the ~200-day ambition (warn-only: declarations and revocations land in the GIS file only when UK-AIR republishes it)`,
+      );
+    if (countBody.count < AQMA_BAND_LOW || countBody.count > AQMA_BAND_HIGH)
+      warnings.push(
+        `the count is outside the loader's band ${AQMA_BAND_LOW}–${AQMA_BAND_HIGH} — the next filing would refuse it`,
+      );
+    const missing = Object.entries(perNation)
+      .filter(([, n]) => n === 0)
+      .map(([letter]) => AQMA_NATION_NAMES[letter]);
+    if (missing.length > 0)
+      warnings.push(
+        `no areas file for ${missing.join(", ")} — the loader's coverage contract would refuse the edition`,
+      );
+    if (warnings.length > 0)
+      return { warning: true, logLine: `${base} · ${warnings.join(" · ")}`, sourceDate: edition };
+    return { logLine: base, sourceDate: edition };
+  })();
+}
+
 // Noise (plan step M5.9): Defra Round 4 services on the Data
 // Services Platform. Arms: all three services still offer their
 // Lday/Lnight layers; and one golden point sample — Birkdale's
@@ -2032,6 +2119,7 @@ export async function runCanaryProbes() {
   await run("stat-xplore-uc", probeStatXploreUc);
   await run("govuk-iod", probeGovukIod);
   await run("defra-pcm", probeDefraPcm);
+  await run("aqma", probeAqma);
   await run("defra-noise", probeDefraNoise);
   await run("ofcom-broadband", () => probeOfcom("broadband"));
   await run("ofcom-mobile", () => probeOfcom("mobile"));

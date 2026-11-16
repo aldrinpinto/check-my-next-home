@@ -5,6 +5,7 @@ import type { AddressResolution, DirectoryPostcode, ResolvedAddress } from "../l
 import {
   buildAreaBundle,
   projectHeadline,
+  type AqmaFacts,
   type AreaDataSource,
   type BroadbandAnswerFacts,
   type CensusFacts,
@@ -1146,6 +1147,7 @@ interface HomeFacts {
     typesWithin: string[];
   };
   air?: { year: number; no2: number; pm25: number; pm10: number } | null;
+  aqma?: AqmaFacts;
   solar?: { gridFiledCount: number; cell: Record<string, unknown> | null };
 }
 
@@ -1210,6 +1212,13 @@ FACTS.set(keyOf(BIRKDALE_DIR.latitude, BIRKDALE_DIR.longitude), {
   ),
   phi: { filedCount: 0, nearest: null, typesWithin: [] },
   air: { year: 2024, no2: 8.150298, pm25: 7.124671, pm10: 12.54823 },
+  aqma: {
+    filedCount: 374,
+    covering: [],
+    nearestWithin: null,
+    sourceName: "Defra UK-AIR — Air Quality Management Areas",
+    sourceDate: "2026-10-20",
+  },
   solar: { gridFiledCount: 3, cell: solarCell("51.75,0.65", 1057.65, 1336.65) },
 });
 
@@ -1271,6 +1280,15 @@ FACTS.set(keyOf(EXETER_DIR.latitude, EXETER_DIR.longitude), {
   ),
   phi: { filedCount: 0, nearest: null, typesWithin: [] },
   air: { year: 2024, no2: 21.71409, pm25: 9.939679, pm10: 16.97423 },
+  aqma: {
+    filedCount: 374,
+    covering: [
+      { name: "Newham AQMA (No. 2)", authority: "London Borough of Newham", detail: "NO2; PM10" },
+    ],
+    nearestWithin: null,
+    sourceName: "Defra UK-AIR — Air Quality Management Areas",
+    sourceDate: "2026-10-20",
+  },
   solar: { gridFiledCount: 3, cell: solarCell("51.55,0.05", 1009.96, 1289.44) },
 });
 
@@ -1320,6 +1338,18 @@ FACTS.set(keyOf(MINERVA_DIR.latitude, MINERVA_DIR.longitude), {
   ),
   phi: { filedCount: 0, nearest: null, typesWithin: [] },
   air: { year: 2024, no2: 12.49256, pm25: 7.868347, pm10: 12.10357 },
+  aqma: {
+    filedCount: 374,
+    covering: [],
+    nearestWithin: {
+      name: "Sutton AQMA",
+      authority: "London Borough of Sutton",
+      detail: "NO2; PM10",
+      miles: 0.929,
+    },
+    sourceName: "Defra UK-AIR — Air Quality Management Areas",
+    sourceDate: "2026-10-20",
+  },
   solar: { gridFiledCount: 3, cell: solarCell("51.35,-0.25", 991.49, 1264.87) },
 });
 
@@ -1838,6 +1868,18 @@ class FakeAreaSource implements AreaDataSource {
       sourceName: "Defra — Pollution Climate Mapping (PCM)",
       sourceDate: "2025-06-30",
     };
+  }
+
+  async aqmaFacts(latitude: number, longitude: number) {
+    return (
+      this.facts(latitude, longitude).aqma ?? {
+        filedCount: 0,
+        covering: [],
+        nearestWithin: null,
+        sourceName: null,
+        sourceDate: null,
+      }
+    );
   }
 
   async noiseRows(postcode: string) {
@@ -2447,6 +2489,65 @@ describe("short bundle — 19 Birkdale Rise, CM3 2JT (rung 1)", () => {
     expect(headlineSerialised).not.toContain("yardstick");
     expect(headlineSerialised).not.toContain("WHO guideline");
     expect(headlineSerialised).not.toContain("legal limit");
+  });
+
+  it("area: the M6.30 AQMA block leaves the short bundle and the headline projection untouched", async () => {
+    // Air Quality Management Areas are report depth
+    // (D59); the headline projection picks air as exactly
+    // {state, headlineFigure, line}, and the short bundle
+    // derives its air section from that projection — the
+    // aqma key is never picked, so it cannot reach
+    // headline depth. The proof is identity, not
+    // inspection, on the strongest case: Exeter, whose
+    // point falls INSIDE a filed area, so the full bundle
+    // carries the area's name, authority and pollutant
+    // words.
+    const inputs = await fullBundles(EXETER);
+    if (inputs.area.kind !== "area-bundle") throw new Error("expected an area bundle");
+    // The block must actually be present, and served, for
+    // the identity to prove anything.
+    expect(inputs.area.sections.air.aqma.state).toBe("inside");
+    expect(inputs.area.sections.air.aqma.name).toBe("Newham AQMA (No. 2)");
+    const withBlock = buildShortBundle(inputs);
+    const withoutBlock = buildShortBundle({
+      ...inputs,
+      area: {
+        ...inputs.area,
+        sections: {
+          ...inputs.area.sections,
+          air: {
+            ...inputs.area.sections.air,
+            aqma: {
+              state: "not-filed" as const,
+              line: "Air Quality Management Area — the Air Quality Management Area data is not filed yet, so no Air Quality Management Area answer can be given yet",
+              basisLine: null,
+              name: null,
+              authority: null,
+              pollutants: null,
+              miles: null,
+              filedCount: null,
+              sourceName: null,
+              sourceDate: null,
+            },
+          },
+        },
+      },
+    });
+    expect(withBlock).toEqual(withoutBlock);
+    const serialised = JSON.stringify(servedShort(withBlock));
+    expect(serialised).not.toContain("Air Quality Management Area");
+    expect(serialised).not.toContain("AQMA");
+    // The block's own name marker — "Newham" alone is
+    // legitimate short-bundle content (the council-tax
+    // authority), the AQMA's name is not.
+    expect(serialised).not.toContain("Newham AQMA");
+    const headline = projectHeadline(inputs.area);
+    if (!headline) throw new Error("expected a headline projection");
+    expect(Object.keys(headline.air).sort()).toEqual(["headlineFigure", "line", "state"]);
+    const headlineSerialised = JSON.stringify(headline);
+    expect(headlineSerialised).not.toContain("Air Quality Management Area");
+    expect(headlineSerialised).not.toContain("AQMA");
+    expect(headlineSerialised).not.toContain("Newham AQMA");
   });
 
   it("area sections: EPC band, the council-tax line with its correction, NO2, road noise", async () => {

@@ -1460,6 +1460,15 @@ class MatrixAreaSource implements AreaDataSource {
   async airSquare() {
     return this.air;
   }
+  async aqmaFacts() {
+    return {
+      filedCount: 0,
+      covering: [],
+      nearestWithin: null,
+      sourceName: null,
+      sourceDate: null,
+    };
+  }
   async noiseRows() {
     return this.noise;
   }

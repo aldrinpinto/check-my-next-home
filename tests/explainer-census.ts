@@ -1100,6 +1100,20 @@ export const EXPLAINER_CENSUS: CensusEntry[] = [
     "sections.air.yardsticks.pollutants[].yardstickLine",
     "D50/D57: at report depth each air figure's position against the two yardsticks serves beside it — the yardstick line names both yardsticks with owner and statistic (the UK legal limit under the Air Quality Standards Regulations 2010 as amended; the World Health Organization's 2021 guideline — always a guideline, never a limit), the summary line carries the position in the pinned forms, and the block's basis line carries the not-a-compliance-finding basis: whether a legal limit is met is decided for whole zones, never from one square's modelled figure and never for an individual home. The PM2.5 statutory target (10 by 2040) is never substituted for the limit. Report depth only — the short bundle's derivation never reads the field.",
   ),
+  // M6.30 (decision D59) — the Air Quality Management
+  // Areas block, row 86.
+  e(
+    86,
+    "area.air.aqma",
+    "area",
+    "air",
+    "AQMA status (inside area name and authority / nearest boundary distance / filed-set count in the none line)",
+    "hard",
+    ["full"],
+    "line-embedded",
+    "sections.air.aqma",
+    "D59: the declared-area fact for the postcode point serves with its D13 basis line — what an AQMA is, that the council must publish an action plan, and that the designation is not a measurement of the air at the home. The boundaries file carries no per-area dates, so the block carries the dataset edition date (the register pages that hold per-area dates are never read); the nearest figure is a boundary distance on the D22 basis, named as such in its line; the none line's completeness claim is exactly what the loader's coverage contract (total band + per-nation floors over one UK-wide file) enforces. Report depth only — the headline projection never picks the block.",
+  ),
 ];
 
 // ------------------------------------------------------------------
@@ -1224,6 +1238,10 @@ export const FIGURE_PATH_PATTERNS: FigurePathPattern[] = [
     "area\\.sections\\.air\\.yardsticks\\.pollutants\\[\\]\\.(value|ukLimit|whoGuideline)",
     "area.air.yardsticks",
   ),
+  // M6.30 figures — the AQMA block (row 86): the nearest
+  // boundary distance and the filed-set count the none
+  // line carries.
+  p("area\\.sections\\.air\\.aqma\\.(miles|filedCount)", "area.air.aqma"),
   p("area\\.sections\\.benefits\\.series\\[\\]\\.count", "area.benefits.series-counts"),
   p("area\\.sections\\.benefits\\.series\\[\\]\\.pct", "area.benefits.claimant-pct"),
   p("area\\.sections\\.benefits\\.bases\\.(residents|households)", "area.benefits.bases"),
@@ -1409,6 +1427,11 @@ export const NOT_A_FIGURE_ALLOWLIST: RegExp[] = [
   // lines are the census family (area.air.yardsticks),
   // asserted in direction one.
   /^area\.sections\.air\.yardsticks\.pollutants\[\]\.position$/,
+  // The AQMA declared-pollutant words (M6.30): the
+  // filed codes composed into words in the brain — the
+  // names of what was declared for the area, in the
+  // name/label class, not figures.
+  /^area\.sections\.air\.aqma\.pollutants\[\]$/,
   // The resolution's own address parts and counts of
   // addresses (the census row 1 watch: not brain figures).
   /^address\./,

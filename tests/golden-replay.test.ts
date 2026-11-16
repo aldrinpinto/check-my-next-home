@@ -783,6 +783,43 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
     }
   });
 
+  it("AQMA (M6.30, D59): the three states serve through the real source on the fixture filing", () => {
+    const area = (tag: string) => {
+      const a = get(tag).area;
+      if (a.kind !== "area-bundle") throw new Error(`${tag}: expected an area bundle`);
+      return a.sections;
+    };
+    // The replay world files the fixture cut: 72 areas,
+    // edition 2026-10-20. The states are the prep's
+    // goldens; Minerva's distance is the PostGIS geography
+    // figure, locked here on first CI proof (the
+    // golden-check basis measured 0.929).
+    const birkdale = area("birkdale1");
+    expect(birkdale.air.aqma.state).toBe("none");
+    expect(birkdale.air.aqma.filedCount).toBe(72);
+    expect(birkdale.air.aqma.line).toContain(
+      "complete filed set of 72 declared areas (Defra UK-AIR, edition 20 October 2026)",
+    );
+
+    const exeter = area("exeter1");
+    expect(exeter.air.aqma.state).toBe("inside");
+    expect(exeter.air.aqma.name).toBe("Newham AQMA (No. 2)");
+    expect(exeter.air.aqma.authority).toBe("London Borough of Newham");
+    expect(exeter.air.aqma.pollutants).toEqual([
+      "nitrogen dioxide (NO2)",
+      "particulate matter (PM10)",
+    ]);
+    expect(exeter.air.aqma.sourceDate).toBe("2026-10-20");
+
+    const minerva = area("minerva1");
+    expect(minerva.air.aqma.state).toBe("nearest");
+    expect(minerva.air.aqma.name).toBe("Sutton AQMA");
+    expect(minerva.air.aqma.authority).toBe("London Borough of Sutton");
+    expect(minerva.air.aqma.miles).not.toBeNull();
+    expect(minerva.air.aqma.miles ?? 0).toBeGreaterThan(0.9);
+    expect(minerva.air.aqma.miles ?? 0).toBeLessThan(0.96);
+  });
+
   it("live flood warnings + school deadlines (M6.22, D42): composition over the real flood source; the deadline line at the regional witnesses", async () => {
     // The two EA alerts captured live at the step's first
     // contact, replayed through the fake warning source

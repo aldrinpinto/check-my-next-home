@@ -12,6 +12,7 @@ import {
   solarCellRef,
   translateArticle4Codes,
   type AreaDataSource,
+  type AqmaFacts,
   type BroadbandAnswerFacts,
   type BrownfieldFacts,
   type CensusFacts,
@@ -245,6 +246,7 @@ interface HomeFacts {
     rows: { sourceKind: string; dayBand: string | null; nightBand: string | null }[];
   };
   air?: { year: number; no2: number; pm25: number; pm10: number } | null;
+  aqma?: AqmaFacts;
   solar?: { gridFiledCount: number; cell: Record<string, unknown> | null };
 }
 
@@ -529,6 +531,18 @@ class FakeAreaSource implements AreaDataSource {
       sourceName: "Defra — Pollution Climate Mapping (PCM)",
       sourceDate: "2025-06-30",
     };
+  }
+
+  async aqmaFacts(latitude: number, longitude: number) {
+    return (
+      this.facts(latitude, longitude).aqma ?? {
+        filedCount: 0,
+        covering: [],
+        nearestWithin: null,
+        sourceName: null,
+        sourceDate: null,
+      }
+    );
   }
 
   async noiseRows(postcode: string) {
@@ -1124,6 +1138,13 @@ FACTS.set(keyOf(BIRKDALE_DIR.latitude, BIRKDALE_DIR.longitude), {
   ),
   phi: { filedCount: 0, nearest: null, typesWithin: [] },
   air: { year: 2024, no2: 8.150298, pm25: 7.124671, pm10: 12.54823 },
+  aqma: {
+    filedCount: 374,
+    covering: [],
+    nearestWithin: null,
+    sourceName: "Defra UK-AIR — Air Quality Management Areas",
+    sourceDate: "2026-10-20",
+  },
   solar: { gridFiledCount: 3, cell: solarCell("51.75,0.65", 1057.65, 1336.65) },
 });
 
@@ -1215,6 +1236,15 @@ FACTS.set(keyOf(EXETER_DIR.latitude, EXETER_DIR.longitude), {
   ),
   phi: { filedCount: 0, nearest: null, typesWithin: [] },
   air: { year: 2024, no2: 21.71409, pm25: 9.939679, pm10: 16.97423 },
+  aqma: {
+    filedCount: 374,
+    covering: [
+      { name: "Newham AQMA (No. 2)", authority: "London Borough of Newham", detail: "NO2; PM10" },
+    ],
+    nearestWithin: null,
+    sourceName: "Defra UK-AIR — Air Quality Management Areas",
+    sourceDate: "2026-10-20",
+  },
   solar: { gridFiledCount: 3, cell: solarCell("51.55,0.05", 1009.96, 1289.44) },
 });
 
@@ -1283,6 +1313,18 @@ FACTS.set(keyOf(MINERVA_DIR.latitude, MINERVA_DIR.longitude), {
   ),
   phi: { filedCount: 0, nearest: null, typesWithin: [] },
   air: { year: 2024, no2: 12.49256, pm25: 7.868347, pm10: 12.10357 },
+  aqma: {
+    filedCount: 374,
+    covering: [],
+    nearestWithin: {
+      name: "Sutton AQMA",
+      authority: "London Borough of Sutton",
+      detail: "NO2; PM10",
+      miles: 0.929,
+    },
+    sourceName: "Defra UK-AIR — Air Quality Management Areas",
+    sourceDate: "2026-10-20",
+  },
   solar: { gridFiledCount: 3, cell: solarCell("51.35,-0.25", 991.49, 1264.87) },
 });
 
@@ -3784,6 +3826,129 @@ describe("air", () => {
     const built = await bundle(BIRKDALE, src);
     expect(built.sections.air.state).toBe("not-filed");
     expect(built.sections.air).toHaveProperty("yardsticks", null);
+  });
+
+  // ---------------------------------------------------------------
+  // Air Quality Management Areas (M6.30, decision D59): the
+  // declared-area fact in the air section, report depth only.
+  // The golden facts are the 2026-10-20 edition's, pinned at
+  // the M6.30 prep and re-verified at build: Exeter inside
+  // the Newham AQMA (No. 2); Minerva's nearest the Sutton
+  // AQMA at 0.929 miles (served 0.93); Birkdale none within
+  // 2 miles against the filed set of 374.
+  // ---------------------------------------------------------------
+
+  const AQMA_BASIS =
+    "An Air Quality Management Area is an area a council has declared because the national air quality objectives are not being met there, or are not likely to be met. The council must publish an action plan for improving air quality in the area. It is a management designation for the area: it is not a measurement of the air at this home, and it does not say what the air at this home is like.";
+
+  it("the AQMA inside state: Exeter serves the Newham AQMA (No. 2) as filed (M6.30)", async () => {
+    const built = await bundle(EXETER);
+    const aqma = built.sections.air.aqma;
+    expect(aqma.state).toBe("inside");
+    expect(aqma.name).toBe("Newham AQMA (No. 2)");
+    expect(aqma.authority).toBe("London Borough of Newham");
+    expect(aqma.pollutants).toEqual(["nitrogen dioxide (NO2)", "particulate matter (PM10)"]);
+    // The prep's template is "declared by {authority}",
+    // the authority verbatim as filed — its Exeter
+    // instance sentence carries an extra "the" the
+    // template does not; the template governs (an
+    // authority like "Buckinghamshire" takes no "the").
+    expect(aqma.line).toBe(
+      "This postcode point falls inside the Newham AQMA (No. 2), declared by London Borough of Newham for nitrogen dioxide (NO2) and particulate matter (PM10).",
+    );
+    expect(aqma.basisLine).toBe(AQMA_BASIS);
+    expect(aqma.miles).toBeNull();
+    expect(aqma.filedCount).toBe(374);
+    expect(aqma.sourceName).toBe("Defra UK-AIR — Air Quality Management Areas");
+    expect(aqma.sourceDate).toBe("2026-10-20");
+  });
+
+  it("the AQMA nearest state: Minerva serves the Sutton AQMA with its boundary distance (M6.30)", async () => {
+    const built = await bundle(MINERVA);
+    const aqma = built.sections.air.aqma;
+    expect(aqma.state).toBe("nearest");
+    expect(aqma.name).toBe("Sutton AQMA");
+    expect(aqma.authority).toBe("London Borough of Sutton");
+    expect(aqma.pollutants).toEqual(["nitrogen dioxide (NO2)", "particulate matter (PM10)"]);
+    expect(aqma.miles).toBe(0.93);
+    expect(aqma.line).toBe(
+      "This postcode point is not inside an Air Quality Management Area. The nearest is the Sutton AQMA (London Borough of Sutton), declared for nitrogen dioxide (NO2) and particulate matter (PM10): its nearest boundary is 0.93 miles from the postcode point (straight-line distance from the postcode point).",
+    );
+    expect(aqma.basisLine).toBe(AQMA_BASIS);
+  });
+
+  it("the AQMA none state: Birkdale's line carries the filed count and the edition in words (M6.30)", async () => {
+    const built = await bundle(BIRKDALE);
+    const aqma = built.sections.air.aqma;
+    expect(aqma.state).toBe("none");
+    expect(aqma.line).toBe(
+      "No Air Quality Management Area covers this postcode point, and none comes within 2 miles of it. This was checked against the complete filed set of 374 declared areas (Defra UK-AIR, edition 20 October 2026).",
+    );
+    expect(aqma.name).toBeNull();
+    expect(aqma.miles).toBeNull();
+    expect(aqma.filedCount).toBe(374);
+    expect(aqma.basisLine).toBe(AQMA_BASIS);
+  });
+
+  it("the AQMA not-filed state: an unfiled layer serves the two-part line and nothing else (M6.30)", async () => {
+    class NoAqmaSource extends FakeAreaSource {
+      async aqmaFacts() {
+        return {
+          filedCount: 0,
+          covering: [],
+          nearestWithin: null,
+          sourceName: null,
+          sourceDate: null,
+        };
+      }
+    }
+    const built = await bundle(EXETER, new NoAqmaSource());
+    const aqma = built.sections.air.aqma;
+    expect(aqma.state).toBe("not-filed");
+    expect(aqma.line).toBe(
+      "Air Quality Management Area — the Air Quality Management Area data is not filed yet, so no Air Quality Management Area answer can be given yet",
+    );
+    expect(aqma.basisLine).toBeNull();
+    expect(aqma.filedCount).toBeNull();
+    expect(aqma.sourceName).toBeNull();
+    expect(aqma.sourceDate).toBeNull();
+  });
+
+  it("the AQMA block is independent of the PCM square, in both directions (M6.30)", async () => {
+    // Air filed, AQMA unfiled is the test above; here the
+    // reverse: no PCM square (SyntheticAirSource with no
+    // synthetic air returns null) still carries Birkdale's
+    // filed AQMA answer.
+    const src = new SyntheticAirSource();
+    const built = await bundle(BIRKDALE, src);
+    expect(built.sections.air.state).toBe("not-filed");
+    expect(built.sections.air.yardsticks).toBeNull();
+    expect(built.sections.air.aqma.state).toBe("none");
+    expect(built.sections.air.aqma.filedCount).toBe(374);
+  });
+
+  it("multiple covering areas serve the first by the covering order, naming only it (M6.30)", async () => {
+    class OverlapSource extends FakeAreaSource {
+      async aqmaFacts() {
+        return {
+          filedCount: 374,
+          covering: [
+            { name: "Alpha AQMA", authority: "Alpha Council", detail: "NO2" },
+            { name: "Beta AQMA", authority: "Beta Council", detail: "PM10" },
+          ],
+          nearestWithin: null,
+          sourceName: "Defra UK-AIR — Air Quality Management Areas",
+          sourceDate: "2026-10-20",
+        };
+      }
+    }
+    const built = await bundle(BIRKDALE, new OverlapSource());
+    const aqma = built.sections.air.aqma;
+    expect(aqma.state).toBe("inside");
+    expect(aqma.name).toBe("Alpha AQMA");
+    expect(aqma.line).toContain("Alpha AQMA");
+    expect(aqma.line).not.toContain("Beta");
+    expect(aqma.pollutants).toEqual(["nitrogen dioxide (NO2)"]);
   });
 });
 

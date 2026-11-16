@@ -196,6 +196,7 @@ export const BRAIN_DEPENDENCIES: Record<CacheBrain, readonly string[]> = {
     "load-heritage",
     "load-brownfield",
     "load-built-up-areas",
+    "load-aqma",
     "load-nature-designations",
     "load-priority-habitats",
     "load-epc",
@@ -374,6 +375,17 @@ const GUARDS: Record<
       priorityHabitats: await countOf(
         db,
         "SELECT count(*)::int AS n FROM planning_layers WHERE constraint_type = 'priority_habitat'",
+      ),
+      // Air Quality Management Areas (M6.30): the same
+      // planning_layers count-by-type guard — the loader's
+      // npm entry point bypasses the runner, so a hand-run
+      // quarterly re-filing (a revocation swap, say) moves
+      // this count even when it moves no stamp, and a
+      // cached not-filed block never survives the first
+      // filing that ends it.
+      aqmaFiled: await countOf(
+        db,
+        "SELECT count(*)::int AS n FROM planning_layers WHERE constraint_type = 'aqma'",
       ),
       listedBuildings: await countOf(db, "SELECT count(*)::int AS n FROM listed_buildings"),
       // Brownfield (M6.21): the loader's npm entry point
@@ -930,6 +942,15 @@ export async function buildAreaBundleCached(
       // step lacks it and degrades to a recompute.
       const air = s.air;
       if (!air || !("yardsticks" in air)) return false;
+      // The M6.30 presence rule, in the same pattern and
+      // the same section: the air section must carry its
+      // aqma key (present on every served bundle, in both
+      // arms — the block's state carries not-filed). The
+      // area version vector has no planning-layers
+      // component that moves when the step deploys, so
+      // only this rule stops a pre-step entry serving the
+      // block's absence as current (the M6.25 pattern).
+      if (!("aqma" in air)) return false;
       const company = s.companyOwnership;
       if (company) {
         const titles = [
