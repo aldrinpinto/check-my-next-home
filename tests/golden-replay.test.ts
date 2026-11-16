@@ -1046,6 +1046,56 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
     expect(mFirst.miles).toBeCloseTo(0.429, 2);
   });
 
+  it("climate outlook (M6.28, D49/D55): the scenario bands serve through the real source, per source, in their own epochs", () => {
+    // The climate fixtures are filed by the REAL loaders in
+    // the runner's fixture pass (the CI database job), so
+    // the blocks below prove the whole path: the published
+    // Climate Change 1 subsets through the vocabulary
+    // contracts and the staged swaps into flood_climate_layers,
+    // read back through the brain's covering query — the
+    // serving basis, which is what these states lock (the
+    // prep's golden table, Section 5.4).
+    const climateOf = (tag: string) => {
+      const f = get(tag).flood;
+      if (f.kind !== "flood" || f.flood.state !== "served")
+        throw new Error(`${tag}: expected a served flood bundle`);
+      return f.flood.climate;
+    };
+    // Birkdale: no band published at the point under either
+    // scenario source.
+    const birkdale = climateOf("birkdale1");
+    expect(birkdale.sources.map((s) => s.pointState)).toEqual([
+      "no-band-published",
+      "no-band-published",
+    ]);
+    expect(birkdale.sources.map((s) => s.band)).toEqual([null, null]);
+    // Exeter: rivers & sea inside Low; surface water no band.
+    const exeter = climateOf("exeter1");
+    expect(exeter.sources.map((s) => s.pointState)).toEqual(["inside", "no-band-published"]);
+    expect(exeter.sources[0].band?.label).toBe("Low");
+    expect(exeter.sources[0].band?.displayLabel).toBe("Low");
+    // Minerva: rivers & sea no band; surface water inside Low.
+    const minerva = climateOf("minerva1");
+    expect(minerva.sources.map((s) => s.pointState)).toEqual(["no-band-published", "inside"]);
+    expect(minerva.sources[1].band?.label).toBe("Low");
+    // Every block names its scenario basis per source, in
+    // its own epochs, and carries each source's own edition.
+    for (const block of [birkdale, exeter, minerva]) {
+      expect(block.heading).toBe("Climate outlook");
+      expect(block.sources[0].scenarioLine).toContain("UKCP18");
+      expect(block.sources[0].scenarioLine).toContain("2040–2069");
+      expect(block.sources[0].scenarioLine).toContain("2036–2065");
+      expect(block.sources[1].scenarioLine).toContain("UKCP18");
+      expect(block.sources[1].scenarioLine).toContain("2040–2060");
+      expect(block.sources[0].sourceDate).toBe("2026-11-03");
+      expect(block.sources[1].sourceDate).toBe("2026-11-10");
+      for (const s of block.sources) {
+        expect(s.scenarioLine).not.toContain("between 2036 and 2069");
+        expect(s.line).not.toContain("Very low");
+      }
+    }
+  });
+
   it("short bundle: the universal headlines carry the locked figures", () => {
     const birkdale = get("birkdale1").short;
     expect(Object.keys(birkdale.sections).sort()).toHaveLength(12);

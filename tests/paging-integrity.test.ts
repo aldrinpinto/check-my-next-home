@@ -4,7 +4,12 @@ import { readServiceLive } from "../loaders/load-nature-designations.mjs";
 import { readLive as readFloodZonesLive } from "../loaders/load-flood-zones.mjs";
 import { readLive as readFloodRiversSeaLive } from "../loaders/load-flood-rivers-sea.mjs";
 import { readLive as readFloodSurfaceWaterLive } from "../loaders/load-flood-surface-water.mjs";
-import { neCount, probeAncientWoodlandRevised, probeFloodProduct } from "../loaders/canary.mjs";
+import {
+  neCount,
+  probeAncientWoodlandRevised,
+  probeFloodProduct,
+  probeFloodSurfaceWaterClimate,
+} from "../loaders/canary.mjs";
 
 // Guards the paging-integrity fix of 13 Nov 2026 (diagnosis:
 // scratch-nature/PHI-DIAGNOSIS.md). ArcGIS reports query
@@ -294,5 +299,136 @@ describe("canary probes read an error envelope as a failure", () => {
       throw new Error(`unexpected url ${url}`);
     });
     await expect(probeFloodProduct("flood-zones")).rejects.toThrow(/error envelope/);
+  });
+});
+
+// --- canary probes: the climate products (M6.28) --------------
+
+function riversSeaClimateRoute(overrides: {
+  collections?: unknown;
+  count?: unknown;
+  anchor?: unknown;
+  wms?: string;
+}) {
+  return (url: string) => {
+    if (url.includes("/collections?f=json"))
+      return overrides.collections ?? { collections: [{ id: "rofrs_cc01_4band" }] };
+    if (url.includes("GetCapabilities"))
+      return overrides.wms ?? `<Layer><Name>rofrs_cc01_4band_03_11_2026</Name></Layer>`;
+    if (url.includes("bbox="))
+      return overrides.anchor ?? { features: [{ properties: { risk_band: "Low" } }] };
+    if (url.includes("limit=1&")) return overrides.count ?? { numberMatched: 252932 };
+    throw new Error(`unexpected url ${url}`);
+  };
+}
+
+describe("canary probes — flood rivers & sea climate (M6.28)", () => {
+  it("passes on the filed shape: collection named, count in band, one edition, Exeter Low anchor", async () => {
+    stubFetch(riversSeaClimateRoute({}));
+    const result = await probeFloodProduct("flood-rivers-sea-climate");
+    expect(result.warning).toBeUndefined();
+    expect(result.sourceDate).toBe("2026-11-03");
+    expect(result.logLine).toContain("252932 features");
+    expect(result.logLine).toContain("edition 2026-11-03");
+    expect(result.logLine).toContain("Exeter anchor Low OK");
+  });
+
+  it("fails when the collections document no longer names the collection", async () => {
+    stubFetch(riversSeaClimateRoute({ collections: { collections: [{ id: "rofrs_4band" }] } }));
+    await expect(probeFloodProduct("flood-rivers-sea-climate")).rejects.toThrow(
+      /no longer names rofrs_cc01_4band/,
+    );
+  });
+
+  it("fails when the count leaves the ±10% band", async () => {
+    stubFetch(riversSeaClimateRoute({ count: { numberMatched: 100 } }));
+    await expect(probeFloodProduct("flood-rivers-sea-climate")).rejects.toThrow(/outside the band/);
+  });
+
+  it("fails when the WMS stamps two distinct build dates — no single edition", async () => {
+    stubFetch(
+      riversSeaClimateRoute({
+        wms: `<Layer><Name>rofrs_cc01_4band_03_11_2026</Name></Layer><Layer><Name>rofrs_cc01_4band_01_09_2026</Name></Layer>`,
+      }),
+    );
+    await expect(probeFloodProduct("flood-rivers-sea-climate")).rejects.toThrow(
+      /distinct build dates/,
+    );
+  });
+
+  it("fails when the Exeter anchor no longer returns Low", async () => {
+    stubFetch(
+      riversSeaClimateRoute({ anchor: { features: [{ properties: { risk_band: "High" } }] } }),
+    );
+    await expect(probeFloodProduct("flood-rivers-sea-climate")).rejects.toThrow(
+      /Exeter anchor no longer returns Low/,
+    );
+  });
+
+  it("warns — does not fail — when the collections document names an unexpected collection", async () => {
+    stubFetch(
+      riversSeaClimateRoute({
+        collections: {
+          collections: [{ id: "rofrs_cc01_4band" }, { id: "rofrs_cc02_4band" }],
+        },
+      }),
+    );
+    const result = await probeFloodProduct("flood-rivers-sea-climate");
+    expect(result.warning).toBe(true);
+    expect(result.logLine).toContain("unexpected collections (rofrs_cc02_4band)");
+  });
+});
+
+function surfaceWaterClimateRoute(overrides: {
+  collections?: unknown;
+  count?: unknown;
+  presence?: unknown;
+  anchor?: unknown;
+  wms?: string;
+}) {
+  return (url: string) => {
+    if (url.includes("/collections?f=json"))
+      return overrides.collections ?? { collections: [{ id: "rofsw_cc01" }] };
+    if (url.includes("GetCapabilities"))
+      return overrides.wms ?? `<Layer><Name>rofsw_cc01_10_11_2026</Name></Layer>`;
+    if (url.includes("bbox=") && url.includes("limit=500"))
+      return overrides.presence ?? { features: [{ properties: { risk_band: "High" } }] };
+    if (url.includes("bbox="))
+      return overrides.anchor ?? { features: [{ properties: { risk_band: "Low" } }] };
+    if (url.includes("limit=1&")) return overrides.count ?? { numberMatched: 406734 };
+    throw new Error(`unexpected url ${url}`);
+  };
+}
+
+describe("canary probes — flood surface water climate (M6.28)", () => {
+  it("passes on the filed shape: collection named, count in band, one edition, Exeter presence, Minerva Low anchor", async () => {
+    stubFetch(surfaceWaterClimateRoute({}));
+    const result = await probeFloodSurfaceWaterClimate();
+    expect(result.warning).toBeUndefined();
+    expect(result.sourceDate).toBe("2026-11-10");
+    expect(result.logLine).toContain("406734 features");
+    expect(result.logLine).toContain("edition 2026-11-10");
+    expect(result.logLine).toContain("Exeter presence OK · Minerva anchor Low OK");
+  });
+
+  it("fails when the Exeter box returns no features at all", async () => {
+    stubFetch(surfaceWaterClimateRoute({ presence: { features: [] } }));
+    await expect(probeFloodSurfaceWaterClimate()).rejects.toThrow(
+      /Exeter box no longer returns any rofsw_cc01 features/,
+    );
+  });
+
+  it("fails when the Minerva anchor no longer returns Low", async () => {
+    stubFetch(
+      surfaceWaterClimateRoute({ anchor: { features: [{ properties: { risk_band: "Medium" } }] } }),
+    );
+    await expect(probeFloodSurfaceWaterClimate()).rejects.toThrow(
+      /Minerva anchor no longer returns Low/,
+    );
+  });
+
+  it("fails when the collections document no longer names the collection", async () => {
+    stubFetch(surfaceWaterClimateRoute({ collections: { collections: [] } }));
+    await expect(probeFloodSurfaceWaterClimate()).rejects.toThrow(/no longer names rofsw_cc01/);
   });
 });

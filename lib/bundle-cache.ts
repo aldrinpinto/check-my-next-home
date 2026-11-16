@@ -176,6 +176,8 @@ export const BRAIN_DEPENDENCIES: Record<CacheBrain, readonly string[]> = {
     "load-flood-rivers-sea",
     "load-flood-surface-water",
     "load-flood-defences",
+    "load-flood-rivers-sea-climate",
+    "load-flood-surface-water-climate",
   ],
   nearby: [
     "load-postcodes",
@@ -319,6 +321,10 @@ const GUARDS: Record<
       "SELECT layer_type, count(*)::int AS n FROM flood_layers GROUP BY layer_type",
     );
     const byLayer = new Map(rows.map((row) => [row.layer_type as string, Number(row.n)]));
+    const { rows: climateRows } = await db.query(
+      "SELECT layer_type, count(*)::int AS n FROM flood_climate_layers GROUP BY layer_type",
+    );
+    const byClimate = new Map(climateRows.map((row) => [row.layer_type as string, Number(row.n)]));
     return {
       directory: directoryGuard(resolution),
       // The per-layer filed counts the flood source itself
@@ -331,6 +337,15 @@ const GUARDS: Record<
       // table rides the same guard, so its first filing
       // busts a cached not-filed block the same way.
       floodDefences: await countOf(db, "SELECT count(*)::int AS n FROM flood_defences"),
+      // The climate counts (M6.28): the scenario sources
+      // file on their own quarterly cycle into their own
+      // table, so each source's count rides the guard the
+      // same way — a scenario re-filing busts the entry, a
+      // first filing (0 -> N) busts a cached per-source
+      // not-filed state, and the present-day counts above
+      // keep their meaning untouched.
+      rofrsCc: byClimate.get("rofrs_cc") ?? 0,
+      rofswCc: byClimate.get("rofsw_cc") ?? 0,
     };
   },
 
@@ -719,14 +734,17 @@ export async function buildFloodBundleCached(
     // carries no defences block and degrades to a recompute;
     // the stored form KEEPS the block (it is filed data,
     // unlike the live warnings), so presence is again the
-    // whole test.
+    // whole test. The climate key (M6.28) extends it once
+    // more, identically: a pre-M6.28 entry carries no
+    // climate block and recomputes; the stored form keeps
+    // the block whole (filed data, serve-time-stable).
     shapeOk: (bundle) => {
       if (typeof bundle !== "object" || bundle === null) return false;
       const b = bundle as { kind?: unknown; flood?: unknown };
       if (b.kind !== "flood") return true;
       const flood = b.flood as Record<string, unknown> | null | undefined;
       if (!flood || flood.state !== "served") return true;
-      return "liveWarnings" in flood && "defences" in flood;
+      return "liveWarnings" in flood && "defences" in flood && "climate" in flood;
     },
   });
 }

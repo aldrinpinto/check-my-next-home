@@ -585,6 +585,34 @@ Family:
     sibling block; last_inspection_date files but is
     never served in V1 — the brain's read port does not
     carry it.
+36. **flood_climate_layers** — Environment Agency flood
+    shapes under ONE published climate scenario (migration
+    0025, plan step M6.28, decision D49). A mirror of
+    **flood_layers** (15) column-for-column, holding two
+    layers told apart by `layer_type` and never merged:
+    `rofrs_cc` (the rivers & sea likelihood bands under the
+    scenario — UKCP18, RCP 8.5; Central allowance for
+    rivers, Higher Central for the sea) and `rofsw_cc` (the
+    surface water likelihood bands under the scenario —
+    Central allowance; it has no Very low band). Since
+    migration 0008's column rides along, each shape carries
+    the bands' depth basis in `detail` (">0 m"), and each
+    product's own revision date is stamped on the shapes it
+    files. The table is separate from flood_layers on
+    purpose: that table's contract is the three present-day
+    products, and keeping scenario shapes out of it makes
+    it structurally impossible for a present-day answer to
+    serve a scenario shape as a present-day fact, or the
+    reverse — the two maps are never read against each
+    other, and no change or comparison between them is
+    computed anywhere. Absence is never filed: there are no
+    synthetic "no band" shapes, so a point no polygon
+    covers under the scenario is computed against the filed
+    counts at serve time and serves as the named state "no
+    band published", never as an inferred band. Filed
+    quarterly by load-flood-rivers-sea-climate and
+    load-flood-surface-water-climate, each swapping its own
+    layer's rows in one transaction.
 
 ## Physical decisions (recorded at build, M3.3)
 

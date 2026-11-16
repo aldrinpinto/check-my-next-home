@@ -1058,6 +1058,32 @@ export const EXPLAINER_CENSUS: CensusEntry[] = [
     "flood.defences.defences[].designSopExplainer",
     "D49: a bare '1 in 100' is meaningless, so each standard-of-protection figure travels with its pinned D13 line beside it — the design standard explained on every defence that files one, the current standard by its twin line (defences[].currentSopExplainer). The Agency's quality flag on the design standard (designSopQuality) is publisher text served only where a design standard itself is filed. No figure is converted, combined or compared, and an unfiled standard serves its named absence, never a borrowed one.",
   ),
+  // M6.28 (decisions D49 and D55) — the climate outlook
+  // block, rows 83–84.
+  e(
+    83,
+    "flood.climate",
+    "flood",
+    "flood",
+    "the climate outlook block's fence: one published scenario, not a forecast",
+    "hard",
+    ["full"],
+    "dedicated-field",
+    "flood.climate.basisLine",
+    "D49/D55: the block serves the EA's Climate Change 1 scenario likelihoods at the postcode point — a published scenario, never a forecast and never a prediction about any home. The basis line is the family's line: it states what the block is before any band serves, and the caveat line beside it carries the EA's own cautions (likelihood is hard to predict, especially further into the future; the modelled likelihood could turn out bigger or smaller; the models cannot say when within the period). The scenario bands themselves serve with the publisher's definitions — the same pinned band table the present-day layers use, the thresholds being identical under the scenario — and no figure in the block is ever set against a present-day figure: no comparison, no delta, no trend. Report depth only — the short bundle's derivation never reads the block.",
+  ),
+  e(
+    84,
+    "flood.climate-scenario",
+    "flood",
+    "flood",
+    "each climate source's scenario basis: the UKCP18 / RCP 8.5 allowances and their epoch bounds",
+    "hard",
+    ["full"],
+    "line-embedded",
+    "flood.climate.sources[].scenarioLine",
+    "D55: a scenario band without its basis named is a bare figure, so each source's scenario line travels with its answer in every state — rivers UKCP18 / RCP 8.5 / Central covering 2040–2069, the sea Higher Central covering 2036–2065 with cumulative sea level rise to 2065, surface water Central covering 2040–2060. The epoch years inside the line are the explanation the figure travels with: each half carries its own bounds, and the EA service's blended span (between 2036 and 2069) never serves. No 2080s horizon serves anywhere in the block.",
+  ),
 ];
 
 // ------------------------------------------------------------------
@@ -1309,6 +1335,16 @@ export const FIGURE_PATH_PATTERNS: FigurePathPattern[] = [
   p("flood\\.flood\\.defences\\.defences\\[\\]\\.designSop", "flood.defences-sop"),
   p("flood\\.flood\\.defences\\.defences\\[\\]\\.currentSop", "flood.defences-sop"),
   p("flood\\.flood\\.defences\\.defences\\[\\]\\.designSopQuality", "flood.defences-sop"),
+  // M6.28 figures — the climate outlook block (rows
+  // 83–84). The scenario lines carry their epoch years as
+  // their own explanation; the block's fence and caveat
+  // are the flood.climate family's lines; the band's
+  // display label rides the flood label family, as every
+  // flood band label does.
+  p("flood\\.flood\\.climate\\.sources\\[\\]\\.scenarioLine", "flood.climate-scenario"),
+  p("flood\\.flood\\.climate\\.basisLine", "flood.climate"),
+  p("flood\\.flood\\.climate\\.caveatLine", "flood.climate"),
+  p("flood\\.flood\\.climate\\.sources\\[\\]\\.band\\.displayLabel", "flood.label"),
   p(
     "short\\.sections\\.flood\\.liveWarnings\\.warnings\\[\\]\\.severityLevel",
     "short.flood-live-warnings",
@@ -1330,7 +1366,7 @@ export const NOT_A_FIGURE_ALLOWLIST: RegExp[] = [
   // Identifiers and codes that name, not measure
   /(^|\.)(postcode|id|assetId|listEntryId|certificateNumber|titleNumber|companyNumber|caseRef|buildingKey|cellRef|lsoaCode|msoaCode|code|slug|category|layer|series|service|sourceKind|dataset|tenure|proprietorshipCategory|countryIncorporated|key|reference|sequence)$/,
   // Names, labels and publisher wording (the words, not figures)
-  /(^|\.)(name|label|title|band|potentialBand|grade|type|typeLabel|dwellingType|assessmentType|authority|council|msoaName|lsoaName|unit|building|habitat|detail|coveringDetail|dayBand|nightBand|summary|propertyText|companyName|proprietorName|status|planningPermissionStatus|kindLine|group|groups|severity|areaDescription|riverOrSea|message|protectionType|watercourse)$/,
+  /(^|\.)(name|label|title|heading|band|potentialBand|grade|type|typeLabel|dwellingType|assessmentType|authority|council|msoaName|lsoaName|unit|building|habitat|detail|coveringDetail|dayBand|nightBand|summary|propertyText|companyName|proprietorName|status|planningPermissionStatus|kindLine|group|groups|severity|areaDescription|riverOrSea|message|protectionType|watercourse)$/,
   // Lines, explainers, definitions and source lines: the
   // census's own subject matter — their presence is what
   // direction one asserts; they are text, not figures.
@@ -1343,6 +1379,10 @@ export const NOT_A_FIGURE_ALLOWLIST: RegExp[] = [
   // of a classification; their EXPLAINER is the census
   // figure-line (row 55), asserted in direction one.
   /\.sicCodes\[\]$/,
+  // The climate source discriminator (M6.28): which of
+  // the two scenario products a block entry serves — a
+  // structural name, not a figure.
+  /^flood\.flood\.climate\.sources\[\]\.source$/,
   // The resolution's own address parts and counts of
   // addresses (the census row 1 watch: not brain figures).
   /^address\./,

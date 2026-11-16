@@ -130,6 +130,26 @@ import { DISTANCE_BASIS_LABEL, RADIUS_MILES } from "./nearby";
 // the block claims a defence protects this home: a defence
 // on a different watercourse, or downstream, may do nothing
 // for this point, and the block never says otherwise.
+//
+// Climate outlook (M6.28, decisions D49 and D55) joins the
+// answer as a second sibling block: the Environment
+// Agency's two Climate Change 1 scenario likelihoods, filed
+// at migration 0025 into their own table
+// (flood_climate_layers) so no scenario shape can ever be
+// read as a present-day fact, or vice versa. The block
+// serves the POINT STATE only — which band, if any, the
+// scenario publishes at the point — with each source's
+// scenario basis named every time, in its own halves'
+// epochs (D55: rivers 2040–2069; the sea 2036–2065 with
+// cumulative sea level rise to 2065; surface water
+// 2040–2060). The EA service's blended span ("between 2036
+// and 2069") merges two different allowance windows into
+// one range and never serves. No proximity in the block,
+// and never a present-day comparison: the block is composed
+// from the climate facts alone, so the present-day layers
+// cannot move it — Exeter's present-day Very low beside its
+// scenario Low is two products' facts, never a computed
+// change, and no served line ever sets them side by side.
 
 export const FLOOD_UNAVAILABLE_REASON = "flood answers need an exact postcode";
 
@@ -550,12 +570,39 @@ export interface FloodDefencesFacts {
   defences: FloodDefenceRow[];
 }
 
+// The scenario layer types, as filed in flood_climate_layers
+// (migration 0025) — a separate table from flood_layers, so
+// the present-day guard's meaning is untouched and no query
+// over the present-day products can ever reach a scenario
+// shape.
+export type FloodClimateLayerType = "rofrs_cc" | "rofsw_cc";
+
+// The facts the brain reads for one climate source at one
+// point: the covering query and the filed count only. No
+// proximity is read — the block serves the point state, and
+// nearest-scenario-edge distances would invite exactly the
+// side-by-side present-vs-scenario reading the step fences
+// against (prep R10). The bands are mutually exclusive at a
+// point under the scenario (verified live at the prep), so
+// the covering fact is a single label or none.
+export interface FloodClimateFacts {
+  filedCount: number;
+  coveringLabel: string | null;
+  sourceName: string | null;
+  sourceDate: string | null;
+}
+
 // The brain's read port over the filed shapes — the same
 // pattern as the sibling brains: tests drive a fake;
 // createFloodSource below is the only database implementation.
 export interface FloodDataSource {
   layerFacts(layer: FloodLayerType, latitude: number, longitude: number): Promise<FloodLayerFacts>;
   defencesNear(latitude: number, longitude: number): Promise<FloodDefencesFacts>;
+  climateFacts(
+    layer: FloodClimateLayerType,
+    latitude: number,
+    longitude: number,
+  ): Promise<FloodClimateFacts>;
 }
 
 // ------------------------------------------------------------------
@@ -730,6 +777,75 @@ export interface FloodDefencesBlock {
   sourceLine: string | null;
 }
 
+// ------------------------------------------------------------------
+// Climate outlook (M6.28, decisions D49 and D55)
+// ------------------------------------------------------------------
+
+export const FLOOD_CLIMATE_HEADING = "Climate outlook";
+
+// The fence (D49): the block is ONE published scenario —
+// not a forecast, and not a prediction for this home. It
+// travels with every served block, in every state.
+export const FLOOD_CLIMATE_BASIS_LINE =
+  "The Environment Agency also publishes flood likelihoods under one climate change scenario. This block gives that scenario's answer for the postcode point — a published scenario, not a forecast, and not a prediction about any home.";
+
+// The EA caveats (D49), carried every time: flood
+// likelihood is hard to predict, especially further into
+// the future; the modelled likelihood could turn out
+// bigger or smaller; the models cannot say when within
+// the period.
+export const FLOOD_CLIMATE_CAVEAT_LINE =
+  "Flood likelihood is hard to predict, especially further into the future: the modelled likelihood could turn out bigger or smaller, and the models cannot say when within the period flooding might happen.";
+
+// The scenario basis per source, named every time (D55):
+// each half carries its OWN epoch bounds — rivers UKCP18 /
+// RCP 8.5 / Central, 2040–2069; the sea Higher Central,
+// 2036–2065 with cumulative sea level rise to 2065;
+// surface water Central, 2040–2060. The blended span the
+// EA service prints ("between 2036 and 2069") merges the
+// two rivers-and-sea windows into one range and is never
+// served.
+export const ROFRS_CC_SCENARIO_LINE =
+  "Scenario: UKCP18 projections under RCP 8.5 — the Central allowance for rivers, covering 2040–2069, and the Higher Central allowance for the sea, covering 2036–2065, allowing for cumulative sea level rise to 2065.";
+export const ROFSW_CC_SCENARIO_LINE =
+  "Scenario: UKCP18 projections under RCP 8.5 — the Central allowance for surface water, covering 2040–2060.";
+
+export interface ServedClimateBand {
+  // The filed label, verbatim ("Low", "Very low" — the
+  // feature casing, never the notes' "Very Low").
+  label: string;
+  displayLabel: string;
+  // The publisher's definition, from the same pinned table
+  // the present-day bands serve (the thresholds are
+  // identical under the scenario).
+  definition: string;
+}
+
+export type ClimatePointState = "inside" | "no-band-published" | "not-filed";
+
+export interface ServedClimateSource {
+  source: "rivers-sea" | "surface-water";
+  title: string;
+  // This source's scenario basis — named every time, in
+  // every state (D55).
+  scenarioLine: string;
+  pointState: ClimatePointState;
+  band: ServedClimateBand | null;
+  line: string;
+  sourceName: string | null;
+  sourceDate: string | null;
+  sourceLine: string | null;
+}
+
+export interface ServedClimateOutlook {
+  heading: string;
+  basisLine: string;
+  caveatLine: string;
+  // Rivers and sea, then surface water — always both, each
+  // in its own named state.
+  sources: ServedClimateSource[];
+}
+
 export type FloodBundle =
   | {
       rung: 1 | 2;
@@ -750,6 +866,13 @@ export type FloodBundle =
         // stored cache entry keeps it — it is filed data,
         // unlike the live warnings.
         defences: FloodDefencesBlock;
+        // The climate outlook block (M6.28, D49/D55): a
+        // sibling of the layers, report depth only, never
+        // inside layers[] — the headline derivation reads
+        // the layers, so the block cannot leak to headline
+        // depth. A stored cache entry keeps it whole (it
+        // is filed data, like the defences block).
+        climate: ServedClimateOutlook;
         howWeCheck: string;
       };
     }
@@ -1091,6 +1214,103 @@ function buildDefencesBlock(
 }
 
 // ------------------------------------------------------------------
+// Climate composition (M6.28)
+// ------------------------------------------------------------------
+
+interface ClimateSpec {
+  layer: FloodClimateLayerType;
+  source: ServedClimateSource["source"];
+  title: string;
+  scenarioLine: string;
+  // The map phrase the point lines are composed over.
+  mapPhrase: string;
+}
+
+const CLIMATE_SPECS: ClimateSpec[] = [
+  {
+    layer: "rofrs_cc",
+    source: "rivers-sea",
+    title: "Flooding from rivers and the sea — climate scenario",
+    scenarioLine: ROFRS_CC_SCENARIO_LINE,
+    mapPhrase: "flooding from rivers and the sea",
+  },
+  {
+    layer: "rofsw_cc",
+    source: "surface-water",
+    title: "Flooding from surface water — climate scenario",
+    scenarioLine: ROFSW_CC_SCENARIO_LINE,
+    mapPhrase: "flooding from surface water",
+  },
+];
+
+// One climate source, served from its facts alone. The
+// three states are the step's named states: inside (the
+// band the scenario publishes at the point, with the
+// publisher's definition); no-band-published (no polygon
+// covers the point under the scenario — absence is not a
+// band: no "Very low" inference for rivers and sea, and not
+// the present-day surface-water "below-lowest-band" framing
+// either — this one absence governs both scenario sources);
+// not-filed (no filing yet — absence is never computed
+// against an unproven filing, the brain's existing rule).
+function buildClimateSource(spec: ClimateSpec, facts: FloodClimateFacts): ServedClimateSource {
+  const sourceLine =
+    facts.sourceName && facts.sourceDate
+      ? `${facts.sourceName} — data to ${dateLabel(facts.sourceDate)}`
+      : null;
+  const base: ServedClimateSource = {
+    source: spec.source,
+    title: spec.title,
+    scenarioLine: spec.scenarioLine,
+    pointState: "not-filed",
+    band: null,
+    line: "",
+    sourceName: facts.sourceName,
+    sourceDate: facts.sourceDate,
+    sourceLine,
+  };
+  if (facts.filedCount <= 0) {
+    return {
+      ...base,
+      line: `the climate scenario map of ${spec.mapPhrase} is not filed yet, so no answer can be given from it`,
+    };
+  }
+  if (facts.coveringLabel) {
+    const band: ServedClimateBand = {
+      label: facts.coveringLabel,
+      displayLabel: facts.coveringLabel,
+      definition: FLOOD_BAND_DEFINITIONS[facts.coveringLabel] ?? "",
+    };
+    return {
+      ...base,
+      pointState: "inside",
+      band,
+      line: `the postcode point falls in the ${band.displayLabel} band on the Environment Agency's climate scenario map of ${spec.mapPhrase}`,
+    };
+  }
+  return {
+    ...base,
+    pointState: "no-band-published",
+    line: `no likelihood band is published for this point under this scenario on the Environment Agency's climate scenario map of ${spec.mapPhrase}`,
+  };
+}
+
+// The block: composed from the two sources' climate facts
+// and nothing else — structural independence from the
+// present-day layers is what keeps any present-vs-scenario
+// comparison unservable, not a wording rule alone.
+function buildClimateOutlook(factsByLayer: Map<FloodClimateLayerType, FloodClimateFacts>) {
+  return {
+    heading: FLOOD_CLIMATE_HEADING,
+    basisLine: FLOOD_CLIMATE_BASIS_LINE,
+    caveatLine: FLOOD_CLIMATE_CAVEAT_LINE,
+    sources: CLIMATE_SPECS.map((spec) =>
+      buildClimateSource(spec, factsByLayer.get(spec.layer) as FloodClimateFacts),
+    ),
+  };
+}
+
+// ------------------------------------------------------------------
 // The bundle
 // ------------------------------------------------------------------
 
@@ -1139,6 +1359,17 @@ export async function buildFloodBundle(
     await source.defencesNear(latitude, longitude),
     factsByLayer.get("rofrs") as FloodLayerFacts,
   );
+  // The climate outlook (M6.28): composed here, for the
+  // served England state at rungs 1–2 only — the
+  // not-covered nations and the named rung states carry no
+  // climate payload (the scenario products are
+  // England-only like their parents), and the headline
+  // derivation never sees the block.
+  const climateFactsByLayer = new Map<FloodClimateLayerType, FloodClimateFacts>();
+  for (const spec of CLIMATE_SPECS) {
+    climateFactsByLayer.set(spec.layer, await source.climateFacts(spec.layer, latitude, longitude));
+  }
+  const climate = buildClimateOutlook(climateFactsByLayer);
   // The live warnings compose only here — a served England
   // answer at rungs 1–2, where a point exists to check
   // against. The not-covered nations and the named rung
@@ -1156,7 +1387,14 @@ export async function buildFloodBundle(
     rung: resolution.rung,
     kind: "flood",
     postcode,
-    flood: { state: "served", liveWarnings, layers, defences, howWeCheck: FLOOD_HOW_WE_CHECK },
+    flood: {
+      state: "served",
+      liveWarnings,
+      layers,
+      defences,
+      climate,
+      howWeCheck: FLOOD_HOW_WE_CHECK,
+    },
   };
 }
 
@@ -1335,6 +1573,40 @@ export function createFloodSource(db: AddressQueryable): FloodDataSource {
         sourceName: (edition.rows[0]?.source_name as string | null) ?? null,
         sourceDate: (edition.rows[0]?.source_date as string | null) ?? null,
         defences,
+      };
+    },
+
+    // The climate read (M6.28): the covering query and the
+    // filed count against flood_climate_layers, per scenario
+    // layer type — no proximity, no beyond steps (the block
+    // serves the point state only). The edition rides the
+    // filing's own source stamp, per source, so the two
+    // scenario products stay honest if the EA ever decouples
+    // their cycles from the present-day builds.
+    async climateFacts(layer, latitude, longitude) {
+      const edition = await db.query(
+        "SELECT source_name, source_date::text AS source_date FROM flood_climate_layers WHERE layer_type = $1 LIMIT 1",
+        [layer],
+      );
+      const { rows: countRows } = await db.query(
+        "SELECT count(*)::int AS n FROM flood_climate_layers WHERE layer_type = $1",
+        [layer],
+      );
+      const filedCount = Number(countRows[0]?.n ?? 0);
+      if (filedCount <= 0) {
+        return { filedCount, coveringLabel: null, sourceName: null, sourceDate: null };
+      }
+      const { rows: coveringRows } = await db.query(
+        `SELECT risk_label FROM flood_climate_layers
+         WHERE layer_type = $1 AND ST_Covers(geom, ${point})
+         ORDER BY risk_label`,
+        [layer, longitude, latitude],
+      );
+      return {
+        filedCount,
+        coveringLabel: (coveringRows[0]?.risk_label as string | null) ?? null,
+        sourceName: (edition.rows[0]?.source_name as string | null) ?? null,
+        sourceDate: (edition.rows[0]?.source_date as string | null) ?? null,
       };
     },
   };

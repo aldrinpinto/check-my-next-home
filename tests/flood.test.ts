@@ -5,6 +5,9 @@ import {
   DEFENCES_LIST_CAP,
   DESIGN_SOP_EXPLAINER,
   FLOOD_BAND_DEFINITIONS,
+  FLOOD_CLIMATE_BASIS_LINE,
+  FLOOD_CLIMATE_CAVEAT_LINE,
+  FLOOD_CLIMATE_HEADING,
   FLOOD_DEFENCES_BRIDGE,
   FLOOD_DEFENCES_CAVEAT,
   FLOOD_DEFENCES_NONE_LINE,
@@ -15,6 +18,8 @@ import {
   FLOOD_WARNING_LINK,
   FLOOD_ZONE_1_DEFINITION,
   FLOOD_ZONE_DEFINITIONS,
+  ROFRS_CC_SCENARIO_LINE,
+  ROFSW_CC_SCENARIO_LINE,
   buildFloodBundle,
   createFloodSource,
   createFloodWarningSource,
@@ -24,9 +29,12 @@ import {
   type FloodDefenceRow,
   type FloodDefencesBlock,
   type FloodDefencesFacts,
+  type FloodClimateFacts,
+  type FloodClimateLayerType,
   type FloodLayerFacts,
   type FloodLayerType,
   type FloodWarningItem,
+  type ServedClimateOutlook,
   type ServedFloodLayer,
 } from "../lib/flood";
 import {
@@ -38,6 +46,7 @@ import {
   WARNING_NOW,
   FakeFloodWarningSource,
 } from "./flood-warning-fixtures";
+import { BANNED_WORDING } from "./banned-wording";
 
 // Flood in the brain (plan step M6.5, decision D25).
 //
@@ -105,6 +114,24 @@ const NO_DEFENCES: FloodDefencesFacts = {
   defences: [],
 };
 
+// The climate facts (M6.28), keyed the same way; a point
+// with no entry reads both scenario layers unfiled.
+const CLIMATE = new Map<string, Record<FloodClimateLayerType, FloodClimateFacts>>();
+
+function fileClimate(
+  directory: DirectoryPostcode,
+  layers: Record<FloodClimateLayerType, FloodClimateFacts>,
+) {
+  CLIMATE.set(`${directory.latitude},${directory.longitude}`, layers);
+}
+
+const NO_CLIMATE: FloodClimateFacts = {
+  filedCount: 0,
+  coveringLabel: null,
+  sourceName: null,
+  sourceDate: null,
+};
+
 class FakeFloodSource implements FloodDataSource {
   async layerFacts(layer: FloodLayerType, latitude: number, longitude: number) {
     const record = FACTS.get(`${latitude},${longitude}`);
@@ -113,6 +140,9 @@ class FakeFloodSource implements FloodDataSource {
   }
   async defencesNear(latitude: number, longitude: number) {
     return DEFENCES.get(`${latitude},${longitude}`) ?? NO_DEFENCES;
+  }
+  async climateFacts(layer: FloodClimateLayerType, latitude: number, longitude: number) {
+    return CLIMATE.get(`${latitude},${longitude}`)?.[layer] ?? NO_CLIMATE;
   }
 }
 
@@ -1039,12 +1069,14 @@ describe("flood — live warnings compose at serve time (M6.22, D42)", () => {
       throw new Error("expected a served flood bundle");
     // The block is the section's first element, structurally.
     // (M6.27: the defences sibling sits between the layers
-    // and the closing limits copy.)
+    // and the closing limits copy; M6.28: the climate
+    // sibling sits after the defences.)
     expect(Object.keys(bundle.flood)).toEqual([
       "state",
       "liveWarnings",
       "layers",
       "defences",
+      "climate",
       "howWeCheck",
     ]);
     const block = bundle.flood.liveWarnings;
@@ -1781,6 +1813,396 @@ describe("flood — recorded defences (M6.27, D49/D54)", () => {
     const result = await dbSource.defencesNear(51.5, 0.5);
     expect(result.filedCount).toBe(0);
     expect(result.defences).toEqual([]);
+    expect(seen).toHaveLength(2);
+  });
+});
+
+// ------------------------------------------------------------------
+// Climate outlook (M6.28, decisions D49 and D55) — the two
+// Climate Change 1 scenario likelihoods as a sibling block:
+// the point state only, each source's scenario basis named
+// in its own epochs, never a present-day comparison.
+// ------------------------------------------------------------------
+
+const ROFRS_CC_SOURCE =
+  "Environment Agency — Risk of Flooding from Rivers and Sea – Climate Change 1";
+const ROFSW_CC_SOURCE =
+  "Environment Agency — Risk of Flooding from Surface Water – Climate Change 1";
+
+function climateFacts(partial: Partial<FloodClimateFacts>): FloodClimateFacts {
+  return { filedCount: 1000, coveringLabel: null, sourceName: null, sourceDate: null, ...partial };
+}
+
+async function climateBlock(
+  dir: DirectoryPostcode,
+  rung: 1 | 2 = 1,
+): Promise<ServedClimateOutlook> {
+  const bundle = await buildFloodBundle(rung === 1 ? rung1(dir) : rung2(dir), source);
+  if (bundle.kind !== "flood" || bundle.flood.state !== "served")
+    throw new Error("expected a served flood bundle");
+  return bundle.flood.climate;
+}
+
+function climateStrings(block: ServedClimateOutlook): string[] {
+  const strings: string[] = [];
+  const walk = (v: unknown) => {
+    if (typeof v === "string") strings.push(v);
+    else if (Array.isArray(v)) v.forEach(walk);
+    else if (v && typeof v === "object") Object.values(v).forEach(walk);
+  };
+  walk(block);
+  return strings;
+}
+
+// The golden climate facts, as filed by the two climate
+// loaders from the prep's measured coverage of the three
+// golden points (the prep's golden table, Section 5.4):
+// rivers & sea — Birkdale no band, Exeter Low, Minerva no
+// band; surface water — Birkdale no band, Exeter no band,
+// Minerva Low.
+function fileGoldenClimate() {
+  fileClimate(BIRKDALE, {
+    rofrs_cc: climateFacts({
+      filedCount: 252932,
+      sourceName: ROFRS_CC_SOURCE,
+      sourceDate: "2026-11-03",
+    }),
+    rofsw_cc: climateFacts({
+      filedCount: 406734,
+      sourceName: ROFSW_CC_SOURCE,
+      sourceDate: "2026-11-10",
+    }),
+  });
+  fileClimate(EXETER, {
+    rofrs_cc: climateFacts({
+      filedCount: 252932,
+      coveringLabel: "Low",
+      sourceName: ROFRS_CC_SOURCE,
+      sourceDate: "2026-11-03",
+    }),
+    rofsw_cc: climateFacts({
+      filedCount: 406734,
+      sourceName: ROFSW_CC_SOURCE,
+      sourceDate: "2026-11-10",
+    }),
+  });
+  fileClimate(EPSOM, {
+    rofrs_cc: climateFacts({
+      filedCount: 252932,
+      sourceName: ROFRS_CC_SOURCE,
+      sourceDate: "2026-11-03",
+    }),
+    rofsw_cc: climateFacts({
+      filedCount: 406734,
+      coveringLabel: "Low",
+      sourceName: ROFSW_CC_SOURCE,
+      sourceDate: "2026-11-10",
+    }),
+  });
+}
+
+describe("flood — climate outlook (M6.28, D49/D55)", () => {
+  it("serves the block on a served England bundle, framed, both sources in order, never inside layers[]", async () => {
+    const bundle = await buildFloodBundle(rung1(BIRKDALE), source);
+    if (bundle.kind !== "flood" || bundle.flood.state !== "served")
+      throw new Error("expected a served flood bundle");
+    const block = bundle.flood.climate;
+    expect(block.heading).toBe(FLOOD_CLIMATE_HEADING);
+    expect(block.heading).toBe("Climate outlook");
+    expect(block.basisLine).toBe(FLOOD_CLIMATE_BASIS_LINE);
+    expect(block.caveatLine).toBe(FLOOD_CLIMATE_CAVEAT_LINE);
+    expect(block.sources.map((s) => s.source)).toEqual(["rivers-sea", "surface-water"]);
+    // Unfiled by default in this suite: both sources serve
+    // their named not-filed state.
+    for (const s of block.sources) {
+      expect(s.pointState).toBe("not-filed");
+      expect(s.band).toBeNull();
+      expect(s.sourceName).toBeNull();
+      expect(s.sourceDate).toBeNull();
+      expect(s.sourceLine).toBeNull();
+    }
+    expect(block.sources[0].line).toBe(
+      "the climate scenario map of flooding from rivers and the sea is not filed yet, so no answer can be given from it",
+    );
+    expect(block.sources[1].line).toBe(
+      "the climate scenario map of flooding from surface water is not filed yet, so no answer can be given from it",
+    );
+    // The block is a sibling: no climate material inside the
+    // present-day layers.
+    expect(JSON.stringify(bundle.flood.layers)).not.toContain("Climate outlook");
+    expect(JSON.stringify(bundle.flood.layers)).not.toContain("climate scenario");
+  });
+
+  it("rung 3, rung 4 and the not-covered nations carry no climate payload", async () => {
+    const rung3 = await buildFloodBundle(
+      { rung: 3, kind: "wider-area", outward: "CM3", label: "Wider area", postcodeCount: 1 },
+      source,
+    );
+    expect("climate" in rung3.flood).toBe(false);
+    const rung4 = await buildFloodBundle({ rung: 4, kind: "no-location" }, source);
+    expect("climate" in rung4.flood).toBe(false);
+    const welsh = await buildFloodBundle(
+      rung2(directory("CF11 8AA", 51.467947, -3.192837, "W01001759")),
+      source,
+    );
+    expect(welsh.kind).toBe("not-covered");
+    expect("climate" in welsh.flood).toBe(false);
+  });
+
+  it("serves the inside state with the band and the publisher's definition, and the no-band state as its own named absence", async () => {
+    fileGoldenClimate();
+    const block = await climateBlock(EXETER);
+    const [riversSea, surfaceWater] = block.sources;
+    expect(riversSea.pointState).toBe("inside");
+    expect(riversSea.band).toEqual({
+      label: "Low",
+      displayLabel: "Low",
+      definition: FLOOD_BAND_DEFINITIONS["Low"],
+    });
+    expect(riversSea.line).toBe(
+      "the postcode point falls in the Low band on the Environment Agency's climate scenario map of flooding from rivers and the sea",
+    );
+    expect(riversSea.sourceName).toBe(ROFRS_CC_SOURCE);
+    expect(riversSea.sourceDate).toBe("2026-11-03");
+    expect(riversSea.sourceLine).toBe(`${ROFRS_CC_SOURCE} — data to 3 November 2026`);
+    expect(surfaceWater.pointState).toBe("no-band-published");
+    expect(surfaceWater.band).toBeNull();
+    expect(surfaceWater.line).toBe(
+      "no likelihood band is published for this point under this scenario on the Environment Agency's climate scenario map of flooding from surface water",
+    );
+    expect(surfaceWater.sourceLine).toBe(`${ROFSW_CC_SOURCE} — data to 10 November 2026`);
+  });
+
+  it("the golden homes serve their measured scenario states", async () => {
+    fileGoldenClimate();
+    const birkdale = await climateBlock(BIRKDALE);
+    expect(birkdale.sources.map((s) => s.pointState)).toEqual([
+      "no-band-published",
+      "no-band-published",
+    ]);
+    const exeter = await climateBlock(EXETER);
+    expect(exeter.sources.map((s) => s.pointState)).toEqual(["inside", "no-band-published"]);
+    expect(exeter.sources[0].band?.label).toBe("Low");
+    const epsom = await climateBlock(EPSOM);
+    expect(epsom.sources.map((s) => s.pointState)).toEqual(["no-band-published", "inside"]);
+    expect(epsom.sources[1].band?.label).toBe("Low");
+    expect(epsom.sources[1].line).toBe(
+      "the postcode point falls in the Low band on the Environment Agency's climate scenario map of flooding from surface water",
+    );
+  });
+
+  it("Exeter's scenario band is a scenario fact only — the present-day band is never set beside it", async () => {
+    fileGoldenClimate();
+    const bundle = await buildFloodBundle(rung1(EXETER), source);
+    if (bundle.kind !== "flood" || bundle.flood.state !== "served")
+      throw new Error("expected a served flood bundle");
+    // The two products' facts, each in its own place: the
+    // present-day rivers & sea layer serves Very low; the
+    // scenario source serves Low. No climate string names
+    // the present-day band, and no climate line sets the
+    // two side by side.
+    const rofrsLayer = bundle.flood.layers.find((l) => l.layer === "rofrs");
+    expect(rofrsLayer?.covering?.displayLabel).toBe("Very low");
+    expect(bundle.flood.climate.sources[0].band?.label).toBe("Low");
+    for (const text of climateStrings(bundle.flood.climate)) expect(text).not.toContain("Very low");
+  });
+
+  it("names each source's scenario basis every time, in its own epochs (D55) — never the blended span", async () => {
+    fileGoldenClimate();
+    // A point with present-day facts filed but no climate
+    // filing at all: the not-filed state still names the
+    // scenario basis.
+    const unfiled = directory("XX9 9XX", 51.9, 0.9, "E01000009");
+    fileFacts(unfiled, {
+      flood_zone: facts({ sourceName: ZONES_SOURCE, sourceDate: "2026-10-21" }),
+      rofrs: facts({ sourceName: ROFRS_SOURCE, sourceDate: "2026-11-03" }),
+      rofsw: facts({ sourceName: ROFSW_SOURCE, sourceDate: "2026-11-10" }),
+    });
+    const blocks = [
+      await climateBlock(BIRKDALE), // filed, no band
+      await climateBlock(EXETER), // filed, inside
+      await climateBlock(unfiled), // unfiled
+    ];
+    for (const block of blocks) {
+      const [riversSea, surfaceWater] = block.sources;
+      expect(riversSea.scenarioLine).toBe(ROFRS_CC_SCENARIO_LINE);
+      expect(riversSea.scenarioLine).toContain("UKCP18");
+      expect(riversSea.scenarioLine).toContain("RCP 8.5");
+      expect(riversSea.scenarioLine).toContain("Central allowance for rivers");
+      expect(riversSea.scenarioLine).toContain("2040–2069");
+      expect(riversSea.scenarioLine).toContain("Higher Central allowance for the sea");
+      expect(riversSea.scenarioLine).toContain("2036–2065");
+      expect(riversSea.scenarioLine).toContain("cumulative sea level rise to 2065");
+      expect(surfaceWater.scenarioLine).toBe(ROFSW_CC_SCENARIO_LINE);
+      expect(surfaceWater.scenarioLine).toContain("UKCP18");
+      expect(surfaceWater.scenarioLine).toContain("RCP 8.5");
+      expect(surfaceWater.scenarioLine).toContain("Central allowance for surface water");
+      expect(surfaceWater.scenarioLine).toContain("2040–2060");
+      for (const text of climateStrings(block)) {
+        expect(text).not.toContain("between 2036 and 2069");
+        expect(text).not.toContain("2036 and 2069");
+      }
+    }
+  });
+
+  it("no present-vs-scenario comparison is servable: the no-delta scan, and structural independence both ways", async () => {
+    fileGoldenClimate();
+    const block = await climateBlock(EXETER);
+    const deltaTerms = [
+      "rises to",
+      "rises from",
+      "increases",
+      "decreases",
+      "higher than",
+      "lower than",
+      "worse",
+      "better than",
+      "will become",
+      "compared with",
+      "compared to",
+      "than today",
+      "than at present",
+      "deteriorat",
+      "by 2069",
+      "by 2065",
+      "by 2060",
+    ];
+    for (const text of climateStrings(block))
+      for (const term of deltaTerms) expect(text.toLowerCase()).not.toContain(term);
+
+    // Structural independence: the block is composed from
+    // the climate facts alone. A source whose present-day
+    // rivers & sea facts differ (band, nearest, beyond)
+    // serves a byte-identical climate block; a source whose
+    // climate facts differ serves byte-identical layers.
+    class VariantSource implements FloodDataSource {
+      constructor(
+        private rofrs: FloodLayerFacts | null,
+        private climate: Record<FloodClimateLayerType, FloodClimateFacts> | null,
+      ) {}
+      async layerFacts(layer: FloodLayerType, latitude: number, longitude: number) {
+        if (layer === "rofrs" && this.rofrs) return this.rofrs;
+        return source.layerFacts(layer, latitude, longitude);
+      }
+      async defencesNear(latitude: number, longitude: number) {
+        return source.defencesNear(latitude, longitude);
+      }
+      async climateFacts(layer: FloodClimateLayerType, latitude: number, longitude: number) {
+        if (this.climate) return this.climate[layer];
+        return source.climateFacts(layer, latitude, longitude);
+      }
+    }
+    const base = await buildFloodBundle(rung1(EXETER), source);
+    if (base.kind !== "flood" || base.flood.state !== "served")
+      throw new Error("expected a served flood bundle");
+    const movedPresent = await buildFloodBundle(
+      rung1(EXETER),
+      new VariantSource(
+        {
+          filedCount: 176535,
+          covering: [{ riskLabel: "High", detail: null }],
+          nearestWithin: [{ riskLabel: "High", detail: null, miles: 0.01 }],
+          nearestBeyond: null,
+          sourceName: ROFRS_SOURCE,
+          sourceDate: "2026-11-03",
+        },
+        null,
+      ),
+    );
+    if (movedPresent.kind !== "flood" || movedPresent.flood.state !== "served")
+      throw new Error("expected a served flood bundle");
+    expect(movedPresent.flood.layers).not.toEqual(base.flood.layers);
+    expect(movedPresent.flood.climate).toEqual(base.flood.climate);
+    const movedClimate = await buildFloodBundle(
+      rung1(EXETER),
+      new VariantSource(null, {
+        rofrs_cc: climateFacts({
+          filedCount: 252932,
+          coveringLabel: "High",
+          sourceName: ROFRS_CC_SOURCE,
+          sourceDate: "2026-11-03",
+        }),
+        rofsw_cc: climateFacts({
+          filedCount: 406734,
+          coveringLabel: "Medium",
+          sourceName: ROFSW_CC_SOURCE,
+          sourceDate: "2026-11-10",
+        }),
+      }),
+    );
+    if (movedClimate.kind !== "flood" || movedClimate.flood.state !== "served")
+      throw new Error("expected a served flood bundle");
+    expect(movedClimate.flood.climate).not.toEqual(base.flood.climate);
+    expect(movedClimate.flood.layers).toEqual(base.flood.layers);
+  });
+
+  it("no 2080s horizon serves anywhere in the block", async () => {
+    fileGoldenClimate();
+    for (const dir of [BIRKDALE, EXETER, EPSOM]) {
+      const block = await climateBlock(dir);
+      for (const text of climateStrings(block)) {
+        expect(text).not.toMatch(/208\d/);
+        expect(text).not.toContain("2070");
+        expect(text.toLowerCase()).not.toContain("end of the century");
+      }
+    }
+  });
+
+  it("every climate string passes the shared banned-wording scan", async () => {
+    fileGoldenClimate();
+    for (const dir of [BIRKDALE, EXETER, EPSOM]) {
+      const block = await climateBlock(dir);
+      for (const text of climateStrings(block))
+        for (const term of BANNED_WORDING)
+          expect(text.toLowerCase()).not.toContain(term.toLowerCase());
+    }
+  });
+
+  it("the database source reads the climate table: the covering label and the edition", async () => {
+    const seen: string[] = [];
+    const db = {
+      async query(text: string) {
+        seen.push(text);
+        if (text.includes("FROM flood_climate_layers") && text.includes("LIMIT 1"))
+          return { rows: [{ source_name: ROFRS_CC_SOURCE, source_date: "2026-11-03" }] };
+        if (text.includes("count(*)::int AS n FROM flood_climate_layers"))
+          return { rows: [{ n: 252932 }] };
+        if (text.includes("FROM flood_climate_layers") && text.includes("ST_Covers"))
+          return { rows: [{ risk_label: "Low" }] };
+        throw new Error(`unexpected query: ${text}`);
+      },
+    };
+    const dbSource = createFloodSource(db);
+    const result = await dbSource.climateFacts("rofrs_cc", 51.515224, 0.021177);
+    expect(result).toEqual({
+      filedCount: 252932,
+      coveringLabel: "Low",
+      sourceName: ROFRS_CC_SOURCE,
+      sourceDate: "2026-11-03",
+    });
+    // No proximity is read for the block: no distance query
+    // of any kind.
+    expect(seen.some((q) => q.includes("ST_Distance") || q.includes("ST_DWithin"))).toBe(false);
+  });
+
+  it("the database source short-circuits an unfiled climate table", async () => {
+    const seen: string[] = [];
+    const db = {
+      async query(text: string) {
+        seen.push(text);
+        if (text.includes("LIMIT 1")) return { rows: [] };
+        if (text.includes("count(*)")) return { rows: [{ n: 0 }] };
+        throw new Error(`unexpected query: ${text}`);
+      },
+    };
+    const dbSource = createFloodSource(db);
+    const result = await dbSource.climateFacts("rofsw_cc", 51.5, 0.5);
+    expect(result).toEqual({
+      filedCount: 0,
+      coveringLabel: null,
+      sourceName: null,
+      sourceDate: null,
+    });
     expect(seen).toHaveLength(2);
   });
 });

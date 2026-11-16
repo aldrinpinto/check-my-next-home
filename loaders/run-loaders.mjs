@@ -99,6 +99,8 @@ export const LOADER_SCHEDULE = [
   { item: "load-flood-rivers-sea", cadence: "quarterly", timeoutMinutes: 30 },
   { item: "load-flood-surface-water", cadence: "quarterly", timeoutMinutes: 30 },
   { item: "load-flood-defences", cadence: "quarterly", timeoutMinutes: 30 },
+  { item: "load-flood-rivers-sea-climate", cadence: "quarterly", timeoutMinutes: 30 },
+  { item: "load-flood-surface-water-climate", cadence: "quarterly", timeoutMinutes: 30 },
   { item: "load-transport", cadence: "quarterly", timeoutMinutes: 30 },
   { item: "load-osm-places", cadence: "quarterly", timeoutMinutes: 30 },
   { item: "load-os-greenspace", cadence: "quarterly", timeoutMinutes: 30 },
@@ -315,6 +317,9 @@ export const FRIENDLY_NAMES = {
   "load-flood-rivers-sea": "Flood likelihood — rivers and sea, defences counted",
   "load-flood-surface-water": "Flood likelihood — surface water",
   "load-flood-defences": "Flood defences — the EA's recorded defences (AIMS)",
+  "load-flood-rivers-sea-climate": "Flood climate outlook — rivers and sea, one published scenario",
+  "load-flood-surface-water-climate":
+    "Flood climate outlook — surface water, one published scenario",
   "load-transport": "Transport — bus stops and stations",
   "load-osm-places": "Nearby places — vets, shops, eating places, parks and more",
   "load-os-greenspace": "Parks — official green spaces",
@@ -359,6 +364,8 @@ export const FRIENDLY_NAMES = {
   "flood-zones": "Flood zones source (canary)",
   "flood-rivers-sea": "Rivers & sea flood source (canary)",
   "flood-surface-water": "Surface water flood source (canary)",
+  "flood-rivers-sea-climate": "Rivers & sea flood source — climate scenario (canary)",
+  "flood-surface-water-climate": "Surface water flood source — climate scenario (canary)",
   naptan: "Transport stops source (canary)",
   geofabrik: "Places map source (canary)",
   "os-greenspace": "Parks source (canary)",
@@ -464,6 +471,14 @@ function shortDetail(item) {
     case "load-flood-defences": {
       const filed = pick(/(\d+) features filed/);
       return filed ? `${filed} flood defences filed` : "updated";
+    }
+    case "load-flood-rivers-sea-climate": {
+      const filed = pick(/(\d+) features filed/);
+      return filed ? `${filed} rivers & sea climate shapes filed` : "updated";
+    }
+    case "load-flood-surface-water-climate": {
+      const filed = pick(/(\d+) features filed/);
+      return filed ? `${filed} surface water climate shapes filed` : "updated";
     }
     case "load-transport": {
       const filed = pick(/(\d+) transport stops filed/);
@@ -819,6 +834,11 @@ async function main() {
       await runAndLog("load-flood-rivers-sea", ["--file", fx("flood-rivers-sea")]);
       await runAndLog("load-flood-surface-water", ["--file", fx("flood-surface-water")]);
       await runAndLog("load-flood-defences", ["--file", fx("flood-defences")]);
+      await runAndLog("load-flood-rivers-sea-climate", ["--file", fx("flood-rivers-sea-climate")]);
+      await runAndLog("load-flood-surface-water-climate", [
+        "--file",
+        fx("flood-surface-water-climate"),
+      ]);
       await runAndLog("load-transport", ["--file", fx("transport")]);
       await runAndLog("load-osm-places", ["--file", fx("osm-places")]);
       await runAndLog("load-os-greenspace", ["--file", fx("os-greenspace")]);
@@ -943,6 +963,8 @@ async function main() {
         "load-flood-rivers-sea",
         "load-flood-surface-water",
         "load-flood-defences",
+        "load-flood-rivers-sea-climate",
+        "load-flood-surface-water-climate",
         "load-transport",
         "load-osm-places",
         "load-os-greenspace",
@@ -1117,6 +1139,8 @@ async function main() {
         "load-flood-rivers-sea",
         "load-flood-surface-water",
         "load-flood-defences",
+        "load-flood-rivers-sea-climate",
+        "load-flood-surface-water-climate",
         "load-transport",
         "load-osm-places",
         "load-os-greenspace",

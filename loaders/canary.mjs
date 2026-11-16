@@ -878,6 +878,18 @@ function probePriorityHabitats() {
 // around the golden point still returns the covering fact
 // (Zone 3; a filed Very low) — the earliest warning that a
 // republication moved the golden home.
+//
+// The two Climate Change 1 products (plan step M6.28) ride
+// the same pattern with their own snapshots (16 Nov 2026):
+// rivers & sea keeps an Exeter anchor (the scenario covers
+// the point with Low), and surface water — whose scenario
+// publishes features around Exeter but none covering it —
+// keeps Exeter PRESENCE plus a Minerva anchor, in its own
+// probe below. Both climate probes also warn on an
+// unexpected new collection in their dataset's collections
+// document: a successor scenario product ("Climate Change
+// 2") would appear there first, and which scenario serves
+// is a decision, never a loader change.
 
 const FLOOD_PRODUCTS = {
   "flood-zones": {
@@ -903,6 +915,38 @@ const FLOOD_PRODUCTS = {
     collection: "rofsw",
     snapshot: 405438,
     anchor: null,
+  },
+  "flood-rivers-sea-climate": {
+    items:
+      "https://environment.data.gov.uk/geoservices/datasets/de4079f2-3569-45b2-8009-a00bccc520a1/ogc/features/v1/collections/rofrs_cc01_4band/items",
+    wms: "https://environment.data.gov.uk/spatialdata/nafra2-risk-of-flooding-from-rivers-and-sea-climate-change/wms?service=WMS&version=1.3.0&request=GetCapabilities",
+    collection: "rofrs_cc01_4band",
+    snapshot: 252932,
+    anchor: { property: "risk_band", value: "Low", label: "Low" },
+    knownCollections: [
+      "rofrs_cc01_4band",
+      "rofrs_cc01_4band_0_2m_depth",
+      "rofrs_cc01_4band_0_3m_depth",
+      "rofrs_cc01_4band_0_6m_depth",
+      "rofrs_cc01_4band_0_9m_depth",
+      "rofrs_cc01_4band_1_2m_depth",
+    ],
+  },
+  "flood-surface-water-climate": {
+    items:
+      "https://environment.data.gov.uk/geoservices/datasets/e5b38de2-99b3-44ee-b10c-b244926878ef/ogc/features/v1/collections/rofsw_cc01/items",
+    wms: "https://environment.data.gov.uk/spatialdata/nafra2-risk-of-flooding-from-surface-water-climate-change/wms?service=WMS&version=1.3.0&request=GetCapabilities",
+    collection: "rofsw_cc01",
+    snapshot: 406734,
+    anchor: null,
+    knownCollections: [
+      "rofsw_cc01",
+      "rofsw_cc01_0_2m_depth",
+      "rofsw_cc01_0_3m_depth",
+      "rofsw_cc01_0_6m_depth",
+      "rofsw_cc01_0_9m_depth",
+      "rofsw_cc01_1_2m_depth",
+    ],
   },
 };
 
@@ -935,6 +979,11 @@ export function probeFloodProduct(item) {
     assertNoErrorEnvelope(collectionsBody, `the ${spec.collection} collections document`);
     if (!(collectionsBody.collections ?? []).some((c) => c.id === spec.collection))
       throw new Error(`the collections document no longer names ${spec.collection}`);
+    const unknownCollections = (spec.knownCollections ?? []).length
+      ? (collectionsBody.collections ?? [])
+          .map((c) => c.id)
+          .filter((id) => !spec.knownCollections.includes(id))
+      : [];
     const countResponse = await fetchRetry(`${spec.items}?limit=1&f=json`);
     if (!countResponse.ok)
       throw new Error(`HTTP ${countResponse.status} for the ${spec.collection} count`);
@@ -975,12 +1024,118 @@ export function probeFloodProduct(item) {
     const edition = await floodEdition(spec);
     const age = Math.floor(ageDays(edition));
     const base = `canary ${item} · ${matched} features · edition ${edition}${anchorNote}`;
+    const warnings = [];
     if (age > 200)
-      return {
-        warning: true,
-        logLine: `${base} · edition is ${age} days old — beyond the ~200-day ambition (warn-only: the publisher promises updates only as needed)`,
-        sourceDate: edition,
-      };
+      warnings.push(
+        `edition is ${age} days old — beyond the ~200-day ambition (warn-only: the publisher promises updates only as needed)`,
+      );
+    if (unknownCollections.length > 0)
+      warnings.push(
+        `the collections document names unexpected collections (${unknownCollections.join(", ")}) — a new sibling product may have been published (warn-only: which scenario serves is a decision, not a loader change)`,
+      );
+    if (warnings.length > 0)
+      return { warning: true, logLine: `${base} · ${warnings.join(" · ")}`, sourceDate: edition };
+    return { logLine: base, sourceDate: edition };
+  })();
+}
+
+const FLOOD_MINERVA_POINT = { lat: 51.344571, lng: -0.247104 };
+
+// The surface water climate probe cannot ride probeFloodProduct:
+// its Exeter fact is PRESENCE, not a covering band (the scenario
+// publishes features around the golden point but none covering
+// it), and its positive anchor sits at Minerva, where a Low
+// feature covers the point. Everything else mirrors the flood
+// pattern above: the collections document names the collection,
+// the unfiltered numberMatched sits within ±10% of the snapshot,
+// the WMS stamps exactly one edition date, freshness is
+// warn-only, and an unexpected new collection warns.
+export function probeFloodSurfaceWaterClimate() {
+  const item = "flood-surface-water-climate";
+  const spec = FLOOD_PRODUCTS[item];
+  return (async () => {
+    const collectionsUrl = `${spec.items.split("/collections/")[0]}/collections?f=json`;
+    const collectionsResponse = await fetchRetry(collectionsUrl);
+    if (!collectionsResponse.ok)
+      throw new Error(
+        `HTTP ${collectionsResponse.status} for the ${spec.collection} collections document`,
+      );
+    const collectionsBody = await collectionsResponse.json();
+    assertNoErrorEnvelope(collectionsBody, `the ${spec.collection} collections document`);
+    if (!(collectionsBody.collections ?? []).some((c) => c.id === spec.collection))
+      throw new Error(`the collections document no longer names ${spec.collection}`);
+    const unknownCollections = (collectionsBody.collections ?? [])
+      .map((c) => c.id)
+      .filter((id) => !(spec.knownCollections ?? []).includes(id));
+    const countResponse = await fetchRetry(`${spec.items}?limit=1&f=json`);
+    if (!countResponse.ok)
+      throw new Error(`HTTP ${countResponse.status} for the ${spec.collection} count`);
+    const countBody = await countResponse.json();
+    assertNoErrorEnvelope(countBody, `the ${spec.collection} count`);
+    const matched = countBody.numberMatched;
+    if (!Number.isInteger(matched))
+      throw new Error(`the ${spec.collection} items response carries no numberMatched`);
+    const lo = Math.floor(spec.snapshot * 0.9);
+    const hi = Math.ceil(spec.snapshot * 1.1);
+    if (matched < lo || matched > hi)
+      throw new Error(
+        `the ${spec.collection} count is ${matched} — outside the band ${lo}–${hi} (±10% of the ${spec.snapshot} snapshot)`,
+      );
+    // Exeter presence: the golden box (±0.01°, the M6.28 prep's
+    // box) still returns features — the point itself is
+    // uncovered, so presence, not a band, is the anchor fact.
+    const presenceBbox = [
+      FLOOD_EXETER_POINT.lng - 0.01,
+      FLOOD_EXETER_POINT.lat - 0.01,
+      FLOOD_EXETER_POINT.lng + 0.01,
+      FLOOD_EXETER_POINT.lat + 0.01,
+    ].join(",");
+    const presenceResponse = await fetchRetry(
+      `${spec.items}?bbox=${presenceBbox}&limit=500&f=json`,
+    );
+    if (!presenceResponse.ok)
+      throw new Error(`HTTP ${presenceResponse.status} for the ${spec.collection} Exeter presence`);
+    const presenceBody = await presenceResponse.json();
+    assertNoErrorEnvelope(presenceBody, `the ${spec.collection} Exeter presence`);
+    if ((presenceBody.features ?? []).length === 0)
+      throw new Error(
+        `the Exeter box no longer returns any ${spec.collection} features — a republication may have moved the golden home`,
+      );
+    // Minerva anchor: a Low feature in the tiny box around the
+    // golden point (the covering polygon intersects it) — the
+    // earliest warning that a republication moved the covering
+    // fact the M6.28 golden locks.
+    const d = 0.0005;
+    const anchorBbox = [
+      FLOOD_MINERVA_POINT.lng - d,
+      FLOOD_MINERVA_POINT.lat - d,
+      FLOOD_MINERVA_POINT.lng + d,
+      FLOOD_MINERVA_POINT.lat + d,
+    ].join(",");
+    const anchorResponse = await fetchRetry(`${spec.items}?bbox=${anchorBbox}&limit=100&f=json`);
+    if (!anchorResponse.ok)
+      throw new Error(`HTTP ${anchorResponse.status} for the ${spec.collection} Minerva anchor`);
+    const anchorBody = await anchorResponse.json();
+    assertNoErrorEnvelope(anchorBody, `the ${spec.collection} Minerva anchor`);
+    const hit = (anchorBody.features ?? []).some((f) => f.properties?.risk_band === "Low");
+    if (!hit)
+      throw new Error(
+        `the Minerva anchor no longer returns Low for ${spec.collection} — a republication may have moved the golden home`,
+      );
+    const edition = await floodEdition(spec);
+    const age = Math.floor(ageDays(edition));
+    const base = `canary ${item} · ${matched} features · edition ${edition} · Exeter presence OK · Minerva anchor Low OK`;
+    const warnings = [];
+    if (age > 200)
+      warnings.push(
+        `edition is ${age} days old — beyond the ~200-day ambition (warn-only: the publisher promises updates only as needed)`,
+      );
+    if (unknownCollections.length > 0)
+      warnings.push(
+        `the collections document names unexpected collections (${unknownCollections.join(", ")}) — a new sibling product may have been published (warn-only: which scenario serves is a decision, not a loader change)`,
+      );
+    if (warnings.length > 0)
+      return { warning: true, logLine: `${base} · ${warnings.join(" · ")}`, sourceDate: edition };
     return { logLine: base, sourceDate: edition };
   })();
 }
@@ -1865,6 +2020,8 @@ export async function runCanaryProbes() {
   await run("flood-zones", () => probeFloodProduct("flood-zones"));
   await run("flood-rivers-sea", () => probeFloodProduct("flood-rivers-sea"));
   await run("flood-surface-water", () => probeFloodProduct("flood-surface-water"));
+  await run("flood-rivers-sea-climate", () => probeFloodProduct("flood-rivers-sea-climate"));
+  await run("flood-surface-water-climate", probeFloodSurfaceWaterClimate);
   await run("flood-defences", probeFloodDefences);
   await run("naptan", probeNaptan);
   await run("geofabrik", probeGeofabrik);

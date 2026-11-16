@@ -33,6 +33,8 @@
     "load:flood-rivers-sea": "node loaders/load-flood-rivers-sea.mjs",
     "load:flood-surface-water": "node loaders/load-flood-surface-water.mjs",
     "load:flood-defences": "node loaders/load-flood-defences.mjs",
+    "load:flood-rivers-sea-climate": "node loaders/load-flood-rivers-sea-climate.mjs",
+    "load:flood-surface-water-climate": "node loaders/load-flood-surface-water-climate.mjs",
     "load:transport": "node loaders/load-transport.mjs",
     "load:osm-places": "node loaders/load-osm-places.mjs",
     "load:os-greenspace": "node loaders/load-os-greenspace.mjs",

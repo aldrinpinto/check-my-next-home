@@ -585,6 +585,25 @@ class CensusFloodSource implements FloodDataSource {
       return { ...base, covering: [{ riskLabel: "Very low", detail: ">0 m" }] };
     return { ...base, nearestWithin: [{ riskLabel: "Low", detail: ">0 m", miles: 0.01 }] };
   }
+  // The M6.28 climate facts: rivers & sea inside its Low
+  // band, surface water filed with no band at the point —
+  // so direction one exercises rows 83–84 and the leaf walk
+  // registers the block's paths in both filed states.
+  async climateFacts(layer: "rofrs_cc" | "rofsw_cc") {
+    if (layer === "rofrs_cc")
+      return {
+        filedCount: 1000,
+        coveringLabel: "Low",
+        sourceName: "Environment Agency",
+        sourceDate: "2026-11-03",
+      };
+    return {
+      filedCount: 1000,
+      coveringLabel: null,
+      sourceName: "Environment Agency",
+      sourceDate: "2026-11-10",
+    };
+  }
   // The M6.27 defences facts: a served block whose first
   // defence carries a design standard (so direction one
   // exercises rows 81–82 and the leaf walk registers the
@@ -670,13 +689,13 @@ type Golden = Awaited<ReturnType<typeof goldenBundles>>;
 // ------------------------------------------------------------------
 
 describe("explainer census — the register", () => {
-  it("enumerates the census: 82 families (71 to M6.20, rows 72–75 added at M6.21, rows 76–78 at M6.22, row 79 at M6.25, row 80 at M6.26, rows 81–82 at M6.27), 49 hard, ids unique and stable in row order", () => {
-    expect(EXPLAINER_CENSUS).toHaveLength(82);
+  it("enumerates the census: 84 families (71 to M6.20, rows 72–75 added at M6.21, rows 76–78 at M6.22, row 79 at M6.25, row 80 at M6.26, rows 81–82 at M6.27, rows 83–84 at M6.28), 51 hard, ids unique and stable in row order", () => {
+    expect(EXPLAINER_CENSUS).toHaveLength(84);
     expect(EXPLAINER_CENSUS.map((entry) => entry.row)).toEqual(
-      Array.from({ length: 82 }, (_, i) => i + 1),
+      Array.from({ length: 84 }, (_, i) => i + 1),
     );
-    expect(new Set(EXPLAINER_CENSUS.map((entry) => entry.id)).size).toBe(82);
-    expect(EXPLAINER_CENSUS.filter((entry) => entry.hardness === "hard")).toHaveLength(49);
+    expect(new Set(EXPLAINER_CENSUS.map((entry) => entry.id)).size).toBe(84);
+    expect(EXPLAINER_CENSUS.filter((entry) => entry.hardness === "hard")).toHaveLength(51);
     // Every figure-path pattern names census ids that exist.
     const ids = new Set(EXPLAINER_CENSUS.map((entry) => entry.id));
     for (const { censusIds } of FIGURE_PATH_PATTERNS)
@@ -799,6 +818,14 @@ const HARD_LINES: Record<string, (b: Golden) => unknown> = {
   "flood.defences-sop": (b) =>
     b.flood.kind === "flood" && b.flood.flood.state === "served"
       ? b.flood.flood.defences.defences.map((d) => d.designSopExplainer)
+      : null,
+  "flood.climate": (b) =>
+    b.flood.kind === "flood" && b.flood.flood.state === "served"
+      ? b.flood.flood.climate.basisLine
+      : null,
+  "flood.climate-scenario": (b) =>
+    b.flood.kind === "flood" && b.flood.flood.state === "served"
+      ? b.flood.flood.climate.sources.map((s) => s.scenarioLine)
       : null,
 };
 

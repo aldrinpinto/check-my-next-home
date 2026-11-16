@@ -1044,6 +1044,11 @@ class MatrixFloodSource implements FloodDataSource {
   async defencesNear() {
     return this.defencesFacts;
   }
+  // M6.28: unfiled by default — the climate block serves
+  // its not-filed form in the matrix's flood cells.
+  async climateFacts() {
+    return { filedCount: 0, coveringLabel: null, sourceName: null, sourceDate: null };
+  }
 }
 
 describe("matrix — flood", () => {

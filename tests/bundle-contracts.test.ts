@@ -100,6 +100,23 @@
 // All 46 pins stand. Authorised by the founder's D49/D54
 // rulings; recorded here so the change is never mistaken
 // for drift.
+//
+// RE-PIN RECORD: M6.28 (decisions D49 and D55) deliberately
+// widened the frozen flood shape once more — the served
+// flood answer gains climate (the climate outlook sibling
+// block: the EA's two Climate Change 1 scenario likelihoods
+// served at report depth, point state only, each source's
+// scenario basis named in its own epochs). Two pins moved
+// (flood.served-mixed, flood.served-warnings — the two pins
+// whose bundles serve a flood answer; in this fake world
+// the climate layers are unfiled, so both gain the block in
+// its not-filed form). Two pins are new (flood.climate-mixed,
+// flood.climate-inside — the block's filed state mix). The
+// short pins did not move — the headline projection picks
+// named fields and never reads the block, proven by an
+// identity test in the short-bundle suite. All 48 pins
+// stand. Authorised by the founder's D49/D55 rulings;
+// recorded here so the change is never mistaken for drift.
 
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -590,6 +607,19 @@ class FakeFloodSource implements FloodDataSource {
   async defencesNear() {
     return { filedCount: 0, totalWithin: 0, sourceName: null, sourceDate: null, defences: [] };
   }
+  // M6.28: the climate layers are unfiled in this fake
+  // world by default, so both served pins gain the block in
+  // its not-filed form; the dedicated climate pins below
+  // set their own facts.
+  climate = new Map<string, object>();
+  async climateFacts(layer: string) {
+    return (this.climate.get(layer) ?? {
+      filedCount: 0,
+      coveringLabel: null,
+      sourceName: null,
+      sourceDate: null,
+    }) as never;
+  }
 }
 
 describe("contract — flood", () => {
@@ -620,6 +650,38 @@ describe("contract — flood", () => {
     pin("flood.not-covered", await buildFloodBundle(SCO_HOME, source));
     pin("flood.rung3", await buildFloodBundle(WIDER, source));
     pin("flood.rung4", await buildFloodBundle(NO_LOCATION, source));
+    // M6.28: the climate block's own state mix — rivers &
+    // sea inside its Low band while surface water is filed
+    // with no band published at the point.
+    const climateMixed = new FakeFloodSource();
+    climateMixed.climate.set("rofrs_cc", {
+      filedCount: 252932,
+      coveringLabel: "Low",
+      sourceName: "Environment Agency",
+      sourceDate: "2026-11-03",
+    });
+    climateMixed.climate.set("rofsw_cc", {
+      filedCount: 406734,
+      coveringLabel: null,
+      sourceName: "Environment Agency",
+      sourceDate: "2026-11-10",
+    });
+    pin("flood.climate-mixed", await buildFloodBundle(ENG_HOME, climateMixed));
+    // M6.28: both scenario sources inside their bands.
+    const climateInside = new FakeFloodSource();
+    climateInside.climate.set("rofrs_cc", {
+      filedCount: 252932,
+      coveringLabel: "Low",
+      sourceName: "Environment Agency",
+      sourceDate: "2026-11-03",
+    });
+    climateInside.climate.set("rofsw_cc", {
+      filedCount: 406734,
+      coveringLabel: "Low",
+      sourceName: "Environment Agency",
+      sourceDate: "2026-11-10",
+    });
+    pin("flood.climate-inside", await buildFloodBundle(ENG_HOME, climateInside));
   });
 });
 

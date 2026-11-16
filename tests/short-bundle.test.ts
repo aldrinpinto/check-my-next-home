@@ -938,6 +938,18 @@ class FakeFloodSource implements FloodDataSource {
   async defencesNear() {
     return this.defencesFacts;
   }
+  // M6.28: unfiled by default in this fake world; the
+  // identity test below files a served block to prove the
+  // short derivation never reads it.
+  climateFactsByLayer: Record<string, object> = {};
+  async climateFacts(layer: string) {
+    return (this.climateFactsByLayer[layer] ?? {
+      filedCount: 0,
+      coveringLabel: null,
+      sourceName: null,
+      sourceDate: null,
+    }) as never;
+  }
 }
 
 const floodSource = new FakeFloodSource();
@@ -2318,6 +2330,72 @@ describe("short bundle — 19 Birkdale Rise, CM3 2JT (rung 1)", () => {
         sourceDate: null,
         defences: [],
       };
+    }
+  });
+
+  it("flood: the M6.28 climate block leaves the short bundle shape-identical", async () => {
+    // The climate outlook is report depth (D49); the
+    // headline flood projection picks the live-warnings
+    // subset and the layers only. The proof is identity,
+    // not inspection: the short bundle derived from a flood
+    // bundle carrying a served climate block equals, field
+    // for field, the one derived from the same bundle with
+    // the block in its not-filed form — the derivation
+    // never reads it.
+    floodSource.climateFactsByLayer = {
+      rofrs_cc: {
+        filedCount: 252932,
+        coveringLabel: "Low",
+        sourceName: "Environment Agency",
+        sourceDate: "2026-11-03",
+      },
+      rofsw_cc: {
+        filedCount: 406734,
+        coveringLabel: "Low",
+        sourceName: "Environment Agency",
+        sourceDate: "2026-11-10",
+      },
+    };
+    try {
+      const inputs = await fullBundles(BIRKDALE);
+      if (inputs.flood.kind !== "flood" || inputs.flood.flood.state !== "served")
+        throw new Error("expected a served flood bundle");
+      // The block must actually be present, with a band
+      // served, for the identity to prove anything.
+      expect(inputs.flood.flood.climate.sources[0].pointState).toBe("inside");
+      expect(inputs.flood.flood.climate.sources[0].band?.label).toBe("Low");
+      const withBlock = buildShortBundle(inputs);
+      const withoutBlock = buildShortBundle({
+        ...inputs,
+        flood: {
+          ...inputs.flood,
+          flood: {
+            ...inputs.flood.flood,
+            climate: {
+              heading: "Climate outlook",
+              basisLine: inputs.flood.flood.climate.basisLine,
+              caveatLine: inputs.flood.flood.climate.caveatLine,
+              sources: inputs.flood.flood.climate.sources.map((s) => ({
+                ...s,
+                pointState: "not-filed" as const,
+                band: null,
+                sourceName: null,
+                sourceDate: null,
+                sourceLine: null,
+              })),
+            },
+          },
+        },
+      });
+      expect(withBlock).toEqual(withoutBlock);
+      const serialised = JSON.stringify(servedShort(withBlock));
+      // The block's own markers only.
+      expect(serialised).not.toContain("Climate outlook");
+      expect(serialised).not.toContain("climate scenario");
+      expect(serialised).not.toContain("UKCP18");
+      expect(serialised).not.toContain("RCP 8.5");
+    } finally {
+      floodSource.climateFactsByLayer = {};
     }
   });
 
