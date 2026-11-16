@@ -601,6 +601,61 @@ export interface AqmaFacts {
   sourceDate: string | null;
 }
 
+// ------------------------------------------------------------------
+// Charging zones (M6.31, decisions D50, D61 and D63) —
+// SELF-CONTAINED BLOCK: everything the step adds to this
+// file lives between this banner and the noise section
+// below (the facts types, the section builder), plus
+// four named wiring points: the AreaDataSource port
+// method, the AreaSections key, the rung-3 reason and
+// the createAreaSource read. The register the brain
+// gates on is pinned against the loader's own register
+// (loaders/load-charging-zones.mjs) by the step's tests,
+// field for field, so the two copies cannot drift.
+// ------------------------------------------------------------------
+
+// One filed charging-zone scheme as the brain reads it
+// (migration 0026): the register facts the served lines
+// compose from. Charging amounts are never filed, so no
+// shape here can hold one (decision D50).
+export interface ChargingZoneRow {
+  schemeKey: string;
+  name: string;
+  family: "caz" | "ulez" | "lez";
+  // The GOV.UK class letter for a Clean Air Zone; null
+  // for the ULEZ and the Scottish zones, which have no
+  // class.
+  class: string | null;
+  operator: string;
+  // The date the scheme's charges — or, for a Scottish
+  // zone, its penalties — began (decision D61), as filed
+  // ("2023-02-27").
+  inForceDate: string;
+  checkerUrl: string;
+  sourceName: string | null;
+  sourceDate: string | null;
+}
+
+export interface ChargingZonesFacts {
+  // The filed set's size — an empty table serves the
+  // not-covered state, never an absence.
+  filedCount: number;
+  // The scheme_keys actually filed: the completeness
+  // gate compares this set against the brain's register.
+  filedKeys: string[];
+  // The oldest filing's loaded_at, as a date — the set
+  // date the outside line names. The loader files the
+  // set in one transaction, so in practice every row
+  // shares one stamp; the read takes the minimum so the
+  // gate judges the set by its oldest member. Null when
+  // nothing is filed.
+  oldestLoadedDate: string | null;
+  // The scheme whose boundary covers the point, or
+  // null. The zones are pairwise disjoint (asserted at
+  // filing), so at most one row can cover.
+  covering: ChargingZoneRow | null;
+}
+
 export interface NoiseFacts {
   // The table's filed row count — the guard. Noise's first
   // national pass is an M12 operator job; until it lands the
@@ -873,6 +928,13 @@ export interface AreaDataSource {
   // not-filed section can still carry a served AQMA
   // block and vice versa.
   aqmaFacts(latitude: number, longitude: number): Promise<AqmaFacts>;
+  // The filed charging zones (M6.31): the covering
+  // scheme, if any, and the filed set's completeness
+  // facts (keys + oldest stamp) the gate is computed
+  // from at answer time. Independent of every other
+  // read — the section serves its own states whatever
+  // the air section's state.
+  chargingZonesFacts(latitude: number, longitude: number): Promise<ChargingZonesFacts>;
   noiseRows(postcode: string): Promise<NoiseFacts>;
   benefits(lsoaCode: string): Promise<BenefitsFacts>;
   solarCell(cellRef: string): Promise<SolarFacts>;
@@ -4465,6 +4527,233 @@ function buildAir(facts: AirFacts | null, aqmaFacts: AqmaFacts): AirSection {
 }
 
 // ------------------------------------------------------------------
+// Charging zones — the section builder (M6.31, decisions
+// D50, D61 and D63; the self-contained block whose facts
+// types sit beside AqmaFacts above).
+//
+// The states:
+//   - inside: the point falls inside a filed scheme's
+//     boundary. Serves on its own evidence, regardless
+//     of the completeness gate — a filed boundary proves
+//     its own positive.
+//   - outside, behind the completeness gate: the full
+//     outside line serves ONLY when every scheme in the
+//     register is filed AND the set's oldest filing is
+//     no more than 120 days old, computed here, at
+//     answer time, from the filed set and its stamps.
+//     While the set is incomplete, the outside answer is
+//     the named-gap line: outside every PUBLISHED
+//     boundary, with the missing scheme named (decision
+//     D63 — the product may launch on it; the full line
+//     is never served on an incomplete set's evidence).
+//   - not-covered: the table is absent or empty (the
+//     D30 two-part line), or the set is complete but its
+//     oldest filing is too old to prove a negative.
+// There is deliberately NO nearest state: a distance to
+// a charging-zone boundary is never served (Minerva's
+// 1.362 miles to the ULEZ boundary is a build record,
+// not an answer).
+// ------------------------------------------------------------------
+
+export interface ChargingZoneSchemeServed {
+  name: string;
+  operator: string;
+  family: "caz" | "ulez" | "lez";
+  class: string | null;
+  classLine: string | null;
+  carsLine: string | null;
+  dateLine: string;
+  checkerUrl: string;
+  checkerLabel: string;
+}
+
+export interface ChargingZonesSection extends AreaSectionMeta {
+  state: "inside" | "outside" | "not-covered";
+  // The state line (the not-covered states: the D30
+  // two-part line, or its out-of-date sibling).
+  line: string;
+  // The D13 basis line; null when not-covered.
+  basisLine: string | null;
+  // Inside only: the covering scheme's served facts.
+  scheme: ChargingZoneSchemeServed | null;
+  // The complete set's date (its oldest filing's
+  // loaded_at date) — served only with the full outside
+  // line, whose wording names it.
+  setDate: string | null;
+  filedCount: number | null;
+}
+
+// The register the gate judges completeness against —
+// the loader's register (loaders/load-charging-zones.mjs)
+// carries the same twelve keys and names; the step's
+// tests pin the two copies equal, field for field.
+const CHARGING_ZONE_REGISTER: readonly { key: string; name: string }[] = [
+  { key: "bath", name: "Bath Clean Air Zone" },
+  { key: "birmingham", name: "Birmingham Clean Air Zone" },
+  { key: "bradford", name: "Bradford Clean Air Zone" },
+  { key: "bristol", name: "Bristol Clean Air Zone" },
+  { key: "portsmouth", name: "Portsmouth Clean Air Zone" },
+  { key: "sheffield", name: "Sheffield Clean Air Zone" },
+  { key: "tyneside", name: "Tyneside Clean Air Zone (Newcastle and Gateshead)" },
+  { key: "ulez", name: "London Ultra Low Emission Zone (ULEZ)" },
+  { key: "glasgow", name: "Glasgow Low Emission Zone" },
+  { key: "edinburgh", name: "Edinburgh Low Emission Zone" },
+  { key: "dundee", name: "Dundee Low Emission Zone" },
+  { key: "aberdeen", name: "Aberdeen Low Emission Zone" },
+];
+
+// The gate's freshness bound (decision D61): the set's
+// oldest filing may be no more than 120 days old when
+// the full outside line serves.
+const CHARGING_GATE_MAX_AGE_DAYS = 120;
+
+const CHARGING_ZONES_BASIS_LINE =
+  "Charging zones are areas where driving a vehicle that does not meet the zone's emission standard can cost the driver money. Whether a vehicle is charged depends on the vehicle, not on the home. The date shown for a zone is the date its charges, or its penalties, began.";
+
+// GOV.UK's class table, verbatim ("Driving in a clean
+// air zone", re-verified at build): the vehicles each
+// class charges. Class D's list ends "and cars" in the
+// prep's pinned instance; the others end plain.
+const CAZ_CLASS_VEHICLES: Record<string, string> = {
+  A: "buses, coaches, taxis, private hire vehicles",
+  B: "buses, coaches, taxis, private hire vehicles, heavy goods vehicles",
+  C: "buses, coaches, taxis, private hire vehicles, heavy goods vehicles, vans and minibuses",
+  D: "buses, coaches, taxis, private hire vehicles, heavy goods vehicles, vans, minibuses and cars",
+};
+
+const CHARGING_CHECKER_LABELS: Record<ChargingZoneRow["family"], string> = {
+  caz: "Check a vehicle on GOV.UK",
+  ulez: "Check a vehicle with TfL",
+  lez: "Check a vehicle on Scotland's LEZ checker",
+};
+
+function buildChargingZoneScheme(row: ChargingZoneRow): ChargingZoneSchemeServed {
+  let classLine: string | null = null;
+  let carsLine: string | null = null;
+  let dateLine: string;
+  if (row.family === "caz") {
+    const vehicles = row.class ? CAZ_CLASS_VEHICLES[row.class] : undefined;
+    if (row.class && vehicles) {
+      classLine = `${row.operator} runs this Class ${row.class} zone. A Class ${row.class} zone charges ${vehicles} that do not meet its emission standards.`;
+      // Classes A, B and C never charge private cars;
+      // class D does, so it carries no cars line.
+      if (row.class !== "D") carsLine = "Private cars are not charged in this zone.";
+    }
+    dateLine = `Charges in this zone began on ${dateLabel(row.inForceDate)}.`;
+  } else if (row.family === "ulez") {
+    classLine =
+      "Transport for London runs the zone. It applies to cars, motorcycles, vans, minibuses, buses, coaches and heavy goods vehicles that do not meet its emission standards.";
+    dateLine = `Charges in this zone, at this boundary, began on ${dateLabel(row.inForceDate)}.`;
+  } else {
+    classLine = `${row.operator} runs this Low Emission Zone. A vehicle that does not meet the zone's emission standard may not be driven in the zone. There is no charge to pay to enter: driving a vehicle that does not meet the standard in the zone can lead to a penalty charge notice.`;
+    dateLine = `Penalties in this zone began on ${dateLabel(row.inForceDate)}.`;
+  }
+  return {
+    name: row.name,
+    operator: row.operator,
+    family: row.family,
+    class: row.class,
+    classLine,
+    carsLine,
+    dateLine,
+    checkerUrl: row.checkerUrl,
+    checkerLabel: CHARGING_CHECKER_LABELS[row.family],
+  };
+}
+
+function buildChargingZones(facts: ChargingZonesFacts): ChargingZonesSection {
+  const meta = {
+    // Report depth only: the headline projection never
+    // picks this section (identity-proven in the short
+    // suite, as with the AQMA block).
+    depth: "report" as const,
+    grain: "postcode point" as const,
+    grainLine: "the published charging-zone boundaries at the postcode point",
+    explainer:
+      "Whether a vehicle is charged in a charging zone depends on the vehicle, not on the home. This section checks the postcode point against the boundaries the zone operators publish.",
+  };
+  const base: ChargingZonesSection = {
+    ...meta,
+    sourceName: null,
+    sourceDate: null,
+    sourceLine: null,
+    state: "not-covered",
+    line: "",
+    basisLine: null,
+    scheme: null,
+    setDate: null,
+    filedCount: null,
+  };
+  // No filing, no answer: an empty table can prove
+  // nothing, so its absence wordings are never served
+  // from it. The not-covered sentence is the bundle's
+  // one two-part form (M6.9, decision D30).
+  if (facts.filedCount <= 0) {
+    return {
+      ...base,
+      line: "Charging zones — the charging zone data is not filed yet, so no charging zone answer can be given yet",
+    };
+  }
+  const filed = {
+    ...base,
+    basisLine: CHARGING_ZONES_BASIS_LINE,
+    filedCount: facts.filedCount,
+  };
+  // Inside serves on its own evidence, gate or no gate.
+  if (facts.covering) {
+    const row = facts.covering;
+    return {
+      ...filed,
+      sourceName: row.sourceName,
+      sourceDate: row.sourceDate,
+      sourceLine: sourceLineOf(row.sourceName, row.sourceDate),
+      state: "inside",
+      line: `This postcode point is inside the ${row.name}.`,
+      scheme: buildChargingZoneScheme(row),
+    };
+  }
+  const filedKeys = new Set(facts.filedKeys);
+  const missing = CHARGING_ZONE_REGISTER.filter((scheme) => !filedKeys.has(scheme.key));
+  if (missing.length > 0) {
+    // The named-gap outside line (decision D63): true
+    // of the published set, and it names what the set
+    // lacks — the full outside line is never served on
+    // an incomplete set's evidence.
+    const names = joinWords(missing.map((scheme) => `the ${scheme.name}`));
+    return {
+      ...filed,
+      state: "outside",
+      line:
+        missing.length === 1
+          ? `This postcode point is not inside any charging zone whose boundary is published. ${names.charAt(0).toUpperCase() + names.slice(1)} is in force, but its boundary is not published, so it cannot be checked here.`
+          : `This postcode point is not inside any charging zone whose boundary is published. ${names.charAt(0).toUpperCase() + names.slice(1)} are in force, but their boundaries are not published, so they cannot be checked here.`,
+    };
+  }
+  const ageDays =
+    facts.oldestLoadedDate === null
+      ? null
+      : Math.floor(
+          (Date.now() - new Date(`${facts.oldestLoadedDate}T00:00:00Z`).getTime()) / 86400000,
+        );
+  if (ageDays === null || ageDays > CHARGING_GATE_MAX_AGE_DAYS) {
+    // Complete but stale: a negative this old is not
+    // proof — a scheme could have been declared since
+    // the filing — so the section serves not-covered
+    // rather than the full outside line.
+    return {
+      ...base,
+      line: "Charging zones — the charging zone data on file is out of date, so no charging zone answer can be given yet",
+    };
+  }
+  return {
+    ...filed,
+    state: "outside",
+    setDate: facts.oldestLoadedDate,
+    line: `This postcode point is not inside any Clean Air Zone, the London Ultra Low Emission Zone, or any Scottish Low Emission Zone in force on ${dateLabel(facts.oldestLoadedDate as string)}.`,
+  };
+}
+
+// ------------------------------------------------------------------
 // Noise — the publisher's 5 dB band text verbatim per
 // source, day and night, behind the filed-count guard.
 // "Below 55 dB" (a real value under the first band) and "No
@@ -5104,6 +5393,12 @@ export interface AreaSections {
   // every bundle.
   broadband: BroadbandSection;
   mobile: MobileSection;
+  // Charging zones (M6.31) is unconditional — the
+  // seventeenth section, present in every bundle. Its
+  // facts are independent of the air section's: the
+  // section serves its own states whether or not the
+  // modelled air square is filed.
+  chargingZones: ChargingZonesSection;
   // Company ownership (M6.13) is OPTIONAL in the type and
   // ABSENT in the object while its flag is off: the key
   // does not exist in the serialised bundle — not null,
@@ -5153,6 +5448,7 @@ const RUNG3_SECTION_REASONS: Record<string, string> = {
   solar: "solar modelling needs an exact postcode",
   broadband: "broadband answers need an exact postcode",
   mobile: "mobile answers need an exact postcode",
+  chargingZones: "charging zones need an exact postcode",
 };
 
 // The company-ownership rung-3 reason joins the record
@@ -5230,6 +5526,7 @@ export async function buildAreaBundle(
     tribunalFactsValue,
     broadbandFacts,
     mobileFacts,
+    chargingZonesFactsValue,
   ] = await Promise.all([
     source.planningLayerFacts("conservation_area", latitude, longitude),
     source.planningLayerFacts("article_4_area", latitude, longitude),
@@ -5264,6 +5561,7 @@ export async function buildAreaBundle(
     source.tribunalFacts(postcode),
     source.broadbandAnswer(postcode),
     source.mobileAnswer(postcode),
+    source.chargingZonesFacts(latitude, longitude),
   ]);
 
   const epc = await buildEpc(resolution, source);
@@ -5321,6 +5619,7 @@ export async function buildAreaBundle(
       solar: buildSolar(solarFacts),
       broadband: buildBroadband(broadbandFacts),
       mobile: buildMobile(mobileFacts),
+      chargingZones: buildChargingZones(chargingZonesFactsValue),
       ...(companyOwnership ? { companyOwnership } : {}),
     },
   };
@@ -5599,6 +5898,49 @@ export function createAreaSource(
         }
       }
       return { filedCount, covering, nearestWithin, sourceName, sourceDate };
+    },
+
+    // The charging-zones read (M6.31): the whole filed
+    // set is a dozen rows, so the gate facts (keys +
+    // oldest stamp) ride one query, and the covering
+    // scheme — at most one, the zones being disjoint —
+    // another. The gate itself is computed in the brain
+    // at answer time, never here.
+    async chargingZonesFacts(latitude, longitude) {
+      const { rows: keyRows } = await db.query("SELECT scheme_key FROM charging_zones");
+      const filedKeys = keyRows.map((row) => row.scheme_key as string);
+      const filedCount = filedKeys.length;
+      const { rows: stampRows } = await db.query(
+        "SELECT min(loaded_at)::date::text AS oldest_loaded_date FROM charging_zones",
+      );
+      const oldestLoadedDate = (stampRows[0]?.oldest_loaded_date as string | null) ?? null;
+      if (filedCount <= 0) {
+        return { filedCount, filedKeys, oldestLoadedDate, covering: null };
+      }
+      const { rows: coveringRows } = await db.query(
+        `SELECT scheme_key, name, family, class, operator,
+                in_force_date::text AS in_force_date, checker_url,
+                source_name, source_date::text AS source_date
+         FROM charging_zones
+         WHERE ST_Covers(geom, ${point12})
+         LIMIT 1`,
+        [longitude, latitude],
+      );
+      const row = coveringRows[0];
+      const covering = row
+        ? {
+            schemeKey: row.scheme_key as string,
+            name: row.name as string,
+            family: row.family as ChargingZoneRow["family"],
+            class: (row.class as string | null) ?? null,
+            operator: row.operator as string,
+            inForceDate: row.in_force_date as string,
+            checkerUrl: row.checker_url as string,
+            sourceName: (row.source_name as string | null) ?? null,
+            sourceDate: (row.source_date as string | null) ?? null,
+          }
+        : null;
+      return { filedCount, filedKeys, oldestLoadedDate, covering };
     },
 
     async designationFacts(latitude, longitude) {

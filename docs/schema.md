@@ -619,6 +619,38 @@ Family:
     quarterly by load-flood-rivers-sea-climate and
     load-flood-surface-water-climate, each swapping its own
     layer's rows in one transaction.
+37. **charging_zones** — charging-zone boundaries and
+    their register facts (migration 0026, plan step
+    M6.31, decisions D50, D61 and D63). One row per
+    scheme, keyed on `scheme_key` (the register key:
+    bath, birmingham, bradford, bristol, sheffield,
+    tyneside, ulez, glasgow, edinburgh, dundee,
+    aberdeen, and portsmouth when it files): `name`,
+    `family` ('caz', 'ulez' or 'lez'), `class` (the
+    GOV.UK charge class for a CAZ; NULL otherwise),
+    `operator`, `in_force_date` (the date the scheme's
+    charges — or its penalties — began; the only date
+    the section serves), `checker_url` (the family's
+    vehicle-checker landing), `geom` (the boundary as
+    one MultiPolygon, unioned and made valid at filing),
+    `source_name`, `source_date` (NULL at M6.31: no
+    source states a clean edition date for its boundary;
+    provenance words ride in `source_name` and
+    `terms_note` instead), `terms_note` and `loaded_at`.
+    The table is dedicated, not a planning layer: the
+    completeness gate is a property of the whole filed
+    set (all twelve register schemes present AND the
+    oldest `loaded_at` no more than 120 days old,
+    computed at answer time), and the filed sets are
+    pairwise disjoint by loader contract — an overlap
+    refuses the filing. Charging amounts are never
+    filed: no column can hold one. Filed quarterly by
+    load-charging-zones, which files the whole sourced
+    set in one transaction (stage → validate → swap), so
+    a failed run keeps the last good set and the set's
+    stamps share one instant; a scheme with no published
+    boundary (Portsmouth at M6.31) files no row, and the
+    serving layer names the gap instead.
 
 ## Physical decisions (recorded at build, M3.3)
 

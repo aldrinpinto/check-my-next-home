@@ -157,6 +157,31 @@
 // founder's D59 ruling; recorded here so the change is
 // never mistaken for drift. (Draft state at M6.30's
 // D58 draft; re-verified at integration.)
+//
+// RE-PIN RECORD: M6.31 (decisions D50, D61 and D63)
+// deliberately widened the frozen area shape — the area
+// bundle gains chargingZones, a seventeenth top-level
+// section (the charging-zone fact for the postcode
+// point at report depth: inside a filed scheme, outside
+// behind the completeness gate, or not-covered; present
+// in every bundle). NINE pins moved — the same eight
+// area pins M6.29 and M6.30 moved, each differing by
+// exactly the added chargingZones key in its
+// not-covered form (this fake's world files no charging
+// zones), PLUS area.rung3, whose sections record gains
+// the section's named-state stub ("charging zones need
+// an exact postcode") — the rung-3 pin did not move at
+// M6.29/M6.30 because those blocks live inside the air
+// section, whose rung-3 stub carries no body; a
+// top-level section's stub is the record itself. The
+// rung-4 pin did not move (no sections record) and the
+// short pins did not move: the headline projection
+// never picks the section, proven by an identity test
+// in the charging-zones suite. All 48 pins stand.
+// Authorised by the founder's D50/D61/D63 rulings;
+// recorded here so the change is never mistaken for
+// drift. (Draft state at M6.31's D58 draft; re-verified
+// at integration.)
 
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -1068,6 +1093,12 @@ class FakeAreaSource implements AreaDataSource {
       sourceName: null,
       sourceDate: null,
     };
+  }
+  async chargingZonesFacts() {
+    // This fake's world files no charging zones either —
+    // every area pin gains the section in its
+    // not-covered form (the M6.31 pattern).
+    return { filedCount: 0, filedKeys: [], oldestLoadedDate: null, covering: null };
   }
   async noiseRows() {
     if (this.empty) return { filedCount: 0, rows: [], sourceName: null, sourceDate: null };

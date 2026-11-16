@@ -6,6 +6,7 @@ import {
   buildAreaBundle,
   projectHeadline,
   type AqmaFacts,
+  type ChargingZonesFacts,
   type AreaDataSource,
   type BroadbandAnswerFacts,
   type CensusFacts,
@@ -1148,6 +1149,7 @@ interface HomeFacts {
   };
   air?: { year: number; no2: number; pm25: number; pm10: number } | null;
   aqma?: AqmaFacts;
+  chargingZones?: ChargingZonesFacts;
   solar?: { gridFiledCount: number; cell: Record<string, unknown> | null };
 }
 
@@ -1219,6 +1221,24 @@ FACTS.set(keyOf(BIRKDALE_DIR.latitude, BIRKDALE_DIR.longitude), {
     sourceName: "Defra UK-AIR — Air Quality Management Areas",
     sourceDate: "2026-10-20",
   },
+  chargingZones: {
+    filedCount: 11,
+    filedKeys: [
+      "bath",
+      "birmingham",
+      "bradford",
+      "bristol",
+      "sheffield",
+      "tyneside",
+      "ulez",
+      "glasgow",
+      "edinburgh",
+      "dundee",
+      "aberdeen",
+    ],
+    oldestLoadedDate: "2026-11-16",
+    covering: null,
+  },
   solar: { gridFiledCount: 3, cell: solarCell("51.75,0.65", 1057.65, 1336.65) },
 });
 
@@ -1289,6 +1309,35 @@ FACTS.set(keyOf(EXETER_DIR.latitude, EXETER_DIR.longitude), {
     sourceName: "Defra UK-AIR — Air Quality Management Areas",
     sourceDate: "2026-10-20",
   },
+  chargingZones: {
+    filedCount: 11,
+    filedKeys: [
+      "bath",
+      "birmingham",
+      "bradford",
+      "bristol",
+      "sheffield",
+      "tyneside",
+      "ulez",
+      "glasgow",
+      "edinburgh",
+      "dundee",
+      "aberdeen",
+    ],
+    oldestLoadedDate: "2026-11-16",
+    covering: {
+      schemeKey: "ulez",
+      name: "London Ultra Low Emission Zone (ULEZ)",
+      family: "ulez",
+      class: null,
+      operator: "Transport for London",
+      inForceDate: "2023-08-29",
+      checkerUrl: "https://tfl.gov.uk/modes/driving/check-your-vehicle/",
+      sourceName:
+        "Greater London Authority — London Ultra Low Emission Zone boundary (London Datastore)",
+      sourceDate: null,
+    },
+  },
   solar: { gridFiledCount: 3, cell: solarCell("51.55,0.05", 1009.96, 1289.44) },
 });
 
@@ -1349,6 +1398,24 @@ FACTS.set(keyOf(MINERVA_DIR.latitude, MINERVA_DIR.longitude), {
     },
     sourceName: "Defra UK-AIR — Air Quality Management Areas",
     sourceDate: "2026-10-20",
+  },
+  chargingZones: {
+    filedCount: 11,
+    filedKeys: [
+      "bath",
+      "birmingham",
+      "bradford",
+      "bristol",
+      "sheffield",
+      "tyneside",
+      "ulez",
+      "glasgow",
+      "edinburgh",
+      "dundee",
+      "aberdeen",
+    ],
+    oldestLoadedDate: "2026-11-16",
+    covering: null,
   },
   solar: { gridFiledCount: 3, cell: solarCell("51.35,-0.25", 991.49, 1264.87) },
 });
@@ -1878,6 +1945,17 @@ class FakeAreaSource implements AreaDataSource {
         nearestWithin: null,
         sourceName: null,
         sourceDate: null,
+      }
+    );
+  }
+
+  async chargingZonesFacts(latitude: number, longitude: number) {
+    return (
+      this.facts(latitude, longitude).chargingZones ?? {
+        filedCount: 0,
+        filedKeys: [],
+        oldestLoadedDate: null,
+        covering: null,
       }
     );
   }
@@ -2548,6 +2626,63 @@ describe("short bundle — 19 Birkdale Rise, CM3 2JT (rung 1)", () => {
     expect(headlineSerialised).not.toContain("Air Quality Management Area");
     expect(headlineSerialised).not.toContain("AQMA");
     expect(headlineSerialised).not.toContain("Newham AQMA");
+  });
+
+  it("area: the M6.31 charging zones section leaves the short bundle and the headline projection untouched", async () => {
+    // Charging zones are report depth (D50/D61); the
+    // headline projection picks named keys only, and the
+    // short bundle derives from that projection — the
+    // chargingZones section is never picked, so it
+    // cannot reach headline depth. The proof is identity,
+    // not inspection, on the strongest case: Exeter,
+    // whose point falls INSIDE the filed ULEZ, so the
+    // full bundle carries the scheme's name, operator,
+    // class line and checker.
+    const inputs = await fullBundles(EXETER);
+    if (inputs.area.kind !== "area-bundle") throw new Error("expected an area bundle");
+    // The section must actually be present, and served,
+    // for the identity to prove anything.
+    expect(inputs.area.sections.chargingZones.state).toBe("inside");
+    expect(inputs.area.sections.chargingZones.scheme?.name).toBe(
+      "London Ultra Low Emission Zone (ULEZ)",
+    );
+    const withSection = buildShortBundle(inputs);
+    const withoutSection = buildShortBundle({
+      ...inputs,
+      area: {
+        ...inputs.area,
+        sections: {
+          ...inputs.area.sections,
+          chargingZones: {
+            depth: "report" as const,
+            grain: "postcode point" as const,
+            grainLine: "the published charging-zone boundaries at the postcode point",
+            explainer:
+              "Whether a vehicle is charged in a charging zone depends on the vehicle, not on the home. This section checks the postcode point against the boundaries the zone operators publish.",
+            sourceName: null,
+            sourceDate: null,
+            sourceLine: null,
+            state: "not-covered" as const,
+            line: "Charging zones — the charging zone data is not filed yet, so no charging zone answer can be given yet",
+            basisLine: null,
+            scheme: null,
+            setDate: null,
+            filedCount: null,
+          },
+        },
+      },
+    });
+    expect(withSection).toEqual(withoutSection);
+    const serialised = JSON.stringify(servedShort(withSection));
+    expect(serialised).not.toContain("Charging zones");
+    expect(serialised).not.toContain("Ultra Low Emission Zone");
+    expect(serialised).not.toContain("ULEZ");
+    const headline = projectHeadline(inputs.area);
+    if (!headline) throw new Error("expected a headline projection");
+    expect("chargingZones" in headline).toBe(false);
+    const headlineSerialised = JSON.stringify(headline);
+    expect(headlineSerialised).not.toContain("Charging zones");
+    expect(headlineSerialised).not.toContain("Ultra Low Emission Zone");
   });
 
   it("area sections: EPC band, the council-tax line with its correction, NO2, road noise", async () => {

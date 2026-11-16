@@ -2239,3 +2239,76 @@ named.
    has no planning component. The headline and the
    short bundle are unchanged, proven by an identity
    test (Exeter inside vs not-filed deep-equal).
+
+## Charging zones (M6.31, decisions D50, D61 and D63)
+
+The area bundle gains its own `chargingZones` section at
+report depth: the charging-zone boundaries published by
+the zone operators (the seven English Clean Air Zones,
+the London ULEZ, the four Scottish Low Emission Zones),
+filed into the dedicated `charging_zones` table
+(migration 0026) by the quarterly `load-charging-zones`.
+Charging amounts are never filed or served. The full
+outside line serves only behind the completeness gate —
+all twelve register schemes filed and the oldest filing
+no more than 120 days old, computed at answer time;
+while the set is incomplete, outside answers carry the
+named-gap line naming the scheme whose boundary is not
+published.
+
+1. **The filing (pinned).** Eleven schemes file from
+   their operators' published boundaries; Portsmouth
+   files no row (no boundary published — decision D63;
+   its register facts, Class B and 29 Nov 2021, are
+   recorded for the day it files). Pinned reference
+   areas (EPSG:27700, measured on the live downloads
+   16 Nov 2026): Bath 3.203 km2, Birmingham 7.657,
+   Bradford 21.985, Bristol 3.258, Sheffield 2.371,
+   Tyneside 2.294, ULEZ 1,528.357, Glasgow 3.062,
+   Edinburgh 3.036, Dundee 0.459, Aberdeen 0.857. The
+   filing contract refuses (keeping the last good set):
+   any scheme outside ±25% of its reference area, any
+   invalid geometry, any positive-area overlap between
+   two filed boundaries (the register is pairwise
+   disjoint), and Bristol's WECA hosted copy (STATUS
+   "Proposed" — the council's production layer, STATUS
+   "In force", is the only Bristol source). The ULEZ
+   file's coordinates are EPSG:27700 despite its label;
+   the loader detects the CRS on the coordinates and
+   transforms. `source_date` files NULL for every
+   scheme: no source states a clean edition date for
+   its boundary (Bath's April 2024 edition and Bristol's
+   version stamp ride in their terms notes).
+2. **The goldens.** Exeter — inside the London ULEZ
+   ("Charges in this zone, at this boundary, began on
+   29 August 2023"); Edinburgh EH1 1AA — inside the
+   Edinburgh Low Emission Zone (penalties from 1 June
+   2024; the replay witness is EH1 1AD, inside the same
+   boundary); Minerva — outside every filed zone,
+   named-gap form (its distance to the ULEZ boundary,
+   1.362 miles, is recorded in docs/backend-m6.31.md
+   and served NOWHERE — the section has no nearest
+   state); Birkdale and Cardiff — outside, named-gap
+   form. The named-gap line, pinned verbatim in the
+   serving tests: "This postcode point is not inside
+   any charging zone whose boundary is published. The
+   Portsmouth Clean Air Zone is in force, but its
+   boundary is not published, so it cannot be checked
+   here."
+3. **Contracts.** Nine area pins moved (the added
+   `sections.chargingZones` key, not-covered form —
+   plus area.rung3's named-state stub); no short pin
+   moved; 48 pins stand, with the re-pin record in
+   tests/bundle-contracts.test.ts. The explainer census
+   gains row 87 (area.charging-zones, hard — draft
+   state at this step): 87 families / 54 hard. The
+   cache gains the `load-charging-zones` dependency,
+   the `chargingZonesFiled` count guard and the
+   `chargingZonesGate` guard (the gate's value, which
+   can flip on time alone), plus the M6.25-pattern
+   shapeOk presence rule for the `chargingZones` key.
+   The headline and the short bundle are unchanged,
+   proven by identity tests (Exeter inside-ULEZ vs
+   not-covered deep-equal). Two register canaries watch
+   GOV.UK's CAZ list and the Scottish LEZ count,
+   warning if a scheme appears or vanishes.

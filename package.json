@@ -28,6 +28,7 @@
     "load:brownfield": "node loaders/load-brownfield.mjs",
     "load:built-up-areas": "node loaders/load-built-up-areas.mjs",
     "load:aqma": "node loaders/load-aqma.mjs",
+    "load:charging-zones": "node loaders/load-charging-zones.mjs",
     "load:nature-designations": "node loaders/load-nature-designations.mjs",
     "load:priority-habitats": "node loaders/load-priority-habitats.mjs",
     "load:flood-zones": "node loaders/load-flood-zones.mjs",

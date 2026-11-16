@@ -1114,6 +1114,20 @@ export const EXPLAINER_CENSUS: CensusEntry[] = [
     "sections.air.aqma",
     "D59: the declared-area fact for the postcode point serves with its D13 basis line — what an AQMA is, that the council must publish an action plan, and that the designation is not a measurement of the air at the home. The boundaries file carries no per-area dates, so the block carries the dataset edition date (the register pages that hold per-area dates are never read); the nearest figure is a boundary distance on the D22 basis, named as such in its line; the none line's completeness claim is exactly what the loader's coverage contract (total band + per-nation floors over one UK-wide file) enforces. Report depth only — the headline projection never picks the block.",
   ),
+  // M6.31 (decisions D50, D61 and D63) — the charging
+  // zones section, row 87.
+  e(
+    87,
+    "area.charging-zones",
+    "area",
+    "chargingZones",
+    "charging-zone status (inside scheme, class and charging start date / the complete set's date in the outside line / the filed-set count)",
+    "hard",
+    ["full"],
+    "line-embedded",
+    "sections.chargingZones",
+    "D50/D61/D63: the charging-zone fact for the postcode point serves with its D13 basis line — what a charging zone is, that whether a vehicle is charged depends on the vehicle and not on the home, and that the date shown for a zone is the date its charges, or its penalties, began. Inside serves on the covering scheme's own evidence regardless of the completeness gate; the full outside line serves only behind the gate (all twelve register schemes filed and the set's oldest filing no more than 120 days old, computed at answer time from the filed set and its stamps), and while the set is incomplete the outside answer is the named-gap line naming the missing scheme — Portsmouth's Clean Air Zone, whose boundary the council does not publish. Charging amounts are never filed or served, and no distance to a zone is ever served. Report depth only — the headline projection never picks the section.",
+  ),
 ];
 
 // ------------------------------------------------------------------
@@ -1242,6 +1256,11 @@ export const FIGURE_PATH_PATTERNS: FigurePathPattern[] = [
   // boundary distance and the filed-set count the none
   // line carries.
   p("area\\.sections\\.air\\.aqma\\.(miles|filedCount)", "area.air.aqma"),
+  // M6.31 figures — the charging zones section (row
+  // 87): the filed-set count and the complete set's date
+  // are the family's registered leaves; the scheme's
+  // dates serve only inside its date line.
+  p("area\\.sections\\.chargingZones\\.(filedCount|setDate)", "area.charging-zones"),
   p("area\\.sections\\.benefits\\.series\\[\\]\\.count", "area.benefits.series-counts"),
   p("area\\.sections\\.benefits\\.series\\[\\]\\.pct", "area.benefits.claimant-pct"),
   p("area\\.sections\\.benefits\\.bases\\.(residents|households)", "area.benefits.bases"),
@@ -1432,6 +1451,13 @@ export const NOT_A_FIGURE_ALLOWLIST: RegExp[] = [
   // names of what was declared for the area, in the
   // name/label class, not figures.
   /^area\.sections\.air\.aqma\.pollutants\[\]$/,
+  // The charging-zone scheme register facts (M6.31):
+  // the filed class letter and family discriminator are
+  // classification identifiers, the operator is a name,
+  // and the checker landing and its label are an address
+  // and its words — none is a figure. The scheme's dates
+  // and the set's count are registered figures (row 87).
+  /^area\.sections\.chargingZones\.scheme\.(class|family|operator|checkerUrl|checkerLabel)$/,
   // The resolution's own address parts and counts of
   // addresses (the census row 1 watch: not brain figures).
   /^address\./,

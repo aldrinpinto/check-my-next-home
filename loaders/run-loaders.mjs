@@ -94,6 +94,7 @@ export const LOADER_SCHEDULE = [
   { item: "load-brownfield", cadence: "quarterly", timeoutMinutes: 30 },
   { item: "load-built-up-areas", cadence: "static", timeoutMinutes: 30 },
   { item: "load-aqma", cadence: "quarterly", timeoutMinutes: 30 },
+  { item: "load-charging-zones", cadence: "quarterly", timeoutMinutes: 30 },
   { item: "load-nature-designations", cadence: "quarterly", timeoutMinutes: 30 },
   { item: "load-priority-habitats", cadence: "operator" },
   { item: "load-flood-zones", cadence: "quarterly", timeoutMinutes: 30 },
@@ -313,6 +314,8 @@ export const FRIENDLY_NAMES = {
   "load-brownfield": "Brownfield land — recorded sites and the councils that supply them",
   "load-built-up-areas": "Built-up areas — the ONS December 2024 boundaries",
   "load-aqma": "Air Quality Management Areas — Defra UK-AIR's declared areas",
+  "load-charging-zones":
+    "Charging zones — Clean Air Zones, the London ULEZ and the Scottish Low Emission Zones",
   "load-nature-designations": "Nature designations — SSSI, SAC, SPA, Ramsar, ancient woodland",
   "load-priority-habitats": "Priority habitats",
   "load-flood-zones": "Flood zones — the planning map, defences ignored",
@@ -378,6 +381,8 @@ export const FRIENDLY_NAMES = {
   "govuk-iod": "Deprivation source (canary)",
   "defra-pcm": "Air quality source (canary)",
   aqma: "Air Quality Management Areas source (canary)",
+  "govuk-caz": "Clean Air Zone register — GOV.UK's published list (canary)",
+  "scotland-lez": "Low Emission Zone register — Scotland's published count (canary)",
   "defra-noise": "Noise source (canary)",
   "ofcom-broadband": "Broadband source (canary)",
   "ofcom-mobile": "Mobile source (canary)",
@@ -536,6 +541,10 @@ function shortDetail(item) {
     case "load-company-ownership": {
       const filed = pick(/(\d+) company-owned titles filed/);
       return filed ? `${filed} company-owned titles filed` : "updated";
+    }
+    case "load-charging-zones": {
+      const filed = pick(/(\d+) schemes filed/);
+      return filed ? `${filed} charging-zone schemes filed` : "updated";
     }
     default:
       return "updated";
@@ -832,6 +841,7 @@ async function main() {
       await runAndLog("load-brownfield", ["--file", fx("brownfield")]);
       await runAndLog("load-built-up-areas", ["--file", fx("built-up-areas")]);
       await runAndLog("load-aqma", ["--file", fx("aqma")]);
+      await runAndLog("load-charging-zones", ["--file", fx("charging-zones")]);
       await runAndLog("load-nature-designations", ["--file", fx("nature-designations")]);
       await runAndLog("load-priority-habitats", ["--file", fx("priority-habitats")]);
       await runAndLog("load-flood-zones", ["--file", fx("flood-zones")]);

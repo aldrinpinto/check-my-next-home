@@ -34,6 +34,7 @@ import {
   NATION_NAMES as AQMA_NATION_NAMES,
   parseEdition as parseAqmaEdition,
 } from "./load-aqma.mjs";
+import { SCHEMES as CHARGING_SCHEMES } from "./load-charging-zones.mjs";
 
 const MONTHS = {
   January: "01",
@@ -1933,6 +1934,89 @@ export function probeAqma() {
   })();
 }
 
+// Charging-zone registers (plan step M6.31, decisions
+// D61/D63): the two published lists the filed set must
+// keep matching — GOV.UK's Clean Air Zone table and
+// Scotland's Low Emission Zone count. A scheme appearing
+// or vanishing changes what an "outside every zone"
+// answer may claim, so a mismatch WARNS, never fails:
+// the loader's register is the filing authority, and the
+// brain's completeness gate already fails closed. The
+// probes watch the lists so the operator hears about a
+// new or removed scheme before the next quarterly filing.
+const NUMBER_WORDS = {
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+};
+
+export function probeCazRegister() {
+  return (async () => {
+    const response = await fetchRetry("https://www.gov.uk/guidance/driving-in-a-clean-air-zone");
+    if (!response.ok)
+      throw new Error(`HTTP ${response.status} for the GOV.UK Clean Air Zone guidance`);
+    const html = await response.text();
+    const start = html.indexOf("Cities with Clean Air Zones");
+    const end = html.indexOf("Types of Clean Air Zones");
+    if (start === -1 || end === -1 || end < start)
+      throw new Error(
+        "the GOV.UK Clean Air Zone guidance changed shape — the cities table was not found",
+      );
+    const region = html.slice(start, end);
+    const expected = CHARGING_SCHEMES.filter((scheme) => scheme.family === "caz");
+    const cities = expected.map((scheme) => scheme.name.split(" ")[0]);
+    const missing = cities.filter((city) => !region.includes(city));
+    const rows = (region.match(/<tr[\s>]/g) ?? []).length - 1;
+    const base = `canary govuk-caz · ${cities.length - missing.length} of ${cities.length} registered Clean Air Zones named on GOV.UK · ${rows} table rows`;
+    const warnings = [];
+    if (missing.length > 0)
+      warnings.push(
+        `no longer named in GOV.UK's table: ${missing.join(", ")} — the register may have lost a scheme`,
+      );
+    if (rows !== cities.length)
+      warnings.push(
+        `the table carries ${rows} rows against the register's ${cities.length} — a scheme may have been added or removed`,
+      );
+    const today = new Date().toISOString().slice(0, 10);
+    if (warnings.length > 0)
+      return { warning: true, logLine: `${base} · ${warnings.join(" · ")}`, sourceDate: today };
+    return { logLine: base, sourceDate: today };
+  })();
+}
+
+export function probeScotlandLez() {
+  return (async () => {
+    const response = await fetchRetry("https://lowemissionzones.scot/");
+    if (!response.ok) throw new Error(`HTTP ${response.status} for lowemissionzones.scot`);
+    const html = await response.text();
+    const expected = CHARGING_SCHEMES.filter((scheme) => scheme.family === "lez");
+    const cities = expected.map((scheme) => scheme.name.split(" ")[0]);
+    const missing = cities.filter((city) => !html.includes(city));
+    const countWord = /There are (\w+) LEZs in Scotland/.exec(html)?.[1]?.toLowerCase();
+    const publishedCount = countWord ? NUMBER_WORDS[countWord] : undefined;
+    const base = `canary scotland-lez · ${cities.length - missing.length} of ${cities.length} registered Low Emission Zones named on lowemissionzones.scot`;
+    const warnings = [];
+    if (missing.length > 0) warnings.push(`no longer named on the site: ${missing.join(", ")}`);
+    if (publishedCount !== undefined && publishedCount !== cities.length)
+      warnings.push(
+        `the site says there are ${publishedCount} LEZs in Scotland against the register's ${cities.length} — a scheme may have been added or removed`,
+      );
+    if (publishedCount === undefined)
+      warnings.push(
+        "the site's LEZ count sentence was not found — the page may have changed shape",
+      );
+    const today = new Date().toISOString().slice(0, 10);
+    if (warnings.length > 0)
+      return { warning: true, logLine: `${base} · ${warnings.join(" · ")}`, sourceDate: today };
+    return { logLine: base, sourceDate: today };
+  })();
+}
+
 // Noise (plan step M5.9): Defra Round 4 services on the Data
 // Services Platform. Arms: all three services still offer their
 // Lday/Lnight layers; and one golden point sample — Birkdale's
@@ -2120,6 +2204,8 @@ export async function runCanaryProbes() {
   await run("govuk-iod", probeGovukIod);
   await run("defra-pcm", probeDefraPcm);
   await run("aqma", probeAqma);
+  await run("govuk-caz", probeCazRegister);
+  await run("scotland-lez", probeScotlandLez);
   await run("defra-noise", probeDefraNoise);
   await run("ofcom-broadband", () => probeOfcom("broadband"));
   await run("ofcom-mobile", () => probeOfcom("mobile"));

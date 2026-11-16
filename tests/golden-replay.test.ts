@@ -820,6 +820,42 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
     expect(minerva.air.aqma.miles ?? 0).toBeLessThan(0.96);
   });
 
+  it("charging zones (M6.31, D61/D63): the states serve through the real source on the fixture filing", () => {
+    const area = (tag: string) => {
+      const a = get(tag).area;
+      if (a.kind !== "area-bundle") throw new Error(`${tag}: expected an area bundle`);
+      return a.sections;
+    };
+    // The replay world files the fixture cut: the eleven
+    // sourced schemes; Portsmouth files no row (decision
+    // D63), so every outside answer is the named-gap
+    // form and the full outside line cannot serve.
+    const exeter = area("exeter1");
+    expect(exeter.chargingZones.state).toBe("inside");
+    expect(exeter.chargingZones.scheme?.name).toBe("London Ultra Low Emission Zone (ULEZ)");
+    expect(exeter.chargingZones.scheme?.family).toBe("ulez");
+    expect(exeter.chargingZones.scheme?.dateLine).toBe(
+      "Charges in this zone, at this boundary, began on 29 August 2023.",
+    );
+    expect(exeter.chargingZones.filedCount).toBe(11);
+
+    const edinburgh = area("edinburgh2");
+    expect(edinburgh.chargingZones.state).toBe("inside");
+    expect(edinburgh.chargingZones.scheme?.name).toBe("Edinburgh Low Emission Zone");
+    expect(edinburgh.chargingZones.scheme?.family).toBe("lez");
+    expect(edinburgh.chargingZones.scheme?.dateLine).toBe(
+      "Penalties in this zone began on 1 June 2024.",
+    );
+
+    for (const tag of ["birkdale1", "minerva1", "cardiff2"]) {
+      const s = area(tag).chargingZones;
+      expect(s.state).toBe("outside");
+      expect(s.line).toContain("Portsmouth Clean Air Zone");
+      expect(s.setDate).toBeNull();
+      expect(s.filedCount).toBe(11);
+    }
+  });
+
   it("live flood warnings + school deadlines (M6.22, D42): composition over the real flood source; the deadline line at the regional witnesses", async () => {
     // The two EA alerts captured live at the step's first
     // contact, replayed through the fake warning source

@@ -347,7 +347,7 @@ function expectClean(bundle: unknown) {
 // ------------------------------------------------------------------
 
 describe("matrix — the address ladder's own states", () => {
-  it("rung 3 is a wider area: every brain serves its named unavailable state, and the area bundle carries all fifteen per-section reasons", async () => {
+  it("rung 3 is a wider area: every brain serves its named unavailable state, and the area bundle carries all sixteen per-section reasons", async () => {
     const rung3: AddressResolution = {
       rung: 3,
       kind: "wider-area",
@@ -364,7 +364,7 @@ describe("matrix — the address ladder's own states", () => {
     const area = await buildAreaBundle(rung3, new MatrixAreaSource());
     if (area.kind !== "wider-area") throw new Error("expected wider-area");
     expect(area.area.reason).toBe("area answers need an exact postcode");
-    expect(Object.keys(area.area.sections)).toHaveLength(15);
+    expect(Object.keys(area.area.sections)).toHaveLength(16);
   });
 
   it("rung 4 is no location: the shared unavailable reason, no sections record", async () => {
@@ -1469,6 +1469,9 @@ class MatrixAreaSource implements AreaDataSource {
       sourceDate: null,
     };
   }
+  async chargingZonesFacts() {
+    return { filedCount: 0, filedKeys: [], oldestLoadedDate: null, covering: null };
+  }
   async noiseRows() {
     return this.noise;
   }
@@ -2270,7 +2273,7 @@ describe("matrix — area: Census, IMD, air, noise, benefits, solar", () => {
     expect(missingCell.sections.solar.line).toBe("solar modelling is not filed for this area yet");
   });
 
-  it("rung 3: every section present only as its named state, per-section reasons intact (15)", async () => {
+  it("rung 3: every section present only as its named state, per-section reasons intact (16)", async () => {
     const bundle = await buildAreaBundle(
       { rung: 3, kind: "wider-area", outward: "CM3", label: "Wider area — CM3", postcodeCount: 1 },
       new MatrixAreaSource(),
@@ -2298,6 +2301,10 @@ describe("matrix — area: Census, IMD, air, noise, benefits, solar", () => {
       solar: { state: "unavailable", reason: "solar modelling needs an exact postcode" },
       broadband: { state: "unavailable", reason: "broadband answers need an exact postcode" },
       mobile: { state: "unavailable", reason: "mobile answers need an exact postcode" },
+      chargingZones: {
+        state: "unavailable",
+        reason: "charging zones need an exact postcode",
+      },
     });
   });
 });
@@ -2743,14 +2750,14 @@ describe("matrix — area: company ownership (behind the flag)", () => {
     expectClean(bundle);
   });
 
-  it("rung 3 in the flag-on position: the sixteenth per-section reason joins the record", async () => {
+  it("rung 3 in the flag-on position: the seventeenth per-section reason joins the record", async () => {
     const bundle = await buildAreaBundle(
       { rung: 3, kind: "wider-area", outward: "CM3", label: "Wider area — CM3", postcodeCount: 1 },
       new MatrixAreaSource(),
       { companyOwnershipEnabled: true },
     );
     if (bundle.kind !== "wider-area") throw new Error("expected wider-area");
-    expect(Object.keys(bundle.area.sections)).toHaveLength(16);
+    expect(Object.keys(bundle.area.sections)).toHaveLength(17);
     expect(bundle.area.sections.companyOwnership).toEqual({
       state: "unavailable",
       reason: "company ownership needs an exact postcode",

@@ -197,6 +197,7 @@ export const BRAIN_DEPENDENCIES: Record<CacheBrain, readonly string[]> = {
     "load-brownfield",
     "load-built-up-areas",
     "load-aqma",
+    "load-charging-zones",
     "load-nature-designations",
     "load-priority-habitats",
     "load-epc",
@@ -386,6 +387,22 @@ const GUARDS: Record<
       aqmaFiled: await countOf(
         db,
         "SELECT count(*)::int AS n FROM planning_layers WHERE constraint_type = 'aqma'",
+      ),
+      // Charging zones (M6.31): the filed-scheme count,
+      // and the completeness gate's own value computed
+      // at guard time (all 12 register schemes filed and
+      // the oldest filing no more than 120 days old) —
+      // the gate can flip on the passage of time alone,
+      // with no filing at all, so its value rides the
+      // vector beside the count: a cached full outside
+      // line never survives the day the set goes stale,
+      // and a cached named-gap line never survives the
+      // filing that completes the set.
+      chargingZonesFiled: await countOf(db, "SELECT count(*)::int AS n FROM charging_zones"),
+      chargingZonesGate: await countOf(
+        db,
+        `SELECT ((SELECT count(*) FROM charging_zones) = 12
+                 AND (SELECT min(loaded_at) FROM charging_zones) > now() - interval '120 days')::int AS n`,
       ),
       listedBuildings: await countOf(db, "SELECT count(*)::int AS n FROM listed_buildings"),
       // Brownfield (M6.21): the loader's npm entry point
@@ -951,6 +968,13 @@ export async function buildAreaBundleCached(
       // only this rule stops a pre-step entry serving the
       // block's absence as current (the M6.25 pattern).
       if (!("aqma" in air)) return false;
+      // The M6.31 presence rule, in the same pattern:
+      // the chargingZones section is unconditional (the
+      // seventeenth section, present in every bundle) —
+      // an entry written before the step lacks it and
+      // degrades to a recompute rather than serving its
+      // absence as current.
+      if (!("chargingZones" in sections)) return false;
       const company = s.companyOwnership;
       if (company) {
         const titles = [

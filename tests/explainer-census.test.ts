@@ -377,6 +377,33 @@ class CensusAreaSource implements AreaDataSource {
       sourceDate: "2026-10-20",
     };
   }
+  async chargingZonesFacts() {
+    // A filed outside state on every census bundle, the
+    // completeness gate open (all twelve schemes filed,
+    // the set stamped today): the walk must classify the
+    // section's figure leaves (filedCount, setDate) and
+    // direction one must find the family's line (row 87,
+    // area.charging-zones).
+    return {
+      filedCount: 12,
+      filedKeys: [
+        "bath",
+        "birmingham",
+        "bradford",
+        "bristol",
+        "portsmouth",
+        "sheffield",
+        "tyneside",
+        "ulez",
+        "glasgow",
+        "edinburgh",
+        "dundee",
+        "aberdeen",
+      ],
+      oldestLoadedDate: new Date().toISOString().slice(0, 10),
+      covering: null,
+    };
+  }
   async noiseRows() {
     return {
       filedCount: 100,
@@ -707,13 +734,13 @@ type Golden = Awaited<ReturnType<typeof goldenBundles>>;
 // ------------------------------------------------------------------
 
 describe("explainer census — the register", () => {
-  it("enumerates the census: 86 families (71 to M6.20, rows 72–75 added at M6.21, rows 76–78 at M6.22, row 79 at M6.25, row 80 at M6.26, rows 81–82 at M6.27, rows 83–84 at M6.28, row 85 at M6.29, row 86 at M6.30), 53 hard, ids unique and stable in row order", () => {
-    expect(EXPLAINER_CENSUS).toHaveLength(86);
+  it("enumerates the census: 87 families (71 to M6.20, rows 72–75 added at M6.21, rows 76–78 at M6.22, row 79 at M6.25, row 80 at M6.26, rows 81–82 at M6.27, rows 83–84 at M6.28, row 85 at M6.29, row 86 at M6.30, row 87 at M6.31), 54 hard, ids unique and stable in row order", () => {
+    expect(EXPLAINER_CENSUS).toHaveLength(87);
     expect(EXPLAINER_CENSUS.map((entry) => entry.row)).toEqual(
-      Array.from({ length: 86 }, (_, i) => i + 1),
+      Array.from({ length: 87 }, (_, i) => i + 1),
     );
-    expect(new Set(EXPLAINER_CENSUS.map((entry) => entry.id)).size).toBe(86);
-    expect(EXPLAINER_CENSUS.filter((entry) => entry.hardness === "hard")).toHaveLength(53);
+    expect(new Set(EXPLAINER_CENSUS.map((entry) => entry.id)).size).toBe(87);
+    expect(EXPLAINER_CENSUS.filter((entry) => entry.hardness === "hard")).toHaveLength(54);
     // Every figure-path pattern names census ids that exist.
     const ids = new Set(EXPLAINER_CENSUS.map((entry) => entry.id));
     for (const { censusIds } of FIGURE_PATH_PATTERNS)
@@ -850,6 +877,7 @@ const HARD_LINES: Record<string, (b: Golden) => unknown> = {
       ? b.area.sections.air.yardsticks?.pollutants.map((p) => p.yardstickLine)
       : null,
   "area.air.aqma": (b) => b.area.sections.air.aqma.basisLine,
+  "area.charging-zones": (b) => b.area.sections.chargingZones.basisLine,
 };
 
 describe("explainer census — direction one (hard ⇒ line present, both depths)", () => {

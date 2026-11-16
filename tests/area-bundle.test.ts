@@ -13,6 +13,7 @@ import {
   translateArticle4Codes,
   type AreaDataSource,
   type AqmaFacts,
+  type ChargingZonesFacts,
   type BroadbandAnswerFacts,
   type BrownfieldFacts,
   type CensusFacts,
@@ -247,6 +248,7 @@ interface HomeFacts {
   };
   air?: { year: number; no2: number; pm25: number; pm10: number } | null;
   aqma?: AqmaFacts;
+  chargingZones?: ChargingZonesFacts;
   solar?: { gridFiledCount: number; cell: Record<string, unknown> | null };
 }
 
@@ -541,6 +543,17 @@ class FakeAreaSource implements AreaDataSource {
         nearestWithin: null,
         sourceName: null,
         sourceDate: null,
+      }
+    );
+  }
+
+  async chargingZonesFacts(latitude: number, longitude: number) {
+    return (
+      this.facts(latitude, longitude).chargingZones ?? {
+        filedCount: 0,
+        filedKeys: [],
+        oldestLoadedDate: null,
+        covering: null,
       }
     );
   }
@@ -1922,6 +1935,7 @@ describe("the ladder", () => {
         "broadband",
         "buildingSafety",
         "census",
+        "chargingZones",
         "constraints",
         "councilTax",
         "epc",
@@ -3352,14 +3366,14 @@ describe("company ownership — behind the flag", () => {
     } as const;
     const on = await buildAreaBundle(wider, source, ON);
     if (on.kind !== "wider-area") throw new Error("expected wider-area");
-    expect(Object.keys(on.area.sections)).toHaveLength(16);
+    expect(Object.keys(on.area.sections)).toHaveLength(17);
     expect(on.area.sections.companyOwnership).toEqual({
       state: "unavailable",
       reason: "company ownership needs an exact postcode",
     });
     const off = await buildAreaBundle(wider, source);
     if (off.kind !== "wider-area") throw new Error("expected wider-area");
-    expect(Object.keys(off.area.sections)).toHaveLength(15);
+    expect(Object.keys(off.area.sections)).toHaveLength(16);
     expect("companyOwnership" in off.area.sections).toBe(false);
   });
 
