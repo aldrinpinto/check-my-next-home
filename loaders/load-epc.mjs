@@ -47,7 +47,8 @@
 // token is used as a bearer header and is never logged.
 
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import pg from "pg";
 
 const API_BASE = "https://api.get-energy-performance-data.communities.gov.uk";
@@ -301,6 +302,28 @@ async function fixtureCertificates(postcode, fileDir, fixture) {
   return certificates;
 }
 
+// Canonical stringify for golden comparisons: object keys
+// sorted recursively, array order preserved (register order
+// is a product rule, so arrays stay significant). The golden
+// checks run twice — once on the in-memory certificates and
+// once on the read-back of the filed artefact — and the
+// artefact lives in a jsonb column, whose key order is
+// PostgreSQL's own (by key length, then bytewise), NOT the
+// order minimise() built. A plain JSON.stringify comparison
+// therefore passes the in-memory check and fails the
+// read-back on identical values (the M6.26 gate failure:
+// expected walls, roofs, floors…; found roofs, walls,
+// floors…). Every golden comparison that involves an object
+// goes through this, never bare JSON.stringify.
+export function canonicalStringify(value) {
+  if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
+  if (Array.isArray(value)) return `[${value.map(canonicalStringify).join(",")}]`;
+  const entries = Object.keys(value)
+    .sort()
+    .map((k) => `${JSON.stringify(k)}:${canonicalStringify(value[k])}`);
+  return `{${entries.join(",")}}`;
+}
+
 function annualCost(cert, side) {
   const parts = [
     cert[`heatingCost${side}`],
@@ -347,7 +370,7 @@ const MEASURES_GOLDEN = {
   "8401-7039-6529-6723-9906": null,
 };
 
-function checkMeasuresGolden(postcode, certificates) {
+export function checkMeasuresGolden(postcode, certificates) {
   for (const cert of certificates) {
     if (!(cert.certificateNumber in MEASURES_GOLDEN)) continue;
     const expected = MEASURES_GOLDEN[cert.certificateNumber];
@@ -368,7 +391,7 @@ function checkMeasuresGolden(postcode, certificates) {
       energyRatingAfter: step.energyRatingAfter,
       environmentalRatingAfter: step.environmentalRatingAfter,
     }));
-    if (JSON.stringify(comparable) !== JSON.stringify(expected))
+    if (canonicalStringify(comparable) !== canonicalStringify(expected))
       throw new Error(
         `${postcode}: golden check failed for certificate ${cert.certificateNumber} — expected suggested improvements ${JSON.stringify(expected)}, found ${JSON.stringify(comparable)}`,
       );
@@ -426,11 +449,11 @@ const CONSTRUCTION_GOLDEN = {
   },
 };
 
-function checkConstructionGolden(postcode, certificates) {
+export function checkConstructionGolden(postcode, certificates) {
   for (const cert of certificates) {
     if (!(cert.certificateNumber in CONSTRUCTION_GOLDEN)) continue;
     const expected = CONSTRUCTION_GOLDEN[cert.certificateNumber];
-    if (JSON.stringify(cert.construction ?? null) !== JSON.stringify(expected))
+    if (canonicalStringify(cert.construction ?? null) !== canonicalStringify(expected))
       throw new Error(
         `${postcode}: golden check failed for certificate ${cert.certificateNumber} — expected construction ${JSON.stringify(expected)}, found ${JSON.stringify(cert.construction ?? null)}`,
       );
@@ -548,7 +571,14 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(`load-epc FAILED: ${error.message}`);
-  process.exitCode = 1;
-});
+// Run only when invoked as the loader script — the unit
+// tests import the golden checks above without loading
+// anything (the load-imd pattern).
+const invokedAsScript =
+  process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1]);
+if (invokedAsScript) {
+  main().catch((error) => {
+    console.error(`load-epc FAILED: ${error.message}`);
+    process.exitCode = 1;
+  });
+}

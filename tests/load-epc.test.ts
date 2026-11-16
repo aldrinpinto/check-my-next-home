@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { IMPROVEMENT_NAMES, improvementName } from "../lib/epc-improvements";
+import { checkConstructionGolden, checkMeasuresGolden } from "../loaders/load-epc.mjs";
 
 // Guards the EPC loader (plan step M4.5, option A): per-postcode
 // lookups against the Get energy performance of buildings data API,
@@ -279,6 +280,78 @@ describe("epc loader", () => {
     }
     expect(total).toBe(128);
     expect(windowsAbsent).toBe(6);
+  });
+
+  it("golden checks are insensitive to object key order — the jsonb read-back order (M6.26 gate fix)", () => {
+    // The filed artefact lives in a jsonb column: PostgreSQL
+    // returns its keys in its own order (by key length, then
+    // bytewise), never the order minimise() built. The exact
+    // found order from the CI failure of run #170 — identical
+    // values, different key order — must PASS the loader's own
+    // construction golden check, through the loader's own code.
+    const birkdaleAsReadBack = {
+      certificateNumber: "2490-1633-0432-1002-3023",
+      construction: {
+        roofs: ["Average thermal transmittance 0.11 W/m²K"],
+        walls: ["Average thermal transmittance 0.27 W/m²K"],
+        floors: ["Average thermal transmittance 0.15 W/m²K"],
+        windows: "High performance glazing",
+        hotWater: "From main system, waste water heat recovery",
+        lighting: "Low energy lighting in all fixed outlets",
+        mainHeating: ["Boiler and radiators, mains gas"],
+      },
+    };
+    expect(() => checkConstructionGolden("CM3 2JT", [birkdaleAsReadBack])).not.toThrow();
+    // Key order is the only thing forgiven: a changed value in
+    // the same reordered shape still fails the check.
+    const changed = {
+      ...birkdaleAsReadBack,
+      construction: {
+        ...birkdaleAsReadBack.construction,
+        walls: ["Average thermal transmittance 0.30 W/m²K"],
+      },
+    };
+    expect(() => checkConstructionGolden("CM3 2JT", [changed])).toThrow(/golden check failed/);
+    // The measures golden (M6.21) compares objects the same
+    // way: step keys arriving scrambled still pass, a changed
+    // saving still fails. Array order stays significant — the
+    // steps below are in register sequence, as filed.
+    const measuresAsReadBack = {
+      certificateNumber: "2490-1633-0432-1002-3023",
+      suggestedImprovements: [
+        {
+          typicalSaving: 34,
+          sequence: 1,
+          indicativeCost: "£4,000 - £6,000",
+          improvementType: "N",
+          energyRatingAfter: 86,
+          improvementNumber: 19,
+          environmentalRatingAfter: 87,
+        },
+        {
+          environmentalRatingAfter: 94,
+          improvementNumber: 34,
+          energyRatingAfter: 93,
+          improvementType: "U",
+          indicativeCost: "£3,500 - £5,500",
+          sequence: 2,
+          typicalSaving: 383,
+        },
+      ],
+    };
+    expect(() => checkMeasuresGolden("CM3 2JT", [measuresAsReadBack])).not.toThrow();
+    const measuresChanged = {
+      ...measuresAsReadBack,
+      suggestedImprovements: measuresAsReadBack.suggestedImprovements.map((step, i) =>
+        i === 0 ? { ...step, typicalSaving: 35 } : step,
+      ),
+    };
+    expect(() => checkMeasuresGolden("CM3 2JT", [measuresChanged])).toThrow(/golden check failed/);
+    // The comparisons go through the canonical stringify in
+    // the loader source — no bare JSON.stringify equality is
+    // left on an object-valued golden.
+    expect(loader).toContain("canonicalStringify(cert.construction ?? null)");
+    expect(loader).toContain("canonicalStringify(comparable)");
   });
 
   it("the pinned improvement-name lookup resolves every fixture number and fails loud on unknown ones", () => {
