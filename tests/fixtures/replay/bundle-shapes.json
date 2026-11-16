@@ -5684,6 +5684,185 @@
     "postcode": "string",
     "rung": "number"
   },
+  "flood.climate-inside": {
+    "flood": {
+      "climate": {
+        "basisLine": "string",
+        "caveatLine": "string",
+        "heading": "string",
+        "sources": [
+          {
+            "band": {
+              "definition": "string",
+              "displayLabel": "string",
+              "label": "string"
+            },
+            "line": "string",
+            "pointState": "string",
+            "scenarioLine": "string",
+            "source": "string",
+            "sourceDate": "string",
+            "sourceLine": "string",
+            "sourceName": "string",
+            "title": "string"
+          }
+        ]
+      },
+      "defences": {
+        "bridgeLine": "null",
+        "caveat": "null",
+        "defences": [],
+        "line": "string",
+        "overflowLine": "null",
+        "sourceDate": "null",
+        "sourceLine": "null",
+        "sourceName": "null",
+        "state": "string",
+        "title": "string",
+        "totalWithin": "null"
+      },
+      "howWeCheck": "string",
+      "layers": [
+        {
+          "basisLine": "string",
+          "beyondLine": "null",
+          "beyondNearest": "null",
+          "covering": "null",
+          "explainer": "string",
+          "layer": "string",
+          "line": "string",
+          "pointState": "string",
+          "proximity": [],
+          "remainder": "null",
+          "sourceDate": "string",
+          "sourceLine": "string",
+          "sourceName": "string",
+          "title": "string"
+        },
+        {
+          "basisLine": "string",
+          "beyondLine": "null",
+          "beyondNearest": "null",
+          "covering": "null",
+          "explainer": "string",
+          "layer": "string",
+          "line": "string",
+          "pointState": "string",
+          "proximity": [],
+          "remainder": {
+            "definition": "string",
+            "detail": "null",
+            "displayLabel": "string",
+            "label": "string"
+          },
+          "sourceDate": "string",
+          "sourceLine": "string",
+          "sourceName": "string",
+          "title": "string"
+        }
+      ],
+      "liveWarnings": "null",
+      "state": "string"
+    },
+    "kind": "string",
+    "postcode": "string",
+    "rung": "number"
+  },
+  "flood.climate-mixed": {
+    "flood": {
+      "climate": {
+        "basisLine": "string",
+        "caveatLine": "string",
+        "heading": "string",
+        "sources": [
+          {
+            "band": "null",
+            "line": "string",
+            "pointState": "string",
+            "scenarioLine": "string",
+            "source": "string",
+            "sourceDate": "string",
+            "sourceLine": "string",
+            "sourceName": "string",
+            "title": "string"
+          },
+          {
+            "band": {
+              "definition": "string",
+              "displayLabel": "string",
+              "label": "string"
+            },
+            "line": "string",
+            "pointState": "string",
+            "scenarioLine": "string",
+            "source": "string",
+            "sourceDate": "string",
+            "sourceLine": "string",
+            "sourceName": "string",
+            "title": "string"
+          }
+        ]
+      },
+      "defences": {
+        "bridgeLine": "null",
+        "caveat": "null",
+        "defences": [],
+        "line": "string",
+        "overflowLine": "null",
+        "sourceDate": "null",
+        "sourceLine": "null",
+        "sourceName": "null",
+        "state": "string",
+        "title": "string",
+        "totalWithin": "null"
+      },
+      "howWeCheck": "string",
+      "layers": [
+        {
+          "basisLine": "string",
+          "beyondLine": "null",
+          "beyondNearest": "null",
+          "covering": "null",
+          "explainer": "string",
+          "layer": "string",
+          "line": "string",
+          "pointState": "string",
+          "proximity": [],
+          "remainder": "null",
+          "sourceDate": "string",
+          "sourceLine": "string",
+          "sourceName": "string",
+          "title": "string"
+        },
+        {
+          "basisLine": "string",
+          "beyondLine": "null",
+          "beyondNearest": "null",
+          "covering": "null",
+          "explainer": "string",
+          "layer": "string",
+          "line": "string",
+          "pointState": "string",
+          "proximity": [],
+          "remainder": {
+            "definition": "string",
+            "detail": "null",
+            "displayLabel": "string",
+            "label": "string"
+          },
+          "sourceDate": "string",
+          "sourceLine": "string",
+          "sourceName": "string",
+          "title": "string"
+        }
+      ],
+      "liveWarnings": "null",
+      "state": "string"
+    },
+    "kind": "string",
+    "postcode": "string",
+    "rung": "number"
+  },
   "flood.not-covered": {
     "flood": {
       "reason": "string",
@@ -5711,6 +5890,24 @@
   },
   "flood.served-mixed": {
     "flood": {
+      "climate": {
+        "basisLine": "string",
+        "caveatLine": "string",
+        "heading": "string",
+        "sources": [
+          {
+            "band": "null",
+            "line": "string",
+            "pointState": "string",
+            "scenarioLine": "string",
+            "source": "string",
+            "sourceDate": "null",
+            "sourceLine": "null",
+            "sourceName": "null",
+            "title": "string"
+          }
+        ]
+      },
       "defences": {
         "bridgeLine": "null",
         "caveat": "null",
@@ -5800,6 +5997,24 @@
   },
   "flood.served-warnings": {
     "flood": {
+      "climate": {
+        "basisLine": "string",
+        "caveatLine": "string",
+        "heading": "string",
+        "sources": [
+          {
+            "band": "null",
+            "line": "string",
+            "pointState": "string",
+            "scenarioLine": "string",
+            "source": "string",
+            "sourceDate": "null",
+            "sourceLine": "null",
+            "sourceName": "null",
+            "title": "string"
+          }
+        ]
+      },
       "defences": {
         "bridgeLine": "null",
         "caveat": "null",
