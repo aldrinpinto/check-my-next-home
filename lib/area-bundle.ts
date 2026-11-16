@@ -454,6 +454,37 @@ export interface EpcCertificate {
   // is re-filed. Null (key present) is the register's own
   // no-measures state: the certificate publishes no steps.
   suggestedImprovements?: EpcImprovement[] | null;
+  // The certificate's recorded construction descriptions,
+  // widened into the minimisation at M6.26 (decision D48):
+  // the register's own words for the seven element groups,
+  // descriptions only — the groups' per-element 0–5
+  // efficiency ratings are dropped by the loader at filing
+  // and never held. Optional for the same reason as the
+  // costs and the improvements — artefacts filed before
+  // the widening do not carry the key, and a certificate
+  // read from one serves exactly as it did before, with no
+  // construction block, until the postcode is re-filed. A
+  // group the register does not publish for the
+  // certificate files null inside the object.
+  construction?: EpcConstruction | null;
+}
+
+// One certificate's filed construction descriptions
+// (M6.26, D48): the register's recorded description per
+// element group, in register order. Walls, roofs, floors
+// and main heating are lists on the register (a home can
+// record more than one construction per group); windows,
+// lighting and hot water are single descriptions. A null
+// group is the register's own absence for that element —
+// never a value borrowed from another certificate.
+export interface EpcConstruction {
+  walls: string[] | null;
+  roofs: string[] | null;
+  floors: string[] | null;
+  windows: string | null;
+  lighting: string | null;
+  mainHeating: string[] | null;
+  hotWater: string | null;
 }
 
 // One suggested improvement as filed by the EPC loader's
@@ -1929,6 +1960,38 @@ export interface ServedImprovements {
   closingLine: string | null;
 }
 
+// One element group of a certificate's construction block
+// as served (M6.26, D48): the register's recorded
+// descriptions for the group, verbatim and in filed order,
+// with the group's composed line. An absent group serves
+// no descriptions and the named not-recorded line — never
+// a value borrowed from another certificate or group.
+export interface ServedConstructionGroup {
+  key: "walls" | "roofs" | "floors" | "windows" | "lighting" | "mainHeating" | "hotWater";
+  label: string;
+  descriptions: string[];
+  line: string;
+}
+
+// A certificate's construction block as served (M6.26,
+// decision D48): the certificate's own recorded
+// descriptions of how the home is built, per element
+// group, at report depth — the block exists only on a
+// served certificate, which exists only at rung 1, and
+// the headline projection never picks it. The block's
+// line is the pinned basis line (D13): what these
+// descriptions are and what an "(assumed)" marker means.
+// The U-value line serves only where a description
+// carries a transmittance figure: a U-value appears
+// solely as text inside a new-build SAP description,
+// never extracted, computed or converted — there is no
+// numeric U-value field anywhere in this shape.
+export interface ServedConstruction {
+  line: string;
+  uValueLine: string | null;
+  groups: ServedConstructionGroup[];
+}
+
 export interface ServedCertificate {
   certificateNumber: string;
   address: string;
@@ -1967,6 +2030,12 @@ export interface ServedCertificate {
   // none-published state is the register's own fact: the
   // certificate publishes no steps.
   improvements: ServedImprovements | null;
+  // The certificate's recorded construction descriptions
+  // (M6.26, D48), or null where the filed artefact
+  // predates the M6.26 widening — the certificate then
+  // serves exactly as it did before, with no construction
+  // block, until the postcode is re-filed.
+  construction: ServedConstruction | null;
 }
 
 // One band's share of one spread row: how many of the
@@ -2174,6 +2243,80 @@ function toServedImprovements(cert: EpcCertificate): ServedImprovements | null {
   };
 }
 
+// The construction block's pinned basis line (M6.26,
+// decision D48, on D13): what the descriptions are, and
+// what an "(assumed)" marker on an existing-home (RdSAP)
+// certificate means. Served on every construction block.
+const CONSTRUCTION_BASIS_LINE =
+  "the certificate's own description of this home's construction, recorded at the assessment; on an existing-home (RdSAP) certificate '(assumed)' means the assessor could not inspect that part and recorded the standard assumption for a home of its kind.";
+
+// The U-value line (M6.26, D48, on D13), pinned: served
+// only where a description carries a transmittance
+// figure — the register's new-build SAP wording. The
+// figure itself stays text inside the description; this
+// line says what the measure is, and no numeric U-value
+// is ever extracted from the text.
+const CONSTRUCTION_U_VALUE_LINE =
+  "the U-value in a description is the register's measure of how fast heat passes through that part of the home, in watts per square metre for each degree of temperature difference — lower lets less heat escape.";
+
+// The register's element groups in register order, with
+// their served labels (M6.26, D48).
+const CONSTRUCTION_GROUPS: {
+  key: ServedConstructionGroup["key"];
+  label: string;
+  filed: (construction: EpcConstruction) => string[] | null;
+}[] = [
+  { key: "walls", label: "Walls", filed: (c) => c.walls },
+  { key: "roofs", label: "Roofs", filed: (c) => c.roofs },
+  { key: "floors", label: "Floors", filed: (c) => c.floors },
+  { key: "windows", label: "Windows", filed: (c) => (c.windows === null ? null : [c.windows]) },
+  { key: "lighting", label: "Lighting", filed: (c) => (c.lighting === null ? null : [c.lighting]) },
+  {
+    key: "mainHeating",
+    label: "Main heating",
+    filed: (c) => c.mainHeating,
+  },
+  {
+    key: "hotWater",
+    label: "Hot water",
+    filed: (c) => (c.hotWater === null ? null : [c.hotWater]),
+  },
+];
+
+// A certificate's filed construction descriptions as
+// served: register order, descriptions verbatim — the
+// register's own words, "(assumed)" markers and
+// ampersands included, disagreements between a home's
+// certificates standing whole because each certificate
+// serves its own block. Null where the filed artefact
+// predates the M6.26 widening.
+function toServedConstruction(cert: EpcCertificate): ServedConstruction | null {
+  if (cert.construction === undefined || cert.construction === null) return null;
+  const filed = cert.construction;
+  const groups: ServedConstructionGroup[] = CONSTRUCTION_GROUPS.map(
+    ({ key, label, filed: pick }) => {
+      const descriptions = pick(filed) ?? [];
+      return {
+        key,
+        label,
+        descriptions,
+        line:
+          descriptions.length > 0
+            ? `${label}: ${descriptions.join("; ")}`
+            : `${label}: not recorded on this certificate`,
+      };
+    },
+  );
+  const hasTransmittance = groups.some((group) =>
+    group.descriptions.some((description) => /transmittance|u-value/i.test(description)),
+  );
+  return {
+    line: CONSTRUCTION_BASIS_LINE,
+    uValueLine: hasTransmittance ? CONSTRUCTION_U_VALUE_LINE : null,
+    groups,
+  };
+}
+
 function toServedCertificate(cert: EpcCertificate): ServedCertificate {
   const predicted = (cert.assessmentType ?? "").toUpperCase() === "SAP";
   const solarFacts: string[] = [];
@@ -2242,6 +2385,7 @@ function toServedCertificate(cert: EpcCertificate): ServedCertificate {
     solarFacts,
     energyCosts,
     improvements: toServedImprovements(cert),
+    construction: toServedConstruction(cert),
   };
 }
 

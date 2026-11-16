@@ -26,7 +26,14 @@
 //      whole. Widened again at M6.21 (decision D41) by the
 //      certificate's suggested improvements: the register's
 //      modelled steps, filed as published (see
-//      improvementsOf below).
+//      improvementsOf below). Widened again at M6.26
+//      (decision D48) by the certificate's recorded
+//      construction descriptions — the seven element
+//      groups' description text only (see constructionOf
+//      below): the groups' per-element 0–5 efficiency
+//      ratings are dropped at filing and never held, by
+//      the recorded judgment that the site serves the
+//      descriptions and nothing else from those groups.
 //   3. File into the postcode's saved answers (postcode_cache
 //      .answers, key "epc") inside one transaction, merging that
 //      key only, then read back and re-check before commit.
@@ -141,6 +148,54 @@ function improvementsOf(doc) {
   return filed.length > 0 ? filed : null;
 }
 
+// The certificate's recorded construction descriptions
+// (M6.26, decision D48): the register's own words for how
+// the home is built, in the seven element groups — walls,
+// roofs and floors and main heating as lists of entries,
+// windows, lighting and hot water as single entries. Each
+// entry carries a description (a plain string on some
+// vintages, a { value, language } object on others —
+// unwrapped exactly as dwelling_type is below) and the
+// group's per-element 0–5 efficiency ratings. ONLY the
+// description files: the ratings are dropped here and
+// never held (0 means not applicable on the register's
+// own scale, and the numbers are verdict-shaped — the
+// site serves the words, D48). A group the register does
+// not publish for the certificate files null — the named
+// absence the brain serves, never a value borrowed from
+// another certificate. A U-value exists only as text
+// inside a new-build SAP description ("Average thermal
+// transmittance 0.27 W/m²K"); it files as part of that
+// text, never extracted into a number.
+function descriptionOf(entry) {
+  if (entry === null || typeof entry !== "object") return null;
+  const description = entry.description;
+  if (typeof description === "string") return description;
+  if (description !== null && typeof description === "object")
+    return typeof description.value === "string" ? description.value : null;
+  return null;
+}
+
+function descriptionsOf(group) {
+  if (!Array.isArray(group)) return null;
+  const descriptions = group
+    .map((entry) => descriptionOf(entry))
+    .filter((description) => typeof description === "string");
+  return descriptions.length > 0 ? descriptions : null;
+}
+
+function constructionOf(doc) {
+  return {
+    walls: descriptionsOf(doc.walls),
+    roofs: descriptionsOf(doc.roofs),
+    floors: descriptionsOf(doc.floors),
+    windows: descriptionOf(doc.windows),
+    lighting: descriptionOf(doc.lighting),
+    mainHeating: descriptionsOf(doc.main_heating),
+    hotWater: descriptionOf(doc.hot_water),
+  };
+}
+
 function minimise(stub, doc) {
   // dwelling_type arrives as a plain string on newer certificates
   // and as a { value, language } object on older ones — file the
@@ -179,6 +234,11 @@ function minimise(stub, doc) {
     // at M6.21 (decision D41) — the register's modelled
     // steps, filed as published (see improvementsOf).
     suggestedImprovements: improvementsOf(doc),
+    // The certificate's recorded construction descriptions,
+    // widened in at M6.26 (decision D48) — the register's
+    // own words per element group, descriptions only (see
+    // constructionOf).
+    construction: constructionOf(doc),
   };
 }
 
@@ -315,10 +375,73 @@ function checkMeasuresGolden(postcode, certificates) {
   }
 }
 
+// The construction goldens (M6.26, D48), per certificate
+// number: the filed descriptions exactly as the register
+// records them — Birkdale's new-build SAP set with its
+// U-values as text, Exeter's pair disagreeing (the 2013
+// SAP transmittance set against the 2023 RdSAP words,
+// windows not recorded on the 2023 certificate), and
+// Minerva Flat 4's "(other premises above/below)" pair
+// with the register's own ampersand in "Boiler& underfloor,
+// mains gas". No rating files beside any description: the
+// filed shape is descriptions only, so a filed rating
+// number anywhere in a construction group fails the shape
+// these goldens pin by deep equality.
+const CONSTRUCTION_GOLDEN = {
+  "2490-1633-0432-1002-3023": {
+    walls: ["Average thermal transmittance 0.27 W/m²K"],
+    roofs: ["Average thermal transmittance 0.11 W/m²K"],
+    floors: ["Average thermal transmittance 0.15 W/m²K"],
+    windows: "High performance glazing",
+    lighting: "Low energy lighting in all fixed outlets",
+    mainHeating: ["Boiler and radiators, mains gas"],
+    hotWater: "From main system, waste water heat recovery",
+  },
+  "2041-1785-8070-7006-5925": {
+    walls: ["Cavity wall, as built, insulated (assumed)"],
+    roofs: ["(another dwelling above)"],
+    floors: ["Solid, insulated (assumed)"],
+    windows: null,
+    lighting: "Low energy lighting in all fixed outlets",
+    mainHeating: ["Community scheme"],
+    hotWater: "Community scheme",
+  },
+  "9248-9925-7330-1627-9930": {
+    walls: ["Average thermal transmittance 0.28 W/m²K"],
+    roofs: ["Average thermal transmittance 0.2 W/m²K"],
+    floors: ["Average thermal transmittance 0.21 W/m²K"],
+    windows: "Fully double glazed",
+    lighting: "Low energy lighting in all fixed outlets",
+    mainHeating: ["Community scheme"],
+    hotWater: "Community scheme with CHP",
+  },
+  "8401-7039-6529-6723-9906": {
+    walls: ["Average thermal transmittance 0.18 W/m²K"],
+    roofs: ["(other premises above)"],
+    floors: ["(other premises below)"],
+    windows: "High performance glazing",
+    lighting: "Low energy lighting in all fixed outlets",
+    mainHeating: ["Boiler& underfloor, mains gas"],
+    hotWater: "From main system",
+  },
+};
+
+function checkConstructionGolden(postcode, certificates) {
+  for (const cert of certificates) {
+    if (!(cert.certificateNumber in CONSTRUCTION_GOLDEN)) continue;
+    const expected = CONSTRUCTION_GOLDEN[cert.certificateNumber];
+    if (JSON.stringify(cert.construction ?? null) !== JSON.stringify(expected))
+      throw new Error(
+        `${postcode}: golden check failed for certificate ${cert.certificateNumber} — expected construction ${JSON.stringify(expected)}, found ${JSON.stringify(cert.construction ?? null)}`,
+      );
+  }
+}
+
 function checkGolden(postcode, certificates) {
   const golden = GOLDEN[postcode];
   if (!golden) return;
   checkMeasuresGolden(postcode, certificates);
+  checkConstructionGolden(postcode, certificates);
   const atAddress = certificates.filter((c) => c.addressLine1 === golden.address);
   const areas = atAddress.map((c) => c.totalFloorArea).sort((a, b) => a - b);
   const expected = [...golden.floorAreas].sort((a, b) => a - b);

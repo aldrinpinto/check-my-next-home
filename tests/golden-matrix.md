@@ -2092,3 +2092,90 @@ This step serves them on the nearby answer's health rows.
    established pattern: a pre-M6.25 entry whose health
    places lack the rating key degrades to a recompute,
    proven by test.
+
+## EPC construction block (M6.26, decision D48)
+
+The EPC answers gain each certificate's recorded
+construction descriptions — the register's own words for
+how the home is built, in the seven element groups
+(walls, roofs, floors, windows, lighting, main heating,
+hot water) — as a per-certificate block at report depth.
+
+1. **The filing (the first check's corpus, pinned).** The
+   fixture corpus's 128 certificate documents all carry
+   the seven groups; windows alone is absent, on exactly
+   6 of 128. Each entry holds a description — a plain
+   string on some vintages, a { value, language } object
+   on others — plus the group's per-element 0–5 energy
+   and environmental efficiency ratings. The loader's
+   minimisation (loaders/load-epc.mjs, constructionOf)
+   files the descriptions only, normalised per entry
+   exactly as dwelling_type is; the ratings are dropped
+   at filing and never held (the recorded judgment: 0
+   means not applicable on the register's own scale, and
+   the numbers are verdict-shaped). A group the register
+   does not publish files null. No migration — the
+   artefact is JSONB in postcode_cache.answers. The
+   loader's own golden check pins the filed shape for
+   the four golden certificates by deep equality, so a
+   rating number filed anywhere in a group fails the
+   load.
+2. **The served block.** Inside each certificate's own
+   serving, under its assessment label: the seven groups
+   in register order, descriptions verbatim — RdSAP
+   "(assumed)" markers kept, disagreements between a
+   home's certificates standing whole, an absent group
+   serving the named line "not recorded on this
+   certificate" and never a borrowed value. The block
+   carries the pinned basis line (the certificate's own
+   description, recorded at the assessment; "(assumed)"
+   means the assessor could not inspect that part), and
+   the pinned U-value line serves only where a
+   transmittance description appears. A U-value exists
+   solely as text inside a description: no numeric
+   U-value field exists anywhere in the served shape
+   (a shape test walks the whole EPC section; the sole
+   key the scan allows is uValueLine, the D13 line
+   itself, a string). The headline and the short bundle
+   gain nothing — proven by an identity test, and the
+   short contract pins did not move.
+3. **Goldens** (computed from the filed fixture data
+   through the real code; locked in
+   tests/area-bundle.test.ts, and through the real
+   loader and database source in the golden replay's
+   M6.26 cell):
+   - **19 Birkdale Rise CM3 2JT** — the SAP set: walls
+     "Average thermal transmittance 0.27 W/m²K", roofs
+     0.11, floors 0.15; windows "High performance
+     glazing"; lighting "Low energy lighting in all
+     fixed outlets"; main heating "Boiler and radiators,
+     mains gas"; hot water "From main system, waste
+     water heat recovery". The U-value line serves.
+   - **6 Exeter Road E16 1GN** — the two certificates
+     disagree whole. 2023 RdSAP: walls "Cavity wall, as
+     built, insulated (assumed)", roofs "(another
+     dwelling above)", floors "Solid, insulated
+     (assumed)", windows not recorded, main heating and
+     hot water "Community scheme"; no U-value line. 2013
+     SAP: transmittance 0.28 / 0.2 / 0.21, windows "Fully
+     double glazed", hot water "Community scheme with
+     CHP"; the U-value line serves.
+   - **Flat 4, Minerva House KT17 1FH** — walls 0.18;
+     roofs "(other premises above)"; floors "(other
+     premises below)"; main heating "Boiler& underfloor,
+     mains gas" — the register's own ampersand, served
+     as recorded.
+4. **Contracts.** Three bundle-shape pins moved
+   (area.rung1-rich, area.flag-on-no-match,
+   area.tribunal-served — the pins whose bundles serve a
+   certificate); all 46 pins stand, with the re-pin
+   record in tests/bundle-contracts.test.ts. The
+   explainer census gains row 80 (area.epc.construction,
+   hard — the U-value's beside-figure line): 80 families
+   / 47 hard. The cache is unchanged by design (D48):
+   the D29 area version vector carries the EPC
+   artefact's hash, so the monthly re-file that first
+   files construction busts every stored entry for the
+   postcode; the brain always emits the construction
+   key on a served certificate (the block, or null for
+   a pre-widening artefact).
