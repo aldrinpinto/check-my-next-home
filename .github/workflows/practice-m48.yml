@@ -169,6 +169,11 @@ jobs:
 
       - name: Assert the outcome
         run: |
+          echo "scenario: ${{ inputs.scenario }}"
+          if [ "${{ inputs.scenario }}" != "clean" ] && [ "${{ inputs.scenario }}" != "break-crime" ] && [ "${{ inputs.scenario }}" != "break-email" ]; then
+            echo "unrecognised scenario: ${{ inputs.scenario }}"
+            exit 1
+          fi
           echo "runner exit code: $RUNNER_EXIT"
           psql "$DATABASE_URL" -Atc "SELECT kind, status, alert_status FROM loader_runs ORDER BY started_at DESC LIMIT 1"
           psql "$DATABASE_URL" -Atc "SELECT item, status FROM loader_run_items WHERE run_id = (SELECT id FROM loader_runs ORDER BY started_at DESC LIMIT 1) ORDER BY item"
