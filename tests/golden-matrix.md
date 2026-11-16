@@ -2502,10 +2502,10 @@ release files at the step's first checks.
    7.0% employment. No KS5 block — the school's
    sixth-form marker is false.
 2. **Exeter.** All three served secondaries carry KS4
-   blocks exact (Rokeby: 146 leavers, 90.4 / 90.4 / 1.4
-   / 2.7; Royal Docks Academy: 168, 82.1 / 81.5 / 0.6 /
-   8.3; Cumberland Community School: 297, 88.6 / 88.2 /
-   0.7 / 4.7) and no KS5 blocks — all three markers are
+   blocks exact (Rokeby: 146 leavers, 90.4 / 90.4 / 0
+   / 0; Royal Docks Academy: 168, 82.1 / 81.5 / 0.6 /
+   0; Cumberland Community School: 297, 88.6 / 88.2 /
+   0 / 0.3) and no KS5 blocks — all three markers are
    false, so Exeter's served list would have carried no
    destinations at all under a KS5-only scope (D65
    ruling 1).

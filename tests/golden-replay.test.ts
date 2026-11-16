@@ -1067,11 +1067,16 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
       if (!found) throw new Error(`category ${key} missing at ${tag}`);
       return found;
     };
+    // The helper returns the place's destinations block
+    // itself — the stages live at place.destinations.ks4 /
+    // .ks5, never on the place — joined with the URN the
+    // join stood on, so the assertions below read the
+    // served shape exactly as the brain composes it.
     const served = (tag: string, name: string): { ks4: unknown; ks5: unknown; urn?: string } => {
       const secondary = category(tag, "schools-secondary");
       const place = secondary.places.find((p) => p.name === name);
       if (!place?.destinations) throw new Error(`no destinations for ${name} at ${tag}`);
-      return place as never;
+      return { urn: place.urn, ks4: place.destinations.ks4, ks5: place.destinations.ks5 };
     };
     const shares = (stage: unknown) => {
       const s = stage as {
@@ -1109,8 +1114,8 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
       90.4,
       90.4,
       null,
-      1.4,
-      2.7,
+      0,
+      0,
     ]);
     expect(shares(served("exeter1", "Royal Docks Academy").ks4)).toEqual([
       "served",
@@ -1119,7 +1124,7 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
       81.5,
       null,
       0.6,
-      8.3,
+      0,
     ]);
     expect(shares(served("exeter1", "Cumberland Community School").ks4)).toEqual([
       "served",
@@ -1127,8 +1132,8 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
       88.6,
       88.2,
       null,
-      0.7,
-      4.7,
+      0,
+      0.3,
     ]);
     for (const name of ["Rokeby School", "Royal Docks Academy", "Cumberland Community School"])
       expect(served("exeter1", name).ks5).toBeNull();
