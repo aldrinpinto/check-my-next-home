@@ -1050,6 +1050,19 @@ class FakeNearbySource implements NearbyDataSource {
   async filedCount() {
     return 1000;
   }
+  // The Pollution Inventory (M6.32): filed, nothing near —
+  // the block rides these bundles unserved-by-the-headlines
+  // (the short derivation never reads it; the identity
+  // proof lives in the industrial-sites suite).
+  async industrialSiteFacts() {
+    return {
+      filedCount: 2856,
+      dataYear: 2024,
+      sourceName: "Environment Agency Pollution Inventory",
+      sourceDate: "2025-11-20",
+      sites: [],
+    };
+  }
 }
 
 const nearbySource = new FakeNearbySource();

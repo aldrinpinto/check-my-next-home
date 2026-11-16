@@ -1128,6 +1128,23 @@ export const EXPLAINER_CENSUS: CensusEntry[] = [
     "sections.chargingZones",
     "D50/D61/D63: the charging-zone fact for the postcode point serves with its D13 basis line — what a charging zone is, that whether a vehicle is charged depends on the vehicle and not on the home, and that the date shown for a zone is the date its charges, or its penalties, began. Inside serves on the covering scheme's own evidence regardless of the completeness gate; the full outside line serves only behind the gate (all twelve register schemes filed and the set's oldest filing no more than 120 days old, computed at answer time from the filed set and its stamps), and while the set is incomplete the outside answer is the named-gap line naming the missing scheme — Portsmouth's Clean Air Zone, whose boundary the council does not publish. Charging amounts are never filed or served, and no distance to a zone is ever served. Report depth only — the headline projection never picks the section.",
   ),
+  // M6.32 (decisions D50, D60 and D62) — the industrial
+  // sites block's releases, row 88. DRAFT STATE (D58
+  // overlap build): the row number assumes M6.31's row 87
+  // lands first, as the queue order has it; integration
+  // re-verifies against the true tree.
+  e(
+    88,
+    "nearby.industrial-sites.releases",
+    "nearby",
+    "what's nearby",
+    "releases to air (the operator-reported quantity and the reporting threshold, per substance, per site)",
+    "hard",
+    ["full"],
+    "line-embedded",
+    "industrialSites.thresholdLine",
+    "D50/D60/D62: every quantity in the block is the operator's own report to the Environment Agency for the named year, and the block says so on its reported line; the threshold line beside the figures states what a reporting threshold is and that below it is not a measurement of zero — a below-threshold return files no quantity at all (quantity NULL + the flag), structurally distinct from a quantified return of 0. Figures are never totalled and never ranked across substances or sites: substances are incommensurable. The block serves behind INDUSTRIAL_SITES_ENABLED (D60) at the end of What's Nearby, England only — Wales, Scotland and Northern Ireland serve the named not-covered state naming their own inventories. Report depth only — the short bundle's derivation never reads the block.",
+  ),
 ];
 
 // ------------------------------------------------------------------
@@ -1166,6 +1183,14 @@ export const FIGURE_PATH_PATTERNS: FigurePathPattern[] = [
   p("nearby\\.categories\\[\\]\\.nearestSelective\\.miles", "nearby.nearest-selective"),
   p("nearby\\.categories\\[\\]\\.nearestSelectiveLine", "nearby.nearest-selective"),
   p("nearby\\.categories\\[\\]\\.places\\[\\]\\.cqcRating\\.rating", "nearby.cqc-rating"),
+  // Industrial sites (M6.32): the site's distance on the
+  // D22 basis is the distance family's own figure; the
+  // release quantities and thresholds are the new family's.
+  p("nearby\\.industrialSites\\.sites\\[\\]\\.miles", "nearby.distance-miles"),
+  p(
+    "nearby\\.industrialSites\\.sites\\[\\]\\.releases\\[\\]\\.(quantityKg|thresholdKg)",
+    "nearby.industrial-sites.releases",
+  ),
   // Sold prices figures
   p("soldPrices\\.ownHistory\\[\\]\\.price", "sold.own-sale"),
   p("soldPrices\\.median\\.value", "sold.postcode-median"),
@@ -1458,6 +1483,22 @@ export const NOT_A_FIGURE_ALLOWLIST: RegExp[] = [
   // and its words — none is a figure. The scheme's dates
   // and the set's count are registered figures (row 87).
   /^area\.sections\.chargingZones\.scheme\.(class|family|operator|checkerUrl|checkerLabel)$/,
+  // The industrial-sites block's filed register facts
+  // (M6.32): the data year is the vintage's name (the
+  // block's lines carry it as a label, as the crime
+  // window's years do), the permit reference is the
+  // register's own identifier — decision D62 serves it —
+  // the operator, address, postcode, activity and sector
+  // fields are the filed register's words served
+  // verbatim, the below-threshold entries are substance
+  // NAMES (their quantities were never published), and
+  // the no-returns marker is a structural state. The
+  // quantities, thresholds and distances are registered
+  // figures (row 88).
+  /^nearby\.industrialSites\.dataYear$/,
+  /^nearby\.industrialSites\.sites\[\]\.(permitId|operator|siteAddress|sitePostcode|activityDescription|sector|subSector|noAirReturns)$/,
+  /^nearby\.industrialSites\.sites\[\]\.belowThreshold\[\]$/,
+  /^nearby\.industrialSites\.sites\[\]\.releases\[\]\.substance$/,
   // The resolution's own address parts and counts of
   // addresses (the census row 1 watch: not brain figures).
   /^address\./,

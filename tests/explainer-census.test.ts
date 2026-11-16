@@ -56,6 +56,7 @@ import {
 import { LEADON_ITEM, WARNING_NOW } from "./flood-warning-fixtures";
 import {
   buildNearbyBundle,
+  type IndustrialSitesFacts,
   type NearbyCategory,
   type NearbyDataSource,
   type NearbyPoint,
@@ -542,6 +543,42 @@ class CensusNearbySource implements NearbyDataSource {
   async filedCount() {
     return 1000;
   }
+  // The Pollution Inventory facts (M6.32): a SERVED block
+  // — one site near the census home carrying a quantified
+  // release and a below-threshold name — so direction one
+  // meets the family's figure leaves on a served answer
+  // and the leaf walk reads its embedded line, not just
+  // its registration.
+  async industrialSiteFacts(): Promise<IndustrialSitesFacts> {
+    return {
+      filedCount: 2856,
+      dataYear: 2024,
+      sourceName: "Environment Agency Pollution Inventory",
+      sourceDate: "2025-11-20",
+      sites: [
+        {
+          permitId: "YP3432XR",
+          operator: "Stuart Davis Limited",
+          siteAddress: "Fairwinds Farm Poultry Unit Crouchmans Farm Road Ulting Essex",
+          sitePostcode: "CM9 6QS",
+          activityDescription: "INTENSIVE FARMING; > 40,000 POULTRY",
+          sector: "Agriculture",
+          subSector: "Intensive Farming",
+          latitude: DIR.latitude + 0.5 / 69.0,
+          longitude: DIR.longitude,
+          releases: [
+            { substance: "Ammonia", quantityKg: 3128, thresholdKg: 1000, belowThreshold: false },
+            {
+              substance: "Nitrogen oxides (NO and NO2) as NO2",
+              quantityKg: null,
+              thresholdKg: 100000,
+              belowThreshold: true,
+            },
+          ],
+        },
+      ],
+    };
+  }
 }
 
 class CensusSoldSource implements SoldPricesDataSource {
@@ -734,13 +771,13 @@ type Golden = Awaited<ReturnType<typeof goldenBundles>>;
 // ------------------------------------------------------------------
 
 describe("explainer census — the register", () => {
-  it("enumerates the census: 87 families (71 to M6.20, rows 72–75 added at M6.21, rows 76–78 at M6.22, row 79 at M6.25, row 80 at M6.26, rows 81–82 at M6.27, rows 83–84 at M6.28, row 85 at M6.29, row 86 at M6.30, row 87 at M6.31), 54 hard, ids unique and stable in row order", () => {
-    expect(EXPLAINER_CENSUS).toHaveLength(87);
+  it("enumerates the census: 88 families (71 to M6.20, rows 72–75 added at M6.21, rows 76–78 at M6.22, row 79 at M6.25, row 80 at M6.26, rows 81–82 at M6.27, rows 83–84 at M6.28, row 85 at M6.29, row 86 at M6.30, row 87 at M6.31, row 88 at M6.32), 55 hard, ids unique and stable in row order", () => {
+    expect(EXPLAINER_CENSUS).toHaveLength(88);
     expect(EXPLAINER_CENSUS.map((entry) => entry.row)).toEqual(
-      Array.from({ length: 87 }, (_, i) => i + 1),
+      Array.from({ length: 88 }, (_, i) => i + 1),
     );
-    expect(new Set(EXPLAINER_CENSUS.map((entry) => entry.id)).size).toBe(87);
-    expect(EXPLAINER_CENSUS.filter((entry) => entry.hardness === "hard")).toHaveLength(54);
+    expect(new Set(EXPLAINER_CENSUS.map((entry) => entry.id)).size).toBe(88);
+    expect(EXPLAINER_CENSUS.filter((entry) => entry.hardness === "hard")).toHaveLength(55);
     // Every figure-path pattern names census ids that exist.
     const ids = new Set(EXPLAINER_CENSUS.map((entry) => entry.id));
     for (const { censusIds } of FIGURE_PATH_PATTERNS)
@@ -878,6 +915,11 @@ const HARD_LINES: Record<string, (b: Golden) => unknown> = {
       : null,
   "area.air.aqma": (b) => b.area.sections.air.aqma.basisLine,
   "area.charging-zones": (b) => b.area.sections.chargingZones.basisLine,
+  // The industrial-sites threshold line (M6.32, row 88):
+  // the census home's nearby source serves a filed block,
+  // so the line is present on the golden bundle.
+  "nearby.industrial-sites.releases": (b) =>
+    b.nearby.kind === "distances" ? b.nearby.industrialSites?.thresholdLine : null,
 };
 
 describe("explainer census — direction one (hard ⇒ line present, both depths)", () => {

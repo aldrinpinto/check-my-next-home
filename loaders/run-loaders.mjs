@@ -116,6 +116,13 @@ export const LOADER_SCHEDULE = [
   { item: "load-company-ownership", cadence: "monthly", timeoutMinutes: 30 },
   { item: "load-imd", cadence: "static", timeoutMinutes: 30 },
   { item: "load-air-quality", cadence: "static", timeoutMinutes: 30 },
+  // The Pollution Inventory is an annual register (the
+  // 2024 vintage published 20 Nov 2025 for the 2024
+  // reporting year): "static" is the house class for an
+  // editioned annual file — due once, then due again only
+  // when a run fails. The canary (ea-pollution-inventory)
+  // is what hears about the next vintage first.
+  { item: "load-pollution-inventory", cadence: "static", timeoutMinutes: 30 },
   { item: "load-pvgis", cadence: "static", timeoutMinutes: 30 },
   { item: "load-noise", cadence: "operator" },
   { item: "load-broadband", cadence: "static", timeoutMinutes: 30 },
@@ -335,6 +342,7 @@ export const FRIENDLY_NAMES = {
   "load-dwp-uc": "Benefits figures — Universal Credit",
   "load-imd": "Deprivation — Indices of Deprivation 2025",
   "load-air-quality": "Air quality — Defra modelled background",
+  "load-pollution-inventory": "Industrial sites — Environment Agency Pollution Inventory",
   "load-pvgis": "Solar — PVGIS modelled yield for the location",
   "load-noise": "Noise — Defra modelled road, rail and airport",
   "load-broadband": "Broadband — Ofcom coverage by postcode",
@@ -383,6 +391,7 @@ export const FRIENDLY_NAMES = {
   aqma: "Air Quality Management Areas source (canary)",
   "govuk-caz": "Clean Air Zone register — GOV.UK's published list (canary)",
   "scotland-lez": "Low Emission Zone register — Scotland's published count (canary)",
+  "ea-pollution-inventory": "Industrial sites source (canary)",
   "defra-noise": "Noise source (canary)",
   "ofcom-broadband": "Broadband source (canary)",
   "ofcom-mobile": "Mobile source (canary)",
@@ -545,6 +554,10 @@ function shortDetail(item) {
     case "load-charging-zones": {
       const filed = pick(/(\d+) schemes filed/);
       return filed ? `${filed} charging-zone schemes filed` : "updated";
+    }
+    case "load-pollution-inventory": {
+      const filed = pick(/([\d,]+) sites filed/);
+      return filed ? `${filed} industrial sites filed` : "updated";
     }
     default:
       return "updated";
@@ -874,6 +887,7 @@ async function main() {
       await runAndLog("load-dwp-uc", ["--file", fx("dwp-uc")]);
       await runAndLog("load-imd", ["--file", fx("imd")]);
       await runAndLog("load-air-quality", ["--file", fx("air")]);
+      await runAndLog("load-pollution-inventory", ["--file", fx("pollution-inventory")]);
       await runAndLog("load-pvgis", ["--file", fx("pvgis")]);
       await runAndLog("load-noise", ["--file", fx("noise")]);
       await runAndLog("load-broadband", ["--file", fx("broadband")]);

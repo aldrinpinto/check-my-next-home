@@ -651,6 +651,58 @@ Family:
     stamps share one instant; a scheme with no published
     boundary (Portsmouth at M6.31) files no row, and the
     serving layer names the gap instead.
+38. **industrial_sites + industrial_site_releases** —
+    the Environment Agency Pollution Inventory's
+    regulated sites and their reported releases to air
+    (migration 0027, plan step M6.32, decisions D50,
+    D60 and D62). One vintage is held at a time.
+    `industrial_sites` holds one row per permit in the
+    published Substances register (2,870 in the 2024
+    vintage), keyed on `permit_id` (the permit
+    reference the served block shows with each site):
+    `operator`, `site_address` (filed verbatim — the
+    source carries no site-name field, so the address
+    IS the site's identity; there is no site-name
+    column and no regulator column: "Environment
+    Agency" is a block-level fact, and EA AREA NAME is
+    deliberately not filed), `site_postcode`,
+    `activity_description`, `sector`, `sub_sector`,
+    `easting`/`northing`, the converted
+    `latitude`/`longitude` and `geom` (a plain geography
+    point with a GiST index — NULL for the 14 sites of
+    the 2024 vintage that publish no coordinates, which
+    file anyway and can never serve spatially),
+    `data_year`, `source_name`, `source_date` (the
+    vintage's publication date, derived from the
+    published ZIP's workbook member timestamp) and
+    `loaded_at`. `industrial_site_releases` holds one
+    row per filed AIR-route return, keyed on
+    (permit_id, substance) with a cascade delete from
+    the site: `threshold_kg`, `quantity_kg` (NULL
+    exactly when `below_threshold` is true — a
+    below-reporting-threshold return published no
+    quantity — which is a different fact from a
+    quantified return of 0, and both differ from no row
+    at all), `below_threshold` and `data_year`. Rows,
+    not JSONB, on purpose: the serving read is per site,
+    and the shape makes the no-aggregation rule
+    structural — no total over substances can be
+    computed from a shape that never holds one. Only
+    the Air route files; water, wastewater and land
+    returns are out of scope, as are the waste-only and
+    radioactive-only permits, which are not in the
+    Substances register. Filed annually by
+    load-pollution-inventory, which swaps the whole
+    vintage in one transaction (stage → check → delete
+    both tables → insert), so a failed load never
+    overwrites the last good vintage; the deletion path
+    (D60/D62) is two DELETEs in one transaction, the
+    loader's exported deletePollutionInventory.
+    Serving sits behind INDUSTRIAL_SITES_ENABLED
+    (lib/site.ts, default ON under D60): the flag
+    governs serving only — filing proceeds while it is
+    off, exactly as company ownership files behind its
+    flag.
 
 ## Physical decisions (recorded at build, M3.3)
 

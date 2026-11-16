@@ -1,4 +1,5 @@
 import type { AddressQueryable, AddressResolution } from "./address";
+import { INDUSTRIAL_SITES_ENABLED } from "./site";
 
 // Distances and What's Nearby (plan step M6.2, decision D22).
 //
@@ -75,6 +76,36 @@ import type { AddressQueryable, AddressResolution } from "./address";
 // absence like any unrated place. Ratings are full-check
 // depth only: the short bundle's derivation never reads
 // them (D28).
+//
+// Industrial sites (M6.32, decisions D50, D60 and D62): at
+// the END of this bundle — the report's What's Nearby
+// section, never the air section — the regulated
+// industrial sites the Environment Agency's Pollution
+// Inventory holds within the same two miles, each serving
+// its filed address (the source carries no site name),
+// its operator, its PERMIT REFERENCE, and the releases to
+// air its operator reported for the latest filed year.
+// A below-reporting-threshold return is a fact of its own
+// kind — the operator reported the substance, no quantity
+// was published — and serves as a name on a labelled line,
+// never as 0 and never beside a number; a quantified
+// return of 0 is a different filed fact and serves as 0.
+// Nothing is totalled and nothing is ranked across
+// substances: substances are incommensurable, and the
+// block's shape holds no total for a renderer to print by
+// accident. The block serves behind INDUSTRIAL_SITES_ENABLED
+// (lib/site.ts, D60): while the flag is off the key is
+// ABSENT from the bundle entirely — the D32 absence
+// property — and the source is never read. The Inventory
+// covers England only; Welsh, Scottish and Northern Irish
+// homes serve the named not-covered state, each naming the
+// inventory that covers them (the Welsh Emissions
+// Inventory, the Scottish Pollutant Release Inventory, the
+// Northern Ireland Pollution Inventory) — the D30/D31
+// named-gap pattern, never a false none. Report depth
+// only: the short bundle's derivation never reads the
+// block, so the short answer is byte-identical with the
+// flag on or off.
 
 export const DISTANCE_BASIS_LABEL = "straight-line distance from the postcode point";
 export const RADIUS_MILES = 2;
@@ -176,7 +207,49 @@ export interface NearbyDataSource {
   // holds nothing serves its not-filed state, never an
   // absence read from an empty table.
   filedCount(category: NearbyCategory): Promise<number>;
+  // The Pollution Inventory facts (M6.32): the filed
+  // register's placeable count (the guard the none state
+  // stands on), the filed vintage and its provenance, and
+  // the filed sites near the point with their air releases
+  // as filed — the brain applies the exact haversine cut
+  // and the serving rules. Read only for an English home
+  // while INDUSTRIAL_SITES_ENABLED is on.
+  industrialSiteFacts(latitude: number, longitude: number): Promise<IndustrialSitesFacts>;
 }
+
+// One filed site near the point, with its releases to air
+// as filed (M6.32): a release's quantityKg is null exactly
+// when belowThreshold is true — the operator reported the
+// substance and no quantity was published.
+export type IndustrialSiteFact = {
+  permitId: string;
+  operator: string;
+  siteAddress: string;
+  sitePostcode: string | null;
+  activityDescription: string | null;
+  sector: string | null;
+  subSector: string | null;
+  latitude: number;
+  longitude: number;
+  releases: {
+    substance: string;
+    quantityKg: number | null;
+    thresholdKg: number;
+    belowThreshold: boolean;
+  }[];
+};
+
+export type IndustrialSitesFacts = {
+  // Placeable filed sites (a filed point exists) — the
+  // count the none state stands on. The register also
+  // files sites with no published point; they can never
+  // serve and never count here.
+  filedCount: number;
+  dataYear: number | null;
+  sourceName: string | null;
+  sourceDate: string | null;
+  sites: IndustrialSiteFact[];
+};
 
 export type NearbyPlace = {
   name: string;
@@ -267,6 +340,186 @@ function schoolDeadlinesFor(lsoaCode: string | null): SchoolDeadlines | null {
   }
 }
 
+// --- industrial sites (M6.32, D50/D60/D62) ----------------
+
+// The block's source name, as filed by the loader: the
+// block states it once, for the whole block — the source
+// carries no per-site regulator (D62).
+export const INDUSTRIAL_SITES_SOURCE_NAME = "Environment Agency Pollution Inventory";
+
+// The not-filed sentence (the D30 form, the planning
+// brain's register-not-filed pattern): an absence read
+// from an empty register is never served as a none.
+export const INDUSTRIAL_SITES_NOT_FILED_LINE =
+  "The Pollution Inventory is not filed yet, so regulated industrial sites cannot be shown for this check.";
+
+// The not-covered sentences (D30/D31's named-gap pattern):
+// the generic line travels as the block's basis, and the
+// served line names the inventory that covers the home's
+// nation. The names are the inventories' own published
+// names, verified against the publishers' pages at build.
+export const INDUSTRIAL_SITES_NOT_COVERED_BASIS =
+  "The Pollution Inventory covers England only. Wales, Scotland and Northern Ireland keep their own inventories, which are not filed here.";
+export const INDUSTRIAL_SITES_NOT_COVERED_WALES_LINE =
+  "Wales keeps its own register, the Welsh Emissions Inventory, published by Natural Resources Wales. It is not filed here, so regulated industrial sites cannot be shown for this Welsh home.";
+export const INDUSTRIAL_SITES_NOT_COVERED_SCOTLAND_LINE =
+  "Scotland keeps its own register, the Scottish Pollutant Release Inventory, published by the Scottish Environment Protection Agency. It is not filed here, so regulated industrial sites cannot be shown for this Scottish home.";
+export const INDUSTRIAL_SITES_NOT_COVERED_NORTHERN_IRELAND_LINE =
+  "Northern Ireland keeps its own register, the Northern Ireland Pollution Inventory, published by the Northern Ireland Environment Agency. It is not filed here, so regulated industrial sites cannot be shown for this Northern Irish home.";
+
+export type IndustrialSiteRelease = {
+  substance: string;
+  quantityKg: number;
+  thresholdKg: number;
+};
+
+export type IndustrialSite = {
+  // The permit reference serves with each site (D62).
+  permitId: string;
+  operator: string;
+  // The filed SITE ADDRESS, verbatim — the source carries
+  // no site name, so the address IS the site's identity.
+  siteAddress: string;
+  sitePostcode: string | null;
+  activityDescription: string | null;
+  sector: string | null;
+  subSector: string | null;
+  miles: number;
+  // The quantified releases to air, largest first (the
+  // site's own returns in the order a reader meets a
+  // table — never a ranking across substances or sites).
+  releases: IndustrialSiteRelease[];
+  // The below-threshold returns' substance names,
+  // alphabetical — names only, on their own labelled line.
+  belowThreshold: string[];
+  belowThresholdLine: string | null;
+  // The site filed no air-route rows at all for the year:
+  // a third state, distinct from both lists above.
+  noAirReturns: boolean;
+  noAirReturnsLine: string | null;
+};
+
+export type IndustrialSitesBlock = {
+  state: "served" | "none-within-2-miles" | "not-filed" | "not-covered";
+  dataYear: number | null;
+  sourceName: string;
+  sourceDate: string | null;
+  // The block's basis sentence (D13): what the register
+  // is, in the year form while filed; the England-only
+  // sentence while not covered; null while not filed.
+  basisLine: string | null;
+  // The D50 labelling pair, filed states only: every
+  // figure is the operator's own report, and the
+  // threshold line states what below-threshold means —
+  // the explainer census registers the threshold line as
+  // this family's hard figure-carrying line.
+  reportedLine: string | null;
+  thresholdLine: string | null;
+  line: string;
+  sites: IndustrialSite[];
+};
+
+function industrialSitesBlock(
+  facts: IndustrialSitesFacts,
+  nation: string,
+  latitude: number,
+  longitude: number,
+): IndustrialSitesBlock {
+  if (nation !== "E") {
+    const line =
+      nation === "W"
+        ? INDUSTRIAL_SITES_NOT_COVERED_WALES_LINE
+        : nation === "S"
+          ? INDUSTRIAL_SITES_NOT_COVERED_SCOTLAND_LINE
+          : nation === "N"
+            ? INDUSTRIAL_SITES_NOT_COVERED_NORTHERN_IRELAND_LINE
+            : INDUSTRIAL_SITES_NOT_COVERED_BASIS;
+    return {
+      state: "not-covered",
+      dataYear: null,
+      sourceName: INDUSTRIAL_SITES_SOURCE_NAME,
+      sourceDate: null,
+      basisLine: INDUSTRIAL_SITES_NOT_COVERED_BASIS,
+      reportedLine: null,
+      thresholdLine: null,
+      line,
+      sites: [],
+    };
+  }
+  if (facts.filedCount === 0 || facts.dataYear === null) {
+    return {
+      state: "not-filed",
+      dataYear: null,
+      sourceName: INDUSTRIAL_SITES_SOURCE_NAME,
+      sourceDate: null,
+      basisLine: null,
+      reportedLine: null,
+      thresholdLine: null,
+      line: INDUSTRIAL_SITES_NOT_FILED_LINE,
+      sites: [],
+    };
+  }
+  const year = facts.dataYear;
+  const measured = facts.sites
+    .map((site) => ({
+      site,
+      miles: round3(haversineMiles(latitude, longitude, site.latitude, site.longitude)),
+    }))
+    .filter((entry) => entry.miles <= RADIUS_MILES)
+    .sort((a, b) => a.miles - b.miles || a.site.permitId.localeCompare(b.site.permitId));
+  const sites: IndustrialSite[] = measured.map(({ site, miles }) => {
+    const releases = site.releases
+      .filter((r) => !r.belowThreshold && r.quantityKg !== null)
+      .map((r) => ({
+        substance: r.substance,
+        quantityKg: r.quantityKg as number,
+        thresholdKg: r.thresholdKg,
+      }))
+      .sort((a, b) => b.quantityKg - a.quantityKg || a.substance.localeCompare(b.substance));
+    const belowThreshold = site.releases
+      .filter((r) => r.belowThreshold)
+      .map((r) => r.substance)
+      .sort();
+    const noAirReturns = site.releases.length === 0;
+    return {
+      permitId: site.permitId,
+      operator: site.operator,
+      siteAddress: site.siteAddress,
+      sitePostcode: site.sitePostcode,
+      activityDescription: site.activityDescription,
+      sector: site.sector,
+      subSector: site.subSector,
+      miles,
+      releases,
+      belowThreshold,
+      // Semicolons between the names: the substance names
+      // themselves contain commas.
+      belowThresholdLine:
+        belowThreshold.length > 0
+          ? `Also reported for ${year}, below the reporting threshold: ${belowThreshold.join("; ")}.`
+          : null,
+      noAirReturns,
+      noAirReturnsLine: noAirReturns
+        ? `No releases to air were reported for this site for ${year}.`
+        : null,
+    };
+  });
+  return {
+    state: sites.length > 0 ? "served" : "none-within-2-miles",
+    dataYear: year,
+    sourceName: facts.sourceName ?? INDUSTRIAL_SITES_SOURCE_NAME,
+    sourceDate: facts.sourceDate,
+    basisLine: `Regulated industrial sites from the Environment Agency's Pollution Inventory for ${year}: the sites the Agency permits for large industrial activities, and the releases to air their operators reported for that year.`,
+    reportedLine: `Every figure is the quantity the operator reported to the Environment Agency for ${year}.`,
+    thresholdLine: `Each substance also shows the reporting threshold for ${year} — the level at or above which a quantity must be reported. A substance reported below its threshold was still released; below the reporting threshold is not a measurement of zero.`,
+    line:
+      sites.length > 0
+        ? "The regulated industrial sites recorded within two miles of this postcode point are listed below, nearest first."
+        : `No regulated industrial site in the Environment Agency's Pollution Inventory for ${year} is recorded within two miles of this postcode point.`,
+    sites,
+  };
+}
+
 export type NearbyBundle =
   | {
       rung: 1 | 2;
@@ -279,6 +532,11 @@ export type NearbyBundle =
       // headlines stay nearest-plus-count (D28). The report
       // renders this same line in its closing notes (M8).
       schoolDeadlines: SchoolDeadlines | null;
+      // The industrial sites block (M6.32, D60/D62):
+      // present only while INDUSTRIAL_SITES_ENABLED is on —
+      // while the flag is off the key is ABSENT entirely,
+      // never null (the D32 absence property).
+      industrialSites?: IndustrialSitesBlock;
     }
   | {
       rung: 3;
@@ -464,9 +722,19 @@ async function buildCategory(
   return answer;
 }
 
+// The build's optional seams (M6.32): the industrial
+// sites flag, passed explicitly by tests and the cache so
+// a flip is provable without touching the checked-in
+// constant. Absent, the constant in lib/site.ts governs —
+// the shipped call sites pass nothing.
+export interface NearbyBundleOptions {
+  industrialSitesEnabled?: boolean;
+}
+
 export async function buildNearbyBundle(
   resolution: AddressResolution,
   source: NearbyDataSource,
+  options: NearbyBundleOptions = {},
 ): Promise<NearbyBundle> {
   if (resolution.rung === 3)
     return {
@@ -484,7 +752,7 @@ export async function buildNearbyBundle(
   const categories: CategoryAnswer[] = [];
   for (const { key, spec } of CATEGORIES)
     categories.push(await buildCategory(key, spec, latitude, longitude, source));
-  return {
+  const bundle: Extract<NearbyBundle, { kind: "distances" }> = {
     rung: resolution.rung,
     kind: "distances",
     postcode: resolution.directory.postcode,
@@ -492,6 +760,22 @@ export async function buildNearbyBundle(
     categories,
     schoolDeadlines: schoolDeadlinesFor(resolution.directory.lsoaCode),
   };
+  // The industrial sites block (M6.32): built only while
+  // the flag is on — while it is off the key never exists
+  // and the source is never read (D60/D62). The nation is
+  // read from the resolution's filed area code, the
+  // schoolDeadlinesFor pattern; the source is read only
+  // for an English home.
+  const industrialEnabled = options.industrialSitesEnabled ?? INDUSTRIAL_SITES_ENABLED;
+  if (industrialEnabled) {
+    const nation = (resolution.directory.lsoaCode ?? "").charAt(0);
+    const facts: IndustrialSitesFacts =
+      nation === "E"
+        ? await source.industrialSiteFacts(latitude, longitude)
+        : { filedCount: 0, dataYear: null, sourceName: null, sourceDate: null, sites: [] };
+    bundle.industrialSites = industrialSitesBlock(facts, nation, latitude, longitude);
+  }
+  return bundle;
 }
 
 // --- the database source ----------------------------------------
@@ -669,6 +953,75 @@ export function createNearbySource(db: AddressQueryable): NearbyDataSource {
         }
       }
       return best;
+    },
+    // The Pollution Inventory read (M6.32): the placeable
+    // filed count guards the none state; the vintage and
+    // its provenance ride on any filed row (one vintage is
+    // held at a time — the loader swaps whole editions);
+    // the sites near the point come back with their air
+    // releases grouped per site, the exact haversine cut
+    // applied by the brain over the widened geography
+    // superset, the pointsWithin pattern. The source date
+    // casts to text in the query — the filed date exactly.
+    async industrialSiteFacts(latitude, longitude) {
+      const filed = await db.query(
+        "SELECT count(*)::int AS n FROM industrial_sites WHERE geom IS NOT NULL",
+      );
+      const filedCount = Number(filed.rows[0]?.n ?? 0);
+      if (filedCount === 0)
+        return { filedCount: 0, dataYear: null, sourceName: null, sourceDate: null, sites: [] };
+      const meta = await db.query(
+        "SELECT data_year, source_name, source_date::text AS source_date FROM industrial_sites LIMIT 1",
+      );
+      const metres = Math.ceil(RADIUS_MILES * METRES_PER_MILE * 1.03);
+      const result = await db.query(
+        `SELECT s.permit_id, s.operator, s.site_address, s.site_postcode,
+                s.activity_description, s.sector, s.sub_sector,
+                s.latitude, s.longitude,
+                r.substance, r.threshold_kg, r.quantity_kg, r.below_threshold
+         FROM industrial_sites s
+         LEFT JOIN industrial_site_releases r ON r.permit_id = s.permit_id
+         WHERE s.geom IS NOT NULL
+           AND ST_DWithin(s.geom::geography,
+                 ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, $3)
+         ORDER BY s.permit_id, r.substance`,
+        [longitude, latitude, metres],
+      );
+      const byPermit = new Map<string, IndustrialSiteFact>();
+      for (const row of result.rows) {
+        const permitId = String(row.permit_id);
+        let site = byPermit.get(permitId);
+        if (!site) {
+          site = {
+            permitId,
+            operator: String(row.operator),
+            siteAddress: String(row.site_address),
+            sitePostcode: typeof row.site_postcode === "string" ? row.site_postcode : null,
+            activityDescription:
+              typeof row.activity_description === "string" ? row.activity_description : null,
+            sector: typeof row.sector === "string" ? row.sector : null,
+            subSector: typeof row.sub_sector === "string" ? row.sub_sector : null,
+            latitude: Number(row.latitude),
+            longitude: Number(row.longitude),
+            releases: [],
+          };
+          byPermit.set(permitId, site);
+        }
+        if (typeof row.substance === "string")
+          site.releases.push({
+            substance: row.substance,
+            quantityKg: row.quantity_kg === null ? null : Number(row.quantity_kg),
+            thresholdKg: Number(row.threshold_kg),
+            belowThreshold: row.below_threshold === true,
+          });
+      }
+      return {
+        filedCount,
+        dataYear: typeof meta.rows[0]?.data_year === "number" ? meta.rows[0].data_year : null,
+        sourceName: typeof meta.rows[0]?.source_name === "string" ? meta.rows[0].source_name : null,
+        sourceDate: typeof meta.rows[0]?.source_date === "string" ? meta.rows[0].source_date : null,
+        sites: [...byPermit.values()],
+      };
     },
   };
 }

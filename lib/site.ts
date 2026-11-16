@@ -89,3 +89,40 @@ export function showTestBanner(
 // constant, not an environment variable: enabling it is a reviewed
 // code change, visible in the commit history, never a runtime flip.
 export const COMPANY_OWNERSHIP_ENABLED = false;
+
+// INDUSTRIAL_SITES_ENABLED (plan step M6.32, decision D60):
+// whether a detailed report's What's Nearby section serves
+// the regulated industrial sites the Environment Agency's
+// Pollution Inventory holds within two miles — the sites,
+// their operators, their permit references, and the
+// releases to air their operators reported for the latest
+// filed year. Unlike company ownership above, this flag
+// ships ON: the founder's ruling of 16 November 2026 is
+// "serve it now — switch off if the EA objects", taken with
+// the dataset's position in view (the EA Conditional Licence
+// permits commercial and non-commercial exploitation "by
+// including it in your own product or application"; the
+// dataset page's Special Conditions speak of internal or
+// personal use and a one-year permitted-use period, and the
+// Agency's written answer to the project's direct question
+// — asked 16 November 2026, answered with a pointer the
+// same day, followed up the same day — is outstanding).
+// The serving it gates was designed for the flip: while the
+// flag is off the bundle's industrialSites key is ABSENT
+// entirely (the D32 pattern — a consumer cannot tell
+// whether the data is filed, unfiled or switched off), the
+// filed data stays in place unserved, and the bundle cache
+// needs NO purge — its shape rule holds the flag's state
+// and the bundle's key in agreement, so a flip simply
+// rebuilds on the next check (proven by the flip drill in
+// tests/industrial-sites.test.ts). An EA objection in any
+// form flips this constant off immediately; it is never
+// flipped back on the assistant's initiative — re-enabling
+// takes the founder's word plus the Agency's written
+// clearance. If the Agency's answer ever requires the filed
+// data itself to go, the deletion path is
+// deletePollutionInventory in
+// loaders/load-pollution-inventory.mjs plus removing the
+// loader from the runner's schedule, in the same commit
+// (docs/backend-m6.32.md).
+export const INDUSTRIAL_SITES_ENABLED = true;

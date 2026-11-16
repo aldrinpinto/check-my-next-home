@@ -141,6 +141,7 @@ import {
   SCHOOL_DEADLINES_ENGLAND_LINE,
   SCHOOL_DEADLINES_WALES_LINE,
   buildNearbyBundle,
+  type IndustrialSitesFacts,
   type NearbyCategory,
   type NearbyDataSource,
   type NearbyPoint,
@@ -395,6 +396,21 @@ class MatrixNearbySource implements NearbyDataSource {
   }
   async filedCount(category: NearbyCategory) {
     return this.filed.get(category) ?? 0;
+  }
+  // The Pollution Inventory facts (M6.32): a settable
+  // field in the class's own idiom — the default files
+  // the register with nothing near the home, so the
+  // block rides the matrix in its none state; the
+  // industrial-sites suite owns the block's own states.
+  industrialFacts: IndustrialSitesFacts = {
+    filedCount: 2856,
+    dataYear: 2024,
+    sourceName: "Environment Agency Pollution Inventory",
+    sourceDate: "2025-11-20",
+    sites: [],
+  };
+  async industrialSiteFacts() {
+    return this.industrialFacts;
   }
 }
 

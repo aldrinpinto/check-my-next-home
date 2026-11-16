@@ -856,6 +856,103 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
     }
   });
 
+  it("industrial sites (M6.32, D60/D62): the block serves through the real source on the fixture filing", async () => {
+    const nearby = (tag: string) => {
+      const n = get(tag).nearby;
+      if (n.kind !== "distances") throw new Error(`${tag}: expected distances`);
+      return n;
+    };
+    // The replay world files the fixture cut: nine
+    // permits of the real 2024 register (seven goldens,
+    // one with no air rows, one with no published point —
+    // both far from every golden home).
+    const birkdale = nearby("birkdale1").industrialSites;
+    expect(birkdale?.state).toBe("served");
+    expect(birkdale?.dataYear).toBe(2024);
+    expect(birkdale?.sourceName).toBe("Environment Agency Pollution Inventory");
+    expect(birkdale?.sourceDate).toBe("2025-11-20");
+    expect(birkdale?.sites).toHaveLength(1);
+    const fairwinds = birkdale!.sites[0]!;
+    expect(fairwinds.permitId).toBe("YP3432XR");
+    expect(fairwinds.operator).toBe("Stuart Davis Limited");
+    expect(Math.abs(fairwinds.miles - 1.328)).toBeLessThan(0.005);
+    expect(fairwinds.releases).toEqual([
+      { substance: "Ammonia", quantityKg: 3128, thresholdKg: 1000 },
+      { substance: "Particulate matter - PM10", quantityKg: 3066, thresholdKg: 1000 },
+    ]);
+    expect(fairwinds.belowThreshold).toEqual(["Nitrogen oxides (NO and NO2) as NO2"]);
+
+    const exeter = nearby("exeter1").industrialSites;
+    expect(exeter?.state).toBe("served");
+    expect(exeter?.sites.map((s) => s.permitId)).toEqual([
+      "SP3237JU",
+      "BP3530YR",
+      "FP3839YQ",
+      "EP3507SL",
+      "MP3530HZ",
+      "DP3906BE",
+    ]);
+    expect(Math.abs(exeter!.sites[0]!.miles - 0.998)).toBeLessThan(0.005);
+    const thames = exeter!.sites.find((s) => s.permitId === "MP3530HZ");
+    expect(thames?.operator).toBe("T & L Sugars Limited");
+    expect(thames?.releases[0]).toEqual({
+      substance: "Carbon dioxide",
+      quantityKg: 88988870,
+      thresholdKg: 10000000,
+    });
+    // The threshold-0 case serves through the real source.
+    const tva = exeter!.sites.find((s) => s.permitId === "EP3507SL");
+    expect(tva?.releases).toEqual([
+      {
+        substance: "Carbon Dioxide From Qualifying Renewable Fuel Sources",
+        quantityKg: 670,
+        thresholdKg: 0,
+      },
+    ]);
+    // A BRT-only site: no quantified releases, its names
+    // on the below-threshold line.
+    const dataCentre = exeter!.sites.find((s) => s.permitId === "DP3906BE");
+    expect(dataCentre?.releases).toEqual([]);
+    expect(dataCentre?.belowThreshold).toHaveLength(10);
+
+    const minerva = nearby("minerva1").industrialSites;
+    expect(minerva?.state).toBe("none-within-2-miles");
+    expect(minerva?.line).toBe(
+      "No regulated industrial site in the Environment Agency's Pollution Inventory for 2024 is recorded within two miles of this postcode point.",
+    );
+
+    // The devolved witnesses: not covered, each naming
+    // its own inventory — never a false none.
+    expect(nearby("cardiff2").industrialSites?.state).toBe("not-covered");
+    expect(nearby("cardiff2").industrialSites?.line).toContain("Welsh Emissions Inventory");
+    expect(nearby("edinburgh2").industrialSites?.state).toBe("not-covered");
+    expect(nearby("edinburgh2").industrialSites?.line).toContain(
+      "Scottish Pollutant Release Inventory",
+    );
+    expect(nearby("belfast2").industrialSites?.state).toBe("not-covered");
+    expect(nearby("belfast2").industrialSites?.line).toContain(
+      "Northern Ireland Pollution Inventory",
+    );
+
+    // Depth (prep check 12): the short bundle is
+    // byte-identical with the flag on or off — the
+    // derivation never reads the block.
+    const stored = get("birkdale1");
+    const nearbyOff = await buildNearbyBundle(stored.resolution, createNearbySource(pool), {
+      industrialSitesEnabled: false,
+    });
+    expect("industrialSites" in nearbyOff).toBe(false);
+    const shortOff = buildShortBundle({
+      nearby: nearbyOff,
+      soldPrices: stored.sold,
+      crime: stored.crime,
+      flood: stored.flood,
+      area: stored.area,
+    });
+    expect(shortOff).toEqual(stored.short);
+    expect(JSON.stringify(stored.short)).not.toContain("Pollution Inventory");
+  });
+
   it("live flood warnings + school deadlines (M6.22, D42): composition over the real flood source; the deadline line at the regional witnesses", async () => {
     // The two EA alerts captured live at the step's first
     // contact, replayed through the fake warning source

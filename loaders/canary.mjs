@@ -35,6 +35,11 @@ import {
   parseEdition as parseAqmaEdition,
 } from "./load-aqma.mjs";
 import { SCHEMES as CHARGING_SCHEMES } from "./load-charging-zones.mjs";
+import {
+  PINNED_YEAR as PI_PINNED_YEAR,
+  PI_RECORD_URL,
+  latestResource as latestPiResource,
+} from "./load-pollution-inventory.mjs";
 
 const MONTHS = {
   January: "01",
@@ -2017,6 +2022,60 @@ export function probeScotlandLez() {
   })();
 }
 
+// Pollution Inventory (plan step M6.32, decisions D60/D62):
+// the annual register the industrial-sites loader files.
+// The probe reads the dataset record (the loader's own
+// resolver): healthy while the record's latest published
+// year IS the loader's pinned vintage; WARNING the day a
+// newer year lands — the operator action it names (measure
+// the new file, pin its counts in MEASURED_VINTAGES, re-run
+// the loader) is the vintage discipline working as
+// designed, and until it is done the loader refuses the new
+// vintage and the filed one keeps serving. A ZIP size far
+// outside the published ballpark (the 2024 ZIP is 5.5 MB)
+// also warns — a format change announces itself in size
+// before it announces itself in shape. FAILED only when
+// the record does not answer or lists no Inventory ZIP.
+export function probePollutionInventory() {
+  return (async () => {
+    const response = await fetchRetry(PI_RECORD_URL);
+    if (!response.ok)
+      throw new Error(`HTTP ${response.status} for the Pollution Inventory dataset record`);
+    const record = await response.json();
+    const resource = latestPiResource(record);
+    let sizeMb = null;
+    try {
+      const head = await fetchRetry(resource.url, { method: "HEAD" });
+      const length = Number(head.headers.get("content-length"));
+      if (head.ok && Number.isFinite(length) && length > 0) sizeMb = length / 1_000_000;
+    } catch {
+      // The size is a ballpark arm only — an unanswered HEAD
+      // is not a verdict.
+    }
+    const base =
+      `canary ea-pollution-inventory · latest published Pollution Inventory year ${resource.year}` +
+      ` · the loader's pinned vintage is ${PI_PINNED_YEAR}` +
+      (sizeMb !== null ? ` · the year's ZIP is ${sizeMb.toFixed(1)} MB` : "");
+    const warnings = [];
+    if (resource.year > PI_PINNED_YEAR)
+      warnings.push(
+        `a newer vintage has published — measure it, pin its counts in the loader's MEASURED_VINTAGES, then re-run the loader (until then the loader refuses it and the filed ${PI_PINNED_YEAR} vintage keeps serving, its year named in every answer)`,
+      );
+    if (resource.year < PI_PINNED_YEAR)
+      warnings.push(
+        "the record's latest year went backwards — the publisher may have withdrawn a vintage; the filed register is unaffected",
+      );
+    if (sizeMb !== null && (sizeMb < 1 || sizeMb > 50))
+      warnings.push(
+        `the year's ZIP is ${sizeMb.toFixed(1)} MB, far outside the published ballpark (the 2024 ZIP is 5.5 MB) — a format change may be coming`,
+      );
+    const today = new Date().toISOString().slice(0, 10);
+    if (warnings.length > 0)
+      return { warning: true, logLine: `${base} · ${warnings.join(" · ")}`, sourceDate: today };
+    return { logLine: base, sourceDate: today };
+  })();
+}
+
 // Noise (plan step M5.9): Defra Round 4 services on the Data
 // Services Platform. Arms: all three services still offer their
 // Lday/Lnight layers; and one golden point sample — Birkdale's
@@ -2206,6 +2265,7 @@ export async function runCanaryProbes() {
   await run("aqma", probeAqma);
   await run("govuk-caz", probeCazRegister);
   await run("scotland-lez", probeScotlandLez);
+  await run("ea-pollution-inventory", probePollutionInventory);
   await run("defra-noise", probeDefraNoise);
   await run("ofcom-broadband", () => probeOfcom("broadband"));
   await run("ofcom-mobile", () => probeOfcom("mobile"));

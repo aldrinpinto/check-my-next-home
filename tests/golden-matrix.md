@@ -2312,3 +2312,76 @@ published.
    not-covered deep-equal). Two register canaries watch
    GOV.UK's CAZ list and the Scottish LEZ count,
    warning if a scheme appears or vanishes.
+
+## Industrial sites (M6.32, decisions D50, D60 and D62)
+
+The nearby bundle gains the `industrialSites` block at
+report depth, at the end of What's Nearby: the regulated
+industrial sites in the Environment Agency's Pollution
+Inventory within two miles, filed into `industrial_sites`
+
+- `industrial_site_releases` (migration 0027) by the
+  annual `load-pollution-inventory`. The block serves
+  behind `INDUSTRIAL_SITES_ENABLED` (default ON, decision
+  D60): while the flag is off the key is absent entirely
+  and the source is never read. Each site serves its filed
+  address verbatim (the source carries no site name), its
+  operator, its permit reference and its releases to air
+  for the filed year; a below-reporting-threshold return
+  files quantity NULL + the flag and serves as a name on a
+  labelled line — never 0, never a number — distinct from
+  a quantified return of 0 and from no air rows at all.
+  Nothing is totalled or ranked across substances.
+
+1. **The filing (pinned).** The register is the
+   Substances sheet's permits: 2,870 in the 2024 vintage
+   (published 20 Nov 2025, the workbook member's own
+   stored date), 2,720 of them reporting to air in some
+   form, 17,907 air-route rows, 12,841 of those the
+   below-threshold marker; 2,856 sites file a point (14
+   publish no easting/northing and can never serve). The
+   loader resolves the latest year on the dataset record
+   and files only a vintage whose counts are pinned in
+   its MEASURED_VINTAGES (bands ±10%); a newer year
+   refuses until measured and pinned, and the
+   `ea-pollution-inventory` canary warns the day it
+   lands. The swap is one transaction; the deletion path
+   (D60/D62) is the loader's exported
+   `deletePollutionInventory`.
+2. **The goldens.** Birkdale — one site: YP3432XR
+   (Fairwinds Farm Poultry Unit; Stuart Davis Limited),
+   1.328 miles, Ammonia 3,128 kg (threshold 1,000), PM10
+   3,066 kg (threshold 1,000), NOx below threshold.
+   Exeter — six sites in distance order: SP3237JU 0.998,
+   BP3530YR 1.141, FP3839YQ 1.161, EP3507SL 1.203 (its
+   renewable-CO2 return carries threshold 0), MP3530HZ
+   1.465 (Thames Refinery, T & L Sugars Limited: carbon
+   dioxide 88,988,870 kg), DP3906BE 1.956 (below
+   threshold only, ten substances). Minerva — none within
+   two miles, the 2024 none line. Cardiff, Edinburgh and
+   Belfast serve the named not-covered state (the Welsh
+   Emissions Inventory, the Scottish Pollutant Release
+   Inventory, the Northern Ireland Pollution
+   Inventory). The replay asserts all of it through the
+   real source on the fixture filing — the published
+   2024 ZIP cut to the seven golden permits plus one
+   no-air-rows permit (PP3936YU) and one coordinate-less
+   permit (CP3140QU), both far from every golden home.
+3. **Contracts.** Four nearby pins moved (the added
+   `industrialSites` key: served form for
+   nearby.served / nearby.beyond-only, none form for
+   nearby.none-anywhere, not-filed form for
+   nearby.not-filed); nearby.rung3 and nearby.rung4 did
+   NOT move, no other brain's pins moved, and no short
+   pin moved — the short bundle is byte-identical with
+   the flag on or off, proven in the replay. 48 pins
+   stand, with the re-pin record in
+   tests/bundle-contracts.test.ts. The explainer census
+   gains row 88 (nearby.industrial-sites.releases, hard —
+   draft state at this step): 88 families / 55 hard. The
+   cache gains the `load-pollution-inventory` dependency
+   (the nearby guard set stays directory-only — the
+   loader is a runner class whose stamp moves) and the
+   shapeOk presence rule tying the key to the flag
+   position, which is what makes the D60 flip purge-free
+   (the flip drill is proven in the cache suite).

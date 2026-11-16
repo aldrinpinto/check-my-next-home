@@ -10,7 +10,7 @@ calculation, not a data source. Computed answers are also cached per
 postcode and refreshed whenever a loader files new data.
 
 Cadences below are as registered in the loader schedule
-(`LOADER_SCHEDULE` in `loaders/run-loaders.mjs`, 40 loaders) on
+(`LOADER_SCHEDULE` in `loaders/run-loaders.mjs`, 41 loaders) on
 16 November 2026.
 
 ## 1. Held in our database, filed in bulk ahead of time
@@ -54,17 +54,18 @@ Cadences below are as registered in the loader schedule
 
 ### Filed once (static — re-filed only when the publisher issues a new edition)
 
-| Dataset                            | Source                              | Notes                                                                  |
-| ---------------------------------- | ----------------------------------- | ---------------------------------------------------------------------- |
-| Built-up areas                     | ONS, December 2024 edition          |                                                                        |
-| Census 2021 tables                 | ONS, via Nomis                      |                                                                        |
-| Small-area population bases        | ONS Census 2021                     | The residents and households figures other answers divide by           |
-| Council tax charges                | MHCLG                               | Filed per tax year; the councils not yet filed arrive in a spring pass |
-| Deprivation deciles                | MHCLG (Indices of Deprivation 2025) | Served as a decile in words, never a score                             |
-| Air quality modelled grid          | Defra (PCM 2024)                    |                                                                        |
-| Solar potential grid               | PVGIS (SARAH3)                      | A location model, never a judgement on a roof                          |
-| Broadband availability by postcode | Ofcom Connected Nations             |                                                                        |
-| Mobile coverage by council         | Ofcom Connected Nations             | Council-wide modelled coverage, never signal at the home               |
+| Dataset                            | Source                                 | Notes                                                                                                                       |
+| ---------------------------------- | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Built-up areas                     | ONS, December 2024 edition             |                                                                                                                             |
+| Census 2021 tables                 | ONS, via Nomis                         |                                                                                                                             |
+| Small-area population bases        | ONS Census 2021                        | The residents and households figures other answers divide by                                                                |
+| Council tax charges                | MHCLG                                  | Filed per tax year; the councils not yet filed arrive in a spring pass                                                      |
+| Deprivation deciles                | MHCLG (Indices of Deprivation 2025)    | Served as a decile in words, never a score                                                                                  |
+| Air quality modelled grid          | Defra (PCM 2024)                       |                                                                                                                             |
+| Industrial sites                   | Environment Agency Pollution Inventory | Annual register (the 2024 vintage published Nov 2025); England only; served behind a flag that an EA objection switches off |
+| Solar potential grid               | PVGIS (SARAH3)                         | A location model, never a judgement on a roof                                                                               |
+| Broadband availability by postcode | Ofcom Connected Nations                |                                                                                                                             |
+| Mobile coverage by council         | Ofcom Connected Nations                | Council-wide modelled coverage, never signal at the home                                                                    |
 
 ### Run by hand only (never on the automatic timer — the first pass takes hours)
 

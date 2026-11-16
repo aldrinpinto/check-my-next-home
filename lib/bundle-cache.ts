@@ -6,7 +6,7 @@ import {
   type AreaBundleOptions,
   type AreaDataSource,
 } from "./area-bundle";
-import { COMPANY_OWNERSHIP_ENABLED } from "./site";
+import { COMPANY_OWNERSHIP_ENABLED, INDUSTRIAL_SITES_ENABLED } from "./site";
 import {
   buildCrimeBundle,
   createCrimeSource,
@@ -28,6 +28,7 @@ import {
   buildNearbyBundle,
   createNearbySource,
   type NearbyBundle,
+  type NearbyBundleOptions,
   type NearbyDataSource,
 } from "./nearby";
 
@@ -188,6 +189,13 @@ export const BRAIN_DEPENDENCIES: Record<CacheBrain, readonly string[]> = {
     "load-osm-places",
     "load-os-greenspace",
     "load-ev-chargers",
+    // load-pollution-inventory files the industrial sites
+    // (M6.32): the nearby bundle's industrialSites block
+    // reads them, so a filing — the first one above all —
+    // is a nearby-version change. The loader is a runner
+    // class, so its stamp moves on every filing run and
+    // GUARDS.nearby needs no count for it.
+    "load-pollution-inventory",
   ],
   area: [
     "load-postcodes",
@@ -782,14 +790,23 @@ export async function buildNearbyBundleCached(
   resolution: AddressResolution,
   source: NearbyDataSource,
   cache: BundleCache,
+  options: NearbyBundleOptions = {},
 ): Promise<NearbyBundle> {
-  if (resolution.rung === 3 || resolution.rung === 4) return buildNearbyBundle(resolution, source);
+  if (resolution.rung === 3 || resolution.rung === 4)
+    return buildNearbyBundle(resolution, source, options);
+  // The flag position the caller is building for — the
+  // shipped constant unless a test passes the seam value —
+  // is part of the stored shape's contract (see shapeOk):
+  // flipping INDUSTRIAL_SITES_ENABLED needs NO cache purge
+  // (decision D60) because an entry written under the other
+  // position fails the presence agreement and recomputes.
+  const industrialEnabled = options.industrialSitesEnabled ?? INDUSTRIAL_SITES_ENABLED;
   return serveCached(cache, {
     brain: "nearby",
     resolution,
     homeKey: "",
     kinds: ["distances"],
-    compute: () => buildNearbyBundle(resolution, source),
+    compute: () => buildNearbyBundle(resolution, source, options),
     cacheable: () => true,
     // The M6.18 shape contract: the secondary category's
     // answer carries the selective gloss's field
@@ -811,9 +828,17 @@ export async function buildNearbyBundleCached(
     // (the filed rating, or null where none files) — an
     // entry written before the step serves those places
     // without the key and degrades to a recompute rather
-    // than serving ratingless health rows as current.
+    // than serving ratingless health rows as current. The
+    // M6.32 contract extends it in the flag pattern (the
+    // area bundle's company-ownership clause): the bundle's
+    // industrialSites key must be present exactly when the
+    // flag position being built for is on — an entry
+    // written before the step, or under the other flag
+    // position, degrades to a recompute, which is what
+    // makes the D60 flip purge-free.
     shapeOk: (bundle) => {
       if (typeof bundle !== "object" || bundle === null) return false;
+      if ("industrialSites" in bundle !== industrialEnabled) return false;
       if (!("schoolDeadlines" in bundle)) return false;
       const categories = (bundle as { categories?: unknown }).categories;
       if (!Array.isArray(categories)) return false;

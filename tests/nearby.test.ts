@@ -718,6 +718,19 @@ const fakeSource: NearbyDataSource = {
     }
     return best;
   },
+  // The Pollution Inventory (M6.32): filed, nothing near
+  // these fixture homes — the block rides along in its
+  // none state and no assertion in this suite reads it
+  // (the industrial-sites suite owns the block).
+  async industrialSiteFacts() {
+    return {
+      filedCount: 2856,
+      dataYear: 2024,
+      sourceName: "Environment Agency Pollution Inventory",
+      sourceDate: "2025-11-20",
+      sites: [],
+    };
+  },
 };
 
 async function bundleFor(input: string): Promise<NearbyBundle> {

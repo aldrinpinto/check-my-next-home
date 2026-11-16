@@ -182,6 +182,29 @@
 // recorded here so the change is never mistaken for
 // drift. (Draft state at M6.31's D58 draft; re-verified
 // at integration.)
+//
+// RE-PIN RECORD: M6.32 (decisions D50, D60 and D62)
+// deliberately widened the frozen nearby shape — the
+// rung 1/2 nearby bundle gains industrialSites, the
+// Pollution Inventory block at the end of What's Nearby
+// (present only while INDUSTRIAL_SITES_ENABLED is on;
+// this fake's flag position is the shipped ON). Four
+// pins moved (nearby.served, nearby.beyond-only,
+// nearby.none-anywhere, nearby.not-filed), each
+// differing by exactly the added industrialSites key —
+// in its served form for served/beyond-only (this
+// fake's world files one site near the home), its
+// none-within form for none-anywhere, its not-filed
+// form for not-filed. The rung-3/4 pins did NOT move —
+// the block attaches at rungs 1 and 2 only, so a moving
+// rung pin is the leak alarm — and no other brain's
+// pins moved: the block is a sibling key the short
+// bundle's derivation never reads, proven by an identity
+// test in the industrial-sites suite. All 48 pins stand.
+// Authorised by the founder's D50/D60/D62 rulings;
+// recorded here so the change is never mistaken for
+// drift. (Draft state at M6.32's D58 draft; re-verified
+// at integration.)
 
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -209,6 +232,7 @@ import { buildCrimeBundle, type CrimeDataSource, type FiledCrimeAnswer } from ".
 import { buildFloodBundle, type FloodDataSource, type FloodLayerFacts } from "../lib/flood";
 import {
   buildNearbyBundle,
+  type IndustrialSitesFacts,
   type NearbyCategory,
   type NearbyDataSource,
   type NearbyPoint,
@@ -466,6 +490,47 @@ class FakeNearbySource implements NearbyDataSource {
     if (this.mode === "none") return null;
     if (this.mode === "beyond") return point("Beyond One", 3.2);
     return point("Nearest One", 0.1, category.startsWith("schools") ? { selective: true } : {});
+  }
+  // The Pollution Inventory facts (M6.32): mode-shaped
+  // like the categories — full/beyond serve one site with
+  // a quantified release and a below-threshold name, none
+  // files the register with nothing near, unfiled files
+  // nothing.
+  async industrialSiteFacts(): Promise<IndustrialSitesFacts> {
+    if (this.mode === "unfiled")
+      return { filedCount: 0, dataYear: null, sourceName: null, sourceDate: null, sites: [] };
+    const filed = {
+      filedCount: 2856,
+      dataYear: 2024,
+      sourceName: "Environment Agency Pollution Inventory",
+      sourceDate: "2025-11-20",
+    };
+    if (this.mode === "none") return { ...filed, sites: [] };
+    return {
+      ...filed,
+      sites: [
+        {
+          permitId: "YP3432XR",
+          operator: "Stuart Davis Limited",
+          siteAddress: "Fairwinds Farm Poultry Unit Crouchmans Farm Road Ulting Essex",
+          sitePostcode: "CM9 6QS",
+          activityDescription: "INTENSIVE FARMING; > 40,000 POULTRY",
+          sector: "Agriculture",
+          subSector: "Intensive Farming",
+          latitude: ENG_DIR.latitude + 0.5 / 69,
+          longitude: ENG_DIR.longitude,
+          releases: [
+            { substance: "Ammonia", quantityKg: 3128, thresholdKg: 1000, belowThreshold: false },
+            {
+              substance: "Nitrogen oxides (NO and NO2) as NO2",
+              quantityKg: null,
+              thresholdKg: 100000,
+              belowThreshold: true,
+            },
+          ],
+        },
+      ],
+    };
   }
 }
 

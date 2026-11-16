@@ -157,6 +157,41 @@
         "state": "string"
       }
     ],
+    "industrialSites": {
+      "basisLine": "string",
+      "dataYear": "number",
+      "line": "string",
+      "reportedLine": "string",
+      "sites": [
+        {
+          "activityDescription": "string",
+          "belowThreshold": [
+            "string"
+          ],
+          "belowThresholdLine": "string",
+          "miles": "number",
+          "noAirReturns": "boolean",
+          "noAirReturnsLine": "null",
+          "operator": "string",
+          "permitId": "string",
+          "releases": [
+            {
+              "quantityKg": "number",
+              "substance": "string",
+              "thresholdKg": "number"
+            }
+          ],
+          "sector": "string",
+          "siteAddress": "string",
+          "sitePostcode": "string",
+          "subSector": "string"
+        }
+      ],
+      "sourceDate": "string",
+      "sourceName": "string",
+      "state": "string",
+      "thresholdLine": "string"
+    },
     "kind": "string",
     "postcode": "string",
     "rung": "number",
@@ -207,6 +242,41 @@
         "state": "string"
       }
     ],
+    "industrialSites": {
+      "basisLine": "string",
+      "dataYear": "number",
+      "line": "string",
+      "reportedLine": "string",
+      "sites": [
+        {
+          "activityDescription": "string",
+          "belowThreshold": [
+            "string"
+          ],
+          "belowThresholdLine": "string",
+          "miles": "number",
+          "noAirReturns": "boolean",
+          "noAirReturnsLine": "null",
+          "operator": "string",
+          "permitId": "string",
+          "releases": [
+            {
+              "quantityKg": "number",
+              "substance": "string",
+              "thresholdKg": "number"
+            }
+          ],
+          "sector": "string",
+          "siteAddress": "string",
+          "sitePostcode": "string",
+          "subSector": "string"
+        }
+      ],
+      "sourceDate": "string",
+      "sourceName": "string",
+      "state": "string",
+      "thresholdLine": "string"
+    },
     "kind": "string",
     "postcode": "string",
     "rung": "number",
@@ -241,6 +311,17 @@
         "state": "string"
       }
     ],
+    "industrialSites": {
+      "basisLine": "string",
+      "dataYear": "number",
+      "line": "string",
+      "reportedLine": "string",
+      "sites": [],
+      "sourceDate": "string",
+      "sourceName": "string",
+      "state": "string",
+      "thresholdLine": "string"
+    },
     "kind": "string",
     "postcode": "string",
     "rung": "number",
@@ -275,6 +356,17 @@
         "state": "string"
       }
     ],
+    "industrialSites": {
+      "basisLine": "null",
+      "dataYear": "null",
+      "line": "string",
+      "reportedLine": "null",
+      "sites": [],
+      "sourceDate": "null",
+      "sourceName": "string",
+      "state": "string",
+      "thresholdLine": "null"
+    },
     "kind": "string",
     "postcode": "string",
     "rung": "number",
