@@ -34,6 +34,7 @@ import {
   buildAreaBundle,
   type AreaDataSource,
   type BroadbandAnswerFacts,
+  type BrownfieldFacts,
   type CompanyOwnershipFacts,
   type DesignationFacts,
   type EpcArtefact,
@@ -138,6 +139,28 @@ const EPC_ARTEFACT: EpcArtefact = {
       heatingCostPotential: 800,
       hotWaterCostPotential: 180,
       lightingCostPotential: 90,
+      suggestedImprovements: [
+        {
+          sequence: 1,
+          improvementType: "N",
+          improvementNumber: 19,
+          improvementCategory: 5,
+          typicalSaving: 34,
+          indicativeCost: "£4,000 - £6,000",
+          energyRatingAfter: 86,
+          environmentalRatingAfter: 87,
+        },
+        {
+          sequence: 2,
+          improvementType: "U",
+          improvementNumber: 34,
+          improvementCategory: 5,
+          typicalSaving: 383,
+          indicativeCost: "£3,500 - £5,500",
+          energyRatingAfter: 93,
+          environmentalRatingAfter: 94,
+        },
+      ],
     }),
     cert({
       certificateNumber: "0000-0000-0000-0000-0002",
@@ -235,6 +258,28 @@ class CensusAreaSource implements AreaDataSource {
     };
   }
   async article4Gate() {
+    return false;
+  }
+  async brownfieldFacts(): Promise<BrownfieldFacts> {
+    return {
+      filedCount: 30355,
+      within: [
+        {
+          reference: "15/01103/OUT",
+          siteAddress: "Universal Garage, The Street, Hatfield Peverel",
+          hectares: 0.22,
+          planningPermissionStatus: "permissioned",
+          minimumNetDwellings: 9,
+          maximumNetDwellings: 9,
+          miles: 0.252,
+        },
+      ],
+      nearestBeyond: null,
+      sourceName: "planning.data.gov.uk — brownfield land (Open Government Licence v3.0)",
+      sourceDate: "2026-11-16",
+    };
+  }
+  async brownfieldGate() {
     return false;
   }
   async epcArtefact() {
@@ -544,13 +589,13 @@ type Golden = Awaited<ReturnType<typeof goldenBundles>>;
 // ------------------------------------------------------------------
 
 describe("explainer census — the register", () => {
-  it("enumerates the prep census: 71 families, 42 hard, ids unique and stable in row order", () => {
-    expect(EXPLAINER_CENSUS).toHaveLength(71);
+  it("enumerates the census: 75 families (71 to M6.20, rows 72–75 added at M6.21), 43 hard, ids unique and stable in row order", () => {
+    expect(EXPLAINER_CENSUS).toHaveLength(75);
     expect(EXPLAINER_CENSUS.map((entry) => entry.row)).toEqual(
-      Array.from({ length: 71 }, (_, i) => i + 1),
+      Array.from({ length: 75 }, (_, i) => i + 1),
     );
-    expect(new Set(EXPLAINER_CENSUS.map((entry) => entry.id)).size).toBe(71);
-    expect(EXPLAINER_CENSUS.filter((entry) => entry.hardness === "hard")).toHaveLength(42);
+    expect(new Set(EXPLAINER_CENSUS.map((entry) => entry.id)).size).toBe(75);
+    expect(EXPLAINER_CENSUS.filter((entry) => entry.hardness === "hard")).toHaveLength(43);
     // Every figure-path pattern names census ids that exist.
     const ids = new Set(EXPLAINER_CENSUS.map((entry) => entry.id));
     for (const { censusIds } of FIGURE_PATH_PATTERNS)
@@ -653,6 +698,8 @@ const HARD_LINES: Record<string, (b: Golden) => unknown> = {
     b.short.sections.crime.state === "served" ? b.short.sections.crime.perHeadLine : null,
   "short.crime-england-comparison": (b) =>
     b.short.sections.crime.state === "served" ? b.short.sections.crime.englandLine : null,
+  "area.epc.improvements": (b) =>
+    b.area.sections.epc.certificates.flatMap((c) => c.improvements?.steps.map((s) => s.line) ?? []),
 };
 
 describe("explainer census — direction one (hard ⇒ line present, both depths)", () => {

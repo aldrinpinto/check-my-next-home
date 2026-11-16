@@ -91,6 +91,8 @@ export const LOADER_SCHEDULE = [
   { item: "load-planning-areas", cadence: "quarterly", timeoutMinutes: 30 },
   { item: "load-green-belt", cadence: "quarterly", timeoutMinutes: 30 },
   { item: "load-heritage", cadence: "quarterly", timeoutMinutes: 30 },
+  { item: "load-brownfield", cadence: "quarterly", timeoutMinutes: 30 },
+  { item: "load-built-up-areas", cadence: "static", timeoutMinutes: 30 },
   { item: "load-nature-designations", cadence: "quarterly", timeoutMinutes: 30 },
   { item: "load-priority-habitats", cadence: "operator" },
   { item: "load-flood-zones", cadence: "quarterly", timeoutMinutes: 30 },
@@ -304,6 +306,8 @@ export const FRIENDLY_NAMES = {
   "load-planning-areas": "Planning areas — conservation areas and Article 4",
   "load-green-belt": "Green belt",
   "load-heritage": "Heritage — listed buildings and monuments",
+  "load-brownfield": "Brownfield land — recorded sites and the councils that supply them",
+  "load-built-up-areas": "Built-up areas — the ONS December 2024 boundaries",
   "load-nature-designations": "Nature designations — SSSI, SAC, SPA, Ramsar, ancient woodland",
   "load-priority-habitats": "Priority habitats",
   "load-flood-zones": "Flood zones — the planning map, defences ignored",
@@ -801,6 +805,8 @@ async function main() {
       await runAndLog("load-planning-areas", ["--file", fx("planning-areas")]);
       await runAndLog("load-green-belt", ["--file", fx("green-belt")]);
       await runAndLog("load-heritage", ["--file", fx("heritage")]);
+      await runAndLog("load-brownfield", ["--file", fx("brownfield")]);
+      await runAndLog("load-built-up-areas", ["--file", fx("built-up-areas")]);
       await runAndLog("load-nature-designations", ["--file", fx("nature-designations")]);
       await runAndLog("load-priority-habitats", ["--file", fx("priority-habitats")]);
       await runAndLog("load-flood-zones", ["--file", fx("flood-zones")]);

@@ -1,6 +1,7 @@
 import {
   projectHeadline,
   type AreaBundle,
+  type BrownfieldSite,
   type HeadlineProjection,
   type ListedAtPoint,
   type ListedPlace,
@@ -60,6 +61,18 @@ import type { MedianAnswer, SoldPricesBundle } from "./sold-prices";
 // modelled figure does not sit beside the home's own
 // facts. No asking price exists here (it is in no input
 // bundle).
+//
+// M6.21 (decision D41) adds no section and no headline
+// claim: the constraints section's two new sub-blocks are
+// derived by the rules above (built-up areas through the
+// polygon slimming, brownfield through a points skim in the
+// listed buildings form), and the heritage section's four
+// new layers take the scheduled monuments' place — present
+// in the full bundle and its headline projection, absent
+// from this skim, which carries listed buildings and the
+// at-point line only. EPC improvement measures are report
+// depth by construction: they live on served certificates,
+// which this shape never carries.
 
 // ------------------------------------------------------------------
 // Served shapes
@@ -203,11 +216,31 @@ export interface ShortPolygonLayer {
   sourceLine: string | null;
 }
 
+// Brownfield land at headline depth (M6.21, D41): the
+// listed buildings skim applied to recorded sites — the
+// state, the count line, the count, the single nearest site
+// (or the nearest beyond the radius, with its line). The
+// per-site register facts (hectares, permission status,
+// dwellings) stay at report depth, as a listed building's
+// grade detail does beyond its skim. No new headline CLAIM
+// opens: this is D28's derivation applied to the section's
+// new sub-block, in the section's existing headline.
+export interface ShortBrownfield {
+  state: "served" | "none-found" | "not-published" | "not-filed";
+  line: string;
+  countWithin: number | null;
+  nearest: BrownfieldSite | null;
+  beyondLine: string | null;
+  sourceLine: string | null;
+}
+
 export interface ShortConstraints {
   state: "served";
   conservationArea: ShortPolygonLayer;
   article4: ShortPolygonLayer;
   greenBelt: ShortPolygonLayer;
+  brownfield: ShortBrownfield;
+  builtUpArea: ShortPolygonLayer;
 }
 
 export interface ShortHeritage {
@@ -576,6 +609,18 @@ export function buildShortBundle(input: ShortBundleInput): ShortBundle {
       conservationArea: shortPolygonLayer(headline.constraints.conservationArea),
       article4: shortPolygonLayer(headline.constraints.article4),
       greenBelt: shortPolygonLayer(headline.constraints.greenBelt),
+      brownfield: {
+        state: headline.constraints.brownfield.state,
+        line: headline.constraints.brownfield.line,
+        countWithin: headline.constraints.brownfield.countWithin,
+        nearest:
+          headline.constraints.brownfield.within[0] ??
+          headline.constraints.brownfield.beyondNearest ??
+          null,
+        beyondLine: headline.constraints.brownfield.beyondLine,
+        sourceLine: headline.constraints.brownfield.sourceLine,
+      },
+      builtUpArea: shortPolygonLayer(headline.constraints.builtUpArea),
     },
     heritage: {
       state: headline.heritage.state,

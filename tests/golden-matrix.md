@@ -1725,3 +1725,112 @@ shape guard gained a calibration-presence check instead).
    (6,380 / 87,519 / 39,926) and never computes, and a
    fake-pool test pins the live computation's multi-LSOA
    sum against the own-LSOA degradation.
+
+## Missing layers — brownfield, built-up areas, heritage layers, EPC measures (M6.21, decision D41)
+
+D41 filed and served the four layers the earlier steps had
+left unfiled. Serving follows the shapes already proven:
+brownfield as gated points (the listed buildings form,
+absence licensed by supply), built-up areas as a polygon
+layer in planning_layers, the four heritage datasets as
+monument-shape layers with the buffer zone's own line, and
+EPC improvement measures on the served certificate at
+report depth, rung 1 only, never summed.
+
+1. **Brownfield goldens** (from the live bulk file,
+   40,229 rows / 32,352 current at capture on 16 Nov
+   2026; the fixture cut holds every row within 3 miles
+   of the homes — 520 rows, 464 current, 56 ended —
+   filing 334 sites after the two dedupe rules, from 16
+   supplying organisations): Birkdale **2** within
+   2 miles, nearest Universal Garage, The Street,
+   Hatfield Peverel at **0.252 mi** (permissioned,
+   0.22 ha, 9/9 dwellings — the prep's pin, confirmed);
+   Exeter **97**, nearest **45 Beckton Road, Canning
+   Town, London, E16 4EA at 0.163 mi** (permissioned) —
+   DIVERGES from the prep, whose entity-API sampling
+   missed the Beckton rows (entry-dates 2018/2021) and
+   named Freemasons Road nearest at 0.27; the filed data
+   puts 117–125 Freemasons Road second at **0.267 mi**
+   with status **pending-decision** (the prep said
+   permissioned), and 101–103 Hermit Road at 0.570 mi
+   (the prep said ~0.39); Minerva **30**, nearest
+   **Etwell House and former coach, Station Approach at
+   0.227 mi** (not-permissioned, 0.19 ha, 10/10 —
+   recorded under two references and collapsed). Live
+   goldens assert as floors (the platform re-collects);
+   the fixture asserts exactly. The notes column is
+   proven present in the source and never filed; the
+   site-plan URL files, never serves. Absence is gated:
+   the brain's gate follows the Article 4 pattern and
+   waits on the same M12.10(b) bridge, so production
+   absences serve not-published until it lands; the
+   none-found branch is unit-proven against a gate that
+   answers true.
+2. **Built-up area goldens** (ONS December 2024 edition
+   direct — 7,775 features; the platform's republished
+   copy is England-only and older, rejected): Birkdale
+   inside **Hatfield Peverel** (E63011486), Exeter
+   inside **Newham** (E63012003 — the Greater London
+   borough rule), Minerva inside **Ewell** (E63012408),
+   the Bath witness inside **Bath** (E63012364). The
+   source date serves as the edition date (2024-12-01)
+   in both modes — the edition is a property of the
+   dataset, not of the retrieval. Attribution as pinned
+   from the ONS product: OGL v.3.0, "contains OS data
+   © Crown copyright and database right".
+3. **Heritage goldens** (post-exclusion filed counts
+   from the live files): world heritage sites **19**,
+   battlefields **47**, protected wrecks **57**, buffer
+   zones **9** — the published files double every world
+   heritage site and battlefield (a geometry row plus a
+   nameless geometry-less stub sharing the reference;
+   38 current world-heritage rows = 19 + 19). Only 9
+   buffer zones are published at all, and Bath has
+   none. All three homes serve the absence lines for
+   all four layers (nearest world heritage edge to
+   Exeter is Maritime Greenwich at ~2.73 mi point
+   basis; its buffer edge ~2.26 mi — outside the
+   2-mile radius on both); the Bath witness point falls
+   inside the City of Bath world heritage site
+   (1000103).
+4. **EPC measure goldens**: Birkdale's certificate
+   files exactly 2 steps — step 1 improvement 19 (Solar
+   water heating), saving **£34**, cost "£4,000 -
+   £6,000", ratings after 86/87; step 2 improvement 34
+   (Solar photovoltaic panels, 2.5 kWp), saving
+   **£383**, cost "£3,500 - £5,500", ratings after
+   93/94; the served closing line carries only the
+   final ratings (93/94). Exeter's two certificates and
+   Minerva Flat 4's publish no measures (the named
+   no-measures state). The name lookup is the union of
+   the register schemas' published lists (RdSAP 21.0.1
+   - SAP 19.2.0 = **65 numbers**), transcribed into
+     lib/epc-improvements.ts with the source cited; every
+     fixture-corpus number {5, 6, 14, 19, 34, 35, 58}
+     resolves, and an unknown number serves its figures
+     with no name. The prep's "58 Solid floor insulation"
+     is superseded by the published wording "Floor
+     insulation (solid floor)" — the published list
+     governs. The Birkdale sample report's "save about
+     £34 a year" line remains barred as a golden (the
+     £34 is step 1 alone).
+5. **Contract re-pin (authorised).** The M6.19 freeze
+   was deliberately re-pinned for this step: the area
+   pins gained constraints.brownfield + builtUpArea,
+   the four heritage sub-blocks and certificates'
+   improvements; the short pins gained the brownfield
+   skim and builtUpArea. Eleven pins moved
+   (area.rung1-rich, area.rung2, area.rung1-empty,
+   area.rung1-scotland, the three flag-on pins,
+   area.tribunal-served, short.rung1, short.rung2,
+   short.scotland). The explainer census gained rows
+   72–75 (75 families, 43 hard; improvements hard, the
+   rest self with their lines embedded). The cache
+   vector gained both loaders' stamps and the
+   brownfield filed-count guard; the shape contract
+   gained presence checks for every new sub-block and
+   the improvements key. No new headline claim opened:
+   the short bundle derives the two constraints
+   sub-blocks under D28's rules and the heritage layers
+   take the monuments' place (full bundle only).

@@ -903,6 +903,69 @@ export const EXPLAINER_CENSUS: CensusEntry[] = [
     "line-embedded",
     "sections.crime.englandLine",
   ),
+  // Rows 72–75 — the missing layers (M6.21, decision
+  // D41). Brownfield's per-site figures ride each site's
+  // own composed line, the listed buildings form (row
+  // 22's precedent); the never-a-plot-claim wording rides
+  // the constraints explainer and the block's count line.
+  // The built-up area's only figures are its polygon
+  // miles, riding row 21's patterns; its name is the
+  // filed polygon's own. The four heritage layers are
+  // the monument shape with their own lines — the buffer
+  // zone's inside line is a distinct sentence from the
+  // site's, because the facts are distinct. The EPC
+  // improvements are HARD: a modelled saving is exactly
+  // the figure a reader can mistake for a promise, so
+  // every step carries its figures inside its own line,
+  // under the block line that names them the
+  // certificate's own suggestions, not advice (D41).
+  e(
+    72,
+    "area.constraints.brownfield-sites",
+    "area",
+    "constraints",
+    "brownfield: count within 2 miles + per-site miles, hectares, min/max net dwellings",
+    "self",
+    ["full", "short"],
+    "line-embedded",
+    "sections.constraints.brownfield.within[].line",
+  ),
+  e(
+    73,
+    "area.constraints.built-up-area",
+    "area",
+    "constraints",
+    "built-up area: the covering area's name + inside/nearest facts",
+    "self",
+    ["full", "short"],
+    "line-embedded",
+    "sections.constraints.builtUpArea.line",
+    "The name is the filed polygon's own (ONS December 2024); the miles ride row 21's polygon patterns.",
+  ),
+  e(
+    74,
+    "area.heritage.new-layers",
+    "area",
+    "heritage",
+    "heritage: world heritage site / battlefield / protected wreck / buffer zone inside + nearest miles",
+    "self",
+    ["full"],
+    "line-embedded",
+    "sections.heritage worldHeritageSites / battlefields / protectedWrecks / worldHeritageBufferZones lines",
+    "The monument shape (row 21's family) with each layer's own line; absent from the short skim, as monuments are.",
+  ),
+  e(
+    75,
+    "area.epc.improvements",
+    "area",
+    "epc",
+    "EPC suggested improvements: per-step typical saving + indicative cost + cumulative ratings after",
+    "hard",
+    ["full"],
+    "line-embedded",
+    "sections.epc.certificates[].improvements.steps[].line",
+    "D41: the register's modelled steps in register sequence — never advice, and the savings are never summed; the block's closing line carries only the final step's cumulative ratings.",
+  ),
 ];
 
 // ------------------------------------------------------------------
@@ -1100,6 +1163,36 @@ export const FIGURE_PATH_PATTERNS: FigurePathPattern[] = [
   p("area\\.sections\\.constraints\\..*\\.beyondNearest\\.miles", "area.polygon-miles"),
   p("area\\.sections\\.heritage\\.monuments\\.nearest\\.miles", "area.polygon-miles"),
   p("area\\.sections\\.heritage\\.monuments\\.beyondNearest\\.miles", "area.polygon-miles"),
+  // M6.21 figures — brownfield sites, the new heritage
+  // layers, EPC improvements
+  p(
+    "area\\.sections\\.constraints\\.brownfield\\.countWithin",
+    "area.constraints.brownfield-sites",
+  ),
+  p(
+    "area\\.sections\\.constraints\\.brownfield\\.within\\[\\]\\.(miles|hectares|minimumNetDwellings|maximumNetDwellings)",
+    "area.constraints.brownfield-sites",
+  ),
+  p(
+    "area\\.sections\\.constraints\\.brownfield\\.beyondNearest\\.(miles|hectares|minimumNetDwellings|maximumNetDwellings)",
+    "area.constraints.brownfield-sites",
+  ),
+  p(
+    "short\\.sections\\.constraints\\.brownfield\\.countWithin",
+    "area.constraints.brownfield-sites",
+  ),
+  p(
+    "short\\.sections\\.constraints\\.brownfield\\.nearest\\.(miles|hectares|minimumNetDwellings|maximumNetDwellings)",
+    "area.constraints.brownfield-sites",
+  ),
+  p(
+    "area\\.sections\\.heritage\\.(worldHeritageSites|battlefields|protectedWrecks|worldHeritageBufferZones)\\.(nearest|beyondNearest)\\.miles",
+    "area.heritage.new-layers",
+  ),
+  p(
+    "area\\.sections\\.epc\\.certificates\\[\\]\\.improvements\\.steps\\[\\]\\.(typicalSavingPence|typicalSavingLabel|indicativeCost|energyRatingAfter|environmentalRatingAfter)",
+    "area.epc.improvements",
+  ),
 ];
 
 // Values that are not figures at all: dates, identifiers,
@@ -1114,9 +1207,9 @@ export const NOT_A_FIGURE_ALLOWLIST: RegExp[] = [
   // Dates and date-like labels
   /(^|\.)(date|saleDate|registrationDate|incorporationDate|decisionDate|decisionDateLabel|sourceDate|loadedAt|month|monthLabel|windowFrom|windowTo|spanFrom|spanTo|taxYear|year|snapshot|edition|windowLine|spanLine|fromLabel|toLabel|loadState|pollutant)$/,
   // Identifiers and codes that name, not measure
-  /(^|\.)(postcode|id|listEntryId|certificateNumber|titleNumber|companyNumber|caseRef|buildingKey|cellRef|lsoaCode|msoaCode|code|slug|category|layer|series|service|sourceKind|dataset|tenure|proprietorshipCategory|countryIncorporated|key)$/,
+  /(^|\.)(postcode|id|listEntryId|certificateNumber|titleNumber|companyNumber|caseRef|buildingKey|cellRef|lsoaCode|msoaCode|code|slug|category|layer|series|service|sourceKind|dataset|tenure|proprietorshipCategory|countryIncorporated|key|reference|sequence)$/,
   // Names, labels and publisher wording (the words, not figures)
-  /(^|\.)(name|label|title|band|potentialBand|grade|type|typeLabel|dwellingType|assessmentType|authority|council|msoaName|lsoaName|unit|building|habitat|detail|coveringDetail|dayBand|nightBand|summary|propertyText|companyName|proprietorName|status|kindLine|group|groups)$/,
+  /(^|\.)(name|label|title|band|potentialBand|grade|type|typeLabel|dwellingType|assessmentType|authority|council|msoaName|lsoaName|unit|building|habitat|detail|coveringDetail|dayBand|nightBand|summary|propertyText|companyName|proprietorName|status|planningPermissionStatus|kindLine|group|groups)$/,
   // Lines, explainers, definitions and source lines: the
   // census's own subject matter — their presence is what
   // direction one asserts; they are text, not figures.

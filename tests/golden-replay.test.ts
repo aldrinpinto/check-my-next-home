@@ -684,6 +684,93 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
     }
   });
 
+  it("missing layers (M6.21, D41): the filed layers serve through the real source", () => {
+    const area = (tag: string) => {
+      const a = get(tag).area;
+      if (a.kind !== "area-bundle") throw new Error(`${tag}: expected an area bundle`);
+      return a.sections;
+    };
+
+    // Brownfield: the fixture cut's deduped sites, counted
+    // and distanced by PostGIS from the filed points.
+    const birkdale = area("birkdale1");
+    expect(birkdale.constraints.brownfield.state).toBe("served");
+    expect(birkdale.constraints.brownfield.countWithin).toBe(2);
+    expect(birkdale.constraints.brownfield.within[0]?.label).toBe(
+      "Universal Garage, The Street, Hatfield Peverel",
+    );
+    expect(birkdale.constraints.brownfield.within[0]?.miles).toBeCloseTo(0.252, 2);
+    expect(birkdale.constraints.brownfield.within[0]?.dwellingsLine).toBe(
+      "the register publishes 9 net dwellings for the site",
+    );
+
+    const exeter = area("exeter1");
+    expect(exeter.constraints.brownfield.state).toBe("served");
+    expect(exeter.constraints.brownfield.countWithin).toBe(97);
+    expect(exeter.constraints.brownfield.within[0]?.label).toBe(
+      "45 Beckton Road, Canning Town, London, E16 4EA",
+    );
+    expect(exeter.constraints.brownfield.within[0]?.miles).toBeCloseTo(0.163, 2);
+
+    const minerva = area("minerva1");
+    expect(minerva.constraints.brownfield.state).toBe("served");
+    expect(minerva.constraints.brownfield.countWithin).toBe(30);
+    expect(minerva.constraints.brownfield.within[0]?.label).toBe(
+      "Etwell House and former coach, Station Approach",
+    );
+    expect(minerva.constraints.brownfield.within[0]?.miles).toBeCloseTo(0.227, 2);
+
+    // Built-up areas: all three homes inside their pinned
+    // areas, named from the filed polygons.
+    expect(birkdale.constraints.builtUpArea.state).toBe("inside");
+    expect(birkdale.constraints.builtUpArea.insideName).toBe("Hatfield Peverel");
+    expect(exeter.constraints.builtUpArea.state).toBe("inside");
+    expect(exeter.constraints.builtUpArea.insideName).toBe("Newham");
+    expect(minerva.constraints.builtUpArea.state).toBe("inside");
+    expect(minerva.constraints.builtUpArea.insideName).toBe("Ewell");
+
+    // Heritage: the four new layers serve their absence
+    // lines at all three homes on the fixture basis.
+    for (const sections of [birkdale, exeter, minerva]) {
+      expect(sections.heritage.worldHeritageSites.state).toBe("none-found");
+      expect(sections.heritage.battlefields.state).toBe("none-found");
+      expect(sections.heritage.protectedWrecks.state).toBe("none-found");
+      expect(sections.heritage.worldHeritageBufferZones.state).toBe("none-found");
+    }
+
+    // EPC improvements: Birkdale's certificate serves its
+    // two modelled steps through the widened filing;
+    // Exeter's and Minerva Flat 4's serve the named
+    // no-measures state.
+    if (birkdale.epc.state === "served") {
+      const cert = birkdale.epc.certificates.find(
+        (c) => c.certificateNumber === "2490-1633-0432-1002-3023",
+      );
+      expect(cert?.improvements?.state).toBe("served");
+      expect(cert?.improvements?.steps.map((s) => s.name)).toEqual([
+        "Solar water heating",
+        "Solar photovoltaic panels, 2.5 kWp",
+      ]);
+      expect(cert?.improvements?.steps.map((s) => s.typicalSavingLabel)).toEqual([
+        "£34.00",
+        "£383.00",
+      ]);
+      expect(cert?.improvements?.closingLine).toBe(
+        "after all 2 steps, the register's model gives an energy rating of 93 and an environmental rating of 94",
+      );
+    }
+    if (exeter.epc.state === "served") {
+      for (const cert of exeter.epc.certificates)
+        expect(cert.improvements?.state).toBe("none-published");
+    }
+    if (minerva.epc.state === "served") {
+      const flat4 = minerva.epc.certificates.find(
+        (c) => c.certificateNumber === "8401-7039-6529-6723-9906",
+      );
+      expect(flat4?.improvements?.state).toBe("none-published");
+    }
+  });
+
   it("short bundle: the universal headlines carry the locked figures", () => {
     const birkdale = get("birkdale1").short;
     expect(Object.keys(birkdale.sections).sort()).toHaveLength(12);

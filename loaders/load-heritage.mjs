@@ -41,6 +41,21 @@
 // haversine miles on the published points; monument distances
 // are to the nearest polygon edge on the longitude-scaled
 // plane, the prep's basis.
+//
+// M6.21 (decision D41) extends the polygon path with four
+// more NHLE datasets, filed into planning_layers the same
+// way: world heritage sites, battlefields, protected wreck
+// sites, and — as its own layer, because a home inside a
+// buffer zone but outside the site is a distinct fact —
+// world heritage site buffer zones. Two source facts the
+// extension met at first contact (16 Nov 2026): the world
+// heritage and battlefield files carry each site twice, a
+// geometry-bearing entity and a nameless geometry-less stub
+// from an earlier publication round — the stubs count as
+// geometry-less and the dedupe keeps the geometry row; and
+// only 9 buffer zones are published (not every site has
+// one), so the buffer layer's filed count is 9, honestly
+// small.
 
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -55,6 +70,27 @@ const HOMES = {
   "E16 1GN": { lat: 51.515224, lng: 0.021177 },
   "KT17 1FH": { lat: 51.344571, lng: -0.247104 },
 };
+// The Bath witness (M6.21): a point in the city centre, inside
+// the City of Bath world heritage site — the positive control
+// the three universal homes cannot give, since all three serve
+// the absence lines for the four M6.21 layers.
+const BATH = { lat: 51.3811, lng: -2.359 };
+
+// The M6.21 polygon datasets: platform dataset name, the
+// planning_layers constraint type it files as, and the live
+// sanity band for its filed count (post-exclusion,
+// post-dedupe), from the first-contact counts of 16 Nov 2026
+// (19 / 47 / 57 / 9).
+const NEW_LAYER_DATASETS = [
+  { dataset: "world-heritage-site", constraintType: "world_heritage_site", band: [15, 25] },
+  { dataset: "battlefield", constraintType: "battlefield", band: [40, 55] },
+  { dataset: "protected-wreck-site", constraintType: "protected_wreck_site", band: [45, 65] },
+  {
+    dataset: "world-heritage-site-buffer-zone",
+    constraintType: "world_heritage_buffer_zone",
+    band: [5, 15],
+  },
+];
 const GRADE_VOCABULARY = new Set(["I", "II*", "II"]);
 const NL_REFERENCE = "1495697";
 const ENDED_LB_REFERENCE = "1338507";
@@ -445,6 +481,42 @@ function checkGolden(lb, sm) {
   if (fails.length > 0) throw new Error(`golden checks failed:\n - ${fails.join("\n - ")}`);
 }
 
+// The M6.21 layers' golden checks: all three universal homes
+// serve the absence lines for all four layers (no shape covers
+// a home point, and no shape's edge comes within the 2-mile
+// serving radius — the closest call is the Maritime Greenwich
+// buffer zone, 2.256 miles from E16 1GN), and the Bath witness
+// falls inside the City of Bath world heritage site.
+function checkGoldenNewLayers(newLayers) {
+  const fails = [];
+  const expect = (condition, message) => {
+    if (!condition) fails.push(message);
+  };
+  for (const layer of newLayers) {
+    const { filed } = layer.processed;
+    expect(filed.length > 0, `${layer.dataset}: no shapes filed — the layer cannot prove absence`);
+    for (const [postcode, home] of Object.entries(HOMES)) {
+      const inside = filed.filter((item) => polygonsContain(item.polygons, home.lng, home.lat));
+      expect(
+        inside.length === 0,
+        `${postcode}: the point falls inside a ${layer.dataset} (${inside.map((i) => i.row.name).join(", ")}) — the golden reads say inside none`,
+      );
+      const best = nearestEdge(filed, home);
+      expect(
+        best === null || best.miles > 2.0,
+        `${postcode}: the nearest ${layer.dataset} edge should be beyond 2 miles, got ${best?.miles.toFixed(3)}`,
+      );
+    }
+  }
+  const whs = newLayers.find((l) => l.constraintType === "world_heritage_site");
+  const bath = whs?.processed.filed.find((item) => item.row.reference === "1000103");
+  expect(
+    bath && polygonsContain(bath.polygons, BATH.lng, BATH.lat),
+    "the Bath witness point should fall inside the City of Bath world heritage site (1000103)",
+  );
+  if (fails.length > 0) throw new Error(`golden checks failed:\n - ${fails.join("\n - ")}`);
+}
+
 async function main() {
   const startedAt = Date.now();
   const args = process.argv.slice(2);
@@ -471,6 +543,14 @@ async function main() {
   const lb = processBuildings(lbRows);
   const sm = processPolygons(smRows, "scheduled-monument");
 
+  // The M6.21 layers, through the same polygon path.
+  const newLayers = [];
+  for (const spec of NEW_LAYER_DATASETS) {
+    const rows = parseCsv(await readDataset(spec.dataset));
+    requireHeaders(rows, spec.dataset);
+    newLayers.push({ ...spec, processed: processPolygons(rows, spec.dataset) });
+  }
+
   if (!fixtureMode) {
     if (lb.current < 370000 || lb.current > 395000)
       throw new Error(
@@ -480,13 +560,27 @@ async function main() {
       throw new Error(
         `sanity failure: ${sm.current} current scheduled monuments is outside the expected band`,
       );
+    for (const layer of newLayers) {
+      const [lo, hi] = layer.band;
+      if (layer.processed.filed.length < lo || layer.processed.filed.length > hi)
+        throw new Error(
+          `sanity failure: ${layer.processed.filed.length} filed ${layer.dataset} shapes is outside the expected band`,
+        );
+    }
   }
   checkGolden(lb, sm);
+  checkGoldenNewLayers(newLayers);
 
   const summary = () =>
     `load-heritage · planning.data.gov.uk files retrieved ${sourceDate} (source of record: Historic England, NHLE) · ` +
     `listed buildings: ${lb.filed.length} filed (${lb.current} current of ${lb.total} in file · ${lb.ended} ended excluded · ${lb.noPoint} without a point counted · ${lb.quarantined} outside the grade vocabulary quarantined · ${lb.duplicates} duplicates dropped) · ` +
-    `scheduled monuments: ${sm.filed.length} filed (${sm.current} current of ${sm.total} in file · ${sm.ended} ended excluded · ${sm.geoless} without geometry counted · ${sm.duplicates} duplicates dropped)`;
+    `scheduled monuments: ${sm.filed.length} filed (${sm.current} current of ${sm.total} in file · ${sm.ended} ended excluded · ${sm.geoless} without geometry counted · ${sm.duplicates} duplicates dropped)` +
+    newLayers
+      .map(
+        (layer) =>
+          ` · ${layer.dataset}: ${layer.processed.filed.length} filed (${layer.processed.current} current of ${layer.processed.total} in file · ${layer.processed.ended} ended excluded · ${layer.processed.geoless} without geometry counted · ${layer.processed.duplicates} duplicates dropped)`,
+      )
+      .join("");
 
   if (verifyOnly) {
     console.log(`${summary()} · golden homes OK (verify only, nothing filed)`);
@@ -547,46 +641,63 @@ async function main() {
         params,
       );
     }
+    // All five polygon sets stage together, each row tagged
+    // with its constraint type; the swap below is per type,
+    // so a failure in any one rolls the whole filing back.
+    const polygonSets = [
+      { constraintType: "scheduled_monument", filed: sm.filed },
+      ...newLayers.map((layer) => ({
+        constraintType: layer.constraintType,
+        filed: layer.processed.filed,
+      })),
+    ];
     const SM_CHUNK = 25;
-    for (let at = 0; at < sm.filed.length; at += SM_CHUNK) {
-      const chunk = sm.filed.slice(at, at + SM_CHUNK);
-      const values = [];
-      const params = [];
-      chunk.forEach((item, i) => {
-        const base = i * 9;
-        values.push(
-          `($${base + 1},$${base + 2},ST_Multi(ST_GeomFromText($${base + 3}, 4326)),$${base + 4},$${base + 5},$${base + 6},$${base + 7},$${base + 8},$${base + 9})`,
+    for (const set of polygonSets) {
+      for (let at = 0; at < set.filed.length; at += SM_CHUNK) {
+        const chunk = set.filed.slice(at, at + SM_CHUNK);
+        const values = [];
+        const params = [];
+        chunk.forEach((item, i) => {
+          const base = i * 9;
+          values.push(
+            `($${base + 1},$${base + 2},ST_Multi(ST_GeomFromText($${base + 3}, 4326)),$${base + 4},$${base + 5},$${base + 6},$${base + 7},$${base + 8},$${base + 9})`,
+          );
+          params.push(
+            set.constraintType,
+            item.row.name || null,
+            (item.row.geometry ?? "").trim(),
+            item.row.reference || null,
+            item.row["organisation-entity"] || null,
+            item.row.quality || null,
+            null,
+            SOURCE_HERITAGE,
+            sourceDate,
+          );
+        });
+        await client.query(
+          `INSERT INTO planning_stage (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date)
+           VALUES ${values.join(",")}`,
+          params,
         );
-        params.push(
-          "scheduled_monument",
-          item.row.name || null,
-          (item.row.geometry ?? "").trim(),
-          item.row.reference || null,
-          item.row["organisation-entity"] || null,
-          item.row.quality || null,
-          null,
-          SOURCE_HERITAGE,
-          sourceDate,
-        );
-      });
-      await client.query(
-        `INSERT INTO planning_stage (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date)
-         VALUES ${values.join(",")}`,
-        params,
-      );
+      }
     }
     const stagedListed = await client.query("SELECT count(*)::int AS n FROM listed_stage");
     if (stagedListed.rows[0].n !== lb.filed.length)
       throw new Error("the staged listed-building count does not match — rolling back");
-    const stagedSm = await client.query("SELECT count(*)::int AS n FROM planning_stage");
-    if (stagedSm.rows[0].n !== sm.filed.length)
-      throw new Error("the staged monument count does not match — rolling back");
+    const stagedPolygons = await client.query("SELECT count(*)::int AS n FROM planning_stage");
+    const expectedPolygons = polygonSets.reduce((sum, set) => sum + set.filed.length, 0);
+    if (stagedPolygons.rows[0].n !== expectedPolygons)
+      throw new Error("the staged polygon count does not match — rolling back");
     await client.query("DELETE FROM listed_buildings");
     await client.query(
       `INSERT INTO listed_buildings (list_entry_id, name, grade, address, postcode, latitude, longitude, source_name, source_date, loaded_at)
        SELECT list_entry_id, name, grade, address, postcode, latitude, longitude, source_name, source_date, loaded_at FROM listed_stage`,
     );
-    await client.query("DELETE FROM planning_layers WHERE constraint_type = 'scheduled_monument'");
+    for (const set of polygonSets) {
+      await client.query("DELETE FROM planning_layers WHERE constraint_type = $1", [
+        set.constraintType,
+      ]);
+    }
     await client.query(
       `INSERT INTO planning_layers (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at)
        SELECT constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at FROM planning_stage`,
@@ -594,11 +705,14 @@ async function main() {
     const filedListed = await client.query("SELECT count(*)::int AS n FROM listed_buildings");
     if (filedListed.rows[0].n !== lb.filed.length)
       throw new Error("the filed listed-building count does not match — rolling back");
-    const filedSm = await client.query(
-      "SELECT count(*)::int AS n FROM planning_layers WHERE constraint_type = 'scheduled_monument'",
-    );
-    if (filedSm.rows[0].n !== sm.filed.length)
-      throw new Error("the filed monument count does not match — rolling back");
+    for (const set of polygonSets) {
+      const filedSet = await client.query(
+        "SELECT count(*)::int AS n FROM planning_layers WHERE constraint_type = $1",
+        [set.constraintType],
+      );
+      if (filedSet.rows[0].n !== set.filed.length)
+        throw new Error(`the filed ${set.constraintType} count does not match — rolling back`);
+    }
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK").catch(() => {});

@@ -111,6 +111,19 @@ import {
 //     unconditional, so an entry written before the step
 //     lacks the key and degrades to a recompute — a
 //     pre-step entry never serves sectionless.
+//   - From M6.21 the same presence rule covers the
+//     constraints section's brownfield and built-up-area
+//     sub-blocks, the heritage section's four new layers
+//     and every served EPC certificate's improvements key;
+//     the area vector carries the two new loaders' stamps
+//     (brownfield quarterly, built-up areas static) PLUS a
+//     filed-count guard for brownfield_sites, whose npm
+//     entry point bypasses the runner exactly as the
+//     tribunal loader's does. The new heritage layers and
+//     built-up areas file into planning_layers through
+//     loaders already in the vector (heritage) or carrying
+//     their own stamp (built-up areas); EPC measures ride
+//     the EPC artefact's content hash, unchanged.
 //   - From M6.17 the same presence rule covers the
 //     broadband and mobile keys, and the area vector
 //     carries both Ofcom loaders' stamps PLUS content
@@ -168,6 +181,8 @@ export const BRAIN_DEPENDENCIES: Record<CacheBrain, readonly string[]> = {
     "load-planning-areas",
     "load-green-belt",
     "load-heritage",
+    "load-brownfield",
+    "load-built-up-areas",
     "load-nature-designations",
     "load-priority-habitats",
     "load-epc",
@@ -331,6 +346,15 @@ const GUARDS: Record<
         "SELECT count(*)::int AS n FROM planning_layers WHERE constraint_type = 'priority_habitat'",
       ),
       listedBuildings: await countOf(db, "SELECT count(*)::int AS n FROM listed_buildings"),
+      // Brownfield (M6.21): the loader's npm entry point
+      // (npm run load:brownfield) bypasses the runner and
+      // moves no stamp, so a hand-run re-filing is guarded
+      // by the table's own count, like listed buildings
+      // above. Built-up areas ride their loader's stamp
+      // alone: the loader has no per-postcode entry point,
+      // and its static re-file is an operator re-run
+      // through the runner.
+      brownfieldSites: await countOf(db, "SELECT count(*)::int AS n FROM brownfield_sites"),
       solarGrid: await countOf(db, "SELECT count(*)::int AS n FROM solar_grid"),
       // The council-tax spring pass is a yearly operator job
       // (D16): if it ever runs outside the runner, the
@@ -746,6 +770,33 @@ export async function buildAreaBundleCached(
       if (
         !epc.certificates.every(
           (cert) => typeof cert === "object" && cert !== null && "ratingLine" in cert,
+        )
+      )
+        return false;
+      // The M6.21 presence rules, in the same pattern: the
+      // constraints section must carry its brownfield and
+      // built-up-area sub-blocks, the heritage section its
+      // four new layers, and every served EPC certificate
+      // its improvements key (present, value null for a
+      // pre-widening artefact) — an entry written before
+      // the step lacks all of them and degrades to a
+      // recompute rather than serving their absence as
+      // current.
+      const constraints = s.constraints;
+      if (!constraints || !("brownfield" in constraints) || !("builtUpArea" in constraints))
+        return false;
+      const heritage = s.heritage;
+      if (
+        !heritage ||
+        !("worldHeritageSites" in heritage) ||
+        !("battlefields" in heritage) ||
+        !("protectedWrecks" in heritage) ||
+        !("worldHeritageBufferZones" in heritage)
+      )
+        return false;
+      if (
+        !epc.certificates.every(
+          (cert) => typeof cert === "object" && cert !== null && "improvements" in cert,
         )
       )
         return false;

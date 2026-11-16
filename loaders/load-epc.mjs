@@ -23,7 +23,10 @@
 //      energy-cost fields — the principle is unchanged (hold
 //      what the site uses); the site now uses these, served per
 //      certificate with the assessment date, disagreements
-//      whole.
+//      whole. Widened again at M6.21 (decision D41) by the
+//      certificate's suggested improvements: the register's
+//      modelled steps, filed as published (see
+//      improvementsOf below).
 //   3. File into the postcode's saved answers (postcode_cache
 //      .answers, key "epc") inside one transaction, merging that
 //      key only, then read back and re-check before commit.
@@ -89,6 +92,55 @@ function costOf(doc, key) {
   return typeof cost.value === "number" && Number.isFinite(cost.value) ? cost.value : null;
 }
 
+// The certificate's suggested improvements (M6.21, decision
+// D41): the register's modelled steps, in register sequence.
+// Filed per measure: its sequence, its type code, its
+// improvement number, its category, its typical saving (the
+// same GBP guard as the costs — a non-GBP saving files null,
+// never converted), its indicative cost string exactly as
+// published, and both cumulative ratings after the step
+// (each assumes every preceding step done). The improvement
+// NUMBER files as published; its name resolves at serve time
+// from the register schema's published list (lib/epc-
+// improvements.ts) — the API returns no text for a measure.
+// The category files but never serves: the group labels the
+// category codes carry differ across schema vintages.
+// A certificate with no published steps files null — the
+// named no-measures state the brain serves.
+function improvementsOf(doc) {
+  const steps = doc.suggested_improvements;
+  if (!Array.isArray(steps)) return null;
+  const filed = steps
+    .filter((step) => step !== null && typeof step === "object")
+    .map((step) => ({
+      sequence: typeof step.sequence === "number" ? step.sequence : null,
+      improvementType: typeof step.improvement_type === "string" ? step.improvement_type : null,
+      improvementNumber:
+        typeof step.improvement_details?.improvement_number === "number"
+          ? step.improvement_details.improvement_number
+          : null,
+      improvementCategory:
+        typeof step.improvement_category === "number" ? step.improvement_category : null,
+      typicalSaving:
+        step.typical_saving !== null &&
+        typeof step.typical_saving === "object" &&
+        step.typical_saving.currency === "GBP" &&
+        typeof step.typical_saving.value === "number" &&
+        Number.isFinite(step.typical_saving.value)
+          ? step.typical_saving.value
+          : null,
+      indicativeCost: typeof step.indicative_cost === "string" ? step.indicative_cost : null,
+      energyRatingAfter:
+        typeof step.energy_performance_rating === "number" ? step.energy_performance_rating : null,
+      environmentalRatingAfter:
+        typeof step.environmental_impact_rating === "number"
+          ? step.environmental_impact_rating
+          : null,
+    }))
+    .sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0));
+  return filed.length > 0 ? filed : null;
+}
+
 function minimise(stub, doc) {
   // dwelling_type arrives as a plain string on newer certificates
   // and as a { value, language } object on older ones — file the
@@ -123,6 +175,10 @@ function minimise(stub, doc) {
     heatingCostPotential: costOf(doc, "heating_cost_potential"),
     hotWaterCostPotential: costOf(doc, "hot_water_cost_potential"),
     lightingCostPotential: costOf(doc, "lighting_cost_potential"),
+    // The certificate's suggested improvements, widened in
+    // at M6.21 (decision D41) — the register's modelled
+    // steps, filed as published (see improvementsOf).
+    suggestedImprovements: improvementsOf(doc),
   };
 }
 
@@ -195,9 +251,74 @@ function annualCost(cert, side) {
   return parts.reduce((a, b) => a + b, 0);
 }
 
+// The suggested-improvements goldens (M6.21, D41), per
+// certificate number. Birkdale's certificate carries exactly
+// two steps — solar water heating then solar photovoltaic
+// panels — and the pair is the standing warning against the
+// half-figure: the first step's £34 saving alone is NOT the
+// certificate's story (the steps together lift the rating to
+// 93, band A), and the sample report's "save about £34 a
+// year" line is barred from ever becoming a golden. Exeter's
+// two certificates and Minerva Flat 4's publish no steps:
+// each files null, the named no-measures state.
+const MEASURES_GOLDEN = {
+  "2490-1633-0432-1002-3023": [
+    {
+      sequence: 1,
+      improvementType: "N",
+      improvementNumber: 19,
+      typicalSaving: 34,
+      indicativeCost: "£4,000 - £6,000",
+      energyRatingAfter: 86,
+      environmentalRatingAfter: 87,
+    },
+    {
+      sequence: 2,
+      improvementType: "U",
+      improvementNumber: 34,
+      typicalSaving: 383,
+      indicativeCost: "£3,500 - £5,500",
+      energyRatingAfter: 93,
+      environmentalRatingAfter: 94,
+    },
+  ],
+  "2041-1785-8070-7006-5925": null,
+  "9248-9925-7330-1627-9930": null,
+  "8401-7039-6529-6723-9906": null,
+};
+
+function checkMeasuresGolden(postcode, certificates) {
+  for (const cert of certificates) {
+    if (!(cert.certificateNumber in MEASURES_GOLDEN)) continue;
+    const expected = MEASURES_GOLDEN[cert.certificateNumber];
+    const filed = cert.suggestedImprovements ?? null;
+    if (expected === null) {
+      if (filed !== null)
+        throw new Error(
+          `${postcode}: certificate ${cert.certificateNumber} publishes no suggested improvements but filed ${filed.length} — the no-measures state must file null`,
+        );
+      continue;
+    }
+    const comparable = (filed ?? []).map((step) => ({
+      sequence: step.sequence,
+      improvementType: step.improvementType,
+      improvementNumber: step.improvementNumber,
+      typicalSaving: step.typicalSaving,
+      indicativeCost: step.indicativeCost,
+      energyRatingAfter: step.energyRatingAfter,
+      environmentalRatingAfter: step.environmentalRatingAfter,
+    }));
+    if (JSON.stringify(comparable) !== JSON.stringify(expected))
+      throw new Error(
+        `${postcode}: golden check failed for certificate ${cert.certificateNumber} — expected suggested improvements ${JSON.stringify(expected)}, found ${JSON.stringify(comparable)}`,
+      );
+  }
+}
+
 function checkGolden(postcode, certificates) {
   const golden = GOLDEN[postcode];
   if (!golden) return;
+  checkMeasuresGolden(postcode, certificates);
   const atAddress = certificates.filter((c) => c.addressLine1 === golden.address);
   const areas = atAddress.map((c) => c.totalFloorArea).sort((a, b) => a - b);
   const expected = [...golden.floorAreas].sort((a, b) => a - b);

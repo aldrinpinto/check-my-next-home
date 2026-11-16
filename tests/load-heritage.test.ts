@@ -155,3 +155,87 @@ describe("fixture golden facts", () => {
     expect(sm.find((r) => r["end-date"] !== "")?.["reference"]).toBe("1002166");
   });
 });
+
+// The M6.21 layers (decision D41): four more NHLE polygon
+// datasets through the same path. Their published files
+// double every site — a geometry row and a nameless,
+// geometry-less stub entity sharing the reference — so the
+// filed count is the GEOMETRY rows after the ended
+// exclusion, never the row count. The cuts below were made
+// from the live files on 16 Nov 2026 (the heritage
+// fixture's README records the refs chosen).
+
+const NEW_DATASETS = [
+  {
+    file: "world-heritage-site.csv",
+    type: "world_heritage_site",
+    rows: 8,
+    current: 6,
+    filed: 3,
+    stubbed: true,
+  },
+  { file: "battlefield.csv", type: "battlefield", rows: 6, current: 6, filed: 3, stubbed: true },
+  {
+    file: "protected-wreck-site.csv",
+    type: "protected_wreck_site",
+    rows: 3,
+    current: 2,
+    filed: 2,
+    stubbed: false,
+  },
+  {
+    file: "world-heritage-site-buffer-zone.csv",
+    type: "world_heritage_buffer_zone",
+    rows: 3,
+    current: 3,
+    filed: 3,
+    stubbed: false,
+  },
+] as const;
+
+describe("heritage loader — the M6.21 layers", () => {
+  it("carries the four datasets with their constraint types and live bands", () => {
+    for (const dataset of NEW_DATASETS) {
+      expect(loader).toContain(dataset.file.replace(".csv", ""));
+      expect(loader).toContain(dataset.type);
+    }
+    expect(loader).toContain("NEW_LAYER_DATASETS");
+  });
+
+  it("the cuts hold the expected rows, and the filed counts are the geometry rows", () => {
+    for (const dataset of NEW_DATASETS) {
+      const rows = parseCsv(readFileSync(join(fixtureDir, dataset.file), "utf8"));
+      expect(rows, dataset.file).toHaveLength(dataset.rows);
+      const current = rows.filter((r) => r["end-date"] === "");
+      expect(current, dataset.file).toHaveLength(dataset.current);
+      const withGeometry = current.filter((r) => (r["geometry"] ?? "").trim() !== "");
+      expect(withGeometry, dataset.file).toHaveLength(dataset.filed);
+      // The doubling, where the dataset doubles (world
+      // heritage sites and battlefields in these cuts):
+      // every geometry row's reference also appears on a
+      // nameless stub with no geometry, which the filing
+      // counts as geometry-less and dedupes away.
+      if (dataset.stubbed) {
+        for (const geo of withGeometry) {
+          const stubs = current.filter(
+            (r) => r["reference"] === geo["reference"] && (r["geometry"] ?? "").trim() === "",
+          );
+          expect(stubs.length, `${dataset.file} ${geo["reference"]}`).toBeGreaterThanOrEqual(1);
+          expect(stubs[0]["name"]).toBe("");
+        }
+      }
+    }
+  });
+
+  it("the Bath witness rows are in the world heritage cut (City of Bath, 1000103)", () => {
+    const whs = parseCsv(readFileSync(join(fixtureDir, "world-heritage-site.csv"), "utf8"));
+    const bath = whs.find((r) => r["reference"] === "1000103" && (r["geometry"] ?? "") !== "");
+    expect(bath?.["name"]).toBe("City of Bath");
+    expect(bath?.["end-date"]).toBe("");
+    // The delisted Liverpool rows ride along as the ended
+    // witnesses: both entries for 1000104 carry end dates.
+    const liverpool = whs.filter((r) => r["reference"] === "1000104");
+    expect(liverpool).toHaveLength(2);
+    expect(liverpool.every((r) => r["end-date"] !== "")).toBe(true);
+  });
+});

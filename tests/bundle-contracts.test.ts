@@ -25,6 +25,19 @@
 // pin was added for the pre-step artefact shape. Authorised by
 // the founder's D39 ruling; recorded here and in the golden
 // matrix so the change is never mistaken for drift.
+//
+// RE-PIN RECORD: M6.21 (decision D41) deliberately widened the
+// frozen area and short shapes — the constraints section gained
+// brownfield and builtUpArea, the heritage section gained
+// worldHeritageSites, battlefields, protectedWrecks and
+// worldHeritageBufferZones, every served EPC certificate gained
+// improvements, and the short constraints skim gained brownfield
+// and builtUpArea. Eleven pins moved (area.rung1-rich, area.rung2,
+// area.rung1-empty, area.rung1-scotland, the three flag-on pins,
+// area.tribunal-served, short.rung1, short.rung2, short.scotland);
+// the rung-3/4 pins did not move — no section serves there.
+// Authorised by the founder's D41 ruling; recorded here and in
+// the golden matrix so the change is never mistaken for drift.
 
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -654,6 +667,28 @@ class FakeAreaSource implements AreaDataSource {
         heatingCostPotential: 280,
         hotWaterCostPotential: 95,
         lightingCostPotential: 80,
+        suggestedImprovements: [
+          {
+            sequence: 1,
+            improvementType: "N",
+            improvementNumber: 19,
+            improvementCategory: 5,
+            typicalSaving: 34,
+            indicativeCost: "£4,000 - £6,000",
+            energyRatingAfter: 86,
+            environmentalRatingAfter: 87,
+          },
+          {
+            sequence: 2,
+            improvementType: "U",
+            improvementNumber: 34,
+            improvementCategory: 5,
+            typicalSaving: 383,
+            indicativeCost: "£3,500 - £5,500",
+            energyRatingAfter: 93,
+            environmentalRatingAfter: 94,
+          },
+        ],
       }),
       contractCert({
         certificateNumber: "0000-0000-0000-0000-0002",
@@ -743,6 +778,30 @@ class FakeAreaSource implements AreaDataSource {
     };
   }
   async article4Gate() {
+    return this.empty ? false : this.gate;
+  }
+  async brownfieldFacts() {
+    if (this.empty)
+      return { filedCount: 0, within: [], nearestBeyond: null, sourceName: null, sourceDate: null };
+    return {
+      filedCount: 30355,
+      within: [
+        {
+          reference: "15/01103/OUT",
+          siteAddress: "Universal Garage, The Street, Hatfield Peverel",
+          hectares: 0.22,
+          planningPermissionStatus: "permissioned",
+          minimumNetDwellings: 9,
+          maximumNetDwellings: 9,
+          miles: 0.252,
+        },
+      ],
+      nearestBeyond: null,
+      sourceName: "planning.data.gov.uk — brownfield land (Open Government Licence v3.0)",
+      sourceDate: "2026-11-16",
+    };
+  }
+  async brownfieldGate() {
     return this.empty ? false : this.gate;
   }
   async epcArtefact() {

@@ -5,6 +5,23 @@ bulk files the loader uses live (listed-building,
 scheduled-monument) — Historic England's National Heritage List
 republished, so references are NHLE entry numbers.
 
+Four more datasets were added at M6.21 (decision D41), cut from
+the live files on 16 Nov 2026: world-heritage-site (references
+1000092, 1000096, 1000103, 1000104 — the last is Liverpool,
+delisted and ended in both its entries), world-heritage-site-
+buffer-zone (1000096, 1000102, 1466112),
+battlefield (1000001, 1000017, 1000019) and protected-wreck-
+site (1000045, 1000088, plus the ended 1000047). The world
+heritage and battlefield files double every site — a geometry
+row and a nameless geometry-less stub sharing the reference —
+so their cuts hold both rows of each chosen reference. Golden
+facts: no golden home is inside any of the four layers or
+within 2 miles of one's edge; the Bath witness point (51.3811,
+-2.3590) falls inside the City of Bath world heritage site
+(1000103). Only 9 buffer zones are published nationally, and
+Bath has none — the buffer-zone absence at Bath is a
+publication fact, not a capture gap.
+
 Selection: listed buildings whose point falls within 2.05 miles
 of a golden home (any status), the file's one anomalous "NL"
 grade row (Barton Hill Engine Sheds, 1495697), one known

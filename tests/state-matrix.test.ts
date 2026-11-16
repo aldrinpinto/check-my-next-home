@@ -103,6 +103,7 @@ import {
   type AreaDataSource,
   type BenefitsFacts,
   type BroadbandAnswerFacts,
+  type BrownfieldFacts,
   type CompanyOwnershipFacts,
   type CompanyTitleRow,
   type CouncilTaxFacts,
@@ -313,7 +314,16 @@ function expectClean(bundle: unknown) {
     // served "this building is safe" tripping the "safe"
     // scan — only the name is excused.
     .replaceAll("building-safety", "")
-    .replaceAll("building safety", "");
+    .replaceAll("building safety", "")
+    // "Protected wreck site" is the designation's own name
+    // (M6.21, the NHLE dataset): the layer cannot be served
+    // without naming it, and the name is not a verdict.
+    // Removing the name keeps a served "this home is
+    // protected" tripping the "protected" scan — only the
+    // name is excused.
+    .replaceAll("protected-wreck", "")
+    .replaceAll("protected_wreck", "")
+    .replaceAll("protected wreck", "");
   for (const word of BANNED) expect(text, `banned word: ${word}`).not.toContain(word);
 }
 
@@ -1282,6 +1292,19 @@ class MatrixAreaSource implements AreaDataSource {
     return this.phi;
   }
   async article4Gate() {
+    return this.gate;
+  }
+  brownfield: BrownfieldFacts = {
+    filedCount: 30355,
+    within: [],
+    nearestBeyond: null,
+    sourceName: "planning.data.gov.uk — brownfield land (Open Government Licence v3.0)",
+    sourceDate: "2026-11-16",
+  };
+  async brownfieldFacts() {
+    return this.brownfield;
+  }
+  async brownfieldGate() {
     return this.gate;
   }
   async epcArtefact() {

@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { IMPROVEMENT_NAMES, improvementName } from "../lib/epc-improvements";
 
 // Guards the EPC loader (plan step M4.5, option A): per-postcode
 // lookups against the Get energy performance of buildings data API,
@@ -116,5 +117,112 @@ describe("epc loader", () => {
     // M6.14 — £278 a year on both sides.
     expect(totalsAt("KT17 1FH", "Flat 4 Minerva House", "current")).toEqual([278]);
     expect(totalsAt("KT17 1FH", "Flat 4 Minerva House", "potential")).toEqual([278]);
+  });
+
+  it("files the suggested improvements per measure, GBP-guarded (M6.21 widening, D41)", () => {
+    expect(loader).toContain("suggested_improvements");
+    expect(loader).toContain("suggestedImprovements: improvementsOf(doc)");
+    // The saving files only as a GBP figure — the same
+    // guard shape as the cost fields; a non-GBP saving
+    // files null, never a converted number.
+    expect(loader).toContain('step.typical_saving.currency === "GBP"');
+    // The indicative cost files as the published string,
+    // and both cumulative ratings file per step.
+    expect(loader).toContain("indicative_cost");
+    expect(loader).toContain("energy_performance_rating");
+    expect(loader).toContain("environmental_impact_rating");
+    expect(loader).toContain("improvement_details?.improvement_number");
+    // The loader files the improvement NUMBER only: the
+    // name resolves in the brain from the pinned published
+    // list, never in the loader.
+    expect(loader).not.toContain("improvementName");
+    expect(loader).not.toContain("Solar water heating");
+  });
+
+  it("fixture carries the golden measures: Birkdale's two steps exactly, none for Exeter or Minerva (M6.21)", () => {
+    const docAt = (pc: string, address: string) => {
+      const search = JSON.parse(
+        readFileSync(join(fixtureDir, fixture.postcodes[pc].searchFile), "utf8"),
+      ) as { data: { certificateNumber: string; addressLine1: string }[] };
+      const stub = search.data.find((s) => s.addressLine1 === address);
+      const raw = JSON.parse(
+        readFileSync(join(fixtureDir, "certs", `${stub!.certificateNumber}.json`), "utf8"),
+      ) as { data?: unknown } & Record<string, unknown>;
+      return (raw.data ?? raw) as Record<string, unknown>;
+    };
+    const birkdale = docAt("CM3 2JT", "19 Birkdale Rise") as {
+      suggested_improvements: Record<string, unknown>[];
+    };
+    expect(birkdale.suggested_improvements).toHaveLength(2);
+    const [step1, step2] = birkdale.suggested_improvements;
+    expect(step1.sequence).toBe(1);
+    expect(step1.improvement_details).toEqual({ improvement_number: 19 });
+    expect(step1.typical_saving).toEqual({ value: 34, currency: "GBP" });
+    expect(step1.indicative_cost).toBe("£4,000 - £6,000");
+    expect(step1.energy_performance_rating).toBe(86);
+    expect(step1.environmental_impact_rating).toBe(87);
+    expect(step2.sequence).toBe(2);
+    expect(step2.improvement_details).toEqual({ improvement_number: 34 });
+    expect(step2.typical_saving).toEqual({ value: 383, currency: "GBP" });
+    expect(step2.indicative_cost).toBe("£3,500 - £5,500");
+    expect(step2.energy_performance_rating).toBe(93);
+    expect(step2.environmental_impact_rating).toBe(94);
+    // The two Exeter Road certificates and Minerva's Flat 4
+    // certificate publish no measures at all — the key is
+    // absent, which files as the named no-measures state.
+    for (const [pc, address] of [
+      ["E16 1GN", "6 Exeter Road"],
+      ["KT17 1FH", "Flat 4 Minerva House"],
+    ] as const) {
+      const search = JSON.parse(
+        readFileSync(join(fixtureDir, fixture.postcodes[pc].searchFile), "utf8"),
+      ) as { data: { certificateNumber: string; addressLine1: string }[] };
+      for (const stub of search.data.filter((s) => s.addressLine1 === address)) {
+        const raw = JSON.parse(
+          readFileSync(join(fixtureDir, "certs", `${stub.certificateNumber}.json`), "utf8"),
+        ) as { data?: unknown } & Record<string, unknown>;
+        const doc = (raw.data ?? raw) as Record<string, unknown>;
+        expect("suggested_improvements" in doc).toBe(false);
+      }
+    }
+  });
+
+  it("the pinned improvement-name lookup resolves every fixture number and fails loud on unknown ones", () => {
+    // Every improvement number filed anywhere in the
+    // fixture corpus resolves to a published name — an
+    // unresolvable number here means the transcription
+    // drifted from the register's list.
+    const numbers = new Set<number>();
+    const certsDir = join(fixtureDir, "certs");
+    for (const pc of Object.values<{ searchFile: string }>(fixture.postcodes)) {
+      const search = JSON.parse(readFileSync(join(fixtureDir, pc.searchFile), "utf8")) as {
+        data: { certificateNumber: string }[];
+      };
+      for (const stub of search.data) {
+        const raw = JSON.parse(
+          readFileSync(join(certsDir, `${stub.certificateNumber}.json`), "utf8"),
+        ) as { data?: unknown } & Record<string, unknown>;
+        const doc = (raw.data ?? raw) as {
+          suggested_improvements?: { improvement_details: { improvement_number: number } }[];
+        };
+        for (const step of doc.suggested_improvements ?? [])
+          numbers.add(step.improvement_details.improvement_number);
+      }
+    }
+    expect([...numbers].sort((a, b) => a - b)).toEqual([5, 6, 14, 19, 34, 35, 58]);
+    for (const n of numbers) expect(improvementName(n), `number ${n}`).not.toBeNull();
+    expect(improvementName(19)).toBe("Solar water heating");
+    expect(improvementName(34)).toBe("Solar photovoltaic panels, 2.5 kWp");
+    // The list is the union of the register schemas'
+    // published lists (65 numbers), cited in the module.
+    expect(Object.keys(IMPROVEMENT_NAMES)).toHaveLength(65);
+    expect(readFileSync(join(process.cwd(), "lib/epc-improvements.ts"), "utf8")).toContain(
+      "communitiesuk/epb-data-warehouse",
+    );
+    // An unknown number serves NO name — figures only,
+    // never a bare code dressed as a name, never invented.
+    expect(improvementName(999)).toBeNull();
+    expect(improvementName(null)).toBeNull();
+    expect(improvementName(undefined)).toBeNull();
   });
 });

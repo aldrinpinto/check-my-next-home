@@ -522,6 +522,42 @@ Family:
     load-crime at file time — the Census 2021 residents
     of the LSOAs containing the postcodes within the
     same 1 mile, counted whole (Basis B).
+33. **brownfield_sites** — the recorded brownfield
+    sites of the unified national register (migration
+    0022, plan step M6.21, decision D41), one row per
+    current site: the register's reference and supplying
+    organisation entity, the published site address,
+    hectares, planning-permission status and minimum /
+    maximum net dwellings, the site-plan URL (filed,
+    never served — the brain's read port does not carry
+    it), and the site's published point (lat/lng plus a
+    generated PostGIS point, GiST-indexed on the
+    geography cast like the other point tables). Points
+    only: the register publishes no boundaries, and no
+    row is ever a finding about a home's plot. The
+    register's free-text notes are NEVER filed — the
+    column is proven present in the source file by the
+    loader's contract check and read no further. Ended
+    rows are excluded at load; republications and
+    same-site double recordings collapse under the
+    loader's two dedupe rules (reference + organisation,
+    then point-to-4dp + normalised address, newest entry
+    kept). Quarterly loader (load-brownfield); the
+    source date is the platform retrieval date — the
+    file carries no edition.
+34. **brownfield_publishers** — the brownfield
+    supplier gate (migration 0022, same step): one row
+    per organisation entity with at least one current
+    filed site, with its current-site count and the
+    run's stamps, filed by the same loader run from the
+    same file. The gate is the evidence a brownfield
+    absence rests on: "none found" may serve only for a
+    council positively recorded as supplying the
+    register. It is keyed by the platform's organisation
+    entity; the brain's gate additionally waits on the
+    name-to-entity bridge (M12.10(b)) before it can
+    answer true — until then absences serve the
+    not-published state, the Article 4 pattern.
 
 ## Physical decisions (recorded at build, M3.3)
 

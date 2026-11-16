@@ -1145,6 +1145,10 @@ FACTS.set(keyOf(BIRKDALE_DIR.latitude, BIRKDALE_DIR.longitude), {
       filedCount: 80358,
       nearestWithin: [{ id: 3, name: null, detail: "revised", miles: 0.387 }],
     }),
+    built_up_area: layerFacts({
+      filedCount: 7775,
+      covering: [{ id: 61, name: "Hatfield Peverel", detail: null }],
+    }),
   },
   designations: {
     byType: {
@@ -1759,6 +1763,20 @@ class FakeAreaSource implements AreaDataSource {
     return council !== null && GATE_PUBLISHERS.has(council);
   }
 
+  async brownfieldFacts() {
+    return {
+      filedCount: 30355,
+      within: [],
+      nearestBeyond: null,
+      sourceName: "planning.data.gov.uk — brownfield land (Open Government Licence v3.0)",
+      sourceDate: "2026-11-16",
+    };
+  }
+
+  async brownfieldGate() {
+    return false;
+  }
+
   async epcArtefact(postcode: string) {
     return EPC_BY_POSTCODE.get(postcode) ?? null;
   }
@@ -2146,6 +2164,31 @@ describe("short bundle — 19 Birkdale Rise, CM3 2JT (rung 1)", () => {
     expect(constraints.greenBelt.beyondLine).toBe(
       "none within 2 miles — the nearest is London, 5.831 miles away (straight-line distance from the postcode point)",
     );
+  });
+
+  it("constraints M6.21: the built-up area slims through the polygon pick; brownfield skims in the listed form; no new headline opens", async () => {
+    const short = servedShort(await shortFor(BIRKDALE));
+    const { constraints, heritage } = short.sections;
+    expect(constraints.builtUpArea.state).toBe("inside");
+    expect(constraints.builtUpArea.line).toBe(
+      "the postcode point falls inside the Hatfield Peverel built-up area",
+    );
+    // This fake's council does not supply the register and
+    // no sites are filed within: the skim carries the
+    // gated state and NO count — the absence is not a
+    // finding at headline depth either.
+    expect(constraints.brownfield.state).toBe("not-published");
+    expect(constraints.brownfield.countWithin).toBeNull();
+    expect(constraints.brownfield.nearest).toBeNull();
+    expect(constraints.brownfield.line).toBe(
+      "this council does not supply the national brownfield register, so no finding can be made from the data — the council's own brownfield register is the record",
+    );
+    // The heritage section's four new layers take the
+    // monuments' place: in the full bundle, absent here.
+    expect(heritage).not.toHaveProperty("worldHeritageSites");
+    expect(heritage).not.toHaveProperty("battlefields");
+    expect(heritage).not.toHaveProperty("protectedWrecks");
+    expect(heritage).not.toHaveProperty("worldHeritageBufferZones");
   });
 
   it("heritage and nature, slimmed: count line and nearest listed; nearest place and the woodland line", async () => {

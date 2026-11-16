@@ -12,6 +12,7 @@ import {
   translateArticle4Codes,
   type AreaDataSource,
   type BroadbandAnswerFacts,
+  type BrownfieldFacts,
   type CensusFacts,
   type CompanyOwnershipFacts,
   type CompanySnapshotRow,
@@ -231,6 +232,7 @@ interface HomeFacts {
   layers?: Partial<Record<PlanningLayerKind, PlanningLayerFacts>>;
   designations?: DesignationFacts;
   listed?: ListedFacts;
+  brownfield?: BrownfieldFacts;
   phi?: {
     filedCount: number;
     nearest: { habitat: string; miles: number } | null;
@@ -254,6 +256,12 @@ const GATE_PUBLISHERS = new Set([
   "Oxford",
   "Kingston upon Thames",
 ]);
+
+// The brownfield supplier gate's publishers, in the fake's
+// world: Braintree and Epsom and Ewell supply the register;
+// Newham does not (its absence can only serve sites found,
+// never a "none found").
+const BROWNFIELD_PUBLISHERS = new Set(["Braintree", "Epsom and Ewell"]);
 
 const COUNCIL_TAX = new Map<string, CouncilTaxFacts>([
   [
@@ -470,6 +478,22 @@ class FakeAreaSource implements AreaDataSource {
 
   async article4Gate(council: string | null) {
     return council !== null && GATE_PUBLISHERS.has(council);
+  }
+
+  async brownfieldFacts(latitude: number, longitude: number) {
+    return (
+      this.facts(latitude, longitude).brownfield ?? {
+        filedCount: 30355,
+        within: [],
+        nearestBeyond: null,
+        sourceName: "planning.data.gov.uk — brownfield land (Open Government Licence v3.0)",
+        sourceDate: "2026-11-16",
+      }
+    );
+  }
+
+  async brownfieldGate(council: string | null) {
+    return council !== null && BROWNFIELD_PUBLISHERS.has(council);
   }
 
   async epcArtefact(postcode: string) {
@@ -1041,6 +1065,36 @@ FACTS.set(keyOf(BIRKDALE_DIR.latitude, BIRKDALE_DIR.longitude), {
       filedCount: 80358,
       nearestWithin: [{ id: 3, name: null, detail: "revised", miles: 0.387 }],
     }),
+    built_up_area: layerFacts({
+      filedCount: 7775,
+      covering: [{ id: 61, name: "Hatfield Peverel", detail: null }],
+    }),
+  },
+  brownfield: {
+    filedCount: 30355,
+    within: [
+      {
+        reference: "15/01103/OUT",
+        siteAddress: "Universal Garage, The Street, Hatfield Peverel",
+        hectares: 0.22,
+        planningPermissionStatus: "permissioned",
+        minimumNetDwellings: 9,
+        maximumNetDwellings: 9,
+        miles: 0.252,
+      },
+      {
+        reference: "22/00071/FUL",
+        siteAddress: "Land east of Bury Lane, Hatfield Peverel",
+        hectares: 0.61,
+        planningPermissionStatus: "not-permissioned",
+        minimumNetDwellings: null,
+        maximumNetDwellings: null,
+        miles: 1.87,
+      },
+    ],
+    nearestBeyond: null,
+    sourceName: "planning.data.gov.uk — brownfield land (Open Government Licence v3.0)",
+    sourceDate: "2026-11-16",
   },
   designations: {
     byType: {
@@ -1101,6 +1155,36 @@ FACTS.set(keyOf(EXETER_DIR.latitude, EXETER_DIR.longitude), {
       filedCount: 80358,
       nearestBeyond: { id: 24, name: "Greenwich Park", detail: "revised", miles: 2.51 },
     }),
+    built_up_area: layerFacts({
+      filedCount: 7775,
+      covering: [{ id: 62, name: "Newham", detail: null }],
+    }),
+  },
+  brownfield: {
+    filedCount: 30355,
+    within: [
+      {
+        reference: "23/01785/FUL",
+        siteAddress: "45 Beckton Road, London",
+        hectares: 0.09,
+        planningPermissionStatus: "permissioned",
+        minimumNetDwellings: 9,
+        maximumNetDwellings: 9,
+        miles: 0.163,
+      },
+      {
+        reference: "21/01234/FUL",
+        siteAddress: "117-125 Freemasons Road, London",
+        hectares: 0.14,
+        planningPermissionStatus: "pending-decision",
+        minimumNetDwellings: 14,
+        maximumNetDwellings: 14,
+        miles: 0.267,
+      },
+    ],
+    nearestBeyond: null,
+    sourceName: "planning.data.gov.uk — brownfield land (Open Government Licence v3.0)",
+    sourceDate: "2026-11-16",
   },
   designations: {
     byType: {
@@ -1155,6 +1239,25 @@ FACTS.set(keyOf(MINERVA_DIR.latitude, MINERVA_DIR.longitude), {
       filedCount: 80358,
       nearestWithin: [{ id: 35, name: null, detail: "original", miles: 1.41 }],
     }),
+    built_up_area: layerFacts({
+      filedCount: 7775,
+      covering: [{ id: 63, name: "Ewell", detail: null }],
+    }),
+  },
+  brownfield: {
+    filedCount: 30355,
+    within: [],
+    nearestBeyond: {
+      reference: "194",
+      siteAddress: "Etwell House and former coach, Station Approach",
+      hectares: 0.19,
+      planningPermissionStatus: "not-permissioned",
+      minimumNetDwellings: 10,
+      maximumNetDwellings: 10,
+      miles: 2.41,
+    },
+    sourceName: "planning.data.gov.uk — brownfield land (Open Government Licence v3.0)",
+    sourceDate: "2026-11-16",
   },
   designations: {
     byType: {
@@ -1205,6 +1308,30 @@ EPC_BY_POSTCODE.set(
       heatingCostPotential: 306,
       hotWaterCostPotential: 47,
       lightingCostPotential: 102,
+      // The certificate's suggested improvements, as filed
+      // (M6.21): the register's two modelled steps.
+      suggestedImprovements: [
+        {
+          sequence: 1,
+          improvementType: "N",
+          improvementNumber: 19,
+          improvementCategory: 5,
+          typicalSaving: 34,
+          indicativeCost: "£4,000 - £6,000",
+          energyRatingAfter: 86,
+          environmentalRatingAfter: 87,
+        },
+        {
+          sequence: 2,
+          improvementType: "U",
+          improvementNumber: 34,
+          improvementCategory: 5,
+          typicalSaving: 383,
+          indicativeCost: "£3,500 - £5,500",
+          energyRatingAfter: 93,
+          environmentalRatingAfter: 94,
+        },
+      ],
     }),
   ]),
 );
@@ -1232,6 +1359,7 @@ EPC_BY_POSTCODE.set(
       heatingCostPotential: 308,
       hotWaterCostPotential: 0,
       lightingCostPotential: 43,
+      suggestedImprovements: null,
     }),
     cert({
       certificateNumber: "2041-1785-8070-7006-5925",
@@ -1252,6 +1380,7 @@ EPC_BY_POSTCODE.set(
       heatingCostPotential: 339,
       hotWaterCostPotential: 609,
       lightingCostPotential: 156,
+      suggestedImprovements: null,
     }),
   ]),
 );
@@ -1281,6 +1410,10 @@ EPC_BY_POSTCODE.set(
       heatingCostPotential: 144,
       hotWaterCostPotential: 73,
       lightingCostPotential: 61,
+      // The widened filing records no published measures
+      // for this certificate (M6.21): the named
+      // no-measures state, not a missing block.
+      suggestedImprovements: null,
     }),
     cert({
       certificateNumber: "8108-3446-3539-2607-0313",
@@ -4337,6 +4470,304 @@ describe("the database source", () => {
 
 // --- banned wording ------------------------------------------------------
 
+// --- the missing layers (M6.21, decision D41) --------------------
+
+describe("brownfield land — points serving, gated absence", () => {
+  it("Birkdale: two recorded sites serve with the register's own facts per site", async () => {
+    const { sections } = await bundle(BIRKDALE);
+    const brownfield = sections.constraints.brownfield;
+    expect(brownfield.state).toBe("served");
+    expect(brownfield.countWithin).toBe(2);
+    expect(brownfield.line).toBe(
+      "2 recorded brownfield sites within 2 miles of the postcode point",
+    );
+    expect(brownfield.within).toHaveLength(2);
+    const nearest = brownfield.within[0];
+    expect(nearest.label).toBe("Universal Garage, The Street, Hatfield Peverel");
+    expect(nearest.miles).toBe(0.252);
+    expect(nearest.line).toBe(
+      "Universal Garage, The Street, Hatfield Peverel — 0.252 miles away (straight-line distance from the postcode point)",
+    );
+    expect(nearest.hectaresLine).toBe("the register records the site at 0.22 hectares");
+    expect(nearest.statusLine).toBe(
+      "the register records its planning permission status as permissioned",
+    );
+    expect(nearest.dwellingsLine).toBe("the register publishes 9 net dwellings for the site");
+    expect(brownfield.within[1].dwellingsLine).toBeNull();
+    expect(brownfield.sourceLine).toBe(
+      "planning.data.gov.uk — brownfield land (Open Government Licence v3.0) — data to 16 November 2026",
+    );
+    // Never a plot claim: nothing in the answer speaks of
+    // this home's plot being on or off the register.
+    const text = JSON.stringify(brownfield).toLowerCase();
+    expect(text).not.toContain("this plot");
+    expect(text).not.toContain("your plot");
+  });
+
+  it("Exeter: sites serve even though the gate is shut — presence needs no licence", async () => {
+    const { sections } = await bundle(EXETER);
+    const brownfield = sections.constraints.brownfield;
+    expect(brownfield.state).toBe("served");
+    expect(brownfield.councilPublishes).toBe(false);
+    expect(brownfield.countWithin).toBe(2);
+    expect(brownfield.within[0].label).toBe("45 Beckton Road, London");
+    expect(brownfield.within[0].miles).toBe(0.163);
+    expect(brownfield.within[1].statusLine).toBe(
+      "the register records its planning permission status as pending-decision",
+    );
+  });
+
+  it("Minerva: a supplying council with none within serves none-found, with the beyond line", async () => {
+    const { sections } = await bundle(MINERVA);
+    const brownfield = sections.constraints.brownfield;
+    expect(brownfield.state).toBe("none-found");
+    expect(brownfield.countWithin).toBe(0);
+    expect(brownfield.line).toBe(
+      "no brownfield sites are recorded within 2 miles of the postcode point on the national register",
+    );
+    expect(brownfield.beyondLine).toBe(
+      "none within 2 miles — the nearest recorded site is Etwell House and former coach, Station Approach, 2.41 miles away (straight-line distance from the postcode point)",
+    );
+  });
+
+  it("a council that does not supply serves not-published: no count, no beyond line", async () => {
+    class NoSupplySource extends FakeAreaSource {
+      override async brownfieldFacts() {
+        return {
+          filedCount: 30355,
+          within: [],
+          nearestBeyond: {
+            reference: "15/01103/OUT",
+            siteAddress: "Universal Garage, The Street, Hatfield Peverel",
+            hectares: 0.22,
+            planningPermissionStatus: "permissioned",
+            minimumNetDwellings: 9,
+            maximumNetDwellings: 9,
+            miles: 2.6,
+          },
+          sourceName: "planning.data.gov.uk — brownfield land (Open Government Licence v3.0)",
+          sourceDate: "2026-11-16",
+        };
+      }
+      override async brownfieldGate() {
+        return false;
+      }
+    }
+    const { sections } = await bundle(BIRKDALE, new NoSupplySource());
+    const brownfield = sections.constraints.brownfield;
+    expect(brownfield.state).toBe("not-published");
+    expect(brownfield.countWithin).toBeNull();
+    expect(brownfield.beyondLine).toBeNull();
+    expect(brownfield.beyondNearest).toBeNull();
+    expect(brownfield.line).toBe(
+      "this council does not supply the national brownfield register, so no finding can be made from the data — the council's own brownfield register is the record",
+    );
+  });
+
+  it("an unfiled register serves the not-filed family, never an absence", async () => {
+    class UnfiledSource extends FakeAreaSource {
+      override async brownfieldFacts() {
+        return {
+          filedCount: 0,
+          within: [],
+          nearestBeyond: null,
+          sourceName: null,
+          sourceDate: null,
+        };
+      }
+    }
+    const { sections } = await bundle(BIRKDALE, new UnfiledSource());
+    const brownfield = sections.constraints.brownfield;
+    expect(brownfield.state).toBe("not-filed");
+    expect(brownfield.countWithin).toBeNull();
+    expect(brownfield.line).toBe(
+      "the brownfield land data is not filed yet, so no brownfield answer can be given yet",
+    );
+  });
+
+  it("Scotland serves the coverage form: the register filed covers England", async () => {
+    const { sections } = await bundle(SCOTLAND);
+    const brownfield = sections.constraints.brownfield;
+    expect(brownfield.state).toBe("not-published");
+    expect(brownfield.countWithin).toBeNull();
+    expect(brownfield.line).toBe(
+      "the brownfield register filed covers England — brownfield registers in Scotland are held by its own councils and are not filed, so no finding can be made from the data",
+    );
+  });
+});
+
+describe("built-up areas — the filed polygon's own name", () => {
+  it("all three homes fall inside their pinned areas", async () => {
+    const cases = [
+      [BIRKDALE, "Hatfield Peverel"],
+      [EXETER, "Newham"],
+      [MINERVA, "Ewell"],
+    ] as const;
+    for (const [resolution, name] of cases) {
+      const { sections } = await bundle(resolution);
+      const bua = sections.constraints.builtUpArea;
+      expect(bua.state).toBe("inside");
+      expect(bua.insideName).toBe(name);
+      expect(bua.line).toBe(`the postcode point falls inside the ${name} built-up area`);
+    }
+  });
+});
+
+describe("heritage — the four M6.21 layers", () => {
+  it("all three homes serve the absence lines for all four layers", async () => {
+    for (const resolution of [BIRKDALE, EXETER, MINERVA]) {
+      const { sections } = await bundle(resolution);
+      const heritage = sections.heritage;
+      expect(heritage.worldHeritageSites.state).toBe("none-found");
+      expect(heritage.worldHeritageSites.line).toBe(
+        "no world heritage site covers this postcode point in the national data",
+      );
+      expect(heritage.battlefields.state).toBe("none-found");
+      expect(heritage.battlefields.line).toBe(
+        "no registered battlefield covers this postcode point in the national data",
+      );
+      expect(heritage.protectedWrecks.state).toBe("none-found");
+      expect(heritage.protectedWrecks.line).toBe(
+        "no protected wreck site covers this postcode point in the national data",
+      );
+      expect(heritage.worldHeritageBufferZones.state).toBe("none-found");
+      expect(heritage.worldHeritageBufferZones.line).toBe(
+        "no world heritage site buffer zone covers this postcode point in the national data",
+      );
+    }
+  });
+
+  it("inside a site and inside a buffer zone are distinct facts with distinct lines", async () => {
+    class BathSource extends FakeAreaSource {
+      override async planningLayerFacts(layer: PlanningLayerKind, lat: number, lng: number) {
+        if (layer === "world_heritage_site")
+          return layerFacts({
+            filedCount: 19,
+            covering: [{ id: 71, name: "City of Bath", detail: null }],
+          });
+        if (layer === "world_heritage_buffer_zone")
+          return layerFacts({
+            filedCount: 9,
+            covering: [{ id: 72, name: "Maritime Greenwich", detail: null }],
+          });
+        return super.planningLayerFacts(layer, lat, lng);
+      }
+    }
+    const { sections } = await bundle(BIRKDALE, new BathSource());
+    const heritage = sections.heritage;
+    expect(heritage.worldHeritageSites.state).toBe("inside");
+    expect(heritage.worldHeritageSites.line).toBe(
+      "the postcode point falls inside the City of Bath world heritage site",
+    );
+    expect(heritage.worldHeritageBufferZones.state).toBe("inside");
+    expect(heritage.worldHeritageBufferZones.line).toBe(
+      "the postcode point falls inside the buffer zone of the Maritime Greenwich world heritage site",
+    );
+  });
+});
+
+describe("EPC suggested improvements — the register's modelled steps (M6.21)", () => {
+  it("Birkdale: the two steps serve in register sequence, named, never summed", async () => {
+    const { sections } = await bundle(BIRKDALE);
+    const cert0 = sections.epc.certificates[0];
+    const improvements = cert0.improvements;
+    expect(improvements?.state).toBe("served");
+    expect(improvements?.line).toBe(
+      "the certificate's suggested improvements, in the register's order — the register's modelled steps for this home, not advice",
+    );
+    expect(improvements?.steps).toHaveLength(2);
+    const [step1, step2] = improvements!.steps;
+    expect(step1.name).toBe("Solar water heating");
+    expect(step1.typicalSavingLabel).toBe("£34.00");
+    expect(step1.line).toBe(
+      "Solar water heating · typical saving £34.00 a year · indicative cost £4,000 - £6,000 · energy rating after this step 86 · environmental rating after this step 87",
+    );
+    expect(step2.name).toBe("Solar photovoltaic panels, 2.5 kWp");
+    expect(step2.typicalSavingLabel).toBe("£383.00");
+    expect(improvements?.closingLine).toBe(
+      "after all 2 steps, the register's model gives an energy rating of 93 and an environmental rating of 94",
+    );
+    // The savings are never summed anywhere in the block:
+    // £34 + £383 = £417 appears in no form.
+    expect(JSON.stringify(improvements)).not.toContain("417");
+  });
+
+  it("Exeter and Minerva Flat 4: the filed-null certificates serve the named no-measures state", async () => {
+    const exeter = await bundle(EXETER);
+    for (const cert of exeter.sections.epc.certificates) {
+      expect(cert.improvements?.state).toBe("none-published");
+      expect(cert.improvements?.line).toBe("the certificate publishes no suggested improvements");
+      expect(cert.improvements?.steps).toEqual([]);
+    }
+    const minerva = await bundle(MINERVA);
+    const flat4 = minerva.sections.epc.certificates.find(
+      (c) => c.certificateNumber === "8401-7039-6529-6723-9906",
+    );
+    expect(flat4?.improvements?.state).toBe("none-published");
+  });
+
+  it("a certificate whose artefact predates the widening serves no improvements block", async () => {
+    class PreWideningSource extends FakeAreaSource {
+      override async epcArtefact(postcode: string) {
+        if (postcode !== "CM3 2JT") return super.epcArtefact(postcode);
+        return artefact([
+          cert({
+            certificateNumber: "2490-1633-0432-1002-3023",
+            addressLine1: "19 Birkdale Rise",
+            postTown: "CHELMSFORD",
+            postcode: "CM3 2JT",
+            band: "B",
+            ratingCurrent: 85,
+            assessmentType: "SAP",
+            registrationDate: "2022-10-07",
+          }),
+        ]);
+      }
+    }
+    const { sections } = await bundle(BIRKDALE, new PreWideningSource());
+    expect(sections.epc.certificates[0].improvements).toBeNull();
+  });
+
+  it("an improvement number the published list does not hold serves its figures with no name", async () => {
+    class UnknownStepSource extends FakeAreaSource {
+      override async epcArtefact(postcode: string) {
+        if (postcode !== "CM3 2JT") return super.epcArtefact(postcode);
+        return artefact([
+          cert({
+            certificateNumber: "2490-1633-0432-1002-3023",
+            addressLine1: "19 Birkdale Rise",
+            postTown: "CHELMSFORD",
+            postcode: "CM3 2JT",
+            band: "B",
+            ratingCurrent: 85,
+            assessmentType: "SAP",
+            registrationDate: "2022-10-07",
+            suggestedImprovements: [
+              {
+                sequence: 1,
+                improvementType: "Z",
+                improvementNumber: 999,
+                improvementCategory: 5,
+                typicalSaving: 50,
+                indicativeCost: "£100 - £200",
+                energyRatingAfter: 88,
+                environmentalRatingAfter: 89,
+              },
+            ],
+          }),
+        ]);
+      }
+    }
+    const { sections } = await bundle(BIRKDALE, new UnknownStepSource());
+    const improvements = sections.epc.certificates[0].improvements;
+    expect(improvements?.state).toBe("served");
+    expect(improvements?.steps[0].name).toBeNull();
+    expect(improvements?.steps[0].line).toBe(
+      "typical saving £50.00 a year · indicative cost £100 - £200 · energy rating after this step 88 · environmental rating after this step 89",
+    );
+  });
+});
+
 describe("banned wording", () => {
   it("no served string turns an area statistic into a verdict, anywhere in the bundle", async () => {
     const resolutions = [BIRKDALE, EXETER, MINERVA, C1, C3, C4, C8, C9, SCOTLAND, ESTUARY];
@@ -4345,7 +4776,21 @@ describe("banned wording", () => {
       const built = await bundle(resolution);
       let json = JSON.stringify(built);
       for (const summary of summaries) json = json.split(summary).join("");
-      const text = json.toLowerCase();
+      // "Protected wreck site" is the designation's own name
+      // (M6.21, the NHLE dataset): the layer cannot be
+      // served without naming it, and the name is not a
+      // verdict. Removing the name's forms (in the label,
+      // the layer key and the section key) keeps a served
+      // "this home is protected" tripping the scan — only
+      // the name is excused (the state matrix's precedent).
+      const text = json
+        .toLowerCase()
+        .split("protected wreck")
+        .join("")
+        .split("protected_wreck")
+        .join("")
+        .split("protectedwrecks")
+        .join("");
       for (const banned of [
         "quiet",
         "peaceful",

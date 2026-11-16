@@ -9,6 +9,7 @@ import {
   type AddressResolution,
   type ResolvedAddress,
 } from "./address";
+import { improvementName } from "./epc-improvements";
 import { DISTANCE_BASIS_LABEL, RADIUS_MILES } from "./nearby";
 import { COMPANY_OWNERSHIP_ENABLED } from "./site";
 
@@ -124,6 +125,33 @@ import { COMPANY_OWNERSHIP_ENABLED } from "./site";
 // never 0, never a silently missing row. Broadband joins
 // the short bundle as its twelfth headline section,
 // carrying the gigabit line only; mobile never headlines.
+//
+// The missing layers (M6.21, decision D41) join existing
+// sections rather than opening new ones. The constraints
+// section gains two sub-blocks: brownfield land — recorded
+// sites as POINTS (the dataset publishes no boundaries), so
+// the serving shape is the listed buildings' (nearest three
+// plus the count within 2 miles), its absence gated on the
+// council's supply exactly as Article 4's is — and built-up
+// areas, the ONS December 2024 polygons, served in the
+// green-belt shape with the filed area's own name. The
+// heritage section gains four polygon layers — world
+// heritage sites, battlefields, protected wreck sites and
+// world heritage site buffer zones, the buffer zone its own
+// sub-block because inside the buffer but outside the site
+// is a distinct fact. And each served EPC certificate gains
+// its suggested improvements at report depth: the register's
+// modelled steps in register sequence, named from the
+// register schema's published list — never advice, never
+// summed. No new headline claim opens anywhere in the step
+// (the D36 precedent): in the short bundle the new
+// constraints sub-blocks follow D28's existing derivation
+// (the polygon slimming for built-up areas, a points skim
+// for brownfield, exactly as listed buildings are skimmed),
+// and the heritage section's new layers follow the scheduled
+// monuments' precedent — present in the headline projection,
+// cut from the short skim, which carries listed buildings
+// and the at-point line only.
 
 export const AREA_UNAVAILABLE_REASON = "area answers need an exact postcode";
 
@@ -264,7 +292,12 @@ export type PlanningLayerKind =
   | "sac"
   | "spa"
   | "ramsar"
-  | "ancient_woodland";
+  | "ancient_woodland"
+  | "built_up_area"
+  | "world_heritage_site"
+  | "battlefield"
+  | "protected_wreck_site"
+  | "world_heritage_buffer_zone";
 
 export interface PlanningShapeRow {
   id: number;
@@ -305,6 +338,37 @@ export interface DesignationFacts {
   // four designation types) whose filed shapes intersect —
   // the evidence the brain groups designations into places on.
   overlaps: [number, number][];
+}
+
+// One filed brownfield site (migration 0022), as the brain
+// reads it: the register's own facts for the site — address
+// label, hectares, the register's planning-permission
+// status, the published dwelling range — and its distance
+// from the point. The port deliberately does NOT carry the
+// filed site-plan URL (filed, never served, D41) and there
+// is no notes field anywhere in the filing to carry.
+export interface BrownfieldRow {
+  reference: string | null;
+  siteAddress: string | null;
+  hectares: number | null;
+  planningPermissionStatus: string | null;
+  minimumNetDwellings: number | null;
+  maximumNetDwellings: number | null;
+  miles: number;
+}
+
+export interface BrownfieldFacts {
+  // The table's filed site count — absence is only ever
+  // computed against a proven filing (the polygon layers'
+  // rule), so an unfiled table serves not-filed.
+  filedCount: number;
+  // Every filed site within the serving radius, nearest
+  // first — the brain serves the nearest three and the
+  // count (the listed buildings shape).
+  within: BrownfieldRow[];
+  nearestBeyond: BrownfieldRow | null;
+  sourceName: string | null;
+  sourceDate: string | null;
 }
 
 export interface ListedRow {
@@ -380,6 +444,32 @@ export interface EpcCertificate {
   heatingCostPotential?: number | null;
   hotWaterCostPotential?: number | null;
   lightingCostPotential?: number | null;
+  // The certificate's suggested improvements, widened into
+  // the minimisation at M6.21 (decision D41): the register's
+  // modelled steps as filed, in register sequence. Optional
+  // for the same reason as the costs — artefacts filed
+  // before the widening do not carry the key, and a
+  // certificate read from one serves exactly as it did
+  // before, with no improvements block, until the postcode
+  // is re-filed. Null (key present) is the register's own
+  // no-measures state: the certificate publishes no steps.
+  suggestedImprovements?: EpcImprovement[] | null;
+}
+
+// One suggested improvement as filed by the EPC loader's
+// minimisation: the register's own fields for the step. The
+// category files here too — it is part of the filed record —
+// but no served shape carries it (the group labels the codes
+// carry differ across schema vintages, D41).
+export interface EpcImprovement {
+  sequence: number | null;
+  improvementType: string | null;
+  improvementNumber: number | null;
+  improvementCategory: number | null;
+  typicalSaving: number | null;
+  indicativeCost: string | null;
+  energyRatingAfter: number | null;
+  environmentalRatingAfter: number | null;
 }
 
 export interface EpcArtefact {
@@ -685,6 +775,15 @@ export interface AreaDataSource {
   // the Article 4 publication gate (migration 0007). "None
   // found" may be served only on a positive answer.
   article4Gate(council: string | null): Promise<boolean>;
+  // The filed brownfield sites around the point (M6.21):
+  // the register's recorded sites as points, in the listed
+  // buildings read shape.
+  brownfieldFacts(latitude: number, longitude: number): Promise<BrownfieldFacts>;
+  // Whether the postcode's council is positively recorded
+  // in the brownfield supplier gate (migration 0022).
+  // "None found" may be served only on a positive answer —
+  // the Article 4 rule, for the same reason.
+  brownfieldGate(council: string | null): Promise<boolean>;
   // The postcode's filed EPC artefact, or null when the check
   // has never loaded the postcode's certificates.
   epcArtefact(postcode: string): Promise<EpcArtefact | null>;
@@ -933,6 +1032,163 @@ export interface ConstraintsSection extends AreaSectionMeta {
   conservationArea: PolygonLayerAnswer;
   article4: Article4Answer;
   greenBelt: PolygonLayerAnswer;
+  // Brownfield land and built-up areas (M6.21, D41) — two
+  // more sub-blocks in this section, each with its own
+  // absence rule (see their builders below).
+  brownfield: BrownfieldAnswer;
+  builtUpArea: PolygonLayerAnswer;
+}
+
+// One recorded brownfield site as served: the register's own
+// facts for the site and its distance from the point. The
+// label is the register's site address, verbatim — it names
+// the site as the register names it, never a plot finding.
+export interface BrownfieldSite {
+  reference: string | null;
+  label: string;
+  miles: number;
+  hectares: number | null;
+  hectaresLine: string | null;
+  planningPermissionStatus: string | null;
+  statusLine: string | null;
+  dwellingsLine: string | null;
+  line: string;
+}
+
+// Brownfield land (M6.21, decision D41): recorded sites as
+// points, served in the listed buildings shape — nearest
+// three plus the count within 2 miles. The dataset
+// publishes a representative point per site and no boundary,
+// so no served form claims anything about this home's plot:
+// the lines are about recorded sites near the point, and the
+// section's explainer says the point is not a boundary.
+// Absence is gated on supply, the Article 4 pattern: "none
+// found" serves only for a council positively recorded in
+// the supplier gate; elsewhere the state is not-published.
+export interface BrownfieldAnswer {
+  label: "Brownfield land";
+  state: "served" | "none-found" | "not-published" | "not-filed";
+  within: BrownfieldSite[];
+  countWithin: number | null;
+  beyondNearest: BrownfieldSite | null;
+  beyondLine: string | null;
+  line: string;
+  // Whether the postcode's council is positively recorded
+  // in the supplier gate — the evidence the absence state
+  // rests on, served with the answer (the Article 4 form).
+  councilPublishes: boolean;
+  sourceName: string | null;
+  sourceDate: string | null;
+  sourceLine: string | null;
+}
+
+function toBrownfieldSite(row: BrownfieldRow): BrownfieldSite {
+  const label = row.siteAddress ?? "an unnamed recorded site";
+  const miles = round3(row.miles);
+  const hectaresLine =
+    row.hectares === null ? null : `the register records the site at ${row.hectares} hectares`;
+  const statusLine =
+    row.planningPermissionStatus === null
+      ? null
+      : `the register records its planning permission status as ${row.planningPermissionStatus}`;
+  const dwellingsLine =
+    row.minimumNetDwellings === null && row.maximumNetDwellings === null
+      ? null
+      : row.minimumNetDwellings !== null &&
+          row.maximumNetDwellings !== null &&
+          row.minimumNetDwellings !== row.maximumNetDwellings
+        ? `the register publishes ${row.minimumNetDwellings} to ${row.maximumNetDwellings} net dwellings for the site`
+        : `the register publishes ${(row.minimumNetDwellings ?? row.maximumNetDwellings) as number} net dwellings for the site`;
+  return {
+    reference: row.reference,
+    label,
+    miles,
+    hectares: row.hectares,
+    hectaresLine,
+    planningPermissionStatus: row.planningPermissionStatus,
+    statusLine,
+    dwellingsLine,
+    line: `${label} — ${miles} miles away (${DISTANCE_BASIS_LABEL})`,
+  };
+}
+
+function buildBrownfield(
+  facts: BrownfieldFacts,
+  councilPublishes: boolean,
+  nation: Nation,
+): BrownfieldAnswer {
+  const base = {
+    label: "Brownfield land" as const,
+    councilPublishes,
+    sourceName: facts.sourceName,
+    sourceDate: facts.sourceDate,
+    sourceLine: sourceLineOf(facts.sourceName, facts.sourceDate),
+  };
+  if (facts.filedCount <= 0) {
+    return {
+      ...base,
+      state: "not-filed",
+      within: [],
+      countWithin: null,
+      beyondNearest: null,
+      beyondLine: null,
+      line: "the brownfield land data is not filed yet, so no brownfield answer can be given yet",
+    };
+  }
+  // The register covers England: a point elsewhere serves
+  // the not-published form with its coverage reason — the
+  // filed sites are England's councils' registers, and a
+  // Welsh or Scottish "none" from them would be a false
+  // figure (the listed buildings rule).
+  const covered = nation === "england";
+  const within = covered ? facts.within.slice(0, 3).map(toBrownfieldSite) : [];
+  const countWithin: number | null = covered ? facts.within.length : null;
+  let beyondNearest: BrownfieldSite | null = null;
+  let beyondLine: string | null = null;
+  // The beyond line asserts "none within 2 miles", so it is
+  // gated exactly as the none-found state is: for a council
+  // that does not supply the register, the filed data cannot
+  // prove the absence the line states.
+  if (covered && councilPublishes && countWithin === 0 && facts.nearestBeyond) {
+    beyondNearest = toBrownfieldSite(facts.nearestBeyond);
+    beyondLine = `none within ${RADIUS_MILES} miles — the nearest recorded site is ${beyondNearest.label}, ${beyondNearest.miles} miles away (${DISTANCE_BASIS_LABEL})`;
+  }
+  if (!covered) {
+    return {
+      ...base,
+      state: "not-published",
+      within: [],
+      countWithin: null,
+      beyondNearest: null,
+      beyondLine: null,
+      line: `the brownfield register filed covers England — brownfield registers in ${nationName(nation)} are held by its own councils and are not filed, so no finding can be made from the data`,
+    };
+  }
+  if (countWithin !== null && countWithin > 0) {
+    return {
+      ...base,
+      state: "served",
+      within,
+      countWithin,
+      beyondNearest: null,
+      beyondLine: null,
+      line: `${countWithin} recorded brownfield site${countWithin === 1 ? "" : "s"} within ${RADIUS_MILES} miles of the postcode point`,
+    };
+  }
+  return {
+    ...base,
+    state: councilPublishes ? "none-found" : "not-published",
+    within: [],
+    // A proven none serves its 0; an unpublished absence
+    // serves no count at all — a 0 beside "not published"
+    // would read as the finding the gate exists to refuse.
+    countWithin: councilPublishes ? 0 : null,
+    beyondNearest,
+    beyondLine,
+    line: councilPublishes
+      ? "no brownfield sites are recorded within 2 miles of the postcode point on the national register"
+      : "this council does not supply the national brownfield register, so no finding can be made from the data — the council's own brownfield register is the record",
+  };
 }
 
 const CONSERVATION_AREA_SPEC: PolygonSpec = {
@@ -971,11 +1227,34 @@ const GREEN_BELT_SPEC: PolygonSpec = {
       : "no green belt covers this postcode point in the national data",
 };
 
+// Built-up areas (M6.21, D41): the ONS December 2024
+// polygons, served in the green-belt shape. The inside line
+// names the filed area — within Greater London that name is
+// the borough's, because the geography follows borough
+// boundaries there; the served name is always the filed
+// polygon's, never an invented settlement name. The dataset
+// covers England and Wales (the December 2024 edition drops
+// Scotland, which the previous edition covered), so a
+// Scottish or Northern Irish point serves the not-covered
+// form of the absence.
+const BUILT_UP_AREA_SPEC: PolygonSpec = {
+  layer: "built_up_area",
+  label: "Built-up area",
+  unnamedName: "an unnamed built-up area",
+  insideLine: (name) => `the postcode point falls inside the ${name} built-up area`,
+  absenceLine: (absence) =>
+    absence === "sparse-coverage"
+      ? "the built-up area data filed covers England and Wales, and no built-up area is filed near this point"
+      : "no built-up area covers this postcode point in the data filed",
+};
+
 function buildConstraints(
   resolution: Extract<AddressResolution, { rung: 1 | 2 }>,
   factsByLayer: Record<string, PlanningLayerFacts>,
   article4Publishes: boolean,
   nation: Nation,
+  brownfieldFactsValue: BrownfieldFacts,
+  brownfieldPublishes: boolean,
 ): ConstraintsSection {
   const caAbsence: PolygonAbsence = nation === "england" ? "none-found" : "sparse-coverage";
   const conservationArea = buildPolygonLayer(
@@ -1013,12 +1292,22 @@ function buildConstraints(
     nation === "england" ? "none-found" : "sparse-coverage",
   );
 
+  const builtUpArea = buildPolygonLayer(
+    BUILT_UP_AREA_SPEC,
+    factsByLayer.built_up_area,
+    // England and Wales are the dataset's coverage, so an
+    // absence there is a proven none; Scotland and Northern
+    // Ireland are outside the December 2024 edition, and
+    // their absence is the coverage state, never a finding.
+    nation === "england" || nation === "wales" ? "none-found" : "sparse-coverage",
+  );
+
   return {
     depth: "headline",
     grain: "postcode point",
     grainLine: "facts about the postcode point on the published maps",
     explainer:
-      "Planning designations are mapped against the postcode point, not the plot: at a boundary the point and the plot can fall either side, and the council's own map decides borderline cases.",
+      "Planning designations are mapped against the postcode point, not the plot: at a boundary the point and the plot can fall either side, and the council's own map decides borderline cases. Brownfield sites are recorded as a point for each site, not a boundary — a site near the point is a recorded site nearby, never a finding about this home's plot.",
     sourceName: null,
     sourceDate: null,
     sourceLine: null,
@@ -1026,6 +1315,8 @@ function buildConstraints(
     conservationArea,
     article4,
     greenBelt,
+    brownfield: buildBrownfield(brownfieldFactsValue, brownfieldPublishes, nation),
+    builtUpArea,
   };
 }
 
@@ -1064,6 +1355,15 @@ export interface HeritageSection extends AreaSectionMeta {
   };
   atPoint: ListedAtPoint;
   monuments: PolygonLayerAnswer;
+  // The M6.21 layers (decision D41): four more NHLE polygon
+  // datasets in the monument shape. The buffer zone is its
+  // own sub-block, never folded into the site's answer — a
+  // home inside a buffer zone but outside the site is a
+  // distinct fact, and the two lines say different things.
+  worldHeritageSites: PolygonLayerAnswer;
+  battlefields: PolygonLayerAnswer;
+  protectedWrecks: PolygonLayerAnswer;
+  worldHeritageBufferZones: PolygonLayerAnswer;
   localListsLine: string;
 }
 
@@ -1085,6 +1385,54 @@ const MONUMENT_SPEC: PolygonSpec = {
       : "no scheduled monument covers this postcode point in the national data",
 };
 
+// The M6.21 heritage layers' specs: the monument shape with
+// each dataset's own words. All four are NHLE (England)
+// datasets, so a non-English absence is the coverage state.
+const WORLD_HERITAGE_SITE_SPEC: PolygonSpec = {
+  layer: "world_heritage_site",
+  label: "World heritage site",
+  unnamedName: "an unnamed world heritage site",
+  insideLine: (name) => `the postcode point falls inside the ${name} world heritage site`,
+  absenceLine: (absence) =>
+    absence === "sparse-coverage"
+      ? "the world heritage sites filed cover England, and none is filed near this point"
+      : "no world heritage site covers this postcode point in the national data",
+};
+
+const BATTLEFIELD_SPEC: PolygonSpec = {
+  layer: "battlefield",
+  label: "Registered battlefield",
+  unnamedName: "an unnamed registered battlefield",
+  insideLine: (name) => `the postcode point falls inside the ${name} registered battlefield`,
+  absenceLine: (absence) =>
+    absence === "sparse-coverage"
+      ? "the registered battlefields filed cover England, and none is filed near this point"
+      : "no registered battlefield covers this postcode point in the national data",
+};
+
+const PROTECTED_WRECK_SPEC: PolygonSpec = {
+  layer: "protected_wreck_site",
+  label: "Protected wreck site",
+  unnamedName: "an unnamed protected wreck site",
+  insideLine: (name) => `the postcode point falls inside the ${name} protected wreck site`,
+  absenceLine: (absence) =>
+    absence === "sparse-coverage"
+      ? "the protected wreck sites filed cover England, and none is filed near this point"
+      : "no protected wreck site covers this postcode point in the national data",
+};
+
+const WORLD_HERITAGE_BUFFER_SPEC: PolygonSpec = {
+  layer: "world_heritage_buffer_zone",
+  label: "World heritage site buffer zone",
+  unnamedName: "an unnamed world heritage site buffer zone",
+  insideLine: (name) =>
+    `the postcode point falls inside the buffer zone of the ${name} world heritage site`,
+  absenceLine: (absence) =>
+    absence === "sparse-coverage"
+      ? "the world heritage site buffer zones filed cover England, and none is filed near this point"
+      : "no world heritage site buffer zone covers this postcode point in the national data",
+};
+
 function toListedPlace(row: ListedRow): ListedPlace {
   return {
     listEntryId: row.listEntryId,
@@ -1099,6 +1447,7 @@ function buildHeritage(
   listed: ListedFacts,
   monumentFacts: PlanningLayerFacts,
   nation: Nation,
+  heritageLayers: Record<string, PlanningLayerFacts>,
 ): HeritageSection {
   // The filed list is the National Heritage List for
   // England. Listed buildings elsewhere in the UK sit on
@@ -1160,6 +1509,26 @@ function buildHeritage(
     monuments: buildPolygonLayer(
       MONUMENT_SPEC,
       monumentFacts,
+      nation === "england" ? "none-found" : "sparse-coverage",
+    ),
+    worldHeritageSites: buildPolygonLayer(
+      WORLD_HERITAGE_SITE_SPEC,
+      heritageLayers.world_heritage_site,
+      nation === "england" ? "none-found" : "sparse-coverage",
+    ),
+    battlefields: buildPolygonLayer(
+      BATTLEFIELD_SPEC,
+      heritageLayers.battlefield,
+      nation === "england" ? "none-found" : "sparse-coverage",
+    ),
+    protectedWrecks: buildPolygonLayer(
+      PROTECTED_WRECK_SPEC,
+      heritageLayers.protected_wreck_site,
+      nation === "england" ? "none-found" : "sparse-coverage",
+    ),
+    worldHeritageBufferZones: buildPolygonLayer(
+      WORLD_HERITAGE_BUFFER_SPEC,
+      heritageLayers.world_heritage_buffer_zone,
       nation === "england" ? "none-found" : "sparse-coverage",
     ),
     localListsLine:
@@ -1528,6 +1897,38 @@ export interface ServedEnergyCosts {
   potentialLine: string | null;
 }
 
+// One suggested improvement as served (M6.21, D41): the
+// register's modelled step, its name resolved from the
+// register schema's published improvement list — null where
+// the list holds no name for the filed number, in which case
+// the step serves its figures with no name and no code: a
+// bare code or an invented name never reaches a reader.
+export interface ServedImprovementStep {
+  sequence: number | null;
+  name: string | null;
+  typicalSavingPence: number | null;
+  typicalSavingLabel: string | null;
+  indicativeCost: string | null;
+  energyRatingAfter: number | null;
+  environmentalRatingAfter: number | null;
+  line: string;
+}
+
+// A certificate's suggested improvements as served: the
+// register's modelled facts, in register sequence, named as
+// the certificate's own suggestions — never advice, never
+// summed into a headline (the savings stay per-step; the
+// closing line carries only the final step's cumulative
+// ratings). Report depth: the block exists only on a served
+// certificate, which exists only at rung 1, and the headline
+// projection never picks it.
+export interface ServedImprovements {
+  state: "served" | "none-published";
+  line: string;
+  steps: ServedImprovementStep[];
+  closingLine: string | null;
+}
+
 export interface ServedCertificate {
   certificateNumber: string;
   address: string;
@@ -1558,6 +1959,14 @@ export interface ServedCertificate {
   // complete cost set for it): the certificate then serves
   // exactly as it did before the widening, no cost line.
   energyCosts: ServedEnergyCosts | null;
+  // The certificate's suggested improvements (M6.21), or
+  // null where the filed artefact predates the M6.21
+  // widening — the certificate then serves exactly as it
+  // did before, with no improvements block, until the
+  // postcode is re-filed. A present block in its
+  // none-published state is the register's own fact: the
+  // certificate publishes no steps.
+  improvements: ServedImprovements | null;
 }
 
 // One band's share of one spread row: how many of the
@@ -1704,6 +2113,67 @@ function annualCostPence(parts: (number | null | undefined)[]): number | null {
   return Math.round((parts as number[]).reduce((sum, p) => sum + p, 0) * 100);
 }
 
+// A certificate's filed improvements as served: register
+// sequence (the loader files them sorted; the sort here is
+// the serve-time guarantee), names resolved from the
+// published list, savings never summed — the block's only
+// aggregate-shaped element is its closing line, which
+// carries the FINAL step's cumulative ratings and nothing
+// else (D41).
+function toServedImprovements(cert: EpcCertificate): ServedImprovements | null {
+  if (cert.suggestedImprovements === undefined) return null;
+  if (cert.suggestedImprovements === null || cert.suggestedImprovements.length === 0) {
+    return {
+      state: "none-published",
+      line: "the certificate publishes no suggested improvements",
+      steps: [],
+      closingLine: null,
+    };
+  }
+  const steps: ServedImprovementStep[] = [...cert.suggestedImprovements]
+    .sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0))
+    .map((step) => {
+      const name = improvementName(step.improvementNumber);
+      const typicalSavingPence =
+        step.typicalSaving === null ? null : Math.round(step.typicalSaving * 100);
+      const typicalSavingLabel =
+        typicalSavingPence === null ? null : formatPounds(typicalSavingPence);
+      const fragments: string[] = [];
+      if (name) fragments.push(name);
+      if (typicalSavingLabel) fragments.push(`typical saving ${typicalSavingLabel} a year`);
+      if (step.indicativeCost) fragments.push(`indicative cost ${step.indicativeCost}`);
+      if (step.energyRatingAfter !== null)
+        fragments.push(`energy rating after this step ${step.energyRatingAfter}`);
+      if (step.environmentalRatingAfter !== null)
+        fragments.push(`environmental rating after this step ${step.environmentalRatingAfter}`);
+      return {
+        sequence: step.sequence,
+        name,
+        typicalSavingPence,
+        typicalSavingLabel,
+        indicativeCost: step.indicativeCost,
+        energyRatingAfter: step.energyRatingAfter,
+        environmentalRatingAfter: step.environmentalRatingAfter,
+        line: fragments.join(" · "),
+      };
+    });
+  const last = steps[steps.length - 1];
+  const closingFragments: string[] = [];
+  if (last.energyRatingAfter !== null)
+    closingFragments.push(`an energy rating of ${last.energyRatingAfter}`);
+  if (last.environmentalRatingAfter !== null)
+    closingFragments.push(`an environmental rating of ${last.environmentalRatingAfter}`);
+  return {
+    state: "served",
+    line: "the certificate's suggested improvements, in the register's order — the register's modelled steps for this home, not advice",
+    steps,
+    closingLine:
+      closingFragments.length > 0
+        ? `after all ${steps.length} step${steps.length === 1 ? "" : "s"}, the register's model gives ${closingFragments.join(" and ")}`
+        : null,
+  };
+}
+
 function toServedCertificate(cert: EpcCertificate): ServedCertificate {
   const predicted = (cert.assessmentType ?? "").toUpperCase() === "SAP";
   const solarFacts: string[] = [];
@@ -1771,6 +2241,7 @@ function toServedCertificate(cert: EpcCertificate): ServedCertificate {
     registrationDate: cert.registrationDate,
     solarFacts,
     energyCosts,
+    improvements: toServedImprovements(cert),
   };
 }
 
@@ -4294,10 +4765,17 @@ export async function buildAreaBundle(
     greenBeltFacts,
     monumentFacts,
     woodlandFacts,
+    builtUpAreaFacts,
+    worldHeritageFacts,
+    battlefieldFacts,
+    protectedWreckFacts,
+    bufferZoneFacts,
     designations,
     listed,
     phi,
     article4Publishes,
+    brownfieldFactsValue,
+    brownfieldPublishes,
     councilTaxFacts,
     censusFacts,
     imdFacts,
@@ -4314,10 +4792,17 @@ export async function buildAreaBundle(
     source.planningLayerFacts("green_belt", latitude, longitude),
     source.planningLayerFacts("scheduled_monument", latitude, longitude),
     source.planningLayerFacts("ancient_woodland", latitude, longitude),
+    source.planningLayerFacts("built_up_area", latitude, longitude),
+    source.planningLayerFacts("world_heritage_site", latitude, longitude),
+    source.planningLayerFacts("battlefield", latitude, longitude),
+    source.planningLayerFacts("protected_wreck_site", latitude, longitude),
+    source.planningLayerFacts("world_heritage_buffer_zone", latitude, longitude),
     source.designationFacts(latitude, longitude),
     source.listedFacts(latitude, longitude),
     source.phiFacts(latitude, longitude),
     source.article4Gate(resolution.directory.council),
+    source.brownfieldFacts(latitude, longitude),
+    source.brownfieldGate(resolution.directory.council),
     source.councilTaxRow(resolution.directory.council),
     resolution.directory.msoaCode
       ? source.censusRow(resolution.directory.msoaCode)
@@ -4363,11 +4848,19 @@ export async function buildAreaBundle(
           conservation_area: conservationAreaFacts,
           article_4_area: article4Facts,
           green_belt: greenBeltFacts,
+          built_up_area: builtUpAreaFacts,
         },
         article4Publishes,
         nation,
+        brownfieldFactsValue,
+        brownfieldPublishes,
       ),
-      heritage: buildHeritage(resolution, listed, monumentFacts, nation),
+      heritage: buildHeritage(resolution, listed, monumentFacts, nation, {
+        world_heritage_site: worldHeritageFacts,
+        battlefield: battlefieldFacts,
+        protected_wreck_site: protectedWreckFacts,
+        world_heritage_buffer_zone: bufferZoneFacts,
+      }),
       nature: buildNature(designations, woodlandFacts, phi, nation),
       epc,
       councilTax: buildCouncilTax(councilTaxFacts, nation),
@@ -4758,6 +5251,79 @@ export function createAreaSource(
       // until the bridge is filed (the platform's published
       // organisation register, an M5-class filing job). The
       // brain's none-found branch is proven by unit tests
+      // against a gate that answers true.
+      return false;
+    },
+
+    async brownfieldFacts(latitude, longitude) {
+      const edition = await db.query(
+        "SELECT source_name, source_date::text AS source_date FROM brownfield_sites LIMIT 1",
+      );
+      const { rows: countRows } = await db.query("SELECT count(*)::int AS n FROM brownfield_sites");
+      const filedCount = Number(countRows[0]?.n ?? 0);
+      const sourceName = (edition.rows[0]?.source_name as string | null) ?? null;
+      const sourceDate = (edition.rows[0]?.source_date as string | null) ?? null;
+      if (filedCount <= 0) {
+        return { filedCount, within: [], nearestBeyond: null, sourceName, sourceDate };
+      }
+      const siteColumns = `reference, site_address, hectares, planning_permission_status,
+                minimum_net_dwellings, maximum_net_dwellings`;
+      const toRow = (row: Record<string, unknown>): BrownfieldRow => ({
+        reference: (row.reference as string | null) ?? null,
+        siteAddress: (row.site_address as string | null) ?? null,
+        hectares: row.hectares === null ? null : Number(row.hectares),
+        planningPermissionStatus: (row.planning_permission_status as string | null) ?? null,
+        minimumNetDwellings:
+          row.minimum_net_dwellings === null ? null : Number(row.minimum_net_dwellings),
+        maximumNetDwellings:
+          row.maximum_net_dwellings === null ? null : Number(row.maximum_net_dwellings),
+        miles: Number(row.miles),
+      });
+      const metres = RADIUS_MILES * METRES_PER_MILE;
+      const { rows } = await db.query(
+        `SELECT ${siteColumns},
+                ST_Distance(geom::geography, ${point12}::geography) / ${METRES_PER_MILE} AS miles
+         FROM brownfield_sites
+         WHERE ST_DWithin(geom, ${point12}, $3)
+         ORDER BY ST_Distance(geom::geography, ${point12}::geography)`,
+        [longitude, latitude, degreeRadius(metres, latitude)],
+      );
+      const within = rows.map(toRow).filter((row) => row.miles <= RADIUS_MILES);
+
+      let nearestBeyond: BrownfieldRow | null = null;
+      if (within.length === 0) {
+        for (const step of BEYOND_STEPS_MILES) {
+          const stepMetres = step * METRES_PER_MILE;
+          const { rows: beyondRows } = await db.query(
+            `SELECT ${siteColumns},
+                    ST_Distance(geom::geography, ${point12}::geography) / ${METRES_PER_MILE} AS miles
+             FROM brownfield_sites
+             WHERE ST_DWithin(geom, ${point12}, $3)
+             ORDER BY ST_Distance(geom::geography, ${point12}::geography)
+             LIMIT 1`,
+            [longitude, latitude, degreeRadius(stepMetres, latitude)],
+          );
+          const hit = beyondRows[0];
+          if (hit && Number(hit.miles) <= step) {
+            nearestBeyond = toRow(hit);
+            break;
+          }
+        }
+      }
+      return { filedCount, within, nearestBeyond, sourceName, sourceDate };
+    },
+
+    async brownfieldGate() {
+      // The same shape as the Article 4 gate, for the same
+      // reason: brownfield_publishers is keyed by the
+      // platform's organisation entity, the directory carries
+      // the council's NAME, and no filed table bridges the
+      // two. The gate fails safe — "none found" is never
+      // served on an unproven licence, and every absence
+      // serves "not published" until the bridge is filed
+      // (the platform's organisation register, M12.10(b) —
+      // the same filing job the Article 4 gate waits on).
+      // The brain's none-found branch is proven by unit tests
       // against a gate that answers true.
       return false;
     },
