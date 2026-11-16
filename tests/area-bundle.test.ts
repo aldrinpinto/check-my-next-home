@@ -4768,6 +4768,230 @@ describe("EPC suggested improvements — the register's modelled steps (M6.21)",
   });
 });
 
+describe("EPC construction — the certificate's recorded descriptions (M6.26, D48)", () => {
+  // The filed artefacts below are built from the captured
+  // register documents (tests/fixtures/epc) with the
+  // loader's minimisation mirrored — descriptions only,
+  // normalised across the register's two shapes — so the
+  // blocks are proven verbatim through the real brain
+  // against the real corpus, as the spread suite does.
+  function filedConstruction(doc: Record<string, unknown>): EpcCertificate["construction"] {
+    const text = (entry: unknown): string | null => {
+      if (entry === null || typeof entry !== "object") return null;
+      const description = (entry as { description?: unknown }).description;
+      if (typeof description === "string") return description;
+      if (description !== null && typeof description === "object")
+        return ((description as { value?: unknown }).value as string) ?? null;
+      return null;
+    };
+    const texts = (group: unknown): string[] | null => {
+      if (!Array.isArray(group)) return null;
+      const out = group.map(text).filter((d): d is string => typeof d === "string");
+      return out.length > 0 ? out : null;
+    };
+    return {
+      walls: texts(doc.walls),
+      roofs: texts(doc.roofs),
+      floors: texts(doc.floors),
+      windows: text(doc.windows),
+      lighting: text(doc.lighting),
+      mainHeating: texts(doc.main_heating),
+      hotWater: text(doc.hot_water),
+    };
+  }
+
+  function fixtureCerts(postcode: string, address: string): EpcCertificate[] {
+    const dir = join(__dirname, "fixtures", "epc");
+    const fixture = JSON.parse(readFileSync(join(dir, "fixture.json"), "utf8")) as {
+      postcodes: Record<string, { searchFile: string }>;
+    };
+    const search = JSON.parse(
+      readFileSync(join(dir, fixture.postcodes[postcode].searchFile), "utf8"),
+    ) as { data: Record<string, unknown>[] };
+    return search.data
+      .filter((stub) => stub.addressLine1 === address)
+      .map((stub) => {
+        const raw = JSON.parse(
+          readFileSync(join(dir, "certs", `${stub.certificateNumber as string}.json`), "utf8"),
+        ) as { data?: Record<string, unknown> } & Record<string, unknown>;
+        const doc = (raw.data ?? raw) as Record<string, unknown>;
+        return cert({
+          certificateNumber: stub.certificateNumber as string,
+          addressLine1: address,
+          postcode,
+          band: doc.current_energy_efficiency_band as string,
+          assessmentType: doc.assessment_type as string,
+          registrationDate: doc.registration_date as string,
+          construction: filedConstruction(doc),
+        });
+      });
+  }
+
+  class ConstructionSource extends FakeAreaSource {
+    override async epcArtefact(postcode: string) {
+      if (postcode === "CM3 2JT") return artefact(fixtureCerts("CM3 2JT", "19 Birkdale Rise"));
+      if (postcode === "E16 1GN") return artefact(fixtureCerts("E16 1GN", "6 Exeter Road"));
+      if (postcode === "KT17 1FH")
+        return artefact(fixtureCerts("KT17 1FH", "Flat 4 Minerva House"));
+      return super.epcArtefact(postcode);
+    }
+    override async loadEpc() {
+      // The fixture artefacts are already filed.
+    }
+  }
+  const constructionSource = new ConstructionSource();
+
+  const BASIS_LINE =
+    "the certificate's own description of this home's construction, recorded at the assessment; on an existing-home (RdSAP) certificate '(assumed)' means the assessor could not inspect that part and recorded the standard assumption for a home of its kind.";
+  const U_VALUE_LINE =
+    "the U-value in a description is the register's measure of how fast heat passes through that part of the home, in watts per square metre for each degree of temperature difference — lower lets less heat escape.";
+
+  it("Birkdale: the SAP set serves verbatim, in register order, with both pinned lines", async () => {
+    const { sections } = await bundle(BIRKDALE, constructionSource);
+    const construction = sections.epc.certificates[0]?.construction;
+    expect(construction?.line).toBe(BASIS_LINE);
+    expect(construction?.uValueLine).toBe(U_VALUE_LINE);
+    expect(construction?.groups.map((g) => g.key)).toEqual([
+      "walls",
+      "roofs",
+      "floors",
+      "windows",
+      "lighting",
+      "mainHeating",
+      "hotWater",
+    ]);
+    expect(construction?.groups.map((g) => g.line)).toEqual([
+      "Walls: Average thermal transmittance 0.27 W/m²K",
+      "Roofs: Average thermal transmittance 0.11 W/m²K",
+      "Floors: Average thermal transmittance 0.15 W/m²K",
+      "Windows: High performance glazing",
+      "Lighting: Low energy lighting in all fixed outlets",
+      "Main heating: Boiler and radiators, mains gas",
+      "Hot water: From main system, waste water heat recovery",
+    ]);
+  });
+
+  it("Exeter: the two certificates disagree whole — the 2023 windows absence is its own, never borrowed", async () => {
+    const { sections } = await bundle(EXETER, constructionSource);
+    expect(sections.epc.certificates.map((c) => c.registrationDate)).toEqual([
+      "2023-05-25",
+      "2013-10-15",
+    ]);
+    const [cert2023, cert2013] = sections.epc.certificates;
+    // The 2023 RdSAP words, "(assumed)" markers kept; no
+    // transmittance text anywhere, so no U-value line.
+    expect(cert2023.construction?.uValueLine).toBeNull();
+    expect(cert2023.construction?.groups.map((g) => g.line)).toEqual([
+      "Walls: Cavity wall, as built, insulated (assumed)",
+      "Roofs: (another dwelling above)",
+      "Floors: Solid, insulated (assumed)",
+      "Windows: not recorded on this certificate",
+      "Lighting: Low energy lighting in all fixed outlets",
+      "Main heating: Community scheme",
+      "Hot water: Community scheme",
+    ]);
+    const windows2023 = cert2023.construction?.groups.find((g) => g.key === "windows");
+    expect(windows2023?.descriptions).toEqual([]);
+    // The 2013 SAP certificate keeps its own windows fact
+    // and its transmittance set — the disagreement stands.
+    expect(cert2013.construction?.uValueLine).toBe(U_VALUE_LINE);
+    expect(cert2013.construction?.groups.map((g) => g.line)).toEqual([
+      "Walls: Average thermal transmittance 0.28 W/m²K",
+      "Roofs: Average thermal transmittance 0.2 W/m²K",
+      "Floors: Average thermal transmittance 0.21 W/m²K",
+      "Windows: Fully double glazed",
+      "Lighting: Low energy lighting in all fixed outlets",
+      "Main heating: Community scheme",
+      "Hot water: Community scheme with CHP",
+    ]);
+  });
+
+  it("Minerva Flat 4: the other-premises pair and the register's own ampersand serve verbatim", async () => {
+    const { sections } = await bundle(MINERVA, constructionSource);
+    const flat4 = sections.epc.certificates.find(
+      (c) => c.certificateNumber === "8401-7039-6529-6723-9906",
+    );
+    expect(flat4?.construction?.groups.map((g) => g.line)).toEqual([
+      "Walls: Average thermal transmittance 0.18 W/m²K",
+      "Roofs: (other premises above)",
+      "Floors: (other premises below)",
+      "Windows: High performance glazing",
+      "Lighting: Low energy lighting in all fixed outlets",
+      "Main heating: Boiler& underfloor, mains gas",
+      "Hot water: From main system",
+    ]);
+    expect(flat4?.construction?.uValueLine).toBe(U_VALUE_LINE);
+  });
+
+  it("a certificate whose artefact predates the widening serves no construction block", async () => {
+    class PreWideningSource extends FakeAreaSource {
+      override async epcArtefact(postcode: string) {
+        if (postcode !== "CM3 2JT") return super.epcArtefact(postcode);
+        return artefact([
+          cert({
+            certificateNumber: "2490-1633-0432-1002-3023",
+            addressLine1: "19 Birkdale Rise",
+            postTown: "CHELMSFORD",
+            postcode: "CM3 2JT",
+            band: "B",
+            ratingCurrent: 85,
+            assessmentType: "SAP",
+            registrationDate: "2022-10-07",
+          }),
+        ]);
+      }
+    }
+    const { sections } = await bundle(BIRKDALE, new PreWideningSource());
+    expect(sections.epc.certificates[0].construction).toBeNull();
+  });
+
+  it("the served shape holds no numeric U-value field and no element rating, anywhere", async () => {
+    const { sections } = await bundle(BIRKDALE, constructionSource);
+    const keys: string[] = [];
+    const walk = (value: unknown, path: string) => {
+      if (Array.isArray(value)) {
+        value.forEach((element, i) => walk(element, `${path}[${i}]`));
+        return;
+      }
+      if (value !== null && typeof value === "object") {
+        for (const [key, child] of Object.entries(value)) {
+          keys.push(key);
+          walk(child, `${path}.${key}`);
+        }
+      }
+    };
+    walk(sections.epc, "epc");
+    // No key anywhere in the served EPC section names a
+    // U-value field or an element efficiency rating — the
+    // only U-values in the output are text inside
+    // descriptions. The single key the scan allows is
+    // uValueLine: the pinned D13 line ABOUT the U-value,
+    // a string (proven string-or-null by the leaf walk
+    // below), never a number.
+    for (const key of keys) {
+      if (key !== "uValueLine") expect(key, "served key").not.toMatch(/u[-_ ]?value/i);
+      expect(key, "served key").not.toMatch(/efficiency_rating|efficiencyRating/i);
+    }
+    const serialised = JSON.stringify(sections.epc);
+    expect(serialised).not.toContain("energy_efficiency_rating");
+    expect(serialised).not.toContain("environmental_efficiency_rating");
+    // Every leaf of every construction block is a string
+    // or null: no rating number can ride inside the block
+    // in any form.
+    const leafTypes = (value: unknown): string[] => {
+      if (Array.isArray(value)) return value.flatMap(leafTypes);
+      if (value !== null && typeof value === "object")
+        return Object.values(value).flatMap(leafTypes);
+      return [value === null ? "null" : typeof value];
+    };
+    for (const certificate of sections.epc.certificates) {
+      expect(certificate.construction).not.toBeNull();
+      for (const type of leafTypes(certificate.construction))
+        expect(["string", "null"]).toContain(type);
+    }
+  });
+});
+
 describe("banned wording", () => {
   it("no served string turns an area statistic into a verdict, anywhere in the bundle", async () => {
     const resolutions = [BIRKDALE, EXETER, MINERVA, C1, C3, C4, C8, C9, SCOTLAND, ESTUARY];

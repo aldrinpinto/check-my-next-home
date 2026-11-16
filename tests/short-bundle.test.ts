@@ -2178,6 +2178,55 @@ describe("short bundle — 19 Birkdale Rise, CM3 2JT (rung 1)", () => {
     expect(JSON.stringify(servedShort(withRatings))).not.toContain("cqcRating");
   });
 
+  it("area: the M6.26 EPC construction block leaves the short bundle shape-identical", async () => {
+    // Construction descriptions are report depth (D48);
+    // the headline EPC projection carries band, assessment
+    // label and line only. The proof is identity, not
+    // inspection: the short bundle derived from an area
+    // bundle whose certificates carry construction blocks
+    // equals, field for field, the one derived without
+    // them — the derivation never reads the field.
+    const inputs = await fullBundles(BIRKDALE);
+    if (inputs.area.kind !== "area-bundle") throw new Error("expected an area bundle");
+    // The block must actually be present on the input for
+    // the identity to prove anything.
+    expect(inputs.area.sections.epc.certificates.length).toBeGreaterThan(0);
+    const withConstruction = {
+      ...inputs,
+      area: {
+        ...inputs.area,
+        sections: {
+          ...inputs.area.sections,
+          epc: {
+            ...inputs.area.sections.epc,
+            certificates: inputs.area.sections.epc.certificates.map((cert) => ({
+              ...cert,
+              construction: {
+                line: "the certificate's own description of this home's construction, recorded at the assessment; on an existing-home (RdSAP) certificate '(assumed)' means the assessor could not inspect that part and recorded the standard assumption for a home of its kind.",
+                uValueLine:
+                  "the U-value in a description is the register's measure of how fast heat passes through that part of the home, in watts per square metre for each degree of temperature difference — lower lets less heat escape.",
+                groups: [
+                  {
+                    key: "walls" as const,
+                    label: "Walls",
+                    descriptions: ["Average thermal transmittance 0.27 W/m²K"],
+                    line: "Walls: Average thermal transmittance 0.27 W/m²K",
+                  },
+                ],
+              },
+            })),
+          },
+        },
+      },
+    };
+    const withBlock = buildShortBundle(withConstruction);
+    const withoutBlock = buildShortBundle(inputs);
+    expect(withBlock).toEqual(withoutBlock);
+    const serialised = JSON.stringify(servedShort(withBlock));
+    expect(serialised).not.toContain("construction");
+    expect(serialised).not.toContain("thermal transmittance");
+  });
+
   it("area sections: EPC band, the council-tax line with its correction, NO2, road noise", async () => {
     const short = servedShort(await shortFor(BIRKDALE));
     expect(short.sections.epc).toEqual({

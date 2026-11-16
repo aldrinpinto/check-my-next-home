@@ -1018,6 +1018,20 @@ export const EXPLAINER_CENSUS: CensusEntry[] = [
     null,
     "The regulator's own published label, filed at M4.7 and served verbatim — a filed fact, not a score of ours (D9 bars our scores, never a regulator's published word). Self-explanatory by D13: the word is the explanation. The date beside it is the rating's Publication Date as CQC's file carries it, filed as what it is; the date leaf is covered by the date allowance in NOT_A_FIGURE below. Full depth only — the short bundle's derivation never reads the field.",
   ),
+  // M6.26 (decision D48) — the U-value inside a
+  // certificate's construction descriptions, row 80.
+  e(
+    80,
+    "area.epc.construction",
+    "area",
+    "epc",
+    "the U-value carried as text inside a certificate's recorded construction descriptions",
+    "hard",
+    ["full"],
+    "line-embedded",
+    "sections.epc.certificates[].construction.uValueLine",
+    "D48: each certificate's recorded construction descriptions serve verbatim, per certificate, at report depth — disagreements between a home's certificates stand whole. A U-value exists only as text inside a new-build SAP description ('Average thermal transmittance 0.27 W/m²K'), never extracted, computed or converted: there is no numeric U-value field in the served shape. The block's basis line (construction.line) states what the descriptions are and what an '(assumed)' marker means; this row's line serves wherever a transmittance description appears. The groups' per-element 0–5 efficiency ratings are dropped at filing and never serve. Full depth only — the short bundle's derivation never reads the block.",
+  ),
 ];
 
 // ------------------------------------------------------------------
@@ -1245,6 +1259,13 @@ export const FIGURE_PATH_PATTERNS: FigurePathPattern[] = [
   p(
     "area\\.sections\\.epc\\.certificates\\[\\]\\.improvements\\.steps\\[\\]\\.(typicalSavingPence|typicalSavingLabel|indicativeCost|energyRatingAfter|environmentalRatingAfter)",
     "area.epc.improvements",
+  ),
+  // M6.26 figures — the construction descriptions (the
+  // U-value rides as text inside them; the block's lines
+  // are covered by the line allowance).
+  p(
+    "area\\.sections\\.epc\\.certificates\\[\\]\\.construction\\.groups\\[\\]\\.descriptions\\[\\]",
+    "area.epc.construction",
   ),
   // M6.22 figures — live flood warnings (the severity
   // level is the EA's numbered scale; the overflow count

@@ -1080,6 +1080,20 @@
             "assessmentType": "string",
             "band": "string",
             "certificateNumber": "string",
+            "construction": {
+              "groups": [
+                {
+                  "descriptions": [
+                    "string"
+                  ],
+                  "key": "string",
+                  "label": "string",
+                  "line": "string"
+                }
+              ],
+              "line": "string",
+              "uValueLine": "string"
+            },
             "dwellingType": "string",
             "energyCosts": {
               "currentAnnualLabel": "string",
@@ -2999,6 +3013,20 @@
             "assessmentType": "string",
             "band": "string",
             "certificateNumber": "string",
+            "construction": {
+              "groups": [
+                {
+                  "descriptions": [
+                    "string"
+                  ],
+                  "key": "string",
+                  "label": "string",
+                  "line": "string"
+                }
+              ],
+              "line": "string",
+              "uValueLine": "string"
+            },
             "dwellingType": "string",
             "energyCosts": {
               "currentAnnualLabel": "string",
@@ -5083,6 +5111,20 @@
             "assessmentType": "string",
             "band": "string",
             "certificateNumber": "string",
+            "construction": {
+              "groups": [
+                {
+                  "descriptions": [
+                    "string"
+                  ],
+                  "key": "string",
+                  "label": "string",
+                  "line": "string"
+                }
+              ],
+              "line": "string",
+              "uValueLine": "string"
+            },
             "dwellingType": "string",
             "energyCosts": {
               "currentAnnualLabel": "string",

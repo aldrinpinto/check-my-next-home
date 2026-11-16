@@ -167,6 +167,15 @@ const EPC_ARTEFACT: EpcArtefact = {
           environmentalRatingAfter: 94,
         },
       ],
+      construction: {
+        walls: ["Average thermal transmittance 0.27 W/m²K"],
+        roofs: ["Average thermal transmittance 0.11 W/m²K"],
+        floors: ["Average thermal transmittance 0.15 W/m²K"],
+        windows: "High performance glazing",
+        lighting: "Low energy lighting in all fixed outlets",
+        mainHeating: ["Boiler and radiators, mains gas"],
+        hotWater: "From main system, waste water heat recovery",
+      },
     }),
     cert({
       certificateNumber: "0000-0000-0000-0000-0002",
@@ -620,13 +629,13 @@ type Golden = Awaited<ReturnType<typeof goldenBundles>>;
 // ------------------------------------------------------------------
 
 describe("explainer census — the register", () => {
-  it("enumerates the census: 79 families (71 to M6.20, rows 72–75 added at M6.21, rows 76–78 at M6.22, row 79 at M6.25), 46 hard, ids unique and stable in row order", () => {
-    expect(EXPLAINER_CENSUS).toHaveLength(79);
+  it("enumerates the census: 80 families (71 to M6.20, rows 72–75 added at M6.21, rows 76–78 at M6.22, row 79 at M6.25, row 80 at M6.26), 47 hard, ids unique and stable in row order", () => {
+    expect(EXPLAINER_CENSUS).toHaveLength(80);
     expect(EXPLAINER_CENSUS.map((entry) => entry.row)).toEqual(
-      Array.from({ length: 79 }, (_, i) => i + 1),
+      Array.from({ length: 80 }, (_, i) => i + 1),
     );
-    expect(new Set(EXPLAINER_CENSUS.map((entry) => entry.id)).size).toBe(79);
-    expect(EXPLAINER_CENSUS.filter((entry) => entry.hardness === "hard")).toHaveLength(46);
+    expect(new Set(EXPLAINER_CENSUS.map((entry) => entry.id)).size).toBe(80);
+    expect(EXPLAINER_CENSUS.filter((entry) => entry.hardness === "hard")).toHaveLength(47);
     // Every figure-path pattern names census ids that exist.
     const ids = new Set(EXPLAINER_CENSUS.map((entry) => entry.id));
     for (const { censusIds } of FIGURE_PATH_PATTERNS)
@@ -731,6 +740,8 @@ const HARD_LINES: Record<string, (b: Golden) => unknown> = {
     b.short.sections.crime.state === "served" ? b.short.sections.crime.englandLine : null,
   "area.epc.improvements": (b) =>
     b.area.sections.epc.certificates.flatMap((c) => c.improvements?.steps.map((s) => s.line) ?? []),
+  "area.epc.construction": (b) =>
+    b.area.sections.epc.certificates.map((c) => c.construction?.uValueLine),
   "flood.live-warnings": (b) =>
     b.flood.kind === "flood" && b.flood.flood.state === "served"
       ? b.flood.flood.liveWarnings?.warnings.map((w) => w.line)

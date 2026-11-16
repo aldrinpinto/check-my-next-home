@@ -187,6 +187,100 @@ describe("epc loader", () => {
     }
   });
 
+  it("files the construction descriptions only — the element ratings are dropped at filing (M6.26 widening, D48)", () => {
+    expect(loader).toContain("constructionOf(doc)");
+    expect(loader).toContain("construction: constructionOf(doc)");
+    // The seven register groups are read by their API names.
+    for (const field of [
+      "walls",
+      "roofs",
+      "floors",
+      "windows",
+      "lighting",
+      "hot_water",
+      "main_heating",
+    ])
+      expect(loader).toContain(field);
+    // The descriptions normalise across the register's two
+    // shapes, exactly as dwelling_type does.
+    expect(loader).toContain("description.value");
+    // The per-element 0–5 ratings are never read, never
+    // filed: the loader source names neither rating key
+    // anywhere (the improvement ratings it does file are
+    // the cumulative energy/environmental PERFORMANCE
+    // ratings of a step — different keys, different facts).
+    expect(loader).not.toContain("energy_efficiency_rating");
+    expect(loader).not.toContain("environmental_efficiency_rating");
+  });
+
+  it("fixture carries the golden construction descriptions (M6.26)", () => {
+    const docByNumber = (number: string) => {
+      const raw = JSON.parse(readFileSync(join(fixtureDir, "certs", `${number}.json`), "utf8")) as {
+        data?: unknown;
+      } & Record<string, unknown>;
+      return (raw.data ?? raw) as Record<string, unknown>;
+    };
+    // The register's two description shapes: a plain string,
+    // or a { value, language } object whose value is the text.
+    const text = (entry: unknown): string | null => {
+      if (entry === null || typeof entry !== "object") return null;
+      const description = (entry as { description?: unknown }).description;
+      if (typeof description === "string") return description;
+      if (description !== null && typeof description === "object")
+        return ((description as { value?: unknown }).value as string) ?? null;
+      return null;
+    };
+    const texts = (group: unknown): (string | null)[] =>
+      Array.isArray(group) ? group.map(text) : [text(group)];
+    // Birkdale's new-build SAP set — the U-values exist only
+    // as text inside the descriptions.
+    const birkdale = docByNumber("2490-1633-0432-1002-3023");
+    expect(texts(birkdale.walls)).toEqual(["Average thermal transmittance 0.27 W/m²K"]);
+    expect(texts(birkdale.roofs)).toEqual(["Average thermal transmittance 0.11 W/m²K"]);
+    expect(texts(birkdale.floors)).toEqual(["Average thermal transmittance 0.15 W/m²K"]);
+    expect(texts(birkdale.windows)).toEqual(["High performance glazing"]);
+    expect(texts(birkdale.lighting)).toEqual(["Low energy lighting in all fixed outlets"]);
+    expect(texts(birkdale.main_heating)).toEqual(["Boiler and radiators, mains gas"]);
+    expect(texts(birkdale.hot_water)).toEqual(["From main system, waste water heat recovery"]);
+    // Exeter's two certificates disagree, and the 2023
+    // RdSAP certificate records no windows group at all.
+    const exeter2023 = docByNumber("2041-1785-8070-7006-5925");
+    expect(texts(exeter2023.walls)).toEqual(["Cavity wall, as built, insulated (assumed)"]);
+    expect(texts(exeter2023.roofs)).toEqual(["(another dwelling above)"]);
+    expect(texts(exeter2023.floors)).toEqual(["Solid, insulated (assumed)"]);
+    expect(exeter2023.windows ?? null).toBeNull();
+    expect(texts(exeter2023.main_heating)).toEqual(["Community scheme"]);
+    const exeter2013 = docByNumber("9248-9925-7330-1627-9930");
+    expect(texts(exeter2013.walls)).toEqual(["Average thermal transmittance 0.28 W/m²K"]);
+    expect(texts(exeter2013.windows)).toEqual(["Fully double glazed"]);
+    expect(texts(exeter2013.hot_water)).toEqual(["Community scheme with CHP"]);
+    // Minerva Flat 4: the "(other premises above/below)"
+    // pair, and the register's own ampersand, unescaped.
+    const minerva = docByNumber("8401-7039-6529-6723-9906");
+    expect(texts(minerva.roofs)).toEqual(["(other premises above)"]);
+    expect(texts(minerva.floors)).toEqual(["(other premises below)"]);
+    expect(texts(minerva.main_heating)).toEqual(["Boiler& underfloor, mains gas"]);
+    // Corpus-wide: every group is present on every
+    // certificate except windows, absent on exactly 6 of
+    // the 128 — the first check's count, pinned.
+    let windowsAbsent = 0;
+    let total = 0;
+    for (const pc of Object.values<{ searchFile: string }>(fixture.postcodes)) {
+      const search = JSON.parse(readFileSync(join(fixtureDir, pc.searchFile), "utf8")) as {
+        data: { certificateNumber: string }[];
+      };
+      for (const stub of search.data) {
+        total += 1;
+        const doc = docByNumber(stub.certificateNumber);
+        for (const group of ["walls", "roofs", "floors", "lighting", "hot_water", "main_heating"])
+          expect(doc[group], `${stub.certificateNumber} ${group}`).not.toBeNull();
+        if (doc.windows === null || doc.windows === undefined) windowsAbsent += 1;
+      }
+    }
+    expect(total).toBe(128);
+    expect(windowsAbsent).toBe(6);
+  });
+
   it("the pinned improvement-name lookup resolves every fixture number and fails loud on unknown ones", () => {
     // Every improvement number filed anywhere in the
     // fixture corpus resolves to a published name — an

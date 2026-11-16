@@ -901,6 +901,84 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
       for (const place of placesOf("cardiff2", category)) expect(place.cqcRating).toBeNull();
   });
 
+  it("EPC construction (M6.26, D48): the filed descriptions serve through the real source, verbatim", () => {
+    // The replay's EPC artefacts are filed by the REAL
+    // loader over the fixture corpus, so the construction
+    // blocks below prove the whole path: the register's
+    // descriptions (ratings dropped at filing) through the
+    // widened minimisation into the brain's served shape.
+    const area = (tag: string) => {
+      const a = get(tag).area;
+      if (a.kind !== "area-bundle") throw new Error(`${tag}: expected an area bundle`);
+      return a.sections;
+    };
+    const linesOf = (tag: string, certificateNumber: string) => {
+      const epc = area(tag).epc;
+      if (epc.state !== "served") throw new Error(`expected a served EPC section for ${tag}`);
+      const cert = epc.certificates.find((c) => c.certificateNumber === certificateNumber);
+      if (!cert) throw new Error(`no certificate ${certificateNumber} for ${tag}`);
+      return cert.construction;
+    };
+    // Birkdale: the new-build SAP set, U-values as text.
+    const birkdale = linesOf("birkdale1", "2490-1633-0432-1002-3023");
+    expect(birkdale?.uValueLine).toBe(
+      "the U-value in a description is the register's measure of how fast heat passes through that part of the home, in watts per square metre for each degree of temperature difference — lower lets less heat escape.",
+    );
+    expect(birkdale?.groups.map((g) => g.line)).toEqual([
+      "Walls: Average thermal transmittance 0.27 W/m²K",
+      "Roofs: Average thermal transmittance 0.11 W/m²K",
+      "Floors: Average thermal transmittance 0.15 W/m²K",
+      "Windows: High performance glazing",
+      "Lighting: Low energy lighting in all fixed outlets",
+      "Main heating: Boiler and radiators, mains gas",
+      "Hot water: From main system, waste water heat recovery",
+    ]);
+    // Exeter: the disagreement stands whole — the 2023
+    // RdSAP certificate records no windows group (its own
+    // named absence, not the 2013 certificate's glazing),
+    // and carries no transmittance text.
+    const exeter2023 = linesOf("exeter1", "2041-1785-8070-7006-5925");
+    expect(exeter2023?.uValueLine).toBeNull();
+    expect(exeter2023?.groups.find((g) => g.key === "windows")?.line).toBe(
+      "Windows: not recorded on this certificate",
+    );
+    expect(exeter2023?.groups.find((g) => g.key === "walls")?.line).toBe(
+      "Walls: Cavity wall, as built, insulated (assumed)",
+    );
+    const exeter2013 = linesOf("exeter1", "9248-9925-7330-1627-9930");
+    expect(exeter2013?.groups.find((g) => g.key === "windows")?.line).toBe(
+      "Windows: Fully double glazed",
+    );
+    // Minerva Flat 4: the other-premises pair, and the
+    // register's own ampersand unescaped.
+    const minerva = linesOf("minerva1", "8401-7039-6529-6723-9906");
+    expect(minerva?.groups.find((g) => g.key === "roofs")?.line).toBe(
+      "Roofs: (other premises above)",
+    );
+    expect(minerva?.groups.find((g) => g.key === "floors")?.line).toBe(
+      "Floors: (other premises below)",
+    );
+    expect(minerva?.groups.find((g) => g.key === "mainHeating")?.line).toBe(
+      "Main heating: Boiler& underfloor, mains gas",
+    );
+    // No element rating rides anywhere in the served
+    // certificates: the blocks' leaves are strings or null.
+    for (const tag of ["birkdale1", "exeter1", "minerva1"]) {
+      const epc = area(tag).epc;
+      if (epc.state !== "served") continue;
+      expect(JSON.stringify(epc.certificates)).not.toContain("efficiency_rating");
+      for (const cert of epc.certificates) {
+        const walk = (value: unknown): string[] => {
+          if (Array.isArray(value)) return value.flatMap(walk);
+          if (value !== null && typeof value === "object")
+            return Object.values(value).flatMap(walk);
+          return [value === null ? "null" : typeof value];
+        };
+        for (const type of walk(cert.construction)) expect(["string", "null"]).toContain(type);
+      }
+    }
+  });
+
   it("short bundle: the universal headlines carry the locked figures", () => {
     const birkdale = get("birkdale1").short;
     expect(Object.keys(birkdale.sections).sort()).toHaveLength(12);

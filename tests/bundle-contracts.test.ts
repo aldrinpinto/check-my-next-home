@@ -72,6 +72,19 @@
 // gain both forms). Dentists and pharmacies serve exactly as
 // before, and the short bundle's derivation never reads the
 // field, so no other pin moved; all 46 pins stand.
+//
+// RE-PIN RECORD: M6.26 (decision D48) deliberately widened
+// the frozen area shape — every served EPC certificate gains
+// construction (the certificate's recorded construction
+// descriptions as a per-certificate block, or null where the
+// filed artefact predates the widening). Three pins moved
+// (area.rung1-rich, area.flag-on-no-match, area.tribunal-
+// served — the pins whose bundles serve a certificate); the
+// short pins did not move — the headline projection never
+// picks the block, proven by an identity test in the short
+// suite. All 46 pins stand. Authorised by the founder's D48
+// ruling; recorded here and in the golden matrix so the
+// change is never mistaken for drift.
 
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -748,6 +761,15 @@ class FakeAreaSource implements AreaDataSource {
             environmentalRatingAfter: 94,
           },
         ],
+        construction: {
+          walls: ["Average thermal transmittance 0.27 W/m²K"],
+          roofs: ["Average thermal transmittance 0.11 W/m²K"],
+          floors: ["Average thermal transmittance 0.15 W/m²K"],
+          windows: "High performance glazing",
+          lighting: "Low energy lighting in all fixed outlets",
+          mainHeating: ["Boiler and radiators, mains gas"],
+          hotWater: "From main system, waste water heat recovery",
+        },
       }),
       contractCert({
         certificateNumber: "0000-0000-0000-0000-0002",
