@@ -35,6 +35,19 @@
 //     dentists are registered but not rated, and Welsh points can
 //     never be rated (CQC covers England only). Those NULLs are
 //     the truth, not a join failure.
+//   - The ratings file's population groups file too (migration
+//     0023): every distinct "Service / Population Group" value a
+//     hospital's ratings rows carry, pipe-joined in the
+//     cqc_service_types style — except "Overall", the overall
+//     rating's own marker, which already files as the rating in
+//     cqc_ratings. The groups are the only maternity signal the
+//     CQC data carries: the directory's "Service types" column
+//     is an organisational vocabulary with no maternity value in
+//     it (proven at M6.24's first check — Newham, Broomfield,
+//     St Helier and Epsom all file as plain "Hospital" there,
+//     while each carries a "Maternity" group in the ratings
+//     file). A hospital with no ratings rows files NULL groups:
+//     the data says nothing, and nothing is claimed.
 //   - No health source carries coordinates. Every point sits at
 //     its postcode's position from the M4.1 directory, so ties at
 //     shared postcodes are real and expected.
@@ -202,11 +215,23 @@ function createRatingsAggregator() {
       if (!locationId) return;
       const odsCode = (cells[1] ?? "").trim();
       if (odsCode && !locationByOdsCode.has(odsCode)) locationByOdsCode.set(odsCode, locationId);
-      const current = byLocation.get(locationId) ?? { rows: 0, hasUec: false, overall: [] };
+      const current = byLocation.get(locationId) ?? {
+        rows: 0,
+        hasUec: false,
+        overall: [],
+        groups: [],
+      };
       current.rows += 1;
       const group = (cells[17] ?? "").toLowerCase();
       const domain = (cells[18] ?? "").toLowerCase();
       if (group === "urgent and emergency services") current.hasUec = true;
+      // The filed population groups (migration 0023): the
+      // published values as they stand, first-seen order,
+      // deduped — "Overall" excepted, as it is the overall
+      // rating's own marker, not a service or a population.
+      const groupRaw = (cells[17] ?? "").trim();
+      if (groupRaw && group !== "overall" && !current.groups.includes(groupRaw))
+        current.groups.push(groupRaw);
       if (group === "overall" && domain === "overall") {
         current.overall.push({
           locationId,
@@ -480,6 +505,7 @@ function applyRatings(points, ratings) {
     const entry = locationId ? ratings.byLocation.get(locationId) : undefined;
     if (point.serviceType === "hospital") {
       point.hasEmergencyDepartment = !entry || entry.rows === 0 ? null : entry.hasUec;
+      point.cqcPopulationGroups = entry && entry.groups.length > 0 ? entry.groups.join("|") : null;
     }
     if (!entry || entry.overall.length === 0) continue;
     const latest = entry.overall.reduce((a, b) => ((b.date ?? "") > (a.date ?? "") ? b : a));
@@ -606,7 +632,31 @@ function checkGolden(points, byCode) {
   const stHelier = byCode.get("RVR05");
   expect(stHelier && stHelier.hasEmergencyDepartment === true, "St Helier: flag TRUE");
 
+  // M6.24: the maternity signal files from the ratings
+  // file's population groups — the four fixture hospitals
+  // whose ratings rows carry a Maternity group file it, and
+  // a hospital the ratings file never mentions (St Peter's,
+  // above) files no groups at all.
+  for (const [code, name] of [
+    ["R1HNH", "Newham"],
+    ["RAJ32", "Broomfield"],
+    ["RVR05", "St Helier"],
+    ["RVR50", "Epsom"],
+  ]) {
+    const p = byCode.get(code);
+    expect(
+      p && (p.cqcPopulationGroups ?? "").split("|").includes("Maternity"),
+      `${name} (${code}) must file the Maternity population group`,
+    );
+  }
+  expect(
+    stPeters && !stPeters.cqcPopulationGroups,
+    "St Peter's must file no population groups (no ratings rows)",
+  );
+
   // National truthfulness invariants.
+  const groupsWrong = points.filter((p) => p.cqcPopulationGroups && p.serviceType !== "hospital");
+  expect(groupsWrong.length === 0, "population groups file on hospital points only");
   const ratedWrong = points.filter(
     (p) => p.rating && (p.serviceType === "pharmacy" || p.serviceType === "dentist"),
   );
@@ -773,7 +823,8 @@ async function main() {
     `load-health · ODS ${odsDateStamp} · CQC directory ${directoryProducedOn} · ratings as at ${ratings.asAt} · ` +
     `${count("gp_practice")} practices · ${count("gp_branch_surgery")} branches ` +
     `(${stats.closedBranches} closed-by-date removed, ${stats.covidBranches} COVID-named removed) · ` +
-    `${count("pharmacy")} pharmacies · ${count("dentist")} dentists · ${count("hospital")} hospitals · ` +
+    `${count("pharmacy")} pharmacies · ${count("dentist")} dentists · ${count("hospital")} hospitals ` +
+    `(${points.filter((p) => (p.cqcPopulationGroups ?? "").split("|").includes("Maternity")).length} carrying the Maternity group) · ` +
     `${joined} ratings joined · ${ties} same-day ties withheld · ${stats.excludedPractices} excluded non-practices · ` +
     `${stats.clinicNamed} CLINIC-named practices filed for review · ${stats.noPosition} without a directory position skipped`;
 
@@ -793,7 +844,7 @@ async function main() {
          ods_code text, name text, service_type text, address text, postcode text,
          latitude double precision, longitude double precision,
          parent_ods_code text, has_emergency_department boolean,
-         cqc_service_types text, provider_name text,
+         cqc_service_types text, cqc_population_groups text, provider_name text,
          source_name text, source_date date,
          loaded_at timestamptz NOT NULL DEFAULT now()
        ) ON COMMIT DROP`,
@@ -801,8 +852,8 @@ async function main() {
     for (const p of points) {
       await client.query(
         `INSERT INTO health_stage (ods_code, name, service_type, address, postcode, latitude, longitude,
-           parent_ods_code, has_emergency_department, cqc_service_types, provider_name, source_name, source_date)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+           parent_ods_code, has_emergency_department, cqc_service_types, cqc_population_groups, provider_name, source_name, source_date)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
         [
           p.odsCode,
           p.name,
@@ -814,6 +865,7 @@ async function main() {
           p.parentOdsCode ?? null,
           p.hasEmergencyDepartment ?? null,
           p.cqcServiceTypes ?? null,
+          p.cqcPopulationGroups ?? null,
           p.providerName ?? null,
           p.source,
           p.source === SOURCE_CQC_DIR ? directoryProducedOn : odsDateStamp,
@@ -828,9 +880,9 @@ async function main() {
     await client
       .query(
         `INSERT INTO health_points (ods_code, name, service_type, address, postcode, latitude, longitude,
-         parent_ods_code, has_emergency_department, cqc_service_types, provider_name, source_name, source_date, loaded_at)
+         parent_ods_code, has_emergency_department, cqc_service_types, cqc_population_groups, provider_name, source_name, source_date, loaded_at)
        SELECT ods_code, name, service_type, address, postcode, latitude, longitude,
-         parent_ods_code, has_emergency_department, cqc_service_types, provider_name, source_name, source_date, loaded_at
+         parent_ods_code, has_emergency_department, cqc_service_types, cqc_population_groups, provider_name, source_name, source_date, loaded_at
        FROM health_stage RETURNING id, ods_code`,
       )
       .then(async (inserted) => {

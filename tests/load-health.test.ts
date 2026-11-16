@@ -45,6 +45,14 @@ describe("health loader sources", () => {
     expect(loader).toContain("hasEmergencyDepartment");
     expect(loader).toContain("urgent and emergency services");
   });
+
+  it("files the ratings population groups on hospital points only (M6.24)", () => {
+    expect(loader).toContain("cqcPopulationGroups");
+    expect(loader).toContain("cqc_population_groups");
+    // "Overall" is the rating's own marker in that column and
+    // never files as a group.
+    expect(loader).toContain('group !== "overall"');
+  });
 });
 
 describe("fixture register facts", () => {
@@ -59,5 +67,25 @@ describe("fixture register facts", () => {
     const sidney = ebranchs.find((r) => r[0] === "F81149002");
     expect(sidney?.[14]).toBe("F81149");
     expect(sidney?.[9]).toBe("CM3 2HB");
+  });
+});
+
+describe("the maternity signal (M6.24)", () => {
+  // The step's founding fact, pinned at the fixture: the CQC
+  // directory's vocabulary carries no maternity value at all —
+  // the word does not appear in the file — while the ratings
+  // file's "Service / Population Group" column (cell 17, the
+  // column the loader's ratings aggregator reads) names
+  // Maternity for exactly four locations.
+  const directoryText = readFileSync(join(fixtureDir, "cqc-directory.csv"), "utf8");
+  const ratings = readReport("cqc-ratings");
+
+  it("the directory fixture never mentions maternity", () => {
+    expect(directoryText).not.toContain("Maternity");
+  });
+
+  it("the ratings fixture carries the Maternity group for exactly the four units", () => {
+    const locations = new Set(ratings.filter((r) => r[17] === "Maternity").map((r) => r[0]));
+    expect([...locations].sort()).toEqual(["R1HNH", "RAJ32", "RVR05", "RVR50"]);
   });
 });

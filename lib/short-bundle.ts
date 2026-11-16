@@ -335,9 +335,11 @@ export type ShortNoise = HeadlineProjection["noise"];
 export type ShortBroadband = HeadlineProjection["broadband"];
 
 // The six daily-life categories a family checks first
-// (D28/Q2). The other fourteen stay in the full check —
-// twenty categories cannot fit a headline, and the cut
-// belongs here, not in a renderer.
+// (D28/Q2). The other fifteen stay in the full check —
+// twenty-one categories cannot fit a headline, and the cut
+// belongs here, not in a renderer. (M6.24 added maternity
+// to the full check only; this list is deliberately
+// unchanged, and the short bundle's shape with it.)
 export const HEADLINE_NEARBY_CATEGORIES: NearbyCategory[] = [
   "schools-primary",
   "schools-secondary",

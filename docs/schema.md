@@ -82,7 +82,13 @@ Family:
    hospitals from the CQC directory, each with its emergency-
    department flag (yes / no / no data — three states, never
    collapsed) and, for hospitals, its CQC service types and
-   provider. Every point sits at its postcode's position; no
+   provider. Migration 0023 adds the hospital's CQC ratings
+   population groups, filed from the ratings file's own
+   "Service / Population Group" column: the directory's
+   service types carry no maternity value, and the maternity
+   units are selected from these groups. A hospital with no
+   ratings rows files NULL groups — nothing is inferred.
+   Every point sits at its postcode's position; no
    health source publishes coordinates.
 9. **cqc_ratings** — CQC rating, publication date and report link,
    joined to a health point by the exact code the ratings file

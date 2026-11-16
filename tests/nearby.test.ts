@@ -362,6 +362,7 @@ type HealthRow = {
   name: string;
   serviceType: string;
   emergency: boolean | null;
+  populationGroups: string[];
   latitude: number;
   longitude: number;
 };
@@ -372,6 +373,7 @@ const healthRows: HealthRow[] = (
     name: string;
     service_type: string;
     has_emergency_department: boolean | null;
+    cqc_population_groups: string | null;
     latitude: string;
     longitude: string;
   }[]
@@ -379,6 +381,7 @@ const healthRows: HealthRow[] = (
   name: r.name,
   serviceType: r.service_type,
   emergency: r.has_emergency_department,
+  populationGroups: r.cqc_population_groups ? r.cqc_population_groups.split("|") : [],
   latitude: Number(r.latitude),
   longitude: Number(r.longitude),
 }));
@@ -600,6 +603,9 @@ const TABLES: Record<string, NearbyPoint[]> = {
   ae: healthRows
     .filter((h) => h.serviceType === "hospital" && h.emergency === true)
     .map((h) => ({ name: h.name, latitude: h.latitude, longitude: h.longitude })),
+  maternity: healthRows
+    .filter((h) => h.serviceType === "hospital" && h.populationGroups.includes("Maternity"))
+    .map((h) => ({ name: h.name, latitude: h.latitude, longitude: h.longitude })),
   station: transportRows
     .filter((t) => STATION_TYPES.has(t.type))
     .map((t) => ({ name: t.name, latitude: t.latitude, longitude: t.longitude })),
@@ -719,7 +725,7 @@ describe("nearby basis (M6.2)", () => {
     }
   });
 
-  it("serves the twenty categories in the documented order", async () => {
+  it("serves the twenty-one categories in the documented order", async () => {
     const bundle = await bundleFor("CM3 2JT");
     if (bundle.kind !== "distances") throw new Error("expected distances");
     expect(bundle.categories.map((c) => c.category)).toEqual([
@@ -730,6 +736,7 @@ describe("nearby basis (M6.2)", () => {
       "dentist",
       "pharmacy",
       "ae",
+      "maternity",
       "station",
       "bus-stop",
       "ev-chargers",
@@ -791,6 +798,19 @@ describe("nearby bundle — 19 Birkdale Rise, CM3 2JT", () => {
     expect(ae.places).toEqual([]);
     expect(ae.beyondNearest).toEqual({ name: "Broomfield Hospital", miles: 5.89 });
     expect(ae.line).toBe(
+      "none within 2 miles — nearest is Broomfield Hospital, 5.89 miles away (straight-line distance from the postcode point)",
+    );
+  });
+
+  it("names Broomfield as the nearest maternity unit beyond the radius, in the same words (M6.24)", async () => {
+    const bundle = await bundleFor("CM3 2JT");
+    const maternity = category(bundle, "maternity");
+    expect(maternity.label).toBe("maternity units");
+    expect(maternity.state).toBe("none-within");
+    expect(maternity.places).toEqual([]);
+    expect(maternity.countWithin).toBe(0);
+    expect(maternity.beyondNearest).toEqual({ name: "Broomfield Hospital", miles: 5.89 });
+    expect(maternity.line).toBe(
       "none within 2 miles — nearest is Broomfield Hospital, 5.89 miles away (straight-line distance from the postcode point)",
     );
   });
@@ -891,6 +911,11 @@ describe("nearby bundle — 6 Exeter Road, E16 1GN", () => {
   it("serves health: Newham University Hospital as the A&E at the locked 0.78", async () => {
     const bundle = await bundleFor("E16 1GN");
     expect(top(bundle, "ae")).toEqual([["Newham University Hospital", 0.782]]);
+    // M6.24: the same hospital is the home's maternity unit —
+    // Newham's ratings rows carry the Maternity group, and it
+    // is the only maternity unit within the radius.
+    expect(top(bundle, "maternity")).toEqual([["Newham University Hospital", 0.782]]);
+    expect(category(bundle, "maternity").countWithin).toBe(1);
     expect(top(bundle, "gp").slice(0, 2)).toEqual([
       ["CUSTOM HOUSE SURGERY", 0.24],
       ["CUMBERLAND MEDICAL CENTRE", 0.383],
@@ -972,6 +997,12 @@ describe("nearby bundle — Flat 4, Minerva House, KT17 1FH", () => {
       ["SPRING STREET SURGERY", 0.459],
     ]);
     expect(top(bundle, "ae")).toEqual([["Epsom General Hospital", 1.732]]);
+    // M6.24: Epsom General is also the home's maternity unit
+    // (its ratings rows carry the Maternity group); St Helier,
+    // the fixture's other nearby maternity hospital, sits
+    // beyond the radius.
+    expect(top(bundle, "maternity")).toEqual([["Epsom General Hospital", 1.732]]);
+    expect(category(bundle, "maternity").countWithin).toBe(1);
     expect(top(bundle, "dentist")[0]).toEqual(["BOURNE HALL DENTAL PRACTICE", 0.459]);
     expect(top(bundle, "pharmacy")[0]).toEqual(["EWELL HOUSE PHARMACY & TRAVEL CLINIC", 0.235]);
   });

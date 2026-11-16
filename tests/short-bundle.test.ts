@@ -2124,6 +2124,29 @@ describe("short bundle — 19 Birkdale Rise, CM3 2JT (rung 1)", () => {
     });
   });
 
+  it("nearby: the M6.24 maternity category leaves the short bundle shape-identical", async () => {
+    // Maternity is a full-check category only (D28's six are
+    // unchanged). The proof is identity, not inspection: the
+    // short bundle derived from the full twenty-one-category
+    // nearby bundle equals, field for field, the short bundle
+    // derived from the same bundle with the maternity answer
+    // removed — as if the category did not exist.
+    const inputs = await fullBundles(BIRKDALE);
+    if (inputs.nearby.kind !== "distances") throw new Error("expected distances");
+    expect(inputs.nearby.categories.map((c) => c.category)).toContain("maternity");
+    const withMaternity = buildShortBundle(inputs);
+    const withoutMaternity = buildShortBundle({
+      ...inputs,
+      nearby: {
+        ...inputs.nearby,
+        categories: inputs.nearby.categories.filter((c) => c.category !== "maternity"),
+      },
+    });
+    expect(withMaternity).toEqual(withoutMaternity);
+    const short = servedShort(withMaternity);
+    expect(short.sections.nearby.categories.map((c) => c.category)).not.toContain("maternity");
+  });
+
   it("area sections: EPC band, the council-tax line with its correction, NO2, road noise", async () => {
     const short = servedShort(await shortFor(BIRKDALE));
     expect(short.sections.epc).toEqual({

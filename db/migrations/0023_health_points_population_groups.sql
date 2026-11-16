@@ -1,0 +1,40 @@
+-- Migration 0023 — hospitals' CQC ratings population groups
+-- (plan step M6.24, founder ruling at M6.23).
+--
+-- The maternity signal does not exist where the step first
+-- looked for it. The CQC directory's "Service types" column —
+-- the source of health_points.cqc_service_types — is an
+-- organisational vocabulary (Hospital, Clinic, Dentist,
+-- Ambulances…): it carries no maternity value, and the
+-- hospitals that are maternity units file there as plain
+-- "Hospital" (proven at M6.24's first check against the
+-- filed fixture: Newham University Hospital, Broomfield,
+-- St Helier and Epsom General all file with no maternity
+-- marker of any kind).
+--
+-- The signal lives in the OTHER CQC file: the ratings
+-- file's "Service / Population Group" column carries the
+-- literal value "Maternity" for the locations that have a
+-- maternity service. The health loader already parses that
+-- column row by row — it reads the "Urgent and emergency
+-- services" value for the emergency-department flag and
+-- the "Overall" rows for the location's rating — and then
+-- discards the rest. From this migration the loader files
+-- the groups too: every distinct value a hospital's
+-- ratings rows carry, pipe-joined on the hospital's row in
+-- the cqc_service_types style, so the nearby brain can
+-- select maternity units from filed data like every other
+-- category.
+--
+-- Two filing rules, both honesty rules:
+--   * Hospitals only. The groups are a hospital-service
+--     signal; no other point type carries the column.
+--   * A hospital with no ratings rows files NULL — never
+--     an empty string dressed as knowledge, never an
+--     inferred group. The data says nothing, and nothing
+--     is claimed. ("Overall" does not file either: it is
+--     the overall rating's own marker in that column, and
+--     the rating itself already files in cqc_ratings.)
+
+ALTER TABLE health_points
+  ADD COLUMN cqc_population_groups text;

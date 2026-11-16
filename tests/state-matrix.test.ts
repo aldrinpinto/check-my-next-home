@@ -401,6 +401,7 @@ const ALL_CATEGORIES: NearbyCategory[] = [
   "dentist",
   "pharmacy",
   "ae",
+  "maternity",
   "station",
   "bus-stop",
   "ev-chargers",

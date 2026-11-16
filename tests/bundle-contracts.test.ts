@@ -54,6 +54,15 @@
 // move — no live block serves there. Authorised by the
 // founder's D42 ruling; recorded here and in the golden matrix
 // so the change is never mistaken for drift.
+//
+// NO-RE-PIN RECORD: M6.24 (founder ruling at M6.23) added the
+// maternity category to the nearby bundle — a content change,
+// not a shape change. The category's answer is the established
+// category shape (already among the pinned distinct shapes),
+// the pins are category-name-agnostic, and the short bundle
+// does not derive from the category at all. All 46 pins stand
+// unmoved; recorded here so the absence of a re-pin is a
+// checked fact, not an oversight.
 
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";

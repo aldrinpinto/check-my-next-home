@@ -15,9 +15,17 @@ dumping the filed table:
 node db/migrate.mjs
 node loaders/load-health.mjs --file tests/fixtures/health
 SELECT service_type, ods_code, name, parent_ods_code,
-       has_emergency_department, latitude, longitude
+       has_emergency_department, cqc_population_groups,
+       latitude, longitude
 FROM health_points ORDER BY service_type, ods_code
 ```
+
+Regenerated 16 Nov 2026 for M6.24 with the same recipe: the
+only change against the previous capture is the added
+`cqc_population_groups` column (migration 0023) — every
+pre-existing field is identical, and exactly the four
+hospitals whose ratings rows carry a Maternity group
+(R1HNH, RAJ32, RVR05, RVR50) file it.
 
 The run filed 2,322 rows (522 practices, 133 branch surgeries,
 834 pharmacies, 779 dentists, 54 hospitals) from the ODS

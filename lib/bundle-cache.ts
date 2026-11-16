@@ -743,7 +743,12 @@ export async function buildNearbyBundleCached(
     // extends it in the same pattern: the bundle carries
     // the schoolDeadlines key (present, value null outside
     // England and Wales) — an entry written before the
-    // step lacks it and degrades to a recompute.
+    // step lacks it and degrades to a recompute. The
+    // M6.24 contract extends it again: the categories must
+    // include the maternity answer — an entry written
+    // before the step holds twenty categories and degrades
+    // to a recompute rather than serving a bundle with no
+    // maternity answer as current.
     shapeOk: (bundle) => {
       if (typeof bundle !== "object" || bundle === null) return false;
       if (!("schoolDeadlines" in bundle)) return false;
@@ -755,8 +760,18 @@ export async function buildNearbyBundleCached(
           c !== null &&
           (c as { category?: unknown }).category === "schools-secondary",
       );
+      const maternity = categories.find(
+        (c) =>
+          typeof c === "object" &&
+          c !== null &&
+          (c as { category?: unknown }).category === "maternity",
+      );
       return (
-        typeof secondary === "object" && secondary !== null && "nearestSelectiveLine" in secondary
+        typeof secondary === "object" &&
+        secondary !== null &&
+        "nearestSelectiveLine" in secondary &&
+        typeof maternity === "object" &&
+        maternity !== null
       );
     },
   });

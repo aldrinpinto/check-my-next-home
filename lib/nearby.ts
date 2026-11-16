@@ -37,6 +37,22 @@ import type { AddressQueryable, AddressResolution } from "./address";
 // letters. The dates are constants below, kept current by
 // the plan's annual ops check, which verifies the pair
 // against the current Code before they can go stale.
+//
+// Maternity units (M6.24, founder ruling at M6.23): a
+// twenty-first category, selected from the health points'
+// filed ratings population groups (migration 0023). The
+// CQC directory's "Service types" column carries no
+// maternity value at all — its vocabulary is organisational
+// (Hospital, Clinic, Dentist…) — while the ratings file's
+// "Service / Population Group" column names "Maternity"
+// for the units that have one; the loader files those
+// groups on the hospital row, and this category selects on
+// them. The category mirrors A&E exactly: an essential
+// health service (the single nearest is named beyond the
+// radius), absence stated as a ground fact. It is NOT a
+// headline category — the short bundle's six (D28) are
+// unchanged, and no rating field joins the served shape
+// (ratings serving is M6.25's step, not this one's).
 
 export const DISTANCE_BASIS_LABEL = "straight-line distance from the postcode point";
 export const RADIUS_MILES = 2;
@@ -68,6 +84,7 @@ export type NearbyCategory =
   | "dentist"
   | "pharmacy"
   | "ae"
+  | "maternity"
   | "station"
   | "bus-stop"
   | "ev-chargers"
@@ -250,6 +267,7 @@ const CATEGORIES: { key: NearbyCategory; spec: CategorySpec }[] = [
   { key: "dentist", spec: { label: "dentists", essential: true, emptyKind: "ground" } },
   { key: "pharmacy", spec: { label: "pharmacies", essential: true, emptyKind: "ground" } },
   { key: "ae", spec: { label: "A&E hospitals", essential: true, emptyKind: "ground" } },
+  { key: "maternity", spec: { label: "maternity units", essential: true, emptyKind: "ground" } },
   { key: "station", spec: { label: "stations", essential: true, emptyKind: "ground" } },
   { key: "bus-stop", spec: { label: "bus stops", essential: true, emptyKind: "ground" } },
   { key: "ev-chargers", spec: { label: "EV chargers", essential: true, emptyKind: "ground" } },
@@ -446,6 +464,16 @@ const CATEGORY_SQL: Record<NearbyCategory, string> = {
       NULL::boolean AS selective
     FROM health_points
     WHERE service_type = 'hospital' AND has_emergency_department IS TRUE AND geom IS NOT NULL`,
+  // Maternity units are the hospitals whose filed ratings
+  // population groups include Maternity (migration 0023) —
+  // the directory's service types cannot select them. The
+  // pipe-wrapping makes the membership test exact: a group
+  // files only as a whole pipe-delimited member.
+  maternity: `SELECT name, latitude, longitude, NULL::text AS detail,
+      NULL::boolean AS selective
+    FROM health_points
+    WHERE service_type = 'hospital' AND geom IS NOT NULL
+      AND ('|' || cqc_population_groups || '|') LIKE '%|Maternity|%'`,
   station: `SELECT name, latitude, longitude, NULL::text AS detail,
       NULL::boolean AS selective
     FROM transport_stops WHERE stop_type IN ('RLY', 'MET', 'TMU') AND geom IS NOT NULL`,
