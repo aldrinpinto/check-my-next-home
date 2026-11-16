@@ -41,8 +41,7 @@ byte-identical when only the freshness warning fires
    column a mirror of `flood_layers` (layer_type, risk_label,
    detail, geom, source_name, source_date), so no scenario
    shape can ever be read as a present-day fact and the
-   present-day guard's meaning is untouched. Schema doc entry
-   36.
+   present-day guard's meaning is untouched. Schema doc entry 36.
 2. **Loaders** `load-flood-rivers-sea-climate.mjs` and
    `load-flood-surface-water-climate.mjs` — cloned from their
    present-day parents onto the OGC paged read, the staged
