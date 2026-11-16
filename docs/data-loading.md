@@ -17,58 +17,58 @@ Cadences below are as registered in the loader schedule
 
 ### Refreshed monthly
 
-| Dataset | Source | Notes |
-| --- | --- | --- |
-| Sold prices | HM Land Registry Price Paid | Also loads on first touch (Section 2) |
-| Crime counts around a postcode | Police.uk | Also loads on first touch (Section 2) |
-| England crime totals (the comparison figure) | Police.uk monthly archives | Filed one row per month, never overwritten |
-| Energy certificates (EPC) | The EPC register | Also loads on first touch (Section 2) |
-| Schools | Department for Education | |
-| Health — GP surgeries and hospitals | NHS sources | |
-| EV chargers | Open Charge Map | |
-| Claimant Count | DWP, via Nomis | |
-| Universal Credit — people and households | DWP Stat-Xplore | The data itself publishes quarterly; the loader checks monthly |
-| Company ownership titles | HM Land Registry | Held behind an off switch until written licence clearance arrives |
+| Dataset                                      | Source                      | Notes                                                             |
+| -------------------------------------------- | --------------------------- | ----------------------------------------------------------------- |
+| Sold prices                                  | HM Land Registry Price Paid | Also loads on first touch (Section 2)                             |
+| Crime counts around a postcode               | Police.uk                   | Also loads on first touch (Section 2)                             |
+| England crime totals (the comparison figure) | Police.uk monthly archives  | Filed one row per month, never overwritten                        |
+| Energy certificates (EPC)                    | The EPC register            | Also loads on first touch (Section 2)                             |
+| Schools                                      | Department for Education    |                                                                   |
+| Health — GP surgeries and hospitals          | NHS sources                 |                                                                   |
+| EV chargers                                  | Open Charge Map             |                                                                   |
+| Claimant Count                               | DWP, via Nomis              |                                                                   |
+| Universal Credit — people and households     | DWP Stat-Xplore             | The data itself publishes quarterly; the loader checks monthly    |
+| Company ownership titles                     | HM Land Registry            | Held behind an off switch until written licence clearance arrives |
 
 ### Refreshed quarterly
 
-| Dataset | Source | Notes |
-| --- | --- | --- |
-| Postcode directory | ONS (ONSPD) | The address backbone every other dataset joins to |
-| Nurseries | Ofsted childcare register | Group settings only; childminders counted, never listed |
-| Conservation areas and Article 4 directions | planning.data.gov.uk | |
-| Green belt | planning.data.gov.uk | |
-| Heritage — listed buildings, scheduled monuments, world heritage sites, battlefields, protected wreck sites and buffer zones | planning.data.gov.uk / Historic England | |
-| Brownfield sites, and which councils publish them | planning.data.gov.uk | "None found" is only ever said for a council that actually publishes |
-| Nature designations — SSSI, SAC, SPA, Ramsar sites, ancient woodland | Natural England | |
-| Flood zones (rivers and sea, ignoring defences) | Environment Agency | |
-| Flood risk from rivers and sea (with defences) | Environment Agency | |
-| Flood risk from surface water | Environment Agency | |
-| Transport stops | NaPTAN | |
-| What's Nearby places | OpenStreetMap | |
-| Parks and greenspace | OS Greenspace | |
-| Building-safety tribunal decisions | GOV.UK tribunal decisions | |
+| Dataset                                                                                                                      | Source                                  | Notes                                                                |
+| ---------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- | -------------------------------------------------------------------- |
+| Postcode directory                                                                                                           | ONS (ONSPD)                             | The address backbone every other dataset joins to                    |
+| Nurseries                                                                                                                    | Ofsted childcare register               | Group settings only; childminders counted, never listed              |
+| Conservation areas and Article 4 directions                                                                                  | planning.data.gov.uk                    |                                                                      |
+| Green belt                                                                                                                   | planning.data.gov.uk                    |                                                                      |
+| Heritage — listed buildings, scheduled monuments, world heritage sites, battlefields, protected wreck sites and buffer zones | planning.data.gov.uk / Historic England |                                                                      |
+| Brownfield sites, and which councils publish them                                                                            | planning.data.gov.uk                    | "None found" is only ever said for a council that actually publishes |
+| Nature designations — SSSI, SAC, SPA, Ramsar sites, ancient woodland                                                         | Natural England                         |                                                                      |
+| Flood zones (rivers and sea, ignoring defences)                                                                              | Environment Agency                      |                                                                      |
+| Flood risk from rivers and sea (with defences)                                                                               | Environment Agency                      |                                                                      |
+| Flood risk from surface water                                                                                                | Environment Agency                      |                                                                      |
+| Transport stops                                                                                                              | NaPTAN                                  |                                                                      |
+| What's Nearby places                                                                                                         | OpenStreetMap                           |                                                                      |
+| Parks and greenspace                                                                                                         | OS Greenspace                           |                                                                      |
+| Building-safety tribunal decisions                                                                                           | GOV.UK tribunal decisions               |                                                                      |
 
 ### Filed once (static — re-filed only when the publisher issues a new edition)
 
-| Dataset | Source | Notes |
-| --- | --- | --- |
-| Built-up areas | ONS, December 2024 edition | |
-| Census 2021 tables | ONS, via Nomis | |
-| Small-area population bases | ONS Census 2021 | The residents and households figures other answers divide by |
-| Council tax charges | MHCLG | Filed per tax year; the councils not yet filed arrive in a spring pass |
-| Deprivation deciles | MHCLG (Indices of Deprivation 2025) | Served as a decile in words, never a score |
-| Air quality modelled grid | Defra (PCM 2024) | |
-| Solar potential grid | PVGIS (SARAH3) | A location model, never a judgement on a roof |
-| Broadband availability by postcode | Ofcom Connected Nations | |
-| Mobile coverage by council | Ofcom Connected Nations | Council-wide modelled coverage, never signal at the home |
+| Dataset                            | Source                              | Notes                                                                  |
+| ---------------------------------- | ----------------------------------- | ---------------------------------------------------------------------- |
+| Built-up areas                     | ONS, December 2024 edition          |                                                                        |
+| Census 2021 tables                 | ONS, via Nomis                      |                                                                        |
+| Small-area population bases        | ONS Census 2021                     | The residents and households figures other answers divide by           |
+| Council tax charges                | MHCLG                               | Filed per tax year; the councils not yet filed arrive in a spring pass |
+| Deprivation deciles                | MHCLG (Indices of Deprivation 2025) | Served as a decile in words, never a score                             |
+| Air quality modelled grid          | Defra (PCM 2024)                    |                                                                        |
+| Solar potential grid               | PVGIS (SARAH3)                      | A location model, never a judgement on a roof                          |
+| Broadband availability by postcode | Ofcom Connected Nations             |                                                                        |
+| Mobile coverage by council         | Ofcom Connected Nations             | Council-wide modelled coverage, never signal at the home               |
 
 ### Run by hand only (never on the automatic timer — the first pass takes hours)
 
-| Dataset | Source | Notes |
-| --- | --- | --- |
-| Noise maps — road, rail and airport | Defra | |
-| Priority habitats inventory | Natural England | 818,225 habitat patches |
+| Dataset                             | Source          | Notes                   |
+| ----------------------------------- | --------------- | ----------------------- |
+| Noise maps — road, rail and airport | Defra           |                         |
+| Priority habitats inventory         | Natural England | 818,225 habitat patches |
 
 ## 2. Filed on first touch, then held
 
@@ -80,16 +80,16 @@ filing these for all 1.8 million postcodes on day one is not practical.
 
 ## 3. Pulled live at the moment of the check, never stored
 
-| Item | Source | Notes |
-| --- | --- | --- |
+| Item                | Source                                      | Notes                                                                                                                                                                                                                                 |
+| ------------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Live flood warnings | Environment Agency flood-monitoring service | Fetched fresh on every check, shown first in the flood answer, in the Agency's own words; if the fetch fails, the check answers from the filed flood maps alone and says so. Nothing about a warning is ever written to the database. |
 
 ## 4. Never held and never pulled — handed off
 
-| Item | What the user gets instead |
-| --- | --- |
-| Planning applications | A link to the GOV.UK register of planning decisions — no national dataset exists to file |
-| The building-safety register | A link to the official register lookup — the register cannot be downloaded, by design |
+| Item                             | What the user gets instead                                                                                              |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Planning applications            | A link to the GOV.UK register of planning decisions — no national dataset exists to file                                |
+| The building-safety register     | A link to the official register lookup — the register cannot be downloaded, by design                                   |
 | This home's own council tax band | No per-home data exists anywhere; we serve the council's full band scale instead and the family reads their band off it |
 
 ## When the loading happens
