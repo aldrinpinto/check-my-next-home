@@ -783,6 +783,79 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
     }
   });
 
+  it("air yardsticks (M6.29, D50/D57): the report-depth positions serve through the real source on the locked PCM triples", () => {
+    const area = (tag: string) => {
+      const a = get(tag).area;
+      if (a.kind !== "area-bundle") throw new Error(`${tag}: expected an area bundle`);
+      return a.sections;
+    };
+    // Added at the D53 closure pass: until here the
+    // replay carried no air-specific assertion (recorded
+    // at M6.29), so the yardstick block — M6.29's whole
+    // serving addition — had no real-source proof. The
+    // values are the locked PCM 2024 triples (the
+    // matrix's M6.6 lock), read through the real source
+    // from the filed fixture squares; the positions are
+    // D57's boundary semantics applied to those figures,
+    // premise-checked field by field against the filing
+    // at the closure pass.
+    const cases: {
+      tag: string;
+      values: [number, number, number];
+      positions: [string, string, string];
+    }[] = [
+      {
+        tag: "birkdale1",
+        values: [8.150298, 7.124671, 12.54823],
+        positions: ["below-both", "between", "below-both"],
+      },
+      {
+        tag: "exeter1",
+        values: [21.71409, 9.939679, 16.97423],
+        positions: ["between", "between", "between"],
+      },
+      {
+        tag: "minerva1",
+        values: [12.49256, 7.868347, 12.10357],
+        positions: ["between", "between", "below-both"],
+      },
+    ];
+    const summaryFor = (position: string) =>
+      position === "between"
+        ? "within the UK legal limit, but above the stricter WHO guideline"
+        : "within the UK legal limit, and below the stricter WHO guideline";
+    for (const { tag, values, positions } of cases) {
+      const air = area(tag).air;
+      expect(air.state).toBe("served");
+      expect(air.year).toBe(2024);
+      expect([air.no2, air.pm25, air.pm10]).toEqual(values);
+      const yardsticks = air.yardsticks;
+      if (!yardsticks) throw new Error(`${tag}: yardsticks missing on a served section`);
+      expect(yardsticks.basisLine).toBe(
+        "A figure's position against these yardsticks is a scale for reading the figure. Whether a legal limit is met is decided for whole zones from monitoring and modelling together — not from one square's modelled background figure, and never for an individual home.",
+      );
+      expect(yardsticks.pollutants.map((p) => p.pollutant)).toEqual(["NO2", "PM2.5", "PM10"]);
+      expect(yardsticks.pollutants.map((p) => p.value)).toEqual(values);
+      expect(yardsticks.pollutants.map((p) => p.position)).toEqual(positions);
+      expect(yardsticks.pollutants.map((p) => p.summaryLine)).toEqual(positions.map(summaryFor));
+      // The figure is never embedded in the yardstick
+      // prose (the M6.29 invariant, through the real
+      // source).
+      for (const p of yardsticks.pollutants) expect(p.yardstickLine).not.toContain(String(p.value));
+    }
+    // One yardstick line verbatim, and the above-limit
+    // arm: no golden home's figure exceeds a UK limit
+    // (above ×0 on the real triples — the arm itself is
+    // fixtured synthetically in the serving suite).
+    const birkdale = area("birkdale1").air;
+    expect(birkdale.yardsticks?.pollutants[0]?.yardstickLine).toBe(
+      "NO2 yardsticks: the UK legal limit is 40 µg/m³ as an annual mean (the Air Quality Standards Regulations 2010), and the World Health Organization's 2021 guideline is 10 µg/m³ as an annual mean.",
+    );
+    for (const { tag } of cases)
+      for (const p of area(tag).air.yardsticks?.pollutants ?? [])
+        expect(p.position).not.toBe("above-uk-limit");
+  });
+
   it("AQMA (M6.30, D59): the three states serve through the real source on the fixture filing", () => {
     const area = (tag: string) => {
       const a = get(tag).area;
@@ -1214,6 +1287,21 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
     if (!nescot) throw new Error("expected NESCOT among Minerva's sixth-forms places");
     expect(nescot).not.toHaveProperty("destinations");
     expect(nescot).not.toHaveProperty("urn");
+
+    // The suppressed and no-row SERVING states have no
+    // witness in this corpus — named at the D53 closure
+    // pass, not silently absent: the only suppressed
+    // rows the fixture filing carries belong to schools
+    // no golden home serves (URN 105602 at KS4, URN
+    // 106004 at KS5), and Plashet School (URN 152267),
+    // the schools fixture's genuine no-row secondary,
+    // stands outside every golden home's served three.
+    // Both states are pinned verbatim in
+    // tests/school-destinations.test.ts, and their
+    // filing side in tests/load-school-destinations
+    // .test.ts (Plashet files no row; the two witnesses
+    // file suppressed with cohort 1). See the matrix's
+    // D53 entry.
   });
 
   it("live flood warnings + school deadlines (M6.22, D42): composition over the real flood source; the deadline line at the regional witnesses", async () => {
@@ -1280,6 +1368,48 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
     const edinburghNearby = get("edinburgh2").nearby;
     if (edinburghNearby.kind !== "distances") throw new Error("expected distances");
     expect(edinburghNearby.schoolDeadlines).toBeNull();
+  });
+
+  it("maternity units (M6.24): the category serves through the real source — within at Exeter and Minerva, the beyond-nearest golden at Birkdale", () => {
+    const category = (tag: string, key: string) => {
+      const n = get(tag).nearby;
+      if (n.kind !== "distances") throw new Error(`${tag}: expected distances`);
+      const found = n.categories.find((c) => c.category === key);
+      if (!found) throw new Error(`${tag}: no ${key} answer`);
+      return found;
+    };
+    // Added at the D53 closure pass: the CQC replay cell
+    // below reads maternity places for their ratings, but
+    // the category's own states — above all Birkdale's
+    // beyond-nearest golden, the honest answer for a
+    // home with no unit inside the radius — had no
+    // real-source proof. The goldens are the matrix's
+    // M6.24 entry, computed from the filed fixture data;
+    // premise-checked through the real source at the
+    // closure pass.
+    const birkdale = category("birkdale1", "maternity");
+    expect(birkdale.state).toBe("none-within");
+    expect(birkdale.countWithin).toBe(0);
+    expect(birkdale.places).toEqual([]);
+    expect(birkdale.beyondNearest).toEqual({ name: "Broomfield Hospital", miles: 5.89 });
+    expect(birkdale.line).toBe(
+      "none within 2 miles — nearest is Broomfield Hospital, 5.89 miles away (straight-line distance from the postcode point)",
+    );
+    // The within arm at the other two universal homes:
+    // the one unit inside the radius, at its filed
+    // distance.
+    const exeter = category("exeter1", "maternity");
+    expect(exeter.state).toBe("within");
+    expect(exeter.countWithin).toBe(1);
+    expect(exeter.places.map((p) => [p.name, p.miles])).toEqual([
+      ["Newham University Hospital", 0.782],
+    ]);
+    const minerva = category("minerva1", "maternity");
+    expect(minerva.state).toBe("within");
+    expect(minerva.countWithin).toBe(1);
+    expect(minerva.places.map((p) => [p.name, p.miles])).toEqual([
+      ["Epsom General Hospital", 1.732],
+    ]);
   });
 
   it("CQC ratings (M6.25): the filed ratings serve through the real source, on the loader's own join", () => {

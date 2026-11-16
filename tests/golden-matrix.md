@@ -2547,3 +2547,76 @@ release files at the step's first checks.
    dependencies, the `destinationsFiled` guard (a
    hand-run filing busts on the count alone) and the
    shapeOk presence rule for the destinations key.
+
+## D53 closure — the replay completed (M6 closure pass)
+
+The M6 Definition-of-Done closure pass audited the
+golden replay against every serving state added since
+M6.19 and closed the two real-source gaps it found;
+the replay stands at 26 cells. The full audit — the
+coverage matrix outcome, the contract freeze, the
+test-gap enumeration and the gaps carried to M12.10
+by name — is docs/backend-m6-closure.md.
+
+1. **Air yardsticks (M6.29) — replay cell added.** The
+   replay previously carried no air-specific assertion
+   (recorded at M6.29: air was exercised only through
+   the shared shape pins and bundle builds), so the
+   yardstick block — M6.29's whole serving addition —
+   had no real-source proof. The new cell asserts, for
+   each universal home, the served PCM 2024 triple
+   exactly as locked above (Birkdale 8.150298 /
+   7.124671 / 12.54823; Exeter 21.71409 / 9.939679 /
+   16.97423; the Epsom flat 12.49256 / 7.868347 /
+   12.10357 µg/m³), the D57 positions (Birkdale
+   below-both / between / below-both; Exeter between
+   ×3; the Epsom flat between / between / below-both),
+   the summary lines, the basis line verbatim, and the
+   no-figure-in-the-prose invariant. Above-limit ×0 on
+   the real triples, as locked; the above arm stays
+   fixtured synthetically in the serving suite.
+2. **Maternity units (M6.24) — replay cell added.**
+   The CQC cell read maternity places for their
+   ratings, but the category's own states had no
+   real-source proof. The new cell asserts Birkdale's
+   beyond-nearest golden through the real source
+   (none-within, countWithin 0, Broomfield Hospital
+   named at 5.89 miles, the line verbatim) and the
+   within arm at Exeter (Newham University Hospital,
+   0.782) and the Epsom flat (Epsom General Hospital,
+   1.732) — the M6.24 goldens above, now replayed.
+3. **Destinations suppressed and no-row — named
+   witness gap, closed by citation.** No honest replay
+   witness exists in the corpus, verified at the
+   closure pass by filing the fixture corpus and
+   reading every golden home's served secondaries
+   through the real source: the only suppressed rows
+   the filing carries belong to schools no golden home
+   serves (URN 105602 at KS4, URN 106004 at KS5, each
+   cohort 1), and Plashet School (URN 152267), the
+   schools fixture's genuine no-row secondary, stands
+   outside every golden home's served three. Both
+   states stay pinned verbatim in the serving suite
+   (tests/school-destinations.test.ts) with their
+   filing side pinned in the loader suite
+   (tests/load-school-destinations.test.ts: Plashet
+   files no row; both witnesses file suppressed).
+   Nothing at M12 changes this — it is a property of
+   the golden set, recorded here so the absence is a
+   checked fact, not a silent gap.
+4. **States deliberately not replayed, each with its
+   proof home** (the replay corpus files the current
+   data, so time-relative and empty-table states
+   cannot occur in it): crime's stale window (state
+   matrix, controlled clock); the flood warnings
+   could-not-check arm (state matrix; the replay
+   composes the warnings and none arms over the real
+   flood source); charging zones' full outside line
+   behind the open completeness gate and the unfiled
+   table's not-covered line (tests/charging-zones
+   .test.ts — the corpus files 11 of 12 schemes, so
+   the gate cannot open in it); the not-filed family
+   for AQMA, destinations, defences and climate
+   (the serving suites and the contracts pins'
+   not-filed forms); sixth forms' not-filed state
+   (state matrix).
