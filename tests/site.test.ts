@@ -34,9 +34,16 @@ describe("site identity", () => {
     expect(SITE_MANIFESTO).toBe("For the family who'll live there — not just the buyer.");
   });
 
-  it("keeps the family headline as homepage hero copy only (D38)", () => {
+  // D44 (16 Nov 2026), corrected at M7.2 — this pin change IS
+  // the decision record, as the D38 change above was. D38 kept
+  // the M3 family headline as homepage hero copy; D44 retired
+  // it from the hero entirely and made the Final Design's
+  // family-pass headline the H1. The M3 line now survives
+  // nowhere in the product (tests/home-page.test.ts guards the
+  // page and the constants against its return).
+  it("carries the D44 hero headline — the M3 line is retired (M7.2)", () => {
     expect(HOME_HERO_HEADLINE).toBe(
-      "Your family's next home — check what the listing doesn't tell you.",
+      "You're not buying a house. You're choosing your family's home.",
     );
   });
 

@@ -660,6 +660,109 @@ a:hover {
   margin-bottom: var(--space-3);
 }
 
+/* --- Home page (M7.2) -----------------------------------------------
+   The landing page's blocks, built from the kit's tokens only.
+   The hero's order is the document order — kicker, headline,
+   sub-line, postcode box, tagline — so it is identical on
+   mobile with no reordering rules. The kicker is set in Forest:
+   Brass on white is the logotype's pairing (the header), and
+   running text keeps the kit's verified contrast. */
+.hero {
+  margin-bottom: var(--space-8);
+}
+
+.hero__kicker {
+  font-weight: 700;
+  color: var(--colour-heading);
+  margin-bottom: var(--space-3);
+}
+
+.hero__tagline {
+  font-size: var(--font-size-lead);
+  font-weight: 700;
+  color: var(--colour-heading);
+  margin-bottom: 0;
+}
+
+.hero__art {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-top: var(--space-6);
+}
+
+.postcode-box {
+  max-width: 32rem;
+  margin-bottom: var(--space-5);
+}
+
+.audience-cards {
+  display: grid;
+  gap: var(--space-5);
+  margin-bottom: var(--space-8);
+}
+
+.audience-cards .card {
+  margin-bottom: 0;
+}
+
+@media (min-width: 48rem) {
+  .audience-cards {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.card__art {
+  display: block;
+  height: 3rem;
+  width: auto;
+  margin-bottom: var(--space-3);
+}
+
+.home-section {
+  margin-bottom: var(--space-8);
+}
+
+.checks-list {
+  list-style: none;
+}
+
+.checks-list li {
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--cmnh-brass-pale);
+}
+
+.checks-list__name {
+  display: block;
+  font-weight: 700;
+  color: var(--colour-heading);
+}
+
+.manifesto-block {
+  background: var(--colour-surface);
+  border: 1px solid var(--cmnh-brass-pale);
+  border-radius: var(--radius);
+  padding: var(--space-7) var(--space-5);
+  margin-bottom: var(--space-8);
+  text-align: center;
+}
+
+.manifesto-block__headline {
+  font-size: var(--font-size-h2);
+  line-height: var(--line-height-heading);
+  font-weight: 700;
+  color: var(--colour-heading);
+  margin-bottom: var(--space-3);
+}
+
+.manifesto-block__line {
+  font-weight: 600;
+}
+
+.manifesto-block > :last-child {
+  margin-bottom: 0;
+}
+
 /* --- Kitchen-sink helpers -------------------------------------------
    The gallery page's own furniture (swatches, specimens). The
    page itself is environment-gated and never ships to the real

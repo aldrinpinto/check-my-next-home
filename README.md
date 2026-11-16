@@ -1,6 +1,6 @@
 # Check My Next Home
 
-Your family's next home — check what the listing doesn't tell you.
+Check the house. Choose the home.
 
 A one-page property checker for UK home movers: enter a postcode and get the
 facts a listing leaves out — schools, flooding, crime counts, sold prices,

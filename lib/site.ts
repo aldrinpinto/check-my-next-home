@@ -15,12 +15,14 @@ export const SITE_TAGLINE = "Check the house. Choose the home.";
 // never in a title or a meta description.
 export const SITE_MANIFESTO = "For the family who'll live there — not just the buyer.";
 
-// The M3 family headline, superseded as the site's strapline by
-// D12's tagline. It survives ONLY as homepage hero copy, under the
-// manifesto kicker (D38) — it is no longer a site-wide strapline
-// constant, and nothing else may consume it.
-export const HOME_HERO_HEADLINE =
-  "Your family's next home — check what the listing doesn't tell you.";
+// The homepage hero headline (D44, founder ruling 16 Nov 2026;
+// corrected at M7.2). The M3 family headline this constant used
+// to carry was kept as hero copy by D38; D44 retired it from
+// the hero entirely, and this correction is the retirement
+// landing in the code — the M3 line survives nowhere in the
+// product now. This line is homepage hero copy only: it is not
+// a site-wide strapline, and nothing else may consume it.
+export const HOME_HERO_HEADLINE = "You're not buying a house. You're choosing your family's home.";
 
 // The homepage's meta description (M6.10, D38): descriptive voice
 // with the as-published frame — what is checked and from what,

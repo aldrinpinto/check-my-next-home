@@ -135,10 +135,12 @@ test.describe("the built site shell", () => {
     async ({ page }) => {
       await page.goto("/");
       await expect(page.locator(".site-header .brand__name")).toHaveText("Check My Next Home");
-      // The homepage itself is still the placeholder — M7.2
-      // builds it. This step is judged by the shells and the
-      // kitchen sink only.
-      await expect(page.locator("main")).toContainText("Coming soon");
+      // The homepage is the real landing page from M7.2; its
+      // own specs live in e2e/home.e2e.ts. This shell test now
+      // only confirms the landing serves under the shells.
+      await expect(page.locator("main h1")).toHaveText(
+        "You're not buying a house. You're choosing your family's home.",
+      );
 
       const iconHrefs = await page
         .locator('link[rel="icon"]')

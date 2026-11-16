@@ -9,7 +9,7 @@ Decided by Aldrin Pinto and finalised on 12 Nov 2026. This file is the site's si
 1. Canonical host: checkmynexthome.co.uk (the .com domain 301-redirects to it).
 2. Tagline (D12, decided 13 Nov 2026): Check the house. Choose the home.
 3. Manifesto (D12): For the family who'll live there — not just the buyer. Hero kicker only — never in the header, a page title or a meta description.
-4. Superseded: the M3 strapline "Your family's next home — check what the listing doesn't tell you." is no longer the site's strapline. It survives only as homepage hero copy, under the manifesto kicker.
+4. Superseded: the M3 strapline is retired entirely (D44, corrected at M7.2). It is no longer the site's strapline and no longer homepage hero copy — it survives nowhere in the product. The homepage hero headline is the D44 line: "You're not buying a house. You're choosing your family's home."
 
 ## Colours — Theme 2, Forest green + brass
 
