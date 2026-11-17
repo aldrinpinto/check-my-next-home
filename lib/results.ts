@@ -42,12 +42,15 @@ export const REPORT_ROUTE = "/report";
 // Small formatters
 // ------------------------------------------------------------------
 
-// Miles as the design's pills and rows state them: at most
-// two decimals, trailing zeros trimmed ("0.44", "5.89",
+// Miles as the design's pills and rows state them: one
+// decimal place, trailing zeros trimmed ("0.4", "5.9",
 // "0.1"). The brains serve miles rounded to three decimals;
-// the page's display precision is two.
+// the page's display precision is one — the finalised
+// sample's form throughout. (CI #205 fix: the two-decimal
+// form rendered the Schools pill's secondary figure as
+// "1.88 mi" against the settled "1.8 mi".)
 export function formatMiles(miles: number): string {
-  return String(Number(miles.toFixed(2)));
+  return String(Number(miles.toFixed(1)));
 }
 
 const MONTH_NAMES = [
@@ -936,6 +939,52 @@ function linesSection(
   return { key, heading, blocks, sourceLine };
 }
 
+// The beyond-nearest radius (CI #205 fix): a beyond row
+// names the nearest essential service when none sits
+// within 2 miles — a local pointer. Beyond this radius
+// the named place is not a local fact in any useful
+// sense, and on an excerpted filing it is exactly the
+// Scotland defect's signature (an England-register
+// nearest hundreds of miles away, served because the
+// GB/UK-wide datasets — NaPTAN, OpenStreetMap, Open
+// Charge Map — are not nation-gated). The results layer
+// therefore serves the category's no-finding line
+// instead of the row, in every nation: the transformation
+// sits beside the nation gating and feeds the same two
+// consumers (sections and pills). 25 miles stands well
+// clear of every golden's legitimate beyond row — the
+// corpus maximum is Cheam Fields Primary Academy at
+// 14.671 miles (tests/nearby.test.ts) — and in
+// production, with the national filing in place, those
+// datasets serve real near rows for Scottish and NI
+// homes, so the rule costs nothing there; it bites only
+// on excerpt artefacts and genuinely remote pointers,
+// where the named no-finding state is the D30-honest
+// answer. Presentation only, like the gating: no brain
+// output changes, so no contract pin or replay cell
+// moves.
+export const BEYOND_NEAREST_RADIUS_MILES = 25;
+
+function farBeyondLine(category: CategoryAnswer): string {
+  // The brain's own no-finding forms (lib/nearby.ts
+  // emptyLine), mirrored from the served label: the
+  // map-held supermarket category carries the map-gap
+  // caveat; the rest carry the plain form.
+  return category.category === "supermarket"
+    ? `no ${category.label} recorded within 2 miles on the map data we hold — a gap in the map is not proof that none exists`
+    : `no ${category.label} within 2 miles of the postcode point`;
+}
+
+function suppressFarBeyond(category: CategoryAnswer): CategoryAnswer {
+  if (
+    category.state !== "none-within" ||
+    !category.beyondNearest ||
+    category.beyondNearest.miles <= BEYOND_NEAREST_RADIUS_MILES
+  )
+    return category;
+  return { ...category, beyondNearest: null, line: farBeyondLine(category) };
+}
+
 export function buildResultsView(input: ResultsInput): ResultsView {
   const { resolution, flood, crime, area, short } = input;
   const sections = short.sections;
@@ -945,9 +994,14 @@ export function buildResultsView(input: ResultsInput): ResultsView {
   const nearby = input.nearby.kind === "distances" ? input.nearby : null;
   // The gated categories are treated as absent everywhere
   // in this view — sections and pills alike (gap check
-  // Section 3: one gate feeds both consumers).
+  // Section 3: one gate feeds both consumers). Beyond
+  // rows past the sane radius are suppressed at the same
+  // point, for the same reason (CI #205 fix).
   const effectiveNearby = nearby
-    ? { ...nearby, categories: nearby.categories.filter((c) => !gated.has(c.category)) }
+    ? {
+        ...nearby,
+        categories: nearby.categories.filter((c) => !gated.has(c.category)).map(suppressFarBeyond),
+      }
     : null;
   const categories = new Map<string, CategoryAnswer>(
     (effectiveNearby?.categories ?? []).map((category) => [category.category, category]),

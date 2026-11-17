@@ -834,3 +834,153 @@ rule), with the real wiring behind them. Seven workstreams:
    name: this is a presentation-layer fix — M8.1's report
    derivation must apply the same table, or the project takes
    the brain un-freeze then.
+
+## CI #205 fix (17 Nov 2026) — the fold-in's browser job: 40 passed, 7 failed
+
+CI #205 (commit c344f68) ran checks, secrets and database
+green; the browser job failed 7 of 47 Playwright tests.
+Each failure's class and fix:
+
+1. STALE TEST — e2e/home.e2e.ts (the manifesto test)
+   expected a "See a SAMPLE report" link (href
+   /sample-report). That link lived in the "See a full
+   example" section the founder ruled removed; the
+   fold-in removed the section but not this expectation.
+   The spec now keeps the manifesto assertions and pins
+   the removal instead: the exact-case link's count is 0
+   and main does not contain "See a full example". (The
+   report band's own "See a sample report" CTA is a
+   different label and stays; the unit suite already
+   asserted the section's absence.)
+
+2. STALE TEST — e2e/kitchen-sink.e2e.ts expected the
+   header nav as four items. The fold-in added Contact
+   as the fifth (D77(g)); the expected list is now the
+   five items.
+
+3. STALE TEST — e2e/results.e2e.ts (the old D39
+   calibration test) asserted the substring "per 1,000
+   residents" plus the D39 basis lines. D77(a)
+   superseded the form; the spec now asserts the D77(a)
+   pair in its settled form (see item 6 for why the
+   England figure is pinned in form only).
+
+4. STALE TEST — e2e/results.e2e.ts expected a standalone
+   [data-section="noise"] holding "by day". D76 combined
+   noise into "Air quality & noise" (key air-noise) in
+   The Neighbourhood tab. The spec now opens that tab
+   and asserts the combined section carries the served
+   bands, "by day" and "by night".
+
+5. PRODUCT BUG — distance precision. The Schools pill
+   rendered its figure at two decimals ("0.29 / 1.88
+   mi") because formatMiles (lib/results.ts) formatted
+   to 2dp. The settled form is one decimal place
+   uniformly — the finalised sample's displays are all
+   1dp roundings of the served values. formatMiles now
+   formats to 1dp, and every pin that stated a 2dp
+   rendering was updated to the same fact at 1dp (the
+   formatMiles unit test, the place-group and pill unit
+   expectations, the shortlist unit and E2E
+   expectations). Two honest notes. (a) The brief's
+   quoted target for the pill, "0.29 / 1.8 mi", is not
+   reachable from the served raw values under any
+   uniform rule: the corpus serves primary in
+   [0.285, 0.295) and secondary in [1.875, 1.885), so a
+   uniform 1dp rule renders "0.3 / 1.9 mi" — the spec
+   now expects exactly that; the sample's "1.8" is the
+   production golden's own rounding (the fixture
+   corpus's secondary value differs from production's,
+   a documented fixture-vs-production divergence).
+   (b) Brain-composed lines keep the brains' own
+   three-decimal figures ("nearest is X, 14.671 miles
+   away") — contract-pinned brain output, untouched;
+   the 1dp rule governs the results layer's own
+   formatting (rows, pills, shortlist cards).
+
+6. CRIME PERCENTAGE — not a wiring bug. The brief
+   supposed the renderer read the England figure from a
+   raw-count field; it does not — lib/results.ts reads
+   perHead.per1000 and englandFigure.englandPer1000,
+   and on the production pair (51.7 against 94.5) it
+   renders exactly the settled line, now pinned by a
+   new unit test (51.7 vs 94.5 → "330 crimes recorded in
+   the last 12 months — about 45% below the England
+   average." with the calibration pair beneath). What
+   CI served instead — "about 100% below", "figure is
+   933039" — is the fixture corpus's England figure,
+   933,039.0 per 1,000, which is correct arithmetic on
+   the excerpt BY PINNED DESIGN: the golden replay
+   asserts it as an identity (the fixture national
+   total, 5,503,997, over the excerpt's 5,899 filed
+   residents — only the three golden LSOAs are filed in
+   lsoa_bases), while the golden matrix locks 94.5 for
+   the FULL bases only. No honest E2E can assert
+   45%/94.5 against this corpus without moving
+   fixtures, replay cells or pins — all forbidden — so
+   the E2E specs now pin the D77(a) FORM plus the
+   corpus-true local figure (the main line, the local
+   half of the pair, "Across England, the figure is"),
+   the same form-not-value philosophy the old D39 spec
+   used, and the computation itself is pinned at unit
+   level on the production pair. The :178 failure was
+   only the stale substring ("330 recorded crimes" for
+   the settled "330 crimes recorded in the last 12
+   months") and is aligned.
+
+7. GATING GAP — the EH1 1AD page served beyond-nearest
+   rows for the ungated GB/UK-wide categories from the
+   excerpted corpus (station 279.26 mi, supermarket
+   306.32 mi, bus stops 308.38 mi), tripping the
+   page-level guard (no /\d{3}\.\d+ mi/ anywhere). The
+   guard stands untouched. Mechanism (the brief's
+   preferred): a results-layer radius rule in
+   lib/results.ts — BEYOND_NEAREST_RADIUS_MILES = 25.
+   A none-within category whose beyond-nearest sits
+   past 25 miles serves its no-finding line instead of
+   the row (the brain's own empty-line forms, mirrored
+   from the served label; the supermarket category
+   carries the map-gap caveat verbatim). The
+   transformation sits beside the nation gating in
+   buildResultsView and feeds the same two consumers,
+   sections and pills, in every nation. Justification:
+   the corpus's maximum legitimate beyond row is
+   14.671 miles (Cheam Fields Primary Academy,
+   tests/nearby.test.ts); the goldens' others run
+   3.2–6 miles (Birkdale's A&E beyond at 5.89 among
+   them), so 25 miles clears every legitimate row with
+   ~70% headroom, while the defect's signature is
+   279+ miles. Production trade-off, recorded: a
+   genuinely remote home whose nearest essential
+   service is past 25 miles (a Highlands A&E, say) now
+   serves the no-finding line rather than a very
+   distant pointer — the D30-honest answer at that
+   distance; and for Scotland/NI the GB/UK-wide
+   datasets serve real near rows once the national
+   filing lands at M12, so the rule costs nothing
+   there. The gating unit fixtures, whose beyond miles
+   were 281–338 (excerpt artefacts in the same class),
+   were re-based into the legitimate range so the
+   England control isolates the gating alone, and a new
+   unit test pins the radius rule under an England
+   resolution (station, bus stop, supermarket and A&E
+   fixtures at 279–324 miles all serve their no-finding
+   lines; no three-digit-miles figure anywhere; no A&E
+   pill). Observed and left alone, by scope: the
+   shortlist card builder reads raw bundles with its
+   own nearestOf — cards are save-time snapshots, the
+   add control never renders on Scotland/NI pages, and
+   the founder's guard is the results page.
+
+Gate: npm run prepush exits 0 — Prettier clean, ESLint
+0 errors, typecheck clean, Vitest 75 files / 1,721
+tests (1,695 passed, 26 skipped — the pre-existing
+golden-replay local skips, identical to base — 0
+failed), next build succeeds. The 48 contract pins and
+the 26 replay cells are untouched: no brain file, no
+fixture and no replay/golden file was modified; the
+changed files are lib/results.ts, tests/results.test.ts,
+tests/shortlist.test.ts and the four E2E specs above.
+Playwright was attempted locally and the harness still
+refuses (serve-e2e: DATABASE_URL is not set) — CI is
+the proof for the browser job, as with the fold-in.

@@ -68,7 +68,7 @@ function makeCard(id: string, overrides: Partial<ShortlistCard> = {}): Shortlist
     scopeLabel: "19 Birkdale Rise, CM3 2JT",
     addressLine: "19 Birkdale Rise, CM3 2JT",
     lastSale: { price: 588995, date: "2023-06-15", typeLabel: "Detached", tenureLabel: "Freehold" },
-    factsLine: "Nearest primary 0.42 mi",
+    factsLine: "Nearest primary 0.4 mi",
     comparison,
     savedAt: "2026-11-17T08:00:00.000Z",
     ...overrides,
@@ -445,7 +445,7 @@ describe("card assembly", () => {
       typeLabel: "Detached",
       tenureLabel: "Freehold",
     });
-    expect(card?.factsLine).toBe("Nearest primary 0.42 mi • Chelmsford 2.31 mi");
+    expect(card?.factsLine).toBe("Nearest primary 0.4 mi • Chelmsford 2.3 mi");
     expect(card?.comparison.primary).toEqual({
       kind: "distance",
       name: "Birkdale Primary School",

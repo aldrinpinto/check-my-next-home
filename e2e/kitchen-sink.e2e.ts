@@ -25,12 +25,14 @@ test.describe("kitchen sink — the M7.1 kit renders", () => {
       );
       // Fidelity pass 2: the nav is the decided sample
       // page's set — D44's Guides item is superseded for the
-      // chrome and returns when guide pages exist.
+      // chrome and returns when guide pages exist. The
+      // fold-in added Contact as the fifth item (D77(g)).
       await expect(page.locator(".site-nav__link")).toHaveText([
         "How we check",
         "Sample report",
         "About",
         "Shortlist",
+        "Contact",
       ]);
       await expect(page.locator(".site-footer")).toBeVisible();
       await expect(page.locator(".site-footer .brand__name")).toHaveText("Check My Next Home");

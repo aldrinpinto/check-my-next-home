@@ -47,7 +47,7 @@ function specCard(overrides: Partial<ShortlistCard> & { id: string }): Shortlist
       typeLabel: "Detached",
       tenureLabel: "Freehold",
     },
-    factsLine: "Nearest primary 0.42 mi • Chelmsford 2.31 mi",
+    factsLine: "Nearest primary 0.4 mi • Chelmsford 2.3 mi",
     savedAt: "2026-11-17T08:00:00.000Z",
     comparison: {
       primary: { kind: "distance", name: "Birkdale Primary School", miles: 0.42 },
@@ -216,7 +216,7 @@ test.describe("shortlist — regression", () => {
       // flood and crime cells are pointers in every column.
       const primaryRow = compare.locator('.compare-table [data-compare-row="primary"]');
       await expect(primaryRow.locator("td").first()).toContainText("Birkdale Primary School");
-      await expect(primaryRow.locator(".place-row__miles--green").first()).toHaveText("0.42 mi");
+      await expect(primaryRow.locator(".place-row__miles--green").first()).toHaveText("0.4 mi");
       for (const rowKey of ["flood", "crime"]) {
         const cells = compare.locator(`.compare-table [data-compare-row="${rowKey}"] td`);
         await expect(cells).toHaveCount(3);

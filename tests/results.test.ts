@@ -386,7 +386,11 @@ function floodBundle(liveWarnings: FloodLiveWarnings | null): FloodBundle {
   } as unknown as FloodBundle;
 }
 
-function crimeBundle(multiple: number | null, staleLine: string | null = null): CrimeBundle {
+function crimeBundle(
+  multiple: number | null,
+  staleLine: string | null = null,
+  per1000 = 44.9,
+): CrimeBundle {
   return {
     rung: 1,
     kind: "crime",
@@ -406,7 +410,7 @@ function crimeBundle(multiple: number | null, staleLine: string | null = null): 
       sourceLine: "Police.uk crime data",
       explainer: "explainer",
       perHead: {
-        per1000: 44.9,
+        per1000,
         line: "about 45 recorded crimes per 1,000 residents in this postcode's area",
         basisLine:
           "BASIS-LINE: each rate divides the 12-month count by the area's usual residents (Census 2021)",
@@ -500,11 +504,11 @@ function allText(view: unknown): string {
 }
 
 describe("results — formatters and distance bands", () => {
-  it("formatMiles trims to two decimals", () => {
-    expect(formatMiles(0.442)).toBe("0.44");
-    expect(formatMiles(5.89)).toBe("5.89");
+  it("formatMiles renders one decimal place, trailing zeros trimmed (CI #205 fix)", () => {
+    expect(formatMiles(0.442)).toBe("0.4");
+    expect(formatMiles(5.89)).toBe("5.9");
     expect(formatMiles(0.1)).toBe("0.1");
-    expect(formatMiles(4.213)).toBe("4.21");
+    expect(formatMiles(4.213)).toBe("4.2");
   });
 
   it("distanceBand applies the design's per-family thresholds", () => {
@@ -565,7 +569,7 @@ describe("results — place groups", () => {
       "Birkdale Primary School",
       "Hatfield Peverel Infant School",
     ]);
-    expect(group.rows[0].milesText).toBe("0.44 mi");
+    expect(group.rows[0].milesText).toBe("0.4 mi");
     expect(group.rows[0].band).toBe("green");
     expect(group.rows[1].band).toBe("green");
     expect(group.truncation?.text).toBe(
@@ -735,7 +739,7 @@ describe("results — pill logic D75 (fold-in)", () => {
       area: d75Area(),
     });
     expect(pills?.map(pillText)).toEqual([
-      "Schools 0.44 / 1.87 mi",
+      "Schools 0.4 / 1.9 mi",
       "Flood Very low",
       "Crime Below England average",
       "Noise Quiet",
@@ -1008,6 +1012,18 @@ describe("results — the built view", () => {
     expect(text).not.toContain("burglary");
   });
 
+  it("crime (D77(a)): the percentage is computed from the served pair — 51.7 against 94.5 renders about 45% below (CI #205 fix)", () => {
+    const view = buildResultsView(input({ crime: crimeBundle(0.5, null, 51.7) }));
+    const crime = section(view, "neighbourhood", "crime");
+    const text = JSON.stringify(crime.blocks);
+    expect(text).toContain(
+      "330 crimes recorded in the last 12 months — about 45% below the England average.",
+    );
+    expect(text).toContain(
+      "That's 51.7 recorded crimes for every 1,000 residents here. Across England, the figure is 94.5.",
+    );
+  });
+
   it("air quality & noise render together: the named not-filed line by default, the verbatim bands when served", () => {
     const notFiled = buildResultsView(input());
     const airNoise = section(notFiled, "neighbourhood", "air-noise");
@@ -1170,14 +1186,14 @@ describe("results — nation gating (Scotland/NI gap check, fold-in workstream 6
     });
   const gatedBundle = () =>
     nearbyWith({
-      "schools-primary": beyond("schools-primary", 338.015),
-      "schools-secondary": beyond("schools-secondary", 323.446),
-      "sixth-forms": beyond("sixth-forms", 323.446),
-      gp: beyond("gp", 302.345),
-      dentist: beyond("dentist", 333.259),
-      pharmacy: beyond("pharmacy", 281.972),
-      ae: beyond("ae", 324.328),
-      maternity: beyond("maternity", 324.328),
+      "schools-primary": beyond("schools-primary", 14.671),
+      "schools-secondary": beyond("schools-secondary", 12.446),
+      "sixth-forms": beyond("sixth-forms", 12.446),
+      gp: beyond("gp", 9.345),
+      dentist: beyond("dentist", 11.259),
+      pharmacy: beyond("pharmacy", 8.972),
+      ae: beyond("ae", 5.89),
+      maternity: beyond("maternity", 5.89),
       station: category({
         category: "station",
         state: "within",
@@ -1260,10 +1276,58 @@ describe("results — nation gating (Scotland/NI gap check, fold-in workstream 6
   });
 
   it("England control: identical fixtures under an E code render the beyond rows unchanged", () => {
+    // The fixtures' beyond miles sit inside the legitimate
+    // golden range (the corpus maximum is 14.671), so this
+    // control isolates the nation gating: nothing here is
+    // gated, and nothing is radius-suppressed either.
     const view = buildResultsView(input({ nearby: gatedBundle() }));
     const primary = section(view, "family", "schools-primary");
     expect(JSON.stringify(primary.blocks)).toContain("Far Away Place");
-    expect(JSON.stringify(primary.blocks)).toContain("338.01 mi");
+    expect(JSON.stringify(primary.blocks)).toContain("14.7 mi");
+  });
+
+  it("beyond radius (CI #205 fix): a nearest beyond 25 miles serves the no-finding line, in England too", () => {
+    const far = (key: string, label: string, miles: number) =>
+      category({
+        category: key as never,
+        label,
+        state: "none-within",
+        places: [],
+        countWithin: 0,
+        beyondNearest: { name: "Far Away Place", miles },
+        line: `none within 2 miles — nearest is Far Away Place, ${miles} miles away`,
+      });
+    const view = buildResultsView(
+      input({
+        nearby: nearbyWith({
+          station: far("station", "stations", 279.258),
+          "bus-stop": far("bus-stop", "bus stops", 308.378),
+          supermarket: far("supermarket", "supermarkets", 306.32),
+          ae: far("ae", "A&E hospitals", 324.328),
+        }),
+      }),
+    );
+    const transport = section(view, "nearby", "transport");
+    expect(JSON.stringify(transport.blocks)).toContain(
+      "no stations within 2 miles of the postcode point",
+    );
+    expect(JSON.stringify(transport.blocks)).toContain(
+      "no bus stops within 2 miles of the postcode point",
+    );
+    const shops = section(view, "nearby", "shops");
+    expect(JSON.stringify(shops.blocks)).toContain(
+      "no supermarkets recorded within 2 miles on the map data we hold — a gap in the map is not proof that none exists",
+    );
+    const hospitals = section(view, "nearby", "hospitals");
+    expect(JSON.stringify(hospitals.blocks)).toContain(
+      "no A&E hospitals within 2 miles of the postcode point",
+    );
+    const text = allText(view);
+    expect(text).not.toContain("Far Away Place");
+    expect(text).not.toMatch(/\d{3}\.\d+ mi/);
+    // The pill builder reads the same suppressed view: no
+    // A&E pill is struck from a 324-mile pointer.
+    expect(view.pills?.map((pill) => pill.label) ?? []).not.toContain("A&E");
   });
 });
 

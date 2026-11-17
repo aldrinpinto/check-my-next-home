@@ -131,7 +131,7 @@ test.describe("home page — regression", () => {
   // page's only tour of the checks, as in the sample).
 
   test(
-    "the manifesto block appears once, mid-page, and the SAMPLE link is labelled",
+    "the manifesto block appears once, mid-page, and the removed example section stays removed",
     { tag: "@regression" },
     async ({ page }) => {
       await page.goto("/");
@@ -140,11 +140,17 @@ test.describe("home page — regression", () => {
       );
       await expect(page.locator(".manifesto-block")).toHaveCount(1);
 
-      // exact: the report band's CTA is "See a sample report"
-      // — the same name up to case (founder follow-on) — so
-      // this locator pins case-sensitively to stay unique.
-      const sample = page.getByRole("link", { name: "See a SAMPLE report", exact: true });
-      await expect(sample).toHaveAttribute("href", "/sample-report");
+      // The "See a full example" section — the home of the
+      // "See a SAMPLE report" link — was removed by the
+      // founder's ruling and the fold-in (CI #205 fix: this
+      // spec still expected the link). The report band's
+      // own CTA, "See a sample report", is a different
+      // label and stays; the exact-case locator keeps the
+      // two apart.
+      await expect(
+        page.getByRole("link", { name: "See a SAMPLE report", exact: true }),
+      ).toHaveCount(0);
+      await expect(page.locator("main")).not.toContainText("See a full example");
       await expect(page.locator("main")).not.toContainText("Coming soon");
     },
   );

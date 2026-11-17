@@ -71,7 +71,7 @@ test.describe("results page — smoke", () => {
       const pills = page.locator(".results-strip .pill--summary");
       await expect(pills).toHaveCount(5);
       await expect(pills.nth(0)).toContainText("Schools");
-      await expect(pills.nth(0).locator(".pill__figure")).toHaveText("0.29 / 1.8 mi");
+      await expect(pills.nth(0).locator(".pill__figure")).toHaveText("0.3 / 1.9 mi");
       await expect(pills.nth(1)).toContainText("Flood");
       await expect(pills.nth(1)).toContainText("Very low");
       await expect(pills.nth(2)).toContainText("Crime");
@@ -92,13 +92,21 @@ test.describe("results page — smoke", () => {
       await expect(page.locator('[data-section="schools-primary"] .place-row')).not.toHaveCount(0);
 
       // The Neighbourhood: crime in the D77(a) percentage
-      // form with the calibration pair beneath.
+      // form with the calibration pair beneath. The local
+      // figure is the corpus's locked golden (51.7); the
+      // England figure is pinned in form only — on this
+      // excerpted corpus the served England figure is the
+      // fixture total's arithmetic on the excerpt's filed
+      // residents (the golden replay asserts it as an
+      // identity, not the production value), and the
+      // production pair (51.7 against 94.5, about 45%
+      // below) is pinned at unit level (CI #205 fix).
       await openTab(page, "The Neighbourhood");
       const crime = page.locator('[data-section="crime"]');
       await expect(crime).toContainText("330 crimes recorded in the last 12 months");
-      await expect(crime).toContainText("about 45% below the England average");
+      await expect(crime).toContainText(/about \d+% below the England average/);
       await expect(crime).toContainText(
-        "51.7 recorded crimes for every 1,000 residents here. Across England, the figure is 94.5.",
+        "That's 51.7 recorded crimes for every 1,000 residents here. Across England, the figure is",
       );
 
       // What's Nearby: nearest 1 of each kind.
@@ -183,7 +191,9 @@ test.describe("results page — regression", () => {
       await reachResults(page, "CM3 2JT", "19 Birkdale Rise");
       await page.reload();
       await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
-      await expect(page.locator('[data-section="crime"]')).toContainText("330 recorded crimes");
+      await expect(page.locator('[data-section="crime"]')).toContainText(
+        "330 crimes recorded in the last 12 months",
+      );
       await page.goBack();
       await page.waitForURL(/\/search\?postcode=CM3\+2JT/);
       await expect(
@@ -224,32 +234,50 @@ test.describe("results page — regression", () => {
   );
 
   test(
-    "the D39 calibration pair renders together with their basis line (Birkdale)",
+    "the D77(a) calibration pair renders in its settled form (Birkdale)",
     { tag: "@regression" },
     async ({ page }) => {
       await page.goto("/search/home?postcode=CM3+2JT");
       await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
+      await openTab(page, "The Neighbourhood");
       const crime = page.locator('[data-section="crime"]');
-      await expect(crime).toContainText("per 1,000 residents");
-      // The pair together: the England figure line follows
-      // the per-head line, with the basis line under both.
-      // (The fixture corpus's England aggregate is a
-      // synthetic cut, so the spec pins the pair's form, not
-      // the production figure.)
-      await expect(crime).toContainText("the England figure for the same 12 months is");
-      await expect(crime).toContainText("Census 2021");
+      // The pair together, in the D77(a) form that
+      // superseded D39's multiple form on the results
+      // page (CI #205 fix: this spec still asserted the
+      // D39 line and its basis line, neither of which the
+      // settled form renders). The local figure is exact
+      // — it is the corpus's locked golden; the England
+      // figure is pinned in form only, as the D39 spec
+      // pinned it: on this excerpted corpus the served
+      // England figure is the fixture total's arithmetic
+      // on the excerpt (asserted by the golden replay as
+      // an identity), and the production pair (51.7
+      // against 94.5, about 45% below) is pinned at unit
+      // level.
+      await expect(crime).toContainText(
+        "That's 51.7 recorded crimes for every 1,000 residents here. Across England, the figure is",
+      );
+      await expect(crime).toContainText(/about \d+% below the England average/);
+      await expect(crime).toContainText(
+        "Incidents are recorded against nearby streets, not against individual houses.",
+      );
     },
   );
 
   test(
-    "noise renders the served publisher bands, day and night (Birkdale)",
+    "air quality & noise: the combined section renders the served publisher bands, day and night (Birkdale)",
     { tag: "@regression" },
     async ({ page }) => {
       await page.goto("/search/home?postcode=CM3+2JT");
       await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
-      const noise = page.locator('[data-section="noise"]');
-      await expect(noise).toContainText("by day");
-      await expect(noise).toContainText("by night");
+      await openTab(page, "The Neighbourhood");
+      // D76 combined the standalone noise section into
+      // "Air quality & noise" in The Neighbourhood tab
+      // (CI #205 fix: this spec still looked for the old
+      // [data-section="noise"]).
+      const airNoise = page.locator('[data-section="air-noise"]');
+      await expect(airNoise).toContainText("by day");
+      await expect(airNoise).toContainText("by night");
     },
   );
 
