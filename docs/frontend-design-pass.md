@@ -689,3 +689,148 @@ inside the audience cards because the product's text face is
 DM Sans and the mock's is the system stack — the mock's
 geometry, not its typeface, is the authority carried into the
 build.
+
+## Fold-in build (17 Nov 2026) — D73 / D75 / D76 / D77, calculators, Scotland gating
+
+One stacked build on top of fidelity pass 2 (083b640), matching
+the finalized samples in the Final Sample Master (samples-first
+rule), with the real wiring behind them. Seven workstreams:
+
+1. **Checking screen → D73** (lib/journey.ts,
+   components/CheckingScreen.tsx). The screen is now a pure
+   graphic with a purposeful delay, NOT synced to the backend:
+   exactly five grouped rows (Schools & nurseries · Health & the
+   everyday · Safety & surroundings · Costs & connections · Past
+   sales & prices) with the pinned qualifiers, under the pinned
+   heading "Your check is under way" and the pinned sub-line
+   "We present the facts — the decision is yours." Each row's
+   spinner flips to "Done" on the graphic's own clock (~720ms
+   apart); the progress bar at the top advances 20% per row;
+   there is no button, no replay, no resting state, and no
+   failure or not-completed state ever (the Results page carries
+   any "couldn't pull" states). **D73 wiring reconciliation:**
+   the graphic ticks on its own clock; the advance happens when
+   the graphic has finished AND the real check calls have
+   settled (the same three /api/check calls, which warm the D29
+   cache the server-rendered results read), whichever is later,
+   plus ~600ms after the fifth row. A failed call counts as
+   settled — the visitor never sees a failure state here. This
+   supersedes the M7.3/D70 truthful-ticking presentation (nine
+   rows) and the 2,000ms readable hold.
+2. **Results page → the finalized sample** (lib/results.ts,
+   components/ResultsPage.tsx).
+   - **D75 pill system** in summaryPills: five pills; concerning
+     facts first in priority order (max three), good facts fill
+     the remaining slots in priority order; "neither" facts
+     never take a pill. The twelve factors in priority order:
+     Flood (concerning if either check is Low or worse; good if
+     both Very low) · Crime (vs the England per-1,000 figure) ·
+     Schools merged (concerning if primary >1 mi or secondary
+     > 1.5 mi; good only if primary ≤0.5 and secondary ≤1) ·
+     > A&E (>7 / ≤5) · Air quality (WHO 2021 10/5/15 good; UK
+     > legal limits 40/20/40 concerning) · Noise (both road and
+     > rail in the lowest bands good; day ≥65 or night ≥60
+     > concerning) · Deprivation (decile 8–10 good, 1–3
+     > concerning, pill states the decile) · EPC (A/B good, D or
+     > below concerning, C neither, only with a certificate) ·
+     > Vet (≤2 / >5) · Broadband (no superfast concerning, full
+     > fibre good) · Train station (≤1 / >3) · Nurseries (>1 /
+     > ≤0.5). Grammar-school distance and leisure/parks/shops are
+     > NOT pill-eligible. The Birkdale worked example holds in
+     > tests: only Schools is concerning, so the strip reads
+     > Schools · Flood · Crime · Noise · Deprivation.
+   - **D76 four tabs**, fixed order: Family Checks (Primary
+     schools · Secondary schools · Nurseries · Pets) · The
+     Neighbourhood (The neighbourhood in numbers · Crime · Air
+     quality & noise) · Home, Costs & Risks (Sold history ·
+     Costs · Flood · Planning, protection & ownership) ·
+     What's Nearby (Health · Hospitals · Parks · Shops ·
+     Transport · Food & drink · Leisure · Places to visit ·
+     Places of worship & libraries), always last. Tab state
+     stays out of the URL; Family Checks opens by default;
+     calculators sit below the tabs.
+   - **D77 clauses.** (a) Crime serves the percentage form
+     ("about 45% below the England average" style) with the
+     calibration pair beneath; no crime types on the free
+     page. (b) The line under the Results heading is the
+     manifesto line "For the family who'll live there — not
+     just the buyer." (c) Absence/failure copy: not-covered —
+     "[Check] isn't part of this check in [nation] — the
+     figures we use cover England and Wales."; couldn't-pull —
+     the section keeps its heading with "We couldn't pull this
+     just now — the rest of your check is below. Try again in
+     a little while." plus a Try again link re-running the
+     page (and so just that section's fetch); not-published
+     states keep their existing named lines. (e) The census
+     headlines block "The neighbourhood in numbers" sits in
+     The Neighbourhood tab, its four labelled lines composed
+     from the served Census tables + IMD decile, with the
+     finalized small print. (d) The "Owned by a company" row
+     renders ONLY from the served bundle key
+     (area.sections.companyOwnership), which is absent while
+     COMPANY_OWNERSHIP_ENABLED is off — asserted in tests both
+     ways.
+   - **Upsell trims (alignment F1/F3):** the schools upsells
+     promise the schools with Ofsted ratings and inspection
+     dates (and sixth-form provision for secondaries) — never
+     "full Ofsted reports", "ERA detail" or "admissions
+     deadlines"; the nurseries upsell promises the fuller
+     nursery list — never "Ofsted outcomes and dates".
+   - **Founder flood ruling (17 Nov 2026, alignment F4,
+     softened form adopted):** the buy-bar line and the flood
+     upsell do NOT promise flood map pictures. Buy bar:
+     "Everything behind the headlines — the breakdowns, the
+     flood findings with location maps, the fuller EPC detail
+     and the questions to ask the seller — in one dated,
+     print-ready document. Or save this home and compare it
+     first." Flood upsell lead: "Plus the flood findings in
+     full, with a location map for each check"; its detail line
+     (defences, and how the picture changes in the years ahead)
+     is unchanged, since defences and climate ARE served.
+3. **Calculators (M7.10 as amended)** (lib/calculators.ts,
+   components/Calculators.tsx): "Could this home fit your
+   life?" below the tabs. Mortgage pre-fills from the home's
+   own last recorded sale price with a 25% deposit (Birkdale:
+   £588,995 / £147,249 / £2,455 a month on a £441,746 loan at
+   4.5% over 25 years); stamp duty pre-fills the same price,
+   framed "On the price this home last sold for, the stamp
+   duty would be £X — put in the price you'd actually offer,
+   and it moves with you."; buyer choices "Our first home ·
+   Moving from our home (default) · Buying another home as
+   well"; result "£X on top of the price."; rates line
+   "England & Northern Ireland rates from 1 April 2025 —
+   GOV.UK" in small print. No-sale homes: the box starts
+   empty, framed "Enter the price you're considering." Always
+   editable; nothing typed is stored; no asking price is ever
+   read. Test T-WEB-12 in tests/calculators.test.ts.
+4. **Header gains Contact** (D77(g)): nav is now How we
+   check · Sample report · About · Shortlist · Contact. The
+   footer set is unchanged.
+5. **Landing:** the "See a full example" section is removed
+   entirely (heading, line and "See a SAMPLE report" link).
+   The report band's own sample door remains.
+6. **Scotland/NI nation gating** (lib/results.ts only — the
+   presentation layer, per the banked gap check): gated
+   categories render the D77(c) not-covered line and are
+   removed from the pill builder's category set, so one gate
+   feeds both consumers. Zero brain files changed, so zero
+   contract pins and zero replay cells move (verified in the
+   gate). Gating table applied:
+
+   | Nation           | Gated categories                                                                                                                                       |
+   | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+   | Scotland         | primary schools, secondary schools, sixth forms (GIAS), GPs, NHS dentists, pharmacies (NHS ODS), A&E, maternity (CQC), nurseries (Ofsted England-only) |
+   | Northern Ireland | the same nine, plus stations and bus stops (NaPTAN is GB-only), plus parks absence line corrected                                                      |
+   | Wales            | A&E and maternity only (CQC England-only); Welsh schools/GP/dentist/pharmacy keep serving; sixth-forms cross-border behaviour (D64) unchanged          |
+
+   Scotland's stations/bus stops/EV chargers/supermarkets are
+   NOT gated (GB/UK-wide datasets). Tests: the gap check's
+   five unit tests (tests/results.test.ts, nation-gating
+   describe) and two E2E extensions (Edinburgh in
+   e2e/journey.e2e.ts — gated sections carry the not-covered
+   line and the page contains no three-digit-mile figure,
+   /\d{3}\.\d+ mi/; Cardiff in e2e/results.e2e.ts — A&E +
+   maternity not covered). Honest cost, carried forward by
+   name: this is a presentation-layer fix — M8.1's report
+   derivation must apply the same table, or the project takes
+   the brain un-freeze then.

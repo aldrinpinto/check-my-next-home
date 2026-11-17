@@ -1,5 +1,3 @@
-import Link from "next/link";
-
 import AudienceCards from "../components/AudienceCards";
 import CheckTiles from "../components/CheckTiles";
 import HowItWorks from "../components/HowItWorks";
@@ -16,10 +14,6 @@ import {
   HOME_HOW_IT_WORKS_SUB,
   HOME_MANIFESTO_HEADLINE,
   HOME_MANIFESTO_WHY,
-  SAMPLE_REPORT_HEADING,
-  SAMPLE_REPORT_LINE,
-  SAMPLE_REPORT_LINK_TEXT,
-  SAMPLE_REPORT_PATH,
 } from "../lib/home";
 import { HOME_HERO_HEADLINE, SITE_MANIFESTO } from "../lib/site";
 
@@ -102,14 +96,6 @@ export default function Home() {
         <p className="manifesto-block__headline">{HOME_MANIFESTO_HEADLINE}</p>
         <p className="manifesto-block__line">{SITE_MANIFESTO}</p>
         <p className="manifesto-block__why">{HOME_MANIFESTO_WHY}</p>
-      </section>
-
-      <section className="home-section" aria-labelledby="sample-report">
-        <h2 id="sample-report">{SAMPLE_REPORT_HEADING}</h2>
-        <p>{SAMPLE_REPORT_LINE}</p>
-        <p>
-          <Link href={SAMPLE_REPORT_PATH}>{SAMPLE_REPORT_LINK_TEXT}</Link>
-        </p>
       </section>
     </main>
   );

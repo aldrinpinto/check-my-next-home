@@ -5,6 +5,7 @@ import {
   DISCLAIMER_SHORT_FORM,
   HOW_WE_CHECK_PATH,
 } from "../lib/site";
+import Calculators from "./Calculators";
 import { Notice, SourceLine, SummaryPill } from "./kit";
 import Tabs from "./Tabs";
 
@@ -61,6 +62,18 @@ function Block({ block }: { block: SectionBlock }) {
   switch (block.type) {
     case "line":
       return <p className="results-line">{block.text}</p>;
+    case "subheading":
+      return <h4 className="results-subheading">{block.text}</h4>;
+    case "upsell":
+      return (
+        <div className="upsell">
+          <p className="upsell__lead">{block.lead}</p>
+          {block.detail && <p className="upsell__detail">{block.detail}</p>}
+          <p className="upsell__price">
+            £4.99 <a href="/report">Get the full report →</a>
+          </p>
+        </div>
+      );
     case "notice":
       return <Notice variant={block.variant}>{block.text}</Notice>;
     case "link":
@@ -159,7 +172,7 @@ export default function ResultsPage({ view }: { view: ResultsView }) {
       )}
       <p className="results-disclaimer-short">{DISCLAIMER_SHORT_FORM}</p>
       <Tabs
-        ariaLabel="Your check, in three parts"
+        ariaLabel="Your check, in four parts"
         tabs={view.tabs.map((tab) => ({
           id: tab.id,
           label: tab.label,
@@ -176,6 +189,16 @@ export default function ResultsPage({ view }: { view: ResultsView }) {
           ),
         }))}
       />
+      {view.buyBar && (
+        <div className="buy-bar">
+          <h2 className="buy-bar__heading">{view.buyBar.heading}</h2>
+          <p className="buy-bar__line">{view.buyBar.line}</p>
+          <p className="buy-bar__actions">
+            <a href="/report">Get the full report</a>
+          </p>
+        </div>
+      )}
+      <Calculators lastSalePrice={view.calculators.lastSalePrice} />
       <p className="results-disclaimer-closing">
         {DISCLAIMER_CLOSING_BLOCK} <a href={HOW_WE_CHECK_PATH}>{DISCLAIMER_CLOSING_LINK_LABEL}</a>.
       </p>

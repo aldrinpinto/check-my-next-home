@@ -21,6 +21,7 @@ import {
 } from "../../../lib/journey";
 import { buildResultsView, resultsScopeLabel } from "../../../lib/results";
 import { checkResults, resolutionForRoute, resolutionNotCovered } from "../../../lib/server/serve";
+import { SITE_MANIFESTO } from "../../../lib/site";
 import { buildShortlistCard } from "../../../lib/shortlist-card";
 
 // The home form of the journey's route family (plan step
@@ -138,6 +139,7 @@ export default async function HomePage({
     return (
       <main className="journey-page main--wide">
         <h1>{notCoveredHeading(postcode, nation)}</h1>
+        <p className="results-manifesto-line">{SITE_MANIFESTO}</p>
         <p className="type-lead">{NOT_COVERED_INTRO}</p>
         <ResultsPage view={view} />
       </main>
@@ -165,6 +167,9 @@ export default async function HomePage({
     <main className="journey-page main--wide">
       <header className="results-header">
         <h1>{heading}</h1>
+        {/* D77(b): the line under the Results heading is the
+            manifesto line. */}
+        <p className="results-manifesto-line">{SITE_MANIFESTO}</p>
         {resolution.rung === 1 && (
           <p className="results-header__scope">{resultsScopeLabel(resolution)}</p>
         )}

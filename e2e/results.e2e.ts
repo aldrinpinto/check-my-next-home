@@ -58,61 +58,72 @@ async function openTab(page: Page, name: string) {
 
 test.describe("results page — smoke", () => {
   test(
-    "Birkdale CM3 2JT: three tabs with the bundle's figures, four pills, the D9 form",
+    "Birkdale CM3 2JT: four tabs (D76), the five D75 pills, the D9 form",
     { tag: "@smoke" },
     async ({ page }) => {
       await searchFromHome(page, "CM3 2JT");
       await reachResults(page, "CM3 2JT", "19 Birkdale Rise");
 
-      // The summary strip: exactly four pills; each miles
-      // figure rides as its own tinted chip (D70 R5), and
-      // the place-row chip class never appears in the strip.
+      // The D75 summary strip on the served corpus: the
+      // only concerning fact is Schools (secondary 1.8 mi),
+      // so the strip reads Schools · Flood · Crime · Noise ·
+      // Deprivation — the sample's worked example.
       const pills = page.locator(".results-strip .pill--summary");
-      await expect(pills).toHaveCount(4);
-      await expect(pills.nth(0)).toContainText("Nearest primary");
-      // The served corpus's nearest-primary figure (the unit
-      // fixtures' fabricated bundle carries a different one).
-      await expect(pills.nth(0).locator(".pill__figure")).toHaveText("0.29 mi");
-      await expect(pills.nth(0).locator(".pill__figure")).toHaveClass(/pill__figure--green/);
-      await expect(pills.nth(1)).toHaveText("Flood: 2 separate checks");
-      await expect(pills.nth(2)).toHaveText("Crime: 12-month counts");
-      await expect(pills.nth(3)).toContainText("Park");
+      await expect(pills).toHaveCount(5);
+      await expect(pills.nth(0)).toContainText("Schools");
+      await expect(pills.nth(0).locator(".pill__figure")).toHaveText("0.29 / 1.8 mi");
+      await expect(pills.nth(1)).toContainText("Flood");
+      await expect(pills.nth(1)).toContainText("Very low");
+      await expect(pills.nth(2)).toContainText("Crime");
+      await expect(pills.nth(2)).toContainText("Below England average");
+      await expect(pills.nth(3)).toContainText("Noise");
+      await expect(pills.nth(4)).toContainText("Deprivation");
+      await expect(pills.nth(4)).toContainText("8 of 10");
       await expect(page.locator(".results-strip .place-row__miles")).toHaveCount(0);
 
       // The D9 short form, verbatim, beside the results.
       await expect(page.locator(".results-disclaimer-short")).toHaveText(DISCLAIMER_SHORT_FORM);
 
-      // Family Checks opens by default: the crime headline
-      // carries the golden count.
+      // Family Checks opens by default.
       await expect(page.getByRole("tab", { name: "Family Checks" })).toHaveAttribute(
         "aria-selected",
         "true",
       );
-      await expect(page.locator('[data-section="crime"]')).toContainText("330 recorded crimes");
       await expect(page.locator('[data-section="schools-primary"] .place-row')).not.toHaveCount(0);
+
+      // The Neighbourhood: crime in the D77(a) percentage
+      // form with the calibration pair beneath.
+      await openTab(page, "The Neighbourhood");
+      const crime = page.locator('[data-section="crime"]');
+      await expect(crime).toContainText("330 crimes recorded in the last 12 months");
+      await expect(crime).toContainText("about 45% below the England average");
+      await expect(crime).toContainText(
+        "51.7 recorded crimes for every 1,000 residents here. Across England, the figure is 94.5.",
+      );
 
       // What's Nearby: nearest 1 of each kind.
       await openTab(page, "What's Nearby");
       await expect(page.locator('[data-section="parks"] .place-row')).not.toHaveCount(0);
 
-      // Home, Costs & Risks: the golden sold figures.
+      // Home, Costs & Risks: the golden sold figures, and
+      // Costs carrying council tax and broadband together.
       await openTab(page, "Home, Costs & Risks");
       await expect(page.locator('[data-section="sold-prices"]')).toContainText("£588,995");
-      await expect(page.locator('[data-section="council-tax"]')).toContainText("£2,280.34");
-      await expect(page.locator('[data-section="council-tax"]')).toContainText("£190.03 a month");
-      await expect(page.locator('[data-section="broadband"]')).toContainText("gigabit");
+      await expect(page.locator('[data-section="costs"]')).toContainText("£2,280.34");
+      await expect(page.locator('[data-section="costs"]')).toContainText("£190.03 a month");
+      await expect(page.locator('[data-section="costs"]')).toContainText("gigabit");
     },
   );
 
   test(
-    "Exeter E16 1GN: three tabs with the bundle's figures",
+    "Exeter E16 1GN: four tabs with the bundle's figures",
     { tag: "@smoke" },
     async ({ page }) => {
       await searchFromHome(page, "E16 1GN");
       await reachResults(page, "E16 1GN", "6 Exeter Road");
-      await expect(page.getByRole("tab")).toHaveCount(3);
-      await expect(page.locator(".results-strip .pill--summary")).toHaveCount(4);
-      await expect(page.locator('[data-section="crime"]')).toContainText("10,722 recorded crimes");
+      await expect(page.getByRole("tab")).toHaveCount(4);
+      await openTab(page, "The Neighbourhood");
+      await expect(page.locator('[data-section="crime"]')).toContainText("10,722");
       await openTab(page, "Home, Costs & Risks");
       const sold = page.locator('[data-section="sold-prices"]');
       await expect(sold).toContainText("£270,000");
@@ -121,14 +132,14 @@ test.describe("results page — smoke", () => {
   );
 
   test(
-    "Minerva KT17 1FH: three tabs with the bundle's figures",
+    "Minerva KT17 1FH: four tabs with the bundle's figures",
     { tag: "@smoke" },
     async ({ page }) => {
       await searchFromHome(page, "KT17 1FH");
       await reachResults(page, "KT17 1FH", /Flat 4, Minerva House/);
-      await expect(page.getByRole("tab")).toHaveCount(3);
-      await expect(page.locator(".results-strip .pill--summary")).toHaveCount(4);
-      await expect(page.locator('[data-section="crime"]')).toContainText("1,956 recorded crimes");
+      await expect(page.getByRole("tab")).toHaveCount(4);
+      await openTab(page, "The Neighbourhood");
+      await expect(page.locator('[data-section="crime"]')).toContainText("1,956");
       await openTab(page, "Home, Costs & Risks");
       const sold = page.locator('[data-section="sold-prices"]');
       await expect(sold).toContainText("£420,000");
@@ -151,7 +162,7 @@ test.describe("results page — regression", () => {
       await page.waitForURL("**/search?outward=E16");
       await expect(page.locator("h1")).toHaveText("Wider area — E16, not this exact home");
       await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
-      await expect(page.getByRole("tab")).toHaveCount(3);
+      await expect(page.getByRole("tab")).toHaveCount(4);
       await expect(page.locator('[data-section="crime"]')).toContainText(
         "crime counts need an exact postcode",
       );
@@ -269,7 +280,7 @@ test.describe("results page — regression", () => {
       await expect(page.locator(".picker__empty-line")).toHaveText(
         "No addresses we can list for this postcode yet.",
       );
-      await expect(page.getByRole("tab")).toHaveCount(3);
+      await expect(page.getByRole("tab")).toHaveCount(4);
     },
   );
 
@@ -282,13 +293,21 @@ test.describe("results page — regression", () => {
       // through the same page.
       await page.goto("/search/home?postcode=CF11+8AA");
       await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
-      await expect(page.locator('[data-section="noise"]')).toContainText("not covered");
       await expect(page.locator('[data-section="catchment"]')).toContainText(
         "School application deadlines in Wales",
       );
+      await openTab(page, "The Neighbourhood");
+      await expect(page.locator('[data-section="air-noise"]')).toContainText("not covered");
       const crimeText = await page.locator('[data-section="crime"]').innerText();
       expect(crimeText).toContain("recorded crimes");
       expect(crimeText).not.toContain("England's figure");
+      // Wales gating (fold-in workstream 6, gap check
+      // extension): A&E and maternity are gated (CQC is
+      // England-only); Welsh schools/GP keep serving.
+      await openTab(page, "What's Nearby");
+      await expect(page.locator('[data-section="hospitals"]')).toContainText(
+        "isn't part of this check in Wales",
+      );
     },
   );
 });

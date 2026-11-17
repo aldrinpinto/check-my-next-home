@@ -85,11 +85,14 @@ test.describe("checker journey — smoke", () => {
 
 test.describe("checker journey — regression", () => {
   test(
-    "the checking screen shows the nine rows completing as their brains answer",
+    "the checking screen (D73) shows the five grouped rows ticking on the graphic's own clock, then advances",
     { tag: "@regression" },
     async ({ page }) => {
-      // Hold the brain calls so the screen is observable;
-      // the rows themselves carry no simulated timing.
+      // Hold the brain calls so the screen is observable:
+      // the graphic ticks on its own clock regardless, and
+      // the advance waits for the data as well as the
+      // graphic (the D73 wiring reconciliation). No failure
+      // state ever appears on this screen.
       await page.route("**/api/check/**", async (route) => {
         await new Promise((resolve) => setTimeout(resolve, 2_000));
         await route.continue();
@@ -99,29 +102,30 @@ test.describe("checker journey — regression", () => {
       await page.getByRole("button", { name: "19 Birkdale Rise", exact: true }).click();
       await page.getByRole("button", { name: "Check this address" }).click();
 
+      await expect(page.locator(".checking h2")).toHaveText("Your check is under way");
       const rows = page.locator(".checking__row");
-      await expect(rows).toHaveCount(9);
-      // D70: three rows carry the design's qualifiers (D11).
+      await expect(rows).toHaveCount(5);
       await expect(page.locator(".checking__row-label")).toHaveText([
-        "Schools — nearest primary & secondary, with Ofsted",
-        "Nurseries & pre-schools",
-        "GP, NHS dentist & pharmacy",
-        "Hospitals, A&E & maternity",
-        "Parks, vets & dog-walking areas",
-        "Shops & transport — supermarkets, bus stops, stations",
-        "Food & drink, leisure & gyms, places to visit, worship & libraries",
-        "Flood — rivers & sea, and surface water",
-        "Sold history, council tax, EPC, planning applications & constraints, ownership",
+        "Schools & nurseries",
+        "Health & the everyday",
+        "Safety & surroundings",
+        "Costs & connections",
+        "Past sales & prices",
       ]);
-      await expect(page.locator(".checking__intro")).toContainText("no artificial delays");
-
-      // Row 9's ownership element states the position while
-      // the flag is off (fold-in 6) — never silently absent.
-      const ownership = page.locator('[data-element="Ownership"]');
-      await expect(ownership).toContainText(
-        "Ownership — the ownership check is not part of this result.",
-        { timeout: 30_000 },
+      await expect(page.locator(".checking__row-qualifier")).toHaveText([
+        "Primaries, secondaries, sixth forms and childcare near here.",
+        "GP, dentist, pharmacy, hospital, shops and stations near here.",
+        "Crime, flood risk and air quality around here.",
+        "Council tax, energy, broadband and mobile for this postcode.",
+        "Recorded sale prices, from the Land Registry.",
+      ]);
+      await expect(page.locator(".checking__intro")).toHaveText(
+        "We present the facts — the decision is yours.",
       );
+      // The progress bar advances 20% per completed row.
+      await expect(page.locator(".checking__progress")).toHaveAttribute("aria-valuenow", "100", {
+        timeout: 15_000,
+      });
       await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
     },
   );
@@ -138,7 +142,7 @@ test.describe("checker journey — regression", () => {
       await page.waitForURL("**/search?postcode=CM3+2JT");
       await page.getByRole("button", { name: "19 Birkdale Rise", exact: true }).click();
       await page.getByRole("button", { name: "Check this address" }).click();
-      await expect(page.locator(".checking__row")).toHaveCount(9);
+      await expect(page.locator(".checking__row")).toHaveCount(5);
 
       await page.getByRole("link", { name: "Back to the address list" }).click();
       await page.waitForURL(/\/search\?postcode=CM3\+2JT&picked=/);
@@ -259,12 +263,32 @@ test.describe("checker journey — regression", () => {
       await page.waitForURL("**/search/home?postcode=EH1+1AD");
       await expect(page.locator("h1")).toHaveText("EH1 1AD is in Scotland");
       // M7.4: the not-covered page is the results page —
-      // the three tabs render with each section's served
-      // not-covered line in place.
+      // the four tabs (D76) render with each section's
+      // served not-covered line in place.
       await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
-      await expect(page.getByRole("tab")).toHaveCount(3);
+      await expect(page.getByRole("tab")).toHaveCount(4);
       await expect(page.locator('[data-section="flood"]')).toContainText(/not covered/i);
       await expect(page.locator(".picker")).toHaveCount(0);
+      // Scotland gating (fold-in workstream 6, gap check
+      // extension): the class (a) register sections carry
+      // the D77(c) not-covered line, and no three-digit-mile
+      // figure appears anywhere on the page — the assertion
+      // that would have caught the defect on the seed corpus.
+      await expect(page.locator('[data-section="schools-primary"]')).toContainText(
+        "isn't part of this check in Scotland",
+      );
+      await expect(page.locator('[data-section="nurseries"]')).toContainText(
+        "isn't part of this check in Scotland",
+      );
+      await page.getByRole("tab", { name: "What's Nearby" }).click();
+      await expect(page.locator('[data-section="health"]')).toContainText(
+        "isn't part of this check in Scotland",
+      );
+      await expect(page.locator('[data-section="hospitals"]')).toContainText(
+        "isn't part of this check in Scotland",
+      );
+      const bodyText = await page.locator("main").innerText();
+      expect(bodyText).not.toMatch(/\d{3}\.\d+ mi/);
     },
   );
 

@@ -637,43 +637,93 @@ describe("results — place groups", () => {
   });
 });
 
-describe("results — pill logic E2", () => {
-  it("Birkdale base case: no threshold crossed — the fixed fallbacks fill slots 2–3", () => {
-    const pills = summaryPills({
-      nearby: baseNearby as Extract<NearbyBundle, { kind: "distances" }>,
-      flood: floodBundle(noWarnings),
-      crime: crimeBundle(0.5),
-      sections: shortSections(),
-    });
-    // D70 R5: the pills are label+figure now; recomposed via
-    // pillText they are byte-identical to the strings the
-    // logic has always served (the split is pinned below).
-    expect(pills?.map(pillText)).toEqual([
-      "Nearest primary 0.44 mi",
-      "Flood: 2 separate checks",
-      "Crime: 12-month counts",
-      "Park 0.32 mi",
-    ]);
-    expect(pills?.[0]).toEqual({ label: "Nearest primary", figure: "0.44 mi", band: "green" });
-    expect(pills?.[1]).toEqual({ label: "Flood: 2 separate checks", figure: null, band: null });
-    expect(pills?.[3]).toEqual({ label: "Park", figure: "0.32 mi", band: "green" });
-  });
+describe("results — pill logic D75 (fold-in)", () => {
+  const d75Area = (overrides: Record<string, unknown> = {}): AreaBundle =>
+    ({
+      rung: 1,
+      kind: "area-bundle",
+      postcode: "CM3 2JT",
+      sections: {
+        air: {
+          state: "served",
+          line: null,
+          year: 2024,
+          no2: 8.15,
+          pm25: 7.12,
+          pm10: 12.55,
+          headlineFigure: null,
+          sourceLine: null,
+        },
+        noise: {
+          state: "served",
+          line: null,
+          bands: [
+            {
+              sourceKind: "road",
+              label: "road noise",
+              dayBand: "Below 55 dB",
+              nightBand: "Below 50 dB",
+              line: "road noise: Below 55 dB by day, Below 50 dB by night",
+            },
+            {
+              sourceKind: "rail",
+              label: "rail noise",
+              dayBand: "Below 55 dB",
+              nightBand: "Below 50 dB",
+              line: "rail noise: Below 55 dB by day, Below 50 dB by night",
+            },
+          ],
+          headlineBand: { sourceKind: "road", dayBand: "Below 55 dB" },
+          sourceLine: null,
+        },
+        imd: {
+          state: "served",
+          line: null,
+          decile: 8,
+          summary: null,
+          domains: [],
+          sourceLine: null,
+        },
+        broadband: {
+          state: "served",
+          line: null,
+          gigabitCapablePct: 100,
+          superfast30Pct: 100,
+          sourceLine: null,
+        },
+        ...overrides,
+      },
+    }) as unknown as AreaBundle;
 
-  it("a grammar within 2 miles takes slot 1", () => {
+  it("the Birkdale worked example: only Schools is concerning — the strip reads Schools · Flood · Crime · Noise · Deprivation", () => {
     const nearby = nearbyWith({
       "schools-primary": primaryNear,
       "schools-secondary": category({
         category: "schools-secondary",
         state: "within",
-        places: [{ name: "Grammar School", miles: 1.2, detail: null, selective: true }],
+        places: [{ name: "Maltings Academy", miles: 1.87, detail: null, sixthForm: true }],
         countWithin: 1,
-        nearestSelective: { name: "Grammar School", miles: 1.2 },
-        nearestSelectiveLine: "the nearest selective secondary school is Grammar School",
+        nearestSelective: null,
+        nearestSelectiveLine: null,
       }),
-      parks: category({
-        category: "parks",
+      ae: category({
+        category: "ae",
+        state: "none-within",
+        places: [],
+        countWithin: 0,
+        beyondNearest: { name: "Broomfield Hospital", miles: 5.8 },
+        line: "none within 2 miles — nearest is Broomfield Hospital, 5.8 miles away",
+      }),
+      station: category({
+        category: "station",
         state: "within",
-        places: [{ name: "Birkdale Rise Green", miles: 0.32, detail: null }],
+        places: [{ name: "Hatfield Peverel station", miles: 0.6, detail: null }],
+        countWithin: 1,
+      }),
+      nurseries: category({
+        category: "nurseries",
+        state: "within",
+        places: [{ name: "Nursery", miles: 0.3, detail: null }],
         countWithin: 1,
       }),
     });
@@ -682,76 +732,106 @@ describe("results — pill logic E2", () => {
       flood: floodBundle(noWarnings),
       crime: crimeBundle(0.5),
       sections: shortSections(),
+      area: d75Area(),
     });
-    expect(pills && pillText(pills[0])).toBe("Grammar school 1.2 mi ★");
-    expect(pills?.[0]).toEqual({
-      label: "Grammar school",
-      figure: "1.2 mi",
-      band: "orange",
-      mark: "★",
-    });
+    expect(pills?.map(pillText)).toEqual([
+      "Schools 0.44 / 1.87 mi",
+      "Flood Very low",
+      "Crime Below England average",
+      "Noise Quiet",
+      "Deprivation 8 of 10",
+    ]);
   });
 
-  it("a higher flood band fires the flood pill, naming the check", () => {
+  it("concerning facts come first in priority order, capped at three, then good facts fill", () => {
     const sections = shortSections({
       flood: {
         state: "served",
         liveWarnings: null,
         layers: [
           floodLayer("flood_zone", "zone-1", null, "zone 1"),
-          floodLayer("rofrs", "no-band-published", null, "no band"),
-          floodLayer(
-            "rofsw",
-            "inside",
-            "Medium",
-            "a Medium surface-water band covers this postcode point",
-          ),
+          floodLayer("rofrs", "inside", "Low", "a Low river band covers this point"),
+          floodLayer("rofsw", "inside", "Very low", "very low surface water"),
         ],
       },
+      epc: { state: "served", headlineBand: "D", headlineAssessmentLabel: "band D", line: "epc" },
     });
+    const crimeHigh = {
+      rung: 1,
+      kind: "crime",
+      postcode: "CM3 2JT",
+      crime: {
+        state: "served",
+        total: 700,
+        perHead: { per1000: 120, line: "120 per 1,000", basisLine: "basis" },
+        englandFigure: { englandPer1000: 94.5, multiple: 1.3, line: "england" },
+      },
+    } as unknown as CrimeBundle;
     const pills = summaryPills({
       nearby: baseNearby as Extract<NearbyBundle, { kind: "distances" }>,
       flood: floodBundle(noWarnings),
-      crime: crimeBundle(0.5),
+      crime: crimeHigh,
       sections,
+      area: d75Area(),
     });
-    expect(pills && pillText(pills[1])).toBe("Surface-water flood band: higher for this street");
-    expect(pills && pillText(pills[2])).toBe("Crime: 12-month counts");
+    // Concerning in priority order: Flood, Crime, Schools
+    // (A&E at 4.21 mi is good, EPC D concerning but fourth —
+    // the cap is three). Good fill: A&E, Noise.
+    expect(pills?.map((pill) => pill.label)).toEqual(["Flood", "Crime", "Schools", "A&E", "Noise"]);
   });
 
-  it("crime at 1.5× fires the count pill; at 1.3× it does not", () => {
-    const at = summaryPills({
-      nearby: baseNearby as Extract<NearbyBundle, { kind: "distances" }>,
-      flood: floodBundle(noWarnings),
-      crime: crimeBundle(1.5),
-      sections: shortSections(),
-    });
-    expect(at && pillText(at[1])).toBe("Crime: 330 recorded in 12 months");
-    const below = summaryPills({
-      nearby: baseNearby as Extract<NearbyBundle, { kind: "distances" }>,
-      flood: floodBundle(noWarnings),
-      crime: crimeBundle(1.3),
-      sections: shortSections(),
-    });
-    expect(below && pillText(below[1])).toBe("Flood: 2 separate checks");
-  });
-
-  it("an A&E beyond 10 miles fires the distance pill", () => {
+  it("neither facts never take a pill: A&E at 6 mi, EPC C, decile 5, air between the yardsticks", () => {
     const nearby = nearbyWith({
-      "schools-primary": primaryNear,
       ae: category({
         category: "ae",
         state: "none-within",
         places: [],
         countWithin: 0,
-        beyondNearest: { name: "Far Hospital", miles: 10.4 },
+        beyondNearest: { name: "Hospital", miles: 6 },
         line: "none within 2 miles",
       }),
-      parks: category({
-        category: "parks",
+    });
+    const sections = shortSections({
+      epc: { state: "served", headlineBand: "C", headlineAssessmentLabel: "band C", line: "epc" },
+    });
+    const pills = summaryPills({
+      nearby: nearby as Extract<NearbyBundle, { kind: "distances" }>,
+      flood: floodBundle(noWarnings),
+      crime: crimeBundle(0.5),
+      sections,
+      area: d75Area({
+        imd: {
+          state: "served",
+          line: null,
+          decile: 5,
+          summary: null,
+          domains: [],
+          sourceLine: null,
+        },
+      }),
+    });
+    const labels = pills?.map((pill) => pill.label) ?? [];
+    expect(labels).not.toContain("A&E");
+    expect(labels).not.toContain("EPC");
+    expect(labels).not.toContain("Deprivation");
+    expect(labels).not.toContain("Air quality");
+  });
+
+  it("the merged Schools rule: good only when primary <=0.5 AND secondary <=1; grammar distance is never a pill", () => {
+    const nearby = nearbyWith({
+      "schools-primary": category({
+        category: "schools-primary",
         state: "within",
-        places: [{ name: "Birkdale Rise Green", miles: 0.32, detail: null }],
+        places: [{ name: "Primary", miles: 0.4, detail: null }],
         countWithin: 1,
+      }),
+      "schools-secondary": category({
+        category: "schools-secondary",
+        state: "within",
+        places: [{ name: "Grammar School", miles: 0.9, detail: null, selective: true }],
+        countWithin: 1,
+        nearestSelective: { name: "Grammar School", miles: 0.9 },
+        nearestSelectiveLine: "the nearest selective secondary school is Grammar School",
       }),
     });
     const pills = summaryPills({
@@ -760,20 +840,27 @@ describe("results — pill logic E2", () => {
       crime: crimeBundle(0.5),
       sections: shortSections(),
     });
-    expect(pills?.map(pillText)).toContain("Nearest A&E 10.4 mi");
-    expect(pills?.find((pill) => pill.label === "Nearest A&E")).toEqual({
-      label: "Nearest A&E",
-      figure: "10.4 mi",
-      band: "red",
-    });
+    expect(pills?.map((pill) => pill.label)).toContain("Schools");
+    expect(pills?.map((pill) => pill.label)).not.toContain("Grammar school");
+    expect(pills?.find((pill) => pill.label === "Schools")?.figure).toBe("0.4 / 0.9 mi");
   });
 
-  it("the council tax fallback fires when another subject cannot serve a pill", () => {
+  it("fewer qualifying facts means fewer pills", () => {
     const sections = shortSections({
-      crime: { state: "not-covered", reason: "crime is not covered in Scotland" },
+      broadband: { state: "served", gigabitCapablePct: 0, line: null },
+      crime: { state: "not-covered", reason: "not covered" },
+      flood: {
+        state: "served",
+        liveWarnings: null,
+        layers: [
+          floodLayer("flood_zone", "zone-1", null, "zone 1"),
+          floodLayer("rofrs", "no-band-published", null, "no band"),
+          floodLayer("rofsw", "no-band-published", null, "no band"),
+        ],
+      },
     });
     const pills = summaryPills({
-      nearby: baseNearby as Extract<NearbyBundle, { kind: "distances" }>,
+      nearby: nearbyWith({}) as Extract<NearbyBundle, { kind: "distances" }>,
       flood: floodBundle(noWarnings),
       crime: {
         rung: 1,
@@ -783,10 +870,30 @@ describe("results — pill logic E2", () => {
       } as unknown as CrimeBundle,
       sections,
     });
-    expect(pills?.slice(1, 3).map(pillText)).toEqual([
-      "Flood: 2 separate checks",
-      "Council tax: Band D averages £2,280.36 a year",
-    ]);
+    expect(pills?.map(pillText)).toEqual(["Flood Very low"]);
+  });
+
+  it("the schools and nurseries upsells carry the trimmed F1/F3 wording — never the banned promises", () => {
+    const view = buildResultsView(
+      input({
+        nearby: nearbyWith({
+          "schools-primary": primaryNear,
+          nurseries: category({
+            category: "nurseries",
+            state: "within",
+            places: [{ name: "Nursery", miles: 0.3, detail: null }],
+            countWithin: 2,
+          }),
+        }),
+      }),
+    );
+    const text = allText(view);
+    expect(text).not.toContain("full Ofsted reports");
+    expect(text).not.toContain("ERA detail");
+    expect(text).not.toContain("admissions deadlines");
+    expect(text).not.toContain("Ofsted outcomes and dates");
+    expect(text).toContain("with their Ofsted ratings and inspection dates");
+    expect(text).toContain("The full list of nurseries and pre-schools near this home.");
   });
 });
 
@@ -829,47 +936,34 @@ describe("results — warnings forms", () => {
 });
 
 describe("results — the built view", () => {
-  it("places every section in its Section 6 tab, in order", () => {
+  it("places every section in its D76 tab, in order — four tabs, What's Nearby always last", () => {
     const view = buildResultsView(input());
     expect(view.tabs.map((t) => t.label)).toEqual([
       "Family Checks",
-      "What's Nearby",
+      "The Neighbourhood",
       "Home, Costs & Risks",
+      "What's Nearby",
     ]);
     for (const [index, tab] of view.tabs.entries()) {
-      const keys = tab.sections.map((s) => s.key);
-      const expected = RESULTS_TABS[index].sections.filter((key) => keys.includes(key));
-      expect(keys).toEqual(expected);
+      expect(tab.sections.map((sec) => sec.key)).toEqual(RESULTS_TABS[index].sections);
     }
-    // The catchment block is present (England deadlines
-    // serve) between sixth forms and nurseries.
-    const familyKeys = view.tabs[0].sections.map((s) => s.key);
-    expect(familyKeys).toEqual([
+    expect(view.tabs[0].sections.map((sec) => sec.key)).toEqual([
       "schools-primary",
       "schools-secondary",
-      "sixth-forms",
       "catchment",
       "nurseries",
-      "gp",
-      "dentist",
-      "pharmacy",
-      "ae",
-      "maternity",
-      "air",
-      "noise",
-      "crime",
+      "pets",
     ]);
-    expect(view.tabs[1].sections).toHaveLength(13);
-    expect(view.tabs[2].sections.map((s) => s.key)).toEqual([
-      "sold-prices",
-      "council-tax",
-      "epc",
-      "flood",
-      "planning",
-      "constraints",
-      "heritage",
-      "nature",
-      "broadband",
+    expect(view.tabs[3].sections.map((sec) => sec.key)).toEqual([
+      "health",
+      "hospitals",
+      "parks",
+      "shops",
+      "transport",
+      "food-and-drink",
+      "leisure",
+      "places-to-visit",
+      "worship-libraries",
     ]);
   });
 
@@ -879,9 +973,16 @@ describe("results — the built view", () => {
     expect(flood.blocks[0].type).toBe("flood-warnings");
     expect(view.floodWarningsState).toBe("warnings");
     expect(view.warningsStrip.kind).toBe("warnings");
+    // The flood upsell carries the founder's softened F4 wording.
+    const text = JSON.stringify(flood.blocks);
+    expect(text).toContain("Plus the flood findings in full, with a location map for each check");
+    expect(text).toContain(
+      "The defences near this home, and how the picture changes in the years ahead.",
+    );
+    expect(text).not.toContain("flood map");
   });
 
-  it("the D39 calibration pair renders together with their basis line, under the stale line when stale", () => {
+  it("crime (D77(a)): the percentage form with the calibration pair beneath, the stale line first when stale; no crime types", () => {
     const stale = "these counts are older than usual — the filed window has not been refreshed";
     const sections = shortSections();
     if (sections.crime.state === "served") sections.crime.staleLine = stale;
@@ -891,30 +992,34 @@ describe("results — the built view", () => {
         short: { rung: 1, kind: "short-bundle", postcode: "CM3 2JT", sections },
       }),
     );
-    const crime = section(view, "family", "crime");
-    const texts = crime.blocks.map((b) => (b.type === "line" || b.type === "notice" ? b.text : ""));
+    const crime = section(view, "neighbourhood", "crime");
     expect(crime.blocks[0]).toEqual({ type: "notice", variant: "stale", text: stale });
-    const perHeadAt = texts.findIndex((t) => t.includes("per 1,000 residents"));
-    const englandAt = texts.findIndex((t) => t.includes("England's figure"));
-    const basisAt = texts.findIndex((t) => t.startsWith("BASIS-LINE"));
-    expect(perHeadAt).toBeGreaterThan(0);
-    expect(englandAt).toBe(perHeadAt + 1);
-    expect(basisAt).toBe(englandAt + 1);
+    const text = JSON.stringify(crime.blocks);
+    // Fixture calibration: 44.9 per 1,000 here, 94.5 across England.
+    expect(text).toContain(
+      "330 crimes recorded in the last 12 months — about 52% below the England average.",
+    );
+    expect(text).toContain(
+      "That's 44.9 recorded crimes for every 1,000 residents here. Across England, the figure is 94.5.",
+    );
+    expect(text).toContain(
+      "Incidents are recorded against nearby streets, not against individual houses.",
+    );
+    expect(text).not.toContain("burglary");
   });
 
-  it("noise renders its named not-filed line by default, and the verbatim day/night bands when served", () => {
+  it("air quality & noise render together: the named not-filed line by default, the verbatim bands when served", () => {
     const notFiled = buildResultsView(input());
-    const noiseSection = section(notFiled, "family", "noise");
-    expect(JSON.stringify(noiseSection.blocks)).toContain(
+    const airNoise = section(notFiled, "neighbourhood", "air-noise");
+    expect(JSON.stringify(airNoise.blocks)).toContain(
       "modelled noise bands are not filed yet, so no noise answer can be given yet",
     );
     const served = buildResultsView(input({ area: areaBundle("served") }));
-    const servedNoise = section(served, "family", "noise");
-    expect(JSON.stringify(servedNoise.blocks)).toContain(
+    expect(JSON.stringify(section(served, "neighbourhood", "air-noise").blocks)).toContain(
       "road noise: Below 55 dB by day, Below 50 dB by night",
     );
     const welsh = buildResultsView(input({ area: areaBundle("not-covered") }));
-    expect(JSON.stringify(section(welsh, "family", "noise").blocks)).toContain(
+    expect(JSON.stringify(section(welsh, "neighbourhood", "air-noise").blocks)).toContain(
       "Wales is not covered",
     );
   });
@@ -922,6 +1027,7 @@ describe("results — the built view", () => {
   it("sold prices render the served facts only — no computed tiles (B7/D23)", () => {
     const view = buildResultsView(input());
     const sold = section(view, "home", "sold-prices");
+    expect(sold.heading).toBe("Sold history");
     const tiles = sold.blocks.find((b) => b.type === "tiles");
     if (!tiles || tiles.type !== "tiles") throw new Error("tiles missing");
     expect(tiles.tiles).toEqual([
@@ -974,14 +1080,44 @@ describe("results — the built view", () => {
     expect(text).toContain("Apply by 31 October for secondary places");
   });
 
-  it("broadband carries the gigabit headline and no other connectivity figures", () => {
+  it("costs carries council tax, EPC, EV and the broadband headline in one section (D76/D77)", () => {
     const view = buildResultsView(input());
-    const broadband = section(view, "home", "broadband");
-    expect(JSON.stringify(broadband.blocks)).toContain("gigabit");
-    expect(JSON.stringify(broadband.blocks)).not.toMatch(/mobile|4G|5G/);
+    const costs = section(view, "home", "costs");
+    const text = JSON.stringify(costs.blocks);
+    expect(text).toContain("Band D averages £2,280.36 a year in Braintree");
+    expect(text).toContain("£190.03 a month if the Band D average is spread evenly over 12 months");
+    expect(text).toContain("gigabit");
+    expect(text).toContain("Plus every council tax band and the full EPC certificate detail");
   });
 
-  it("rung 2: address-level panels show the needs-exact-home state; truncations still link", () => {
+  it("the buy bar carries the founder's pinned line — location maps, never flood map pictures (F4 ruling)", () => {
+    const view = buildResultsView(input());
+    expect(view.buyBar?.heading).toBe("Get the full detailed report for this home");
+    expect(view.buyBar?.line).toBe(
+      "Everything behind the headlines — the breakdowns, the flood findings with location maps, the fuller EPC detail and the questions to ask the seller — in one dated, print-ready document. Or save this home and compare it first.",
+    );
+    expect(view.calculators.lastSalePrice).toBe(588995);
+  });
+
+  it("the 'Owned by a company' row does NOT render while the flag is off (the bundle key is absent) — and renders from the key when present (D77(d))", () => {
+    const off = buildResultsView(input());
+    expect(JSON.stringify(section(off, "home", "planning-protection").blocks)).not.toContain(
+      "Owned by a company",
+    );
+    const area = areaBundle() as unknown as {
+      sections: Record<string, unknown>;
+    };
+    area.sections.companyOwnership = {
+      state: "served",
+      line: "This home is owned by a company, as filed.",
+    };
+    const on = buildResultsView(input({ area: area as unknown as AreaBundle }));
+    const text = JSON.stringify(section(on, "home", "planning-protection").blocks);
+    expect(text).toContain("Owned by a company");
+    expect(text).toContain("This home is owned by a company, as filed.");
+  });
+
+  it("rung 2: the EPC needs-exact-home line rides inside Costs; truncations still link", () => {
     const sections = shortSections({
       epc: {
         state: "needs-exact-home",
@@ -1004,13 +1140,130 @@ describe("results — the built view", () => {
         short: { rung: 2, kind: "short-bundle", postcode: "CM3 2JT", sections },
       }),
     );
-    expect(JSON.stringify(section(view, "home", "epc").blocks)).toContain(
+    expect(JSON.stringify(section(view, "home", "costs").blocks)).toContain(
       "choose the exact home to see its energy certificates",
     );
     const primary = section(view, "family", "schools-primary");
     const places = primary.blocks.find((b) => b.type === "places");
     if (!places || places.type !== "places") throw new Error("places missing");
     expect(places.group.truncation?.href).toBe(REPORT_ROUTE);
+  });
+});
+
+describe("results — nation gating (Scotland/NI gap check, fold-in workstream 6)", () => {
+  const resolutionFor = (lsoaCode: string, postcode: string): AddressResolution => ({
+    rung: 2,
+    kind: "address-list",
+    directory: { ...directory, postcode, lsoaCode },
+    street: null,
+    building: null,
+    addresses: [],
+  });
+  const beyond = (key: string, miles: number) =>
+    category({
+      category: key as never,
+      state: "none-within",
+      places: [],
+      countWithin: 0,
+      beyondNearest: { name: "Far Away Place", miles },
+      line: `none within 2 miles — nearest is Far Away Place, ${miles} miles away`,
+    });
+  const gatedBundle = () =>
+    nearbyWith({
+      "schools-primary": beyond("schools-primary", 338.015),
+      "schools-secondary": beyond("schools-secondary", 323.446),
+      "sixth-forms": beyond("sixth-forms", 323.446),
+      gp: beyond("gp", 302.345),
+      dentist: beyond("dentist", 333.259),
+      pharmacy: beyond("pharmacy", 281.972),
+      ae: beyond("ae", 324.328),
+      maternity: beyond("maternity", 324.328),
+      station: category({
+        category: "station",
+        state: "within",
+        places: [{ name: "Far Away Place", miles: 0.5, detail: null }],
+        countWithin: 1,
+      }),
+      "bus-stop": category({
+        category: "bus-stop",
+        state: "within",
+        places: [{ name: "Far Away Place", miles: 0.2, detail: null }],
+        countWithin: 1,
+      }),
+      "ev-chargers": category({
+        category: "ev-chargers",
+        state: "within",
+        places: [{ name: "Far Away Place", miles: 1.1, detail: null }],
+        countWithin: 1,
+      }),
+      parks: category({
+        category: "parks",
+        state: "within",
+        places: [{ name: "Far Away Place", miles: 0.4, detail: null }],
+        countWithin: 1,
+      }),
+    });
+
+  it("Scotland: the 9 gated sections render the D77(c) not-covered line and no place row; no three-digit miles anywhere", () => {
+    const view = buildResultsView(
+      input({ resolution: resolutionFor("S01000001", "EH1 1AD"), nearby: gatedBundle() }),
+    );
+    const text = allText(view);
+    expect(text).toContain(
+      "Primary schools isn't part of this check in Scotland — the figures we use cover England and Wales.",
+    );
+    expect(text).toContain("GP surgeries isn't part of this check in Scotland");
+    expect(text).toContain("A&E hospitals isn't part of this check in Scotland");
+    expect(text).toContain("Nurseries & pre-schools isn't part of this check in Scotland");
+    expect(text).not.toMatch(/\d{3}\.\d+ mi/);
+    // Scotland's stations/bus stops/EV chargers are NOT gated (GB/UK-wide datasets).
+    const transport = section(view, "nearby", "transport");
+    expect(JSON.stringify(transport.blocks)).toContain("Far Away Place");
+  });
+
+  it("NI: the same 9 plus stations, bus stops and parks are gated; EV chargers still serve", () => {
+    const view = buildResultsView(
+      input({ resolution: resolutionFor("N01000001", "BT1 1AA"), nearby: gatedBundle() }),
+    );
+    const text = allText(view);
+    expect(text).toContain("in Northern Ireland — the figures we use cover England and Wales.");
+    const transport = section(view, "nearby", "transport");
+    expect(JSON.stringify(transport.blocks)).toContain(
+      "isn't part of this check in Northern Ireland",
+    );
+    const parks = section(view, "nearby", "parks");
+    expect(JSON.stringify(parks.blocks)).toContain("isn't part of this check in Northern Ireland");
+    const costs = section(view, "home", "costs");
+    expect(JSON.stringify(costs.blocks)).toContain("Far Away Place");
+    expect(text).not.toMatch(/\d{3}\.\d+ mi/);
+  });
+
+  it("Wales: A&E and maternity are gated only — Welsh schools and GP keep serving", () => {
+    const view = buildResultsView(
+      input({ resolution: resolutionFor("W01000001", "CF11 8AA"), nearby: gatedBundle() }),
+    );
+    const hospitals = section(view, "nearby", "hospitals");
+    expect(JSON.stringify(hospitals.blocks)).toContain("isn't part of this check in Wales");
+    const primary = section(view, "family", "schools-primary");
+    expect(JSON.stringify(primary.blocks)).toContain("Far Away Place");
+    const health = section(view, "nearby", "health");
+    expect(JSON.stringify(health.blocks)).toContain("Far Away Place");
+  });
+
+  it("pills: a Scotland view yields no 'Nearest primary … mi' pill even when flood/crime artificially serve", () => {
+    const view = buildResultsView(
+      input({ resolution: resolutionFor("S01000001", "EH1 1AD"), nearby: gatedBundle() }),
+    );
+    const pillLabels = view.pills?.map((pill) => pill.label) ?? [];
+    expect(pillLabels).not.toContain("Schools");
+    expect(allText(view.pills ?? [])).not.toMatch(/\d{3}\.\d+ mi/);
+  });
+
+  it("England control: identical fixtures under an E code render the beyond rows unchanged", () => {
+    const view = buildResultsView(input({ nearby: gatedBundle() }));
+    const primary = section(view, "family", "schools-primary");
+    expect(JSON.stringify(primary.blocks)).toContain("Far Away Place");
+    expect(JSON.stringify(primary.blocks)).toContain("338.01 mi");
   });
 });
 
@@ -1052,29 +1305,31 @@ describe("results — the wider-area view (rung 3)", () => {
 });
 
 describe("results — the rendered page", () => {
-  it("renders the strip's pills as label + figure chip, the D9 form verbatim, and the closing block", () => {
+  it("renders the D75 pills, the D9 form verbatim, the closing block, the buy bar and the calculators", () => {
     const view = buildResultsView(input());
     const html = renderToStaticMarkup(createElement(ResultsPage, { view }));
-    // D70 R5: the pill is never coloured; its miles figure
-    // rides as the tinted chip, and only there.
     expect(html).toContain("pill pill--summary");
-    expect(html).toContain('<span class="pill__label">Nearest primary</span>');
-    expect(html).toContain('<span class="pill__figure pill__figure--green">0.44 mi</span>');
-    expect(html).not.toContain('place-row__miles--green">Nearest primary');
     expect(html).toContain(DISCLAIMER_SHORT_FORM);
     expect(html).toContain(DISCLAIMER_CLOSING_BLOCK);
     expect(html).toContain('<a href="/how-we-check">How we check</a>.');
-    // Tab order is fixed.
+    // Tab order is fixed (D76): Family, Neighbourhood, Home, Nearby.
     const familyAt = html.indexOf("Family Checks");
-    const nearbyAt = html.indexOf("What&#x27;s Nearby");
+    const neighbourhoodAt = html.indexOf("The Neighbourhood");
     const homeAt = html.indexOf("Home, Costs &amp; Risks");
+    const nearbyAt = html.indexOf("What&#x27;s Nearby");
     expect(familyAt).toBeGreaterThan(-1);
-    expect(nearbyAt).toBeGreaterThan(familyAt);
-    expect(homeAt).toBeGreaterThan(nearbyAt);
+    expect(neighbourhoodAt).toBeGreaterThan(familyAt);
+    expect(homeAt).toBeGreaterThan(neighbourhoodAt);
+    expect(nearbyAt).toBeGreaterThan(homeAt);
     // Truncation lines link to the pinned report route.
     expect(html).toContain(
       '<a href="/report">Plus 3 more primary schools in the detailed report — £4.99</a>',
     );
+    // The buy bar and the calculators sit below the tabs.
+    expect(html).toContain("Get the full detailed report for this home");
+    expect(html).toContain("the flood findings with location maps");
+    expect(html).not.toContain("flood map pictures");
+    expect(html).toContain("Could this home fit your life?");
   });
 
   it("the closing disclaimer block is pinned verbatim (Final Design, website form)", () => {

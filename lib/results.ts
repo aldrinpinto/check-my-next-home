@@ -2,6 +2,7 @@ import type { AddressResolution } from "./address";
 import type { AreaBundle } from "./area-bundle";
 import type { CrimeBundle } from "./crime";
 import type { FloodBundle, FloodLiveWarnings } from "./flood";
+import { nationName, nationOfLsoa, type Nation } from "./journey";
 import type { CategoryAnswer, NearbyBundle, NearbyPlace } from "./nearby";
 import type { ShortBundle, ShortSections } from "./short-bundle";
 import type { SoldPricesBundle } from "./sold-prices";
@@ -388,6 +389,8 @@ export const CATCHMENT_LINK = {
 
 export type SectionBlock =
   | { type: "line"; text: string }
+  | { type: "subheading"; text: string }
+  | { type: "upsell"; lead: string; detail: string | null }
   | { type: "notice"; variant: "warning" | "stale" | "gap"; text: string }
   | { type: "places"; group: PlaceGroupView }
   | { type: "link"; label: string; url: string }
@@ -425,58 +428,40 @@ export interface ResultsTabView {
 // sold prices, council tax, EPC, flood, planning,
 // constraints, heritage, nature, broadband). Pinned by
 // tests/results.test.ts.
+// D76 (fold-in build): FOUR tabs in this fixed order —
+// Family Checks, The Neighbourhood, Home, Costs & Risks,
+// What's Nearby (always last). Tab state stays out of the
+// URL; Family Checks opens by default; calculators sit
+// below the tabs.
 export const RESULTS_TABS: { id: string; label: string; sections: string[] }[] = [
   {
     id: "family",
     label: "Family Checks",
-    sections: [
-      "schools-primary",
-      "schools-secondary",
-      "sixth-forms",
-      "catchment",
-      "nurseries",
-      "gp",
-      "dentist",
-      "pharmacy",
-      "ae",
-      "maternity",
-      "air",
-      "noise",
-      "crime",
-    ],
+    sections: ["schools-primary", "schools-secondary", "catchment", "nurseries", "pets"],
+  },
+  {
+    id: "neighbourhood",
+    label: "The Neighbourhood",
+    sections: ["census", "crime", "air-noise"],
+  },
+  {
+    id: "home",
+    label: "Home, Costs & Risks",
+    sections: ["sold-prices", "costs", "flood", "planning-protection"],
   },
   {
     id: "nearby",
     label: "What's Nearby",
     sections: [
-      "station",
-      "bus-stop",
-      "supermarket",
-      "food-and-drink",
+      "health",
+      "hospitals",
       "parks",
-      "vets",
-      "pet-shops",
-      "pet-boarding",
-      "ev-chargers",
+      "shops",
+      "transport",
+      "food-and-drink",
       "leisure",
       "places-to-visit",
-      "places-of-worship",
-      "libraries",
-    ],
-  },
-  {
-    id: "home",
-    label: "Home, Costs & Risks",
-    sections: [
-      "sold-prices",
-      "council-tax",
-      "epc",
-      "flood",
-      "planning",
-      "constraints",
-      "heritage",
-      "nature",
-      "broadband",
+      "worship-libraries",
     ],
   },
 ];
@@ -507,6 +492,12 @@ export interface SummaryPillsInput {
   flood: FloodBundle;
   crime: CrimeBundle;
   sections: ShortSections;
+  // D75 (fold-in build): the full area bundle carries the
+  // air, noise, IMD and broadband figures several pill
+  // factors read. Optional so the pill builder stays
+  // callable from the older unit fixtures; a factor whose
+  // source is absent is simply "neither".
+  area?: AreaBundle | null;
 }
 
 function categoryOf(
@@ -521,26 +512,6 @@ function nearestOf(category: CategoryAnswer | undefined): { name: string; miles:
   if (category.places.length > 0)
     return { name: category.places[0].name, miles: category.places[0].miles };
   return category.beyondNearest ?? null;
-}
-
-// "Higher band" for the flood threshold: a covering label of
-// High or Medium on either of the two likelihood checks
-// (rivers & sea, surface water). The planning flood zone is
-// not one of the two checks and never fires this pill.
-function floodHigherBand(
-  sections: ShortSections,
-): { layer: "rofrs" | "rofsw"; label: string } | null {
-  const flood = sections.flood;
-  if (flood.state !== "served") return null;
-  for (const layer of flood.layers) {
-    if (layer.layer === "flood_zone") continue;
-    if (
-      layer.pointState === "inside" &&
-      (layer.coveringLabel === "High" || layer.coveringLabel === "Medium")
-    )
-      return { layer: layer.layer, label: layer.coveringLabel };
-  }
-  return null;
 }
 
 // The summary pill as label + figure (D70 R5): the pill
@@ -562,119 +533,257 @@ export function pillText(pill: SummaryPill): string {
   return `${pill.label} ${pill.figure}${pill.mark ? ` ${pill.mark}` : ""}`;
 }
 
-const factPill = (label: string): SummaryPill => ({ label, figure: null, band: null });
-
 const milesPill = (label: string, family: DistanceFamily, miles: number): SummaryPill => ({
   label,
   figure: `${formatMiles(miles)} mi`,
   band: distanceBand(family, miles),
 });
 
-export function summaryPills(input: SummaryPillsInput): SummaryPill[] | null {
-  const { nearby, crime, sections } = input;
+// D75 pill system (fold-in build, superseding pill logic
+// E2): FIVE pills. Concerning facts first in priority
+// order, up to three; good facts fill the remaining slots
+// in priority order; fewer qualifying facts means fewer
+// pills; a fact is concerning/good only across its real
+// threshold, and "neither" facts never take a pill. The
+// twelve factors in priority order: Flood, Crime, Schools
+// (merged), A&E, Air quality, Noise, Deprivation, EPC,
+// Vet, Broadband, Train station, Nurseries. Grammar-school
+// distance and leisure/parks/shops are NOT pill-eligible.
+type PillVerdict = "concerning" | "good" | "neither";
+interface PillFactor {
+  pill: SummaryPill;
+  verdict: PillVerdict;
+}
 
-  // Slot 1 — schools.
-  const secondary = categoryOf(nearby, "schools-secondary");
-  const primary = categoryOf(nearby, "schools-primary");
-  let slot1: SummaryPill | null = null;
-  if (secondary?.nearestSelective)
-    slot1 = {
-      ...milesPill("Grammar school", "school", secondary.nearestSelective.miles),
-      mark: "★",
-    };
-  else {
-    const nearestPrimary = nearestOf(primary);
-    if (nearestPrimary) slot1 = milesPill("Nearest primary", "school", nearestPrimary.miles);
-    else {
-      const nearestSecondary = nearestOf(secondary);
-      if (nearestSecondary)
-        slot1 = milesPill("Nearest secondary", "school", nearestSecondary.miles);
+function floodBandOf(layer: { coveringLabel: string | null; pointState: string }): string | null {
+  if (layer.coveringLabel) return layer.coveringLabel;
+  if (layer.pointState === "no-band-published" || layer.pointState === "zone-1") return "Very low";
+  return null;
+}
+
+function noiseBandHigh(band: string | null, day: boolean): boolean {
+  if (!band) return false;
+  const nums = [...band.matchAll(/\d+(?:\.\d+)?/g)].map((m) => Number(m[0]));
+  if (nums.length === 0) return false;
+  const threshold = day ? 65 : 60;
+  // A band is "high" when its range reaches the threshold:
+  // its top (or only) figure is at or above it, or the band
+  // is worded as that figure "or more".
+  return Math.max(...nums) >= threshold;
+}
+
+function noiseBandLow(band: string | null, day: boolean): boolean {
+  if (!band) return false;
+  const limit = day ? 55 : 50;
+  return new RegExp(`below ${limit}|<\\s*${limit}`, "i").test(band);
+}
+
+export function summaryPills(input: SummaryPillsInput): SummaryPill[] | null {
+  const { nearby, crime, sections, area } = input;
+  const areaSections = area && area.kind === "area-bundle" ? area.sections : null;
+  const factors: PillFactor[] = [];
+  const add = (verdict: PillVerdict, pill: SummaryPill) => {
+    if (verdict !== "neither") factors.push({ pill, verdict });
+  };
+
+  // 1 Flood — concerning if either check (rivers & sea,
+  // surface water) is Low or worse; good if both Very low.
+  {
+    let verdict: PillVerdict = "neither";
+    let figure: string | null = null;
+    if (sections.flood.state === "served") {
+      const bands = sections.flood.layers
+        .filter((layer) => layer.layer === "rofrs" || layer.layer === "rofsw")
+        .map((layer) => floodBandOf(layer));
+      if (bands.length === 2 && bands.every((band) => band !== null)) {
+        const rank = (band: string) =>
+          band === "High" ? 3 : band === "Medium" ? 2 : band === "Low" ? 1 : 0;
+        const worst = bands.reduce((a, b) => (rank(a as string) >= rank(b as string) ? a : b));
+        if (bands.some((band) => band !== "Very low")) verdict = "concerning";
+        else verdict = "good";
+        figure = worst;
+      }
+    }
+    if (figure) add(verdict, { label: "Flood", figure, band: null });
+  }
+
+  // 2 Crime — concerning above the England per-1,000
+  // figure; good below it.
+  {
+    const served = crime.kind === "crime" && crime.crime.state === "served" ? crime.crime : null;
+    const per1000 = served?.perHead?.per1000 ?? null;
+    const england = served?.englandFigure?.englandPer1000 ?? null;
+    if (per1000 !== null && england !== null && per1000 !== england) {
+      const concerning = per1000 > england;
+      add(concerning ? "concerning" : "good", {
+        label: "Crime",
+        figure: concerning ? "Above England average" : "Below England average",
+        band: null,
+      });
     }
   }
 
-  // Slots 2–3 — ranked threshold candidates, then the fixed
-  // fallbacks in the design's order; each subject at most
-  // once, and a subject whose data cannot serve a fact at
-  // all (flood not filed / not covered, crime not covered)
-  // is skipped rather than stated.
-  const candidates: { subject: string; pill: SummaryPill }[] = [];
-  const higher = floodHigherBand(sections);
-  if (higher)
-    candidates.push({
-      subject: "flood",
-      pill: factPill(
-        higher.layer === "rofsw"
-          ? "Surface-water flood band: higher for this street"
-          : "River & sea flood band: higher for this street",
-      ),
-    });
-  const servedCrime = crime.kind === "crime" && crime.crime.state === "served" ? crime.crime : null;
-  if (servedCrime?.englandFigure?.multiple != null && servedCrime.englandFigure.multiple >= 1.5)
-    candidates.push({
-      subject: "crime",
-      pill: factPill(`Crime: ${servedCrime.total.toLocaleString("en-GB")} recorded in 12 months`),
-    });
-  const ae = nearestOf(categoryOf(nearby, "ae"));
-  const gp = nearestOf(categoryOf(nearby, "gp"));
-  if (ae && ae.miles > 10)
-    candidates.push({ subject: "distance", pill: milesPill("Nearest A&E", "hospital", ae.miles) });
-  else if (gp && gp.miles > 1.5)
-    candidates.push({
-      subject: "distance",
-      pill: milesPill("Nearest GP", "everyday", gp.miles),
-    });
-  if (sections.flood.state === "served")
-    candidates.push({ subject: "flood", pill: factPill("Flood: 2 separate checks") });
-  if (sections.crime.state === "served")
-    candidates.push({ subject: "crime", pill: factPill("Crime: 12-month counts") });
-  if (sections.councilTax.state === "served" && sections.councilTax.bandDAverageLabel)
-    candidates.push({
-      subject: "council-tax",
-      pill: factPill(
-        `Council tax: Band D averages ${sections.councilTax.bandDAverageLabel} a year`,
-      ),
-    });
-  const seen = new Set<string>();
-  const middle: SummaryPill[] = [];
-  for (const candidate of candidates) {
-    if (seen.has(candidate.subject)) continue;
-    seen.add(candidate.subject);
-    middle.push(candidate.pill);
-    if (middle.length === 2) break;
+  // 3 Schools (primary + secondary MERGED) — concerning if
+  // nearest primary >1 mi OR nearest secondary >1.5 mi;
+  // good only if primary <=0.5 AND secondary <=1.
+  {
+    const primary = nearestOf(categoryOf(nearby, "schools-primary"));
+    const secondary = nearestOf(categoryOf(nearby, "schools-secondary"));
+    if (primary && secondary) {
+      const concerning = primary.miles > 1 || secondary.miles > 1.5;
+      const good = !concerning && primary.miles <= 0.5 && secondary.miles <= 1;
+      add(concerning ? "concerning" : good ? "good" : "neither", {
+        label: "Schools",
+        figure: `${formatMiles(primary.miles)} / ${formatMiles(secondary.miles)} mi`,
+        band: concerning ? "red" : good ? "green" : "orange",
+      });
+    } else if (primary || secondary) {
+      const only = (primary ?? secondary) as { miles: number };
+      const breach = primary ? only.miles > 1 : only.miles > 1.5;
+      if (breach)
+        add("concerning", {
+          label: "Schools",
+          figure: `${formatMiles(only.miles)} mi`,
+          band: "red",
+        });
+    }
   }
 
-  // Slot 4 — the nearest everyday positive.
-  const everyday: { label: string; nearest: { name: string; miles: number } | null }[] = [
-    { label: "Vet", nearest: nearestOf(categoryOf(nearby, "vets")) },
-    { label: "Park", nearest: nearestOf(categoryOf(nearby, "parks")) },
-    { label: "GP", nearest: gp },
-  ];
-  let slot4: SummaryPill | null = null;
-  let best: { label: string; miles: number } | null = null;
-  for (const entry of everyday) {
-    if (entry.nearest && (!best || entry.nearest.miles < best.miles))
-      best = { label: entry.label, miles: entry.nearest.miles };
+  // 4 A&E — concerning >7 mi; good <=5 mi.
+  {
+    const ae = nearestOf(categoryOf(nearby, "ae"));
+    if (ae) {
+      const verdict: PillVerdict = ae.miles > 7 ? "concerning" : ae.miles <= 5 ? "good" : "neither";
+      add(verdict, milesPill("A&E", "hospital", ae.miles));
+    }
   }
-  if (best) slot4 = milesPill(best.label, "everyday", best.miles);
-  else {
+
+  // 5 Air quality — good if NO2, PM2.5 and PM10 ALL at or
+  // under WHO 2021 (10/5/15); concerning if any breaks its
+  // UK legal limit (NO2 40, PM2.5 20, PM10 40).
+  {
+    const air = areaSections?.air;
+    if (
+      air &&
+      air.state === "served" &&
+      air.no2 !== null &&
+      air.pm25 !== null &&
+      air.pm10 !== null
+    ) {
+      const concerning = air.no2 > 40 || air.pm25 > 20 || air.pm10 > 40;
+      const good = !concerning && air.no2 <= 10 && air.pm25 <= 5 && air.pm10 <= 15;
+      add(concerning ? "concerning" : good ? "good" : "neither", {
+        label: "Air quality",
+        figure: concerning ? "Above a UK legal limit" : "Within WHO guidelines",
+        band: null,
+      });
+    }
+  }
+
+  // 6 Noise — good if road AND rail both in the lowest
+  // modelled bands (day <55 dB, night <50 dB); concerning
+  // if day >=65 or night >=60 on either.
+  {
+    const noise = areaSections?.noise;
+    if (noise && noise.state === "served" && noise.bands.length > 0) {
+      const concerning = noise.bands.some(
+        (band) => noiseBandHigh(band.dayBand, true) || noiseBandHigh(band.nightBand, false),
+      );
+      const road = noise.bands.find((band) => band.sourceKind === "road");
+      const rail = noise.bands.find((band) => band.sourceKind === "rail");
+      const good =
+        !concerning &&
+        road !== undefined &&
+        rail !== undefined &&
+        noiseBandLow(road.dayBand, true) &&
+        noiseBandLow(road.nightBand, false) &&
+        noiseBandLow(rail.dayBand, true) &&
+        noiseBandLow(rail.nightBand, false);
+      add(concerning ? "concerning" : good ? "good" : "neither", {
+        label: "Noise",
+        figure: concerning ? "Noisy" : "Quiet",
+        band: null,
+      });
+    }
+  }
+
+  // 7 Deprivation — good at IMD decile 8-10; concerning at
+  // decile 1-3; the pill states the decile.
+  {
+    const decile = areaSections?.imd?.state === "served" ? areaSections.imd.decile : null;
+    if (decile !== null && decile !== undefined) {
+      const verdict: PillVerdict = decile >= 8 ? "good" : decile <= 3 ? "concerning" : "neither";
+      add(verdict, { label: "Deprivation", figure: `${decile} of 10`, band: null });
+    }
+  }
+
+  // 8 EPC — concerning at D or below; good at A or B; C
+  // neither; only when the home has a certificate.
+  {
+    const band = sections.epc.headlineBand;
+    if (band) {
+      const verdict: PillVerdict =
+        band === "A" || band === "B" ? "good" : band === "C" ? "neither" : "concerning";
+      add(verdict, { label: "EPC", figure: band, band: null });
+    }
+  }
+
+  // 9 Vet — good <=2 mi; concerning >5 mi.
+  {
+    const vet = nearestOf(categoryOf(nearby, "vets"));
+    if (vet) {
+      const verdict: PillVerdict =
+        vet.miles > 5 ? "concerning" : vet.miles <= 2 ? "good" : "neither";
+      add(verdict, milesPill("Vet", "everyday", vet.miles));
+    }
+  }
+
+  // 10 Broadband — concerning if not even superfast is
+  // available at the postcode; good if full fibre (the
+  // gigabit-capable figure) is available.
+  {
+    const broadband = areaSections?.broadband;
+    if (broadband && broadband.state === "served") {
+      const concerning = broadband.superfast30Pct !== null && broadband.superfast30Pct <= 0;
+      const good =
+        !concerning && broadband.gigabitCapablePct !== null && broadband.gigabitCapablePct > 0;
+      add(concerning ? "concerning" : good ? "good" : "neither", {
+        label: "Broadband",
+        figure: concerning ? "No superfast" : "Full fibre available",
+        band: null,
+      });
+    } else if (
+      sections.broadband.gigabitCapablePct !== null &&
+      sections.broadband.gigabitCapablePct > 0
+    ) {
+      add("good", { label: "Broadband", figure: "Full fibre available", band: null });
+    }
+  }
+
+  // 11 Train station — good <=1 mi; concerning >3 mi.
+  {
     const station = nearestOf(categoryOf(nearby, "station"));
-    const supermarket = nearestOf(categoryOf(nearby, "supermarket"));
-    const fallback = [
-      { label: "Station", nearest: station },
-      { label: "Supermarket", nearest: supermarket },
-    ]
-      .filter((entry) => entry.nearest !== null)
-      .sort((a, b) => (a.nearest?.miles ?? 0) - (b.nearest?.miles ?? 0))[0];
-    if (fallback?.nearest) slot4 = milesPill(fallback.label, "everyday", fallback.nearest.miles);
+    if (station) {
+      const verdict: PillVerdict =
+        station.miles > 3 ? "concerning" : station.miles <= 1 ? "good" : "neither";
+      add(verdict, milesPill("Train station", "everyday", station.miles));
+    }
   }
 
-  const pills = [slot1, ...middle, slot4].filter((pill): pill is SummaryPill => pill !== null);
-  // The strip is the four-pill form. A check that cannot
-  // fill the schools slot and at least the two middle slots
-  // (Scotland / NI, where flood and crime do not cover)
-  // renders no strip rather than a partial one.
-  if (slot1 === null || middle.length < 2) return null;
-  return pills;
+  // 12 Nurseries — concerning >1 mi; good <=0.5 mi.
+  {
+    const nursery = nearestOf(categoryOf(nearby, "nurseries"));
+    if (nursery) {
+      const verdict: PillVerdict =
+        nursery.miles > 1 ? "concerning" : nursery.miles <= 0.5 ? "good" : "neither";
+      add(verdict, milesPill("Nurseries", "school", nursery.miles));
+    }
+  }
+
+  const concerning = factors.filter((f) => f.verdict === "concerning").slice(0, 3);
+  const good = factors.filter((f) => f.verdict === "good");
+  const pills = [...concerning, ...good].slice(0, 5).map((f) => f.pill);
+  return pills.length > 0 ? pills : null;
 }
 
 // ------------------------------------------------------------------
@@ -754,8 +863,60 @@ export interface ResultsInput {
   short: Extract<ShortBundle, { kind: "short-bundle" }>;
 }
 
+export const BUY_BAR_HEADING = "Get the full detailed report for this home";
+// Founder ruling, 17 Nov 2026 (alignment fix F4, softened
+// form adopted): the buy bar must NOT promise flood map
+// pictures — location maps only.
+export const BUY_BAR_LINE =
+  "Everything behind the headlines — the breakdowns, the flood findings with location maps, the fuller EPC detail and the questions to ask the seller — in one dated, print-ready document. Or save this home and compare it first.";
+export const FLOOD_UPSELL_LEAD =
+  "Plus the flood findings in full, with a location map for each check";
+export const FLOOD_UPSELL_DETAIL =
+  "The defences near this home, and how the picture changes in the years ahead.";
+// D77(c) absence/failure copy, pinned.
+export const COULD_NOT_PULL_LINE =
+  "We couldn't pull this just now — the rest of your check is below. Try again in a little while.";
+export function notCoveredLine(checkName: string, nation: Nation): string {
+  return `${checkName} isn't part of this check in ${nationName(nation)} — the figures we use cover England and Wales.`;
+}
+
+// Nation gating (Scotland/NI gap check, fold-in workstream
+// 6): the class (a) England-only-register categories, gated
+// in this presentation layer only — zero brain changes, so
+// zero contract pins and zero replay cells move.
+export const NATION_GATED_CATEGORIES: Record<string, readonly string[]> = {
+  scotland: [
+    "schools-primary",
+    "schools-secondary",
+    "sixth-forms",
+    "gp",
+    "dentist",
+    "pharmacy",
+    "ae",
+    "maternity",
+    "nurseries",
+  ],
+  "northern-ireland": [
+    "schools-primary",
+    "schools-secondary",
+    "sixth-forms",
+    "gp",
+    "dentist",
+    "pharmacy",
+    "ae",
+    "maternity",
+    "nurseries",
+    "station",
+    "bus-stop",
+    "parks",
+  ],
+  wales: ["ae", "maternity"],
+};
+
 export interface ResultsView {
   pills: SummaryPill[] | null;
+  buyBar: { heading: string; line: string } | null;
+  calculators: { lastSalePrice: number | null };
   warningsStrip: WarningsStripView;
   // The flood section's live-warnings state as served, so
   // the page (and its tests) can name the state the flood
@@ -779,27 +940,74 @@ export function buildResultsView(input: ResultsInput): ResultsView {
   const { resolution, flood, crime, area, short } = input;
   const sections = short.sections;
   const linkable = reportLinkable(resolution.rung);
+  const nation = nationOfLsoa("directory" in resolution ? resolution.directory.lsoaCode : null);
+  const gated = new Set(NATION_GATED_CATEGORIES[nation] ?? []);
   const nearby = input.nearby.kind === "distances" ? input.nearby : null;
+  // The gated categories are treated as absent everywhere
+  // in this view — sections and pills alike (gap check
+  // Section 3: one gate feeds both consumers).
+  const effectiveNearby = nearby
+    ? { ...nearby, categories: nearby.categories.filter((c) => !gated.has(c.category)) }
+    : null;
   const categories = new Map<string, CategoryAnswer>(
-    (nearby?.categories ?? []).map((category) => [category.category, category]),
+    (effectiveNearby?.categories ?? []).map((category) => [category.category, category]),
   );
+  const areaSections = area.kind === "area-bundle" ? area.sections : null;
+
   const group = (key: string, table: Record<string, CategoryPresentation>): ResultsSectionView => {
     const presentation = table[key];
+    if (gated.has(key))
+      return linesSection(key, presentation.heading, [
+        { type: "line", text: notCoveredLine(presentation.heading, nation) },
+      ]);
     const category = categories.get(key);
     if (!category)
       return linesSection(key, presentation.heading, [
-        { type: "line", text: "This check is not covered for this postcode." },
+        { type: "line", text: COULD_NOT_PULL_LINE },
+        { type: "link", label: "Try again", url: "" },
       ]);
     return linesSection(key, presentation.heading, [
       { type: "places", group: placeGroupView(category, presentation, linkable) },
     ]);
   };
 
+  const withUpsell = (
+    section: ResultsSectionView,
+    lead: string | null,
+    detail: string | null,
+  ): ResultsSectionView => {
+    if (lead) section.blocks.push({ type: "upsell", lead, detail });
+    return section;
+  };
+  const placesUpsell = (
+    key: string,
+    table: Record<string, CategoryPresentation>,
+    lead: string | null,
+    detail: string | null,
+  ): ResultsSectionView => withUpsell(group(key, table), lead, detail);
+  // A schools-style upsell from the group's own truncation:
+  // lead names the unshown count, detail the full count.
+  const schoolsUpsell = (key: string, noun: string, detailTail: string): ResultsSectionView => {
+    const section = group(key, FAMILY_CATEGORIES);
+    const first = section.blocks[0];
+    if (first && first.type === "places" && first.group.truncation) {
+      const category = categories.get(key);
+      const total = category?.countWithin ?? 0;
+      section.blocks.push({
+        type: "upsell",
+        lead: `Plus ${first.group.truncation.n} more ${noun}`,
+        detail: `All ${total}, with their Ofsted ratings and inspection dates${detailTail}`,
+      });
+    }
+    return section;
+  };
+
   // --- Family Checks --------------------------------------
   const familySections: ResultsSectionView[] = [];
-  familySections.push(group("schools-primary", FAMILY_CATEGORIES));
-  familySections.push(group("schools-secondary", FAMILY_CATEGORIES));
-  familySections.push(group("sixth-forms", FAMILY_CATEGORIES));
+  familySections.push(schoolsUpsell("schools-primary", "primary schools", ""));
+  familySections.push(
+    schoolsUpsell("schools-secondary", "secondary schools", ", and sixth-form provision"),
+  );
   // The catchment honesty block and the served school
   // deadlines line ride together: both are England / Wales
   // schools-admin content, present exactly when the brain
@@ -814,55 +1022,134 @@ export function buildResultsView(input: ResultsInput): ResultsView {
       ]),
     );
   }
-  familySections.push(group("nurseries", FAMILY_CATEGORIES));
-  familySections.push(group("gp", FAMILY_CATEGORIES));
-  familySections.push(group("dentist", FAMILY_CATEGORIES));
-  familySections.push(group("pharmacy", FAMILY_CATEGORIES));
-  familySections.push(group("ae", FAMILY_CATEGORIES));
-  familySections.push(group("maternity", FAMILY_CATEGORIES));
-
-  // Air quality: the headline NO2 figure and the section's
-  // own line. The yardsticks are report depth and are never
-  // read here.
   {
-    const air = sections.air;
+    const nurseries = group("nurseries", FAMILY_CATEGORIES);
+    const category = categories.get("nurseries");
+    if (category && category.state === "within")
+      nurseries.blocks.push({
+        type: "upsell",
+        lead: "Plus more nurseries & pre-schools",
+        detail: "The full list of nurseries and pre-schools near this home.",
+      });
+    familySections.push(nurseries);
+  }
+  // Pets (D76): vet, pet shops and pet boarding in one
+  // section, the boarding as a subsection.
+  {
     const blocks: SectionBlock[] = [];
-    if (air.headlineFigure) blocks.push({ type: "line", text: air.headlineFigure.line });
-    if (air.line) blocks.push({ type: "line", text: air.line });
-    if (blocks.length === 0)
-      blocks.push({ type: "line", text: "Air quality is not covered for this postcode." });
-    const sourceLine = area.kind === "area-bundle" ? area.sections.air.sourceLine : null;
-    familySections.push(linesSection("air", "Air quality", blocks, sourceLine));
+    const vets = group("vets", NEARBY_CATEGORIES);
+    blocks.push(...vets.blocks);
+    const vetCategory = categories.get("vets");
+    if (vetCategory && vetCategory.state === "within")
+      blocks.push({
+        type: "upsell",
+        lead: "Plus dog-walking areas, pet shops & more vets",
+        detail: null,
+      });
+    blocks.push({ type: "subheading", text: "Pet boarding — kennels & catteries" });
+    blocks.push(...group("pet-boarding", NEARBY_CATEGORIES).blocks);
+    blocks.push(...group("pet-shops", NEARBY_CATEGORIES).blocks);
+    familySections.push(linesSection("pets", "Pets", blocks));
   }
 
-  // Noise beside air (Final Design placement), from the
-  // full area section: the publisher's band text verbatim,
-  // day and night, per mapped source — or the section's
-  // named not-filed / not-covered line, which is the
-  // expected default until a national filing exists.
+  // --- The Neighbourhood ----------------------------------
+  const neighbourhoodSections: ResultsSectionView[] = [];
+  // The census headlines block (D77(e)): four labelled
+  // lines composed from the served Census tables + the IMD
+  // decile, with the finalized small print.
   {
     const blocks: SectionBlock[] = [];
-    let sourceLine: string | null = null;
-    if (area.kind === "area-bundle") {
-      const noise = area.sections.noise;
-      sourceLine = noise.sourceLine;
-      if (noise.state === "served") {
-        for (const band of noise.bands) blocks.push({ type: "line", text: band.line });
-        if (blocks.length === 0 && noise.line) blocks.push({ type: "line", text: noise.line });
-      } else if (noise.line) {
-        blocks.push({ type: "line", text: noise.line });
+    const census = areaSections?.census;
+    const imd = areaSections?.imd;
+    if (census && census.state === "served") {
+      const table = (code: string) => census.tables.find((t) => t.code === code);
+      const rowPct = (code: string, label: string) =>
+        table(code)?.rows.find((r) => r.label === label)?.pct ?? null;
+      const owned = rowPct("ts054", "Owned");
+      const outright = rowPct("ts054", "Owned: Owns outright");
+      const mortgage = rowPct("ts054", "Owned: Owns with a mortgage or loan");
+      const social = census.socialRented?.pct ?? rowPct("ts054", "Social rented");
+      const priv = rowPct("ts054", "Private rented");
+      if (
+        owned !== null &&
+        outright !== null &&
+        mortgage !== null &&
+        social !== null &&
+        priv !== null
+      )
+        blocks.push({
+          type: "line",
+          text: `Owning and renting — ${Math.round(owned / 10)} in 10 households own their home: ${Math.round(outright)}% outright and ${Math.round(mortgage)}% with a mortgage. ${Math.round(social)}% rent from a social landlord, ${Math.round(priv)}% rent privately.`,
+        });
+      const ethnic = table("ts021");
+      const groups = [...(ethnic?.groups ?? [])].sort((a, b) => b.count - a.count);
+      const white = groups.find((g) => g.label === "White");
+      const others = groups.filter((g) => g.label !== "White").slice(0, 2);
+      const shortGroup = (label: string) =>
+        label.startsWith("Mixed")
+          ? "Mixed"
+          : label.startsWith("Asian")
+            ? "Asian"
+            : label.startsWith("Black")
+              ? "Black"
+              : "Other";
+      const ageText = census.medianAge
+        ? Number.isInteger(census.medianAge.value)
+          ? String(census.medianAge.value)
+          : census.medianAge.value.toFixed(1).endsWith(".5")
+            ? `${Math.floor(census.medianAge.value)}½`
+            : String(census.medianAge.value)
+        : null;
+      if (white && others.length === 2 && ageText)
+        blocks.push({
+          type: "line",
+          text: `The people here — The typical age is ${ageText}. ${Math.round(white.pct)} in 100 residents are White; the next largest groups are ${shortGroup(others[0].label)} (${others[0].pct} in 100) and ${shortGroup(others[1].label)} (${others[1].pct} in 100).`,
+        });
+      const accom = table("ts044");
+      if (accom) {
+        const detSemi = accom.rows
+          .filter((r) => r.label === "Detached" || r.label === "Semi-detached")
+          .reduce((sum, r) => sum + r.pct, 0);
+        const flat = accom.rows
+          .filter((r) => /flat/i.test(r.label))
+          .reduce((sum, r) => sum + r.pct, 0);
+        if (detSemi > 0 && flat > 0)
+          blocks.push({
+            type: "line",
+            text: `The homes themselves — Nearly ${Math.round(detSemi / 10)} in 10 are detached or semi-detached houses; about 1 in ${Math.round(100 / flat)} is a flat.`,
+          });
       }
+      if (imd && imd.state === "served" && imd.decile !== null)
+        blocks.push({
+          type: "line",
+          text: `Deprivation — This postcode's immediate area sits in decile ${imd.decile} of 10, where 10 is the least deprived in England.`,
+        });
+      if (census.residentsTotal)
+        blocks.push({
+          type: "line",
+          text: `Census 2021 figures cover the wider area around this home — about ${(Math.round(census.residentsTotal / 100) * 100).toLocaleString("en-GB")} residents. The deprivation decile covers the immediate area. Facts as published, in the Census's own words — no scores.`,
+        });
+      blocks.push({
+        type: "upsell",
+        lead: "Plus the full Census picture for this area",
+        detail:
+          "Six tables as published — age, ethnic group, religion, type of home, bedrooms and tenure, every count and percentage.",
+      });
+      neighbourhoodSections.push(
+        linesSection("census", "The neighbourhood in numbers", blocks, census.sourceLine),
+      );
+    } else {
+      blocks.push({
+        type: "line",
+        text: census?.line ?? "Census 2021 figures are not filed for this area.",
+      });
+      neighbourhoodSections.push(linesSection("census", "The neighbourhood in numbers", blocks));
     }
-    if (blocks.length === 0)
-      blocks.push({ type: "line", text: "Noise bands are not covered for this postcode." });
-    familySections.push(linesSection("noise", "Noise", blocks, sourceLine));
   }
-
-  // Crime: the count and window, then the D39 calibration
-  // pair together with their basis line, under the same
-  // stale line when the counts serve stale. Wales serves
-  // counts with no calibration pair (both figures null) —
-  // the counts render, the pair does not.
+  // Crime (D77(a)): the percentage form with the calibration
+  // pair beneath; no crime types on the free page. Wales
+  // serves counts with no calibration pair — the counts
+  // render, the pair does not.
   {
     const crimeSection = sections.crime;
     const blocks: SectionBlock[] = [];
@@ -871,33 +1158,76 @@ export function buildResultsView(input: ResultsInput): ResultsView {
       sourceLine = crimeSection.sourceLine;
       if (crimeSection.staleLine)
         blocks.push({ type: "notice", variant: "stale", text: crimeSection.staleLine });
-      blocks.push({ type: "line", text: crimeSection.totalLine });
-      blocks.push({ type: "line", text: crimeSection.windowLine });
-      if (crimeSection.perHeadLine) blocks.push({ type: "line", text: crimeSection.perHeadLine });
-      if (crimeSection.englandLine) blocks.push({ type: "line", text: crimeSection.englandLine });
-      const basisLine =
-        crime.kind === "crime" && crime.crime.state === "served"
-          ? crime.crime.perHead?.basisLine
-          : undefined;
-      if (crimeSection.perHeadLine && basisLine) blocks.push({ type: "line", text: basisLine });
+      const servedCrime =
+        crime.kind === "crime" && crime.crime.state === "served" ? crime.crime : null;
+      const per1000 = servedCrime?.perHead?.per1000 ?? null;
+      const england = servedCrime?.englandFigure?.englandPer1000 ?? null;
+      if (per1000 !== null && england !== null && england > 0) {
+        const pct = Math.round(Math.abs(1 - per1000 / england) * 100);
+        const direction = per1000 < england ? "below" : per1000 > england ? "above" : "at";
+        blocks.push({
+          type: "line",
+          text:
+            direction === "at"
+              ? `${crimeSection.total.toLocaleString("en-GB")} crimes recorded in the last 12 months — about the same as the England average.`
+              : `${crimeSection.total.toLocaleString("en-GB")} crimes recorded in the last 12 months — about ${pct}% ${direction} the England average.`,
+        });
+        blocks.push({
+          type: "line",
+          text: `That's ${String(Number(per1000.toFixed(1)))} recorded crimes for every 1,000 residents here. Across England, the figure is ${String(Number(england.toFixed(1)))}.`,
+        });
+        blocks.push({
+          type: "line",
+          text: "Incidents are recorded against nearby streets, not against individual houses.",
+        });
+      } else {
+        blocks.push({ type: "line", text: crimeSection.totalLine });
+        blocks.push({ type: "line", text: crimeSection.windowLine });
+      }
+      blocks.push({
+        type: "upsell",
+        lead: "Plus crime month by month and by type",
+        detail: "Twelve months, every recorded type, in a chart.",
+      });
     } else {
       blocks.push({ type: "line", text: crimeSection.reason });
     }
-    familySections.push(linesSection("crime", "Crime", blocks, sourceLine));
+    neighbourhoodSections.push(linesSection("crime", "Crime", blocks, sourceLine));
   }
-
-  // --- What's Nearby --------------------------------------
-  const nearbySections = Object.keys(NEARBY_CATEGORIES).map((key) => group(key, NEARBY_CATEGORIES));
+  // Air quality & noise (D76: one combined section).
+  {
+    const blocks: SectionBlock[] = [];
+    blocks.push({ type: "subheading", text: "Air quality" });
+    const air = sections.air;
+    if (air.headlineFigure) blocks.push({ type: "line", text: air.headlineFigure.line });
+    if (air.line) blocks.push({ type: "line", text: air.line });
+    if (blocks.length === 1)
+      blocks.push({ type: "line", text: "Air quality is not covered for this postcode." });
+    blocks.push({ type: "subheading", text: "Noise" });
+    let noiseSource: string | null = null;
+    if (areaSections?.noise) {
+      const noise = areaSections.noise;
+      noiseSource = noise.sourceLine;
+      if (noise.state === "served") {
+        for (const band of noise.bands) blocks.push({ type: "line", text: band.line });
+        if (blocks.length === 3 && noise.line) blocks.push({ type: "line", text: noise.line });
+      } else if (noise.line) {
+        blocks.push({ type: "line", text: noise.line });
+      }
+    }
+    if (blocks.length === 3)
+      blocks.push({ type: "line", text: "Noise bands are not covered for this postcode." });
+    let sourceLine: string | null = noiseSource;
+    if (area.kind === "area-bundle" && area.sections.air.sourceLine)
+      sourceLine = area.sections.air.sourceLine;
+    neighbourhoodSections.push(
+      linesSection("air-noise", "Air quality & noise", blocks, sourceLine),
+    );
+  }
 
   // --- Home, Costs & Risks --------------------------------
   const homeSections: ResultsSectionView[] = [];
-
-  // Sold prices (D23): the served headline facts only — the
-  // home's last sale and the postcode median with its count
-  // and span. The design's computed tiles (change since the
-  // previous sale, time held, annual growth) are DROPPED by
-  // the M6.23 sweep (B7) under D23: nothing is computed
-  // here, ever.
+  // Sold history (D23): the served headline facts only.
   {
     const sold = sections.soldPrices;
     const blocks: SectionBlock[] = [];
@@ -915,49 +1245,75 @@ export function buildResultsView(input: ResultsInput): ResultsView {
       if (sold.ownLine) blocks.push({ type: "line", text: sold.ownLine });
       if (sold.median.line) blocks.push({ type: "line", text: sold.median.line });
       if (sold.buildingMedian?.line) blocks.push({ type: "line", text: sold.buildingMedian.line });
-      homeSections.push(linesSection("sold-prices", "Sold prices", blocks, sold.sourceLine));
+      blocks.push({
+        type: "upsell",
+        lead: "Plus the full sale-by-sale table & sold prices nearby",
+        detail: "The median, the range and every sale counted.",
+      });
+      homeSections.push(linesSection("sold-prices", "Sold history", blocks, sold.sourceLine));
     } else {
       blocks.push({ type: "line", text: sold.reason });
-      homeSections.push(linesSection("sold-prices", "Sold prices", blocks));
+      homeSections.push(linesSection("sold-prices", "Sold history", blocks));
     }
   }
-
-  // Council tax: the short bundle's composed correction
-  // line (the authority's Band D average, never this home's
-  // bill), with the D33 monthly line beside it.
+  // Costs (D76/D77): council tax + EPC + EV + broadband &
+  // mobile in one section, with the composed monthly lead
+  // row where both halves serve (D33's never-sum rule: the
+  // lead is a presentation of the two served lines, each
+  // still stated in its own row below).
   {
+    const blocks: SectionBlock[] = [];
     const tax = sections.councilTax;
-    const blocks: SectionBlock[] = [];
-    if (tax.line) blocks.push({ type: "line", text: tax.line });
-    let sourceLine: string | null = null;
-    if (area.kind === "area-bundle") {
-      sourceLine = area.sections.councilTax.sourceLine;
-      const monthly = area.sections.councilTax.monthlyLine;
-      if (tax.state === "served" && monthly) blocks.push({ type: "line", text: monthly });
-    }
-    if (blocks.length === 0)
-      blocks.push({ type: "line", text: "Council tax is not covered for this postcode." });
-    homeSections.push(linesSection("council-tax", "Council tax", blocks, sourceLine));
-  }
-
-  // EPC: the headline assessment only — the construction
-  // block and the certificate spread are report depth.
-  {
     const epc = sections.epc;
-    const blocks: SectionBlock[] = [];
+    const taxFull = areaSections?.councilTax;
+    const certCosts = areaSections?.epc?.certificates?.[0]?.energyCosts ?? null;
+    if (
+      tax.state === "served" &&
+      taxFull?.bandDMonthlyPence != null &&
+      taxFull?.bandDAveragePence != null &&
+      certCosts
+    ) {
+      const money = (pence: number) =>
+        pence % 100 === 0
+          ? formatPounds(pence / 100)
+          : `£${(pence / 100).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      const totalMonthly = taxFull.bandDMonthlyPence + certCosts.currentMonthlyPence;
+      blocks.push({
+        type: "line",
+        text: `About ${money(totalMonthly)} a month: council tax ${money(taxFull.bandDMonthlyPence)} a month (Band D average, ${money(taxFull.bandDAveragePence)} a year) + EPC estimated energy about ${money(certCosts.currentMonthlyPence)} a month (${money(certCosts.currentAnnualPence)} a year). Mortgage not included.`,
+      });
+    }
+    blocks.push({ type: "subheading", text: "Council tax" });
+    if (tax.line) blocks.push({ type: "line", text: tax.line });
+    if (areaSections?.councilTax?.monthlyLine && tax.state === "served")
+      blocks.push({ type: "line", text: areaSections.councilTax.monthlyLine });
+    if (tax.line === null && blocks.length === 1)
+      blocks.push({ type: "line", text: "Council tax is not covered for this postcode." });
+    blocks.push({ type: "subheading", text: "EPC & energy" });
     if (epc.headlineAssessmentLabel)
       blocks.push({ type: "line", text: epc.headlineAssessmentLabel });
     if (epc.line) blocks.push({ type: "line", text: epc.line });
-    if (blocks.length === 0)
-      blocks.push({ type: "line", text: "Energy certificates are not covered for this postcode." });
-    const sourceLine = area.kind === "area-bundle" ? area.sections.epc.sourceLine : null;
-    homeSections.push(linesSection("epc", "Energy (EPC)", blocks, sourceLine));
+    if (certCosts) blocks.push({ type: "line", text: certCosts.line });
+    blocks.push({ type: "subheading", text: "EV charging" });
+    blocks.push(...group("ev-chargers", NEARBY_CATEGORIES).blocks);
+    blocks.push({ type: "subheading", text: "Broadband & mobile" });
+    const broadband = sections.broadband;
+    if (broadband.line) blocks.push({ type: "line", text: broadband.line });
+    if (areaSections?.mobile?.line) blocks.push({ type: "line", text: areaSections.mobile.line });
+    if (!broadband.line && !areaSections?.mobile?.line)
+      blocks.push({ type: "line", text: "Broadband answers are not covered for this postcode." });
+    blocks.push({
+      type: "upsell",
+      lead: "Plus every council tax band and the full EPC certificate detail",
+      detail:
+        "Bands A to H for this council, a year and a month each — plus the certificate's construction, improvements, typical savings and solar figures.",
+    });
+    const sourceLine =
+      area.kind === "area-bundle" ? (area.sections.councilTax?.sourceLine ?? null) : null;
+    homeSections.push(linesSection("costs", "Costs", blocks, sourceLine));
   }
-
-  // Flood: the live-warnings block FIRST, in full form,
-  // then the three layers' headline lines (never merged,
-  // D25). Defences and the climate outlook are report
-  // depth and are never read here.
+  // Flood: live warnings first, then the layers (never
+  // merged, D25), then the D77/F4-softened upsell.
   {
     const blocks: SectionBlock[] = [];
     if (flood.kind === "flood" && flood.flood.state === "served") {
@@ -976,37 +1332,18 @@ export function buildResultsView(input: ResultsInput): ResultsView {
     }
     if (blocks.length === 0)
       blocks.push({ type: "line", text: "Flood answers are not covered for this postcode." });
-    homeSections.push(linesSection("flood", "Flood risk", blocks));
+    blocks.push({ type: "upsell", lead: FLOOD_UPSELL_LEAD, detail: FLOOD_UPSELL_DETAIL });
+    homeSections.push(linesSection("flood", "Flood", blocks));
   }
-
-  // Planning applications (D31): the hand-off — the
-  // section's own line and its official register link. No
-  // applications data is held or scraped, ever.
+  // Planning, protection & ownership (D76): constraints,
+  // nature, heritage and the D31 planning hand-off in one
+  // section. The "Owned by a company" row renders ONLY
+  // from the served bundle key — absent while
+  // COMPANY_OWNERSHIP_ENABLED is off (D77(d)).
   {
     const blocks: SectionBlock[] = [];
-    let sourceLine: string | null = null;
-    if (area.kind === "area-bundle") {
-      const planning = area.sections.planningApplications;
-      sourceLine = planning.sourceLine;
-      blocks.push({ type: "line", text: planning.line });
-      if (planning.link)
-        blocks.push({ type: "link", label: planning.link.label, url: planning.link.url });
-    }
-    if (blocks.length === 0)
-      blocks.push({
-        type: "line",
-        text: "Planning applications are not covered for this postcode.",
-      });
-    homeSections.push(linesSection("planning", "Planning applications", blocks, sourceLine));
-  }
-
-  // Constraints: the short bundle's polygon layers only
-  // (conservation area, Article 4, green belt, built-up
-  // area) and the brownfield line. Article 4's filed codes
-  // stay at report depth — the short layer carries none.
-  {
+    blocks.push({ type: "subheading", text: "Planning constraints" });
     const constraints = sections.constraints;
-    const blocks: SectionBlock[] = [];
     for (const layer of [
       constraints.conservationArea,
       constraints.article4,
@@ -1019,62 +1356,117 @@ export function buildResultsView(input: ResultsInput): ResultsView {
     blocks.push({ type: "line", text: constraints.brownfield.line });
     if (constraints.brownfield.beyondLine)
       blocks.push({ type: "line", text: constraints.brownfield.beyondLine });
-    homeSections.push(
-      linesSection(
-        "constraints",
-        "Planning constraints",
-        blocks,
-        constraints.conservationArea.sourceLine,
-      ),
-    );
-  }
-
-  // Heritage: the listed-buildings count line and the
-  // home's own at-point state, as served.
-  {
-    const heritage = sections.heritage;
-    const blocks: SectionBlock[] = [{ type: "line", text: heritage.listed.line }];
-    if (heritage.listed.beyondLine) blocks.push({ type: "line", text: heritage.listed.beyondLine });
-    if (heritage.atPoint.state === "recorded")
-      blocks.push({ type: "line", text: heritage.atPoint.line });
-    else if (heritage.atPoint.state === "needs-exact-home")
-      blocks.push({ type: "line", text: heritage.atPoint.reason });
-    homeSections.push(linesSection("heritage", "Heritage", blocks, heritage.sourceLine));
-  }
-
-  // Nature: the served lines only — designations, places,
-  // ancient woodland, priority habitat.
-  {
+    blocks.push({ type: "subheading", text: "Nature designations" });
     const nature = sections.nature;
-    const blocks: SectionBlock[] = [];
     if (nature.coverageLine) blocks.push({ type: "line", text: nature.coverageLine });
     blocks.push({ type: "line", text: nature.placesLine });
     if (nature.designationsLine) blocks.push({ type: "line", text: nature.designationsLine });
     if (nature.beyondLine) blocks.push({ type: "line", text: nature.beyondLine });
     blocks.push({ type: "line", text: nature.ancientWoodland.line });
     blocks.push({ type: "line", text: nature.priorityHabitat.line });
-    homeSections.push(linesSection("nature", "Nature & green space", blocks, nature.sourceLine));
+    blocks.push({ type: "subheading", text: "Listed building & heritage" });
+    const heritage = sections.heritage;
+    blocks.push({ type: "line", text: heritage.listed.line });
+    if (heritage.listed.beyondLine) blocks.push({ type: "line", text: heritage.listed.beyondLine });
+    if (heritage.atPoint.state === "recorded")
+      blocks.push({ type: "line", text: heritage.atPoint.line });
+    else if (heritage.atPoint.state === "needs-exact-home")
+      blocks.push({ type: "line", text: heritage.atPoint.reason });
+    blocks.push({ type: "subheading", text: "Planning applications nearby" });
+    let sourceLine: string | null = constraints.conservationArea.sourceLine;
+    if (areaSections?.planningApplications) {
+      const planning = areaSections.planningApplications;
+      sourceLine = planning.sourceLine ?? sourceLine;
+      blocks.push({ type: "line", text: planning.line });
+      if (planning.link)
+        blocks.push({ type: "link", label: planning.link.label, url: planning.link.url });
+    }
+    if (areaSections?.companyOwnership) {
+      const ownership = areaSections.companyOwnership as { line?: string | null };
+      blocks.push({ type: "subheading", text: "Owned by a company" });
+      if (ownership.line) blocks.push({ type: "line", text: ownership.line });
+    }
+    homeSections.push(
+      linesSection("planning-protection", "Planning, protection & ownership", blocks, sourceLine),
+    );
   }
 
-  // Broadband: the gigabit headline only (D36) — no other
-  // connectivity figures on this page.
+  // --- What's Nearby --------------------------------------
+  const nearbySections: ResultsSectionView[] = [];
   {
-    const broadband = sections.broadband;
     const blocks: SectionBlock[] = [];
-    if (broadband.line) blocks.push({ type: "line", text: broadband.line });
-    if (blocks.length === 0)
-      blocks.push({ type: "line", text: "Broadband answers are not covered for this postcode." });
-    homeSections.push(linesSection("broadband", "Broadband", blocks));
+    blocks.push(...group("gp", FAMILY_CATEGORIES).blocks);
+    blocks.push(...group("dentist", FAMILY_CATEGORIES).blocks);
+    blocks.push(...group("pharmacy", FAMILY_CATEGORIES).blocks);
+    blocks.push({ type: "upsell", lead: "Plus more GPs & dentists", detail: null });
+    nearbySections.push(linesSection("health", "Health", blocks));
+  }
+  {
+    const blocks: SectionBlock[] = [];
+    blocks.push(...group("ae", FAMILY_CATEGORIES).blocks);
+    blocks.push(...group("maternity", FAMILY_CATEGORIES).blocks);
+    if (!gated.has("ae"))
+      blocks.push({
+        type: "upsell",
+        lead: "Plus maternity, community hospital & more hospitals",
+        detail:
+          "Every one near this home — maternity with its own rating, and the next-nearest A&E as a fallback.",
+      });
+    nearbySections.push(linesSection("hospitals", "Hospitals", blocks));
+  }
+  nearbySections.push(
+    placesUpsell("parks", NEARBY_CATEGORIES, "Plus playgrounds, playing fields & more parks", null),
+  );
+  {
+    const shops = placesUpsell(
+      "supermarket",
+      NEARBY_CATEGORIES,
+      "Plus convenience stores & more shops",
+      null,
+    );
+    shops.key = "shops";
+    shops.heading = "Shops";
+    nearbySections.push(shops);
+  }
+  {
+    const blocks: SectionBlock[] = [];
+    blocks.push(...group("station", NEARBY_CATEGORIES).blocks);
+    blocks.push(...group("bus-stop", NEARBY_CATEGORIES).blocks);
+    nearbySections.push(linesSection("transport", "Transport", blocks));
+  }
+  nearbySections.push(group("food-and-drink", NEARBY_CATEGORIES));
+  nearbySections.push(group("leisure", NEARBY_CATEGORIES));
+  nearbySections.push(group("places-to-visit", NEARBY_CATEGORIES));
+  {
+    const blocks: SectionBlock[] = [];
+    blocks.push(...group("places-of-worship", NEARBY_CATEGORIES).blocks);
+    blocks.push(...group("libraries", NEARBY_CATEGORIES).blocks);
+    blocks.push({
+      type: "upsell",
+      lead: "Plus the full Food & drink, Leisure, Places to visit, worship & library lists",
+      detail: null,
+    });
+    nearbySections.push(linesSection("worship-libraries", "Places of worship & libraries", blocks));
   }
 
   const tabs: ResultsTabView[] = [
     { id: "family", label: "Family Checks", sections: familySections },
-    { id: "nearby", label: "What's Nearby", sections: nearbySections },
+    { id: "neighbourhood", label: "The Neighbourhood", sections: neighbourhoodSections },
     { id: "home", label: "Home, Costs & Risks", sections: homeSections },
+    { id: "nearby", label: "What's Nearby", sections: nearbySections },
   ];
 
   return {
-    pills: nearby ? summaryPills({ nearby, flood, crime, sections }) : null,
+    pills: effectiveNearby
+      ? summaryPills({ nearby: effectiveNearby, flood, crime, sections, area })
+      : null,
+    buyBar: { heading: BUY_BAR_HEADING, line: BUY_BAR_LINE },
+    calculators: {
+      lastSalePrice:
+        sections.soldPrices.state === "served"
+          ? (sections.soldPrices.ownLastSale?.price ?? null)
+          : null,
+    },
     warningsStrip: warningsStrip(flood),
     floodWarningsState:
       flood.kind === "flood" && flood.flood.state === "served" && flood.flood.liveWarnings
@@ -1094,16 +1486,8 @@ export function buildResultsView(input: ResultsInput): ResultsView {
 const RUNG3_FAMILY: { key: string; heading: string; shortKey: keyof ShortSections | "nearby" }[] = [
   { key: "schools-primary", heading: "Primary schools", shortKey: "nearby" },
   { key: "schools-secondary", heading: "Secondary schools", shortKey: "nearby" },
-  { key: "sixth-forms", heading: "Sixth forms and colleges", shortKey: "nearby" },
   { key: "nurseries", heading: "Nurseries & pre-schools", shortKey: "nearby" },
-  { key: "gp", heading: "GP surgeries", shortKey: "nearby" },
-  { key: "dentist", heading: "NHS dentists", shortKey: "nearby" },
-  { key: "pharmacy", heading: "Pharmacies", shortKey: "nearby" },
-  { key: "ae", heading: "A&E hospitals", shortKey: "nearby" },
-  { key: "maternity", heading: "Maternity units", shortKey: "nearby" },
-  { key: "air", heading: "Air quality", shortKey: "air" },
-  { key: "noise", heading: "Noise", shortKey: "noise" },
-  { key: "crime", heading: "Crime", shortKey: "crime" },
+  { key: "pets", heading: "Pets", shortKey: "nearby" },
 ];
 
 export function buildWiderAreaView(
@@ -1118,34 +1502,41 @@ export function buildWiderAreaView(
   ): ResultsSectionView => linesSection(key, heading, [{ type: "line", text: named(shortKey) }]);
 
   const family = RUNG3_FAMILY.map((entry) => section(entry.key, entry.heading, entry.shortKey));
-  const nearbyTab = Object.entries(NEARBY_CATEGORIES).map(([key, presentation]) =>
-    section(key, presentation.heading, "nearby"),
-  );
+  const neighbourhood: ResultsSectionView[] = [
+    section("census", "The neighbourhood in numbers", "nearby"),
+    section("crime", "Crime", "crime"),
+    section("air-noise", "Air quality & noise", "air"),
+  ];
   const home: ResultsSectionView[] = [
-    section("sold-prices", "Sold prices", "soldPrices"),
-    section("council-tax", "Council tax", "councilTax"),
-    section("epc", "Energy (EPC)", "epc"),
-    section("flood", "Flood risk", "flood"),
-    // The planning hand-off at rung 3 carries the area
-    // bundle's own named reason, which the short bundle
-    // does not hold a key for; the sentence is the same
-    // named-state form.
-    linesSection("planning", "Planning applications", [
+    section("sold-prices", "Sold history", "soldPrices"),
+    section("costs", "Costs", "councilTax"),
+    section("flood", "Flood", "flood"),
+    linesSection("planning-protection", "Planning, protection & ownership", [
       { type: "line", text: "planning applications need an exact postcode" },
     ]),
-    section("constraints", "Planning constraints", "constraints"),
-    section("heritage", "Heritage", "heritage"),
-    section("nature", "Nature & green space", "nature"),
-    section("broadband", "Broadband", "broadband"),
+  ];
+  const nearbyTab: ResultsSectionView[] = [
+    section("health", "Health", "nearby"),
+    section("hospitals", "Hospitals", "nearby"),
+    section("parks", "Parks", "nearby"),
+    section("shops", "Shops", "nearby"),
+    section("transport", "Transport", "nearby"),
+    section("food-and-drink", "Food & drink", "nearby"),
+    section("leisure", "Leisure", "nearby"),
+    section("places-to-visit", "Places to visit", "nearby"),
+    section("worship-libraries", "Places of worship & libraries", "nearby"),
   ];
   return {
     pills: null,
+    buyBar: null,
+    calculators: { lastSalePrice: null },
     warningsStrip: { kind: "none" },
     floodWarningsState: null,
     tabs: [
       { id: "family", label: "Family Checks", sections: family },
-      { id: "nearby", label: "What's Nearby", sections: nearbyTab },
+      { id: "neighbourhood", label: "The Neighbourhood", sections: neighbourhood },
       { id: "home", label: "Home, Costs & Risks", sections: home },
+      { id: "nearby", label: "What's Nearby", sections: nearbyTab },
     ],
   };
 }

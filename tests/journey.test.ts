@@ -193,20 +193,23 @@ describe("pinned journey copy", () => {
     expect(rowFailureLine("Flood")).toBe(
       "Flood couldn't be checked just now — the rest of the check still opens.",
     );
-    expect(CHECKING_ROWS).toHaveLength(9);
-    // D70: three rows carry the design's qualifiers (D11
-    // restored); the picker gains its explainer and the
-    // select-then-confirm button (R6).
+    // D73 (fold-in build): the checking screen is five
+    // grouped rows with pinned qualifiers, under the pinned
+    // heading and facts line.
+    expect(CHECKING_ROWS).toHaveLength(5);
     expect(CHECKING_ROWS.map((row) => row.label)).toEqual([
-      "Schools — nearest primary & secondary, with Ofsted",
-      "Nurseries & pre-schools",
-      "GP, NHS dentist & pharmacy",
-      "Hospitals, A&E & maternity",
-      "Parks, vets & dog-walking areas",
-      "Shops & transport — supermarkets, bus stops, stations",
-      "Food & drink, leisure & gyms, places to visit, worship & libraries",
-      "Flood — rivers & sea, and surface water",
-      "Sold history, council tax, EPC, planning applications & constraints, ownership",
+      "Schools & nurseries",
+      "Health & the everyday",
+      "Safety & surroundings",
+      "Costs & connections",
+      "Past sales & prices",
+    ]);
+    expect(CHECKING_ROWS.map((row) => row.qualifier)).toEqual([
+      "Primaries, secondaries, sixth forms and childcare near here.",
+      "GP, dentist, pharmacy, hospital, shops and stations near here.",
+      "Crime, flood risk and air quality around here.",
+      "Council tax, energy, broadband and mobile for this postcode.",
+      "Recorded sale prices, from the Land Registry.",
     ]);
     expect(PICKER_EXPLAINER).toBe(
       "Schools and flood are address-sensitive, so pick your exact house before anything is checked.",

@@ -181,30 +181,53 @@ export function journeyDestination(
 // constants and never retype them.
 // ------------------------------------------------------------------
 
-// The checking screen (the Final Design's Stop W3 mock): the
-// nine rows, named as the design draws them. The step text
-// pins the row set at nine over the design text's "eight".
-export const CHECKING_HEADING_HOME = "Checking this home";
-export const CHECKING_HEADING_POSTCODE = "Checking this postcode";
-export const CHECKING_INTRO =
-  "Each check completes as its answer arrives — there are no artificial delays.";
+// The checking screen — D73 (fold-in build, 17 Nov 2026):
+// a pure graphic with a purposeful delay, NOT synced to the
+// backend, with no failure or not-completed states ever
+// (the Results page carries any "couldn't pull" states).
+// Exactly five grouped rows, in this order, with the
+// pinned heading and sub-line. This supersedes the M7.3/D70
+// truthful-ticking presentation (nine rows completing as
+// the brains resolved) and the 2,000ms readable hold.
+export const CHECKING_HEADING_HOME = "Your check is under way";
+export const CHECKING_HEADING_POSTCODE = "Your check is under way";
+export const CHECKING_HEADING = "Your check is under way";
+export const CHECKING_INTRO = "We present the facts — the decision is yours.";
 
 export const CHECKING_ROWS = [
-  // Three rows carry the design's qualifiers (D70, restoring
-  // D11): what the check covers, named on the row itself.
-  { key: "schools", label: "Schools — nearest primary & secondary, with Ofsted" },
-  { key: "nurseries", label: "Nurseries & pre-schools" },
-  { key: "health", label: "GP, NHS dentist & pharmacy" },
-  { key: "hospitals", label: "Hospitals, A&E & maternity" },
-  { key: "parks", label: "Parks, vets & dog-walking areas" },
-  { key: "shops", label: "Shops & transport — supermarkets, bus stops, stations" },
-  { key: "food", label: "Food & drink, leisure & gyms, places to visit, worship & libraries" },
-  { key: "flood", label: "Flood — rivers & sea, and surface water" },
+  {
+    key: "schools",
+    label: "Schools & nurseries",
+    qualifier: "Primaries, secondaries, sixth forms and childcare near here.",
+  },
+  {
+    key: "health",
+    label: "Health & the everyday",
+    qualifier: "GP, dentist, pharmacy, hospital, shops and stations near here.",
+  },
+  {
+    key: "safety",
+    label: "Safety & surroundings",
+    qualifier: "Crime, flood risk and air quality around here.",
+  },
+  {
+    key: "costs",
+    label: "Costs & connections",
+    qualifier: "Council tax, energy, broadband and mobile for this postcode.",
+  },
   {
     key: "history",
-    label: "Sold history, council tax, EPC, planning applications & constraints, ownership",
+    label: "Past sales & prices",
+    qualifier: "Recorded sale prices, from the Land Registry.",
   },
 ] as const;
+
+// D73 timing: rows complete ~720ms apart on the graphic's
+// own clock; the progress bar advances 20% per row; the
+// advance happens ~600ms after the fifth row AND once the
+// real resolution/check data is ready, whichever is later.
+export const CHECKING_ROW_MS = 720;
+export const CHECKING_ADVANCE_MS = 600;
 
 export type CheckingRowKey = (typeof CHECKING_ROWS)[number]["key"];
 

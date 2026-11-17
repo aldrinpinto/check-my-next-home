@@ -271,27 +271,28 @@ describe("the rendered home page", () => {
     expect(html).not.toContain("checks-list");
   });
 
-  it("renders the three cards and the sample link", () => {
+  it("renders the three cards; the 'See a full example' section is removed (fold-in workstream 5)", () => {
     for (const card of HOME_AUDIENCE_CARDS) {
       expect(html).toContain(card.title);
       expect(html).toContain(card.intro);
       for (const check of card.checks) expect(html).toContain(check);
     }
     expect(html).toContain(HOME_CARDS_HEADING);
-    expect(html).toContain(`href="${SAMPLE_REPORT_PATH}"`);
-    expect(html).toContain(SAMPLE_REPORT_LINK_TEXT);
+    // The section (heading, line, link) is gone entirely;
+    // the report band's own sample door remains.
+    expect(html).not.toContain(SAMPLE_REPORT_HEADING);
+    expect(html).not.toContain(SAMPLE_REPORT_LINE);
+    expect(html).not.toContain(SAMPLE_REPORT_LINK_TEXT);
   });
 
-  it("shows the manifesto block once, mid-page", () => {
+  it("shows the manifesto block once, after the tile grid", () => {
     expect(html.split(HOME_MANIFESTO_HEADLINE)).toHaveLength(2);
     expect(html).toContain(HOME_MANIFESTO_WHY);
-    // The block sits between the tile grid and the sample
-    // section — mid-page, as the step rules.
+    // The block sits after the tile grid — with the sample
+    // section removed (fold-in), it closes the page.
     const tiles = html.indexOf(HOME_CHECK_TILES_HEADING);
     const block = html.indexOf(HOME_MANIFESTO_HEADLINE);
-    const sample = html.indexOf(SAMPLE_REPORT_HEADING);
     expect(tiles).toBeLessThan(block);
-    expect(block).toBeLessThan(sample);
   });
 
   it("renders the sample's sections in the sample's order (founder follow-on)", () => {

@@ -33,6 +33,9 @@ export const PRIMARY_NAV = [
   { label: "Sample report", href: "/sample-report" },
   { label: "About", href: "/about" },
   { label: "Shortlist", href: "/shortlist" },
+  // D77(g) (fold-in build): Contact joins the header nav;
+  // the footer set is unchanged.
+  { label: "Contact", href: "/contact" },
 ] as const;
 
 export default function SiteHeader({ shortlistCount }: { shortlistCount?: number }) {
