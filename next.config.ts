@@ -1,10 +1,15 @@
 import type { NextConfig } from "next";
 
-const nextConfig: NextConfig = {
-  // The play site (Cloudflare Pages) serves a fully static export for now:
-  // the skeleton has no server features. Revisit when a later milestone
-  // needs server behaviour on the play site (production runs on Hetzner).
-  output: "export",
-};
+// M7.3 — the served architecture. M7.1 shipped a static
+// export (output: "export") because the play site was a
+// static host and no page needed a server; the checker
+// journey needs the frozen brains at request time, so the
+// app now runs as the production architecture in miniature:
+// one Next codebase serving the pages and the API route
+// handlers that call the brains (plan step M7.3, ruling 1).
+// The play site moves to the Hetzner server at this step's
+// integration; production is the same codebase at M12.
+
+const nextConfig: NextConfig = {};
 
 export default nextConfig;

@@ -34,10 +34,14 @@ import {
 // M7.2 — the home page's pins. The page's copy lives in
 // lib/home.ts (and the identity constants in lib/site.ts) and
 // is pinned verbatim here; the rendered page is checked for
-// the hero's pinned order, the inert postcode box, the
+// the hero's pinned order, the postcode box, the
 // manifesto block's single appearance, the SAMPLE link's
 // labelling, and the absences the step rules on (no disclaimer,
 // no price or "free" lines, no M3 headline anywhere).
+// M7.3 re-pins the box's label and hint for the wider input
+// and wires the journey into it (fold-in 7); the box's own
+// behaviour is pinned in tests/journey.test.ts and the E2E
+// journey specs.
 
 const ROOT = process.cwd();
 const read = (path: string) => readFileSync(join(ROOT, path), "utf8");
@@ -54,9 +58,11 @@ describe("home page copy (lib/home.ts)", () => {
     );
   });
 
-  it("pins the postcode box's furniture", () => {
-    expect(POSTCODE_BOX_LABEL).toBe("Postcode");
-    expect(POSTCODE_BOX_HINT).toBe("For example, CM3 2JT.");
+  it("pins the postcode box's furniture (label and hint re-pinned at M7.3)", () => {
+    expect(POSTCODE_BOX_LABEL).toBe("Postcode or address");
+    expect(POSTCODE_BOX_HINT).toBe(
+      "For example, CM3 2JT — or the full address, with its postcode.",
+    );
     expect(POSTCODE_BOX_BUTTON).toBe("Check a home");
     expect(AUDIENCE_CARD_BUTTON).toBe("Start with a postcode");
   });
@@ -188,7 +194,7 @@ describe("the rendered home page", () => {
   });
 });
 
-describe("the inert postcode box (founder ruling, M7.2)", () => {
+describe("the postcode box (inert at M7.2; wired at M7.3)", () => {
   const html = renderToStaticMarkup(createElement(PostcodeBox));
 
   it("renders the kit's field and button, with no form action", () => {

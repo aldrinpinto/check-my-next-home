@@ -44,6 +44,24 @@ export const SITE_DESCRIPTION =
 export const DISCLAIMER_SHORT_FORM =
   "We present official data as it is published, with its source and date. We do not score, rate or recommend homes or areas.";
 
+// The results page's closing disclaimer block (plan step
+// M7.4, fold-in: pinned verbatim as a site constant beside
+// the D9 short form). Transcribed exactly from the Final
+// Design's website form of the block (the Stop W4
+// walkthrough's results page — the primary website journey;
+// a compressed variant exists in the design's step-3 detail
+// mock and is NOT this surface's form). It renders at the
+// very bottom of the free results page, below the tabs. The
+// block's final sentence names the How we check page: the
+// constant carries the sentence's text up to the link, and
+// the page renders the link itself from
+// DISCLAIMER_CLOSING_LINK_LABEL + HOW_WE_CHECK_PATH, so the
+// pinned words and the link can never drift apart.
+export const DISCLAIMER_CLOSING_BLOCK =
+  "School places are never promised and catchments are not guaranteed — check council and school admissions, apply by 31 Oct (secondary) / 15 Jan (primary). GP lists and NHS dentist places open and close. Pet data from OpenStreetMap may be incomplete. Air quality, noise and solar are modelled. Distances are straight-line. This result is information, not advice. Full method, sources and disclaimers:";
+export const DISCLAIMER_CLOSING_LINK_LABEL = "How we check";
+export const HOW_WE_CHECK_PATH = "/how-we-check";
+
 // The one canonical host (plan, SEO appendix card D): canonical tags,
 // the sitemap and the structured data all point here. The .com domain
 // and www 301-redirect to it (redirect set up in M1.3).

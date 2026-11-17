@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { SITE_NAME, SITE_TAGLINE } from "../lib/site";
+import ShortlistCountBadge from "./ShortlistCountBadge";
 
 // M7.1 — the header shell, built once for every page. White
 // header: the Roof-Tick mark (the finalised Logo 1, served from
@@ -13,8 +14,11 @@ import { SITE_NAME, SITE_TAGLINE } from "../lib/site";
 // Sample report and Shortlist do not exist yet — dead-end
 // links this step are expected and land with their steps.
 // The Shortlist count badge's styling is defined in the kit
-// now (app/globals.css); the count itself arrives at M7.5, so
-// the badge renders only when a count is passed.
+// now (app/globals.css); the count itself arrived at M7.5 as
+// a client island (ShortlistCountBadge — the server header
+// cannot read browser storage), so the prop still renders
+// the badge directly when a count is passed, and the island
+// renders it otherwise.
 
 export const PRIMARY_NAV = [
   { label: "How we check", href: "/how-we-check" },
@@ -41,9 +45,12 @@ export default function SiteHeader({ shortlistCount }: { shortlistCount?: number
               <li key={item.href}>
                 <Link className="site-nav__link" href={item.href}>
                   {item.label}
-                  {item.label === "Shortlist" && shortlistCount !== undefined && (
-                    <span className="shortlist-count">{shortlistCount}</span>
-                  )}
+                  {item.label === "Shortlist" &&
+                    (shortlistCount !== undefined ? (
+                      <span className="shortlist-count">{shortlistCount}</span>
+                    ) : (
+                      <ShortlistCountBadge />
+                    ))}
                 </Link>
               </li>
             ))}

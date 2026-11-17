@@ -3,11 +3,12 @@ import { expect, test } from "@playwright/test";
 // M7.2 E2E (D68) — the home page. Smoke: the landing page
 // serves with the hero (manifesto kicker, H1, sub-line and
 // tagline together) and the postcode box present and usable —
-// the first leg of the critical check journey. "Usable" at
-// this step is pinned by the founder's ruling: the box renders
-// and accepts input; its submit is inert and M7.3 wires the
-// real journey into it. Everything else this step makes
-// testable is Regression.
+// the first leg of the critical check journey. At M7.2
+// "usable" was pinned by the founder's ruling as renders-and-
+// accepts-input with an inert submit; M7.3 wires the real
+// journey into the same box (e2e/journey.e2e.ts owns the
+// wired flows). Everything else this step makes testable is
+// Regression.
 
 test.describe("home page — smoke", () => {
   test(
@@ -55,25 +56,25 @@ test.describe("home page — smoke", () => {
 
 test.describe("home page — regression", () => {
   test(
-    "the postcode box is inert: no validation, no navigation, no error",
+    "the wired postcode box carries the re-pinned label and hint, with no client-side validation",
     { tag: "@regression" },
     async ({ page }) => {
       await page.goto("/");
       const box = page.locator("#postcode");
 
-      // A partial postcode is a valid search on the ladder,
-      // never an error — the landing marks nothing invalid.
+      // M7.3's re-pin for the wider input (fold-in 7).
+      await expect(page.locator(".field__label")).toHaveText("Postcode or address");
+      await expect(page.locator(".field__hint")).toHaveText(
+        "For example, CM3 2JT — or the full address, with its postcode.",
+      );
+
+      // The box itself still does no tidying or validation:
+      // a partial postcode is a valid search on the ladder,
+      // never an error the landing marks.
       await box.fill("E16");
-      await page.getByRole("button", { name: "Check a home" }).click();
       await expect(box).toHaveValue("E16");
       await expect(box).not.toHaveAttribute("aria-invalid", "true");
       await expect(page.locator(".field__message")).toHaveCount(0);
-      expect(page.url()).toBe("http://127.0.0.1:4173/");
-
-      // Enter in the box is equally inert.
-      await box.press("Enter");
-      await expect(box).toHaveValue("E16");
-      expect(page.url()).toBe("http://127.0.0.1:4173/");
     },
   );
 

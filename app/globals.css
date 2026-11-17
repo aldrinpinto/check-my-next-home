@@ -278,8 +278,10 @@ p {
   text-decoration-thickness: 2px;
 }
 
-/* The Shortlist count badge. The styling is defined now; the
-   count itself arrives at M7.5 with the shortlist. */
+/* The Shortlist count badge. The styling was defined at
+   M7.1; the count arrived at M7.5 (components/
+   ShortlistCountBadge.tsx, a client island reading browser
+   storage — the badge shows only at 1 or more). */
 .shortlist-count {
   display: inline-flex;
   align-items: center;
@@ -805,4 +807,449 @@ a:hover {
 
 .type-caption {
   font-size: var(--font-size-caption);
+}
+
+/* The checker journey (plan step M7.3): the picker, the
+   checking screen, the holding results view and the
+   not-covered page. Built from the kit's tokens only. */
+
+.journey-page {
+  padding-bottom: var(--space-8);
+}
+
+.journey-notice {
+  border-left: 4px solid var(--cmnh-brass);
+  padding: var(--space-2) var(--space-4);
+  margin-bottom: var(--space-5);
+}
+
+.journey-actions {
+  margin-top: var(--space-5);
+}
+
+.unlock-banner {
+  border: 1px solid var(--cmnh-brass-pale);
+  background: var(--colour-surface);
+  padding: var(--space-5);
+  margin-top: var(--space-6);
+}
+
+.turnstile-slot {
+  display: none;
+}
+
+.picker__count {
+  margin-bottom: var(--space-4);
+}
+
+.picker__list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 var(--space-5);
+}
+
+.picker__row {
+  display: flex;
+  align-items: center;
+  min-height: 2.75rem;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--cmnh-brass-pale);
+  border-bottom: none;
+  color: var(--colour-text);
+  text-decoration: none;
+}
+
+.picker__list li:last-child .picker__row {
+  border-bottom: 1px solid var(--cmnh-brass-pale);
+}
+
+.picker__row:hover {
+  background: var(--colour-surface);
+}
+
+.picker__row--picked {
+  border-left: 4px solid var(--cmnh-forest);
+  font-weight: 600;
+}
+
+.checking__rows {
+  list-style: none;
+  padding: 0;
+  margin: var(--space-5) 0;
+}
+
+.checking__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  align-items: baseline;
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--cmnh-brass-pale);
+}
+
+.checking__row-label {
+  flex: 1 1 12rem;
+  font-weight: 600;
+}
+
+.checking__row-state {
+  flex: 0 1 auto;
+}
+
+.checking__row-line {
+  flex-basis: 100%;
+  font-size: var(--font-size-small);
+}
+
+.checking__elements {
+  flex-basis: 100%;
+  list-style: none;
+  padding: 0 0 0 var(--space-4);
+  margin: var(--space-2) 0 0;
+  font-size: var(--font-size-small);
+}
+
+.checking__elements li {
+  display: flex;
+  gap: var(--space-4);
+  padding: var(--space-1) 0;
+}
+
+.checking__element-label {
+  flex: 1 1 10rem;
+}
+
+.checking__status {
+  font-size: var(--font-size-small);
+}
+
+.results-header__scope {
+  font-size: var(--font-size-lead);
+  margin-bottom: var(--space-5);
+}
+
+.holding {
+  border: 1px solid var(--cmnh-brass-pale);
+  background: var(--colour-surface);
+  padding: var(--space-5);
+}
+
+.not-covered__sections {
+  list-style: none;
+  padding: 0;
+  margin: var(--space-5) 0;
+}
+
+.not-covered__sections li {
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--cmnh-brass-pale);
+}
+
+.not-covered__name {
+  display: block;
+  font-weight: 600;
+}
+
+/* The free results page (plan step M7.4): the summary
+   strip, the live-warnings slim line, the three tabs'
+   sections, place rows with the distance colour on the
+   miles figure only, the sold-prices tiles, the flood
+   warnings block and the closing disclaimer. Built from
+   the kit's tokens; the distance colours are the Final
+   Design's (green / orange / red as coloured text on the
+   miles figure only — the green and red are the design's
+   own text colours, the orange a readable amber in the
+   same register). */
+
+.results {
+  margin-top: var(--space-5);
+}
+
+.results-loading {
+  font-size: var(--font-size-lead);
+}
+
+.results-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.results-warnings-strip {
+  border-left: 4px solid var(--cmnh-error);
+  padding: var(--space-2) var(--space-4);
+  margin-bottom: var(--space-4);
+  font-weight: 600;
+}
+
+.results-disclaimer-short {
+  font-size: var(--font-size-small);
+  margin-bottom: var(--space-5);
+}
+
+.results-disclaimer-closing {
+  font-size: var(--font-size-small);
+  border-top: 1px solid var(--cmnh-brass-pale);
+  padding-top: var(--space-4);
+  margin-top: var(--space-6);
+}
+
+.results-section {
+  padding: var(--space-4) 0;
+  border-bottom: 1px solid var(--cmnh-brass-pale);
+}
+
+.results-section__heading {
+  font-size: var(--font-size-h3);
+  margin-bottom: var(--space-3);
+}
+
+.results-line {
+  margin-bottom: var(--space-2);
+}
+
+.place-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 var(--space-2);
+}
+
+.place-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  align-items: baseline;
+  padding: var(--space-2) 0;
+}
+
+.place-row__name {
+  font-weight: 600;
+}
+
+.place-row__miles {
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.place-row__miles--green {
+  color: #14532d;
+}
+
+.place-row__miles--orange {
+  color: #9a6200;
+}
+
+.place-row__miles--red {
+  color: #7f1d1d;
+}
+
+.place-row__detail,
+.place-row__rating,
+.place-row__sixth {
+  font-size: var(--font-size-small);
+  flex-basis: 100%;
+}
+
+.truncation-line {
+  font-size: var(--font-size-small);
+  margin-bottom: var(--space-2);
+}
+
+.results-tiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  list-style: none;
+  padding: 0;
+  margin: 0 0 var(--space-3);
+}
+
+.results-tile {
+  border: 1px solid var(--cmnh-brass-pale);
+  background: var(--colour-surface);
+  padding: var(--space-3) var(--space-4);
+  min-width: 10rem;
+}
+
+.results-tile__label {
+  display: block;
+  font-size: var(--font-size-small);
+  font-weight: 600;
+}
+
+.results-tile__value {
+  display: block;
+  font-size: var(--font-size-lead);
+  font-weight: 700;
+  color: var(--colour-heading);
+}
+
+.flood-warning {
+  border-left: 4px solid var(--cmnh-error);
+  padding: var(--space-2) var(--space-4);
+  margin-bottom: var(--space-3);
+}
+
+.flood-warning__severity {
+  font-weight: 700;
+  margin-bottom: var(--space-1);
+}
+
+.flood-warning__raised {
+  font-size: var(--font-size-small);
+}
+
+.flood-warnings__attribution {
+  font-size: var(--font-size-small);
+}
+
+/* --- Shortlist (plan step M7.5) --------------------------------------
+   The add control in the results header area, the add-a-4th
+   panel, the /shortlist cards and the side-by-side
+   comparison. Built from the kit's tokens only; distance
+   colour rides on the results page's miles classes
+   (.place-row__miles--*) so a figure can never take a
+   different colour here than it took on the check. */
+
+.results-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: var(--space-4);
+}
+
+.results-header--row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.results-header--row h1 {
+  flex: 1 1 16rem;
+}
+
+.shortlist-unavailable {
+  border-left: 4px solid var(--cmnh-brass);
+  padding: var(--space-2) var(--space-4);
+  margin-bottom: var(--space-5);
+}
+
+.shortlist-panel {
+  border: 1px solid var(--cmnh-brass-pale);
+  background: var(--colour-surface);
+  padding: var(--space-5);
+  margin-top: var(--space-4);
+  text-align: left;
+}
+
+.shortlist-panel__line {
+  margin-bottom: var(--space-4);
+}
+
+.shortlist-panel__list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 var(--space-4);
+}
+
+.shortlist-panel__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--cmnh-brass-pale);
+}
+
+.shortlist-panel__address {
+  flex: 1 1 12rem;
+  font-weight: 600;
+}
+
+.shortlist-cards {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 var(--space-5);
+}
+
+.shortlist-card {
+  border: 1px solid var(--cmnh-brass-pale);
+  background: var(--colour-surface);
+  padding: var(--space-5);
+  margin-bottom: var(--space-4);
+}
+
+.shortlist-card__address {
+  margin-bottom: var(--space-2);
+}
+
+.shortlist-card__sale {
+  font-weight: 600;
+  margin-bottom: var(--space-1);
+}
+
+.shortlist-card__facts {
+  margin-bottom: var(--space-4);
+}
+
+.shortlist-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin: 0;
+}
+
+.shortlist-kept-line {
+  font-size: var(--font-size-small);
+  margin-bottom: var(--space-6);
+}
+
+.shortlist-compare__grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
+
+@media (min-width: 48rem) {
+  .shortlist-compare__grid {
+    grid-template-columns: repeat(var(--compare-columns, 1), 1fr);
+  }
+}
+
+.shortlist-compare__column {
+  border: 1px solid var(--cmnh-brass-pale);
+  background: var(--colour-surface);
+  padding: var(--space-5);
+}
+
+.shortlist-compare__sale {
+  font-weight: 600;
+  margin-bottom: var(--space-3);
+}
+
+.shortlist-compare__rows {
+  margin: 0 0 var(--space-4);
+}
+
+.shortlist-compare__row {
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--cmnh-brass-pale);
+}
+
+.shortlist-compare__row dt {
+  font-size: var(--font-size-caption);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--colour-text);
+}
+
+.shortlist-compare__row dd {
+  margin: var(--space-1) 0 0;
+}
+
+.shortlist-compare__actions {
+  margin: 0;
 }

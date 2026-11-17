@@ -13,12 +13,15 @@
 export const HOME_HERO_SUBLINE =
   "We check what the listing doesn't tell you — schools and nurseries, safety in plain numbers, flood risk, and the real cost of living there.";
 
-// The postcode box's furniture. The label and hint follow the
-// kit's own precedent (the kitchen sink's field); the button is
-// the page's main action. The box itself is inert at M7.2 —
-// M7.3 wires the journey into it (components/PostcodeBox.tsx).
-export const POSTCODE_BOX_LABEL = "Postcode";
-export const POSTCODE_BOX_HINT = "For example, CM3 2JT.";
+// The postcode box's furniture. At M7.2 the label was exactly
+// "Postcode" with the hint "For example, CM3 2JT.", and the
+// box itself was inert. M7.3 wires the journey into the box
+// (components/PostcodeBox.tsx) and re-pins the label and hint
+// verbatim for the wider input (fold-in 7): a full or partial
+// postcode, or an address or street/building name carrying a
+// postcode. The button is unchanged.
+export const POSTCODE_BOX_LABEL = "Postcode or address";
+export const POSTCODE_BOX_HINT = "For example, CM3 2JT — or the full address, with its postcode.";
 export const POSTCODE_BOX_BUTTON = "Check a home";
 
 // The three audience cards, directly under the hero. Each names

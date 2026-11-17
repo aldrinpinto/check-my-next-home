@@ -6,6 +6,11 @@
 # runs it — a developer machine during the build, the Hetzner server at
 # M12. PostgreSQL + PostGIS is the project's only database (plan rule).
 #
+# M7.3 adds the app service below: the served Next codebase
+# (pages + API route handlers over the frozen brains),
+# running beside the database. The play server stands up
+# with both services; production at M12 is the same recipe.
+#
 # The password is never written in this file. Put POSTGRES_PASSWORD (and
 # the matching DATABASE_URL for the app) in .env.local — see
 # .env.example, Key K6 — then:
@@ -36,6 +41,30 @@ services:
       interval: 5s
       timeout: 3s
       retries: 12
+
+  # The served app (plan step M7.3). Runtime secrets arrive
+  # through the same .env.local (Key K6's DATABASE_URL is
+  # composed here from the database service's own values so
+  # the two can never drift; the Turnstile secret is K5's
+  # server key). Only the website answers from outside —
+  # on the server it binds localhost and Cloudflare Access
+  # fronts it; the database port stays silent (M12.2).
+  app:
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${NEXT_PUBLIC_TURNSTILE_SITE_KEY:-}
+        NEXT_PUBLIC_SITE_ENV: ${NEXT_PUBLIC_SITE_ENV:-play}
+    container_name: cmnh-app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-cmnh}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-check_my_next_home}
+      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:?Set TURNSTILE_SECRET_KEY in .env.local (Key K5)}
+    ports:
+      - "127.0.0.1:3000:3000"
 
 volumes:
   cmnh-pgdata:
