@@ -67,7 +67,7 @@ export const HOW_WE_CHECK_PATH = "/how-we-check";
 // and www 301-redirect to it (redirect set up in M1.3).
 export const SITE_URL = "https://checkmynexthome.co.uk";
 
-// The environment name drives the play-site behaviours (the TEST banner,
+// The environment name drives the play-site behaviours (the TEST label,
 // the search-engine lockout, the sitemap). Only "production" is the real
 // site; everything else — the play site, local builds — is a test
 // environment. The setting is documented in .env.example.
@@ -77,18 +77,22 @@ export function isProductionEnv(
   return env === "production";
 }
 
-// M2.8 — the TEST banner. Every page on the play site carries this strip.
-// It is tied to the environment name, never hand-edited per site: the
-// banner shows on every environment EXCEPT the real one. The play site
-// (and local builds) leave NEXT_PUBLIC_SITE_ENV unset or set to "play";
-// the real server sets it to "production" at launch (M12/M13), which is
-// the only value that hides the banner. The setting is documented in
+// M2.8 — the TEST marker. Every page on a test environment carries it.
+// It is tied to the environment name, never hand-edited per site: it
+// shows on every environment EXCEPT the real one. The play site (and
+// local builds) leave NEXT_PUBLIC_SITE_ENV unset or set to "play";
+// the real server sets it to "production" at launch (M12/M13), which
+// is the only value that hides it. The setting is documented in
 // .env.example.
-export const TEST_BANNER_TEXT = "TEST SITE — not the real service";
+//
+// Founder ruling, 17 Nov 2026: the marker is no longer the amber
+// strip M2.8 shipped — the strip sat across the top of every page
+// and spoiled the founder's look-and-feel evaluation of the play
+// server. It is now a small black label, "Test site", in the page's
+// top-right corner, and nothing more.
+export const TEST_LABEL_TEXT = "Test site";
 
-export function showTestBanner(
-  env: string | undefined = process.env.NEXT_PUBLIC_SITE_ENV,
-): boolean {
+export function showTestLabel(env: string | undefined = process.env.NEXT_PUBLIC_SITE_ENV): boolean {
   return !isProductionEnv(env);
 }
 

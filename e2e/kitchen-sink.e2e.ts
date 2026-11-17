@@ -15,8 +15,10 @@ test.describe("kitchen sink — the M7.1 kit renders", () => {
     async ({ page }) => {
       await page.goto("/kitchen-sink/");
 
-      // The play build's TEST strip and the site shells.
-      await expect(page.locator(".test-banner")).toHaveText("TEST SITE — not the real service");
+      // The play build's TEST label (M2.8's strip, retired by the
+      // founder's 17 Nov 2026 ruling for a small corner label) and
+      // the site shells.
+      await expect(page.locator(".test-label")).toHaveText("Test site");
       await expect(page.locator(".site-header .brand__name")).toHaveText("Check My Next Home");
       await expect(page.locator(".site-header .brand__tagline")).toHaveText(
         "Check the house. Choose the home.",

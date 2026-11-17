@@ -421,3 +421,44 @@ follow-on's scope (recorded, not fixed).**
    with no listable addresses, the wider-area page.
 7. Kitchen sink: the new blocks — pill buttons + buy-bar panel, the
    suggestions shell specimen, the summary pill forms.
+
+## TEST strip retired for a corner label (founder ruling, 17 Nov 2026)
+
+The founder, evaluating the new design on the play server, ruled
+the M2.8 TEST strip off the page: the amber bar ("TEST SITE — not
+the real service") sat across the top of every page and spoiled
+the look-and-feel pass. The gate is unchanged — the marker shows
+on every environment except production, driven by
+NEXT_PUBLIC_SITE_ENV exactly as before — but its form is now a
+small black text label, "Test site", in the page's top-right
+corner, and nothing more.
+
+**What changed.** lib/site.ts: TEST_BANNER_TEXT / showTestBanner
+renamed to TEST_LABEL_TEXT ("Test site") / showTestLabel, with the
+ruling recorded at the constant. app/layout.tsx renders a
+.test-label div under the same gate, first in the body as the
+strip was. app/globals.css: the .test-banner block (amber
+background, centred bold text, layout space) is replaced by
+.test-label — position absolute at the document's top-right
+corner (0.5rem / 0.75rem offsets), black, 0.75rem, pointer-events
+none, so it takes no layout space, never intercepts a click, and
+scrolls away with the page corner it marks. The functional-colours
+comment in globals.css no longer cites the strip's amber, and the
+one pattern reference in lib/area-bundle.ts's comments names
+showTestLabel now. Historical build notes (docs/frontend-m7.1.md)
+keep their strip prose untouched — they record their own time.
+
+**Re-pins (each deliberate, with its reason).**
+
+1. tests/site.test.ts — the M2.8 describe is re-pinned to the
+   label: the wording pin now holds "Test site", the three gate
+   pins call showTestLabel with unchanged expectations, and the
+   block carries the ruling as its decision record (the D38/D44
+   pattern). Reason: the pin change IS the ruling landing; the
+   gate's behaviour did not change, only the marker's form.
+2. e2e/kitchen-sink.e2e.ts — the render spec's strip assertion
+   (.test-banner with the old text) is re-pinned to .test-label
+   with "Test site", its comment updated to name the ruling.
+   Reason: the spec proves the play build carries the marker and
+   the site shells; the marker's selector and text are what the
+   ruling changed.

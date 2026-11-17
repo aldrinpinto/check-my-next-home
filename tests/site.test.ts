@@ -9,8 +9,8 @@ import {
   SITE_MANIFESTO,
   SITE_NAME,
   SITE_TAGLINE,
-  TEST_BANNER_TEXT,
-  showTestBanner,
+  TEST_LABEL_TEXT,
+  showTestLabel,
 } from "../lib/site";
 
 describe("site identity", () => {
@@ -66,21 +66,28 @@ describe("D9 short form (M6.10, D38)", () => {
   });
 });
 
-describe("TEST banner (M2.8)", () => {
-  it("uses the agreed strip wording", () => {
-    expect(TEST_BANNER_TEXT).toBe("TEST SITE — not the real service");
+describe("TEST label (M2.8, form changed 17 Nov 2026)", () => {
+  // Founder ruling, 17 Nov 2026 — this pin change IS the
+  // decision record, as the D38/D44 changes above were. The
+  // M2.8 amber strip ("TEST SITE — not the real service") is
+  // retired: it sat across the top of every page and spoiled
+  // the founder's look-and-feel evaluation of the play server.
+  // The marker is now a small black label in the page's
+  // top-right corner; the gate itself is unchanged.
+  it("uses the agreed label wording", () => {
+    expect(TEST_LABEL_TEXT).toBe("Test site");
   });
 
   it("shows on the play environment", () => {
-    expect(showTestBanner("play")).toBe(true);
+    expect(showTestLabel("play")).toBe(true);
   });
 
   it("shows when the environment name is unset", () => {
-    expect(showTestBanner(undefined)).toBe(true);
+    expect(showTestLabel(undefined)).toBe(true);
   });
 
   it("never shows on the real site (production)", () => {
-    expect(showTestBanner("production")).toBe(false);
+    expect(showTestLabel("production")).toBe(false);
   });
 });
 

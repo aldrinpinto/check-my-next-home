@@ -5458,7 +5458,7 @@ const RUNG3_COMPANY_REASON = "company ownership needs an exact postcode";
 
 export interface AreaBundleOptions {
   // The test seam for the company-ownership flag, in the
-  // house pattern (lib/site.ts's showTestBanner): the real
+  // house pattern (lib/site.ts's showTestLabel): the real
   // value as a defaulted option. Shipped call sites pass
   // nothing, so the checked-in constant governs; tests pass
   // true explicitly to build the on-state. No shipped code

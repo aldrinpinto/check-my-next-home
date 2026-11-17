@@ -38,10 +38,9 @@
   --cmnh-ink: #17201e;
   --cmnh-white: #ffffff;
 
-  /* Functional colours — NOT brand colours, in the same way
-     the TEST strip's amber is deliberately not one (see the
-     banner below). Success needs no new colour: Forest carries
-     it. Error has no brand carrier, so it is pinned here, once. */
+  /* Functional colours — NOT brand colours. Success needs no
+     new colour: Forest carries it. Error has no brand carrier,
+     so it is pinned here, once. */
   --cmnh-error: #b3261e;
 
   /* Colour roles. */
@@ -304,16 +303,19 @@ p {
   border: 0;
 }
 
-/* M2.8 — TEST banner strip (play site only; hidden when the environment
-   name is "production" — see lib/site.ts). Deliberately a warning amber,
-   not a brand colour, so it can never be mistaken for part of the design. */
-.test-banner {
-  background: #f5b301;
-  color: #1a1a1a;
-  text-align: center;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  padding: 0.5rem 1rem;
+/* M2.8 — the TEST marker (play environments only; hidden when the
+   environment name is "production" — see lib/site.ts). Founder ruling,
+   17 Nov 2026: the amber strip is retired — the marker is now a small
+   black label in the page's top-right corner, quiet enough never to be
+   mistaken for part of the design or to spoil a look-and-feel pass.
+   It takes no layout space and never intercepts a click. */
+.test-label {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.75rem;
+  color: #000;
+  font-size: 0.75rem;
+  pointer-events: none;
 }
 
 /* --- Header shell -------------------------------------------------

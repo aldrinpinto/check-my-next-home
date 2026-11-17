@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { TEST_BANNER_TEXT, showTestBanner } from "../lib/site";
+import { TEST_LABEL_TEXT, showTestLabel } from "../lib/site";
 import { HOME_PAGE_SEO, pageMetadata } from "../lib/seo";
 import JsonLd from "./JsonLd";
 import SiteHeader from "../components/SiteHeader";
@@ -33,9 +33,9 @@ export default function RootLayout({
   return (
     <html lang="en-GB">
       <body>
-        {showTestBanner() && (
-          <div className="test-banner" role="note">
-            {TEST_BANNER_TEXT}
+        {showTestLabel() && (
+          <div className="test-label" role="note">
+            {TEST_LABEL_TEXT}
           </div>
         )}
         <SiteHeader />
