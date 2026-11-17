@@ -183,8 +183,26 @@ jobs:
       - name: Load the air quality fixture (plan step M5.9)
         run: node loaders/load-air-quality.mjs --file tests/fixtures/air
   browser:
-    name: Browser — E2E (Playwright)
+    name: Browser — Playwright suite (served app)
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:17-3.5
+        env:
+          POSTGRES_USER: cmnh
+          POSTGRES_PASSWORD: cmnh
+          POSTGRES_DB: check_my_next_home
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cmnh -d check_my_next_home"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgresql://cmnh:cmnh@127.0.0.1:5432/check_my_next_home
+      TURNSTILE_SECRET_KEY: "1x0000000000000000000000000000000AA"
+      NEXT_PUBLIC_TURNSTILE_SITE_KEY: "1x00000000000000000000AA"
     steps:
       - name: Check out the code
         uses: actions/checkout@v4
@@ -198,15 +216,22 @@ jobs:
       - name: Install dependencies (exact, from the lockfile)
         run: npm ci
 
-      - name: Install the Playwright browser (Chromium, with system libraries)
+      - name: Set up the OSM extract cutter (the seed's runner pass, as in the database job)
+        run: pip install osmium==4.3.2
+
+      - name: Install the Playwright browser
         run: npx playwright install --with-deps chromium
 
-      - name: Build the site (the specs run against the static export)
+      - name: Build the served app (Turnstile test site key inlined)
         run: npm run build
 
-      - name: Run the E2E specs (Playwright)
-        run: npx playwright test --reporter=list,html
+      - name: Run the Playwright suite (the harness seeds the corpus and serves the app)
+        run: npx playwright test
 
+      # Retained from the M7.1 job (not in the prepared v2): keep the
+      # failure artefacts. The config reporter is "list", so on failure
+      # this uploads test-results/ (traces/screenshots); playwright-report/
+      # is produced only if an HTML report is generated.
       - name: Keep the Playwright report when a spec fails
         if: failure()
         uses: actions/upload-artifact@v4
@@ -216,3 +241,4 @@ jobs:
             playwright-report/
             test-results/
           retention-days: 7
+  
