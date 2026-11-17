@@ -163,15 +163,103 @@ export const HOME_WHAT_IT_CHECKS = [
   },
 ] as const;
 
+// "What we check for you" — the decided landing page's
+// nine-tile grid (founder follow-on to D70, 17 Nov 2026: the
+// landing matches the decided sample page exactly). Titles
+// and lines are the sample's verbatim (the sample carries
+// copy-decisions changes 1–8 as applied 13 Nov 2026). The
+// grid is the homepage's family-language tour of the checks;
+// the plain-names contents list ("What it checks", above)
+// stays as D70 left it.
+export const HOME_CHECK_TILES_HEADING = "What we check for you";
+export const HOME_CHECK_TILES_SUB =
+  "The checks that matter for family life — schools, health, safety, home risks and the cost of living — all from named official sources.";
+export const HOME_CHECK_TILES = [
+  {
+    title: "Schools, nurseries & childminders",
+    line: "Find the nearest primaries, secondaries and nurseries — the ones that matter for the school run.",
+  },
+  {
+    title: "Doctors, dentists & vets",
+    line: "GPs, hospitals, dentists, maternity care and vets — there for the moments you really need them.",
+  },
+  {
+    title: "Food, leisure & everyday life",
+    line: "Shops, food and drink, gyms, libraries, places of worship and places to visit.",
+  },
+  {
+    title: "Safety around the home",
+    line: "What crimes were recorded in the area over the past year, and what kind they were — the counts, month by month.",
+  },
+  {
+    title: "Your neighbours & the area",
+    line: "The make-up of your new neighbourhood — ages, households and ethnicities.",
+  },
+  {
+    title: "Plans that could change the street",
+    line: "Planning applications and major schemes nearby.",
+  },
+  {
+    title: "Flood risk",
+    line: "Rivers, sea and surface water — plus any live flood warnings today.",
+  },
+  {
+    title: "The cost of living",
+    line: "Council tax, energy rating, broadband and the monthly cost of owning the home.",
+  },
+  {
+    title: "What homes here actually sold for",
+    line: "Recorded sale prices for this home and its street — never a made-up valuation.",
+  },
+] as const;
+
+// "How it works" — the decided landing page's four steps
+// (founder follow-on to D70, 17 Nov 2026), verbatim from the
+// sample (step 4 carries copy-decisions change 9).
+export const HOME_HOW_IT_WORKS_HEADING = "How it works";
+export const HOME_HOW_IT_WORKS_SUB = "From postcode to peace of mind in a few minutes.";
+export const HOME_HOW_IT_WORKS_STEPS = [
+  {
+    title: "Enter the postcode",
+    line: "Type the postcode of a home you're looking at — on Rightmove, Zoopla, or anywhere.",
+  },
+  {
+    title: "Pick your home",
+    line: "Choose the exact address. If we only have part of the postcode, we say so honestly.",
+  },
+  {
+    title: "Read the free headlines",
+    line: "Every check's headline fact is free, on every home. No account, no blurred results.",
+  },
+  {
+    title: "Go deeper for £4.99",
+    line: "One detailed report for one home — full lists, charts, maps and questions to ask the seller.",
+  },
+] as const;
+
+// The detailed-report band — the decided landing page's dark
+// Deep Forest band (founder follow-on to D70, 17 Nov 2026),
+// verbatim from the sample. The CTA points at the sample
+// report (SAMPLE_REPORT_PATH below), as the sample's does.
+export const HOME_REPORT_BAND_HEADING = "The detailed report";
+export const HOME_REPORT_BAND_LINE =
+  "Everything the listing doesn't tell you, in one document: full school lists, month-by-month crime, genuine flood maps, sold prices nearby, the cost-of-ownership breakdown, planning applications by name, and questions to ask the seller — all sourced, all dated.";
+export const HOME_REPORT_BAND_CTA = "See a sample report";
+export const HOME_REPORT_BAND_PRICE = "£4.99";
+export const HOME_REPORT_BAND_PRICE_LINES = ["per home · one-off", "no subscription"] as const;
+
 // The manifesto block, once, mid-page (M7.2's text): the block
 // headline, then the manifesto line itself (SITE_MANIFESTO in
 // lib/site.ts — the one source), then one short line on why
 // every check exists.
 export const HOME_MANIFESTO_HEADLINE = "A house is bricks. A home is family.";
-// D70 R3: the chosen homepage's why line, verbatim (the
-// Final Design's "Final — chosen homepage" frame).
+// Founder follow-on to D70 (17 Nov 2026): the decided sample
+// page's why line, verbatim — it supersedes the chosen
+// homepage's line D70 R3 carried (the D70 note's judgement
+// call 2, reversed by the founder: the sample governs the
+// landing, manifesto included).
 export const HOME_MANIFESTO_WHY =
-  "Every check on this page exists because a family will live with the answer — the school run, the dog walk, the monthly bills, the street after dark — long after the listing is forgotten.";
+  "Behind every check is a family's daily life — the school run, the walk to the park, the monthly bills. That's why we check what the listing doesn't tell you.";
 
 // The SAMPLE report link. The route is the one the header
 // already names (components/SiteHeader.tsx, PRIMARY_NAV) and

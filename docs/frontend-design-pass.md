@@ -267,6 +267,137 @@ unchanged in the untouched M7.3 tree and in this tree after the rebuild.
    referenced by the home page (the three panel drawings replace it);
    the file remains in `public/illustrations/`.
 
+## Follow-on (founder ruling, 17 Nov 2026): the sample's remaining sections
+
+After the pass above was pushed (2831957), the founder ruled that the
+landing must look exactly like the decided sample page, and that the
+three sections D70 left unbuilt (deviation 6 above) join the landing,
+with the manifesto taking the sample's form. Built in the same draft
+tree; nothing pushed. The sample
+(`goals/side-hustle-search/files/landing-page/landing-page.html`, with
+its copy-decisions.md) is the authority for all four elements — form,
+order and copy.
+
+**What changed, per element.**
+
+1. **Manifesto — rebuilt to the sample's form.** The dark Forest
+   left-aligned panel (R3) is replaced by the sample's centred block
+   on Cream, full column width: Newsreader head, the manifesto line
+   in Forest at 600, the why line muted, centred, measure-limited.
+   The why line is now the sample's verbatim — "Behind every check
+   is a family's daily life — the school run, the walk to the park,
+   the monthly bills. That's why we check what the listing doesn't
+   tell you." — superseding the chosen homepage's line R3 carried.
+   This reverses judgement call 2 above, at the founder's word: the
+   sample governs the landing, manifesto included. (The headline
+   stays Newsreader — R1 names the manifesto head as the display
+   face's job; the sample mock predates the font adoption.)
+2. **"What we check for you" tile grid — added** (components/
+   CheckTiles.tsx, copy in lib/home.ts): the sample's nine white
+   tiles — Brass pale line, 3px Brass top rule, tile radius, the
+   sample's soft shadow — three to a row at desktop with equal
+   heights, stacked on a phone. Heading, sub and all nine
+   title/line pairs verbatim from the sample (which carries
+   copy-decisions changes 1–8 as applied).
+3. **"How it works" steps — added** (components/HowItWorks.tsx):
+   the sample's four steps as an ordered list — the number in its
+   Forest circle, title, line — wrapping from four-across to
+   one-per-row. Copy verbatim (step 4 carries change 9).
+4. **The £4.99 report band — added** (components/ReportBand.tsx):
+   the sample's dark Deep Forest band, full column width — the
+   report's contents line, the brass "See a sample report" action
+   (a link to /sample-report, the route the sample's action names),
+   and the price block (£4.99 in Brass; "per home · one-off" /
+   "no subscription"). The band is a landing element, not the buy
+   bar: it takes no payment and sells nothing on the page; M7.6's
+   buy bar is untouched. Its focus outline takes the on-dark
+   colour, as the footer's does.
+
+**Placement.** The page order now runs: hero → audience cards →
+family-names panel → tile grid → "What it checks" list → "How it
+works" → report band → manifesto → sample-report section. The four
+scoped elements keep the sample's relative order (grid → steps →
+band → manifesto, the band immediately before the manifesto, as in
+the sample); the elements D70 placed keep theirs. The two full-width
+blocks (band, manifesto) reach the main column's edges by negative
+margins, as the sample's run to its site column's; no sideways
+scroll at 360px or desktop (verified numerically and in the 360px
+suite).
+
+**Re-pins (each deliberate, with its reason).**
+
+Unit (tests/home-page.test.ts):
+
+1. The manifesto why-line pin re-pinned to the sample's line
+   (founder ruling; supersedes R3's chosen-homepage line).
+2. The M7.2 absence pin — "no price or 'free' lines" on the
+   rendered page — is retired for this page: the sample carries
+   the £4.99 band and the steps' free-headlines line, and the
+   sample governs. The disclaimer and placeholder absences stand.
+3. New pins: the nine tiles verbatim in order; the four steps
+   verbatim; the band's heading, line, CTA, price and price lines
+   verbatim; a rendered-order pin (cards < grid < steps < band <
+   manifesto) with the band's CTA href.
+
+E2E (e2e/home.e2e.ts):
+
+4. New Regression spec: the tile grid (9 tiles, titles in order),
+   the steps (4, numbered 1–4, titles), the band (heading, £4.99,
+   sample CTA href) and the centred manifesto (the sample's why
+   line, text-align center).
+5. The existing SAMPLE-link locator gains `exact: true`: the
+   band's "See a sample report" is the same accessible name up to
+   case, and Playwright's default matching is case-insensitive —
+   the pin is case-sensitive so it stays unique. (The new spec
+   scopes its own locator to the band.)
+
+**Gate, on the finished tree (follow-on included).**
+
+- `npm run prepush` green (format, lint — 0 errors, typecheck,
+  tests, build).
+- Full Vitest: 1,681 passed, 26 skipped (baseline 1,677 + 4 new
+  pins; the 26 skips are the golden replay, env-gated locally as
+  at baseline).
+- Full Playwright (local seams harness, app built with the
+  published Turnstile test site key inlined): 48 passed, twice in
+  a row (baseline 47 + the new home spec). Zero flaky.
+
+**Sample comparison (done after building, section by section,
+against the sample at desktop and 360px).** Hero: composition as
+D70 left it (see flags). Audience cards: match. Tile grid: match —
+form, order, copy. "How it works": match. Report band: match.
+Manifesto: match — centred on Cream, the sample's three lines.
+Footer: see flags. Section grounds: the sample alternates white
+and cream section grounds; the build's page ground is white
+throughout (the D70 language), so the tiles and steps sit on
+white and Cream is carried by the manifesto block, as the
+sample's own colour blocks are (band Deep Forest, manifesto on
+the cream ground).
+
+**Flagged for the founder — visible divergences outside this
+follow-on's scope (recorded, not fixed).**
+
+1. **Header.** The sample's header nav reads "How we check ·
+   Sample report · About" with a "Check a home" button; the
+   build's header (M7.1's) reads "How we check · Guides · Sample
+   report · Shortlist" with no button.
+2. **Hero furniture.** The sample's hero is the search row alone
+   (brass "Check this home" button) over a small line — "Free
+   headlines for every home, from named official sources.
+   Detailed report £4.99 — one home, no account, no
+   subscription." The build's hero carries D70 R2's three panels
+   and M7.3's labelled box ("Check a home") with the
+   example-check action, and no small line.
+3. **Footer.** The sample's footer carries a third element —
+   "Data from named official sources. Facts, not scores." — the
+   build's footer (M7.1's) does not.
+4. **Two check tours.** The landing now carries both the sample's
+   tile grid and D70's "What it checks" plain-names contents list
+   (kept unchurned, per this follow-on's scope). If the founder
+   wants one tour, the list is the candidate to retire.
+5. **Two sample doors.** The band's "See a sample report" and the
+   pre-existing sample-report section both lead to /sample-report.
+
 ## Founder test list (play-server visual pass)
 
 1. Landing on a phone and a desktop: font loading and swap (Newsreader

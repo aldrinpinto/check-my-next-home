@@ -146,9 +146,59 @@ test.describe("home page — regression", () => {
       );
       await expect(page.locator(".manifesto-block")).toHaveCount(1);
 
-      const sample = page.getByRole("link", { name: "See a SAMPLE report" });
+      // exact: the report band's CTA is "See a sample report"
+      // — the same name up to case (founder follow-on) — so
+      // this locator pins case-sensitively to stay unique.
+      const sample = page.getByRole("link", { name: "See a SAMPLE report", exact: true });
       await expect(sample).toHaveAttribute("href", "/sample-report");
       await expect(page.locator("main")).not.toContainText("Coming soon");
+    },
+  );
+
+  test(
+    "the decided page's sections render: tile grid, steps, report band, centred manifesto (founder follow-on)",
+    { tag: "@regression" },
+    async ({ page }) => {
+      await page.goto("/");
+
+      // The nine tiles, in the sample's order.
+      await expect(page.locator(".check-tile")).toHaveCount(9);
+      await expect(page.locator(".check-tile__title")).toHaveText([
+        "Schools, nurseries & childminders",
+        "Doctors, dentists & vets",
+        "Food, leisure & everyday life",
+        "Safety around the home",
+        "Your neighbours & the area",
+        "Plans that could change the street",
+        "Flood risk",
+        "The cost of living",
+        "What homes here actually sold for",
+      ]);
+
+      // The four steps, numbered in their circles.
+      await expect(page.locator(".how-step")).toHaveCount(4);
+      await expect(page.locator(".how-step__n")).toHaveText(["1", "2", "3", "4"]);
+      await expect(page.locator(".how-step__title")).toHaveText([
+        "Enter the postcode",
+        "Pick your home",
+        "Read the free headlines",
+        "Go deeper for £4.99",
+      ]);
+
+      // The band: heading, price block, and the sample action.
+      await expect(page.locator(".report-band__heading")).toHaveText("The detailed report");
+      await expect(page.locator(".report-band__price")).toHaveText("£4.99");
+      await expect(
+        page.locator(".report-band").getByRole("link", { name: "See a sample report" }),
+      ).toHaveAttribute("href", "/sample-report");
+
+      // The manifesto in the sample's centred form: its why
+      // line is the sample's, centred in the block.
+      const why = page.locator(".manifesto-block__why");
+      await expect(why).toHaveText(
+        "Behind every check is a family's daily life — the school run, the walk to the park, the monthly bills. That's why we check what the listing doesn't tell you.",
+      );
+      await expect(why).toHaveCSS("text-align", "center");
     },
   );
 });

@@ -12,13 +12,24 @@ import {
   HOME_AUDIENCE_CARDS,
   HOME_CARDS_HEADING,
   HOME_CARDS_SUB,
+  HOME_CHECK_TILES,
+  HOME_CHECK_TILES_HEADING,
+  HOME_CHECK_TILES_SUB,
   HOME_FAMILY_NAMES,
   HOME_FAMILY_NAMES_LEAD,
   HOME_FAMILY_NAMES_NOTE,
   HOME_HERO_PANELS,
   HOME_HERO_SUBLINE,
+  HOME_HOW_IT_WORKS_HEADING,
+  HOME_HOW_IT_WORKS_STEPS,
+  HOME_HOW_IT_WORKS_SUB,
   HOME_MANIFESTO_HEADLINE,
   HOME_MANIFESTO_WHY,
+  HOME_REPORT_BAND_CTA,
+  HOME_REPORT_BAND_HEADING,
+  HOME_REPORT_BAND_LINE,
+  HOME_REPORT_BAND_PRICE,
+  HOME_REPORT_BAND_PRICE_LINES,
   HOME_WHAT_IT_CHECKS,
   HOME_WHAT_IT_CHECKS_HEADING,
   POSTCODE_BOX_BUTTON,
@@ -43,7 +54,8 @@ import {
 // the hero's pinned order, the postcode box, the
 // manifesto block's single appearance, the SAMPLE link's
 // labelling, and the absences the step rules on (no disclaimer,
-// no price or "free" lines, no M3 headline anywhere).
+// no M3 headline anywhere; the price/"free" absence M7.2
+// ruled was retired by the founder follow-on, 17 Nov 2026).
 // M7.3 re-pins the box's label and hint for the wider input
 // and wires the journey into it (fold-in 7); the box's own
 // behaviour is pinned in tests/journey.test.ts and the E2E
@@ -56,6 +68,14 @@ import {
 // family-names panel added, and the manifesto's why line
 // (the chosen homepage's, verbatim). Each re-pin is named in
 // docs/frontend-design-pass.md.
+// Founder follow-on re-pins (17 Nov 2026, the sample governs
+// the landing): the manifesto's why line re-pinned to the
+// decided sample page's line (superseding D70 R3's chosen-
+// homepage line), the "no price or 'free' lines" absence
+// retired for this page (the sample carries the £4.99 band
+// and the steps' free-headlines line), and new pins for the
+// tile grid, the steps and the report band. Named in the
+// follow-on addendum to docs/frontend-design-pass.md.
 
 const ROOT = process.cwd();
 const read = (path: string) => readFileSync(join(ROOT, path), "utf8");
@@ -173,11 +193,69 @@ describe("home page copy (lib/home.ts)", () => {
     ]);
   });
 
+  it("pins the 'what we check for you' tiles verbatim, in order (founder follow-on — the sample's grid)", () => {
+    expect(HOME_CHECK_TILES_HEADING).toBe("What we check for you");
+    expect(HOME_CHECK_TILES_SUB).toBe(
+      "The checks that matter for family life — schools, health, safety, home risks and the cost of living — all from named official sources.",
+    );
+    expect(HOME_CHECK_TILES.map((tile) => tile.title)).toEqual([
+      "Schools, nurseries & childminders",
+      "Doctors, dentists & vets",
+      "Food, leisure & everyday life",
+      "Safety around the home",
+      "Your neighbours & the area",
+      "Plans that could change the street",
+      "Flood risk",
+      "The cost of living",
+      "What homes here actually sold for",
+    ]);
+    expect(HOME_CHECK_TILES.map((tile) => tile.line)).toEqual([
+      "Find the nearest primaries, secondaries and nurseries — the ones that matter for the school run.",
+      "GPs, hospitals, dentists, maternity care and vets — there for the moments you really need them.",
+      "Shops, food and drink, gyms, libraries, places of worship and places to visit.",
+      "What crimes were recorded in the area over the past year, and what kind they were — the counts, month by month.",
+      "The make-up of your new neighbourhood — ages, households and ethnicities.",
+      "Planning applications and major schemes nearby.",
+      "Rivers, sea and surface water — plus any live flood warnings today.",
+      "Council tax, energy rating, broadband and the monthly cost of owning the home.",
+      "Recorded sale prices for this home and its street — never a made-up valuation.",
+    ]);
+  });
+
+  it("pins 'how it works' verbatim (founder follow-on — the sample's steps)", () => {
+    expect(HOME_HOW_IT_WORKS_HEADING).toBe("How it works");
+    expect(HOME_HOW_IT_WORKS_SUB).toBe("From postcode to peace of mind in a few minutes.");
+    expect(HOME_HOW_IT_WORKS_STEPS.map((step) => step.title)).toEqual([
+      "Enter the postcode",
+      "Pick your home",
+      "Read the free headlines",
+      "Go deeper for £4.99",
+    ]);
+    expect(HOME_HOW_IT_WORKS_STEPS.map((step) => step.line)).toEqual([
+      "Type the postcode of a home you're looking at — on Rightmove, Zoopla, or anywhere.",
+      "Choose the exact address. If we only have part of the postcode, we say so honestly.",
+      "Every check's headline fact is free, on every home. No account, no blurred results.",
+      "One detailed report for one home — full lists, charts, maps and questions to ask the seller.",
+    ]);
+  });
+
+  it("pins the report band verbatim (founder follow-on — the sample's band)", () => {
+    expect(HOME_REPORT_BAND_HEADING).toBe("The detailed report");
+    expect(HOME_REPORT_BAND_LINE).toBe(
+      "Everything the listing doesn't tell you, in one document: full school lists, month-by-month crime, genuine flood maps, sold prices nearby, the cost-of-ownership breakdown, planning applications by name, and questions to ask the seller — all sourced, all dated.",
+    );
+    expect(HOME_REPORT_BAND_CTA).toBe("See a sample report");
+    expect(HOME_REPORT_BAND_PRICE).toBe("£4.99");
+    expect(HOME_REPORT_BAND_PRICE_LINES).toEqual(["per home · one-off", "no subscription"]);
+  });
+
   it("pins the manifesto block's lines", () => {
     expect(HOME_MANIFESTO_HEADLINE).toBe("A house is bricks. A home is family.");
-    // D70 R3: the chosen homepage's why line, verbatim.
+    // Founder follow-on (17 Nov 2026): the decided sample
+    // page's why line, verbatim — it supersedes the chosen
+    // homepage's line D70 R3 pinned here.
     expect(HOME_MANIFESTO_WHY).toBe(
-      "Every check on this page exists because a family will live with the answer — the school run, the dog walk, the monthly bills, the street after dark — long after the listing is forgotten.",
+      "Behind every check is a family's daily life — the school run, the walk to the park, the monthly bills. That's why we check what the listing doesn't tell you.",
     );
   });
 
@@ -258,11 +336,46 @@ describe("the rendered home page", () => {
     expect(block).toBeLessThan(sample);
   });
 
-  it("keeps the ruled absences: no disclaimer, no price or free lines, no placeholder", () => {
+  it("renders the sample's sections in the sample's order (founder follow-on)", () => {
+    // The tiles, the steps and the band carry the sample's
+    // copy, and the page order follows the sample: cards,
+    // tile grid, steps, report band, manifesto.
+    for (const tile of HOME_CHECK_TILES) {
+      expect(html).toContain(tile.title);
+      expect(html).toContain(tile.line);
+    }
+    for (const step of HOME_HOW_IT_WORKS_STEPS) {
+      expect(html).toContain(step.title);
+      expect(html).toContain(step.line);
+    }
+    expect(html).toContain(HOME_REPORT_BAND_HEADING);
+    expect(html).toContain(HOME_REPORT_BAND_LINE);
+    expect(html).toContain(HOME_REPORT_BAND_PRICE);
+    for (const line of HOME_REPORT_BAND_PRICE_LINES) expect(html).toContain(line);
+    // The band's action is the sample, at the sample's route.
+    expect(html).toContain(`href="${SAMPLE_REPORT_PATH}"`);
+    expect(html).toContain(HOME_REPORT_BAND_CTA);
+
+    const cards = html.indexOf(HOME_CARDS_HEADING);
+    const tiles = html.indexOf(HOME_CHECK_TILES_HEADING);
+    const steps = html.indexOf(HOME_HOW_IT_WORKS_HEADING);
+    const band = html.indexOf(HOME_REPORT_BAND_HEADING);
+    const block = html.indexOf(HOME_MANIFESTO_HEADLINE);
+    for (const index of [cards, tiles, steps, band, block]) {
+      expect(index).toBeGreaterThan(-1);
+    }
+    expect(cards).toBeLessThan(tiles);
+    expect(tiles).toBeLessThan(steps);
+    expect(steps).toBeLessThan(band);
+    expect(band).toBeLessThan(block);
+  });
+
+  it("keeps the ruled absences: no disclaimer, no placeholder", () => {
     expect(html).not.toContain(DISCLAIMER_SHORT_FORM);
-    expect(html).not.toContain("£");
-    expect(html).not.toMatch(/\bfree\b/i);
     expect(html).not.toContain("Coming soon");
+    // The M7.2 absence of price and "free" lines is retired
+    // by the founder follow-on: the sample's band (£4.99) and
+    // steps (free headlines) are pinned above, not banned.
   });
 
   it("never carries the retired M3 headline", () => {

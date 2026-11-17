@@ -1,16 +1,23 @@
 import Link from "next/link";
 
 import AudienceCards from "../components/AudienceCards";
+import CheckTiles from "../components/CheckTiles";
+import HowItWorks from "../components/HowItWorks";
 import PostcodeBox from "../components/PostcodeBox";
+import ReportBand from "../components/ReportBand";
 import {
   EXAMPLE_CHECK_LABEL,
   HOME_CARDS_HEADING,
   HOME_CARDS_SUB,
+  HOME_CHECK_TILES_HEADING,
+  HOME_CHECK_TILES_SUB,
   HOME_FAMILY_NAMES,
   HOME_FAMILY_NAMES_LEAD,
   HOME_FAMILY_NAMES_NOTE,
   HOME_HERO_PANELS,
   HOME_HERO_SUBLINE,
+  HOME_HOW_IT_WORKS_HEADING,
+  HOME_HOW_IT_WORKS_SUB,
   HOME_MANIFESTO_HEADLINE,
   HOME_MANIFESTO_WHY,
   HOME_WHAT_IT_CHECKS,
@@ -43,19 +50,27 @@ import { HOME_HERO_HEADLINE, SITE_MANIFESTO } from "../lib/site";
 //   in the design's text-only form with the decided page's
 //   intros and check lists.
 //   The family-names panel (D70 R4).
+//   "What we check for you" — the decided page's nine-tile
+//   grid (founder follow-on, 17 Nov 2026).
 //   "What it checks" — the checking screen's nine rows under
 //   their plain names, as a contents list.
-//   The manifesto block, once, mid-page — now the design's
-//   dark Forest panel with the chosen homepage's why line.
+//   "How it works" — the decided page's four steps, then the
+//   detailed-report band (founder follow-on, 17 Nov 2026).
+//   The manifesto block, once, mid-page — the decided sample
+//   page's centred form on cream, with its why line (the
+//   follow-on supersedes D70 R3's dark Forest panel).
 //   The SAMPLE report link, clearly labelled — its page is
 //   M8.9's, so the link is a known dead end until then.
 //
 // Not on this page, by ruling: no disclaimer (the D9 short form
-// sits beside the results, M7.4), and no price or "free" lines
-// (the £4.99 model lives at M9's surfaces). The page's metadata
-// is the locked PAGE_SEO["/"] entry, consumed by the root
-// layout — unchanged by this step. The page is a composed
-// page, so it takes the wide container (D70 R7).
+// sits beside the results, M7.4). The follow-on also retires
+// M7.2's "no price or 'free' lines" absence for this page: the
+// decided sample page carries the £4.99 band and the steps'
+// free-headlines line, and the sample governs the landing.
+// The page's metadata is the locked PAGE_SEO["/"] entry,
+// consumed by the root layout — unchanged by this step. The
+// page is a composed page, so it takes the wide container
+// (D70 R7).
 export default function Home() {
   return (
     <main className="main--wide">
@@ -100,6 +115,12 @@ export default function Home() {
         </p>
       </section>
 
+      <section className="home-section" aria-labelledby="what-we-check">
+        <h2 id="what-we-check">{HOME_CHECK_TILES_HEADING}</h2>
+        <p className="home-section__sub">{HOME_CHECK_TILES_SUB}</p>
+        <CheckTiles />
+      </section>
+
       <section className="home-section" aria-labelledby="what-it-checks">
         <h2 id="what-it-checks">{HOME_WHAT_IT_CHECKS_HEADING}</h2>
         <ul className="checks-list">
@@ -111,6 +132,14 @@ export default function Home() {
           ))}
         </ul>
       </section>
+
+      <section className="home-section" aria-labelledby="how-it-works">
+        <h2 id="how-it-works">{HOME_HOW_IT_WORKS_HEADING}</h2>
+        <p className="home-section__sub">{HOME_HOW_IT_WORKS_SUB}</p>
+        <HowItWorks />
+      </section>
+
+      <ReportBand />
 
       <section className="manifesto-block">
         <p className="manifesto-block__headline">{HOME_MANIFESTO_HEADLINE}</p>

@@ -1093,6 +1093,163 @@ a:hover {
   color: var(--colour-heading);
 }
 
+/* The "What we check for you" tile grid (founder follow-on
+   to D70, 17 Nov 2026): the decided page's tiles — white,
+   the Brass pale line, a 3px Brass top rule, the tile
+   radius and the sample's soft shadow; three to a row on
+   desktop with equal heights, stacked on a phone. */
+.check-tiles {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-4);
+  list-style: none;
+}
+
+@media (min-width: 48rem) {
+  .check-tiles {
+    grid-template-columns: repeat(3, 1fr);
+    grid-auto-rows: 1fr;
+  }
+}
+
+.check-tile {
+  background: var(--cmnh-white);
+  border: 1px solid var(--cmnh-brass-pale);
+  border-top: 3px solid var(--cmnh-brass);
+  border-radius: var(--radius-tile);
+  padding: 15px var(--space-4);
+  box-shadow: 0 2px 6px rgba(30, 64, 44, 0.1);
+}
+
+.check-tile__title {
+  font-size: 0.9375rem;
+  margin-bottom: var(--space-1);
+}
+
+.check-tile__line {
+  font-size: var(--font-size-caption);
+  color: var(--colour-muted);
+  margin-bottom: 0;
+}
+
+/* "How it works" (founder follow-on to D70, 17 Nov 2026):
+   the decided page's numbered steps — the number in its
+   Forest circle, then the step's title and line. The steps
+   wrap: one to a row on a phone, four across on a wide
+   desktop. */
+.how-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+  list-style: none;
+}
+
+.how-step {
+  flex: 1 1 12.5rem;
+}
+
+.how-step__n {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--cmnh-forest);
+  color: var(--cmnh-cream);
+  font-weight: 700;
+  margin-bottom: var(--space-2);
+}
+
+.how-step__title {
+  font-size: 0.9375rem;
+  margin-bottom: var(--space-1);
+}
+
+.how-step__line {
+  font-size: var(--font-size-small);
+  margin-bottom: 0;
+}
+
+/* The detailed-report band (founder follow-on to D70,
+   17 Nov 2026): the decided page's dark Deep Forest band,
+   full column width (the negative margins take it to the
+   main column's edges, as the sample's band runs to the
+   site column's) — the report's contents and the sample
+   action on the left, the price block centred on the
+   right; the two stack on a phone. */
+.report-band {
+  background: var(--cmnh-forest-deep);
+  color: var(--cmnh-cream);
+  margin-inline: calc(-1 * var(--space-4));
+  padding: var(--space-7) var(--space-4);
+  margin-bottom: var(--space-8);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-6);
+  align-items: center;
+}
+
+.report-band__main {
+  flex: 2 1 17.5rem;
+}
+
+.report-band__heading {
+  color: var(--cmnh-cream);
+}
+
+.report-band__line {
+  font-size: var(--font-size-small);
+  max-width: 35rem;
+}
+
+.report-band__cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--tap-target);
+  background: var(--cmnh-brass);
+  color: var(--cmnh-forest-deep);
+  font-weight: 800;
+  font-size: var(--font-size-body);
+  padding: var(--space-3) var(--space-5);
+  border-radius: var(--radius);
+  text-decoration: none;
+  margin-top: var(--space-2);
+}
+
+.report-band__cta:hover {
+  background: var(--colour-brass-pale-hover);
+}
+
+/* The band is a dark surface: its focus outline takes the
+   on-dark colour, as the footer's does. */
+.report-band :focus-visible {
+  outline-color: var(--focus-colour-on-dark);
+}
+
+.report-band__price-block {
+  flex: 1 1 9.5rem;
+  text-align: center;
+}
+
+.report-band__price {
+  font-size: 1.875rem;
+  font-weight: 800;
+  line-height: 1.1;
+  color: var(--cmnh-brass);
+  margin-bottom: var(--space-1);
+}
+
+.report-band__price-lines {
+  margin-bottom: 0;
+}
+
+.report-band__price-lines span {
+  display: block;
+  font-size: var(--font-size-small);
+}
+
 /* The family-names panel (D70 R4): the homepage's checks in
    family language, on the design's dashed-brass panel.
    Homepage only — the panel and report keep plain names. */
@@ -1117,38 +1274,45 @@ a:hover {
   color: var(--colour-muted);
 }
 
-/* The manifesto block (D70 R3): the dark Forest panel,
-   left-aligned — Newsreader head, the manifesto line in
-   Brass pale, the why line soft on Forest. */
+/* The manifesto block (founder follow-on to D70, 17 Nov
+   2026): the decided sample page's form — a centred block
+   on Cream, full column width (the negative margins take
+   it to the main column's edges, as the sample's block
+   runs to the site column's): Newsreader head, the
+   manifesto line in Forest, the why line muted, centred
+   and measure-limited. It supersedes D70 R3's dark Forest
+   panel — the D70 note's judgement call 2, reversed by the
+   founder: the sample governs the landing. */
 .manifesto-block {
-  background: var(--cmnh-forest);
-  border-radius: var(--radius-panel);
-  padding: 18px 20px;
+  background: var(--cmnh-cream);
+  margin-inline: calc(-1 * var(--space-4));
+  padding: var(--space-8) var(--space-4);
   margin-bottom: var(--space-8);
-  text-align: left;
-  color: var(--cmnh-white);
+  text-align: center;
+  color: var(--colour-text);
 }
 
 .manifesto-block__headline {
   font-family: var(--font-family-display);
-  font-size: 1.45rem;
+  font-size: 1.7rem;
   line-height: 1.15;
-  font-weight: 600;
-  color: var(--cmnh-white);
+  font-weight: 700;
+  color: var(--colour-heading);
   margin-bottom: var(--space-2);
 }
 
 .manifesto-block__line {
-  font-size: var(--font-size-body);
-  font-weight: 700;
-  color: var(--colour-accent-on-dark);
+  font-size: 1.03rem;
+  font-weight: 600;
+  color: var(--cmnh-forest);
   margin-bottom: var(--space-2);
 }
 
 .manifesto-block__why {
   font-size: var(--font-size-small);
-  color: var(--colour-on-forest-soft);
-  max-width: 62ch;
+  color: var(--colour-muted);
+  max-width: 38rem;
+  margin-inline: auto;
 }
 
 .manifesto-block > :last-child {
