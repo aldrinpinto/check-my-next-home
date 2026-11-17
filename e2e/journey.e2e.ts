@@ -284,10 +284,13 @@ test.describe("checker journey — regression", () => {
     "T-WEB-05: a normal search completes end to end with the robot check active (test keys)",
     { tag: "@regression" },
     async ({ page }) => {
-      // The whole suite runs with Cloudflare's published
-      // Turnstile test keys; this spec is T-WEB-05's authored
-      // home (fold-in 8): the search is verified server-side
-      // and completes.
+      // This spec is T-WEB-05's authored home (fold-in 8):
+      // the search is verified server-side and completes.
+      // The suite runs on the harness's Turnstile seams by
+      // default (founder ruling, 17 Nov 2026, after CI
+      // #199); under E2E_REAL_TURNSTILE=1 this same spec is
+      // the real-path proof — Cloudflare's published test
+      // keys against the real widget and verify endpoint.
       await searchFromHome(page, "E16 1GN");
       await page.waitForURL("**/search?postcode=E16+1GN");
       await expect(page.getByRole("link", { name: "6 Exeter Road", exact: true })).toBeVisible();

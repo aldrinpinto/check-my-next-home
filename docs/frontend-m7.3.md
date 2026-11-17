@@ -216,3 +216,38 @@ can log in with the key and not with a password.
 7. Play-server verification: the founder test list above, run
    against the server.
 8. Tick M7.3 (97 of 160) in the plan.
+
+## Addendum — 17 Nov 2026: the CI gate's Turnstile seams + one CI retry
+
+The integration gate's first full run (CI #199 on the integrated
+tree) passed checks, secrets and database (replay 26/26) and failed
+the browser job 40/47 — all seven failures the identical shape: a
+60-second waitForURL timeout after the postcode box was submitted,
+and every failure snapshot in the run's Playwright artifact shows
+the app displaying the block line ("The robot check couldn't run,
+so your search hasn't been sent. Please try again."). Cloudflare's
+real check failed to complete for 7 of ~17 submissions from
+GitHub's datacenter runners (headless browser, datacenter IPs);
+the app blocked each one exactly as ruling 5 designs. Item 8 above
+("CI sets neither") is superseded by this addendum.
+
+Founder ruling (17 Nov 2026): both remedies together.
+
+1. **The harness seams are the default in every environment.**
+   `playwright.config.ts` sets `E2E_TURNSTILE_STUB=1` (the
+   fixtures stand-in widget) and `E2E_TURNSTILE_SEAMS=1` unless
+   `E2E_REAL_TURNSTILE=1`; `e2e/serve-e2e.mjs` then runs the
+   siteverify stand-in itself and points the app at it via
+   `TURNSTILE_SITEVERIFY_URL`. The flow is unchanged — token
+   requested, verified server-side, search blocked when no token
+   arrives; only the third-party service is replaced, so the gate
+   judges this code, not Cloudflare's treatment of a datacenter.
+2. **One retry in CI** (`retries: process.env.CI ? 1 : 0`) as a
+   safety net for runner noise. A test that passes only on retry
+   reports as flaky — visible in the run, never silently green.
+
+The real-path proof now lives where the network is
+representative: the play server's founder test round (real K5
+keys, a real browser), and real-path harness runs under
+`E2E_REAL_TURNSTILE=1` — T-WEB-05's original form — which the
+scheduled suite carries from M7.15.

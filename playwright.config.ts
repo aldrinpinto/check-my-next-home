@@ -1,5 +1,29 @@
 import { defineConfig, devices } from "@playwright/test";
 
+// Turnstile in the harness (founder ruling, 17 Nov 2026,
+// after CI #199): the gate runs on the harness's own seams
+// by default — e2e/fixtures.ts serves a stand-in widget
+// script and e2e/serve-e2e.mjs points the app's verify
+// call at a local stand-in endpoint — because whether the
+// real check completes depends on the runner's network,
+// not on this code. In #199 Cloudflare's check failed to
+// complete for 7 of ~17 submissions from GitHub's
+// datacenter runners; the app blocked each one exactly as
+// designed (ruling 5) and the gate failed for
+// environmental reasons. The seams keep the full flow —
+// token requested, verified server-side, search blocked
+// when no token arrives — with only the third-party
+// service replaced. A real-path run (the real widget and
+// the published test keys against the real verify
+// endpoint) is one env var: E2E_REAL_TURNSTILE=1 — the
+// form the play server's test round exercises with the
+// real K5 keys, and the form the scheduled suite carries
+// from M7.15.
+if (process.env.E2E_REAL_TURNSTILE !== "1") {
+  process.env.E2E_TURNSTILE_STUB = "1";
+  process.env.E2E_TURNSTILE_SEAMS = "1";
+}
+
 // The Playwright harness (stood up at M7.1 alongside the
 // look & feel kit). Specs live in e2e/ and are named
 // *.e2e.ts so Vitest — whose default patterns match
@@ -20,6 +44,11 @@ export default defineConfig({
   testDir: "e2e",
   testMatch: "**/*.e2e.ts",
   timeout: 60_000,
+  // One retry, CI only (founder ruling, 17 Nov 2026): a
+  // safety net for runner noise alongside the Turnstile
+  // seams above. A test that passes only on retry reports
+  // as flaky — visible in the run, never silently green.
+  retries: process.env.CI ? 1 : 0,
   reporter: "list",
   use: {
     baseURL: "http://127.0.0.1:4173",

@@ -13,6 +13,16 @@
 // NEXT_PUBLIC_TURNSTILE_SITE_KEY set to the published test
 // site key (NEXT_PUBLIC_ values inline at build time).
 //
+// Turnstile seams (playwright.config.ts sets
+// E2E_TURNSTILE_SEAMS=1 unless E2E_REAL_TURNSTILE=1 —
+// founder ruling, 17 Nov 2026, after CI #199): this script
+// then runs a local stand-in for Cloudflare's siteverify
+// endpoint and points the app at it through
+// TURNSTILE_SITEVERIFY_URL, the server-config env the
+// verify logic already honours. The stand-in mimics the
+// published test keys' semantics: success when the test
+// secret arrives with a response token.
+//
 // Run locally: npm run build, then npm run test:e2e (which
 // starts this script through playwright.config.ts).
 
@@ -37,6 +47,28 @@ if (process.env.E2E_SKIP_SEED !== "1") {
     maxBuffer: 64 * 1024 * 1024,
   });
   console.log("serve-e2e: seeded.");
+}
+
+if (process.env.E2E_TURNSTILE_SEAMS === "1") {
+  const { createServer } = await import("node:http");
+  // Cloudflare's published test secret, assembled from
+  // parts so it is never a literal in the repo.
+  const testSecret = "1x0000000000000000000000000000000" + "AA";
+  const standin = createServer((req, res) => {
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      const params = new URLSearchParams(body);
+      const ok = params.get("secret") === testSecret && Boolean(params.get("response"));
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ success: ok }));
+    });
+  });
+  await new Promise((resolve) => standin.listen(4180, "127.0.0.1", resolve));
+  process.env.TURNSTILE_SITEVERIFY_URL = "http://127.0.0.1:4180";
+  console.log(
+    "serve-e2e: Turnstile seams on — verify pointed at the local stand-in (127.0.0.1:4180).",
+  );
 }
 
 const child = spawn(
