@@ -23,10 +23,13 @@ test.describe("kitchen sink — the M7.1 kit renders", () => {
       await expect(page.locator(".site-header .brand__tagline")).toHaveText(
         "Check the house. Choose the home.",
       );
+      // Fidelity pass 2: the nav is the decided sample
+      // page's set — D44's Guides item is superseded for the
+      // chrome and returns when guide pages exist.
       await expect(page.locator(".site-nav__link")).toHaveText([
         "How we check",
-        "Guides",
         "Sample report",
+        "About",
         "Shortlist",
       ]);
       await expect(page.locator(".site-footer")).toBeVisible();

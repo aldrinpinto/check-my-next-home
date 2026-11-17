@@ -38,7 +38,9 @@ const DISCLAIMER_SHORT_FORM =
 async function searchFromHome(page: Page, text: string) {
   await page.goto("/");
   await page.locator("#postcode").fill(text);
-  await page.getByRole("button", { name: "Check a home" }).click();
+  // Fidelity pass 2: the landing's bare box carries the
+  // sample's Brass button, "Check this home".
+  await page.getByRole("button", { name: "Check this home" }).click();
 }
 
 async function reachResults(page: Page, postcode: string, rowName: string | RegExp) {

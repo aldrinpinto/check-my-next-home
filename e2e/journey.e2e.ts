@@ -26,7 +26,10 @@ import { expect, test } from "./fixtures";
 async function searchFromHome(page: Page, text: string) {
   await page.goto("/");
   await page.locator("#postcode").fill(text);
-  await page.getByRole("button", { name: "Check a home" }).click();
+  // Fidelity pass 2: the landing's bare box carries the
+  // sample's Brass button, "Check this home" (the journey
+  // surfaces' standard form keeps "Check a home").
+  await page.getByRole("button", { name: "Check this home" }).click();
 }
 
 async function pickAndReachResults(page: Page, postcode: string, rowName: string) {
@@ -213,6 +216,17 @@ test.describe("checker journey — regression", () => {
       await page.goto("/search");
       await expect(page.locator("h1")).toHaveText("We couldn't place that");
       await expect(page.locator("#postcode")).toBeVisible();
+      // The retry surface carries the box's standard form:
+      // M7.3's label and hint, the hint's example re-pinned
+      // at fidelity pass 2 to the neutral SW1A 1AA (the
+      // founder's own postcode never appears in
+      // visitor-facing copy). The no-location line above the
+      // box carries the same neutral example.
+      await expect(page.locator(".field__label")).toHaveText("Postcode or address");
+      await expect(page.locator(".field__hint")).toHaveText(
+        "For example, SW1A 1AA — or the full address, with its postcode.",
+      );
+      await expect(page.locator(".type-lead")).toContainText("for example SW1A 1AA");
 
       await searchFromHome(page, "Birkdale Rise");
       await page.waitForURL("**/search");
@@ -319,7 +333,7 @@ test.describe("checker journey — regression", () => {
       await page.route("**/challenges.cloudflare.com/**", (route) => route.abort());
       await page.goto("/");
       await page.locator("#postcode").fill("CM3 2JT");
-      await page.getByRole("button", { name: "Check a home" }).click();
+      await page.getByRole("button", { name: "Check this home" }).click();
       await expect(page.locator(".field__message")).toHaveText(
         "The robot check couldn't run, so your search hasn't been sent. Please try again.",
       );

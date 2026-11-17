@@ -9,9 +9,9 @@ import ShortlistCountBadge from "./ShortlistCountBadge";
 // lib/site.ts — never a baked lockup image, so the header
 // wording can never drift from the one source. The manifesto
 // is never in the header (D12); it is the homepage hero's
-// kicker. Navigation is the V1 set (D44): How we check,
-// Guides, Sample report, Shortlist. The pages behind Guides,
-// Sample report and Shortlist do not exist yet — dead-end
+// kicker. Navigation was the V1 set (D44): How we check,
+// Guides, Sample report, Shortlist. The pages behind Sample
+// report and Shortlist do not exist yet — dead-end
 // links this step are expected and land with their steps.
 // The Shortlist count badge's styling is defined in the kit
 // now (app/globals.css); the count itself arrived at M7.5 as
@@ -19,11 +19,19 @@ import ShortlistCountBadge from "./ShortlistCountBadge";
 // cannot read browser storage), so the prop still renders
 // the badge directly when a count is passed, and the island
 // renders it otherwise.
+//
+// Fidelity pass 2 (founder, 17 Nov 2026): the navigation is
+// now the decided sample page's set — How we check, Sample
+// report, About, Shortlist — with no "Check a home" button.
+// The sample governs the landing chrome, and the header is
+// shared, so the set changes site-wide; D44's Guides item is
+// superseded for the chrome and returns when guide pages
+// exist (their SEO entries in lib/seo.ts are untouched).
 
 export const PRIMARY_NAV = [
   { label: "How we check", href: "/how-we-check" },
-  { label: "Guides", href: "/guides" },
   { label: "Sample report", href: "/sample-report" },
+  { label: "About", href: "/about" },
   { label: "Shortlist", href: "/shortlist" },
 ] as const;
 

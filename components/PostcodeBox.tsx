@@ -2,7 +2,13 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
-import { POSTCODE_BOX_BUTTON, POSTCODE_BOX_HINT, POSTCODE_BOX_LABEL } from "../lib/home";
+import {
+  POSTCODE_BOX_BUTTON,
+  POSTCODE_BOX_BUTTON_BARE,
+  POSTCODE_BOX_HINT,
+  POSTCODE_BOX_LABEL,
+  POSTCODE_BOX_PLACEHOLDER_BARE,
+} from "../lib/home";
 import { FAILED_ROUTE, TURNSTILE_BLOCK_LINE } from "../lib/journey";
 import { Button, SuggestionShell, type SuggestionGroup } from "./kit";
 
@@ -37,6 +43,18 @@ import { Button, SuggestionShell, type SuggestionGroup } from "./kit";
 // future address-data source (D71, priced separately) will
 // hand grouped suggestions in; no caller passes any yet,
 // so the shell renders nowhere today.
+//
+// Fidelity pass 2 (founder, 17 Nov 2026): the `bare` prop is
+// the decided sample page's hero form — no visible label or
+// hint (the label survives, visually hidden, as the field's
+// accessible name), the sample's placeholder in the field,
+// and the Brass button in the sample's words. The submit
+// path is identical in both forms; only the furniture
+// differs. The standard form (label, hint, Forest button)
+// serves the journey's retry surfaces — the no-location fix
+// route and the wider-area banner. Both forms carry the
+// neutral SW1A 1AA example: the founder's own postcode never
+// appears in visitor-facing copy.
 
 declare global {
   interface Window {
@@ -70,10 +88,12 @@ function loadTurnstileScript(): Promise<boolean> {
 
 export default function PostcodeBox({
   autoFocus = false,
+  bare = false,
   defaultValue = "",
   suggestions,
 }: {
   autoFocus?: boolean;
+  bare?: boolean;
   defaultValue?: string;
   suggestions?: SuggestionGroup[];
 }) {
@@ -202,30 +222,46 @@ export default function PostcodeBox({
     window.location.assign(data.destination ?? FAILED_ROUTE);
   }
 
+  const describedBy = bare
+    ? blockMessage
+      ? "postcode-message"
+      : undefined
+    : blockMessage
+      ? "postcode-hint postcode-message"
+      : "postcode-hint";
+
   return (
-    <form className="postcode-box" onSubmit={onSubmit}>
+    <form className={bare ? "postcode-box postcode-box--bare" : "postcode-box"} onSubmit={onSubmit}>
       <div className="field">
-        <label className="field__label" htmlFor="postcode">
+        <label className={bare ? "visually-hidden" : "field__label"} htmlFor="postcode">
           {POSTCODE_BOX_LABEL}
         </label>
-        <p className="field__hint" id="postcode-hint">
-          {POSTCODE_BOX_HINT}
-        </p>
+        {!bare && (
+          <p className="field__hint" id="postcode-hint">
+            {POSTCODE_BOX_HINT}
+          </p>
+        )}
         <div className="postcode-box__row">
           <input
             className="field__input"
             id="postcode"
             name="postcode"
-            placeholder="CM3 2JT"
+            placeholder={bare ? POSTCODE_BOX_PLACEHOLDER_BARE : "SW1A 1AA"}
             autoComplete="postal-code"
             autoFocus={autoFocus}
             defaultValue={defaultValue}
-            aria-describedby={blockMessage ? "postcode-hint postcode-message" : "postcode-hint"}
+            aria-describedby={describedBy}
             aria-invalid={blockMessage ? true : undefined}
           />
-          <Button type="submit" disabled={busy}>
-            {POSTCODE_BOX_BUTTON}
-          </Button>
+          {bare ? (
+            <Button type="submit" variant="brass" disabled={busy}>
+              {POSTCODE_BOX_BUTTON_BARE}
+            </Button>
+          ) : (
+            <Button type="submit" disabled={busy}>
+              {POSTCODE_BOX_BUTTON}
+            </Button>
+          )}
         </div>
         {blockMessage && (
           <p className="field__message field__message--error" id="postcode-message" role="alert">

@@ -462,3 +462,230 @@ keep their strip prose untouched — they record their own time.
    Reason: the spec proves the play build carries the marker and
    the site shells; the marker's selector and text are what the
    ruling changed.
+
+## Fidelity pass 2 (founder, 17 Nov 2026): the sample, matched exactly
+
+The founder compared the play site against the decided landing
+sample (~/workspace/goals/side-hustle-search/files/landing-page/,
+as updated by his rulings of the same day) section by section —
+top, audience cards + tiles, how-it-works → footer — and produced
+a 31-item fault list, look and feel only. This pass closes all
+31 for the landing page and the shared header/footer, taking the
+sample's ACTUAL CSS values (colours, measures, spacing, radii,
+weights) from the file rather than by eye. Two founder rulings
+ride with it: the header nav gains Shortlist and loses the
+"Check a home" button IN THE SAMPLE FIRST (already applied
+there), and the founder's own postcode/address never appears in
+visitor-facing copy — the neutral example is SW1A 1AA.
+
+**The 31 items, as closed.**
+
+Top section:
+
+1. Page background Cream — the home page's column and the page
+   behind it are #FDF8E8 (body:has(.main--home)); the hero no
+   longer sits on white.
+2. Header rules — the 3px Brass bottom rule is gone; the header
+   carries the sample's own edge: a 1px Brass pale line
+   (#E4CF9A) with its soft shadow (0 1px 5px rgba(30,64,44,.08)).
+   Nothing above the header.
+3. Header nav — exactly "How we check · Sample report · About ·
+   Shortlist", regular weight, Forest, 13.5px, 22px gaps; no
+   "Check a home" button. The Shortlist link keeps its live
+   count badge. Site-wide (shared header): D44's Guides item is
+   superseded for the chrome — it returns when guide pages
+   exist; the guides' SEO entries in lib/seo.ts are untouched.
+4. Wordmark tagline — uppercase, letter-spaced (0.4px), Brass,
+   semi-bold, 11.5px, in header and footer alike (the footer's
+   at its 11px).
+5. Eyebrow (hero kicker) — Brass, uppercase, tracked (0.096em,
+   the sample's 1.2px at its size), 12.5px, weight 700. (D70 had
+   set it Forest on a contrast argument; the sample sets it
+   Brass on Cream and the sample governs.)
+6. Hero headline colour — Deep Forest #1E402C.
+7. Hero headline measure — max-width 600px, 34px, line-height
+   1.18: it wraps as the sample's does, in the narrow column.
+   The face stays Newsreader (the Final Design's display face;
+   the mock's system stack is a mock artefact) at its heaviest
+   loaded weight, 700 — the sample's 800 exists only in DM Sans.
+8. The three story panels are REMOVED from the landing
+   (components + styles + the HOME_HERO_PANELS constant). The
+   illustrations stay in public/illustrations — the dog still
+   serves the shortlist's empty state — and their stroke
+   guard stays in the tests.
+9. Hero search furniture removed — no visible "Postcode or
+   address" label, no hint line, no "See an example check"
+   button. PostcodeBox gains a `bare` prop (the hero's form);
+   the label survives visually hidden as the field's
+   accessible name. The standard form serves the journey's
+   retry surfaces unchanged in structure.
+10. The hero input starts EMPTY with the placeholder "Enter a
+    postcode — e.g. SW1A 1AA" (the sample's words, at its
+    14.5px and padding, placeholder in its faint tone #7A8272).
+    Fully functional: entry, the autocomplete shell seam,
+    Turnstile and submit are the same code path as before.
+11. The hero button is BRASS (new kit variant .btn--brass /
+    Button variant "brass") with the words "Check this home".
+12. The small line is IN, verbatim, under the search row:
+    "Free headlines for every home, from named official
+    sources. Detailed report £4.99 — one home, no account, no
+    subscription." (HOME_HERO_SMALL_LINE), 12.5px in #7A8272.
+13. The landing's measure is the sample's throughout: the
+    .main--home column is 63.75rem (the sample frame's
+    1020px), sections padded 34px / 30px; on this page only,
+    the header and footer inners take the same column (body:has
+    rules) so the chrome aligns with the content as in the
+    frame. Other pages keep the wide container.
+
+Audience + tiles: 14. Section backgrounds alternate as the sample: the audience
+section and "How it works" are white panels (Brass pale top
+and bottom lines) over the Cream page; the tile grid sits
+on Cream. .home-section--alt carries the panel form. 15. Section headings — DM Sans bold, Deep Forest, 22px, the
+sample's 6px under-margin (scoped to the landing; the kit's
+Newsreader h2 stands elsewhere). 16. Section intro lines — the sample's grey #5a6b5e at 14.5px /
+1.5 with its 20px under-margin (new token --colour-sub). 17. Audience cards — Cream-filled, 1px Brass pale border, tile
+radius (10px), 18px padding. 18. Audience card titles — Deep Forest, 16.5px, sans bold,
+8px under-margin. 19. Card body — 13.5px / 1.55 in the sample's soft grey
+#40513f (new token --colour-body-soft), bullets at the
+sample's 17px indent with no per-item margins; card grid
+gap 16px. 20. The family-names panel is REMOVED from the page entirely
+(markup, styles, constants) — it rendered an internal
+annotation as page content. The --colour-fam-bg token stays
+in the palette block as a palette record. 21. The tile grid keeps its form (white tiles, Brass top edge)
+on the Cream band with the corrected heading/intro; its gap
+(14px) and line (12.5px in --colour-sub, title under-margin
+5px) take the sample's values.
+
+How it works → footer: 22. The "What it checks" ruled list is REMOVED (markup, styles,
+constants, pins) — the tile grid is the landing's only tour
+of the checks. The follow-on note above had flagged the two
+tours and named the list the retirement candidate; the
+founder's list settles it. 23. "How it works" heading — the landing's DM Sans Deep Forest
+section form (item 15). 24. Step titles Deep Forest at 15.5px; step text 13.5px / 1.55
+in #40513f; the section intro grey (item 16); the number
+circle's under-margin is the sample's 9px. 25. Step columns — flex at the sample's 200px basis with its
+16px gap: the steps wrap as the sample's do. 26. Report band heading — Cream DM Sans bold 22px (the landing
+h2 rule carries face/size; the band's rule carries Cream). 27. Report band layout — the sample's proportions: text column
+flex 2 (280px basis, its paragraph capped at 560px, 14.5px
+/ 1.55), the price block flex 1 centred; band padding
+36px / 30px, gap 26px; the action at the sample's padding,
+15px and 12px top margin. 28. The band is INSET: the negative-margin bleed is gone — it
+spans the page's own column with the Cream around it, as
+the sample's band sits in its frame. 29. Manifesto — a full-width Cream band (the page's own Cream;
+no panel of its own, no negative margins), centred, at the
+sample's 44px / 30px padding. 30. Manifesto headline — DM Sans, 27px, weight 800, Deep
+Forest; its line Forest semi-bold at 16.5px; the why line
+14px / 1.55 in --colour-sub at the sample's 620px measure. 31. Footer — the sample's three-part row at its padding
+(26px / 30px): the wordmark block (name Cream at the
+sample's 14.5px; tagline uppercase, tracked, Brass at
+11px), the middle links as one line — "How we check ·
+Sample report · About · Contact" (the footer's own list
+now, FOOTER_LINKS in components/SiteFooter.tsx; no
+Shortlist there, per the sample) — and the right-hand
+line "Data from named official sources. Facts, not
+scores." (FOOTER_SOURCES_LINE), the row at 12.5px in Brass
+pale on Deep Forest. The footer's top margin is zeroed on
+the landing only, so the footer meets the page as the
+sample's meets its manifesto.
+
+**Postcode rule (founder, 17 Nov 2026).** CM3 2JT / Birkdale
+Rise appear nowhere in visitor-facing copy. Changed: the box's
+hint (lib/home.ts — "For example, SW1A 1AA — or the full
+address, with its postcode."), the box's standard placeholder
+("SW1A 1AA"; the bare placeholder is item 10), the no-location
+line (lib/journey.ts NO_LOCATION_LINE — "for example SW1A
+1AA"), and the kitchen-sink specimens (the field specimens and
+the suggestions shell's specimen entries — Westminster /
+Parliament Square forms). Internal test fixtures and the
+golden corpus (seeded data the journey specs exercise) are
+not copy and are untouched.
+
+**Re-pins (each deliberate, with its reason).**
+
+1. tests/home-page.test.ts — the box furniture pin (the hint's
+   example; new pins for the bare placeholder and button);
+   a new pin for HOME_HERO_SMALL_LINE; the hero-order pin
+   (panels + example out, small line in, with absence
+   assertions for both retirements and the two removed
+   sections); the family-names and "what it checks" pins
+   retired with their sections; the manifesto position pin
+   re-anchored on the tile grid; a new bare-box render pin
+   (visually-hidden label, no hint, Brass button); the
+   illustrations guard re-based on the assets' literal paths
+   (the panels constant it iterated is retired; the guard's
+   subject — the kit's illustration language — is not).
+   Reason: the pins change because the founder's list changes
+   the page; each pin now holds the sample's form.
+2. tests/look-feel-kit.test.ts — the navigation pin (the
+   sample's set and hrefs; /guides asserted absent) and a new
+   footer pin (middle links + the sources line). Reason: the
+   chrome is the sample's now; D44's set is the superseded
+   record, kept in the test's comment.
+3. e2e/home.e2e.ts — the smoke spec (panels/example out; the
+   order assertion re-based; the small line asserted) and the
+   box regression spec (re-pinned to the bare form: no hint,
+   visually-hidden label, the sample's placeholder, "Check
+   this home"); the cards spec's comment (the art reference);
+   the "what it checks" spec retired with its section.
+   Reason: the specs prove the landing's served form, which
+   is the sample's form now.
+4. e2e/journey.e2e.ts — searchFromHome and the robot-check
+   spec click "Check this home" (the landing button's new
+   words); the no-location spec gains the standard form's
+   label/hint assertions and the line's neutral example.
+   Reason: the flows start from the landing's box; the
+   standard form's pins move to the surface that serves it.
+5. e2e/results.e2e.ts — searchFromHome clicks "Check this
+   home". Same reason as 4.
+6. e2e/kitchen-sink.e2e.ts — the nav text pin (the sample's
+   set). Reason: the shell it proves is the changed chrome.
+
+**Kept, deliberately (flagged for the founder, not silently
+decided).**
+
+- The hero headline's face is Newsreader 700, not the mock's
+  system sans at 800: the mock's stack is a mock artefact, the
+  Final Design's display face is Newsreader, and DM Sans 800
+  is loaded if the founder wants the headline in the text
+  face too — a one-line change either way.
+- The header keeps a 1px Brass pale bottom line + soft shadow
+  because the SAMPLE carries exactly that; the founder's item
+  2 ("no brass hairlines") is closed against the 3px rule that
+  was actually built, not against the sample's own edge.
+- The sample's kicker drops the manifesto's full stop; the
+  product renders the D12 manifesto constant (with its stop)
+  as both kicker and manifesto line. Copy, not look — left as
+  the constant pins it.
+- The footer keeps the reversed Roof-Tick mark beside the
+  wordmark; the sample's footer carries the wordmark alone.
+  The mark is the M7.1 brand pairing, pinned as such; removing
+  it was not in the 31.
+- The closing sample-report section (M7.2's "See a full
+  example") is not a sample element — the sample's sample door
+  is the band's action — but it was not in the 31 either, and
+  the follow-on note had already flagged the two doors for the
+  founder's call. It stays until he rules.
+- The TEST label (previous section) is untouched: it still
+  rides at the page's top-right corner on non-production
+  environments.
+
+### Verification (measured, not eyeballed)
+
+The built home page and the sample were rendered side by side
+in the same Chromium at a 1400px viewport and probed for
+computed styles and geometry. Colours, font sizes, weights,
+paddings, radii, borders and shadows match the sample's values
+throughout; the content column measures 1020px against the
+sample column's 1018px (the sample carries a 1px frame border
+each side). The report band measures 252px tall against the
+sample's 251px — the remaining pixel is the CTA's 44px
+tap-target floor against the sample's 43px button. The search
+row measures 45px against the sample's 42px for the same
+reason: the kit's 44px tap-target floor plus the field's 1.5px
+borders, where the mock's controls are 42px. The header
+measures 4px taller than the sample's for the same floor on
+the nav links. Text wraps differ by a line here and there
+inside the audience cards because the product's text face is
+DM Sans and the mock's is the system stack — the mock's
+geometry, not its typeface, is the authority carried into the
+build.

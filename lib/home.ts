@@ -1,5 +1,5 @@
 // M7.2 — the home page's copy, in one place. The hero lines,
-// the audience cards and the "what it checks" list are pinned
+// the audience cards and the section copy are pinned
 // verbatim by tests/home-page.test.ts; the page renders these
 // constants and never retypes them, so the wording the wording
 // review passed is the wording that ships.
@@ -20,40 +20,36 @@ export const HOME_HERO_SUBLINE =
 // verbatim for the wider input (fold-in 7): a full or partial
 // postcode, or an address or street/building name carrying a
 // postcode. The button is unchanged.
+//
+// Fidelity pass 2 (founder, 17 Nov 2026): two rulings land
+// here. (a) The founder's own postcode never appears in
+// visitor-facing copy — the hint's example is the neutral
+// SW1A 1AA, here and everywhere the example ran (the box's
+// placeholder, the no-location line, the kitchen-sink
+// specimens). (b) The hero's box takes the decided sample
+// page's bare form: no visible label or hint, the field
+// itself carrying the placeholder below, and the Brass
+// button in the sample's words. The labelled form survives
+// on the journey's own pages (the no-location fix route, the
+// wider-area banner), where the box is a retry, not the
+// page's main action.
 export const POSTCODE_BOX_LABEL = "Postcode or address";
-export const POSTCODE_BOX_HINT = "For example, CM3 2JT — or the full address, with its postcode.";
+export const POSTCODE_BOX_HINT = "For example, SW1A 1AA — or the full address, with its postcode.";
 export const POSTCODE_BOX_BUTTON = "Check a home";
+export const POSTCODE_BOX_PLACEHOLDER_BARE = "Enter a postcode — e.g. SW1A 1AA";
+export const POSTCODE_BOX_BUTTON_BARE = "Check this home";
 
-// The hero's imagery strip (D70 R2): three captioned panels
-// between the sub-line and the box — families moving in,
-// drawn in the one-line illustration language (the same
-// three scenes as the original card art). Captions are the
-// Final Design's, verbatim.
-export const HOME_HERO_PANELS = [
-  {
-    title: "Moving-in day",
-    line: "Boxes in the hall, kettle on",
-    art: "/illustrations/card-boxes.svg",
-    artAlt: "Line drawing of moving boxes under a roof",
-  },
-  {
-    title: "Keys in hand",
-    line: "The first morning in the new home",
-    art: "/illustrations/card-key.svg",
-    artAlt: "Line drawing of a key in a new front door",
-  },
-  {
-    title: "A dog at the door",
-    line: "Pets are family too",
-    art: "/illustrations/card-dog.svg",
-    artAlt: "Line drawing of a dog waiting by the door",
-  },
-] as const;
-
-// The example-check action beside the box (D70 R2/D14): the
-// design's second hero action, pointing at the sample
-// report (SAMPLE_REPORT_PATH below).
-export const EXAMPLE_CHECK_LABEL = "See an example check";
+// The small line under the hero's search row (the decided
+// sample page's, verbatim — fidelity pass 2). The hero's
+// imagery panels and the example-check action that D70 R2
+// placed beside the box are retired by the same pass: the
+// sample goes from the sub-line straight to the search row,
+// and the sample report's doors are the band's action and
+// the closing section. The panels' illustrations stay in
+// public/illustrations — the dog still serves the shortlist's
+// empty state.
+export const HOME_HERO_SMALL_LINE =
+  "Free headlines for every home, from named official sources. Detailed report £4.99 — one home, no account, no subscription.";
 
 // The three audience cards, directly under the hero (D70
 // R3): a title, a one-line intro and the family-language
@@ -99,78 +95,24 @@ export const HOME_AUDIENCE_CARDS = [
   },
 ] as const;
 
-// The family-names panel (D70 R4): the homepage's checks in
-// family language, the Final Design's panel verbatim.
-// Homepage only — the panel and the report keep their plain
-// names (the note says so, as the design's panel does).
-export const HOME_FAMILY_NAMES_LEAD = "On the homepage, checks speak family language:";
-export const HOME_FAMILY_NAMES = [
-  "Schools & nurseries near the door",
-  "Safety in plain numbers",
-  "Flood risk at this address",
-  "The real cost of living there",
-  "Health near the door",
-  "Room to walk the dog",
-] as const;
-export const HOME_FAMILY_NAMES_NOTE =
-  "Homepage only — the panel and report keep their plain names.";
-
-// "What it checks" — one item per row of the checking screen's
-// nine rows (M7.3's step text). At M7.2 the names were family
-// language; D70 R4 re-bases the list on the plain check names
-// as a contents list (the family language now lives in the
-// family-names panel above it), so the names below are the
-// checking screen's own row labels, pinned against them in
-// the tests. The gloss lines are unchanged. The items carry
-// no links at this step; M7.11 wires them to the /check pages.
-export const HOME_WHAT_IT_CHECKS_HEADING = "What it checks";
-export const HOME_WHAT_IT_CHECKS = [
-  {
-    name: "Schools — nearest primary & secondary, with Ofsted",
-    line: "The primary and secondary schools closest to the front door, with the distance to each.",
-  },
-  {
-    name: "Nurseries & pre-schools",
-    line: "Places for the youngest children, nearest first.",
-  },
-  {
-    name: "GP, NHS dentist & pharmacy",
-    line: "The nearest GP surgery, NHS dentist and pharmacy.",
-  },
-  {
-    name: "Hospitals, A&E & maternity",
-    line: "The nearest hospital, emergency department and maternity unit.",
-  },
-  {
-    name: "Parks, vets & dog-walking areas",
-    line: "Green spaces to play in and walk the dog, and the nearest vet.",
-  },
-  {
-    name: "Shops & transport — supermarkets, bus stops, stations",
-    line: "The nearest shops, bus stops and stations.",
-  },
-  {
-    name: "Food & drink, leisure & gyms, places to visit, worship & libraries",
-    line: "Food and drink, gyms and leisure, places to visit, places of worship and libraries.",
-  },
-  {
-    name: "Flood — rivers & sea, and surface water",
-    line: "The published flood maps for the area, shown exactly as they are published.",
-  },
-  {
-    name: "Sold history, council tax, EPC, planning applications & constraints, ownership",
-    line: "Sold prices nearby, the council tax scale, energy certificates, planning constraints and ownership.",
-  },
-] as const;
+// Retired at fidelity pass 2 (founder, 17 Nov 2026): the
+// family-names panel (D70 R4) — a dashed annotation box the
+// founder's section-by-section comparison caught rendering
+// an internal design note as page content; the sample has
+// nothing there, so the panel and its constants are gone.
+// Also retired: the "What it checks" ruled list (D70 R4's
+// plain-names contents list) — the sample carries ONE tour
+// of the checks, the tile grid below; two tours on one page
+// was the fault. The checking screen's own rows keep their
+// plain names in lib/journey.ts, untouched.
 
 // "What we check for you" — the decided landing page's
 // nine-tile grid (founder follow-on to D70, 17 Nov 2026: the
 // landing matches the decided sample page exactly). Titles
 // and lines are the sample's verbatim (the sample carries
 // copy-decisions changes 1–8 as applied 13 Nov 2026). The
-// grid is the homepage's family-language tour of the checks;
-// the plain-names contents list ("What it checks", above)
-// stays as D70 left it.
+// grid is the homepage's family-language tour of the checks
+// — after fidelity pass 2, its only one.
 export const HOME_CHECK_TILES_HEADING = "What we check for you";
 export const HOME_CHECK_TILES_SUB =
   "The checks that matter for family life — schools, health, safety, home risks and the cost of living — all from named official sources.";

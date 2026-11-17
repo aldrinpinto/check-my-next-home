@@ -1,7 +1,6 @@
 import Link from "next/link";
 
 import { SITE_NAME, SITE_TAGLINE } from "../lib/site";
-import { PRIMARY_NAV } from "./SiteHeader";
 
 // M7.1 — the footer shell, built with the header so no later
 // step has to invent it: Deep Forest (the brand's dark
@@ -10,6 +9,25 @@ import { PRIMARY_NAV } from "./SiteHeader";
 // them (the pairing the plan's own test record checks). The
 // link list fills in as pages land; the legal pages complete
 // it later.
+//
+// Fidelity pass 2 (founder, 17 Nov 2026): the footer takes
+// the decided sample page's three-part form — the wordmark
+// block on the left, the middle links as one line
+// (How we check · Sample report · About · Contact), and the
+// sources line on the right: "Data from named official
+// sources. Facts, not scores." The middle set is the
+// sample's own, not the header's (no Shortlist; Contact
+// joins) — so the footer carries its own list now, no longer
+// the header's PRIMARY_NAV.
+const FOOTER_LINKS = [
+  { label: "How we check", href: "/how-we-check" },
+  { label: "Sample report", href: "/sample-report" },
+  { label: "About", href: "/about" },
+  { label: "Contact", href: "/contact" },
+] as const;
+
+export const FOOTER_SOURCES_LINE = "Data from named official sources. Facts, not scores.";
+
 export default function SiteFooter() {
   return (
     <footer className="site-footer">
@@ -29,16 +47,20 @@ export default function SiteFooter() {
           </span>
         </span>
         <nav className="site-footer__nav" aria-label="Footer">
-          <ul className="site-footer__list">
-            {PRIMARY_NAV.map((item) => (
-              <li key={item.href}>
-                <Link className="site-footer__link" href={item.href}>
-                  {item.label}
-                </Link>
-              </li>
-            ))}
-          </ul>
+          {FOOTER_LINKS.map((item, index) => (
+            <span key={item.href}>
+              {index > 0 && (
+                <span className="site-footer__sep" aria-hidden="true">
+                  {" · "}
+                </span>
+              )}
+              <Link className="site-footer__link" href={item.href}>
+                {item.label}
+              </Link>
+            </span>
+          ))}
         </nav>
+        <p className="site-footer__sources">{FOOTER_SOURCES_LINE}</p>
       </div>
     </footer>
   );

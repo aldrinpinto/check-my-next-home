@@ -249,8 +249,11 @@ export function postcodeNotFoundLine(postcode: string): string {
 // The no-location route (T-WEB-09): a bare street or place
 // name lands here too (ruling 2), asking for the postcode.
 export const NO_LOCATION_HEADING = "We couldn't place that";
+// Fidelity pass 2 (founder, 17 Nov 2026): the example is the
+// neutral SW1A 1AA — the founder's own postcode never appears
+// in visitor-facing copy.
 export const NO_LOCATION_LINE =
-  "Try a full postcode — for example CM3 2JT — or a full address with its postcode. A street or place name on its own isn't enough: every town has a street with the same name.";
+  "Try a full postcode — for example SW1A 1AA — or a full address with its postcode. A street or place name on its own isn't enough: every town has a street with the same name.";
 
 // The not-covered page (ruling 4): the check is never
 // refused; every section carries its served not-covered

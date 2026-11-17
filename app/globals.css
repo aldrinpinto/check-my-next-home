@@ -135,6 +135,17 @@
   --colour-search-border: #cdbd8a;
   --colour-brass-pale-hover: #efe0b3;
 
+  /* The decided landing page's text greys (fidelity pass 2,
+     17 Nov 2026): the sample's own values for its soft body
+     text (hero lead, card and step text), its subdued lines
+     (section intros, tile lines, the manifesto's why) and
+     its faintest line (the hero's small line and the search
+     field's placeholder tone). Carried here once, as every
+     kit value is; the landing's blocks below consume them. */
+  --colour-body-soft: #40513f;
+  --colour-sub: #5a6b5e;
+  --colour-faint: #7a8272;
+
   /* Distance colours (D70 R5): colour sits on the miles
      figure only, as the design's .dist chips — a tinted
      ground with its dark text colour. The orange is the
@@ -326,16 +337,24 @@ p {
    lib/site.ts). The tagline sits small in Brass beneath the
    name (the header/hero Option 1 lockup, carried by M7.2);
    the lockup is the brand's logotype. The manifesto is never
-   in the header (D12). */
+   in the header (D12).
+   Fidelity pass 2 (17 Nov 2026): the header takes the
+   decided sample page's own values — its edge is the
+   sample's 1px Brass pale line with the soft shadow, not the
+   3px Brass rule (the founder's list: no brass rules above
+   or below the header); the wordmark is the sample's 20px
+   Deep Forest; the tagline is uppercase, letter-spaced,
+   Brass, as the sample sets it. */
 .site-header {
   background: var(--cmnh-white);
-  border-bottom: 3px solid var(--cmnh-brass);
+  border-bottom: 1px solid var(--cmnh-brass-pale);
+  box-shadow: 0 1px 5px rgba(30, 64, 44, 0.08);
 }
 
 .site-header__inner {
   max-width: var(--container-wide);
   margin: 0 auto;
-  padding: var(--space-3) var(--space-4);
+  padding: 0.875rem var(--space-4);
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -351,7 +370,9 @@ p {
 }
 
 .brand__mark {
-  height: var(--tap-target);
+  /* The sample's mark height (40px); the tap-target height
+     it replaces belonged to the lockup's first sizing. */
+  height: 2.5rem;
   width: auto;
   display: block;
 }
@@ -359,19 +380,26 @@ p {
 .brand__name {
   display: block;
   /* The logotype (D70 F2): the brand name set in Newsreader
-     at its design size, in header and footer alike. */
+     in header and footer alike — at the sample's size and
+     Deep Forest colour (fidelity pass 2). */
   font-family: var(--font-family-display);
-  font-size: 1.5rem;
+  font-size: 1.25rem;
   font-weight: 700;
-  line-height: 1.1;
-  color: var(--cmnh-forest);
+  line-height: 1.05;
+  color: var(--cmnh-forest-deep);
 }
 
 .brand__tagline {
   display: block;
-  font-size: var(--font-size-small);
+  /* The sample's tagline form (fidelity pass 2): uppercase,
+     letter-spaced, Brass, semi-bold. */
+  font-size: 0.71875rem;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
   line-height: 1.2;
   color: var(--cmnh-brass);
+  margin-top: 2px;
 }
 
 .site-nav {
@@ -382,7 +410,7 @@ p {
   list-style: none;
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-2) var(--space-5);
+  gap: var(--space-2) 1.375rem;
 }
 
 .site-nav__link {
@@ -390,8 +418,12 @@ p {
   align-items: center;
   min-height: var(--tap-target);
   padding: var(--space-2) var(--space-1);
-  color: var(--colour-text);
-  font-weight: 600;
+  /* The sample's nav form (fidelity pass 2): regular weight,
+     Forest, at the sample's 13.5px. The tap target stays —
+     it is invisible height, not visible form. */
+  color: var(--cmnh-forest);
+  font-weight: 400;
+  font-size: 0.84375rem;
   text-decoration: none;
 }
 
@@ -422,21 +454,29 @@ p {
 
 /* --- Footer shell -------------------------------------------------
    Deep Forest, the reversed mark, the name and tagline as live
-   text. The link list fills in as pages land. */
+   text. Fidelity pass 2 (17 Nov 2026): the footer's form is
+   the decided sample page's — one row at the sample's
+   padding, the wordmark block at the sample's smaller size
+   with its tagline Brass (not Brass pale), the middle links
+   as a single line, and the sources line on the right, all
+   at the sample's 12.5px in Brass pale on Deep Forest. */
 .site-footer {
   background: var(--colour-dark-surface);
-  color: var(--colour-on-dark);
+  color: var(--colour-accent-on-dark);
   margin-top: var(--space-9);
 }
 
 .site-footer__inner {
   max-width: var(--container-wide);
   margin: 0 auto;
-  padding: var(--space-7) var(--space-4);
+  padding: 1.625rem var(--space-4);
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-start;
-  gap: var(--space-5) var(--space-7);
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4) var(--space-7);
+  font-size: 0.78125rem;
+  line-height: 1.3;
 }
 
 .site-footer .brand {
@@ -445,37 +485,29 @@ p {
 
 .site-footer .brand__name {
   color: var(--colour-on-dark);
+  /* The sample's footer wordmark size. */
+  font-size: 0.90625rem;
 }
 
 .site-footer .brand__tagline {
-  color: var(--colour-accent-on-dark);
-}
-
-.site-footer__nav {
-  margin-left: auto;
-}
-
-.site-footer__list {
-  list-style: none;
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2) var(--space-5);
+  /* The sample's footer tagline is Brass itself. */
+  color: var(--cmnh-brass);
+  font-size: 0.6875rem;
 }
 
 .site-footer__link {
-  display: inline-flex;
-  align-items: center;
-  min-height: var(--tap-target);
-  padding: var(--space-2) var(--space-1);
-  color: var(--colour-on-dark);
-  font-weight: 600;
+  color: var(--colour-accent-on-dark);
   text-decoration: none;
 }
 
 .site-footer__link:hover {
-  color: var(--colour-accent-on-dark);
+  color: var(--colour-on-dark);
   text-decoration: underline;
   text-decoration-thickness: 2px;
+}
+
+.site-footer__sources {
+  margin-bottom: 0;
 }
 
 /* --- Buttons ------------------------------------------------------ */
@@ -502,6 +534,19 @@ p {
 
 .btn--primary:hover {
   background: var(--cmnh-forest-deep);
+}
+
+/* The Brass button (fidelity pass 2): the decided sample
+   page's search action — Brass with white text. Its hover
+   deepens the Brass (a mix toward black, so no new hex is
+   invented). */
+.btn--brass {
+  background: var(--cmnh-brass);
+  color: var(--cmnh-white);
+}
+
+.btn--brass:hover {
+  background: color-mix(in srgb, var(--cmnh-brass) 82%, black);
 }
 
 /* The ink button (D70 R6): the picker's confirm — the one
@@ -544,6 +589,11 @@ p {
 .btn--ink[disabled]:hover,
 .btn--ink[aria-disabled="true"]:hover {
   background: var(--cmnh-ink);
+}
+
+.btn--brass[disabled]:hover,
+.btn--brass[aria-disabled="true"]:hover {
+  background: var(--cmnh-brass);
 }
 
 /* --- Links -------------------------------------------------------- */
@@ -833,108 +883,107 @@ a:hover {
   margin-bottom: var(--space-3);
 }
 
-/* --- Home page (M7.2; composition aligned at D70) -------------------
-   The landing page's blocks, built from the kit's tokens only.
-   The hero's order is the document order (D70 R2) — kicker,
-   headline, sub-line, the three captioned imagery panels,
-   the postcode box with the example-check action — so it is
-   identical on mobile with no reordering rules. The kicker
-   is set in Forest: Brass on white is the logotype's pairing
-   (the header), and running text keeps the kit's verified
-   contrast. */
+/* --- Home page (M7.2; D70; fidelity pass 2) -------------------------
+   The landing page's blocks. Fidelity pass 2 (founder,
+   17 Nov 2026) rebuilds the page to the decided sample
+   page's own CSS values, closing the founder's 31-item
+   comparison: the page sits on Cream in the sample's
+   narrower column (63.75rem — the sample frame's measure),
+   its sections carry the sample's padding (34px / 30px) and
+   alternate white panel / Cream as the sample's do, its
+   section headings are DM Sans bold in Deep Forest at the
+   sample's 22px (not the kit's Newsreader display face),
+   and its hero is the sample's: Brass tracked kicker, Deep
+   Forest headline at the 600px measure, the bare search row
+   and the small line. The header and footer inners take the
+   same column on this page only (the body:has rules below),
+   so the chrome aligns with the content as it does in the
+   sample's frame; every other page keeps the wide
+   container. */
+.main--home {
+  max-width: 63.75rem;
+  margin: 0 auto;
+  padding: 0;
+  background: var(--cmnh-cream);
+}
+
+body:has(.main--home) {
+  background: var(--cmnh-cream);
+}
+
+body:has(.main--home) .site-header__inner,
+body:has(.main--home) .site-footer__inner {
+  max-width: 63.75rem;
+  padding-inline: 1.875rem;
+}
+
+body:has(.main--home) .site-footer {
+  margin-top: 0;
+}
+
+/* The landing's headings (fidelity pass 2): section
+   headings in the text face, bold, Deep Forest, at the
+   sample's 22px with its 6px under-margin; the hero
+   headline keeps the kit's Newsreader display face (the
+   Final Design's display face — the sample mock's system
+   stack is a mock artefact) but takes the sample's Deep
+   Forest colour, 34px size, 1.18 line height and 600px
+   measure. Card, tile and step titles (the page's h3s) take
+   Deep Forest, as the sample's headings inherit it. */
+.main--home h1 {
+  color: var(--cmnh-forest-deep);
+  font-size: 2.125rem;
+  line-height: 1.18;
+  max-width: 37.5rem;
+}
+
+.main--home h2 {
+  font-family: var(--font-family);
+  font-weight: 700;
+  font-size: 1.375rem;
+  line-height: 1.2;
+  margin-bottom: 0.375rem;
+}
+
+.main--home .home-section h2 {
+  color: var(--cmnh-forest-deep);
+}
+
+.main--home h3 {
+  color: var(--cmnh-forest-deep);
+}
+
 .hero {
-  margin-bottom: var(--space-8);
+  padding: 2.75rem 1.875rem 2.5rem;
 }
 
 .hero__kicker {
-  font-weight: 800;
-  color: var(--colour-heading);
-  margin-bottom: var(--space-3);
+  /* The sample's kicker: Brass, uppercase, tracked, small. */
+  font-size: 0.78125rem;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.096em;
+  text-transform: uppercase;
+  color: var(--cmnh-brass);
+  margin-bottom: 0.75rem;
 }
 
 .hero .type-lead {
-  max-width: 34rem;
+  font-size: var(--font-size-body);
+  line-height: 1.55;
+  color: var(--colour-body-soft);
+  max-width: 33.75rem;
+  margin-bottom: 1.375rem;
 }
 
-/* The hero's imagery strip (D70 R2): three captioned panels
-   drawn in the kit's line-illustration language — the same
-   three scenes as the audience cards' art (boxes, key, dog),
-   presented as the design's strip. Panels stack on small
-   screens, as the design's strip does. */
-.hero__panels {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: var(--space-2);
-  list-style: none;
-  margin: var(--space-5) 0 var(--space-6);
-}
-
-@media (max-width: 40rem) {
-  .hero__panels {
-    grid-template-columns: 1fr;
-  }
-}
-
-.hero__panel {
-  border: 1px solid var(--colour-card-line);
-  border-radius: var(--radius-card);
-  background: var(--colour-card);
-  padding: var(--space-4);
-}
-
-.hero__panel-art {
-  display: block;
-  height: 4.5rem;
-  width: auto;
-  margin-bottom: var(--space-3);
-}
-
-.hero__panel-title {
-  display: block;
-  font-weight: 800;
-  font-size: 0.82rem;
-  line-height: 1.35;
-}
-
-.hero__panel-line {
-  display: block;
-  font-weight: 600;
-  font-size: 0.76rem;
-  color: var(--colour-muted);
-}
-
-/* The example-check action beside the box (D70 R2/D14):
-   the design's white-outline second action, as a link in
-   button form, pointing at the sample report. */
-.hero__actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: var(--space-3) var(--space-5);
-}
-
-.hero__actions .postcode-box {
-  flex: 1 1 28rem;
+/* The small line under the search row (the sample's):
+   12.5px in the faint grey, 10px under the row. */
+.hero__small {
+  font-size: 0.78125rem;
+  line-height: 1.2;
+  color: var(--colour-faint);
+  margin-top: 0.625rem;
   margin-bottom: 0;
-}
-
-.hero__example {
-  display: inline-flex;
-  align-items: center;
-  min-height: var(--tap-target);
-  padding: var(--space-2) var(--space-4);
-  border: 1px solid var(--cmnh-forest);
-  border-radius: var(--radius);
-  background: var(--cmnh-white);
-  color: var(--cmnh-forest);
-  font-weight: 800;
-  text-decoration: none;
-  white-space: nowrap;
-}
-
-.hero__example:hover {
-  background: var(--cmnh-cream);
-  color: var(--cmnh-forest-deep);
 }
 
 /* The search box (D70 R8 + the founder's 17 Nov ruling):
@@ -1034,36 +1083,101 @@ a:hover {
   background: var(--colour-selected-bg);
 }
 
-.audience-cards {
-  display: grid;
-  gap: var(--space-5);
-  margin-bottom: var(--space-8);
+/* The bare form (fidelity pass 2): the decided sample page's
+   hero search row — the row at the sample's 500px measure,
+   its field at the sample's padding and 14.5px size with the
+   placeholder in the sample's faint tone, and its Brass
+   button at the sample's padding, size and weight. The
+   standard form above is untouched: it serves the journey's
+   retry surfaces. */
+.postcode-box--bare {
+  max-width: 31.25rem;
+  margin-bottom: 0;
 }
 
-/* The audience card in the design's form (D70 R3): text
-   only — title, one-line intro, the family-language check
-   list — on the card white with the soft green-grey line. */
+.postcode-box--bare .field__input {
+  padding: 0.75rem 0.875rem;
+  font-size: 0.90625rem;
+  line-height: 1.2;
+}
+
+.postcode-box--bare .field__input::placeholder {
+  color: var(--colour-faint);
+  opacity: 1;
+}
+
+.postcode-box--bare .btn {
+  padding: 0.75rem 1.25rem;
+  font-size: 0.90625rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+/* The landing's sections (fidelity pass 2): the sample's
+   padding (34px / 30px), no stacking margins — the sections
+   meet as the sample's do, the white panels carrying their
+   Brass pale top and bottom lines. The intro line is the
+   sample's: 14.5px in its subdued grey, 20px under-margin,
+   the 640px measure. */
+.home-section {
+  padding: 2.125rem 1.875rem;
+}
+
+.home-section--alt {
+  background: var(--cmnh-white);
+  border-top: 1px solid var(--cmnh-brass-pale);
+  border-bottom: 1px solid var(--cmnh-brass-pale);
+}
+
+.home-section__sub {
+  font-size: 0.90625rem;
+  line-height: 1.5;
+  color: var(--colour-sub);
+  max-width: 40rem;
+  margin-bottom: 1.25rem;
+}
+
+.audience-cards {
+  display: grid;
+  gap: var(--space-4);
+}
+
+/* The audience card in the sample's form (fidelity pass 2;
+   D70 R3's text-only structure kept): Cream-filled with the
+   thin Brass pale line, the tile radius, the sample's 18px
+   padding; title at the sample's 16.5px with its 8px
+   under-margin; intro and check list at the sample's
+   13.5px / 1.55 in its soft body grey, the list at the
+   sample's indent with no per-item margins. */
 .audience-cards .card {
   margin-bottom: 0;
-  background: var(--colour-card);
-  border-color: var(--colour-card-line);
-  border-radius: var(--radius-card);
-  padding: 12px 14px;
+  background: var(--cmnh-cream);
+  border-color: var(--cmnh-brass-pale);
+  border-radius: var(--radius-tile);
+  padding: 1.125rem;
 }
 
 .audience-cards .card__title {
-  font-size: 1rem;
+  font-size: 1.03125rem;
   margin-bottom: var(--space-2);
+}
+
+.audience-cards .card p {
+  font-size: 0.84375rem;
+  line-height: 1.55;
+  color: var(--colour-body-soft);
 }
 
 .card__checks {
   margin: var(--space-2) 0 0;
-  padding-left: var(--space-4);
-  font-size: var(--font-size-small);
+  padding-left: 1.0625rem;
+  font-size: 0.84375rem;
+  line-height: 1.55;
+  color: var(--colour-body-soft);
 }
 
 .card__checks li {
-  margin: var(--space-1) 0;
+  margin: 0;
 }
 
 @media (min-width: 48rem) {
@@ -1072,38 +1186,17 @@ a:hover {
   }
 }
 
-.home-section {
-  margin-bottom: var(--space-8);
-}
-
-.home-section__sub {
-  max-width: 40rem;
-}
-
-.checks-list {
-  list-style: none;
-}
-
-.checks-list li {
-  padding: var(--space-3) 0;
-  border-bottom: 1px solid var(--cmnh-brass-pale);
-}
-
-.checks-list__name {
-  display: block;
-  font-weight: 700;
-  color: var(--colour-heading);
-}
-
 /* The "What we check for you" tile grid (founder follow-on
    to D70, 17 Nov 2026): the decided page's tiles — white,
    the Brass pale line, a 3px Brass top rule, the tile
    radius and the sample's soft shadow; three to a row on
-   desktop with equal heights, stacked on a phone. */
+   desktop with equal heights, stacked on a phone. Fidelity
+   pass 2 sets the grid's gap and the line's size and grey
+   to the sample's own values (14px; 12.5px in #5a6b5e). */
 .check-tiles {
   display: grid;
   grid-template-columns: 1fr;
-  gap: var(--space-4);
+  gap: 0.875rem;
   list-style: none;
 }
 
@@ -1125,12 +1218,13 @@ a:hover {
 
 .check-tile__title {
   font-size: 0.9375rem;
-  margin-bottom: var(--space-1);
+  margin-bottom: 5px;
 }
 
 .check-tile__line {
-  font-size: var(--font-size-caption);
-  color: var(--colour-muted);
+  font-size: 0.78125rem;
+  line-height: 1.5;
+  color: var(--colour-sub);
   margin-bottom: 0;
 }
 
@@ -1138,11 +1232,13 @@ a:hover {
    the decided page's numbered steps — the number in its
    Forest circle, then the step's title and line. The steps
    wrap: one to a row on a phone, four across on a wide
-   desktop. */
+   desktop. Fidelity pass 2 sets the gap, the title's size
+   and the line's size, leading and grey to the sample's own
+   values (16px; 15.5px; 13.5px / 1.55 in #40513f). */
 .how-steps {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-5);
+  gap: var(--space-4);
   list-style: none;
 }
 
@@ -1160,35 +1256,41 @@ a:hover {
   background: var(--cmnh-forest);
   color: var(--cmnh-cream);
   font-weight: 700;
-  margin-bottom: var(--space-2);
+  margin-bottom: 9px;
 }
 
 .how-step__title {
-  font-size: 0.9375rem;
-  margin-bottom: var(--space-1);
+  font-size: 0.96875rem;
+  margin-bottom: 5px;
 }
 
 .how-step__line {
-  font-size: var(--font-size-small);
+  font-size: 0.84375rem;
+  line-height: 1.55;
+  color: var(--colour-body-soft);
   margin-bottom: 0;
 }
 
 /* The detailed-report band (founder follow-on to D70,
-   17 Nov 2026): the decided page's dark Deep Forest band,
-   full column width (the negative margins take it to the
-   main column's edges, as the sample's band runs to the
-   site column's) — the report's contents and the sample
-   action on the left, the price block centred on the
-   right; the two stack on a phone. */
+   17 Nov 2026): the decided page's dark Deep Forest band —
+   the report's contents and the sample action on the left,
+   the price block centred on the right; the two stack on a
+   phone. Fidelity pass 2: the band no longer bleeds to the
+   viewport edges — it spans the page's own column, inset in
+   the page with the Cream around it as the sample's band
+   sits in its frame, at the sample's padding and gap
+   (36px / 30px; 26px); its text takes the sample's 14.5px /
+   1.55, its action the sample's padding, 15px size and 12px
+   top margin, and its heading the landing's DM Sans section
+   form in Cream (the .main--home h2 rule carries the face
+   and size; the colour below is the band's own). */
 .report-band {
   background: var(--cmnh-forest-deep);
   color: var(--cmnh-cream);
-  margin-inline: calc(-1 * var(--space-4));
-  padding: var(--space-7) var(--space-4);
-  margin-bottom: var(--space-8);
+  padding: 2.25rem 1.875rem;
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-6);
+  gap: 1.625rem;
   align-items: center;
 }
 
@@ -1200,9 +1302,18 @@ a:hover {
   color: var(--cmnh-cream);
 }
 
+.main--home h2.report-band__heading {
+  /* The sample's band heading carries an 8px bottom margin. */
+  margin-bottom: 0.5rem;
+}
+
 .report-band__line {
-  font-size: var(--font-size-small);
+  font-size: 0.90625rem;
+  line-height: 1.55;
   max-width: 35rem;
+  /* The sample's band paragraph carries no bottom margin —
+     the CTA's own top margin makes the gap. */
+  margin-bottom: 0;
 }
 
 .report-band__cta {
@@ -1213,11 +1324,12 @@ a:hover {
   background: var(--cmnh-brass);
   color: var(--cmnh-forest-deep);
   font-weight: 800;
-  font-size: var(--font-size-body);
-  padding: var(--space-3) var(--space-5);
+  font-size: 0.9375rem;
+  line-height: 1.2;
+  padding: 0.8125rem 1.375rem;
   border-radius: var(--radius);
   text-decoration: none;
-  margin-top: var(--space-2);
+  margin-top: 0.75rem;
 }
 
 .report-band__cta:hover {
@@ -1249,71 +1361,58 @@ a:hover {
 
 .report-band__price-lines span {
   display: block;
-  font-size: var(--font-size-small);
+  font-size: 0.90625rem;
 }
 
-/* The family-names panel (D70 R4): the homepage's checks in
-   family language, on the design's dashed-brass panel.
-   Homepage only — the panel and report keep plain names. */
-.fam-names {
-  border: 1px dashed var(--cmnh-brass);
-  border-radius: var(--radius-card);
-  background: var(--colour-fam-bg);
-  padding: var(--space-3) var(--space-4);
-  font-size: var(--font-size-small);
-  margin-bottom: var(--space-8);
-}
-
-.fam-names b {
-  color: var(--cmnh-forest);
-}
-
-.fam-names > :last-child {
-  margin-bottom: 0;
-}
-
-.fam-names__note {
-  color: var(--colour-muted);
-}
+/* The family-names panel (D70 R4) is retired at fidelity
+   pass 2: the founder's comparison caught it rendering an
+   internal annotation as page content, and the sample has
+   nothing in its place. Its styles leave with it. (The
+   --colour-fam-bg token stays in the token block: tokens
+   are the kit's palette record, and the panel's tint is a
+   palette member whether or not a block consumes it today.) */
 
 /* The manifesto block (founder follow-on to D70, 17 Nov
    2026): the decided sample page's form — a centred block
-   on Cream, full column width (the negative margins take
-   it to the main column's edges, as the sample's block
-   runs to the site column's): Newsreader head, the
-   manifesto line in Forest, the why line muted, centred
-   and measure-limited. It supersedes D70 R3's dark Forest
-   panel — the D70 note's judgement call 2, reversed by the
-   founder: the sample governs the landing. */
+   on Cream: the headline, the manifesto line in Forest,
+   the why line muted, centred and measure-limited. It
+   supersedes D70 R3's dark Forest panel — the D70 note's
+   judgement call 2, reversed by the founder: the sample
+   governs the landing. Fidelity pass 2: the block spans
+   the page column on the page's own Cream (no negative
+   margins, no panel of its own) at the sample's padding,
+   and its headline takes the sample's form — DM Sans at
+   27px, weight 800, Deep Forest — with the why line at the
+   sample's grey and 620px measure. */
 .manifesto-block {
   background: var(--cmnh-cream);
-  margin-inline: calc(-1 * var(--space-4));
-  padding: var(--space-8) var(--space-4);
-  margin-bottom: var(--space-8);
+  padding: 2.75rem 1.875rem;
   text-align: center;
   color: var(--colour-text);
 }
 
 .manifesto-block__headline {
-  font-family: var(--font-family-display);
-  font-size: 1.7rem;
-  line-height: 1.15;
-  font-weight: 700;
-  color: var(--colour-heading);
-  margin-bottom: var(--space-2);
+  font-family: var(--font-family);
+  font-size: 1.6875rem;
+  line-height: 1.2;
+  font-weight: 800;
+  color: var(--cmnh-forest-deep);
+  margin-bottom: 0.625rem;
 }
 
 .manifesto-block__line {
-  font-size: 1.03rem;
+  font-size: 1.03125rem;
+  line-height: 1.2;
   font-weight: 600;
   color: var(--cmnh-forest);
-  margin-bottom: var(--space-2);
+  margin-bottom: 0.625rem;
 }
 
 .manifesto-block__why {
   font-size: var(--font-size-small);
-  color: var(--colour-muted);
-  max-width: 38rem;
+  line-height: 1.55;
+  color: var(--colour-sub);
+  max-width: 38.75rem;
   margin-inline: auto;
 }
 

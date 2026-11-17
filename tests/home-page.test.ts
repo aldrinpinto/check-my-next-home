@@ -8,17 +8,13 @@ import Home from "../app/page";
 import AudienceCards from "../components/AudienceCards";
 import PostcodeBox from "../components/PostcodeBox";
 import {
-  EXAMPLE_CHECK_LABEL,
   HOME_AUDIENCE_CARDS,
   HOME_CARDS_HEADING,
   HOME_CARDS_SUB,
   HOME_CHECK_TILES,
   HOME_CHECK_TILES_HEADING,
   HOME_CHECK_TILES_SUB,
-  HOME_FAMILY_NAMES,
-  HOME_FAMILY_NAMES_LEAD,
-  HOME_FAMILY_NAMES_NOTE,
-  HOME_HERO_PANELS,
+  HOME_HERO_SMALL_LINE,
   HOME_HERO_SUBLINE,
   HOME_HOW_IT_WORKS_HEADING,
   HOME_HOW_IT_WORKS_STEPS,
@@ -30,17 +26,16 @@ import {
   HOME_REPORT_BAND_LINE,
   HOME_REPORT_BAND_PRICE,
   HOME_REPORT_BAND_PRICE_LINES,
-  HOME_WHAT_IT_CHECKS,
-  HOME_WHAT_IT_CHECKS_HEADING,
   POSTCODE_BOX_BUTTON,
+  POSTCODE_BOX_BUTTON_BARE,
   POSTCODE_BOX_HINT,
   POSTCODE_BOX_LABEL,
+  POSTCODE_BOX_PLACEHOLDER_BARE,
   SAMPLE_REPORT_HEADING,
   SAMPLE_REPORT_LINE,
   SAMPLE_REPORT_LINK_TEXT,
   SAMPLE_REPORT_PATH,
 } from "../lib/home";
-import { CHECKING_ROWS } from "../lib/journey";
 import {
   DISCLAIMER_SHORT_FORM,
   HOME_HERO_HEADLINE,
@@ -76,6 +71,15 @@ import {
 // and the steps' free-headlines line), and new pins for the
 // tile grid, the steps and the report band. Named in the
 // follow-on addendum to docs/frontend-design-pass.md.
+// Fidelity pass 2 re-pins (founder, 17 Nov 2026 — the
+// 31-item comparison): the hero's order (the panels and the
+// example-check action OUT, the small line IN), the box's
+// bare hero form pinned beside its standard form, the hint's
+// example postcode (the founder's own postcode never appears
+// in visitor-facing copy — SW1A 1AA is the neutral example),
+// and the family-names panel and "what it checks" list pins
+// retired with their sections. Named in the pass's section
+// of docs/frontend-design-pass.md.
 
 const ROOT = process.cwd();
 const read = (path: string) => readFileSync(join(ROOT, path), "utf8");
@@ -92,32 +96,25 @@ describe("home page copy (lib/home.ts)", () => {
     );
   });
 
-  it("pins the postcode box's furniture (label and hint re-pinned at M7.3)", () => {
+  it("pins the postcode box's furniture (label and hint re-pinned at M7.3; example and bare form at fidelity pass 2)", () => {
     expect(POSTCODE_BOX_LABEL).toBe("Postcode or address");
+    // Fidelity pass 2: the example is the neutral SW1A 1AA —
+    // the founder's own postcode never appears in
+    // visitor-facing copy.
     expect(POSTCODE_BOX_HINT).toBe(
-      "For example, CM3 2JT — or the full address, with its postcode.",
+      "For example, SW1A 1AA — or the full address, with its postcode.",
     );
     expect(POSTCODE_BOX_BUTTON).toBe("Check a home");
-    // D70 R2: the example-check action beside the box.
-    expect(EXAMPLE_CHECK_LABEL).toBe("See an example check");
+    // The hero's bare form (the sample's search row): the
+    // placeholder in the field, the Brass button's words.
+    expect(POSTCODE_BOX_PLACEHOLDER_BARE).toBe("Enter a postcode — e.g. SW1A 1AA");
+    expect(POSTCODE_BOX_BUTTON_BARE).toBe("Check this home");
   });
 
-  it("pins the hero's imagery panels verbatim, in order (D70 R2)", () => {
-    expect(HOME_HERO_PANELS.map((panel) => panel.title)).toEqual([
-      "Moving-in day",
-      "Keys in hand",
-      "A dog at the door",
-    ]);
-    expect(HOME_HERO_PANELS.map((panel) => panel.line)).toEqual([
-      "Boxes in the hall, kettle on",
-      "The first morning in the new home",
-      "Pets are family too",
-    ]);
-    expect(HOME_HERO_PANELS.map((panel) => panel.art)).toEqual([
-      "/illustrations/card-boxes.svg",
-      "/illustrations/card-key.svg",
-      "/illustrations/card-dog.svg",
-    ]);
+  it("pins the hero's small line verbatim (fidelity pass 2 — the sample's line)", () => {
+    expect(HOME_HERO_SMALL_LINE).toBe(
+      "Free headlines for every home, from named official sources. Detailed report £4.99 — one home, no account, no subscription.",
+    );
   });
 
   it("pins the three audience cards verbatim, in order (D70 R3 — the decided page's copy)", () => {
@@ -157,41 +154,11 @@ describe("home page copy (lib/home.ts)", () => {
     ]);
   });
 
-  it("pins the family-names panel verbatim (D70 R4)", () => {
-    expect(HOME_FAMILY_NAMES_LEAD).toBe("On the homepage, checks speak family language:");
-    expect(HOME_FAMILY_NAMES).toEqual([
-      "Schools & nurseries near the door",
-      "Safety in plain numbers",
-      "Flood risk at this address",
-      "The real cost of living there",
-      "Health near the door",
-      "Room to walk the dog",
-    ]);
-    expect(HOME_FAMILY_NAMES_NOTE).toBe(
-      "Homepage only — the panel and report keep their plain names.",
-    );
-  });
-
-  it("pins 'what it checks' — one item per checking-screen row, under the plain names (D70 R4)", () => {
-    expect(HOME_WHAT_IT_CHECKS_HEADING).toBe("What it checks");
-    expect(HOME_WHAT_IT_CHECKS).toHaveLength(9);
-    // The names are the checking screen's own row labels —
-    // the contents list can never drift from the rows.
-    expect(HOME_WHAT_IT_CHECKS.map((check) => check.name)).toEqual(
-      CHECKING_ROWS.map((row) => row.label),
-    );
-    expect(HOME_WHAT_IT_CHECKS.map((check) => check.line)).toEqual([
-      "The primary and secondary schools closest to the front door, with the distance to each.",
-      "Places for the youngest children, nearest first.",
-      "The nearest GP surgery, NHS dentist and pharmacy.",
-      "The nearest hospital, emergency department and maternity unit.",
-      "Green spaces to play in and walk the dog, and the nearest vet.",
-      "The nearest shops, bus stops and stations.",
-      "Food and drink, gyms and leisure, places to visit, places of worship and libraries.",
-      "The published flood maps for the area, shown exactly as they are published.",
-      "Sold prices nearby, the council tax scale, energy certificates, planning constraints and ownership.",
-    ]);
-  });
+  // Retired at fidelity pass 2: the family-names panel pin
+  // (D70 R4) and the "what it checks" pin — both sections
+  // leave the page (the panel rendered an internal
+  // annotation; the list was a second tour of the checks).
+  // The rendered-page describe below asserts their absence.
 
   it("pins the 'what we check for you' tiles verbatim, in order (founder follow-on — the sample's grid)", () => {
     expect(HOME_CHECK_TILES_HEADING).toBe("What we check for you");
@@ -277,49 +244,40 @@ describe("the rendered home page", () => {
     .replaceAll("&amp;", "&")
     .replaceAll("&#x27;", "'");
 
-  it("renders the hero in its pinned order: kicker, H1, sub-line, panels, box, example (D70 R2)", () => {
+  it("renders the hero in its pinned order: kicker, H1, sub-line, bare box, small line (fidelity pass 2)", () => {
     const kicker = html.indexOf(SITE_MANIFESTO);
     const headline = html.indexOf(`<h1>${HOME_HERO_HEADLINE}</h1>`);
     const subline = html.indexOf(HOME_HERO_SUBLINE);
-    const panels = html.indexOf("hero__panels");
     const box = html.indexOf('id="postcode"');
-    const example = html.indexOf(EXAMPLE_CHECK_LABEL);
-    for (const index of [kicker, headline, subline, panels, box, example]) {
+    const small = html.indexOf(HOME_HERO_SMALL_LINE);
+    for (const index of [kicker, headline, subline, box, small]) {
       expect(index).toBeGreaterThan(-1);
     }
     expect(kicker).toBeLessThan(headline);
     expect(headline).toBeLessThan(subline);
-    expect(subline).toBeLessThan(panels);
-    expect(panels).toBeLessThan(box);
-    expect(box).toBeLessThan(example);
+    expect(subline).toBeLessThan(box);
+    expect(box).toBeLessThan(small);
     // The hero tagline line is dropped (D70 R2/D20): the
     // tagline lives in the header/footer lockups, and this
     // page renders neither — so it appears nowhere here.
     expect(html).not.toContain(SITE_TAGLINE);
+    // Fidelity pass 2's retirements render nowhere: the
+    // imagery panels, the example-check action, the
+    // family-names annotation panel, the second check tour.
+    expect(html).not.toContain("hero__panels");
+    expect(html).not.toContain("See an example check");
+    expect(html).not.toContain("checks speak family language");
+    expect(html).not.toContain("What it checks");
+    expect(html).not.toContain("checks-list");
   });
 
-  it("carries the hero's three captioned panels, in the line-illustration language", () => {
-    for (const panel of HOME_HERO_PANELS) {
-      expect(html).toContain(`src="${panel.art}"`);
-      expect(html).toContain(panel.artAlt);
-      expect(html).toContain(panel.title);
-      expect(html).toContain(panel.line);
-    }
-  });
-
-  it("renders the three cards, the family-names panel, the nine checks and the sample link", () => {
+  it("renders the three cards and the sample link", () => {
     for (const card of HOME_AUDIENCE_CARDS) {
       expect(html).toContain(card.title);
       expect(html).toContain(card.intro);
       for (const check of card.checks) expect(html).toContain(check);
     }
     expect(html).toContain(HOME_CARDS_HEADING);
-    expect(html).toContain(HOME_FAMILY_NAMES_LEAD);
-    for (const name of HOME_FAMILY_NAMES) expect(html).toContain(name);
-    for (const check of HOME_WHAT_IT_CHECKS) {
-      expect(html).toContain(check.name);
-      expect(html).toContain(check.line);
-    }
     expect(html).toContain(`href="${SAMPLE_REPORT_PATH}"`);
     expect(html).toContain(SAMPLE_REPORT_LINK_TEXT);
   });
@@ -327,12 +285,12 @@ describe("the rendered home page", () => {
   it("shows the manifesto block once, mid-page", () => {
     expect(html.split(HOME_MANIFESTO_HEADLINE)).toHaveLength(2);
     expect(html).toContain(HOME_MANIFESTO_WHY);
-    // The block sits between the checks list and the sample
+    // The block sits between the tile grid and the sample
     // section — mid-page, as the step rules.
-    const checks = html.indexOf(HOME_WHAT_IT_CHECKS_HEADING);
+    const tiles = html.indexOf(HOME_CHECK_TILES_HEADING);
     const block = html.indexOf(HOME_MANIFESTO_HEADLINE);
     const sample = html.indexOf(SAMPLE_REPORT_HEADING);
-    expect(checks).toBeLessThan(block);
+    expect(tiles).toBeLessThan(block);
     expect(block).toBeLessThan(sample);
   });
 
@@ -395,6 +353,20 @@ describe("the postcode box (inert at M7.2; wired at M7.3)", () => {
     expect(html).toContain(POSTCODE_BOX_BUTTON);
   });
 
+  it("renders the hero's bare form: no visible label or hint, the sample's placeholder and button (fidelity pass 2)", () => {
+    const bare = renderToStaticMarkup(createElement(PostcodeBox, { bare: true }));
+    expect(bare).toContain("postcode-box--bare");
+    // The label survives only as the field's accessible
+    // name — visually hidden, never a visible furniture line.
+    expect(bare).toContain("visually-hidden");
+    expect(bare).not.toContain("field__label");
+    expect(bare).not.toContain("field__hint");
+    expect(bare).not.toContain(POSTCODE_BOX_HINT);
+    expect(bare).toContain(`placeholder="${POSTCODE_BOX_PLACEHOLDER_BARE}"`);
+    expect(bare).toContain(POSTCODE_BOX_BUTTON_BARE);
+    expect(bare).toContain("btn--brass");
+  });
+
   it("carries no validation of any kind — a partial postcode is never invalid", () => {
     expect(html).not.toContain("pattern");
     expect(html).not.toContain("required");
@@ -421,7 +393,15 @@ describe("the audience cards in the design's form (D70 R3)", () => {
 
 describe("the one-line illustrations", () => {
   it("exist at their served paths, in the Roof-Tick's stroke language only", () => {
-    for (const path of HOME_HERO_PANELS.map((panel) => panel.art)) {
+    // The hero strip that carried these three retired at
+    // fidelity pass 2; the assets stay the kit's
+    // illustration language (the dog still serves the
+    // shortlist's empty state), so the stroke guard stays.
+    for (const path of [
+      "/illustrations/card-boxes.svg",
+      "/illustrations/card-key.svg",
+      "/illustrations/card-dog.svg",
+    ]) {
       const file = join(ROOT, "public", path);
       expect(existsSync(file), path).toBe(true);
       const svg = readFileSync(file, "utf8");

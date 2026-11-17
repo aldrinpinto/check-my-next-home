@@ -6,22 +6,16 @@ import HowItWorks from "../components/HowItWorks";
 import PostcodeBox from "../components/PostcodeBox";
 import ReportBand from "../components/ReportBand";
 import {
-  EXAMPLE_CHECK_LABEL,
   HOME_CARDS_HEADING,
   HOME_CARDS_SUB,
   HOME_CHECK_TILES_HEADING,
   HOME_CHECK_TILES_SUB,
-  HOME_FAMILY_NAMES,
-  HOME_FAMILY_NAMES_LEAD,
-  HOME_FAMILY_NAMES_NOTE,
-  HOME_HERO_PANELS,
+  HOME_HERO_SMALL_LINE,
   HOME_HERO_SUBLINE,
   HOME_HOW_IT_WORKS_HEADING,
   HOME_HOW_IT_WORKS_SUB,
   HOME_MANIFESTO_HEADLINE,
   HOME_MANIFESTO_WHY,
-  HOME_WHAT_IT_CHECKS,
-  HOME_WHAT_IT_CHECKS_HEADING,
   SAMPLE_REPORT_HEADING,
   SAMPLE_REPORT_LINE,
   SAMPLE_REPORT_LINK_TEXT,
@@ -32,87 +26,62 @@ import { HOME_HERO_HEADLINE, SITE_MANIFESTO } from "../lib/site";
 // M7.2 — the home page. Family-first, as designed (D12) and as
 // ruled at the step's gap check (founder, 16 Nov 2026).
 //
-// D70 (the design-alignment pass) rebuilds the composition
-// to the governing sources — the Final Design's chosen
-// homepage, with the decided landing page (13 Nov 2026)
-// governing wherever the two differ:
+// D70 (the design-alignment pass) rebuilt the composition
+// to the governing sources, and the founder follow-on
+// (17 Nov 2026) ruled the decided landing page (13 Nov 2026)
+// governs the landing exactly.
 //
-//   Hero, in its pinned order — the manifesto as kicker, the
-//   D44 headline as H1, the sub-line, the three captioned
-//   imagery panels, then the postcode box (the page's main
-//   action; M7.3 wired the journey into it) with the
-//   example-check action beside it. The hero tagline line
-//   M7.2 closed the hero with is dropped (D70 R2/D20) — the
-//   tagline lives in the header and footer lockups. The
-//   order is identical on mobile — it is simply the
-//   document order.
-//   The three audience cards under their section heading,
-//   in the design's text-only form with the decided page's
-//   intros and check lists.
-//   The family-names panel (D70 R4).
-//   "What we check for you" — the decided page's nine-tile
-//   grid (founder follow-on, 17 Nov 2026).
-//   "What it checks" — the checking screen's nine rows under
-//   their plain names, as a contents list.
-//   "How it works" — the decided page's four steps, then the
-//   detailed-report band (founder follow-on, 17 Nov 2026).
-//   The manifesto block, once, mid-page — the decided sample
-//   page's centred form on cream, with its why line (the
-//   follow-on supersedes D70 R3's dark Forest panel).
-//   The SAMPLE report link, clearly labelled — its page is
-//   M8.9's, so the link is a known dead end until then.
+// Fidelity pass 2 (founder, 17 Nov 2026) closes the
+// founder's 31-item section-by-section comparison of the
+// play site against that sample. The composition is now the
+// sample's, top to bottom:
 //
-// Not on this page, by ruling: no disclaimer (the D9 short form
-// sits beside the results, M7.4). The follow-on also retires
-// M7.2's "no price or 'free' lines" absence for this page: the
-// decided sample page carries the £4.99 band and the steps'
-// free-headlines line, and the sample governs the landing.
-// The page's metadata is the locked PAGE_SEO["/"] entry,
-// consumed by the root layout — unchanged by this step. The
-// page is a composed page, so it takes the wide container
-// (D70 R7).
+//   Hero on Cream — the manifesto as kicker (Brass,
+//   uppercase, tracked), the D44 headline in Deep Forest at
+//   the sample's narrow measure, the sub-line, then the
+//   search row in the sample's bare form (no label, no hint,
+//   no example-check action; the Brass "Check this home"
+//   button) with the sample's small line under it. The three
+//   imagery panels D70 R2 placed here are retired — the
+//   sample goes from the sub-line straight to the search.
+//   "Moving looks different for every family" — the three
+//   audience cards (the decided page's intros and check
+//   lists, Cream-filled) on a white panel section.
+//   "What we check for you" — the nine-tile grid on the
+//   Cream band. The family-names annotation panel and the
+//   "What it checks" ruled list are retired: the sample
+//   carries no annotation box, and the grid is the page's
+//   only tour of the checks.
+//   "How it works" — the four steps on a white panel
+//   section, then the detailed-report band, inset in the
+//   page's column as the sample's band sits in its frame.
+//   The manifesto block — the sample's centred form on
+//   Cream, its headline in dark sans.
+//   The SAMPLE report section — its page is M8.9's, so the
+//   link is a known dead end until then. (Not a sample
+//   element: the sample's own sample door is the band's
+//   action. The section stays from M7.2 — see the pass note
+//   in docs/frontend-design-pass.md.)
+//
+// The page takes the sample's measure (the .main--home
+// column, app/globals.css), not the wide container. Its
+// metadata is the locked PAGE_SEO["/"] entry, consumed by
+// the root layout — unchanged.
 export default function Home() {
   return (
-    <main className="main--wide">
+    <main className="main--home">
       <section className="hero">
         <p className="hero__kicker">{SITE_MANIFESTO}</p>
         <h1>{HOME_HERO_HEADLINE}</h1>
         <p className="type-lead">{HOME_HERO_SUBLINE}</p>
-        <ul className="hero__panels">
-          {HOME_HERO_PANELS.map((panel) => (
-            <li className="hero__panel" key={panel.title}>
-              {/* eslint-disable-next-line @next/next/no-img-element -- the illustrations are plain static assets; next/image adds nothing on a static export */}
-              <img
-                className="hero__panel-art"
-                src={panel.art}
-                alt={panel.artAlt}
-                width="48"
-                height="48"
-              />
-              <span className="hero__panel-title">{panel.title}</span>
-              <span className="hero__panel-line">{panel.line}</span>
-            </li>
-          ))}
-        </ul>
-        <div className="hero__actions">
-          <PostcodeBox />
-          <Link className="hero__example" href={SAMPLE_REPORT_PATH}>
-            {EXAMPLE_CHECK_LABEL}
-          </Link>
-        </div>
+        <PostcodeBox bare />
+        <p className="hero__small">{HOME_HERO_SMALL_LINE}</p>
       </section>
 
-      <section className="home-section" aria-labelledby="audience-cards-heading">
+      <section className="home-section home-section--alt" aria-labelledby="audience-cards-heading">
         <h2 id="audience-cards-heading">{HOME_CARDS_HEADING}</h2>
         <p className="home-section__sub">{HOME_CARDS_SUB}</p>
         <AudienceCards />
-      </section>
-
-      <section className="fam-names" aria-label="The checks, in family language">
-        <p>
-          <b>{HOME_FAMILY_NAMES_LEAD}</b> {HOME_FAMILY_NAMES.join(" · ")}{" "}
-          <span className="fam-names__note">{HOME_FAMILY_NAMES_NOTE}</span>
-        </p>
       </section>
 
       <section className="home-section" aria-labelledby="what-we-check">
@@ -121,19 +90,7 @@ export default function Home() {
         <CheckTiles />
       </section>
 
-      <section className="home-section" aria-labelledby="what-it-checks">
-        <h2 id="what-it-checks">{HOME_WHAT_IT_CHECKS_HEADING}</h2>
-        <ul className="checks-list">
-          {HOME_WHAT_IT_CHECKS.map((check) => (
-            <li key={check.name}>
-              <span className="checks-list__name">{check.name}</span>
-              <span>{check.line}</span>
-            </li>
-          ))}
-        </ul>
-      </section>
-
-      <section className="home-section" aria-labelledby="how-it-works">
+      <section className="home-section home-section--alt" aria-labelledby="how-it-works">
         <h2 id="how-it-works">{HOME_HOW_IT_WORKS_HEADING}</h2>
         <p className="home-section__sub">{HOME_HOW_IT_WORKS_SUB}</p>
         <HowItWorks />

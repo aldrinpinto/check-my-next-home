@@ -103,14 +103,14 @@ export default function KitchenSinkPage() {
         <TextField
           id="ks-postcode"
           label="Postcode"
-          hint="For example, CM3 2JT."
-          placeholder="CM3 2JT"
+          hint="For example, SW1A 1AA."
+          placeholder="SW1A 1AA"
         />
         <TextField
           id="ks-error"
           label="Postcode, with an error"
-          defaultValue="CM3"
-          error="Enter the full postcode — for example, CM3 2JT."
+          defaultValue="SW1A"
+          error="Enter the full postcode — for example, SW1A 1AA."
         />
         <TextField
           id="ks-success"
@@ -174,12 +174,12 @@ export default function KitchenSinkPage() {
         <div className="postcode-box" style={{ marginBottom: "15rem" }}>
           <SuggestionShell
             groups={[
-              { label: "Areas", items: ["CM3 2JT — Hatfield Peverel", "CM3 — Chelmsford"] },
+              { label: "Areas", items: ["SW1A 1AA — Westminster", "SW1A — Westminster"] },
               {
                 label: "Properties",
                 items: [
-                  "1 Birkdale Rise, Hatfield Peverel CM3 2JT",
-                  "19 Birkdale Rise, Hatfield Peverel CM3 2JT",
+                  "1 Parliament Square, London SW1A 1AA",
+                  "2 Parliament Square, London SW1A 1AA",
                 ],
               },
             ]}

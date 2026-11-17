@@ -10,7 +10,10 @@ import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from "react
 // in their own component files.
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: "primary" | "quiet" | "ink";
+  // "brass" joins at fidelity pass 2 (17 Nov 2026): the
+  // decided sample page's search button is Brass with white
+  // text — the landing hero's one action.
+  variant?: "primary" | "quiet" | "ink" | "brass";
 };
 
 export function Button({ variant = "primary", className, ...props }: ButtonProps) {

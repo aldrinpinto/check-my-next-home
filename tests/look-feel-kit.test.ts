@@ -218,8 +218,13 @@ describe("header and footer shells", () => {
     expect(header).not.toContain(SITE_MANIFESTO);
   });
 
-  it("carries the V1 navigation set (D44), in order", () => {
-    const labels = ["How we check", "Guides", "Sample report", "Shortlist"];
+  it("carries the navigation set, in order (D44; the sample's set at fidelity pass 2)", () => {
+    // Fidelity pass 2 (founder, 17 Nov 2026): the decided
+    // sample page governs the landing chrome — its set is
+    // How we check, Sample report, About, Shortlist, with no
+    // "Check a home" button. D44's Guides item is superseded
+    // for the chrome and returns when guide pages exist.
+    const labels = ["How we check", "Sample report", "About", "Shortlist"];
     let lastIndex = -1;
     for (const label of labels) {
       const index = header.indexOf(`>${label}<`);
@@ -227,9 +232,18 @@ describe("header and footer shells", () => {
       lastIndex = index;
     }
     expect(header).toContain('href="/how-we-check"');
-    expect(header).toContain('href="/guides"');
     expect(header).toContain('href="/sample-report"');
+    expect(header).toContain('href="/about"');
     expect(header).toContain('href="/shortlist"');
+    expect(header).not.toContain('href="/guides"');
+  });
+
+  it("renders the footer's sample form: middle links and the sources line (fidelity pass 2)", () => {
+    for (const label of ["How we check", "Sample report", "About", "Contact"]) {
+      expect(footer, label).toContain(`>${label}<`);
+    }
+    expect(footer).toContain('href="/contact"');
+    expect(footer).toContain("Data from named official sources. Facts, not scores.");
   });
 
   it("renders no Shortlist badge until a count is passed (the count is M7.5's)", () => {
