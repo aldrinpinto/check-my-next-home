@@ -21,6 +21,14 @@ Decided by Aldrin Pinto and finalised on 12 Nov 2026. This file is the site's si
 
 Teal is dropped entirely and must never be used. Rightmove owns teal (`#00DEB6`) and Zoopla owns purple (`#8046F1`); this palette does not overlap Rightmove, Zoopla or OnTheMarket.
 
+## Typefaces
+
+Decided at the design-alignment pass (D70, R1, 17 Nov 2026), replacing the M7.1 system-stack record:
+
+1. **Newsreader** — the display face: headings (H1/H2), the brand name in the header and footer lockups, and the manifesto block's head. Weights 600 and 700.
+2. **DM Sans** — the text and UI face: body copy, labels, buttons, pills and figures. Weights 400, 600, 700, 800 and 900.
+3. Both faces are **self-hosted** — latin subsets served from the site's own `/fonts`, never loaded from a third-party font service. Sources: the Fontsource packages `@fontsource/newsreader` and `@fontsource/dm-sans`; both faces are licensed under the SIL Open Font License 1.1. The system stack remains only as the fallback while a face loads or if it fails.
+
 ## Logo
 
 **The One-Line Roof-Tick** — the original Logo 1 (variant 1A, the polished original), chosen on 12 Nov 2026.

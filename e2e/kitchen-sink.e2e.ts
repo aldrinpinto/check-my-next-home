@@ -50,11 +50,14 @@ test.describe("kitchen sink — the M7.1 kit renders", () => {
       await expect(page.locator("#ks-error-message")).toContainText("full postcode");
       await expect(page.locator("#ks-success-message")).toContainText("works");
 
-      // The pill family: the distance figure carries the colour.
-      const figure = page.locator(".pill--distance .pill__figure");
-      await expect(figure).toHaveText("0.4 miles");
-      await expect(figure).toHaveCSS("color", "rgb(47, 93, 62)");
-      await expect(page.locator(".pill--fact")).toBeVisible();
+      // The pill family (D70 R5): the miles figure rides as
+      // the tinted chip, paired with its colour, never colour
+      // alone; the fact form is a figure-less summary pill.
+      const figure = page.locator(".pill--summary .pill__figure");
+      await expect(figure).toHaveText("0.4 mi");
+      await expect(figure).toHaveCSS("color", "rgb(20, 83, 45)");
+      await expect(figure).toHaveCSS("background-color", "rgb(223, 243, 230)");
+      await expect(page.locator(".pill--summary").nth(1)).toBeVisible();
 
       // The table renders with its caption and rows.
       await expect(page.locator(".table caption")).toContainText("Example table");

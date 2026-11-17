@@ -55,19 +55,30 @@
   --colour-error: var(--cmnh-error);
   --colour-success: var(--cmnh-forest);
 
-  /* Type — the system stack: no download against the
-     performance budget, no licence. Sizes are a fixed scale,
-     pinned here so no page picks its own. */
-  --font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  /* Type — D70 R1 (17 Nov 2026): two self-hosted faces,
+     latin subsets served from /fonts (the Fontsource
+     packages @fontsource/newsreader and @fontsource/dm-sans,
+     SIL Open Font License 1.1; carried in the repo as .b64
+     and decoded at build time — see
+     scripts/materialise-binary-assets.mjs). Newsreader is
+     the display face (headings, the brand name, the
+     manifesto head); DM Sans is the text/UI face. The system
+     stack survives as the fallback only, so a font that
+     fails to load degrades to it rather than to a browser
+     default. Display sizes are a fluid scale; the text
+     sizes stay fixed, pinned here so no page picks its own. */
+  --font-family:
+    "DM Sans", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-family-display: "Newsreader", Georgia, "Times New Roman", serif;
   --font-size-caption: 0.8125rem;
   --font-size-small: 0.875rem;
   --font-size-body: 1rem;
   --font-size-lead: 1.125rem;
   --font-size-h3: 1.25rem;
-  --font-size-h2: 1.5rem;
-  --font-size-h1: 2rem;
+  --font-size-h2: clamp(1.9rem, 1.55rem + 1.5vw, 2.2rem);
+  --font-size-h1: clamp(2.4rem, 1.85rem + 2.4vw, 3.2rem);
   --line-height-body: 1.5;
-  --line-height-heading: 1.2;
+  --line-height-heading: 1.15;
 
   /* Spacing — one scale, used for every margin, padding and
      gap in the kit. */
@@ -95,7 +106,105 @@
   --tap-target: 2.75rem;
   --focus-colour: var(--cmnh-forest);
   --focus-colour-on-dark: var(--cmnh-brass-pale);
+  /* The graduated radius scale (D70 R8): inputs and buttons
+     8px, tiles 10px, cards and the buy bar 12px, the
+     manifesto panel 14px, pills 999px. --radius stays the
+     input/button member of the scale. */
   --radius: 0.5rem;
+  --radius-tile: 0.625rem;
+  --radius-card: 0.75rem;
+  --radius-panel: 0.875rem;
+
+  /* The Final Design's supporting colours (D70): the muted
+     text grey its labels and captions use, the card white
+     and its soft green-grey line, the tile line, the warm
+     band of the summary strip and buy bar with its line,
+     the family-names panel's tint, the selected row's tint,
+     the soft line on Forest, the decided landing page's
+     search-field border, and the brass-pale hover. Each is
+     the design's own value for the element named, carried
+     here once so no page invents its own. */
+  --colour-muted: #5b6b66;
+  --colour-card: #fffdf9;
+  --colour-card-line: #d6e2dc;
+  --colour-tile-line: #e2ddd3;
+  --colour-band: #fff3d6;
+  --colour-band-line: #e6d9a8;
+  --colour-fam-bg: #fff8e1;
+  --colour-selected-bg: #eef4f1;
+  --colour-on-forest-soft: #dcebe6;
+  --colour-search-border: #cdbd8a;
+  --colour-brass-pale-hover: #efe0b3;
+
+  /* Distance colours (D70 R5): colour sits on the miles
+     figure only, as the design's .dist chips — a tinted
+     ground with its dark text colour. The orange is the
+     design's corrected pairing (#7a3a00 on #ffe3b3). */
+  --dist-green-bg: #dff3e6;
+  --dist-green: #14532d;
+  --dist-orange-bg: #ffe3b3;
+  --dist-orange: #7a3a00;
+  --dist-red-bg: #fbdcdc;
+  --dist-red: #7f1d1d;
+}
+
+/* The self-hosted faces (D70 R1). font-display: swap — text
+   renders at once in the fallback stack and swaps when the
+   face arrives; nothing ever waits on a font download. */
+@font-face {
+  font-family: "Newsreader";
+  src: url("/fonts/newsreader-latin-600-normal.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Newsreader";
+  src: url("/fonts/newsreader-latin-700-normal.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "DM Sans";
+  src: url("/fonts/dm-sans-latin-400-normal.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "DM Sans";
+  src: url("/fonts/dm-sans-latin-600-normal.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "DM Sans";
+  src: url("/fonts/dm-sans-latin-700-normal.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "DM Sans";
+  src: url("/fonts/dm-sans-latin-800-normal.woff2") format("woff2");
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "DM Sans";
+  src: url("/fonts/dm-sans-latin-900-normal.woff2") format("woff2");
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
 }
 
 * {
@@ -127,6 +236,15 @@ h2,
 h3 {
   color: var(--colour-heading);
   line-height: var(--line-height-heading);
+}
+
+/* Display headings set in Newsreader (D70 R1): H1 and H2.
+   H3 stays in the text face — it is the kit's working
+   heading (card titles, section heads), as in the design. */
+h1,
+h2 {
+  font-family: var(--font-family-display);
+  font-weight: 700;
 }
 
 h1 {
@@ -238,7 +356,10 @@ p {
 
 .brand__name {
   display: block;
-  font-size: var(--font-size-lead);
+  /* The logotype (D70 F2): the brand name set in Newsreader
+     at its design size, in header and footer alike. */
+  font-family: var(--font-family-display);
+  font-size: 1.5rem;
   font-weight: 700;
   line-height: 1.1;
   color: var(--cmnh-forest);
@@ -363,7 +484,9 @@ p {
   min-height: var(--tap-target);
   padding: var(--space-2) var(--space-5);
   font: inherit;
-  font-weight: 600;
+  /* Action language sets heavy across the kit (D70 F1:
+     the design's buttons run 700–800; the kit takes 800). */
+  font-weight: 800;
   border: 2px solid transparent;
   border-radius: var(--radius);
   cursor: pointer;
@@ -377,6 +500,17 @@ p {
 
 .btn--primary:hover {
   background: var(--cmnh-forest-deep);
+}
+
+/* The ink button (D70 R6): the picker's confirm — the one
+   place the design fills a button with Ink. */
+.btn--ink {
+  background: var(--cmnh-ink);
+  color: var(--cmnh-white);
+}
+
+.btn--ink:hover {
+  background: #22302c;
 }
 
 .btn--quiet {
@@ -403,6 +537,11 @@ p {
 .btn--quiet[disabled]:hover,
 .btn--quiet[aria-disabled="true"]:hover {
   background: transparent;
+}
+
+.btn--ink[disabled]:hover,
+.btn--ink[aria-disabled="true"]:hover {
+  background: var(--cmnh-ink);
 }
 
 /* --- Links -------------------------------------------------------- */
@@ -476,7 +615,7 @@ a:hover {
 .card {
   background: var(--colour-surface);
   border: 1px solid var(--cmnh-brass-pale);
-  border-radius: var(--radius);
+  border-radius: var(--radius-card);
   padding: var(--space-5);
   margin-bottom: var(--space-5);
 }
@@ -491,28 +630,50 @@ a:hover {
 }
 
 /* --- Pills ----------------------------------------------------------
-   One family, two variants. The distance pill carries colour
-   on the miles figure only — the rest of the pill is neutral.
-   The fact pill carries no colour at all: it is the summary
-   strip's pill (M7.4), logic-filled fact text. */
+   One family (D70 R5): a white pill with the band line,
+   carrying a label and, where the fact has one, its figure
+   as the design's tinted .dist chip — colour sits on the
+   miles figure only, never on the pill itself. The fact
+   pill is the figure-less member of the same family. The
+   composed text (label + figure) is the served fact,
+   byte-identical to the strings the pill logic has always
+   composed — the split is presentation only. */
 .pill {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-1) var(--space-3);
-  border: 1px solid var(--cmnh-ink);
+  padding: 6px 10px;
+  border: 1px solid var(--colour-band-line);
   border-radius: 999px;
   background: var(--cmnh-white);
-  font-size: var(--font-size-small);
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: var(--cmnh-ink);
 }
 
 .pill__figure {
-  color: var(--cmnh-forest);
-  font-weight: 700;
+  white-space: nowrap;
+  font-weight: 900;
+  font-size: 0.82rem;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: var(--dist-green-bg);
+  color: var(--dist-green);
 }
 
-.pill--fact {
-  background: var(--colour-surface);
+.pill__figure--green {
+  background: var(--dist-green-bg);
+  color: var(--dist-green);
+}
+
+.pill__figure--orange {
+  background: var(--dist-orange-bg);
+  color: var(--dist-orange);
+}
+
+.pill__figure--red {
+  background: var(--dist-red-bg);
+  color: var(--dist-red);
 }
 
 /* --- Tabs -----------------------------------------------------------
@@ -520,24 +681,30 @@ a:hover {
    tabs, Home and End jump, activation is automatic. The
    behaviour lives in components/Tabs.tsx; these are its
    styles. */
+/* The pill tabs (D70 R5): a cream-tinted bar of pill
+   buttons; the active tab is the Ink fill with white text.
+   Form only — the behaviour is components/Tabs.tsx,
+   unchanged. The bar wraps at phone widths (M7.7's pinned
+   form), re-verified after the DM Sans swap. */
 .tabs__list {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-1);
-  border-bottom: 2px solid var(--cmnh-brass-pale);
+  background: var(--colour-card);
+  padding: var(--space-3) var(--space-3) var(--space-2);
+  border-radius: var(--radius-tile) var(--radius-tile) 0 0;
 }
 
 .tabs__tab {
   appearance: none;
-  background: none;
-  border: none;
-  border-bottom: 3px solid transparent;
-  margin-bottom: -2px;
+  background: #f4f4f0;
+  border: 1px solid #ddd;
+  border-radius: 999px;
   min-height: var(--tap-target);
-  padding: var(--space-3) var(--space-4);
+  padding: var(--space-2) var(--space-3);
   font: inherit;
-  font-weight: 600;
-  color: var(--colour-text);
+  font-weight: 800;
+  color: var(--cmnh-ink);
   cursor: pointer;
 }
 
@@ -546,8 +713,9 @@ a:hover {
 }
 
 .tabs__tab[aria-selected="true"] {
-  color: var(--cmnh-forest);
-  border-bottom-color: var(--cmnh-forest);
+  background: var(--cmnh-ink);
+  border-color: var(--cmnh-ink);
+  color: var(--cmnh-white);
 }
 
 .tabs__panel {
@@ -622,6 +790,7 @@ a:hover {
    colour. */
 .notice {
   border-left: 4px solid var(--cmnh-ink);
+  border-radius: 0 var(--radius-tile) var(--radius-tile) 0;
   background: var(--cmnh-white);
   padding: var(--space-4);
   margin-bottom: var(--space-5);
@@ -662,40 +831,205 @@ a:hover {
   margin-bottom: var(--space-3);
 }
 
-/* --- Home page (M7.2) -----------------------------------------------
+/* --- Home page (M7.2; composition aligned at D70) -------------------
    The landing page's blocks, built from the kit's tokens only.
-   The hero's order is the document order — kicker, headline,
-   sub-line, postcode box, tagline — so it is identical on
-   mobile with no reordering rules. The kicker is set in Forest:
-   Brass on white is the logotype's pairing (the header), and
-   running text keeps the kit's verified contrast. */
+   The hero's order is the document order (D70 R2) — kicker,
+   headline, sub-line, the three captioned imagery panels,
+   the postcode box with the example-check action — so it is
+   identical on mobile with no reordering rules. The kicker
+   is set in Forest: Brass on white is the logotype's pairing
+   (the header), and running text keeps the kit's verified
+   contrast. */
 .hero {
   margin-bottom: var(--space-8);
 }
 
 .hero__kicker {
-  font-weight: 700;
+  font-weight: 800;
   color: var(--colour-heading);
   margin-bottom: var(--space-3);
 }
 
-.hero__tagline {
-  font-size: var(--font-size-lead);
-  font-weight: 700;
-  color: var(--colour-heading);
+.hero .type-lead {
+  max-width: 34rem;
+}
+
+/* The hero's imagery strip (D70 R2): three captioned panels
+   drawn in the kit's line-illustration language — the same
+   three scenes as the audience cards' art (boxes, key, dog),
+   presented as the design's strip. Panels stack on small
+   screens, as the design's strip does. */
+.hero__panels {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-2);
+  list-style: none;
+  margin: var(--space-5) 0 var(--space-6);
+}
+
+@media (max-width: 40rem) {
+  .hero__panels {
+    grid-template-columns: 1fr;
+  }
+}
+
+.hero__panel {
+  border: 1px solid var(--colour-card-line);
+  border-radius: var(--radius-card);
+  background: var(--colour-card);
+  padding: var(--space-4);
+}
+
+.hero__panel-art {
+  display: block;
+  height: 4.5rem;
+  width: auto;
+  margin-bottom: var(--space-3);
+}
+
+.hero__panel-title {
+  display: block;
+  font-weight: 800;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.hero__panel-line {
+  display: block;
+  font-weight: 600;
+  font-size: 0.76rem;
+  color: var(--colour-muted);
+}
+
+/* The example-check action beside the box (D70 R2/D14):
+   the design's white-outline second action, as a link in
+   button form, pointing at the sample report. */
+.hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-3) var(--space-5);
+}
+
+.hero__actions .postcode-box {
+  flex: 1 1 28rem;
   margin-bottom: 0;
 }
 
-.hero__art {
-  display: block;
-  width: 100%;
-  height: auto;
-  margin-top: var(--space-6);
+.hero__example {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-target);
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--cmnh-forest);
+  border-radius: var(--radius);
+  background: var(--cmnh-white);
+  color: var(--cmnh-forest);
+  font-weight: 800;
+  text-decoration: none;
+  white-space: nowrap;
 }
 
+.hero__example:hover {
+  background: var(--cmnh-cream);
+  color: var(--cmnh-forest-deep);
+}
+
+/* The search box (D70 R8 + the founder's 17 Nov ruling):
+   the designed form — label and hint above, the field and
+   its button in one row on wide screens, stacked on small
+   ones; the field's border softened from the generic
+   field's 2px Ink to the decided page's 1.5px line. Below
+   the row sits the autocomplete dropdown's visual shell:
+   a positioned panel of grouped suggestions (AREAS /
+   PROPERTIES). No address-data source is wired to it yet
+   (that decision is priced separately), so the shell
+   renders only when a future source hands the box
+   suggestions; its grouped form is specimen'd in the
+   kitchen sink. */
 .postcode-box {
+  position: relative;
   max-width: 32rem;
   margin-bottom: var(--space-5);
+}
+
+.postcode-box .field {
+  margin-bottom: 0;
+}
+
+.postcode-box__row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: stretch;
+}
+
+.postcode-box__row .field__input {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  border: 1.5px solid var(--colour-search-border);
+}
+
+.postcode-box__row .btn {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 30rem) {
+  .postcode-box__row {
+    flex-direction: column;
+  }
+}
+
+.postcode-box__suggestions {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  margin-top: var(--space-1);
+  background: var(--cmnh-white);
+  border: 1px solid var(--colour-card-line);
+  border-radius: var(--radius-tile);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+}
+
+.suggest__group {
+  padding: var(--space-2) 0;
+}
+
+.suggest__group + .suggest__group {
+  border-top: 1px solid var(--colour-card-line);
+}
+
+.suggest__group-label {
+  padding: 0 var(--space-3);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--colour-muted);
+}
+
+.suggest__list {
+  list-style: none;
+}
+
+.suggest__item {
+  display: block;
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+  text-align: left;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  color: var(--colour-text);
+}
+
+.suggest__item:hover,
+.suggest__item--active {
+  background: var(--colour-selected-bg);
 }
 
 .audience-cards {
@@ -704,8 +1038,30 @@ a:hover {
   margin-bottom: var(--space-8);
 }
 
+/* The audience card in the design's form (D70 R3): text
+   only — title, one-line intro, the family-language check
+   list — on the card white with the soft green-grey line. */
 .audience-cards .card {
   margin-bottom: 0;
+  background: var(--colour-card);
+  border-color: var(--colour-card-line);
+  border-radius: var(--radius-card);
+  padding: 12px 14px;
+}
+
+.audience-cards .card__title {
+  font-size: 1rem;
+  margin-bottom: var(--space-2);
+}
+
+.card__checks {
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-4);
+  font-size: var(--font-size-small);
+}
+
+.card__checks li {
+  margin: var(--space-1) 0;
 }
 
 @media (min-width: 48rem) {
@@ -714,15 +1070,12 @@ a:hover {
   }
 }
 
-.card__art {
-  display: block;
-  height: 3rem;
-  width: auto;
-  margin-bottom: var(--space-3);
-}
-
 .home-section {
   margin-bottom: var(--space-8);
+}
+
+.home-section__sub {
+  max-width: 40rem;
 }
 
 .checks-list {
@@ -740,25 +1093,62 @@ a:hover {
   color: var(--colour-heading);
 }
 
-.manifesto-block {
-  background: var(--colour-surface);
-  border: 1px solid var(--cmnh-brass-pale);
-  border-radius: var(--radius);
-  padding: var(--space-7) var(--space-5);
+/* The family-names panel (D70 R4): the homepage's checks in
+   family language, on the design's dashed-brass panel.
+   Homepage only — the panel and report keep plain names. */
+.fam-names {
+  border: 1px dashed var(--cmnh-brass);
+  border-radius: var(--radius-card);
+  background: var(--colour-fam-bg);
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--font-size-small);
   margin-bottom: var(--space-8);
-  text-align: center;
+}
+
+.fam-names b {
+  color: var(--cmnh-forest);
+}
+
+.fam-names > :last-child {
+  margin-bottom: 0;
+}
+
+.fam-names__note {
+  color: var(--colour-muted);
+}
+
+/* The manifesto block (D70 R3): the dark Forest panel,
+   left-aligned — Newsreader head, the manifesto line in
+   Brass pale, the why line soft on Forest. */
+.manifesto-block {
+  background: var(--cmnh-forest);
+  border-radius: var(--radius-panel);
+  padding: 18px 20px;
+  margin-bottom: var(--space-8);
+  text-align: left;
+  color: var(--cmnh-white);
 }
 
 .manifesto-block__headline {
-  font-size: var(--font-size-h2);
-  line-height: var(--line-height-heading);
-  font-weight: 700;
-  color: var(--colour-heading);
-  margin-bottom: var(--space-3);
+  font-family: var(--font-family-display);
+  font-size: 1.45rem;
+  line-height: 1.15;
+  font-weight: 600;
+  color: var(--cmnh-white);
+  margin-bottom: var(--space-2);
 }
 
 .manifesto-block__line {
-  font-weight: 600;
+  font-size: var(--font-size-body);
+  font-weight: 700;
+  color: var(--colour-accent-on-dark);
+  margin-bottom: var(--space-2);
+}
+
+.manifesto-block__why {
+  font-size: var(--font-size-small);
+  color: var(--colour-on-forest-soft);
+  max-width: 62ch;
 }
 
 .manifesto-block > :last-child {
@@ -829,6 +1219,7 @@ a:hover {
 
 .unlock-banner {
   border: 1px solid var(--cmnh-brass-pale);
+  border-radius: var(--radius-card);
   background: var(--colour-surface);
   padding: var(--space-5);
   margin-top: var(--space-6);
@@ -838,6 +1229,16 @@ a:hover {
   display: none;
 }
 
+/* The picker in its designed form (D70 R6): select-then-
+   confirm. Rows are buttons inside one hairline-divided
+   list with the kit's tile radius; the chosen row takes
+   the selected tint, the heavy weight and a tick; the
+   full-width Ink button below confirms. The count line
+   (an M7.3 fold-in the design lacks) stays. */
+.picker__explainer {
+  max-width: 36rem;
+}
+
 .picker__count {
   margin-bottom: var(--space-4);
 }
@@ -845,31 +1246,59 @@ a:hover {
 .picker__list {
   list-style: none;
   padding: 0;
-  margin: 0 0 var(--space-5);
+  margin: 0 0 var(--space-4);
+  border: 1px solid var(--colour-card-line);
+  border-radius: var(--radius-tile);
+  overflow: hidden;
+  background: var(--cmnh-white);
 }
 
 .picker__row {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: 100%;
   min-height: 2.75rem;
-  padding: var(--space-2) var(--space-4);
-  border: 1px solid var(--cmnh-brass-pale);
-  border-bottom: none;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-bottom: 1px solid #eee;
+  background: var(--cmnh-white);
   color: var(--colour-text);
-  text-decoration: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 .picker__list li:last-child .picker__row {
-  border-bottom: 1px solid var(--cmnh-brass-pale);
+  border-bottom: 0;
 }
 
 .picker__row:hover {
   background: var(--colour-surface);
 }
 
-.picker__row--picked {
-  border-left: 4px solid var(--cmnh-forest);
-  font-weight: 600;
+.picker__row--selected {
+  background: var(--colour-selected-bg);
+  font-weight: 800;
+}
+
+.picker__tick {
+  color: var(--cmnh-forest);
+  font-weight: 900;
+}
+
+.picker__confirm {
+  width: 100%;
+  margin-bottom: var(--space-4);
+}
+
+/* The empty picker as a dressed panel (D70 R8/D19). */
+.picker--empty {
+  border: 1px solid var(--cmnh-brass-pale);
+  border-radius: var(--radius-card);
+  background: var(--colour-surface);
+  padding: var(--space-5);
 }
 
 .checking__rows {
@@ -894,6 +1323,14 @@ a:hover {
 
 .checking__row-state {
   flex: 0 1 auto;
+}
+
+/* The done state (D70, checking-screen ruling): the word
+   carries its tick — never colour alone. */
+.checking__row[data-state="done"] .checking__row-state,
+.checking__elements li[data-state="done"] .checking__element-state {
+  color: var(--cmnh-forest);
+  font-weight: 700;
 }
 
 .checking__row-line {
@@ -930,6 +1367,7 @@ a:hover {
 
 .holding {
   border: 1px solid var(--cmnh-brass-pale);
+  border-radius: var(--radius-card);
   background: var(--colour-surface);
   padding: var(--space-5);
 }
@@ -956,10 +1394,10 @@ a:hover {
    miles figure only, the sold-prices tiles, the flood
    warnings block and the closing disclaimer. Built from
    the kit's tokens; the distance colours are the Final
-   Design's (green / orange / red as coloured text on the
-   miles figure only — the green and red are the design's
-   own text colours, the orange a readable amber in the
-   same register). */
+   Design's .dist pairings (green / orange / red tints with
+   their dark text colours on the miles figure only — the
+   orange corrected to the design's own #7a3a00 on #ffe3b3
+   at D70, F3). */
 
 .results {
   margin-top: var(--space-5);
@@ -969,10 +1407,16 @@ a:hover {
   font-size: var(--font-size-lead);
 }
 
+/* The summary strip in its band (D70 R5): the warm band
+   with its line and tile radius; the pills sit on it. */
 .results-strip {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
+  background: var(--colour-band);
+  border: 1px solid var(--colour-band-line);
+  border-radius: var(--radius-tile);
+  padding: 12px 14px;
   margin-bottom: var(--space-4);
 }
 
@@ -1027,21 +1471,32 @@ a:hover {
   font-weight: 600;
 }
 
+/* The distance figure as the design's .dist chip (D70
+   R5): the tinted pill, colour meaning distance only. The
+   class names are unchanged so every locator that keys on
+   them survives; the orange is the design's corrected
+   pairing (F3). */
 .place-row__miles {
-  font-weight: 700;
+  font-weight: 900;
+  font-size: 0.82rem;
   white-space: nowrap;
+  padding: 5px 9px;
+  border-radius: 999px;
 }
 
 .place-row__miles--green {
-  color: #14532d;
+  background: var(--dist-green-bg);
+  color: var(--dist-green);
 }
 
 .place-row__miles--orange {
-  color: #9a6200;
+  background: var(--dist-orange-bg);
+  color: var(--dist-orange);
 }
 
 .place-row__miles--red {
-  color: #7f1d1d;
+  background: var(--dist-red-bg);
+  color: var(--dist-red);
 }
 
 .place-row__detail,
@@ -1065,24 +1520,34 @@ a:hover {
   margin: 0 0 var(--space-3);
 }
 
+/* The stat tile in the design's form (D70 R5): the card
+   white, the tile line and radius, the label small,
+   uppercase and letter-spaced in the muted grey, the
+   value heavy in Ink. Form only — the served tiles are
+   unchanged. */
 .results-tile {
-  border: 1px solid var(--cmnh-brass-pale);
-  background: var(--colour-surface);
-  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--colour-tile-line);
+  border-radius: var(--radius-tile);
+  background: var(--colour-card);
+  padding: 10px 12px;
   min-width: 10rem;
 }
 
 .results-tile__label {
   display: block;
-  font-size: var(--font-size-small);
-  font-weight: 600;
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--colour-muted);
 }
 
 .results-tile__value {
   display: block;
-  font-size: var(--font-size-lead);
-  font-weight: 700;
-  color: var(--colour-heading);
+  font-size: 1.18rem;
+  font-weight: 900;
+  line-height: 1.25;
+  color: var(--colour-text);
 }
 
 .flood-warning {
@@ -1137,6 +1602,7 @@ a:hover {
 
 .shortlist-panel {
   border: 1px solid var(--cmnh-brass-pale);
+  border-radius: var(--radius-card);
   background: var(--colour-surface);
   padding: var(--space-5);
   margin-top: var(--space-4);
@@ -1175,6 +1641,7 @@ a:hover {
 
 .shortlist-card {
   border: 1px solid var(--cmnh-brass-pale);
+  border-radius: var(--radius-card);
   background: var(--colour-surface);
   padding: var(--space-5);
   margin-bottom: var(--space-4);
@@ -1220,6 +1687,7 @@ a:hover {
 
 .shortlist-compare__column {
   border: 1px solid var(--cmnh-brass-pale);
+  border-radius: var(--radius-card);
   background: var(--colour-surface);
   padding: var(--space-5);
 }
@@ -1252,4 +1720,179 @@ a:hover {
 
 .shortlist-compare__actions {
   margin: 0;
+}
+
+/* --- The design-alignment pass (D70) --------------------------------
+   The blocks this pass pins ahead of the steps that build
+   on them: the pill buttons and the buy bar (the buy bar
+   itself is M7.6's build — its panel form and its two
+   buttons are pinned here as kit blocks), the comparison
+   table (the desktop form of the shortlist comparison;
+   the phone keeps the block stacking above), and the
+   dressed empty state. */
+
+/* The report pill button: Brass pale, Ink text, pill form,
+   the design's .reportBtn. */
+.report-btn {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-target);
+  background: var(--cmnh-brass-pale);
+  color: var(--cmnh-ink);
+  padding: 9px 13px;
+  border: 0;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 900;
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.report-btn:hover {
+  background: var(--colour-brass-pale-hover);
+  color: var(--cmnh-ink);
+}
+
+/* The shortlist pill button: white with the soft line; the
+   saved state is the green tint. The design's .shortlistBtn. */
+.shortlist-btn {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-target);
+  background: var(--cmnh-white);
+  color: var(--cmnh-forest);
+  padding: 9px 13px;
+  border: 1px solid var(--colour-card-line);
+  border-radius: 999px;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 900;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.shortlist-btn:hover {
+  background: var(--cmnh-cream);
+}
+
+.shortlist-btn--saved {
+  background: var(--dist-green-bg);
+  color: var(--dist-green);
+  border-color: var(--dist-green-bg);
+}
+
+.shortlist-btn--saved:hover {
+  background: var(--dist-green-bg);
+}
+
+/* The remove pill (the design's .removeBtn): a quiet
+   outline pill on the shortlist cards. */
+.remove-btn {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-target);
+  border: 1px solid var(--colour-card-line);
+  background: transparent;
+  color: var(--colour-muted);
+  padding: 6px 10px;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.remove-btn:hover {
+  color: var(--colour-text);
+}
+
+/* The buy bar's panel form (kit block for M7.6): the warm
+   band panel carrying the report and shortlist pill
+   buttons. */
+.buy-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  align-items: center;
+  justify-content: space-between;
+  background: var(--colour-band);
+  border: 1px solid var(--colour-band-line);
+  border-radius: var(--radius-card);
+  padding: 12px 14px;
+}
+
+.buy-bar__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* The comparison table (D70 R5/D17): the design's
+   shared-label form — the first column names each check
+   once, one column per home, values aligned, a report
+   button at each column's foot. Rendered at desktop
+   widths; below them the block stacking above is the
+   form (components/ShortlistPage.tsx chooses). */
+.compare-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: var(--space-4);
+  background: var(--cmnh-white);
+}
+
+.compare-table caption {
+  text-align: left;
+  font-weight: 700;
+  color: var(--colour-heading);
+  margin-bottom: var(--space-3);
+}
+
+.compare-table th,
+.compare-table td {
+  border: 1px solid var(--colour-tile-line);
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  vertical-align: top;
+}
+
+.compare-table thead th {
+  background: var(--colour-surface);
+  color: var(--colour-heading);
+}
+
+.compare-table tbody th {
+  font-weight: 700;
+  color: var(--colour-heading);
+  white-space: nowrap;
+}
+
+.compare-table__sale {
+  display: block;
+  font-size: var(--font-size-small);
+  font-weight: 600;
+  color: var(--colour-muted);
+}
+
+.compare-table tfoot td {
+  background: var(--colour-card);
+}
+
+/* The shortlist's empty state as a dressed panel (D70
+   R8/D19): panel treatment plus one of the kit's small
+   line illustrations — the dog, for the homes not yet
+   saved. No copy changes. */
+.shortlist-empty {
+  border: 1px solid var(--cmnh-brass-pale);
+  border-radius: var(--radius-card);
+  background: var(--colour-surface);
+  padding: var(--space-5);
+}
+
+.empty-state__art {
+  display: block;
+  height: 4rem;
+  width: auto;
+  margin-bottom: var(--space-3);
 }

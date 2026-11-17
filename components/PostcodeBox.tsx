@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { POSTCODE_BOX_BUTTON, POSTCODE_BOX_HINT, POSTCODE_BOX_LABEL } from "../lib/home";
 import { FAILED_ROUTE, TURNSTILE_BLOCK_LINE } from "../lib/journey";
-import { Button, TextField } from "./kit";
+import { Button, SuggestionShell, type SuggestionGroup } from "./kit";
 
 // M7.3 — the one postcode box, wired. M7.2 shipped it inert
 // (founder ruling at that step: present and typeable, submit
@@ -25,6 +25,18 @@ import { Button, TextField } from "./kit";
 // and no normalisation — the ladder owns all of that, and a
 // partial postcode typed here is a valid search, never an
 // error.
+//
+// D70: the box takes its designed form — the field and its
+// button in one row (stacked on small screens), the field's
+// border softened, and the autocomplete dropdown's shell
+// under the row. The row needs the input and the button as
+// siblings, so the box renders the kit field's own markup
+// pattern itself (same classes, ids and aria wiring as
+// components/kit.tsx's TextField) rather than through
+// TextField. The suggestions prop is the shell's seam: a
+// future address-data source (D71, priced separately) will
+// hand grouped suggestions in; no caller passes any yet,
+// so the shell renders nowhere today.
 
 declare global {
   interface Window {
@@ -59,9 +71,11 @@ function loadTurnstileScript(): Promise<boolean> {
 export default function PostcodeBox({
   autoFocus = false,
   defaultValue = "",
+  suggestions,
 }: {
   autoFocus?: boolean;
   defaultValue?: string;
+  suggestions?: SuggestionGroup[];
 }) {
   const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
   const widgetRef = useRef<HTMLDivElement>(null);
@@ -190,20 +204,36 @@ export default function PostcodeBox({
 
   return (
     <form className="postcode-box" onSubmit={onSubmit}>
-      <TextField
-        id="postcode"
-        name="postcode"
-        label={POSTCODE_BOX_LABEL}
-        hint={POSTCODE_BOX_HINT}
-        placeholder="CM3 2JT"
-        autoComplete="postal-code"
-        autoFocus={autoFocus}
-        defaultValue={defaultValue}
-        error={blockMessage ?? undefined}
-      />
-      <Button type="submit" disabled={busy}>
-        {POSTCODE_BOX_BUTTON}
-      </Button>
+      <div className="field">
+        <label className="field__label" htmlFor="postcode">
+          {POSTCODE_BOX_LABEL}
+        </label>
+        <p className="field__hint" id="postcode-hint">
+          {POSTCODE_BOX_HINT}
+        </p>
+        <div className="postcode-box__row">
+          <input
+            className="field__input"
+            id="postcode"
+            name="postcode"
+            placeholder="CM3 2JT"
+            autoComplete="postal-code"
+            autoFocus={autoFocus}
+            defaultValue={defaultValue}
+            aria-describedby={blockMessage ? "postcode-hint postcode-message" : "postcode-hint"}
+            aria-invalid={blockMessage ? true : undefined}
+          />
+          <Button type="submit" disabled={busy}>
+            {POSTCODE_BOX_BUTTON}
+          </Button>
+        </div>
+        {blockMessage && (
+          <p className="field__message field__message--error" id="postcode-message" role="alert">
+            {blockMessage}
+          </p>
+        )}
+      </div>
+      {suggestions && <SuggestionShell groups={suggestions} />}
       <div ref={widgetRef} className="turnstile-slot" aria-hidden="true" />
     </form>
   );

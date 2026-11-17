@@ -1,22 +1,33 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import { EMPTY_PICKER_LINE, homeRoute, pickerCountLine, POSTCODE_LEVEL_LINK } from "../lib/journey";
+import {
+  EMPTY_PICKER_LINE,
+  PICKER_CONFIRM_LABEL,
+  PICKER_EXPLAINER,
+  homeRoute,
+  pickerCountLine,
+  POSTCODE_LEVEL_LINK,
+} from "../lib/journey";
+import { Button } from "./kit";
 
 // The address picker (plan step M7.3, fold-in 3) — a
 // reusable component: M7.4 embeds it on the results page
 // for the postcode-level upgrade (T-WEB-08), so it takes
 // plain data and renders the same list everywhere.
 //
-// The list renders in the brain's sortAddresses order (the
-// serve layer hands the addresses over already sorted), as
-// full-width rows at the kit's 44px tap target, headed by a
-// count line, with no cap and no pagination in V1 and
-// natural tab order — the kit commissions no listbox
-// pattern, so the rows are plain links. Back from the
+// D70 R6 gives the picker its designed form: select-then-
+// confirm. The rows are buttons in the brain's
+// sortAddresses order (the serve layer hands the addresses
+// over already sorted) — one tap selects a row (the
+// selected tint, the heavy weight and a tick), and the
+// full-width Ink button below confirms and starts the
+// check. The list is headed by the design's explainer and
+// the count line (an M7.3 fold-in the design lacks, kept),
+// with no cap and no pagination in V1. Back from the
 // checking screen returns here with the picked address
-// retained (D44(5)(iii)): the picked row is marked and
+// retained (D44(5)(iii)): its row starts selected and
 // focus returns to it.
 
 export interface PickerAddress {
@@ -37,7 +48,8 @@ export default function AddressPicker({
   addresses: PickerAddress[];
   pickedKey?: string | null;
 }) {
-  const pickedRef = useRef<HTMLAnchorElement>(null);
+  const [selectedKey, setSelectedKey] = useState<string | null>(pickedKey);
+  const pickedRef = useRef<HTMLButtonElement>(null);
   const Heading = headingLevel === 1 ? "h1" : "h2";
 
   useEffect(() => {
@@ -63,24 +75,44 @@ export default function AddressPicker({
   return (
     <div className="picker">
       <Heading>{heading}</Heading>
+      <p className="picker__explainer">{PICKER_EXPLAINER}</p>
       <p className="picker__count">{pickerCountLine(addresses.length)}</p>
       <ul className="picker__list">
         {addresses.map((address) => {
+          const selected = selectedKey !== null && address.key === selectedKey;
           const picked = pickedKey !== null && address.key === pickedKey;
           return (
             <li key={address.key}>
-              <a
-                className={picked ? "picker__row picker__row--picked" : "picker__row"}
-                href={homeRoute(postcode, address.key)}
+              <button
+                type="button"
+                className={selected ? "picker__row picker__row--selected" : "picker__row"}
+                aria-pressed={selected}
                 aria-current={picked ? "true" : undefined}
                 ref={picked ? pickedRef : undefined}
+                onClick={() => setSelectedKey(address.key)}
               >
-                {address.label}
-              </a>
+                <span>{address.label}</span>
+                {selected && (
+                  <span className="picker__tick" aria-hidden="true">
+                    ✓
+                  </span>
+                )}
+              </button>
             </li>
           );
         })}
       </ul>
+      <Button
+        type="button"
+        variant="ink"
+        className="picker__confirm"
+        disabled={selectedKey === null}
+        onClick={() => {
+          if (selectedKey !== null) window.location.assign(homeRoute(postcode, selectedKey));
+        }}
+      >
+        {PICKER_CONFIRM_LABEL}
+      </Button>
       <p className="picker__postcode-level">
         <a href={homeRoute(postcode)}>{POSTCODE_LEVEL_LINK}</a>
       </p>

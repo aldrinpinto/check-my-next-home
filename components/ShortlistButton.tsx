@@ -107,15 +107,18 @@ export default function ShortlistButton({ card }: { card: ShortlistCard }) {
 
   return (
     <div className="shortlist-control">
-      <Button
+      {/* D70 R5: the control takes the design's pill form —
+          the white pill, the saved state in the green tint.
+          Its words are M7.5's pinned two states, unchanged. */}
+      <button
         type="button"
-        variant={saved ? "quiet" : "primary"}
+        className={saved ? "shortlist-btn shortlist-btn--saved" : "shortlist-btn"}
         aria-pressed={saved}
         data-shortlist-toggle={card.id}
         onClick={onToggle}
       >
         {saved ? "Shortlisted — tap to remove" : "Shortlist this home"}
-      </Button>
+      </button>
       {panelOpen && record && (
         <div className="shortlist-panel" role="group" aria-label="Your shortlist is full">
           <p className="shortlist-panel__line">{SHORTLIST_FULL_LINE}</p>

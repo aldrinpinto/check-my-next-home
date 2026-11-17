@@ -7,10 +7,10 @@ import {
   Button,
   Card,
   DataTable,
-  DistancePill,
-  FactPill,
   Notice,
   SourceLine,
+  SuggestionShell,
+  SummaryPill,
   TextField,
 } from "../../components/kit";
 import Tabs from "../../components/Tabs";
@@ -69,11 +69,14 @@ export default function KitchenSinkPage() {
 
       <section className="kit-section" aria-labelledby="ks-type">
         <h2 id="ks-type">Type sizes</h2>
-        <h1>Heading 1 — 2rem</h1>
-        <h2>Heading 2 — 1.5rem</h2>
+        <h1>Heading 1 — Newsreader, fluid 2.4–3.2rem</h1>
+        <h2>Heading 2 — Newsreader, fluid 1.9–2.2rem</h2>
         <h3>Heading 3 — 1.25rem</h3>
         <p className="type-lead">Lead — 1.125rem. The size the page introductions use.</p>
-        <p>Body — 1rem. The size the answers are read at, on the system font stack.</p>
+        <p>
+          Body — 1rem. The size the answers are read at, in DM Sans (the system stack is the
+          fallback only).
+        </p>
         <p className="type-small">Small — 0.875rem. Hints, messages and source lines.</p>
         <p className="type-caption">Caption — 0.8125rem. The smallest size in the kit.</p>
       </section>
@@ -122,14 +125,66 @@ export default function KitchenSinkPage() {
         <h2 id="ks-cards">Cards and pills</h2>
         <Card title="A card">
           <p>
-            Cards sit on Cream with a Brass pale edge. Beside the text, the pill family:{" "}
-            <DistancePill figure="0.4 miles" label="to the nearest primary school" />{" "}
-            <FactPill>Crime counts: 330 recorded in the 12 months named</FactPill>
+            Cards sit on Cream with a Brass pale edge. Beside the text, the pill family — a label
+            with its figure as the tinted distance chip, and the figure-less fact form:{" "}
+            <SummaryPill label="Nearest primary" figure="0.4 mi" band="green" />{" "}
+            <SummaryPill label="Crime: 330 recorded in 12 months" />
           </p>
           <SourceLine>
             Source line — the small line that names where the facts came from and when.
           </SourceLine>
         </Card>
+      </section>
+
+      <section className="kit-section" aria-labelledby="ks-buy-bar">
+        <h2 id="ks-buy-bar">
+          Pill buttons and the buy bar (D70 — the buy bar itself is M7.6&rsquo;s)
+        </h2>
+        <div className="buy-bar">
+          <div>
+            <b>Get the full detailed report — £4.99</b>
+            <div className="type-small">
+              The buy bar&rsquo;s panel form and its two pill buttons, pinned as kit blocks.
+            </div>
+          </div>
+          <div className="buy-bar__actions">
+            <a className="report-btn" href="/kitchen-sink">
+              Get the full report
+            </a>
+            <button type="button" className="shortlist-btn">
+              ♡ Shortlist this home
+            </button>
+            <button type="button" className="shortlist-btn shortlist-btn--saved">
+              ✓ Shortlisted — saved in your browser
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section className="kit-section" aria-labelledby="ks-suggest">
+        <h2 id="ks-suggest">Search suggestions shell (D70 — no data source wired yet)</h2>
+        <p>
+          The autocomplete dropdown&rsquo;s visual shell, shown here with specimen entries: grouped
+          AREAS, then PROPERTIES, under the search field. The box renders it only when a future
+          address-data source hands it suggestions.
+        </p>
+        {/* The shell is absolutely positioned below its box
+            (top: 100%), so the frozen-open specimen reserves
+            the space it paints over with a bottom margin. */}
+        <div className="postcode-box" style={{ marginBottom: "15rem" }}>
+          <SuggestionShell
+            groups={[
+              { label: "Areas", items: ["CM3 2JT — Hatfield Peverel", "CM3 — Chelmsford"] },
+              {
+                label: "Properties",
+                items: [
+                  "1 Birkdale Rise, Hatfield Peverel CM3 2JT",
+                  "19 Birkdale Rise, Hatfield Peverel CM3 2JT",
+                ],
+              },
+            ]}
+          />
+        </div>
       </section>
 
       <section className="kit-section" aria-labelledby="ks-tabs">

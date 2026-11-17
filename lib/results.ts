@@ -543,21 +543,52 @@ function floodHigherBand(
   return null;
 }
 
-export function summaryPills(input: SummaryPillsInput): string[] | null {
+// The summary pill as label + figure (D70 R5): the pill
+// family renders the label as the pill's text and the
+// figure as the design's tinted .dist chip, coloured by
+// the figure's own distance band. The composition is
+// presentation only — pillText recomposes exactly the
+// string the pill logic has always served, and the tests
+// pin the recomposed strings byte-identical.
+export interface SummaryPill {
+  label: string;
+  figure: string | null;
+  band: DistanceBand | null;
+  mark?: string;
+}
+
+export function pillText(pill: SummaryPill): string {
+  if (!pill.figure) return pill.label;
+  return `${pill.label} ${pill.figure}${pill.mark ? ` ${pill.mark}` : ""}`;
+}
+
+const factPill = (label: string): SummaryPill => ({ label, figure: null, band: null });
+
+const milesPill = (label: string, family: DistanceFamily, miles: number): SummaryPill => ({
+  label,
+  figure: `${formatMiles(miles)} mi`,
+  band: distanceBand(family, miles),
+});
+
+export function summaryPills(input: SummaryPillsInput): SummaryPill[] | null {
   const { nearby, crime, sections } = input;
 
   // Slot 1 — schools.
   const secondary = categoryOf(nearby, "schools-secondary");
   const primary = categoryOf(nearby, "schools-primary");
-  let slot1: string | null = null;
+  let slot1: SummaryPill | null = null;
   if (secondary?.nearestSelective)
-    slot1 = `Grammar school ${formatMiles(secondary.nearestSelective.miles)} mi ★`;
+    slot1 = {
+      ...milesPill("Grammar school", "school", secondary.nearestSelective.miles),
+      mark: "★",
+    };
   else {
     const nearestPrimary = nearestOf(primary);
-    if (nearestPrimary) slot1 = `Nearest primary ${formatMiles(nearestPrimary.miles)} mi`;
+    if (nearestPrimary) slot1 = milesPill("Nearest primary", "school", nearestPrimary.miles);
     else {
       const nearestSecondary = nearestOf(secondary);
-      if (nearestSecondary) slot1 = `Nearest secondary ${formatMiles(nearestSecondary.miles)} mi`;
+      if (nearestSecondary)
+        slot1 = milesPill("Nearest secondary", "school", nearestSecondary.miles);
     }
   }
 
@@ -566,43 +597,49 @@ export function summaryPills(input: SummaryPillsInput): string[] | null {
   // once, and a subject whose data cannot serve a fact at
   // all (flood not filed / not covered, crime not covered)
   // is skipped rather than stated.
-  const candidates: { subject: string; text: string }[] = [];
+  const candidates: { subject: string; pill: SummaryPill }[] = [];
   const higher = floodHigherBand(sections);
   if (higher)
     candidates.push({
       subject: "flood",
-      text:
+      pill: factPill(
         higher.layer === "rofsw"
           ? "Surface-water flood band: higher for this street"
           : "River & sea flood band: higher for this street",
+      ),
     });
   const servedCrime = crime.kind === "crime" && crime.crime.state === "served" ? crime.crime : null;
   if (servedCrime?.englandFigure?.multiple != null && servedCrime.englandFigure.multiple >= 1.5)
     candidates.push({
       subject: "crime",
-      text: `Crime: ${servedCrime.total.toLocaleString("en-GB")} recorded in 12 months`,
+      pill: factPill(`Crime: ${servedCrime.total.toLocaleString("en-GB")} recorded in 12 months`),
     });
   const ae = nearestOf(categoryOf(nearby, "ae"));
   const gp = nearestOf(categoryOf(nearby, "gp"));
   if (ae && ae.miles > 10)
-    candidates.push({ subject: "distance", text: `Nearest A&E ${formatMiles(ae.miles)} mi` });
+    candidates.push({ subject: "distance", pill: milesPill("Nearest A&E", "hospital", ae.miles) });
   else if (gp && gp.miles > 1.5)
-    candidates.push({ subject: "distance", text: `Nearest GP ${formatMiles(gp.miles)} mi` });
+    candidates.push({
+      subject: "distance",
+      pill: milesPill("Nearest GP", "everyday", gp.miles),
+    });
   if (sections.flood.state === "served")
-    candidates.push({ subject: "flood", text: "Flood: 2 separate checks" });
+    candidates.push({ subject: "flood", pill: factPill("Flood: 2 separate checks") });
   if (sections.crime.state === "served")
-    candidates.push({ subject: "crime", text: "Crime: 12-month counts" });
+    candidates.push({ subject: "crime", pill: factPill("Crime: 12-month counts") });
   if (sections.councilTax.state === "served" && sections.councilTax.bandDAverageLabel)
     candidates.push({
       subject: "council-tax",
-      text: `Council tax: Band D averages ${sections.councilTax.bandDAverageLabel} a year`,
+      pill: factPill(
+        `Council tax: Band D averages ${sections.councilTax.bandDAverageLabel} a year`,
+      ),
     });
   const seen = new Set<string>();
-  const middle: string[] = [];
+  const middle: SummaryPill[] = [];
   for (const candidate of candidates) {
     if (seen.has(candidate.subject)) continue;
     seen.add(candidate.subject);
-    middle.push(candidate.text);
+    middle.push(candidate.pill);
     if (middle.length === 2) break;
   }
 
@@ -612,13 +649,13 @@ export function summaryPills(input: SummaryPillsInput): string[] | null {
     { label: "Park", nearest: nearestOf(categoryOf(nearby, "parks")) },
     { label: "GP", nearest: gp },
   ];
-  let slot4: string | null = null;
+  let slot4: SummaryPill | null = null;
   let best: { label: string; miles: number } | null = null;
   for (const entry of everyday) {
     if (entry.nearest && (!best || entry.nearest.miles < best.miles))
       best = { label: entry.label, miles: entry.nearest.miles };
   }
-  if (best) slot4 = `${best.label} ${formatMiles(best.miles)} mi`;
+  if (best) slot4 = milesPill(best.label, "everyday", best.miles);
   else {
     const station = nearestOf(categoryOf(nearby, "station"));
     const supermarket = nearestOf(categoryOf(nearby, "supermarket"));
@@ -628,10 +665,10 @@ export function summaryPills(input: SummaryPillsInput): string[] | null {
     ]
       .filter((entry) => entry.nearest !== null)
       .sort((a, b) => (a.nearest?.miles ?? 0) - (b.nearest?.miles ?? 0))[0];
-    if (fallback?.nearest) slot4 = `${fallback.label} ${formatMiles(fallback.nearest.miles)} mi`;
+    if (fallback?.nearest) slot4 = milesPill(fallback.label, "everyday", fallback.nearest.miles);
   }
 
-  const pills = [slot1, ...middle, slot4].filter((pill): pill is string => pill !== null);
+  const pills = [slot1, ...middle, slot4].filter((pill): pill is SummaryPill => pill !== null);
   // The strip is the four-pill form. A check that cannot
   // fill the schools slot and at least the two middle slots
   // (Scotland / NI, where flood and crime do not cover)
@@ -718,7 +755,7 @@ export interface ResultsInput {
 }
 
 export interface ResultsView {
-  pills: string[] | null;
+  pills: SummaryPill[] | null;
   warningsStrip: WarningsStripView;
   // The flood section's live-warnings state as served, so
   // the page (and its tests) can name the state the flood

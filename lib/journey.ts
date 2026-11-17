@@ -190,14 +190,16 @@ export const CHECKING_INTRO =
   "Each check completes as its answer arrives — there are no artificial delays.";
 
 export const CHECKING_ROWS = [
-  { key: "schools", label: "Schools" },
+  // Three rows carry the design's qualifiers (D70, restoring
+  // D11): what the check covers, named on the row itself.
+  { key: "schools", label: "Schools — nearest primary & secondary, with Ofsted" },
   { key: "nurseries", label: "Nurseries & pre-schools" },
   { key: "health", label: "GP, NHS dentist & pharmacy" },
   { key: "hospitals", label: "Hospitals, A&E & maternity" },
   { key: "parks", label: "Parks, vets & dog-walking areas" },
-  { key: "shops", label: "Shops & transport" },
+  { key: "shops", label: "Shops & transport — supermarkets, bus stops, stations" },
   { key: "food", label: "Food & drink, leisure & gyms, places to visit, worship & libraries" },
-  { key: "flood", label: "Flood" },
+  { key: "flood", label: "Flood — rivers & sea, and surface water" },
   {
     key: "history",
     label: "Sold history, council tax, EPC, planning applications & constraints, ownership",
@@ -218,7 +220,12 @@ export function rowFailureLine(rowLabel: string): string {
   return `${rowLabel} couldn't be checked just now — the rest of the check still opens.`;
 }
 
-// The picker (fold-in 3).
+// The picker (fold-in 3). The explainer is the design's own
+// line (Stop W2), addressed to the visitor; the confirm is
+// the design's button (D70 R6: select-then-confirm).
+export const PICKER_EXPLAINER =
+  "Schools and flood are address-sensitive, so pick your exact house before anything is checked.";
+export const PICKER_CONFIRM_LABEL = "Check this address →";
 export function pickerCountLine(count: number): string {
   return count === 1 ? "1 address" : `${count} addresses`;
 }

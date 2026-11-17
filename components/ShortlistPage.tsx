@@ -20,7 +20,6 @@ import {
   type ShortlistCell,
   type ShortlistRecord,
 } from "../lib/shortlist";
-import { Button } from "./kit";
 
 // The /shortlist page's client island (plan step M7.5,
 // fold-in 6): the server sends the shell and page furniture
@@ -63,6 +62,11 @@ function CompareCell({
 
 export default function ShortlistPage() {
   const [state, setState] = useState<State>({ kind: "pending" });
+  // The comparison's form follows the viewport (D70 R5/D17):
+  // the design's shared-label table at desktop widths, the
+  // proven block stacking below them. The page's content is
+  // client-resolved already, so the form resolves with it.
+  const [wide, setWide] = useState(false);
 
   useEffect(() => {
     const read = () => {
@@ -73,6 +77,14 @@ export default function ShortlistPage() {
     };
     read();
     return subscribeShortlistChanged(read);
+  }, []);
+
+  useEffect(() => {
+    const query = window.matchMedia("(min-width: 48rem)");
+    const update = () => setWide(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
   }, []);
 
   if (state.kind === "pending") return null;
@@ -89,6 +101,16 @@ export default function ShortlistPage() {
   if (record.cards.length === 0) {
     return (
       <section className="shortlist-empty" data-shortlist-state="empty">
+        {/* D70 R8/D19: the empty state dressed as a panel with
+            one of the kit's small line illustrations. */}
+        {/* eslint-disable-next-line @next/next/no-img-element -- the illustrations are plain static assets; next/image adds nothing on a static export */}
+        <img
+          className="empty-state__art"
+          src="/illustrations/card-dog.svg"
+          alt=""
+          width="48"
+          height="48"
+        />
         <h2>{SHORTLIST_EMPTY_HEADING}</h2>
         <p>{SHORTLIST_EMPTY_LINE}</p>
       </section>
@@ -118,17 +140,20 @@ export default function ShortlistPage() {
               {saleLine && <p className="shortlist-card__sale">{saleLine}</p>}
               {card.factsLine && <p className="shortlist-card__facts">{card.factsLine}</p>}
               <p className="shortlist-card__actions">
-                <a className="btn btn--primary" href={REPORT_ROUTE}>
+                {/* D70 R5: the card's actions in the design's
+                    own forms — the report pill and the remove
+                    pill (Section 5, step B). */}
+                <a className="report-btn" href={REPORT_ROUTE}>
                   Get the full report
                 </a>{" "}
-                <Button
+                <button
                   type="button"
-                  variant="quiet"
+                  className="remove-btn"
                   aria-label={`Remove ${card.addressLine}`}
                   onClick={() => onRemove(card.id)}
                 >
                   Remove
-                </Button>
+                </button>
               </p>
             </li>
           );
@@ -138,39 +163,89 @@ export default function ShortlistPage() {
       {comparison && (
         <section className="shortlist-compare" aria-label="Your saved homes, side by side">
           <h2>Your saved homes, side by side</h2>
-          <div
-            className="shortlist-compare__grid"
-            style={{ "--compare-columns": comparison.columns.length } as React.CSSProperties}
-          >
-            {comparison.columns.map((card, columnIndex) => {
-              const saleLine = comparisonSaleLine(card);
-              return (
-                <div className="shortlist-compare__column" key={card.id} data-rung={card.rung}>
-                  <h3 className="shortlist-compare__address">{card.addressLine}</h3>
-                  {saleLine && <p className="shortlist-compare__sale">{saleLine}</p>}
-                  <dl className="shortlist-compare__rows">
-                    {comparison.rows.map((row) => (
-                      <div
-                        className="shortlist-compare__row"
-                        key={row.key}
-                        data-compare-row={row.key}
-                      >
-                        <dt>{row.label}</dt>
-                        <dd>
-                          <CompareCell cell={row.cells[columnIndex]} family={row.family} />
-                        </dd>
-                      </div>
+          {wide ? (
+            // The desktop form (D70 R5/D17): the design's
+            // shared-label table — the first column names each
+            // check once, one column per home, values aligned,
+            // a report button at each column's foot. Flood and
+            // crime cells stay pointers, as everywhere.
+            <table className="compare-table">
+              <thead>
+                <tr>
+                  <th scope="col">Check</th>
+                  {comparison.columns.map((card) => {
+                    const saleLine = comparisonSaleLine(card);
+                    return (
+                      <th scope="col" key={card.id} data-rung={card.rung}>
+                        {card.addressLine}
+                        {saleLine && <span className="compare-table__sale">{saleLine}</span>}
+                      </th>
+                    );
+                  })}
+                </tr>
+              </thead>
+              <tbody>
+                {comparison.rows.map((row) => (
+                  <tr key={row.key} data-compare-row={row.key}>
+                    <th scope="row">{row.label}</th>
+                    {row.cells.map((cell, columnIndex) => (
+                      <td key={comparison.columns[columnIndex].id}>
+                        <CompareCell cell={cell} family={row.family} />
+                      </td>
                     ))}
-                  </dl>
-                  <p className="shortlist-compare__actions">
-                    <a className="btn btn--primary" href={REPORT_ROUTE}>
-                      Report for this home
-                    </a>
-                  </p>
-                </div>
-              );
-            })}
-          </div>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td></td>
+                  {comparison.columns.map((card) => (
+                    <td key={card.id}>
+                      <a className="report-btn" href={REPORT_ROUTE}>
+                        Report for this home
+                      </a>
+                    </td>
+                  ))}
+                </tr>
+              </tfoot>
+            </table>
+          ) : (
+            // The phone form: the proven block stacking — one
+            // block per home, its rows labelled per block.
+            <div
+              className="shortlist-compare__grid"
+              style={{ "--compare-columns": comparison.columns.length } as React.CSSProperties}
+            >
+              {comparison.columns.map((card, columnIndex) => {
+                const saleLine = comparisonSaleLine(card);
+                return (
+                  <div className="shortlist-compare__column" key={card.id} data-rung={card.rung}>
+                    <h3 className="shortlist-compare__address">{card.addressLine}</h3>
+                    {saleLine && <p className="shortlist-compare__sale">{saleLine}</p>}
+                    <dl className="shortlist-compare__rows">
+                      {comparison.rows.map((row) => (
+                        <div
+                          className="shortlist-compare__row"
+                          key={row.key}
+                          data-compare-row={row.key}
+                        >
+                          <dt>{row.label}</dt>
+                          <dd>
+                            <CompareCell cell={row.cells[columnIndex]} family={row.family} />
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+                    <p className="shortlist-compare__actions">
+                      <a className="report-btn" href={REPORT_ROUTE}>
+                        Report for this home
+                      </a>
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </section>
       )}
     </div>

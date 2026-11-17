@@ -8,9 +8,14 @@ import Home from "../app/page";
 import AudienceCards from "../components/AudienceCards";
 import PostcodeBox from "../components/PostcodeBox";
 import {
-  AUDIENCE_CARD_BUTTON,
+  EXAMPLE_CHECK_LABEL,
   HOME_AUDIENCE_CARDS,
-  HOME_HERO_ART,
+  HOME_CARDS_HEADING,
+  HOME_CARDS_SUB,
+  HOME_FAMILY_NAMES,
+  HOME_FAMILY_NAMES_LEAD,
+  HOME_FAMILY_NAMES_NOTE,
+  HOME_HERO_PANELS,
   HOME_HERO_SUBLINE,
   HOME_MANIFESTO_HEADLINE,
   HOME_MANIFESTO_WHY,
@@ -24,6 +29,7 @@ import {
   SAMPLE_REPORT_LINK_TEXT,
   SAMPLE_REPORT_PATH,
 } from "../lib/home";
+import { CHECKING_ROWS } from "../lib/journey";
 import {
   DISCLAIMER_SHORT_FORM,
   HOME_HERO_HEADLINE,
@@ -42,6 +48,14 @@ import {
 // and wires the journey into it (fold-in 7); the box's own
 // behaviour is pinned in tests/journey.test.ts and the E2E
 // journey specs.
+// D70 re-pins (the design-alignment pass, 17 Nov 2026): the
+// hero's order (the tagline line dropped; the imagery panels
+// and the example-check action in), the audience cards (the
+// decided landing page's intros and check lists, text-only),
+// "what it checks" re-based on the plain check names, the
+// family-names panel added, and the manifesto's why line
+// (the chosen homepage's, verbatim). Each re-pin is named in
+// docs/frontend-design-pass.md.
 
 const ROOT = process.cwd();
 const read = (path: string) => readFileSync(join(ROOT, path), "utf8");
@@ -64,41 +78,88 @@ describe("home page copy (lib/home.ts)", () => {
       "For example, CM3 2JT — or the full address, with its postcode.",
     );
     expect(POSTCODE_BOX_BUTTON).toBe("Check a home");
-    expect(AUDIENCE_CARD_BUTTON).toBe("Start with a postcode");
+    // D70 R2: the example-check action beside the box.
+    expect(EXAMPLE_CHECK_LABEL).toBe("See an example check");
   });
 
-  it("pins the three audience cards verbatim, in order", () => {
+  it("pins the hero's imagery panels verbatim, in order (D70 R2)", () => {
+    expect(HOME_HERO_PANELS.map((panel) => panel.title)).toEqual([
+      "Moving-in day",
+      "Keys in hand",
+      "A dog at the door",
+    ]);
+    expect(HOME_HERO_PANELS.map((panel) => panel.line)).toEqual([
+      "Boxes in the hall, kettle on",
+      "The first morning in the new home",
+      "Pets are family too",
+    ]);
+    expect(HOME_HERO_PANELS.map((panel) => panel.art)).toEqual([
+      "/illustrations/card-boxes.svg",
+      "/illustrations/card-key.svg",
+      "/illustrations/card-dog.svg",
+    ]);
+  });
+
+  it("pins the three audience cards verbatim, in order (D70 R3 — the decided page's copy)", () => {
+    expect(HOME_CARDS_HEADING).toBe("Moving looks different for every family");
+    expect(HOME_CARDS_SUB).toBe(
+      "Whoever is moving with you, we lead with the checks that matter to your family's life there.",
+    );
     expect(HOME_AUDIENCE_CARDS.map((card) => card.title)).toEqual([
       "Moving as a couple",
       "Moving with kids",
       "Moving with pets",
     ]);
-    expect(HOME_AUDIENCE_CARDS.map((card) => card.line)).toEqual([
-      "Shops and stations for the everyday, broadband for working from home, and the real cost of living there — council tax, energy, and what homes nearby have sold for.",
-      "Schools and nurseries, doctors and hospitals, parks to play in — and safety in plain numbers: the recorded crime counts for the area.",
-      "Parks and dog-walking areas on the doorstep, the nearest vet, and green space for muddy paws.",
+    expect(HOME_AUDIENCE_CARDS.map((card) => card.intro)).toEqual([
+      "A first home together, or the next chapter — it's about the life you'll live there.",
+      "School runs and childcare shape family life — so these are the first things we check.",
+      "A home has to work for your pets too — the dog, the cat, or whoever else shares it.",
     ]);
-    expect(HOME_AUDIENCE_CARDS.map((card) => card.art)).toEqual([
-      "/illustrations/card-key.svg",
-      "/illustrations/card-boxes.svg",
-      "/illustrations/card-dog.svg",
+    expect(HOME_AUDIENCE_CARDS.map((card) => [...card.checks])).toEqual([
+      [
+        "Places to eat and drink out nearby",
+        "Gyms, parks and places to go nearby, for evenings and weekends",
+        "Trains and buses for the commute",
+        "The real crime numbers for the streets around the home",
+      ],
+      [
+        "Nurseries, pre-schools and childminders nearby",
+        "Primary, secondary, grammar and independent schools",
+        "Parks and places to visit at weekends",
+        "Doctors and dentists nearby",
+      ],
+      [
+        "Vets nearby when your pet needs one",
+        "Parks and green spaces nearby, for the daily walk and play",
+        "Pet boarding nearby, for holidays",
+        "Groomers to keep them looking pretty, pet shops for food and everything else",
+      ],
     ]);
   });
 
-  it("pins 'what it checks' verbatim — one item per checking-screen row (M7.3)", () => {
+  it("pins the family-names panel verbatim (D70 R4)", () => {
+    expect(HOME_FAMILY_NAMES_LEAD).toBe("On the homepage, checks speak family language:");
+    expect(HOME_FAMILY_NAMES).toEqual([
+      "Schools & nurseries near the door",
+      "Safety in plain numbers",
+      "Flood risk at this address",
+      "The real cost of living there",
+      "Health near the door",
+      "Room to walk the dog",
+    ]);
+    expect(HOME_FAMILY_NAMES_NOTE).toBe(
+      "Homepage only — the panel and report keep their plain names.",
+    );
+  });
+
+  it("pins 'what it checks' — one item per checking-screen row, under the plain names (D70 R4)", () => {
     expect(HOME_WHAT_IT_CHECKS_HEADING).toBe("What it checks");
     expect(HOME_WHAT_IT_CHECKS).toHaveLength(9);
-    expect(HOME_WHAT_IT_CHECKS.map((check) => check.name)).toEqual([
-      "Schools near the home",
-      "Nurseries and pre-schools",
-      "Doctors, dentists and pharmacies",
-      "Hospitals, A&E and maternity care",
-      "Parks, vets and dog walks",
-      "Shops and getting about",
-      "Eating out, keeping fit and days out",
-      "Flood risk",
-      "What homes sell for, and the running costs",
-    ]);
+    // The names are the checking screen's own row labels —
+    // the contents list can never drift from the rows.
+    expect(HOME_WHAT_IT_CHECKS.map((check) => check.name)).toEqual(
+      CHECKING_ROWS.map((row) => row.label),
+    );
     expect(HOME_WHAT_IT_CHECKS.map((check) => check.line)).toEqual([
       "The primary and secondary schools closest to the front door, with the distance to each.",
       "Places for the youngest children, nearest first.",
@@ -114,8 +175,9 @@ describe("home page copy (lib/home.ts)", () => {
 
   it("pins the manifesto block's lines", () => {
     expect(HOME_MANIFESTO_HEADLINE).toBe("A house is bricks. A home is family.");
+    // D70 R3: the chosen homepage's why line, verbatim.
     expect(HOME_MANIFESTO_WHY).toBe(
-      "Every check exists because a listing shows a house — and your family will live in the home.",
+      "Every check on this page exists because a family will live with the answer — the school run, the dog walk, the monthly bills, the street after dark — long after the listing is forgotten.",
     );
   });
 
@@ -137,31 +199,45 @@ describe("the rendered home page", () => {
     .replaceAll("&amp;", "&")
     .replaceAll("&#x27;", "'");
 
-  it("renders the hero in its pinned order: kicker, H1, sub-line, box, tagline", () => {
+  it("renders the hero in its pinned order: kicker, H1, sub-line, panels, box, example (D70 R2)", () => {
     const kicker = html.indexOf(SITE_MANIFESTO);
     const headline = html.indexOf(`<h1>${HOME_HERO_HEADLINE}</h1>`);
     const subline = html.indexOf(HOME_HERO_SUBLINE);
+    const panels = html.indexOf("hero__panels");
     const box = html.indexOf('id="postcode"');
-    const tagline = html.indexOf(SITE_TAGLINE, box);
-    for (const index of [kicker, headline, subline, box, tagline]) {
+    const example = html.indexOf(EXAMPLE_CHECK_LABEL);
+    for (const index of [kicker, headline, subline, panels, box, example]) {
       expect(index).toBeGreaterThan(-1);
     }
     expect(kicker).toBeLessThan(headline);
     expect(headline).toBeLessThan(subline);
-    expect(subline).toBeLessThan(box);
-    expect(box).toBeLessThan(tagline);
+    expect(subline).toBeLessThan(panels);
+    expect(panels).toBeLessThan(box);
+    expect(box).toBeLessThan(example);
+    // The hero tagline line is dropped (D70 R2/D20): the
+    // tagline lives in the header/footer lockups, and this
+    // page renders neither — so it appears nowhere here.
+    expect(html).not.toContain(SITE_TAGLINE);
   });
 
-  it("carries the hero's one-line illustration", () => {
-    expect(html).toContain(`src="${HOME_HERO_ART}"`);
-    expect(html).toContain("moving boxes being carried in");
+  it("carries the hero's three captioned panels, in the line-illustration language", () => {
+    for (const panel of HOME_HERO_PANELS) {
+      expect(html).toContain(`src="${panel.art}"`);
+      expect(html).toContain(panel.artAlt);
+      expect(html).toContain(panel.title);
+      expect(html).toContain(panel.line);
+    }
   });
 
-  it("renders the three cards, the nine checks and the sample link", () => {
+  it("renders the three cards, the family-names panel, the nine checks and the sample link", () => {
     for (const card of HOME_AUDIENCE_CARDS) {
       expect(html).toContain(card.title);
-      expect(html).toContain(card.line);
+      expect(html).toContain(card.intro);
+      for (const check of card.checks) expect(html).toContain(check);
     }
+    expect(html).toContain(HOME_CARDS_HEADING);
+    expect(html).toContain(HOME_FAMILY_NAMES_LEAD);
+    for (const name of HOME_FAMILY_NAMES) expect(html).toContain(name);
     for (const check of HOME_WHAT_IT_CHECKS) {
       expect(html).toContain(check.name);
       expect(html).toContain(check.line);
@@ -214,20 +290,25 @@ describe("the postcode box (inert at M7.2; wired at M7.3)", () => {
   });
 });
 
-describe("the audience cards' one target", () => {
-  it("renders one button per card, all the same — no audience state or mode", () => {
-    const html = renderToStaticMarkup(createElement(AudienceCards));
-    expect(html.split(AUDIENCE_CARD_BUTTON)).toHaveLength(4);
+describe("the audience cards in the design's form (D70 R3)", () => {
+  it("renders title, intro and check list per card — text only, no button, no art, no mode", () => {
+    const html = renderToStaticMarkup(createElement(AudienceCards))
+      .replaceAll("&amp;", "&")
+      .replaceAll("&#x27;", "'");
+    expect(html).not.toContain("<button");
+    expect(html).not.toContain("<img");
+    expect(html).not.toContain("Start with a postcode");
     for (const card of HOME_AUDIENCE_CARDS) {
-      expect(html).toContain(`src="${card.art}"`);
-      expect(html).toContain(card.artAlt);
+      expect(html).toContain(card.title);
+      expect(html).toContain(card.intro);
+      for (const check of card.checks) expect(html).toContain(check);
     }
   });
 });
 
 describe("the one-line illustrations", () => {
   it("exist at their served paths, in the Roof-Tick's stroke language only", () => {
-    for (const path of [HOME_HERO_ART, ...HOME_AUDIENCE_CARDS.map((card) => card.art)]) {
+    for (const path of HOME_HERO_PANELS.map((panel) => panel.art)) {
       const file = join(ROOT, "public", path);
       expect(existsSync(file), path).toBe(true);
       const svg = readFileSync(file, "utf8");

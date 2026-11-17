@@ -8,7 +8,7 @@ import KitchenSinkPage from "../app/kitchen-sink/page";
 import SiteFooter from "../components/SiteFooter";
 import SiteHeader from "../components/SiteHeader";
 import Tabs from "../components/Tabs";
-import { Button, DataTable, DistancePill, FactPill, Notice, TextField } from "../components/kit";
+import { Button, DataTable, Notice, SummaryPill, TextField } from "../components/kit";
 import {
   LOGO_URL,
   OG_IMAGE_HEIGHT,
@@ -55,15 +55,39 @@ describe("kit tokens (app/globals.css)", () => {
     expect(css).toContain("--cmnh-ink: #17201e");
   });
 
-  it("pins the type scale on the system stack", () => {
-    expect(css).toContain("system-ui");
+  it("pins the type scale on the self-hosted faces (D70 R1)", () => {
+    // Newsreader display + DM Sans text, self-hosted from
+    // /fonts; the system stack is the fallback only. (M7.1
+    // pinned the system stack and the fixed display sizes;
+    // D70 R1 supersedes both — see docs/frontend-design-pass.md.)
+    // (The declaration's value wraps under the repo's print
+    // width, so the pin targets the stack itself.)
+    expect(css).toContain('"DM Sans", system-ui, -apple-system, "Segoe UI", Roboto');
+    expect(css).toContain('--font-family-display: "Newsreader", Georgia');
+    expect(css).toContain('url("/fonts/newsreader-latin-700-normal.woff2")');
+    expect(css).toContain('url("/fonts/dm-sans-latin-900-normal.woff2")');
+    expect(css).toContain("font-display: swap");
     expect(css).toContain("--font-size-caption: 0.8125rem");
     expect(css).toContain("--font-size-small: 0.875rem");
     expect(css).toContain("--font-size-body: 1rem");
     expect(css).toContain("--font-size-lead: 1.125rem");
     expect(css).toContain("--font-size-h3: 1.25rem");
-    expect(css).toContain("--font-size-h2: 1.5rem");
-    expect(css).toContain("--font-size-h1: 2rem");
+    expect(css).toContain("--font-size-h2: clamp(1.9rem, 1.55rem + 1.5vw, 2.2rem)");
+    expect(css).toContain("--font-size-h1: clamp(2.4rem, 1.85rem + 2.4vw, 3.2rem)");
+  });
+
+  it("pins the graduated radius scale and the distance pairings (D70 R8/R5)", () => {
+    expect(css).toContain("--radius: 0.5rem");
+    expect(css).toContain("--radius-tile: 0.625rem");
+    expect(css).toContain("--radius-card: 0.75rem");
+    expect(css).toContain("--radius-panel: 0.875rem");
+    // The design's .dist pairings, the orange corrected (F3).
+    expect(css).toContain("--dist-green-bg: #dff3e6");
+    expect(css).toContain("--dist-green: #14532d");
+    expect(css).toContain("--dist-orange-bg: #ffe3b3");
+    expect(css).toContain("--dist-orange: #7a3a00");
+    expect(css).toContain("--dist-red-bg: #fbdcdc");
+    expect(css).toContain("--dist-red: #7f1d1d");
   });
 
   it("pins the spacing scale, both containers and the tap target", () => {
@@ -116,12 +140,31 @@ describe("brand assets at their fixed destinations", () => {
 
   it("carries every binary asset as .b64, decoding to the real file", () => {
     expect(BINARY_ASSETS.map((asset) => asset.target).sort()).toEqual(
-      ["app/apple-icon.png", "app/favicon.ico", "app/icon.png", "public/og-image.png"].sort(),
+      [
+        "app/apple-icon.png",
+        "app/favicon.ico",
+        "app/icon.png",
+        "public/og-image.png",
+        // The self-hosted typefaces (D70 R1).
+        "public/fonts/dm-sans-latin-400-normal.woff2",
+        "public/fonts/dm-sans-latin-600-normal.woff2",
+        "public/fonts/dm-sans-latin-700-normal.woff2",
+        "public/fonts/dm-sans-latin-800-normal.woff2",
+        "public/fonts/dm-sans-latin-900-normal.woff2",
+        "public/fonts/newsreader-latin-600-normal.woff2",
+        "public/fonts/newsreader-latin-700-normal.woff2",
+      ].sort(),
     );
     for (const { source } of BINARY_ASSETS) {
       expect(existsSync(join(ROOT, source)), source).toBe(true);
     }
     const decode = (source: string) => decodeBase64Text(read(source));
+
+    // WOFF2 magic ("wOF2") on every decoded font file.
+    for (const { source, target } of BINARY_ASSETS) {
+      if (!target.endsWith(".woff2")) continue;
+      expect(decode(source).subarray(0, 4).toString("ascii"), target).toBe("wOF2");
+    }
 
     const ico = decode("app/favicon.ico.b64");
     // ICO magic: reserved 0, type 1 (icon).
@@ -241,14 +284,17 @@ describe("kit blocks", () => {
     expect(success).not.toContain("aria-invalid");
   });
 
-  it("renders one pill family in its two variants", () => {
-    const distance = renderToStaticMarkup(
-      createElement(DistancePill, { figure: "0.4 miles", label: "to school" }),
+  it("renders the one pill family: label + tinted figure, or the fact form (D70 R5)", () => {
+    const withFigure = renderToStaticMarkup(
+      createElement(SummaryPill, { label: "Nearest primary", figure: "0.4 mi", band: "green" }),
     );
-    expect(distance).toContain("pill pill--distance");
-    expect(distance).toContain('<span class="pill__figure">0.4 miles</span>');
-    const fact = renderToStaticMarkup(createElement(FactPill, null, "A fact"));
-    expect(fact).toContain("pill pill--fact");
+    expect(withFigure).toContain("pill pill--summary");
+    expect(withFigure).toContain('<span class="pill__label">Nearest primary</span>');
+    expect(withFigure).toContain('<span class="pill__figure pill__figure--green">0.4 mi</span>');
+    const fact = renderToStaticMarkup(
+      createElement(SummaryPill, { label: "Flood: 2 separate checks" }),
+    );
+    expect(fact).toContain("pill pill--summary");
     expect(fact).not.toContain("pill__figure");
   });
 

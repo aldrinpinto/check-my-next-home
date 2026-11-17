@@ -31,7 +31,10 @@ async function searchFromHome(page: Page, text: string) {
 
 async function pickAndReachResults(page: Page, postcode: string, rowName: string) {
   await page.waitForURL(`**/search?postcode=${postcode.replace(" ", "+")}`);
-  await page.getByRole("link", { name: rowName, exact: true }).click();
+  // D70 R6: the picker is select-then-confirm — tapping a
+  // row selects it; the Ink button starts the check.
+  await page.getByRole("button", { name: rowName, exact: true }).click();
+  await page.getByRole("button", { name: "Check this address" }).click();
   await page.waitForURL(/\/search\/home\?postcode=/);
   await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
 }
@@ -66,9 +69,10 @@ test.describe("checker journey — smoke", () => {
       await searchFromHome(page, "KT17 1FH");
       await page.waitForURL("**/search?postcode=KT17+1FH");
       await page
-        .getByRole("link", { name: /Flat 4, Minerva House/ })
+        .getByRole("button", { name: /Flat 4, Minerva House/ })
         .first()
         .click();
+      await page.getByRole("button", { name: "Check this address" }).click();
       await page.waitForURL(/\/search\/home\?postcode=KT17\+1FH&home=/);
       await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
       await expect(page.locator(".results-header__scope")).toContainText("KT17 1FH");
@@ -89,19 +93,21 @@ test.describe("checker journey — regression", () => {
       });
       await searchFromHome(page, "CM3 2JT");
       await page.waitForURL("**/search?postcode=CM3+2JT");
-      await page.getByRole("link", { name: "19 Birkdale Rise", exact: true }).click();
+      await page.getByRole("button", { name: "19 Birkdale Rise", exact: true }).click();
+      await page.getByRole("button", { name: "Check this address" }).click();
 
       const rows = page.locator(".checking__row");
       await expect(rows).toHaveCount(9);
+      // D70: three rows carry the design's qualifiers (D11).
       await expect(page.locator(".checking__row-label")).toHaveText([
-        "Schools",
+        "Schools — nearest primary & secondary, with Ofsted",
         "Nurseries & pre-schools",
         "GP, NHS dentist & pharmacy",
         "Hospitals, A&E & maternity",
         "Parks, vets & dog-walking areas",
-        "Shops & transport",
+        "Shops & transport — supermarkets, bus stops, stations",
         "Food & drink, leisure & gyms, places to visit, worship & libraries",
-        "Flood",
+        "Flood — rivers & sea, and surface water",
         "Sold history, council tax, EPC, planning applications & constraints, ownership",
       ]);
       await expect(page.locator(".checking__intro")).toContainText("no artificial delays");
@@ -127,12 +133,16 @@ test.describe("checker journey — regression", () => {
       });
       await searchFromHome(page, "CM3 2JT");
       await page.waitForURL("**/search?postcode=CM3+2JT");
-      await page.getByRole("link", { name: "19 Birkdale Rise", exact: true }).click();
+      await page.getByRole("button", { name: "19 Birkdale Rise", exact: true }).click();
+      await page.getByRole("button", { name: "Check this address" }).click();
       await expect(page.locator(".checking__row")).toHaveCount(9);
 
       await page.getByRole("link", { name: "Back to the address list" }).click();
       await page.waitForURL(/\/search\?postcode=CM3\+2JT&picked=/);
-      const picked = page.getByRole("link", { name: "19 Birkdale Rise", exact: true });
+      // D70 R6: the retained pick is the selected row —
+      // pressed, current, and focused.
+      const picked = page.getByRole("button", { name: "19 Birkdale Rise", exact: true });
+      await expect(picked).toHaveAttribute("aria-pressed", "true");
       await expect(picked).toHaveAttribute("aria-current", "true");
       await expect(picked).toBeFocused();
     },
@@ -155,11 +165,13 @@ test.describe("checker journey — regression", () => {
     async ({ page }) => {
       await searchFromHome(page, "e161gn");
       await page.waitForURL("**/search?postcode=E16+1GN");
-      await expect(page.getByRole("link", { name: "6 Exeter Road", exact: true })).toBeVisible();
+      await expect(page.getByRole("button", { name: "6 Exeter Road", exact: true })).toBeVisible();
 
       await searchFromHome(page, " cm3 2jt ");
       await page.waitForURL("**/search?postcode=CM3+2JT");
-      await expect(page.getByRole("link", { name: "19 Birkdale Rise", exact: true })).toBeVisible();
+      await expect(
+        page.getByRole("button", { name: "19 Birkdale Rise", exact: true }),
+      ).toBeVisible();
     },
   );
 
@@ -185,8 +197,9 @@ test.describe("checker journey — regression", () => {
       );
       await page
         .locator(".picker")
-        .getByRole("link", { name: "19 Birkdale Rise", exact: true })
+        .getByRole("button", { name: "19 Birkdale Rise", exact: true })
         .click();
+      await page.locator(".picker").getByRole("button", { name: "Check this address" }).click();
       await page.waitForURL(/\/search\/home\?postcode=CM3\+2JT&home=/);
       await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
       await expect(page.locator(".results-header h1")).toHaveText("19 Birkdale Rise");
@@ -264,7 +277,9 @@ test.describe("checker journey — regression", () => {
     async ({ page }) => {
       await page.goto("/search/home?postcode=CM3+2JT&home=no-such%7C%7Ckey");
       await page.waitForURL("**/search?postcode=CM3+2JT");
-      await expect(page.getByRole("link", { name: "19 Birkdale Rise", exact: true })).toBeVisible();
+      await expect(
+        page.getByRole("button", { name: "19 Birkdale Rise", exact: true }),
+      ).toBeVisible();
     },
   );
 
@@ -293,7 +308,7 @@ test.describe("checker journey — regression", () => {
       // keys against the real widget and verify endpoint.
       await searchFromHome(page, "E16 1GN");
       await page.waitForURL("**/search?postcode=E16+1GN");
-      await expect(page.getByRole("link", { name: "6 Exeter Road", exact: true })).toBeVisible();
+      await expect(page.getByRole("button", { name: "6 Exeter Road", exact: true })).toBeVisible();
     },
   );
 

@@ -10,7 +10,7 @@ import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from "react
 // in their own component files.
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: "primary" | "quiet";
+  variant?: "primary" | "quiet" | "ink";
 };
 
 export function Button({ variant = "primary", className, ...props }: ButtonProps) {
@@ -76,22 +76,65 @@ export function Card({ title, children }: { title?: string; children: ReactNode 
   );
 }
 
-// The pill family (one family, two variants — see
-// app/globals.css). The distance pill carries colour on the
-// miles figure only.
-export function DistancePill({ figure, label }: { figure: string; label?: string }) {
+// The pill family (D70 R5 — one family, see
+// app/globals.css): a label, and where the fact carries
+// one, its figure as the tinted distance chip, coloured by
+// the figure's own band. Colour sits on the figure only —
+// the pill itself is never coloured. A pill with no figure
+// is the family's fact form. The model is lib/results.ts's
+// SummaryPill; pillText there recomposes the served string.
+export function SummaryPill({
+  label,
+  figure,
+  band,
+  mark,
+}: {
+  label: string;
+  figure?: string | null;
+  band?: "green" | "orange" | "red" | null;
+  mark?: string;
+}) {
   return (
-    <span className="pill pill--distance">
-      <span className="pill__figure">{figure}</span>
-      {label}
+    <span className="pill pill--summary">
+      <span className="pill__label">{label}</span>
+      {figure && <span className={`pill__figure pill__figure--${band ?? "green"}`}>{figure}</span>}
+      {mark && <span className="pill__mark">{mark}</span>}
     </span>
   );
 }
 
-// The fact pill carries no colour at all: it is the summary
-// strip's pill (M7.4), holding logic-filled fact text.
-export function FactPill({ children }: { children: ReactNode }) {
-  return <span className="pill pill--fact">{children}</span>;
+// The autocomplete dropdown's visual shell (D70; the
+// founder's 17 Nov ruling): a grouped suggestion panel —
+// AREAS, then PROPERTIES — that sits under the search box.
+// Presentation only: no address-data source is wired to it
+// yet (priced separately), so the box renders it only when
+// a future source hands it groups; the kitchen sink carries
+// its specimen.
+export interface SuggestionGroup {
+  label: string;
+  items: string[];
+}
+
+export function SuggestionShell({ groups }: { groups: SuggestionGroup[] }) {
+  if (groups.length === 0) return null;
+  return (
+    <div className="postcode-box__suggestions">
+      {groups.map((group) => (
+        <div className="suggest__group" key={group.label}>
+          <p className="suggest__group-label">{group.label}</p>
+          <ul className="suggest__list" role="listbox" aria-label={group.label}>
+            {group.items.map((item) => (
+              <li key={item}>
+                <button type="button" className="suggest__item" role="option" aria-selected="false">
+                  {item}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 const NOTICE_LABELS = {

@@ -28,6 +28,39 @@ export const BINARY_ASSETS = [
   { source: "app/apple-icon.png.b64", target: "app/apple-icon.png" },
   // The Open Graph card (1200x630, composed at M7.1 from the pack).
   { source: "public/og-image.png.b64", target: "public/og-image.png" },
+  // The self-hosted typefaces (D70, R1): Newsreader (display)
+  // and DM Sans (text/UI), latin subsets from the Fontsource
+  // packages (@fontsource/newsreader, @fontsource/dm-sans —
+  // both SIL Open Font License 1.1), decoded to public/fonts/
+  // where app/globals.css's @font-face rules point.
+  {
+    source: "public/fonts/newsreader-latin-600-normal.woff2.b64",
+    target: "public/fonts/newsreader-latin-600-normal.woff2",
+  },
+  {
+    source: "public/fonts/newsreader-latin-700-normal.woff2.b64",
+    target: "public/fonts/newsreader-latin-700-normal.woff2",
+  },
+  {
+    source: "public/fonts/dm-sans-latin-400-normal.woff2.b64",
+    target: "public/fonts/dm-sans-latin-400-normal.woff2",
+  },
+  {
+    source: "public/fonts/dm-sans-latin-600-normal.woff2.b64",
+    target: "public/fonts/dm-sans-latin-600-normal.woff2",
+  },
+  {
+    source: "public/fonts/dm-sans-latin-700-normal.woff2.b64",
+    target: "public/fonts/dm-sans-latin-700-normal.woff2",
+  },
+  {
+    source: "public/fonts/dm-sans-latin-800-normal.woff2.b64",
+    target: "public/fonts/dm-sans-latin-800-normal.woff2",
+  },
+  {
+    source: "public/fonts/dm-sans-latin-900-normal.woff2.b64",
+    target: "public/fonts/dm-sans-latin-900-normal.woff2",
+  },
 ];
 
 export function decodeBase64Text(text) {

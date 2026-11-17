@@ -17,6 +17,7 @@ import {
   distanceBand,
   floodWarningsBlock,
   formatMiles,
+  pillText,
   placeGroupView,
   resultsScopeLabel,
   summaryPills,
@@ -644,12 +645,18 @@ describe("results — pill logic E2", () => {
       crime: crimeBundle(0.5),
       sections: shortSections(),
     });
-    expect(pills).toEqual([
+    // D70 R5: the pills are label+figure now; recomposed via
+    // pillText they are byte-identical to the strings the
+    // logic has always served (the split is pinned below).
+    expect(pills?.map(pillText)).toEqual([
       "Nearest primary 0.44 mi",
       "Flood: 2 separate checks",
       "Crime: 12-month counts",
       "Park 0.32 mi",
     ]);
+    expect(pills?.[0]).toEqual({ label: "Nearest primary", figure: "0.44 mi", band: "green" });
+    expect(pills?.[1]).toEqual({ label: "Flood: 2 separate checks", figure: null, band: null });
+    expect(pills?.[3]).toEqual({ label: "Park", figure: "0.32 mi", band: "green" });
   });
 
   it("a grammar within 2 miles takes slot 1", () => {
@@ -676,7 +683,13 @@ describe("results — pill logic E2", () => {
       crime: crimeBundle(0.5),
       sections: shortSections(),
     });
-    expect(pills?.[0]).toBe("Grammar school 1.2 mi ★");
+    expect(pills && pillText(pills[0])).toBe("Grammar school 1.2 mi ★");
+    expect(pills?.[0]).toEqual({
+      label: "Grammar school",
+      figure: "1.2 mi",
+      band: "orange",
+      mark: "★",
+    });
   });
 
   it("a higher flood band fires the flood pill, naming the check", () => {
@@ -702,8 +715,8 @@ describe("results — pill logic E2", () => {
       crime: crimeBundle(0.5),
       sections,
     });
-    expect(pills?.[1]).toBe("Surface-water flood band: higher for this street");
-    expect(pills?.[2]).toBe("Crime: 12-month counts");
+    expect(pills && pillText(pills[1])).toBe("Surface-water flood band: higher for this street");
+    expect(pills && pillText(pills[2])).toBe("Crime: 12-month counts");
   });
 
   it("crime at 1.5× fires the count pill; at 1.3× it does not", () => {
@@ -713,14 +726,14 @@ describe("results — pill logic E2", () => {
       crime: crimeBundle(1.5),
       sections: shortSections(),
     });
-    expect(at?.[1]).toBe("Crime: 330 recorded in 12 months");
+    expect(at && pillText(at[1])).toBe("Crime: 330 recorded in 12 months");
     const below = summaryPills({
       nearby: baseNearby as Extract<NearbyBundle, { kind: "distances" }>,
       flood: floodBundle(noWarnings),
       crime: crimeBundle(1.3),
       sections: shortSections(),
     });
-    expect(below?.[1]).toBe("Flood: 2 separate checks");
+    expect(below && pillText(below[1])).toBe("Flood: 2 separate checks");
   });
 
   it("an A&E beyond 10 miles fires the distance pill", () => {
@@ -747,7 +760,12 @@ describe("results — pill logic E2", () => {
       crime: crimeBundle(0.5),
       sections: shortSections(),
     });
-    expect(pills).toContain("Nearest A&E 10.4 mi");
+    expect(pills?.map(pillText)).toContain("Nearest A&E 10.4 mi");
+    expect(pills?.find((pill) => pill.label === "Nearest A&E")).toEqual({
+      label: "Nearest A&E",
+      figure: "10.4 mi",
+      band: "red",
+    });
   });
 
   it("the council tax fallback fires when another subject cannot serve a pill", () => {
@@ -765,7 +783,7 @@ describe("results — pill logic E2", () => {
       } as unknown as CrimeBundle,
       sections,
     });
-    expect(pills?.slice(1, 3)).toEqual([
+    expect(pills?.slice(1, 3).map(pillText)).toEqual([
       "Flood: 2 separate checks",
       "Council tax: Band D averages £2,280.36 a year",
     ]);
@@ -1034,10 +1052,14 @@ describe("results — the wider-area view (rung 3)", () => {
 });
 
 describe("results — the rendered page", () => {
-  it("renders the strip with no colour on the pills, the D9 form verbatim, and the closing block", () => {
+  it("renders the strip's pills as label + figure chip, the D9 form verbatim, and the closing block", () => {
     const view = buildResultsView(input());
     const html = renderToStaticMarkup(createElement(ResultsPage, { view }));
-    expect(html).toContain("pill pill--fact");
+    // D70 R5: the pill is never coloured; its miles figure
+    // rides as the tinted chip, and only there.
+    expect(html).toContain("pill pill--summary");
+    expect(html).toContain('<span class="pill__label">Nearest primary</span>');
+    expect(html).toContain('<span class="pill__figure pill__figure--green">0.44 mi</span>');
     expect(html).not.toContain('place-row__miles--green">Nearest primary');
     expect(html).toContain(DISCLAIMER_SHORT_FORM);
     expect(html).toContain(DISCLAIMER_CLOSING_BLOCK);

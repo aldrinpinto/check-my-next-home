@@ -101,7 +101,9 @@ async function seedShortlist(page: Page, cards: ShortlistCard[]) {
 
 async function reachResults(page: Page, postcode: string, rowName: string | RegExp) {
   await page.goto(`/search?postcode=${postcode.replace(" ", "+")}`);
-  await page.getByRole("link", { name: rowName }).first().click();
+  // D70 R6: the picker is select-then-confirm.
+  await page.getByRole("button", { name: rowName }).first().click();
+  await page.getByRole("button", { name: "Check this address" }).click();
   await page.waitForURL(/\/search\/home\?postcode=/);
   await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
 }
@@ -121,7 +123,8 @@ test.describe("shortlist — smoke", () => {
         let context = await launch();
         let persistent = context.pages()[0] ?? (await context.newPage());
         await persistent.goto("/search?postcode=CM3+2JT");
-        await persistent.getByRole("link", { name: "19 Birkdale Rise" }).first().click();
+        await persistent.getByRole("button", { name: "19 Birkdale Rise" }).first().click();
+        await persistent.getByRole("button", { name: "Check this address" }).click();
         await persistent.waitForURL(/\/search\/home\?postcode=/);
         await expect(persistent.locator(".results")).toBeVisible({ timeout: 30_000 });
         await persistent.getByRole("button", { name: "Shortlist this home" }).click();
@@ -204,31 +207,31 @@ test.describe("shortlist — regression", () => {
       await page.goto("/shortlist");
 
       const compare = page.locator(".shortlist-compare");
-      await expect(compare.locator(".shortlist-compare__column")).toHaveCount(3);
+      // D70 D17: on a wide screen the comparison is the
+      // design's shared-label table — the first column names
+      // each check once, one column per home. (The phone
+      // block stacking is unchanged.)
+      await expect(compare.locator(".compare-table thead th")).toHaveCount(4);
       // The pinned row set leads with the primary row; the
       // flood and crime cells are pointers in every column.
-      const firstColumn = compare.locator(".shortlist-compare__column").first();
-      await expect(firstColumn.locator('[data-compare-row="primary"]')).toContainText(
-        "Birkdale Primary School",
-      );
-      await expect(
-        firstColumn.locator('[data-compare-row="primary"] .place-row__miles--green'),
-      ).toHaveText("0.42 mi");
-      for (const column of await compare.locator(".shortlist-compare__column").all()) {
-        await expect(column.locator('[data-compare-row="flood"]')).toContainText(
-          "See this home's check",
-        );
-        await expect(column.locator('[data-compare-row="crime"]')).toContainText(
-          "See this home's check",
-        );
-        await expect(column.getByRole("link", { name: "Report for this home" })).toHaveAttribute(
-          "href",
-          "/report",
-        );
+      const primaryRow = compare.locator('.compare-table [data-compare-row="primary"]');
+      await expect(primaryRow.locator("td").first()).toContainText("Birkdale Primary School");
+      await expect(primaryRow.locator(".place-row__miles--green").first()).toHaveText("0.42 mi");
+      for (const rowKey of ["flood", "crime"]) {
+        const cells = compare.locator(`.compare-table [data-compare-row="${rowKey}"] td`);
+        await expect(cells).toHaveCount(3);
+        for (const cell of await cells.all()) {
+          await expect(cell).toHaveText("See this home's check");
+        }
       }
-      await expect(firstColumn.locator('[data-compare-row="councilTax"]')).toContainText(
-        "Band D averages £2,280.36 a year",
-      );
+      const reportLinks = compare.locator(".compare-table tfoot .report-btn");
+      await expect(reportLinks).toHaveCount(3);
+      for (const link of await reportLinks.all()) {
+        await expect(link).toHaveAttribute("href", "/report");
+      }
+      await expect(
+        compare.locator('.compare-table [data-compare-row="councilTax"] td').first(),
+      ).toContainText("Band D averages £2,280.36 a year");
       // No winner, score or ranking language anywhere in the
       // comparison (the D9 disclaimer's "recommend" sits
       // outside this section and is not a verdict).

@@ -3,8 +3,13 @@ import Link from "next/link";
 import AudienceCards from "../components/AudienceCards";
 import PostcodeBox from "../components/PostcodeBox";
 import {
-  HOME_HERO_ART,
-  HOME_HERO_ART_ALT,
+  EXAMPLE_CHECK_LABEL,
+  HOME_CARDS_HEADING,
+  HOME_CARDS_SUB,
+  HOME_FAMILY_NAMES,
+  HOME_FAMILY_NAMES_LEAD,
+  HOME_FAMILY_NAMES_NOTE,
+  HOME_HERO_PANELS,
   HOME_HERO_SUBLINE,
   HOME_MANIFESTO_HEADLINE,
   HOME_MANIFESTO_WHY,
@@ -15,22 +20,33 @@ import {
   SAMPLE_REPORT_LINK_TEXT,
   SAMPLE_REPORT_PATH,
 } from "../lib/home";
-import { HOME_HERO_HEADLINE, SITE_MANIFESTO, SITE_TAGLINE } from "../lib/site";
+import { HOME_HERO_HEADLINE, SITE_MANIFESTO } from "../lib/site";
 
 // M7.2 — the home page. Family-first, as designed (D12) and as
-// ruled at the step's gap check (founder, 16 Nov 2026):
+// ruled at the step's gap check (founder, 16 Nov 2026).
+//
+// D70 (the design-alignment pass) rebuilds the composition
+// to the governing sources — the Final Design's chosen
+// homepage, with the decided landing page (13 Nov 2026)
+// governing wherever the two differ:
 //
 //   Hero, in its pinned order — the manifesto as kicker, the
-//   D44 headline as H1, the sub-line, the postcode box (the
-//   page's main action; inert at this step, M7.3 wires the
-//   journey into it), and the tagline closing the hero. The
-//   order is identical on mobile — it is simply the document
-//   order. The hero's scene is one of this step's one-line
-//   illustrations, drawn in the Roof-Tick's own language.
-//   The three audience cards directly under the hero.
-//   "What it checks" — the checking screen's nine rows in
-//   family language, items carrying no links at this step.
-//   The manifesto block, once, mid-page.
+//   D44 headline as H1, the sub-line, the three captioned
+//   imagery panels, then the postcode box (the page's main
+//   action; M7.3 wired the journey into it) with the
+//   example-check action beside it. The hero tagline line
+//   M7.2 closed the hero with is dropped (D70 R2/D20) — the
+//   tagline lives in the header and footer lockups. The
+//   order is identical on mobile — it is simply the
+//   document order.
+//   The three audience cards under their section heading,
+//   in the design's text-only form with the decided page's
+//   intros and check lists.
+//   The family-names panel (D70 R4).
+//   "What it checks" — the checking screen's nine rows under
+//   their plain names, as a contents list.
+//   The manifesto block, once, mid-page — now the design's
+//   dark Forest panel with the chosen homepage's why line.
 //   The SAMPLE report link, clearly labelled — its page is
 //   M8.9's, so the link is a known dead end until then.
 //
@@ -38,27 +54,51 @@ import { HOME_HERO_HEADLINE, SITE_MANIFESTO, SITE_TAGLINE } from "../lib/site";
 // sits beside the results, M7.4), and no price or "free" lines
 // (the £4.99 model lives at M9's surfaces). The page's metadata
 // is the locked PAGE_SEO["/"] entry, consumed by the root
-// layout — unchanged by this step.
+// layout — unchanged by this step. The page is a composed
+// page, so it takes the wide container (D70 R7).
 export default function Home() {
   return (
-    <main>
+    <main className="main--wide">
       <section className="hero">
         <p className="hero__kicker">{SITE_MANIFESTO}</p>
         <h1>{HOME_HERO_HEADLINE}</h1>
         <p className="type-lead">{HOME_HERO_SUBLINE}</p>
-        <PostcodeBox />
-        <p className="hero__tagline">{SITE_TAGLINE}</p>
-        {/* eslint-disable-next-line @next/next/no-img-element -- the illustrations are plain static assets; next/image adds nothing on a static export */}
-        <img
-          className="hero__art"
-          src={HOME_HERO_ART}
-          alt={HOME_HERO_ART_ALT}
-          width="960"
-          height="640"
-        />
+        <ul className="hero__panels">
+          {HOME_HERO_PANELS.map((panel) => (
+            <li className="hero__panel" key={panel.title}>
+              {/* eslint-disable-next-line @next/next/no-img-element -- the illustrations are plain static assets; next/image adds nothing on a static export */}
+              <img
+                className="hero__panel-art"
+                src={panel.art}
+                alt={panel.artAlt}
+                width="48"
+                height="48"
+              />
+              <span className="hero__panel-title">{panel.title}</span>
+              <span className="hero__panel-line">{panel.line}</span>
+            </li>
+          ))}
+        </ul>
+        <div className="hero__actions">
+          <PostcodeBox />
+          <Link className="hero__example" href={SAMPLE_REPORT_PATH}>
+            {EXAMPLE_CHECK_LABEL}
+          </Link>
+        </div>
       </section>
 
-      <AudienceCards />
+      <section className="home-section" aria-labelledby="audience-cards-heading">
+        <h2 id="audience-cards-heading">{HOME_CARDS_HEADING}</h2>
+        <p className="home-section__sub">{HOME_CARDS_SUB}</p>
+        <AudienceCards />
+      </section>
+
+      <section className="fam-names" aria-label="The checks, in family language">
+        <p>
+          <b>{HOME_FAMILY_NAMES_LEAD}</b> {HOME_FAMILY_NAMES.join(" · ")}{" "}
+          <span className="fam-names__note">{HOME_FAMILY_NAMES_NOTE}</span>
+        </p>
+      </section>
 
       <section className="home-section" aria-labelledby="what-it-checks">
         <h2 id="what-it-checks">{HOME_WHAT_IT_CHECKS_HEADING}</h2>
@@ -75,7 +115,7 @@ export default function Home() {
       <section className="manifesto-block">
         <p className="manifesto-block__headline">{HOME_MANIFESTO_HEADLINE}</p>
         <p className="manifesto-block__line">{SITE_MANIFESTO}</p>
-        <p>{HOME_MANIFESTO_WHY}</p>
+        <p className="manifesto-block__why">{HOME_MANIFESTO_WHY}</p>
       </section>
 
       <section className="home-section" aria-labelledby="sample-report">

@@ -36,7 +36,13 @@ interface RowView {
   elements?: RowResult["elements"];
 }
 
-const ADVANCE_BEAT_MS = 800;
+// The minimum readable hold (founder ruling, 17 Nov 2026,
+// carried by D70): once every row has completed — truthfully,
+// as the brains resolved — the finished screen holds for
+// this long before the results open, so the completed rows
+// can actually be read. The hold delays only the advance;
+// no row ever waits on it, and nothing is staggered.
+const ADVANCE_BEAT_MS = 2_000;
 
 export default function CheckingScreen({
   postcode,
@@ -119,9 +125,9 @@ export default function CheckingScreen({
   useEffect(() => {
     if (!allTerminal || advancedRef.current) return;
     advancedRef.current = true;
-    // A short beat so the last row's end state is seen
-    // before the advance — the rows themselves never wait
-    // on it; it is not a simulated delay in any check.
+    // The readable hold (see ADVANCE_BEAT_MS): the rows
+    // themselves never wait on it; it is not a simulated
+    // delay in any check.
     const timer = setTimeout(() => setComplete(true), ADVANCE_BEAT_MS);
     return () => clearTimeout(timer);
   }, [allTerminal]);
@@ -145,7 +151,9 @@ export default function CheckingScreen({
               <span className="checking__row-label">{row.label}</span>
               <span className="checking__row-state">
                 {view.status === "checking" && "Checking…"}
-                {view.status === "done" && "Done"}
+                {/* The done state carries its tick in the word
+                    itself (D70) — never colour alone. */}
+                {view.status === "done" && "Done ✓"}
                 {view.status === "unavailable" && (view.line ?? "Not available for this home")}
                 {view.status === "failed" && view.line}
               </span>
@@ -158,7 +166,7 @@ export default function CheckingScreen({
                     <li key={element.label} data-element={element.label} data-state={element.state}>
                       <span className="checking__element-label">{element.label}</span>
                       <span className="checking__element-state">
-                        {element.state === "done" ? "Done" : (element.line ?? "Not available")}
+                        {element.state === "done" ? "Done ✓" : (element.line ?? "Not available")}
                       </span>
                     </li>
                   ))}

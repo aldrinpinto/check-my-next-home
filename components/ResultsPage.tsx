@@ -5,7 +5,7 @@ import {
   DISCLAIMER_SHORT_FORM,
   HOW_WE_CHECK_PATH,
 } from "../lib/site";
-import { FactPill, Notice, SourceLine } from "./kit";
+import { Notice, SourceLine, SummaryPill } from "./kit";
 import Tabs from "./Tabs";
 
 // The free results page (plan step M7.4): a mechanical
@@ -14,7 +14,8 @@ import Tabs from "./Tabs";
 // forms) is made and pinned there, not here.
 //
 // Structure, per the step text: the summary strip (four
-// logic-driven fact pills, no colour), the live-warnings
+// logic-driven pills in their band; colour only on a
+// pill's miles figure, D70 R5), the live-warnings
 // slim line directly under it (only when a warning is
 // active; the D42 failure line travels with it), the D9
 // short form verbatim beside the results (D66), the three
@@ -131,7 +132,13 @@ export default function ResultsPage({ view }: { view: ResultsView }) {
       {view.pills && (
         <div className="results-strip" aria-label="The short version">
           {view.pills.map((pill) => (
-            <FactPill key={pill}>{pill}</FactPill>
+            <SummaryPill
+              key={pill.label}
+              label={pill.label}
+              figure={pill.figure}
+              band={pill.band}
+              mark={pill.mark}
+            />
           ))}
         </div>
       )}

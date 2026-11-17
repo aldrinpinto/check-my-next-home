@@ -9,7 +9,7 @@ import ShortlistPage from "../../components/ShortlistPage";
 // serve call and works while the play server is down.
 export default function ShortlistRoute() {
   return (
-    <main className="journey-page">
+    <main className="journey-page main--wide">
       <h1>Your shortlist</h1>
       <p className="type-lead">
         The homes you&rsquo;ve saved, side by side. Nothing about which homes you are considering is

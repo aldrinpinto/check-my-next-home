@@ -13,6 +13,8 @@ import {
   NO_LOCATION_HEADING,
   NOT_COVERED_INTRO,
   OWNERSHIP_NOT_PART_LINE,
+  PICKER_CONFIRM_LABEL,
+  PICKER_EXPLAINER,
   SEARCH_ROUTE,
   TURNSTILE_BLOCK_LINE,
   WHOLE_CHECK_FAILURE_HEADING,
@@ -192,6 +194,24 @@ describe("pinned journey copy", () => {
       "Flood couldn't be checked just now — the rest of the check still opens.",
     );
     expect(CHECKING_ROWS).toHaveLength(9);
+    // D70: three rows carry the design's qualifiers (D11
+    // restored); the picker gains its explainer and the
+    // select-then-confirm button (R6).
+    expect(CHECKING_ROWS.map((row) => row.label)).toEqual([
+      "Schools — nearest primary & secondary, with Ofsted",
+      "Nurseries & pre-schools",
+      "GP, NHS dentist & pharmacy",
+      "Hospitals, A&E & maternity",
+      "Parks, vets & dog-walking areas",
+      "Shops & transport — supermarkets, bus stops, stations",
+      "Food & drink, leisure & gyms, places to visit, worship & libraries",
+      "Flood — rivers & sea, and surface water",
+      "Sold history, council tax, EPC, planning applications & constraints, ownership",
+    ]);
+    expect(PICKER_EXPLAINER).toBe(
+      "Schools and flood are address-sensitive, so pick your exact house before anything is checked.",
+    );
+    expect(PICKER_CONFIRM_LABEL).toBe("Check this address →");
     expect(scopeLabelFor(birkdale)).toBe("19 Birkdale Rise, CM3 2JT");
     expect(scopeLabelFor(birkdaleList)).toBe("CM3 2JT — the whole postcode, not one home");
   });

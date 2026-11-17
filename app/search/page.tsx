@@ -92,7 +92,7 @@ export default async function SearchPage({
       return <WholeCheckFailure retryHref={widerAreaRoute(resolution.outward, params.notfound)} />;
     }
     return (
-      <main className="journey-page">
+      <main className="journey-page main--wide">
         <header className="results-header results-header--row">
           <h1>{resolution.label}</h1>
           {card && <ShortlistButton card={card} />}
@@ -144,7 +144,7 @@ export default async function SearchPage({
   }));
 
   return (
-    <main className="journey-page">
+    <main className="journey-page main--wide">
       <AddressPicker
         postcode={postcode}
         heading={heading}

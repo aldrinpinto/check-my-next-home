@@ -7,8 +7,9 @@ import { expect, test } from "./fixtures";
 //
 // Smoke: a completed check renders all three tabs with the
 // bundle's figures for each universal golden home; the
-// summary strip's four pills render with no colour on the
-// pills; the D9 short form appears verbatim beside the
+// summary strip's four pills render label + tinted figure
+// chip (D70 R5 — the colour rides on the figure only); the
+// D9 short form appears verbatim beside the
 // results. Regression: the rung-3 wider-area page, refresh
 // and Back, the flood-warnings forms, the D39 calibration
 // pair, the noise states, the catchment block and deadlines
@@ -42,7 +43,9 @@ async function searchFromHome(page: Page, text: string) {
 
 async function reachResults(page: Page, postcode: string, rowName: string | RegExp) {
   await page.waitForURL(`**/search?postcode=${postcode.replace(" ", "+")}`);
-  await page.getByRole("link", { name: rowName }).first().click();
+  // D70 R6: the picker is select-then-confirm.
+  await page.getByRole("button", { name: rowName }).first().click();
+  await page.getByRole("button", { name: "Check this address" }).click();
   await page.waitForURL(/\/search\/home\?postcode=/);
   await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
 }
@@ -53,17 +56,22 @@ async function openTab(page: Page, name: string) {
 
 test.describe("results page — smoke", () => {
   test(
-    "Birkdale CM3 2JT: three tabs with the bundle's figures, four uncoloured pills, the D9 form",
+    "Birkdale CM3 2JT: three tabs with the bundle's figures, four pills, the D9 form",
     { tag: "@smoke" },
     async ({ page }) => {
       await searchFromHome(page, "CM3 2JT");
       await reachResults(page, "CM3 2JT", "19 Birkdale Rise");
 
-      // The summary strip: exactly four fact pills, and the
-      // pill markup carries no distance colour classes.
-      const pills = page.locator(".results-strip .pill--fact");
+      // The summary strip: exactly four pills; each miles
+      // figure rides as its own tinted chip (D70 R5), and
+      // the place-row chip class never appears in the strip.
+      const pills = page.locator(".results-strip .pill--summary");
       await expect(pills).toHaveCount(4);
       await expect(pills.nth(0)).toContainText("Nearest primary");
+      // The served corpus's nearest-primary figure (the unit
+      // fixtures' fabricated bundle carries a different one).
+      await expect(pills.nth(0).locator(".pill__figure")).toHaveText("0.29 mi");
+      await expect(pills.nth(0).locator(".pill__figure")).toHaveClass(/pill__figure--green/);
       await expect(pills.nth(1)).toHaveText("Flood: 2 separate checks");
       await expect(pills.nth(2)).toHaveText("Crime: 12-month counts");
       await expect(pills.nth(3)).toContainText("Park");
@@ -101,7 +109,7 @@ test.describe("results page — smoke", () => {
       await searchFromHome(page, "E16 1GN");
       await reachResults(page, "E16 1GN", "6 Exeter Road");
       await expect(page.getByRole("tab")).toHaveCount(3);
-      await expect(page.locator(".results-strip .pill--fact")).toHaveCount(4);
+      await expect(page.locator(".results-strip .pill--summary")).toHaveCount(4);
       await expect(page.locator('[data-section="crime"]')).toContainText("10,722 recorded crimes");
       await openTab(page, "Home, Costs & Risks");
       const sold = page.locator('[data-section="sold-prices"]');
@@ -117,7 +125,7 @@ test.describe("results page — smoke", () => {
       await searchFromHome(page, "KT17 1FH");
       await reachResults(page, "KT17 1FH", /Flat 4, Minerva House/);
       await expect(page.getByRole("tab")).toHaveCount(3);
-      await expect(page.locator(".results-strip .pill--fact")).toHaveCount(4);
+      await expect(page.locator(".results-strip .pill--summary")).toHaveCount(4);
       await expect(page.locator('[data-section="crime"]')).toContainText("1,956 recorded crimes");
       await openTab(page, "Home, Costs & Risks");
       const sold = page.locator('[data-section="sold-prices"]');
@@ -165,7 +173,9 @@ test.describe("results page — regression", () => {
       await expect(page.locator('[data-section="crime"]')).toContainText("330 recorded crimes");
       await page.goBack();
       await page.waitForURL(/\/search\?postcode=CM3\+2JT/);
-      await expect(page.getByRole("link", { name: "19 Birkdale Rise", exact: true })).toBeVisible();
+      await expect(
+        page.getByRole("button", { name: "19 Birkdale Rise", exact: true }),
+      ).toBeVisible();
     },
   );
 

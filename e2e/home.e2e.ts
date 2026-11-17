@@ -1,8 +1,8 @@
 import { expect, test } from "@playwright/test";
 
 // M7.2 E2E (D68) — the home page. Smoke: the landing page
-// serves with the hero (manifesto kicker, H1, sub-line and
-// tagline together) and the postcode box present and usable —
+// serves with the hero (manifesto kicker, H1, sub-line, the
+// three captioned panels and the postcode box together) —
 // the first leg of the critical check journey. At M7.2
 // "usable" was pinned by the founder's ruling as renders-and-
 // accepts-input with an inert submit; M7.3 wires the real
@@ -25,7 +25,12 @@ test.describe("home page — smoke", () => {
       await expect(page.locator(".hero .type-lead")).toContainText(
         "We check what the listing doesn't tell you",
       );
-      await expect(page.locator(".hero__tagline")).toHaveText("Check the house. Choose the home.");
+      // D70 R2/D20: the hero tagline line is dropped, and the
+      // three captioned panels sit between the sub-line and
+      // the box.
+      await expect(page.locator(".hero__tagline")).toHaveCount(0);
+      await expect(page.locator(".hero__panel")).toHaveCount(3);
+      await expect(page.locator(".hero__panel-title").first()).toHaveText("Moving-in day");
 
       // The hero's pinned order, top to bottom — the same order
       // the phone stacks in, since it is the document order.
@@ -36,14 +41,20 @@ test.describe("home page — smoke", () => {
           kicker: pick(".hero__kicker"),
           headline: pick("h1"),
           subline: pick(".hero .type-lead"),
+          panels: pick(".hero__panels"),
           box: pick("#postcode"),
-          tagline: pick(".hero__tagline"),
         };
       });
       expect(tops.kicker).toBeLessThan(tops.headline);
       expect(tops.headline).toBeLessThan(tops.subline);
-      expect(tops.subline).toBeLessThan(tops.box);
-      expect(tops.box).toBeLessThan(tops.tagline);
+      expect(tops.subline).toBeLessThan(tops.panels);
+      expect(tops.panels).toBeLessThan(tops.box);
+
+      // The example-check action beside the box (D70 R2).
+      await expect(page.getByRole("link", { name: "See an example check" })).toHaveAttribute(
+        "href",
+        "/sample-report",
+      );
 
       // Usable, as pinned: renders and accepts input.
       const box = page.locator("#postcode");
@@ -79,7 +90,7 @@ test.describe("home page — regression", () => {
   );
 
   test(
-    "the three audience cards render and each leads to the one postcode box",
+    "the three audience cards render as text-only cards with their check lists (D70 R3)",
     { tag: "@regression" },
     async ({ page }) => {
       await page.goto("/");
@@ -89,29 +100,37 @@ test.describe("home page — regression", () => {
         "Moving with pets",
       ]);
 
+      // The design's card is title + intro + check list: no
+      // button, no artwork (the art lives in the hero strip).
       const firstCard = page.locator(".audience-cards .card").first();
-      await firstCard.getByRole("button", { name: "Start with a postcode" }).click();
-      await expect(page.locator("#postcode")).toBeFocused();
+      await expect(firstCard.locator(".card__checks li")).toHaveCount(4);
+      await expect(firstCard.locator(".card__checks")).toContainText(
+        "Trains and buses for the commute",
+      );
+      await expect(firstCard.getByRole("button")).toHaveCount(0);
+      await expect(firstCard.locator("img")).toHaveCount(0);
     },
   );
 
   test(
-    "what it checks lists the nine checks in family language, with no links",
+    "what it checks lists the nine checks under their plain names, with no links",
     { tag: "@regression" },
     async ({ page }) => {
       await page.goto("/");
       const items = page.locator(".checks-list li");
       await expect(items).toHaveCount(9);
+      // D70 R4: the list is re-based on the plain check names
+      // (the checking rows' labels, qualifiers included).
       await expect(page.locator(".checks-list__name")).toHaveText([
-        "Schools near the home",
-        "Nurseries and pre-schools",
-        "Doctors, dentists and pharmacies",
-        "Hospitals, A&E and maternity care",
-        "Parks, vets and dog walks",
-        "Shops and getting about",
-        "Eating out, keeping fit and days out",
-        "Flood risk",
-        "What homes sell for, and the running costs",
+        "Schools — nearest primary & secondary, with Ofsted",
+        "Nurseries & pre-schools",
+        "GP, NHS dentist & pharmacy",
+        "Hospitals, A&E & maternity",
+        "Parks, vets & dog-walking areas",
+        "Shops & transport — supermarkets, bus stops, stations",
+        "Food & drink, leisure & gyms, places to visit, worship & libraries",
+        "Flood — rivers & sea, and surface water",
+        "Sold history, council tax, EPC, planning applications & constraints, ownership",
       ]);
       await expect(page.locator(".checks-list a")).toHaveCount(0);
     },

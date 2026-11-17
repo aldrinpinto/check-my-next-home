@@ -30,7 +30,11 @@ Pinned here, so no page picks its own:
   against the performance budget, no licence): caption
   0.8125rem, small 0.875rem, body 1rem, lead 1.125rem, H3
   1.25rem, H2 1.5rem, H1 2rem; line heights 1.5 body, 1.2
-  headings.
+  headings. **[Superseded by D70 R1, 17 Nov 2026: the kit
+  now self-hosts Newsreader (display) and DM Sans (text/UI)
+  with a fluid display scale, the system stack kept as
+  fallback only — see docs/frontend-design-pass.md. This
+  bullet stands as the M7.1 record.]**
 - **Spacing scale:** 0.25 / 0.5 / 0.75 / 1 / 1.25 / 1.5 / 2 /
   3 / 4rem (`--space-1` to `--space-9`).
 - **Breakpoints** (custom properties cannot drive media

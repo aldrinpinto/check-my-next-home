@@ -136,7 +136,7 @@ export default async function HomePage({
     }
     const nation = nationOfLsoa(resolution.directory.lsoaCode);
     return (
-      <main className="journey-page">
+      <main className="journey-page main--wide">
         <h1>{notCoveredHeading(postcode, nation)}</h1>
         <p className="type-lead">{NOT_COVERED_INTRO}</p>
         <ResultsPage view={view} />
@@ -162,7 +162,7 @@ export default async function HomePage({
       : "";
 
   return (
-    <main className="journey-page">
+    <main className="journey-page main--wide">
       <header className="results-header">
         <h1>{heading}</h1>
         {resolution.rung === 1 && (
