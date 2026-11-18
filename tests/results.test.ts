@@ -853,6 +853,140 @@ describe("results — pill logic D75 (fold-in)", () => {
     ]);
   });
 
+  it("the golden noise shape: 'No modelled rail noise' still earns the Noise pill as a good pill", () => {
+    // The golden replay pins Birkdale's real noise
+    // states (tests/fixtures/noise, measured through
+    // Defra's WMS): road below the published range, rail
+    // and airport with no modelled source at the point.
+    // The worked example above hand-builds rail as
+    // "Below 55 dB" — a state Birkdale never serves —
+    // which masked noiseBandLow accepting only the
+    // below-range wording: on the real bands the rail
+    // "low" test failed, Noise fell to "neither" and the
+    // strip lost its fourth pill (CI #207, the same
+    // masking pattern as the CI #206 flood states).
+    const nearby = nearbyWith({
+      "schools-primary": primaryNear,
+      "schools-secondary": category({
+        category: "schools-secondary",
+        state: "within",
+        places: [{ name: "Maltings Academy", miles: 1.87, detail: null, sixthForm: true }],
+        countWithin: 1,
+        nearestSelective: null,
+        nearestSelectiveLine: null,
+      }),
+      ae: category({
+        category: "ae",
+        state: "none-within",
+        places: [],
+        countWithin: 0,
+        beyondNearest: { name: "Broomfield Hospital", miles: 5.8 },
+        line: "none within 2 miles — nearest is Broomfield Hospital, 5.8 miles away",
+      }),
+      station: category({
+        category: "station",
+        state: "within",
+        places: [{ name: "Hatfield Peverel station", miles: 0.6, detail: null }],
+        countWithin: 1,
+      }),
+      nurseries: category({
+        category: "nurseries",
+        state: "within",
+        places: [{ name: "Nursery", miles: 0.3, detail: null }],
+        countWithin: 1,
+      }),
+    });
+    const pills = summaryPills({
+      nearby: nearby as Extract<NearbyBundle, { kind: "distances" }>,
+      flood: floodBundle(noWarnings),
+      crime: crimeBundle(0.5),
+      sections: shortSections(),
+      area: d75Area({
+        noise: {
+          state: "served",
+          line: null,
+          bands: [
+            {
+              sourceKind: "road",
+              label: "road noise",
+              dayBand: "Below 55 dB",
+              nightBand: "Below 50 dB",
+              line: "road noise: Below 55 dB by day, Below 50 dB by night",
+            },
+            {
+              sourceKind: "rail",
+              label: "rail noise",
+              dayBand: "No modelled rail noise",
+              nightBand: "No modelled rail noise",
+              line: "rail noise: No modelled rail noise by day, No modelled rail noise by night",
+            },
+            {
+              sourceKind: "airport",
+              label: "airport noise",
+              dayBand: "No modelled airport noise",
+              nightBand: "No modelled airport noise",
+              line: "airport noise: No modelled airport noise by day, No modelled airport noise by night",
+            },
+          ],
+          headlineBand: { sourceKind: "road", dayBand: "Below 55 dB" },
+          sourceLine: null,
+        },
+      }),
+    });
+    // The Noise pill is present with the Quiet figure,
+    // sitting in the good fill behind Flood and Crime —
+    // and the worked-example strip is unchanged under
+    // the golden noise states.
+    const noisePill = pills?.find((pill) => pill.label === "Noise");
+    expect(noisePill?.figure).toBe("Quiet");
+    expect(pills?.map(pillText)).toEqual([
+      "Schools 0.4 / 1.9 mi",
+      "Flood Very low",
+      "Crime Below England average",
+      "Noise Quiet",
+      "Deprivation 8 of 10",
+    ]);
+  });
+
+  it("a rail band inside the published range is not 'low': the Noise pill stays off", () => {
+    // The CI #207 fix accepts only the below-range
+    // wording and the no-modelled state as low; a rail
+    // band of 55–59 dB by day is a real published band —
+    // neither quiet enough for "good" nor loud enough
+    // for "concerning" — so Noise takes no pill.
+    const pills = summaryPills({
+      nearby: baseNearby as Extract<NearbyBundle, { kind: "distances" }>,
+      flood: floodBundle(noWarnings),
+      crime: crimeBundle(0.5),
+      sections: shortSections(),
+      area: d75Area({
+        noise: {
+          state: "served",
+          line: null,
+          bands: [
+            {
+              sourceKind: "road",
+              label: "road noise",
+              dayBand: "Below 55 dB",
+              nightBand: "Below 50 dB",
+              line: "road noise: Below 55 dB by day, Below 50 dB by night",
+            },
+            {
+              sourceKind: "rail",
+              label: "rail noise",
+              dayBand: "55–59 dB",
+              nightBand: "Below 50 dB",
+              line: "rail noise: 55–59 dB by day, Below 50 dB by night",
+            },
+          ],
+          headlineBand: { sourceKind: "road", dayBand: "Below 55 dB" },
+          sourceLine: null,
+        },
+      }),
+    });
+    expect(pills?.some((pill) => pill.label === "Noise")).toBe(false);
+  });
+
   it("concerning facts come first in priority order, capped at three, then good facts fill", () => {
     const sections = shortSections({
       flood: {

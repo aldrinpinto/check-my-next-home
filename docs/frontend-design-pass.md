@@ -2008,3 +2008,104 @@ executes in CI's database job). Playwright was not
 executed locally; e2e/seo.e2e.ts was verified collected
 at 31 specs with `npx playwright test --list`, and their
 first execution is the morning CI run.
+
+## CI #207 fixes (18 Nov 2026) — the bare postcode field's phone size, and the Noise pill on the golden bands
+
+Run 44261168879 (commit e714a79): checks, secrets and
+database green; the browser job failed 2 of 101 on the
+first full-suite execution of the overnight stack. Both
+failures were product-side; no e2e spec, fixture, seed
+or filed datum changed.
+
+1. e2e/phone.e2e.ts — the landing postcode input
+   computed to 14.5px, not 16px.
+
+   Diagnosis. The landing hero's box is PostcodeBox's
+   bare form (app/page.tsx; the same form closes every
+   content page via SearchBlock). The shared
+   .field__input carries `font: inherit` — 16px from
+   the body's 1rem — but the bare form's own rule,
+   transcribed from the sample at fidelity pass 2, sets
+   `.postcode-box--bare .field__input` to 0.90625rem,
+   and 0.90625 x 16 = 14.5px exactly: an absolute rem
+   override, not a relative size against a scaled
+   parent (the root is the default 16px; nothing scales
+   it). The suite's other two 16px assertions — the
+   wider-area banner and the no-location retry box,
+   both the standard form — passed, which confines the
+   defect to the bare form. The picker and the other
+   /search surfaces use the standard form; the failure
+   page and the report door render no postcode input of
+   their own.
+
+   Fix. One media block in app/globals.css beside the
+   bare rules: at and below the existing stacking
+   breakpoint (max-width: 30rem) the bare field
+   computes to 1rem — M7.7's adopted 16px floor at
+   phone width, so iOS does not zoom on focus. Desktop
+   keeps the sample's 14.5px untouched; the button is
+   unchanged (its size is asserted nowhere and its tap
+   target comes from the kit).
+
+2. e2e/results.e2e.ts (@smoke) — Birkdale's fourth
+   pill served "Deprivation — 8 of 10", not "Noise".
+
+   Diagnosis. The serve logic was wrong, on the golden
+   data itself — the same masking pattern as CI #206.
+   Birkdale's filed noise bands (tests/fixtures/noise:
+   the M5.9 values measured through Defra's own WMS,
+   filed by the real loader) are road "Below 55 dB" /
+   "Below 50 dB", rail "No modelled rail noise" day and
+   night (grid value 0 — below the mapping floor, no
+   contribution modelled at the point), airport
+   likewise. summaryPills' noise factor requires road
+   AND rail low, and noiseBandLow accepted only the
+   below-range wording, so the rail test failed on the
+   state's real name, Noise fell to "neither", and the
+   good fill ran Flood, Crime, Deprivation, EPC — in
+   the corpus serve and in production alike, since both
+   file the same measured values. The D75
+   worked-example unit test masked it exactly as the
+   flood fixture had in #206: its hand-built area
+   fixture gives rail "Below 55 dB" / "Below 50 dB", a
+   state Birkdale never serves.
+
+   Fix. noiseBandLow in lib/results.ts now also
+   accepts the no-modelled state: no contribution
+   modelled at the point is the publisher's lowest
+   state, quieter than a real below-range value, and
+   D75's "lowest bands" test is a test about quiet,
+   not about wording. The served section lines are
+   untouched — "Below 55 dB" and "No modelled … noise"
+   remain distinct filed states everywhere they are
+   printed; only the pill's verdict derivation reads
+   them together. noiseBandHigh already treats the
+   state correctly (it carries no digits, so it is
+   never high). No brain file, fixture, seed or
+   replay pin changed.
+
+   Coverage. Two unit tests beside the D75 worked
+   example: (a) the golden noise shape — road
+   below-range, rail and airport in the no-modelled
+   states — asserting the Noise pill is present with
+   figure "Quiet" and the strip still reads
+   Schools · Flood · Crime · Noise · Deprivation;
+   proven against the bug (with the fix line removed
+   it fails; restored, it passes); (b) a rail band
+   inside the published range (55–59 dB by day) still
+   earns no Noise pill, pinning that "low" did not
+   widen beyond the two lowest states. The existing
+   worked-example test is untouched.
+
+Gate: npm run prepush exits 0 — Prettier clean,
+ESLint 0 errors, typecheck clean, Vitest 1,731 passed
+/ 26 skipped / 0 failed (baseline 1,729 + 2 net new
+tests; the 26 skipped are the golden replay suite,
+which executes in CI's database job), next build
+succeeds. Playwright was not executed locally (the
+seeded stack runs in CI); the two failing specs are
+expected to pass on the next run on the strength of
+the cascade arithmetic above and the unit pins here.
+
+Changed files: app/globals.css, lib/results.ts,
+tests/results.test.ts and this note.

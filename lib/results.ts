@@ -613,6 +613,17 @@ function noiseBandHigh(band: string | null, day: boolean): boolean {
 
 function noiseBandLow(band: string | null, day: boolean): boolean {
   if (!band) return false;
+  // The publisher's lowest state of all: no modelled
+  // source at the point. The loader's bandFor files a
+  // grid value of 0 (below the mapping floor) or nodata
+  // as "No modelled … noise" — no contribution modelled
+  // is quieter than a real below-range value, so it
+  // satisfies the low test. Without this the Noise pill
+  // could only ever read "good" beside a quiet railway
+  // and never where there is no railway noise at all —
+  // the opposite of the D75 worked example, whose golden
+  // rail state is exactly this one (CI #207).
+  if (/^no modelled/i.test(band)) return true;
   const limit = day ? 55 : 50;
   return new RegExp(`below ${limit}|<\\s*${limit}`, "i").test(band);
 }
@@ -720,8 +731,10 @@ export function summaryPills(input: SummaryPillsInput): SummaryPill[] | null {
   }
 
   // 6 Noise — good if road AND rail both in the lowest
-  // modelled bands (day <55 dB, night <50 dB); concerning
-  // if day >=65 or night >=60 on either.
+  // modelled bands (day <55 dB, night <50 dB — the
+  // below-range band, or "No modelled … noise", the
+  // no-contribution state noiseBandLow also accepts);
+  // concerning if day >=65 or night >=60 on either.
   {
     const noise = areaSections?.noise;
     if (noise && noise.state === "served" && noise.bands.length > 0) {

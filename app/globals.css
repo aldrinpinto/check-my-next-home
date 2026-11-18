@@ -1113,6 +1113,16 @@ body:has(.main--home) .site-footer {
   line-height: 1.2;
 }
 
+/* M7.7's phone-width floor (CI #207): at and below the
+   stacking breakpoint the bare field computes to 16px,
+   so iOS does not zoom on focus. The sample's 14.5px
+   stands at desktop widths, untouched. */
+@media (max-width: 30rem) {
+  .postcode-box--bare .field__input {
+    font-size: 1rem;
+  }
+}
+
 /* The landing's sections (fidelity pass 2): the sample's
    padding (34px / 30px), no stacking margins — the sections
    meet as the sample's do, the white panels carrying their
