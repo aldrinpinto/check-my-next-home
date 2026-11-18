@@ -162,11 +162,11 @@ export default function KitchenSinkPage() {
       </section>
 
       <section className="kit-section" aria-labelledby="ks-suggest">
-        <h2 id="ks-suggest">Search suggestions shell (D70 — no data source wired yet)</h2>
+        <h2 id="ks-suggest">Search suggestions (D70 shell, wired at the entry-point build)</h2>
         <p>
-          The autocomplete dropdown&rsquo;s visual shell, shown here with specimen entries: grouped
-          AREAS, then PROPERTIES, under the search field. The box renders it only when a future
-          address-data source hands it suggestions.
+          The autocomplete dropdown&rsquo;s shell, shown here frozen open with specimen entries:
+          grouped labels over suggestion rows, under the search field. The live box fills it from
+          the local suggestion source — Postcodes, then Homes.
         </p>
         {/* The shell is absolutely positioned below its box
             (top: 100%), so the frozen-open specimen reserves

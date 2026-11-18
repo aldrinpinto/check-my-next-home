@@ -404,6 +404,7 @@ export const FRIENDLY_NAMES = {
   "ofcom-mobile": "Mobile source (canary)",
   "mhclg-council-tax": "Council tax source (canary)",
   "bsr-register": "Building Safety Register (canary)",
+  postio: "Postio address backstop (canary)",
 };
 
 function shortDetail(item) {

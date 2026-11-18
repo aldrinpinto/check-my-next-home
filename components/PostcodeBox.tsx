@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 
 import {
   POSTCODE_BOX_BUTTON,
@@ -10,7 +10,7 @@ import {
   POSTCODE_BOX_PLACEHOLDER_BARE,
 } from "../lib/home";
 import { FAILED_ROUTE, TURNSTILE_BLOCK_LINE } from "../lib/journey";
-import { Button, SuggestionShell, type SuggestionGroup } from "./kit";
+import { Button, SuggestionShell, type SuggestionGroup, type SuggestionItem } from "./kit";
 
 // M7.3 — the one postcode box, wired. M7.2 shipped it inert
 // (founder ruling at that step: present and typeable, submit
@@ -39,10 +39,21 @@ import { Button, SuggestionShell, type SuggestionGroup } from "./kit";
 // siblings, so the box renders the kit field's own markup
 // pattern itself (same classes, ids and aria wiring as
 // components/kit.tsx's TextField) rather than through
-// TextField. The suggestions prop is the shell's seam: a
-// future address-data source (D71, priced separately) will
-// hand grouped suggestions in; no caller passes any yet,
-// so the shell renders nowhere today.
+// TextField.
+//
+// Entry-point build (18 Nov 2026; D71 + D72): the dropdown
+// is live. As the visitor types, the box asks /api/suggest
+// — LOCAL FILED DATA ONLY, never Postio (a keystroke must
+// not reach the backstop) — after a ~140ms pause, dropping
+// any response a newer keystroke has superseded. Picks
+// navigate straight to the item's route (the picker for a
+// postcode, the home's check for a home); the robot check
+// stays on the typed-submit path only, exactly as ruled.
+// Keyboard: up/down move the active suggestion, Enter
+// chooses it, Escape closes the panel. The `suggestions`
+// prop remains as a static override (a caller handing
+// groups in suppresses the live fetch); no caller uses it
+// today.
 //
 // Fidelity pass 2 (founder, 17 Nov 2026): the `bare` prop is
 // the decided sample page's hero form — no visible label or
@@ -111,6 +122,103 @@ export default function PostcodeBox({
   const [widgetFailed, setWidgetFailed] = useState(() => !siteKey);
   const [blockMessage, setBlockMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // The live suggestions (entry-point build): the field is
+  // controlled so typing can be watched; the panel's items
+  // are flattened for the keyboard, each id remembering the
+  // href its pick navigates to.
+  const [value, setValue] = useState(defaultValue);
+  const [liveGroups, setLiveGroups] = useState<SuggestionGroup[]>([]);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const hrefByIdRef = useRef(new Map<string, string>());
+  const suggestSeqRef = useRef(0);
+  const choosingRef = useRef(false);
+  // Below the 3-character floor the panel is derived shut
+  // at render — the effect never clears state synchronously.
+  const typedLength = value.trim().length;
+  const visibleGroups = typedLength >= 3 ? liveGroups : [];
+  const visibleOpen = panelOpen && visibleGroups.length > 0;
+  const flatItems: SuggestionItem[] = visibleGroups.flatMap((group) =>
+    group.items.filter((item): item is SuggestionItem => typeof item !== "string"),
+  );
+
+  useEffect(() => {
+    if (suggestions) return; // a static override suppresses the live fetch
+    const typed = value.trim();
+    if (typed.length < 3) {
+      // Invalidate any in-flight response; the render
+      // derivation above keeps the panel shut meanwhile.
+      suggestSeqRef.current += 1;
+      return;
+    }
+    const timer = setTimeout(() => {
+      const seq = (suggestSeqRef.current += 1);
+      void (async () => {
+        try {
+          const response = await fetch(`/api/suggest?q=${encodeURIComponent(typed)}`);
+          if (!response.ok) throw new Error("suggest-failed");
+          const data = (await response.json()) as {
+            groups?: { label: string; items: { label: string; href: string }[] }[];
+          };
+          // A newer keystroke superseded this response —
+          // drop it, never repaint with stale suggestions.
+          if (seq !== suggestSeqRef.current) return;
+          const hrefs = new Map<string, string>();
+          let n = 0;
+          const groups: SuggestionGroup[] = (data.groups ?? []).map((group) => ({
+            label: group.label,
+            items: group.items.map((item) => {
+              const id = `suggest-${n}`;
+              n += 1;
+              hrefs.set(id, item.href);
+              return { id, label: item.label };
+            }),
+          }));
+          hrefByIdRef.current = hrefs;
+          setLiveGroups(groups);
+          setPanelOpen(groups.length > 0);
+          setActiveId(null);
+        } catch {
+          if (seq !== suggestSeqRef.current) return;
+          setLiveGroups([]);
+          setPanelOpen(false);
+          setActiveId(null);
+        }
+      })();
+    }, 140);
+    return () => clearTimeout(timer);
+  }, [value, suggestions]);
+
+  function choose(item: SuggestionItem) {
+    if (choosingRef.current) return;
+    const href = hrefByIdRef.current.get(item.id);
+    if (!href) return;
+    choosingRef.current = true;
+    window.location.assign(href);
+  }
+
+  function onFieldKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (!visibleOpen || flatItems.length === 0) return;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const current = flatItems.findIndex((item) => item.id === activeId);
+      const next =
+        event.key === "ArrowDown"
+          ? Math.min(current + 1, flatItems.length - 1)
+          : Math.max(current - 1, 0);
+      setActiveId(flatItems[next]?.id ?? null);
+    } else if (event.key === "Enter" && activeId) {
+      const item = flatItems.find((candidate) => candidate.id === activeId);
+      if (item) {
+        event.preventDefault();
+        choose(item);
+      }
+    } else if (event.key === "Escape") {
+      setPanelOpen(false);
+      setActiveId(null);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -249,7 +357,15 @@ export default function PostcodeBox({
             placeholder={bare ? POSTCODE_BOX_PLACEHOLDER_BARE : "SW1A 1AA"}
             autoComplete="postal-code"
             autoFocus={autoFocus}
-            defaultValue={defaultValue}
+            value={value}
+            onChange={(event) => setValue(event.target.value)}
+            onKeyDown={onFieldKeyDown}
+            onBlur={() => setPanelOpen(false)}
+            role="combobox"
+            aria-expanded={visibleOpen}
+            aria-controls="postcode-suggestions"
+            aria-activedescendant={activeId ?? undefined}
+            aria-autocomplete="list"
             aria-describedby={describedBy}
             aria-invalid={blockMessage ? true : undefined}
           />
@@ -269,7 +385,18 @@ export default function PostcodeBox({
           </p>
         )}
       </div>
-      {suggestions && <SuggestionShell groups={suggestions} />}
+      {suggestions ? (
+        <SuggestionShell groups={suggestions} />
+      ) : (
+        visibleOpen && (
+          <SuggestionShell
+            id="postcode-suggestions"
+            groups={visibleGroups}
+            activeId={activeId}
+            onSelect={choose}
+          />
+        )
+      )}
       <div ref={widgetRef} className="turnstile-slot" aria-hidden="true" />
     </form>
   );

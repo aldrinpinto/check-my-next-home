@@ -16,6 +16,7 @@
 import { NextResponse } from "next/server";
 
 import { floodRowResult, historyRowResult, nearbyRowResults } from "../../../../lib/journey";
+import { newRequestId } from "../../../../lib/server/entry-log";
 import {
   checkArea,
   checkFlood,
@@ -37,7 +38,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ part
   if (!postcode) return NextResponse.json({ error: "bad-request" }, { status: 400 });
 
   try {
-    const resolution = await resolutionForRoute(postcode, home);
+    const resolution = await resolutionForRoute(postcode, home, newRequestId());
     if (!resolution) return NextResponse.json({ error: "no-resolution" }, { status: 404 });
     if (part === "nearby") {
       const bundle = await checkNearby(resolution);

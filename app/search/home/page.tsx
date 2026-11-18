@@ -11,6 +11,8 @@ import {
   CHECKING_HEADING_HOME,
   CHECKING_HEADING_POSTCODE,
   NOT_COVERED_INTRO,
+  PICK_FALLBACK_FLAG,
+  PICK_FALLBACK_LINE,
   SEARCH_ROUTE,
   homeRoute,
   nationOfLsoa,
@@ -19,7 +21,15 @@ import {
   widerAreaRoute,
 } from "../../../lib/journey";
 import { buildResultsView, resultsScopeLabel } from "../../../lib/results";
-import { checkResults, resolutionForRoute, resolutionNotCovered } from "../../../lib/server/serve";
+import {
+  checkResults,
+  pickerRowsFor,
+  promoteTransientIfFiled,
+  resolutionForRoute,
+  resolutionNotCovered,
+} from "../../../lib/server/serve";
+import { logEntry, newRequestId } from "../../../lib/server/entry-log";
+import { isResolveToken } from "../../../lib/server/resolve-records";
 import { SITE_MANIFESTO } from "../../../lib/site";
 import { buildShortlistCard } from "../../../lib/shortlist-card";
 
@@ -99,6 +109,7 @@ async function Results({
           nearby: results.nearby,
           sold: results.sold,
           short: results.short,
+          routeKey: homeKey,
         })
       : null;
   return (
@@ -114,16 +125,17 @@ async function Results({
 export default async function HomePage({
   searchParams,
 }: {
-  searchParams: Promise<{ postcode?: string; home?: string }>;
+  searchParams: Promise<{ postcode?: string; home?: string; notfound?: string }>;
 }) {
   const params = await searchParams;
   const postcode = params.postcode;
   if (!postcode) redirect(SEARCH_ROUTE);
   const homeKey = params.home ?? null;
+  const req = newRequestId();
 
   let resolution;
   try {
-    resolution = await resolutionForRoute(postcode, homeKey);
+    resolution = await resolutionForRoute(postcode, homeKey, req);
   } catch {
     return <WholeCheckFailure retryHref={homeRoute(postcode, homeKey)} />;
   }
@@ -135,6 +147,34 @@ export default async function HomePage({
   }
   if (resolution.rung === 3) redirect(widerAreaRoute(resolution.outward, postcode));
   if (resolution.rung === 4) redirect(SEARCH_ROUTE);
+
+  // The identity the URLs on this page carry: a transient
+  // token while the home is Postio-only, its home key once
+  // it is filed (entry-point build, D72).
+  const viaToken = homeKey !== null && isResolveToken(homeKey);
+  if (viaToken && resolution.rung === 1) {
+    // Promotion: the pick's own check cold-loads the
+    // postcode's filings; once the home is among them, the
+    // canonical home key takes over the URL and the
+    // transient record lapses.
+    const promoted = await promoteTransientIfFiled(postcode, homeKey, resolution, req).catch(
+      () => null,
+    );
+    if (promoted) redirect(homeRoute(postcode, promoted));
+  }
+  const routeKey = viaToken ? homeKey : resolution.rung === 1 ? homeKeyOf(resolution) : null;
+
+  // The mid-pick fallback notice (D72 item 3): a pick that
+  // degraded to this postcode-level page is announced;
+  // degradation before any pick never sets the flag.
+  const pickFallback = params.notfound === PICK_FALLBACK_FLAG && !homeKey;
+  if (pickFallback) {
+    logEntry(req, "fallback.notice", {
+      layer: "fallback",
+      reason: "pick-unresolved",
+      postcode,
+    });
+  }
 
   if (resolutionNotCovered(resolution)) {
     let view;
@@ -162,10 +202,26 @@ export default async function HomePage({
       : postcodeRoute(postcode);
   const pickerAddresses: PickerAddress[] =
     resolution.rung === 2
-      ? resolution.addresses.map((address) => ({
-          key: homeKeyOf({ rung: 1, kind: "home", address, directory: resolution.directory }),
-          label: address.label,
-        }))
+      ? await pickerRowsFor(
+          postcode,
+          resolution.addresses,
+          { street: resolution.street, building: resolution.building },
+          req,
+        )
+          .then((rows) =>
+            rows.map((row) => ({
+              key: row.key,
+              label: row.label,
+              source: row.source,
+              udprn: row.udprn,
+            })),
+          )
+          .catch(() =>
+            resolution.addresses.map((address) => ({
+              key: homeKeyOf({ rung: 1, kind: "home", address, directory: resolution.directory }),
+              label: address.label,
+            })),
+          )
       : [];
   const pickerHeading =
     resolution.rung === 2
@@ -183,16 +239,17 @@ export default async function HomePage({
           <p className="results-header__scope">{resultsScopeLabel(resolution)}</p>
         )}
       </header>
+      {pickFallback && <p className="journey-notice">{PICK_FALLBACK_LINE}</p>}
       <CheckingScreen
         postcode={postcode}
-        homeKey={resolution.rung === 1 ? homeKeyOf(resolution) : null}
+        homeKey={routeKey}
         heading={resolution.rung === 1 ? CHECKING_HEADING_HOME : CHECKING_HEADING_POSTCODE}
         backHref={backHref}
       >
         <Suspense fallback={<p className="results-loading">Opening your results…</p>}>
           <Results
             postcode={postcode}
-            homeKey={resolution.rung === 1 ? homeKeyOf(resolution) : null}
+            homeKey={routeKey}
             resolution={resolution}
             pickerAddresses={pickerAddresses}
             pickerHeading={pickerHeading}

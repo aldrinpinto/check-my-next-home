@@ -19,9 +19,11 @@ import {
 import { buildWiderAreaView } from "../../lib/results";
 import {
   checkResultsWider,
+  pickerRowsFor,
   resolutionForPostcodeRoute,
   resolutionNotCovered,
 } from "../../lib/server/serve";
+import { newRequestId } from "../../lib/server/entry-log";
 import { buildShortlistCard } from "../../lib/shortlist-card";
 import { getDbPool } from "../../lib/server/db";
 
@@ -156,10 +158,31 @@ export default async function SearchPage({
 
   const heading =
     resolution.building ?? (resolution.street ? displayText(resolution.street) : postcode);
-  const addresses: PickerAddress[] = resolution.addresses.map((address) => ({
-    key: homeKeyOf({ rung: 1, kind: "home", address, directory: resolution.directory }),
-    label: address.label,
-  }));
+  // The hybrid list (entry-point build, D72): the ladder's
+  // local rows first, Postio's supplement merged in when
+  // the local list is short — one list, deduplicated. A
+  // merge that fails outright degrades to the local rows:
+  // the picker must never dead-end on the backstop.
+  let addresses: PickerAddress[];
+  try {
+    const rows = await pickerRowsFor(
+      postcode,
+      resolution.addresses,
+      { street: resolution.street, building: resolution.building },
+      newRequestId(),
+    );
+    addresses = rows.map((row) => ({
+      key: row.key,
+      label: row.label,
+      source: row.source,
+      udprn: row.udprn,
+    }));
+  } catch {
+    addresses = resolution.addresses.map((address) => ({
+      key: homeKeyOf({ rung: 1, kind: "home", address, directory: resolution.directory }),
+      label: address.label,
+    }));
+  }
 
   return (
     <main className="journey-page main--wide">

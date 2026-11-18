@@ -106,33 +106,84 @@ export function SummaryPill({
   );
 }
 
-// The autocomplete dropdown's visual shell (D70; the
-// founder's 17 Nov ruling): a grouped suggestion panel —
-// AREAS, then PROPERTIES — that sits under the search box.
-// Presentation only: no address-data source is wired to it
-// yet (priced separately), so the box renders it only when
-// a future source hands it groups; the kitchen sink carries
-// its specimen.
-export interface SuggestionGroup {
+// The autocomplete dropdown (D70 built the visual shell;
+// the entry-point build, 18 Nov 2026, completes it). A
+// grouped suggestion panel — Postcodes, then Homes — that
+// sits under the search box. Two item forms share the one
+// dress: a plain string is a specimen (the kitchen sink's
+// frozen example — inert, as a specimen should be); a
+// SuggestionItem is live — it carries an id (the combobox's
+// aria-activedescendant target), its active state is real
+// (aria-selected follows the keyboard), and choosing it
+// calls back. No sample depicts the open dropdown (gap
+// item S-1), so the completed behaviour is built in this
+// shell's own design language and the D70 dress is
+// untouched.
+export interface SuggestionItem {
+  id: string;
   label: string;
-  items: string[];
 }
 
-export function SuggestionShell({ groups }: { groups: SuggestionGroup[] }) {
+export interface SuggestionGroup {
+  label: string;
+  items: (string | SuggestionItem)[];
+}
+
+export function SuggestionShell({
+  groups,
+  id,
+  activeId,
+  onSelect,
+}: {
+  groups: SuggestionGroup[];
+  id?: string;
+  activeId?: string | null;
+  onSelect?: (item: SuggestionItem) => void;
+}) {
   if (groups.length === 0) return null;
   return (
-    <div className="postcode-box__suggestions">
+    <div className="postcode-box__suggestions" id={id}>
       {groups.map((group) => (
         <div className="suggest__group" key={group.label}>
           <p className="suggest__group-label">{group.label}</p>
           <ul className="suggest__list" role="listbox" aria-label={group.label}>
-            {group.items.map((item) => (
-              <li key={item}>
-                <button type="button" className="suggest__item" role="option" aria-selected="false">
-                  {item}
-                </button>
-              </li>
-            ))}
+            {group.items.map((item) => {
+              if (typeof item === "string") {
+                return (
+                  <li key={item}>
+                    <button
+                      type="button"
+                      className="suggest__item"
+                      role="option"
+                      aria-selected="false"
+                    >
+                      {item}
+                    </button>
+                  </li>
+                );
+              }
+              const active = activeId !== null && activeId !== undefined && item.id === activeId;
+              return (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    id={item.id}
+                    className={active ? "suggest__item suggest__item--active" : "suggest__item"}
+                    role="option"
+                    aria-selected={active}
+                    onMouseDown={(event) => {
+                      // Choose on mousedown: it lands before
+                      // the field's blur closes the panel.
+                      event.preventDefault();
+                      onSelect?.(item);
+                    }}
+                    onClick={() => onSelect?.(item)}
+                  >
+                    {item.label}
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         </div>
       ))}

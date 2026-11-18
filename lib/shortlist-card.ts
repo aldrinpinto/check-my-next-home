@@ -56,6 +56,12 @@ export interface ShortlistCardInput {
   nearby?: NearbyBundle;
   sold?: SoldPricesBundle;
   short: ShortBundle;
+  // The identity the card's onward links carry, when it is
+  // not the home key: a transient resolve token for a
+  // Postio-only home (entry-point build, D72). The card's
+  // links then work for the record's 24 hours, and for
+  // ever after once promotion files the home locally.
+  routeKey?: string | null;
 }
 
 function categoryOf(nearby: NearbyBundle, key: string): CategoryAnswer | undefined {
@@ -171,7 +177,7 @@ function rung1Card(input: ShortlistCardInput): ShortlistCard | null {
     councilTax: councilTaxCell,
   };
 
-  const homeKey = homeKeyOf(resolution);
+  const homeKey = input.routeKey ?? homeKeyOf(resolution);
   return {
     id: shortlistCardId(1, resolution.address.postcode, homeKey),
     postcode: resolution.address.postcode,

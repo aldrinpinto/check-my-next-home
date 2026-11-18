@@ -259,6 +259,20 @@ export function pickerCountLine(count: number): string {
 export const EMPTY_PICKER_LINE = "No addresses we can list for this postcode yet.";
 export const POSTCODE_LEVEL_LINK = "See the check for the whole postcode";
 
+// The mid-pick fallback notice (entry-point build, 18 Nov
+// 2026; D72 item 3, gap item 5): a visitor who picked an
+// exact home from the list and lands on the whole-postcode
+// check — because the backstop could not resolve the pick
+// just then — is told so in one line, carried on the route
+// as ?notfound=pick. Degradation before any pick stays
+// silent; this line exists only where a pick was made.
+// PENDING the founder's final copy approval (the build's
+// terminal report flags it).
+export const PICK_FALLBACK_LINE =
+  "We couldn't load that exact home just now — here's the check for the whole postcode instead.";
+// The route flag that carries the notice: ?notfound=pick.
+export const PICK_FALLBACK_FLAG = "pick";
+
 // The wider-area landing (rung 3): the scope label is the
 // resolution's own ("Wider area — CM3, not this exact home");
 // the unlock banner is the ladder's named banner.

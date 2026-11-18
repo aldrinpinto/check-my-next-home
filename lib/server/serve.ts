@@ -33,6 +33,10 @@ import {
 } from "../journey";
 import { buildSoldPricesBundle, createSoldPricesSource } from "../sold-prices";
 import { getDbPool } from "./db";
+import { logEntry } from "./entry-log";
+import { pickerList, promotionKeyFor, type PickerRow } from "./hybrid";
+import { getPostioClient } from "./postio";
+import { createDbResolveRecordStore, isResolveToken } from "./resolve-records";
 
 // The typed input's classification rides along so the
 // journey can tell "typed a full postcode we don't hold"
@@ -64,6 +68,7 @@ export async function resolveTypedInput(raw: string): Promise<{
 export async function resolutionForRoute(
   postcode: string,
   homeKey: string | null,
+  req?: string,
 ): Promise<AddressResolution | null> {
   const db = getDbPool();
   const source = createAddressSource(db);
@@ -77,6 +82,30 @@ export async function resolutionForRoute(
     return resolveAddressInput(postcode, source);
   }
 
+  if (isResolveToken(homeKey)) {
+    // A transient resolve token (entry-point build, D72):
+    // the home was resolved through Postio and is carried
+    // by its record, not by filed data. An expired or
+    // unknown token answers null, exactly like a stale home
+    // key — the page returns to the picker, never to a
+    // guessed home.
+    const record = await createDbResolveRecordStore(db).get(homeKey, req);
+    if (!record || record.postcode !== postcode) return null;
+    if (req) {
+      logEntry(req, "transient.served", {
+        layer: "transient",
+        reason: "record",
+        postcode,
+        udprn: record.udprn ?? undefined,
+      });
+    }
+    const address: ResolvedAddress = {
+      ...record.parts,
+      label: labelForAddressParts(record.parts),
+    };
+    return { rung: 1, kind: "home", address, directory };
+  }
+
   const rows = await source.addressesInPostcode(postcode);
   for (const parts of rows) {
     const address: ResolvedAddress = { ...parts, label: labelForAddressParts(parts) };
@@ -84,6 +113,54 @@ export async function resolutionForRoute(
     if (homeKeyOf(candidate) === homeKey) return candidate;
   }
   return null;
+}
+
+// The picker's rows for a route (entry-point build, D72):
+// the ladder's local list, supplemented by Postio when it
+// is short — the hybrid brain (lib/server/hybrid.ts) owns
+// the merge, the dedupe and the decision log; this is only
+// its wiring to the real deps.
+export async function pickerRowsFor(
+  postcode: string,
+  local: ResolvedAddress[],
+  narrowing: { street: string | null; building: string | null },
+  req: string,
+): Promise<PickerRow[]> {
+  const { rows } = await pickerList({
+    postio: getPostioClient(),
+    postcode,
+    local,
+    narrowing,
+    req,
+  });
+  return rows;
+}
+
+// Promotion (entry-point build, D72 fold-in): when a
+// transient record's home has become filed locally — the
+// pick's own check cold-loads the postcode's sales — the
+// canonical home key takes over. Returns the key to
+// redirect to (the record is deleted and the promotion
+// logged), or null when the home is still Postio-only.
+export async function promoteTransientIfFiled(
+  postcode: string,
+  token: string,
+  resolution: AddressResolution,
+  req: string,
+): Promise<string | null> {
+  if (resolution.rung !== 1) return null;
+  const db = getDbPool();
+  const source = createAddressSource(db);
+  const filed = await source.addressesInPostcode(postcode);
+  const key = promotionKeyFor(resolution.address, filed);
+  if (!key) return null;
+  await createDbResolveRecordStore(db).delete(token);
+  logEntry(req, "transient.promoted", {
+    layer: "local",
+    reason: "filed-after-pick",
+    postcode,
+  });
+  return key;
 }
 
 // The narrowing a postcode route carries (fold-in 1): the

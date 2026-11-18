@@ -1218,13 +1218,11 @@ body:has(.main--home) .site-footer {
    its button in one row on wide screens, stacked on small
    ones; the field's border softened from the generic
    field's 2px Ink to the decided page's 1.5px line. Below
-   the row sits the autocomplete dropdown's visual shell:
-   a positioned panel of grouped suggestions (AREAS /
-   PROPERTIES). No address-data source is wired to it yet
-   (that decision is priced separately), so the shell
-   renders only when a future source hands the box
-   suggestions; its grouped form is specimen'd in the
-   kitchen sink. */
+   the row sits the autocomplete dropdown: a positioned
+   panel of grouped suggestions (Postcodes / Homes). The
+   entry-point build (18 Nov 2026) wired it to the local
+   suggestion source (/api/suggest — filed data only); the
+   kitchen sink carries its frozen specimen. */
 .postcode-box {
   position: relative;
   max-width: 32rem;
@@ -2480,12 +2478,15 @@ a.trunc-row:hover {
 
 /* The remove pill: the sample's .btn-remove — a white
    pill with the warm line, Forest text (D8, parity fix
-   stack, 18 Nov 2026). */
+   stack, 18 Nov 2026). Its height takes the kit tap
+   target, not the sample's 40px: the M7.7 phone-first
+   ruling (tap targets at least 44px) outranks the
+   sample's incidental button height (CI #209). */
 .remove-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 40px;
+  min-height: var(--tap-target);
   border: 1px solid var(--colour-line-warm);
   background: var(--cmnh-white);
   color: var(--cmnh-forest);

@@ -6,6 +6,7 @@ import {
   EMPTY_PICKER_LINE,
   PICKER_CONFIRM_LABEL,
   PICKER_EXPLAINER,
+  PICK_FALLBACK_FLAG,
   homeRoute,
   pickerCountLine,
   POSTCODE_LEVEL_LINK,
@@ -33,6 +34,13 @@ import { Button } from "./kit";
 export interface PickerAddress {
   key: string;
   label: string;
+  // The layer that supplied the row (entry-point build,
+  // D72): a local row confirms straight to its home key; a
+  // Postio row confirms through /api/pick, which resolves
+  // it into its transient record (or the mid-pick fallback)
+  // and answers the URL to navigate to.
+  source?: "local" | "postio";
+  udprn?: string;
 }
 
 export default function AddressPicker({
@@ -49,6 +57,7 @@ export default function AddressPicker({
   pickedKey?: string | null;
 }) {
   const [selectedKey, setSelectedKey] = useState<string | null>(pickedKey);
+  const [confirming, setConfirming] = useState(false);
   const pickedRef = useRef<HTMLButtonElement>(null);
   const Heading = headingLevel === 1 ? "h1" : "h2";
 
@@ -106,9 +115,38 @@ export default function AddressPicker({
         type="button"
         variant="ink"
         className="picker__confirm"
-        disabled={selectedKey === null}
+        disabled={selectedKey === null || confirming}
         onClick={() => {
-          if (selectedKey !== null) window.location.assign(homeRoute(postcode, selectedKey));
+          if (selectedKey === null) return;
+          const row = addresses.find((address) => address.key === selectedKey);
+          if (!row || row.source !== "postio" || !row.udprn) {
+            window.location.assign(homeRoute(postcode, selectedKey));
+            return;
+          }
+          // A Postio row: the pick resolves server-side
+          // (the transient record, or the mid-pick fallback
+          // when the backstop cannot answer). A pick call
+          // that itself fails lands on the same fallback —
+          // the journey never dead-ends here.
+          setConfirming(true);
+          void (async () => {
+            try {
+              const response = await fetch("/api/pick", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ postcode, udprn: row.udprn }),
+              });
+              const data = (await response.json()) as { url?: string };
+              window.location.assign(
+                data.url ??
+                  `/search/home?postcode=${encodeURIComponent(postcode)}&notfound=${PICK_FALLBACK_FLAG}`,
+              );
+            } catch {
+              window.location.assign(
+                `/search/home?postcode=${encodeURIComponent(postcode)}&notfound=${PICK_FALLBACK_FLAG}`,
+              );
+            }
+          })();
         }}
       >
         {PICKER_CONFIRM_LABEL}
