@@ -1686,10 +1686,13 @@ describe("results — the rendered page", () => {
     expect(neighbourhoodAt).toBeGreaterThan(familyAt);
     expect(homeAt).toBeGreaterThan(neighbourhoodAt);
     expect(nearbyAt).toBeGreaterThan(homeAt);
-    // Truncation lines carry the M7.6 link contract:
+    // Truncation rows carry the M7.6 link contract:
     // postcode + home key, the identity the door resolves.
+    // D3 (parity fix stack, 18 Nov 2026): the row is the
+    // sample's .truncRow link itself now — the assertion
+    // follows the form.
     expect(html).toContain(
-      '<a href="/report?postcode=CM3+2JT&amp;home=19%7C%7CBIRKDALE+RISE">Plus 3 more primary schools in the detailed report — £4.99</a>',
+      '<a class="trunc-row" href="/report?postcode=CM3+2JT&amp;home=19%7C%7CBIRKDALE+RISE">Plus 3 more primary schools in the detailed report — £4.99</a>',
     );
     // The buy bar: the mystery tease rides inside it, and
     // its button is the priced form on the contract href.

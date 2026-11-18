@@ -136,4 +136,48 @@ test.describe("SEO pages — regression", () => {
       await expect(page.getByRole("heading", { level: 1 })).toHaveText("Privacy policy");
     },
   );
+
+  // The parity guards (D1/D1a/D2, parity fix stack,
+  // 18 Nov 2026): the site pages once rendered squeezed
+  // into the reading column, About's cards stacked, under
+  // the wrong chrome family — copy-correct, layout-wrong,
+  // and nothing caught it. These assertions measure the
+  // layout itself, so the divergence cannot return
+  // silently: the content chrome is present, the main is
+  // not width-capped, and About's cards sit in a real grid.
+  test(
+    "the site pages wear the content chrome at the sample's measure",
+    { tag: "@regression" },
+    async ({ page }) => {
+      await page.goto("/about");
+      await expect(page.locator("header.site-header--content")).toHaveCount(1);
+      await expect(page.locator("footer.site-footer--content")).toHaveCount(1);
+      const innerWidth = await page
+        .locator(".site-pages__inner")
+        .evaluate((element) => element.getBoundingClientRect().width);
+      // The sample's 1080px measure at the desktop
+      // viewport — the reading cap would give ~704px.
+      expect(innerWidth).toBeGreaterThan(1000);
+      const grid = page.locator(".about-grid");
+      await expect(grid).toHaveCount(1);
+      const columns = await grid.evaluate(
+        (element) => getComputedStyle(element).gridTemplateColumns.split(" ").length,
+      );
+      expect(columns).toBeGreaterThanOrEqual(2);
+      // The footer sits flush under the cream main — the
+      // closed band: no top margin on the content footer.
+      const footerMarginTop = await page
+        .locator("footer.site-footer--content")
+        .evaluate((element) => parseFloat(getComputedStyle(element).marginTop));
+      expect(footerMarginTop).toBe(0);
+    },
+  );
+
+  test("the app pages keep the app chrome", { tag: "@regression" }, async ({ page }) => {
+    await page.goto("/");
+    await expect(page.locator("header.site-header--content")).toHaveCount(0);
+    await expect(page.locator("footer.site-footer--content")).toHaveCount(0);
+    await page.goto("/shortlist");
+    await expect(page.locator("header.site-header--content")).toHaveCount(0);
+  });
 });

@@ -42,26 +42,35 @@ function PlaceGroup({ group }: { group: PlaceGroupView }) {
       {group.rows.length > 0 && (
         <ul className="place-list">
           {group.rows.map((row) => (
+            // D4 (parity fix stack, 18 Nov 2026): the
+            // sample's .row form — the name and its detail
+            // lines stacked in a left block, the distance
+            // chip at the right.
             <li className="place-row" key={row.name}>
-              <span className="place-row__name">{row.name}</span>{" "}
+              <span className="place-row__main">
+                <span className="place-row__name">{row.name}</span>
+                {row.detail && <span className="place-row__detail">{row.detail}</span>}
+                {row.ratingLine && <span className="place-row__rating">{row.ratingLine}</span>}
+                {row.sixthFormLine && <span className="place-row__sixth">{row.sixthFormLine}</span>}
+              </span>
               <span className={`place-row__miles place-row__miles--${row.band}`}>
                 {row.milesText}
               </span>
-              {row.detail && <span className="place-row__detail">{row.detail}</span>}
-              {row.ratingLine && <span className="place-row__rating">{row.ratingLine}</span>}
-              {row.sixthFormLine && <span className="place-row__sixth">{row.sixthFormLine}</span>}
             </li>
           ))}
         </ul>
       )}
       {group.selectiveLine && <p className="results-line">{group.selectiveLine}</p>}
       {group.truncation &&
+        // D3: the truncation row in the sample's .truncRow
+        // form. The wording is unchanged — it is the D-ruled
+        // line from lib/results.ts, dressed, not rewritten.
         (group.truncation.href ? (
-          <p className="truncation-line">
-            <a href={group.truncation.href}>{group.truncation.text}</a>
-          </p>
+          <a className="trunc-row" href={group.truncation.href}>
+            {group.truncation.text}
+          </a>
         ) : (
-          <p className="truncation-line">{group.truncation.text}</p>
+          <p className="trunc-row">{group.truncation.text}</p>
         ))}
     </div>
   );

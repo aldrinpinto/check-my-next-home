@@ -27,13 +27,19 @@ export default function AboutPage() {
     <main className="site-pages">
       <div className="site-pages__inner">
         <BreadcrumbLd name="About" path="/about" />
-        <p className="eyebrow">{ABOUT_EYEBROW}</p>
-        <h1>{ABOUT_H1}</h1>
-        <p className="about-tagline">{ABOUT_TAGLINE_LINE}</p>
-        <p className="lead">{ABOUT_LEAD}</p>
+        {/* D1a (parity fix stack, 18 Nov 2026): the hero
+            takes the sample's .about-hero wrap and the six
+            cards its .about-grid — three across at the full
+            measure, not a single stacked column. */}
+        <div className="about-hero">
+          <p className="eyebrow">{ABOUT_EYEBROW}</p>
+          <h1>{ABOUT_H1}</h1>
+          <p className="about-tagline">{ABOUT_TAGLINE_LINE}</p>
+          <p className="lead">{ABOUT_LEAD}</p>
+        </div>
         <div className="rule" />
 
-        <div className="stack">
+        <div className="about-grid">
           {ABOUT_CARDS.map((card) => (
             <article className="card" key={card.heading}>
               <h2>{card.heading}</h2>

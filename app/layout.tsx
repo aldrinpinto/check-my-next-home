@@ -1,8 +1,7 @@
 import "./globals.css";
 import { TEST_LABEL_TEXT, showTestLabel } from "../lib/site";
 import JsonLd from "./JsonLd";
-import SiteHeader from "../components/SiteHeader";
-import SiteFooter from "../components/SiteFooter";
+import SiteChrome from "../components/SiteChrome";
 
 // M7.8: the layout carries NO metadata of its own. Until
 // this step it consumed the locked homepage entry for every
@@ -28,9 +27,12 @@ export default function RootLayout({
             {TEST_LABEL_TEXT}
           </div>
         )}
-        <SiteHeader />
-        {children}
-        <SiteFooter />
+        {/* The chrome wears the samples' two families
+            (D2, parity fix stack, 18 Nov 2026): the
+            content chrome on the .site-pages routes, the
+            app chrome everywhere else — SiteChrome makes
+            the switch by route. */}
+        <SiteChrome>{children}</SiteChrome>
         <JsonLd />
       </body>
     </html>

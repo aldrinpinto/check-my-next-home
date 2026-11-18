@@ -127,16 +127,11 @@ export default function ShortlistPage() {
   if (record.cards.length === 0) {
     return (
       <section className="shortlist-empty" data-shortlist-state="empty">
-        {/* D70 R8/D19: the empty state dressed as a panel with
-            one of the kit's small line illustrations. */}
-        {/* eslint-disable-next-line @next/next/no-img-element -- the illustrations are plain static assets; next/image adds nothing on a static export */}
-        <img
-          className="empty-state__art"
-          src="/illustrations/card-dog.svg"
-          alt=""
-          width="48"
-          height="48"
-        />
+        {/* D8 (parity fix stack, 18 Nov 2026): the sample's
+            empty state is the dashed-brass paper card alone
+            — it carries no illustration, so the dog the D70
+            pass dressed this panel with is removed under
+            the founder's exact-parity ruling. */}
         <h2>{SHORTLIST_EMPTY_HEADING}</h2>
         <p>{SHORTLIST_EMPTY_LINE}</p>
       </section>
@@ -159,7 +154,17 @@ export default function ShortlistPage() {
 
   return (
     <div data-shortlist-state="ready">
-      <ul className="shortlist-cards">
+      {/* D8: the cards grid is keyed by the count — the
+          sample's one / two-across / three-across forms. */}
+      <ul
+        className={`shortlist-cards${
+          record.cards.length === 2
+            ? " shortlist-cards--two"
+            : record.cards.length >= 3
+              ? " shortlist-cards--three"
+              : ""
+        }`}
+      >
         {record.cards.map((card) => {
           const saleLine = cardLastSaleLine(card);
           return (
@@ -200,7 +205,7 @@ export default function ShortlistPage() {
           // check once, one column per home, values aligned,
           // one report button at each column's foot, in the
           // results page's own words.
-          <table className="compare-table">
+          <table className="compare-table" data-card-count={comparison.columns.length}>
             <thead>
               <tr>
                 <th scope="col">Check</th>

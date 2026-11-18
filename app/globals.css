@@ -135,6 +135,16 @@
   --colour-search-border: #cdbd8a;
   --colour-brass-pale-hover: #efe0b3;
 
+  /* The site pages' line and wash (parity fix stack,
+     18 Nov 2026): the Final Sample Master's own values for
+     its content pages — the warm line, its soft form and
+     the wash — carried here once; the .site-pages block
+     below already holds them as its --sp-* set, and the
+     shortlist and content chrome consume these. */
+  --colour-line-warm: #e7dfc6;
+  --colour-line-warm-soft: #efe8d2;
+  --colour-wash: #f7f1dc;
+
   /* The decided landing page's text greys (fidelity pass 2,
      17 Nov 2026): the sample's own values for its soft body
      text (hero lead, card and step text), its subdued lines
@@ -235,6 +245,20 @@ main {
   max-width: var(--container-reading);
   margin: 0 auto;
   padding: var(--space-7) var(--space-4);
+}
+
+/* D1 (parity fix stack, 18 Nov 2026): the site pages are
+   exempt from the reading-column cap. The Master's content
+   pages (views 4–8) lay out at a 1080px measure, which the
+   .site-pages__inner already carries; capped by the global
+   rule above, every content page was squeezed into ~640px
+   and the two paddings stacked. The main itself now runs
+   full width and the inner carries the sample's measure
+   and padding alone. */
+main.site-pages {
+  max-width: none;
+  margin: 0;
+  padding: 0;
 }
 
 .main--wide {
@@ -510,6 +534,191 @@ p {
   margin-bottom: 0;
 }
 
+/* === The content chrome (D2, parity fix stack,
+   18 Nov 2026) ==========================================
+   The samples carry TWO chrome families: the app chrome
+   above (landing, results, shortlist — views 1–3, 13–16)
+   and this content chrome for the site pages (views
+   4–8): a 1080px header with the 44px Forest-square mark,
+   the Newsreader wordmark with the tagline under it (not
+   uppercase), the nav as a second row under a hairline
+   with the current page as a Forest pill, and a stacked
+   footer — wordmark-only brand, the tagline set in
+   Newsreader, the nav row and the small print, all inside
+   the 1080px container. The footer carries no top margin:
+   the band between the cream main and the footer is
+   closed. Worn by the .site-pages routes only, through
+   components/SiteChrome.tsx. */
+.site-header--content {
+  background: var(--cmnh-white);
+  border-bottom: 1px solid var(--colour-line-warm);
+  padding: 1.15rem 0 0.95rem;
+}
+
+.site-header--content .site-header-in {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 0 1.6rem;
+}
+
+.site-header--content .brand-row {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.site-header--content .brand-mark {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--cmnh-forest);
+  border-radius: 12px;
+}
+
+.site-header--content .brand-mark svg {
+  width: 26px;
+  height: 26px;
+  display: block;
+}
+
+.site-header--content .wordmark {
+  display: block;
+  font-family: var(--font-family-display);
+  font-weight: 700;
+  font-size: 1.55rem;
+  color: var(--cmnh-forest-deep);
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+}
+
+.site-header--content .wordmark-tag {
+  display: block;
+  font-family: var(--font-family);
+  font-size: 0.78rem;
+  color: var(--colour-muted);
+  margin-top: 0.12rem;
+}
+
+.site-header--content .site-nav {
+  margin-top: 0.85rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--colour-line-warm-soft);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.site-header--content .site-nav a,
+.site-header--content .site-nav .nav-here {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 40px;
+  padding: 0.35rem 0.7rem;
+  border-radius: 8px;
+  color: var(--cmnh-forest);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.site-header--content .site-nav a:hover {
+  background: var(--colour-wash);
+  text-decoration: none;
+}
+
+.site-header--content .site-nav a[aria-current="page"],
+.site-header--content .site-nav .nav-here {
+  background: var(--cmnh-forest);
+  color: var(--cmnh-white);
+}
+
+.site-header--content .site-nav .nav-sep {
+  color: var(--cmnh-brass);
+  padding: 0 0.1rem;
+  user-select: none;
+}
+
+.site-header--content .shortlist-count {
+  background: var(--cmnh-brass);
+  color: var(--cmnh-forest-deep);
+  min-width: 22px;
+  height: 22px;
+  margin-left: 0;
+  padding: 0 6px;
+  font-size: 0.78rem;
+}
+
+@media (max-width: 720px) {
+  .site-header--content .site-header-in {
+    padding: 0 1rem;
+  }
+  .site-header--content .wordmark {
+    font-size: 1.38rem;
+  }
+}
+
+.site-footer--content {
+  margin-top: 0;
+  padding: 2.2rem 1rem 2.4rem;
+}
+
+.site-footer--content .footer-in {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 0 0.6rem;
+}
+
+.site-footer--content .footer-brand {
+  font-family: var(--font-family-display);
+  font-weight: 700;
+  font-size: 1.3rem;
+  color: var(--cmnh-white);
+}
+
+.site-footer--content .footer-tag {
+  font-family: var(--font-family-display);
+  font-size: 1.02rem;
+  color: var(--cmnh-brass-pale);
+  margin-top: 0.3rem;
+}
+
+.site-footer--content .footer-nav {
+  margin-top: 1.1rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.2rem 0.5rem;
+}
+
+.site-footer--content .footer-nav a {
+  color: var(--cmnh-white);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.95rem;
+  padding: 0.3rem 0.2rem;
+}
+
+.site-footer--content .footer-nav a:hover {
+  text-decoration: underline;
+}
+
+.site-footer--content .footer-nav .nav-sep {
+  color: var(--cmnh-brass);
+  user-select: none;
+}
+
+.site-footer--content .footer-small {
+  margin-top: 1.1rem;
+  font-size: 0.84rem;
+  line-height: 1.55;
+  color: rgba(253, 248, 232, 0.65);
+  max-width: 70ch;
+}
+
 /* --- Buttons ------------------------------------------------------ */
 .btn {
   display: inline-flex;
@@ -743,7 +952,12 @@ a:hover {
   flex-wrap: wrap;
   gap: var(--space-1);
   background: var(--colour-card);
-  padding: var(--space-3) var(--space-3) var(--space-2);
+  padding: 12px 12px 10px;
+  /* D3 (parity fix stack, 18 Nov 2026): the sample's tab
+     list carries the tile-line border on three sides — the
+     panel below completes the card. */
+  border: 1px solid var(--colour-tile-line);
+  border-bottom: 0;
   border-radius: var(--radius-tile) var(--radius-tile) 0 0;
 }
 
@@ -770,8 +984,21 @@ a:hover {
   color: var(--cmnh-white);
 }
 
+/* D3: the panel is the sample's bordered white card —
+   border, white ground and the sample's padding; the
+   sections inside no longer sit straight on the page. */
 .tabs__panel {
-  padding: var(--space-5) 0;
+  border: 1px solid var(--colour-tile-line);
+  border-top: 0;
+  border-radius: 0 0 var(--radius-tile) var(--radius-tile);
+  background: var(--cmnh-white);
+  padding: 6px 20px 16px;
+}
+
+@media (max-width: 40rem) {
+  .tabs__panel {
+    padding: 6px 14px 12px;
+  }
 }
 
 /* --- Tables ---------------------------------------------------------
@@ -1589,41 +1816,68 @@ body:has(.main--home) .site-footer {
   padding: var(--space-5);
 }
 
+/* D6 (parity fix stack, 18 Nov 2026): the checking state
+   takes the sample's own column — a 46rem wrapper centred
+   in the results measure — and its title the sample's
+   clamp. The results state behind it keeps the full
+   measure; only the checking section is wrapped. */
+.checking {
+  max-width: 46rem;
+  margin: 0 auto;
+}
+
+.checking h2 {
+  font-family: var(--font-family-display);
+  font-weight: 700;
+  font-size: clamp(1.9rem, 1.55rem + 1.5vw, 2.2rem);
+  line-height: 1.15;
+  color: var(--cmnh-forest);
+  margin: 0 0 10px;
+}
+
 .checking__rows {
   list-style: none;
   padding: 0;
-  margin: var(--space-5) 0;
+  margin: 14px 0 6px;
 }
 
 .checking__row {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2) var(--space-4);
-  align-items: baseline;
+  align-items: center;
   padding: var(--space-3) 0;
   border-bottom: 1px solid var(--cmnh-brass-pale);
 }
 
+.checking__row:first-child {
+  border-top: 1px solid var(--cmnh-brass-pale);
+}
+
 .checking__row-label {
-  flex: 1 1 12rem;
+  flex: 1 1 16rem;
   font-weight: 600;
 }
 
 .checking__row-state {
   flex: 0 1 auto;
+  font-weight: 600;
+  color: var(--colour-muted);
 }
 
 /* The done state (D70, checking-screen ruling): the word
-   carries its tick — never colour alone. */
+   carries its tick — never colour alone. D6: the sample's
+   done weight is 800. */
 .checking__row[data-state="done"] .checking__row-state,
 .checking__elements li[data-state="done"] .checking__element-state {
   color: var(--cmnh-forest);
-  font-weight: 700;
+  font-weight: 800;
 }
 
 .checking__row-line {
   flex-basis: 100%;
-  font-size: var(--font-size-small);
+  font-size: 0.88rem;
+  color: var(--colour-muted);
 }
 
 .checking__elements {
@@ -1720,21 +1974,41 @@ body:has(.main--home) .site-footer {
   margin-bottom: var(--space-5);
 }
 
+/* D3 (parity fix stack, 18 Nov 2026): the closing
+   disclaimers sit in the sample's tinted box, not as plain
+   text over a rule. */
 .results-disclaimer-closing {
-  font-size: var(--font-size-small);
-  border-top: 1px solid var(--cmnh-brass-pale);
-  padding-top: var(--space-4);
-  margin-top: var(--space-6);
+  margin: 18px 0 0;
+  padding: 12px 14px;
+  background: #f1f5f3;
+  border: 1px solid #dbe6df;
+  border-radius: var(--radius-tile);
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: var(--colour-muted);
 }
 
+/* D3: inside the bordered panel the sections carry no
+   rules of their own — the sample's .sect group heads and
+   their margins do the dividing. */
 .results-section {
-  padding: var(--space-4) 0;
-  border-bottom: 1px solid var(--cmnh-brass-pale);
+  padding: 0;
 }
 
 .results-section__heading {
-  font-size: var(--font-size-h3);
-  margin-bottom: var(--space-3);
+  /* The sample's .sect form: a small tracked label, Forest,
+     heavy — the heading element and its semantics stay. */
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  line-height: 1.4;
+  color: var(--cmnh-forest);
+  margin: 18px 0 2px;
+}
+
+.results-section:first-child .results-section__heading {
+  margin-top: 6px;
 }
 
 .results-line {
@@ -1747,16 +2021,26 @@ body:has(.main--home) .site-footer {
   margin: 0 0 var(--space-2);
 }
 
+/* D4 (parity fix stack, 18 Nov 2026): the sample's .row —
+   name and detail stacked in a left block, the distance
+   chip at the right, a dashed bottom border, 11px of
+   padding. */
 .place-row {
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1) var(--space-3);
-  align-items: baseline;
-  padding: var(--space-2) 0;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 11px 0;
+  border-bottom: 1px dashed #e5e0d0;
+}
+
+.place-row__main {
+  min-width: 0;
 }
 
 .place-row__name {
-  font-weight: 600;
+  display: block;
+  font-weight: 700;
 }
 
 /* The distance figure as the design's .dist chip (D70
@@ -1790,13 +2074,40 @@ body:has(.main--home) .site-footer {
 .place-row__detail,
 .place-row__rating,
 .place-row__sixth {
-  font-size: var(--font-size-small);
-  flex-basis: 100%;
+  display: block;
+  font-size: 0.88rem;
+  color: var(--colour-muted);
 }
 
-.truncation-line {
-  font-size: var(--font-size-small);
-  margin-bottom: var(--space-2);
+/* D3: the truncation row in the sample's .truncRow form —
+   a dashed Forest band row, not a plain line of small
+   text. The wording it carries is unchanged (ruling 2). */
+.trunc-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  padding: 11px 12px;
+  margin: 2px 0 4px;
+  border: 1.5px dashed var(--cmnh-forest);
+  border-radius: var(--radius-tile);
+  background: var(--colour-band);
+  color: var(--cmnh-ink);
+  text-decoration: none;
+  font-weight: 900;
+  font-size: 0.92rem;
+}
+
+a.trunc-row:hover {
+  background: #ffe9ad;
+  color: var(--cmnh-ink);
+}
+
+@media (max-width: 40rem) {
+  .trunc-row {
+    flex-wrap: wrap;
+  }
 }
 
 .results-tiles {
@@ -1817,8 +2128,11 @@ body:has(.main--home) .site-footer {
   border: 1px solid var(--colour-tile-line);
   border-radius: var(--radius-tile);
   background: var(--colour-card);
-  padding: 10px 12px;
-  min-width: 10rem;
+  padding: 10px 14px;
+  /* D4: the sample's tiles flex-grow so a row of them
+     fills the panel evenly. */
+  flex: 1 1 10.5rem;
+  min-width: 10.5rem;
 }
 
 .results-tile__label {
@@ -1832,9 +2146,9 @@ body:has(.main--home) .site-footer {
 
 .results-tile__value {
   display: block;
-  font-size: 1.18rem;
+  font-size: 1.2rem;
   font-weight: 900;
-  line-height: 1.25;
+  line-height: 1.3;
   color: var(--colour-text);
 }
 
@@ -1889,66 +2203,149 @@ body:has(.main--home) .site-footer {
   margin: 0;
 }
 
+/* D8 (parity fix stack, 18 Nov 2026): the shortlist page
+   takes the sample's shell — the 1080px frame with the
+   sample's page padding, the 820px left-aligned column
+   for the head and cards, the sample's h1 and lead. */
+.shortlist-page {
+  max-width: 1080px;
+  padding: 30px 26px 42px;
+}
+
+@media (max-width: 720px) {
+  .shortlist-page {
+    padding: 24px 16px 34px;
+  }
+}
+
+.shortlist-page h1 {
+  font-size: 2.4rem;
+}
+
+@media (max-width: 720px) {
+  .shortlist-page h1 {
+    font-size: 2rem;
+  }
+}
+
+.shortlist-lead {
+  font-size: 1.13rem;
+  color: #3d4a40;
+  max-width: 66ch;
+  margin-top: 0.9rem;
+}
+
+.shortlist-rule {
+  height: 3px;
+  width: 64px;
+  background: var(--cmnh-brass);
+  border-radius: 2px;
+  margin: 1.3rem 0 0;
+}
+
+/* D8: the cards are the sample's count-keyed grid — one
+   column for one home, two-across, three-across — paper
+   cards at the sample's radius and padding. */
 .shortlist-cards {
   list-style: none;
   padding: 0;
-  margin: 0 0 var(--space-5);
+  margin: 1.8rem 0 0;
+  max-width: 820px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.1rem;
+  align-items: start;
+}
+
+.shortlist-cards--two {
+  grid-template-columns: 1fr 1fr;
+}
+
+.shortlist-cards--three {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+@media (max-width: 720px) {
+  .shortlist-cards--two,
+  .shortlist-cards--three {
+    grid-template-columns: 1fr;
+  }
 }
 
 .shortlist-card {
-  border: 1px solid var(--cmnh-brass-pale);
-  border-radius: var(--radius-card);
-  background: var(--colour-surface);
-  padding: var(--space-5);
-  margin-bottom: var(--space-4);
+  border: 1px solid var(--colour-line-warm);
+  border-radius: 16px;
+  background: var(--cmnh-white);
+  padding: 1.4rem 1.5rem;
 }
 
 .shortlist-card__address {
-  margin-bottom: var(--space-2);
+  font-size: 1.45rem;
+  margin-bottom: 0;
+}
+
+.shortlist-cards--three .shortlist-card__address {
+  font-size: 1.28rem;
 }
 
 .shortlist-card__sale {
   font-weight: 600;
-  margin-bottom: var(--space-1);
+  color: var(--cmnh-forest-deep);
+  margin-top: 0.45rem;
+  margin-bottom: 0;
 }
 
 .shortlist-card__facts {
-  margin-bottom: var(--space-4);
+  margin-top: 0.3rem;
+  margin-bottom: 0;
+  color: #3d4a40;
 }
 
 .shortlist-card__actions {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-3);
-  margin: 0;
+  gap: 0.6rem;
+  margin: 1.15rem 0 0;
 }
 
 /* The kept line closes the /shortlist page in small print,
-   below the comparison (founder's ruling, 17 Nov 2026). */
+   below the comparison (founder's ruling, 17 Nov 2026).
+   D8: the sample's kept-line values. */
 .shortlist-kept-line {
-  font-size: var(--font-size-small);
-  margin-top: var(--space-6);
+  font-size: 0.84rem;
+  line-height: 1.55;
+  color: var(--colour-muted);
+  margin-top: 2rem;
   margin-bottom: 0;
 }
 
+.shortlist-compare {
+  margin-top: 2.6rem;
+}
+
+.shortlist-compare > h2 {
+  font-size: 1.8rem;
+}
+
+/* D8: the phone form is the sample's compare block — one
+   paper block per home, its facts as label/value rows. */
 .shortlist-compare__grid {
   display: grid;
   grid-template-columns: 1fr;
-  gap: var(--space-4);
-  margin-top: var(--space-4);
-}
-
-@media (min-width: 48rem) {
-  .shortlist-compare__grid {
-    grid-template-columns: repeat(var(--compare-columns, 1), 1fr);
-  }
 }
 
 .shortlist-compare__column {
-  border: 1px solid var(--cmnh-brass-pale);
-  border-radius: var(--radius-card);
-  background: var(--colour-surface);
-  padding: var(--space-5);
+  border: 1px solid var(--colour-line-warm);
+  border-radius: 16px;
+  background: var(--cmnh-white);
+  padding: 1.3rem 1.4rem;
+  margin-top: 1.1rem;
+}
+
+.shortlist-compare__address {
+  font-family: var(--font-family-display);
+  font-size: 1.3rem;
+  margin-bottom: 0.6rem;
 }
 
 .shortlist-compare__sale {
@@ -1957,28 +2354,63 @@ body:has(.main--home) .site-footer {
 }
 
 .shortlist-compare__rows {
-  margin: 0 0 var(--space-4);
+  margin: 0;
 }
 
 .shortlist-compare__row {
-  padding: var(--space-2) 0;
-  border-bottom: 1px solid var(--cmnh-brass-pale);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.15rem 1rem;
+  padding: 0.55rem 0;
+  border-top: 1px solid var(--colour-line-warm-soft);
+}
+
+.shortlist-compare__row:first-child {
+  border-top: none;
 }
 
 .shortlist-compare__row dt {
-  font-size: var(--font-size-caption);
+  font-size: 0.82rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--colour-text);
+  letter-spacing: 0.05em;
+  color: var(--colour-muted);
+  padding-top: 0.15rem;
 }
 
 .shortlist-compare__row dd {
-  margin: var(--space-1) 0 0;
+  margin: 0;
+  text-align: right;
 }
 
 .shortlist-compare__actions {
-  margin: 0;
+  margin: 1rem 0 0;
+  border-top: 1px solid var(--colour-line-warm-soft);
+  padding-top: 1rem;
+}
+
+/* The sample's brass button form (its .btn-brass), worn by
+   the report buttons at the comparison's feet — the table
+   foot and the phone blocks. */
+.compare-table tfoot .report-btn,
+.shortlist-compare__actions .report-btn {
+  background: var(--cmnh-brass);
+  color: var(--cmnh-forest-deep);
+  border: 1px solid var(--cmnh-brass);
+  min-height: 48px;
+  padding: 0.65rem 1.5rem;
+  font-size: 0.98rem;
+  font-weight: 700;
+  white-space: normal;
+  text-align: center;
+}
+
+.compare-table tfoot .report-btn:hover,
+.shortlist-compare__actions .report-btn:hover {
+  background: var(--cmnh-brass-pale);
+  border-color: var(--cmnh-brass-pale);
+  color: var(--cmnh-forest-deep);
 }
 
 /* --- The design-alignment pass (D70) --------------------------------
@@ -2046,25 +2478,30 @@ body:has(.main--home) .site-footer {
   background: var(--dist-green-bg);
 }
 
-/* The remove pill (the design's .removeBtn): a quiet
-   outline pill on the shortlist cards. */
+/* The remove pill: the sample's .btn-remove — a white
+   pill with the warm line, Forest text (D8, parity fix
+   stack, 18 Nov 2026). */
 .remove-btn {
   display: inline-flex;
   align-items: center;
-  min-height: var(--tap-target);
-  border: 1px solid var(--colour-card-line);
-  background: transparent;
-  color: var(--colour-muted);
-  padding: 6px 10px;
+  justify-content: center;
+  min-height: 40px;
+  border: 1px solid var(--colour-line-warm);
+  background: var(--cmnh-white);
+  color: var(--cmnh-forest);
+  padding: 0.45rem 1.05rem;
   border-radius: 999px;
   font: inherit;
-  font-size: 0.8rem;
-  font-weight: 800;
+  font-size: 0.9rem;
+  font-weight: 600;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .remove-btn:hover {
-  color: var(--colour-text);
+  background: var(--colour-wash);
+  border-color: var(--cmnh-brass);
+  color: var(--cmnh-forest);
 }
 
 /* The full-shortlist message (M7.5, as ruled 17 Nov 2026):
@@ -2133,11 +2570,18 @@ body:has(.main--home) .site-footer {
 
 /* The report door's holding page (M7.6): the payment
    page's card form — a bordered card carrying what the
-   report adds, the one-payment line and the state line. */
+   report adds, the one-payment line and the state line.
+   D9 (parity fix stack, 18 Nov 2026): the door centres in
+   the payment sample's 640px wrap, and the card takes its
+   dress — white, radius 14px. */
+.report-door {
+  max-width: 640px;
+}
+
 .report-door__card {
-  border: 1px solid var(--cmnh-brass-pale);
-  border-radius: var(--radius-card);
-  background: var(--colour-surface);
+  border: 1px solid var(--colour-tile-line);
+  border-radius: var(--radius-panel);
+  background: var(--cmnh-white);
   padding: var(--space-4);
   margin-top: var(--space-4);
 }
@@ -2170,11 +2614,20 @@ body:has(.main--home) .site-footer {
    button at each column's foot. Rendered at desktop
    widths; below them the block stacking above is the
    form (components/ShortlistPage.tsx chooses). */
+/* D8: the table is re-dressed to the sample's
+   .compare-table — paper, the 16px radius with its outer
+   border, row hairlines only (no cell gridlines), a wash
+   head and foot, the head set in Newsreader. */
 .compare-table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
-  margin-top: var(--space-4);
+  margin-top: 1.2rem;
   background: var(--cmnh-white);
+  border: 1px solid var(--colour-line-warm);
+  border-radius: 16px;
+  overflow: hidden;
+  font-size: 0.98rem;
 }
 
 .compare-table caption {
@@ -2186,71 +2639,107 @@ body:has(.main--home) .site-footer {
 
 .compare-table th,
 .compare-table td {
-  border: 1px solid var(--colour-tile-line);
-  padding: var(--space-2) var(--space-3);
+  padding: 0.75rem 1rem;
   text-align: left;
   vertical-align: top;
+  border-bottom: 1px solid var(--colour-line-warm-soft);
+  overflow-wrap: break-word;
 }
 
 .compare-table thead th {
-  background: var(--colour-surface);
-  color: var(--colour-heading);
+  font-family: var(--font-family-display);
+  font-size: 1.12rem;
+  font-weight: 600;
+  color: var(--cmnh-forest-deep);
+  background: var(--colour-wash);
+  border-bottom: 1px solid var(--colour-line-warm);
+}
+
+/* The sample's first-column measures: 30% for one home,
+   19% for three. */
+.compare-table[data-card-count="1"] thead th:first-child {
+  width: 30%;
+}
+
+.compare-table[data-card-count="3"] thead th:first-child {
+  width: 19%;
 }
 
 .compare-table tbody th {
-  font-weight: 700;
-  color: var(--colour-heading);
-  white-space: nowrap;
+  font-weight: 600;
+  color: var(--colour-muted);
+  font-size: 0.88rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding-top: 0.85rem;
+}
+
+.compare-table tbody td {
+  color: var(--colour-text);
 }
 
 .compare-table__sale {
   display: block;
+  font-family: var(--font-family);
   font-size: var(--font-size-small);
   font-weight: 600;
   color: var(--colour-muted);
 }
 
-.compare-table tfoot td {
-  background: var(--colour-card);
+.compare-table tfoot td,
+.compare-table tfoot th {
+  background: var(--colour-wash);
+  border-bottom: none;
 }
 
-/* The shortlist's empty state as a dressed panel (D70
-   R8/D19): panel treatment plus one of the kit's small
-   line illustrations — the dog, for the homes not yet
-   saved. No copy changes. */
+/* The shortlist's empty state: the sample's dashed-brass
+   paper card at 640px (D8, parity fix stack, 18 Nov
+   2026). The sample carries no illustration — the dog the
+   D70 pass dressed this panel with is removed under the
+   founder's exact-parity ruling. */
 .shortlist-empty {
-  border: 1px solid var(--cmnh-brass-pale);
-  border-radius: var(--radius-card);
-  background: var(--colour-surface);
-  padding: var(--space-5);
+  margin-top: 1.8rem;
+  background: var(--cmnh-white);
+  border: 1px dashed var(--cmnh-brass);
+  border-radius: 16px;
+  padding: 1.7rem 1.6rem;
+  max-width: 640px;
 }
 
-.empty-state__art {
-  display: block;
-  height: 4rem;
-  width: auto;
-  margin-bottom: var(--space-3);
+.shortlist-empty h2 {
+  font-size: 1.6rem;
+}
+
+.shortlist-empty p {
+  margin-top: 0.6rem;
+  color: #3d4a40;
+  max-width: 58ch;
 }
 
 /* Fold-in build (D73/D75/D76/D77): checking progress,
    upsells, subheadings, calculators, manifesto line. */
+/* D6: the loadbar track is the sample's #E9E4D4, with the
+   sample's margins. */
 .checking__progress {
   height: 8px;
   border-radius: 999px;
-  background: var(--cmnh-brass-pale);
+  background: #e9e4d4;
   overflow: hidden;
-  margin-bottom: var(--space-4);
+  margin: 20px 0 6px;
 }
 .checking__progress-bar {
   height: 100%;
   background: var(--cmnh-forest);
   transition: width 300ms ease;
 }
+/* D6: the spinner is the sample's 17px ring with a 3px
+   border on #DBE6DF. */
 .checking__spinner {
   display: inline-block;
-  width: 0.8em;
-  height: 0.8em;
-  border: 2px solid var(--cmnh-brass-pale);
+  width: 17px;
+  height: 17px;
+  flex: none;
+  border: 3px solid #dbe6df;
   border-top-color: var(--cmnh-forest);
   border-radius: 50%;
   animation: checking-spin 0.8s linear infinite;
@@ -2263,7 +2752,8 @@ body:has(.main--home) .site-footer {
 }
 .checking__row-qualifier {
   flex-basis: 100%;
-  font-size: var(--font-size-small);
+  font-size: 0.88rem;
+  color: var(--colour-muted);
 }
 .results-manifesto-line {
   font-size: var(--font-size-lead);
@@ -2304,9 +2794,11 @@ body:has(.main--home) .site-footer {
 }
 .calculator-card {
   flex: 1 1 20rem;
-  border: 1px solid var(--cmnh-brass-pale);
+  /* D4: the sample's calculator cards are white with the
+     tile-line border — not Cream with brass-pale. */
+  border: 1px solid var(--colour-tile-line);
   border-radius: var(--radius-card);
-  background: var(--colour-surface);
+  background: var(--cmnh-white);
   padding: var(--space-4);
   display: flex;
   flex-direction: column;
@@ -2561,7 +3053,33 @@ body:has(.main--home) .site-footer {
   min-height: 52px;
 }
 
-/* About — the tagline, the price line, the manifesto block. */
+/* About — the hero, the card grid, the tagline, the price
+   line, the manifesto block. D1a (parity fix stack,
+   18 Nov 2026): the sample's .about-hero measure and
+   .about-grid — the six cards three across at the full
+   measure, not a single stacked column. */
+.site-pages .about-hero h1 {
+  font-size: 2.9rem;
+  max-width: 18ch;
+}
+.site-pages .about-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1.1rem;
+  margin-top: 1.8rem;
+}
+.site-pages .about-grid .card h2 {
+  font-size: 1.4rem;
+  margin-bottom: 0.55rem;
+}
+.site-pages .about-grid .card p {
+  font-size: 0.99rem;
+}
+@media (max-width: 720px) {
+  .site-pages .about-hero h1 {
+    font-size: 2.25rem;
+  }
+}
 .site-pages .about-tagline {
   font-family: var(--font-family-display);
   font-size: 1.5rem;
@@ -2602,7 +3120,12 @@ body:has(.main--home) .site-footer {
   font-weight: 600;
 }
 
-/* Privacy — the date line and the policy cards. */
+/* Privacy — the wrap, the date line and the policy cards.
+   D5 (parity fix stack, 18 Nov 2026): the sample holds the
+   policy in an 820px wrap inside the 1080px measure. */
+.site-pages .privacy-wrap {
+  max-width: 820px;
+}
 .site-pages .privacy-date {
   font-size: 0.9rem;
   color: var(--sp-muted);
@@ -2623,9 +3146,16 @@ body:has(.main--home) .site-footer {
   font-weight: 600;
 }
 
-/* Contact — the form and the email route. */
-.site-pages .contact-card {
+/* Contact — the wrap, the form card and the email route.
+   D5 (parity fix stack, 18 Nov 2026): the whole page —
+   heading, form card and email route — sits in the
+   sample's 720px .contact-wrap (the Master carries the
+   form in its card inside that wrap); the email route
+   below the card is the sample's centred block. */
+.site-pages .contact-wrap {
   max-width: 720px;
+}
+.site-pages .contact-card {
   margin-top: 1.8rem;
 }
 .site-pages .contact-card form {
@@ -2693,12 +3223,36 @@ body:has(.main--home) .site-footer {
 }
 .site-pages .email-route {
   margin-top: 1.8rem;
-  padding-top: 1.2rem;
+  text-align: center;
+  padding: 1.6rem 1rem;
   border-top: 1px dashed var(--sp-line);
   color: #3d4a40;
+  font-size: 1.05rem;
 }
-.site-pages .email-route a {
+.site-pages .email-route p + p {
+  margin-top: 0.4rem;
+}
+.site-pages .email-route .addr {
+  font-family: var(--font-family-display);
+  font-size: 1.35rem;
   font-weight: 700;
+  color: var(--sp-forest);
+  text-decoration: none;
+  word-break: break-all;
+}
+.site-pages .email-route .addr:hover {
+  text-decoration: underline;
+}
+.site-pages .email-route .promise {
+  display: inline-block;
+  margin-top: 1rem;
+  background: var(--sp-wash);
+  border: 1px solid var(--sp-line);
+  border-radius: 999px;
+  padding: 0.5rem 1.1rem;
+  font-weight: 600;
+  color: var(--sp-deep);
+  font-size: 0.94rem;
 }
 
 /* Content pages — the in-section check links, the sources
@@ -2826,7 +3380,10 @@ body:has(.main--home) .site-footer {
 }
 .site-pages .rpt-meta {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  /* D7 (parity fix stack, 18 Nov 2026): the sample's
+     repeat(4, 1fr) for the meta strip's five items — four
+     across, the fifth wrapping. */
+  grid-template-columns: repeat(4, 1fr);
   gap: 8px 20px;
   background: var(--sp-wash);
   border: 1px solid var(--sp-line);

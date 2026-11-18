@@ -12,7 +12,9 @@ import type { ReportDoorView } from "../lib/report-door";
 
 export default function ReportDoorPage({ view }: { view: ReportDoorView }) {
   return (
-    <main className="journey-page">
+    // D9 (parity fix stack, 18 Nov 2026): the door centres
+    // in the payment sample's 640px wrap.
+    <main className="journey-page report-door">
       <h1>{view.heading}</h1>
       {view.subline && <p className="type-lead">{view.subline}</p>}
       <section className="report-door__card">

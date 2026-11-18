@@ -23,19 +23,34 @@ export default function ContactPage() {
     <main className="site-pages">
       <div className="site-pages__inner">
         <BreadcrumbLd name="Contact" path="/contact" />
-        <p className="eyebrow">{CONTACT_EYEBROW}</p>
-        <h1>{CONTACT_H1}</h1>
-        <p className="lead">{CONTACT_LEAD}</p>
-        <div className="rule" />
+        {/* D5 (parity fix stack, 18 Nov 2026): the page
+            sits in the sample's 720px .contact-wrap; the
+            form keeps its card inside the wrap (the
+            Master's own form), and the email route moves
+            below the card as the sample's centred block —
+            the address in Newsreader, the reply promise as
+            a pill. */}
+        <div className="contact-wrap">
+          <p className="eyebrow">{CONTACT_EYEBROW}</p>
+          <h1>{CONTACT_H1}</h1>
+          <p className="lead">{CONTACT_LEAD}</p>
+          <div className="rule" />
 
-        <div className="card contact-card">
-          <ContactForm />
-          <p className="email-route">
-            {CONTACT_EMAIL_PROMPT}{" "}
-            <a href={`mailto:${CONTACT_EMAIL_ADDRESS}`}>{CONTACT_EMAIL_ADDRESS}</a>
-            <br />
-            {CONTACT_REPLY_PROMISE}
-          </p>
+          <div className="card contact-card">
+            <ContactForm />
+          </div>
+
+          <div className="email-route">
+            <p>{CONTACT_EMAIL_PROMPT}</p>
+            <p>
+              <a className="addr" href={`mailto:${CONTACT_EMAIL_ADDRESS}`}>
+                {CONTACT_EMAIL_ADDRESS}
+              </a>
+            </p>
+            <p>
+              <span className="promise">{CONTACT_REPLY_PROMISE}</span>
+            </p>
+          </div>
         </div>
       </div>
     </main>

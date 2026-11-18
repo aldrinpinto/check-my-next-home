@@ -2109,3 +2109,200 @@ the cascade arithmetic above and the unit pins here.
 
 Changed files: app/globals.css, lib/results.ts,
 tests/results.test.ts and this note.
+
+## Parity fix stack (18 Nov 2026) — the pages made exactly like their samples: the whole page, copy AND layout
+
+The founder's ruling (18 Nov 2026), after his side-by-side
+of the sample About page against the live one: "match the
+samples exactly" means the whole page — copy AND the
+entire layout (container width, grids, type scale,
+spacing, card forms) — and the parity check is a QA step
+Muse runs itself before calling any page done. A
+read-only audit of every built page against the Final
+Sample Master (papers: scratch-parity/FINDINGS-HOLD.md)
+found the copy faithful everywhere and the layout
+diverging in nine places. This stack fixes all nine; the
+fixes were pre-authorised ("just go ahead and do the
+changes"), so no adoption round preceded the build.
+
+D1 — the systemic root cause. `main { max-width:
+var(--container-reading) }` (44rem) capped every
+`.site-pages` main, so the content pages squeezed into
+~640px inside their own 1080px inner and the two paddings
+stacked. `main.site-pages` is now exempt (full width, no
+padding of its own); `.site-pages__inner` carries the
+sample's 1080px measure and padding alone. Hits About,
+How we check, Contact, Privacy, Sample report, the
+guides and the check pages — everything through
+components/ContentPage.tsx included.
+
+D1a — About. The hero takes the sample's `.about-hero`
+wrap (h1 2.9rem at an 18ch measure, 2.25rem at ≤720px)
+and the six cards the sample's `.about-grid`
+(`repeat(auto-fit, minmax(250px, 1fr))`, gap 1.1rem,
+margin-top 1.8rem; card h2 1.4rem) in place of the
+single stacked `.stack` column.
+
+D2 — the second chrome family. The samples carry two
+chromes; the product had one. SiteHeader/SiteFooter gain
+a `variant="content"` render — the views 4–8 chrome:
+1080px header, the 44px Forest-square mark (radius 12px,
+the cream house SVG), the Newsreader wordmark (1.55rem,
+Deep) with the tagline under it in plain case, the nav as
+a second row under a hairline (dot separators, links
+min-height 40px at .95rem/600 Forest, the current page a
+Forest pill), and the stacked footer inside the 1080px
+container (wordmark-only brand at Newsreader 1.3rem, the
+tagline in Newsreader 1.02rem brass-pale, the nav row,
+the small print at .84rem rgba(253,248,232,.65), max
+70ch) with `margin-top: 0` — the white band between the
+cream main and the footer is closed. A new client
+wrapper, components/SiteChrome.tsx, applies the content
+variant to the .site-pages routes only (/about,
+/how-we-check, /contact, /privacy, /sample-report,
+/guides, /check); the app chrome is byte-identical on
+app pages and the landing remains a match. Two recorded
+judgements: the content header nav keeps all five
+primary items as live links, Shortlist with its count
+badge included (the Master shows Shortlist as a muted
+span only because its pages are static snapshots; the
+audit's own D2 text describes the badge in this chrome),
+and the content footer's small print is the Master's own
+closing line for these pages, verbatim, in place of the
+app footer's sources line (the default footer render —
+which the kit test pins — is untouched). The black
+corner TEST label is a recorded 17 Nov ruling and stays.
+
+D3 — Results. The tabs take the sample's bordered panel:
+the list gains the tile-line border on three sides
+(padding 12px 12px 10px, gap 4px), the panel the border
+completed, the white ground and the sample's padding
+(6px 20px 16px; 6px 14px 12px at ≤640px). Section
+headings take the sample's `.sect` form (.78rem, weight
+900, uppercase, letter-spacing .08em, Forest, margin
+18px 0 2px, first 6px) — the h3 elements and their
+semantics stay; sections lose their own brass-pale rules
+(they live only inside tab panels). Truncation rows take
+the `.truncRow` form (flex, 1.5px dashed Forest border,
+band ground, tile radius, padding 11px 12px, weight 900
+at .92rem, hover #FFE9AD). The closing disclaimer takes
+the tinted box (#F1F5F3 ground, 1px #DBE6DF border,
+radius 10px, .72rem, padding 12px 14px).
+
+D4 — Results rows. Place rows take the sample's `.row`
+form: name (700, block) and the detail/rating/sixth-form
+lines (.88rem, muted, block) stacked in a left block (a
+new `.place-row__main` span in ResultsPage), the
+distance chip at the right (align flex-start), the
+dashed #E5E0D0 bottom border, 11px padding. Stat tiles
+flex-grow (`flex: 1 1 10.5rem`, min-width 10.5rem,
+padding 10px 14px, value 1.2rem). Calculator cards are
+white with the tile-line border, not Cream/brass-pale.
+
+D5 — Privacy and Contact. Privacy gains the sample's
+`.privacy-wrap` (820px, left-aligned). Contact: the
+audit brief said the form loses its card, but the Final
+Sample Master itself (view 6) carries the form in a card
+inside `.contact-wrap` — the Master wins, as it must:
+the page (heading, card, email route) sits in the 720px
+`.contact-wrap`, the form keeps its `.card`, and the
+email route moves below the card as the sample's centred
+block — the address in Newsreader 1.35rem/700 Forest (a
+new `.addr` form) and the reply promise as a `.promise`
+pill (wash ground, line border, radius 999). This
+deviation from the brief's wording is recorded here
+plainly: the sample is the authority, and its source
+carries the card.
+
+D6 — Checking. The checking state takes a 46rem centred
+wrapper; its title the sample's clamp
+(`clamp(1.9rem, 1.55rem + 1.5vw, 2.2rem)`, Forest, 700,
+1.15); the loadbar track #E9E4D4 with margin 20px 0 6px;
+row labels flex-basis 16rem; rows align center with the
+first row's border-top; the state word 600 muted, done
+Forest 800; the spinner 17px with a 3px border (#DBE6DF,
+Forest top); the row line .88rem muted.
+
+D7 — Sample report. `.rpt-meta` returns to the sample's
+`repeat(4, 1fr)` for its five items; D1 fixes the rest of
+that page.
+
+D8 — Shortlist. The page takes the sample's shell: the
+1080px frame at the sample's padding (30px 26px 42px;
+24px 16px 34px at ≤720px), h1 2.4rem (2rem small), the
+lead at 1.13rem, the brass rule. The cards take the
+count-keyed grid (one column / two-across /
+three-across, stacking at ≤720px), paper-white cards
+(1px warm line, radius 16px, padding 1.4rem 1.5rem; card
+h2 1.45rem, 1.28rem at three-across), the sale line as
+the card's meta (margin-top .45rem, 600, Deep), the
+remove button in the sample's `.btn-remove` form (white,
+warm line, radius 999, min-height 40px, .9rem/600
+Forest). The comparison takes the sample's dress:
+margin-top 2.6rem, its h2 1.8rem; the table paper with
+the 16px radius and outer border, `table-layout: fixed`,
+row hairlines only, the head in Newsreader 1.12rem/600
+Deep on the wash, body row heads .88rem uppercase muted,
+the foot on the wash, the first column 30% for one home
+and 19% for three (a `data-card-count` attribute carries
+the count; two homes interpolate at the default share —
+the sample has no two-home view). The phone form is one
+paper block per home (radius 16px, padding 1.3rem
+1.4rem) whose facts are label/value rows (hairline tops,
+values right-aligned, block heading Newsreader 1.3rem),
+the report button at each block's foot in the sample's
+brass button form (also worn in the table foot). The
+kept line takes the sample's values (.84rem, muted,
+margin-top 2rem). The empty state is the sample's
+dashed-brass paper card (radius 16px, padding 1.7rem
+1.6rem, max-width 640px, h2 1.6rem) — and the dog
+illustration is REMOVED: the sample has none, and the
+founder's exact-parity ruling settles it (the asset file
+stays in public/ — a unit test pins the illustration set
+as the kit's language; only its use here goes).
+
+D9 — Report door. The door centres in a 640px wrap
+(`.report-door` on its main); its card is white with the
+tile-line border at radius 14px. Dress only — the
+holding page's structure and copy are unchanged.
+
+Assertions updated (each moved TO the sample form, none
+weakened to keep a divergence):
+
+1. e2e/report-door.e2e.ts — the truncation contract
+   locator `.truncation-line a` becomes `a.trunc-row`:
+   the row is now the link itself, in the sample's form.
+2. tests/results.test.ts — the truncation link-contract
+   assertion expected the old bare `<a href>` markup; it
+   now expects `<a class="trunc-row" href>` — same href,
+   same words, the sample's form.
+3. New gate coverage, e2e/seo.e2e.ts, in the suite's
+   style: /about renders the content chrome
+   (header/footer variants present), its inner measures
+   over 1000px at the desktop viewport (the D1 cap would
+   give ~704px), `.about-grid` computes at least two
+   columns (D1a), and the content footer's top margin is
+   0 (the closed band); plus the counter-guard that the
+   landing and /shortlist keep the app chrome (no content
+   variant), so the second family cannot leak.
+
+One trade-off, recorded: the layout cannot know a
+route's family server-side without losing static
+prerendering, so SiteChrome switches the chrome on the
+client from the pathname — the served HTML carries the
+app chrome and the content chrome replaces it in the
+same hydration commit. The alternative (rendering both
+chromes and hiding one by CSS) was set aside because it
+cannot mark the current page's pill, which the sample
+shows on every content page; full parity after hydration
+was preferred over a permanently missing pill.
+
+One wording note, recorded under ruling 2 of the build:
+the sample's truncation row carries richer merged copy
+("…and 4 more primary schools — see all of them, plus
+sixth forms and the map, in the detailed report —
+£4.99"); the product's line is the D-ruled form from
+lib/results.ts ("Plus N more … in the detailed report —
+£4.99"). The row's DRESS follows the sample exactly; its
+words stay the ruled ones — copy rulings outrank sample
+transcription, and no D-rule was reopened by this stack.

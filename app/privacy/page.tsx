@@ -61,23 +61,28 @@ export default function PrivacyPage() {
     <main className="site-pages">
       <div className="site-pages__inner">
         <BreadcrumbLd name="Privacy policy" path="/privacy" />
-        <p className="eyebrow">{PRIVACY_EYEBROW}</p>
-        <h1>{PRIVACY_H1}</h1>
-        <p className="lead">
-          <strong>{PRIVACY_LEAD}</strong> {PRIVACY_LEAD_REST}
-        </p>
-        <p className="privacy-date">{PRIVACY_DATE_LINE}</p>
-        <div className="rule" />
+        {/* D5 (parity fix stack, 18 Nov 2026): the policy
+            sits in the sample's 820px .privacy-wrap inside
+            the 1080px measure. */}
+        <div className="privacy-wrap">
+          <p className="eyebrow">{PRIVACY_EYEBROW}</p>
+          <h1>{PRIVACY_H1}</h1>
+          <p className="lead">
+            <strong>{PRIVACY_LEAD}</strong> {PRIVACY_LEAD_REST}
+          </p>
+          <p className="privacy-date">{PRIVACY_DATE_LINE}</p>
+          <div className="rule" />
 
-        <div className="stack">
-          {PRIVACY_CARDS.map((card) => (
-            <article className="card privacy-card" key={card.heading}>
-              <h2>{card.heading}</h2>
-              {card.blocks.map((block, index) => (
-                <Block key={index} block={block} />
-              ))}
-            </article>
-          ))}
+          <div className="stack">
+            {PRIVACY_CARDS.map((card) => (
+              <article className="card privacy-card" key={card.heading}>
+                <h2>{card.heading}</h2>
+                {card.blocks.map((block, index) => (
+                  <Block key={index} block={block} />
+                ))}
+              </article>
+            ))}
+          </div>
         </div>
       </div>
     </main>

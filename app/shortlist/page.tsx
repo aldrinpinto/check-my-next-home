@@ -24,12 +24,16 @@ export const metadata: Metadata = pageMetadata({
 // serve call and works while the play server is down.
 export default function ShortlistRoute() {
   return (
-    <main className="journey-page main--wide">
+    // D8 (parity fix stack, 18 Nov 2026): the page takes
+    // the sample's shell — the 1080px frame at the
+    // sample's padding, its h1, lead and brass rule.
+    <main className="journey-page main--wide shortlist-page">
       <h1>Your shortlist</h1>
-      <p className="type-lead">
+      <p className="shortlist-lead">
         The homes you&rsquo;ve saved, side by side. Nothing about which homes you are considering is
         stored on any server.
       </p>
+      <div className="shortlist-rule" aria-hidden="true" />
       <ShortlistPage />
     </main>
   );

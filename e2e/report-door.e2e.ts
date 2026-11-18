@@ -46,11 +46,10 @@ test.describe("report door — regression", () => {
       const button = bar.locator(".report-btn");
       await expect(button).toHaveText("Get the full report — £4.99");
       await expect(button).toHaveAttribute("href", BIRKDALE_DOOR_HREF);
-      // A truncation line carries the same contract.
-      await expect(page.locator(".truncation-line a").first()).toHaveAttribute(
-        "href",
-        BIRKDALE_DOOR_HREF,
-      );
+      // A truncation row carries the same contract (D3,
+      // parity fix stack: the row is the sample's .truncRow
+      // link itself now, not a link inside a line).
+      await expect(page.locator("a.trunc-row").first()).toHaveAttribute("href", BIRKDALE_DOOR_HREF);
 
       await button.click();
       await page.waitForURL("**/report?postcode=CM3+2JT&home=19%7C%7CBIRKDALE+RISE");

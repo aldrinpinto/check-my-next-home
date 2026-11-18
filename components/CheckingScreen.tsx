@@ -14,8 +14,9 @@ import {
 // A pure graphic with a purposeful delay, NOT synced to the
 // backend: exactly five grouped rows, each showing a
 // spinner that flips to "Done" on the graphic's own clock
-// (~720ms apart), and a progress bar at the top advancing
-// 20% per completed row. There are no failure or
+// (~720ms apart), and a progress bar below the title and
+// intro (the sample's order) advancing 20% per completed
+// row. There are no failure or
 // not-completed states on this screen ever — the Results
 // page (its children) carries any "couldn't pull" states.
 //
@@ -97,6 +98,8 @@ export default function CheckingScreen({
 
   return (
     <section className="checking" aria-label={heading}>
+      <h2>{heading}</h2>
+      <p className="checking__intro">{CHECKING_INTRO}</p>
       <div
         className="checking__progress"
         role="progressbar"
@@ -107,8 +110,6 @@ export default function CheckingScreen({
       >
         <div className="checking__progress-bar" style={{ width: `${progressPct}%` }} />
       </div>
-      <h2>{heading}</h2>
-      <p className="checking__intro">{CHECKING_INTRO}</p>
       {backHref && (
         <p className="checking__back">
           <a href={backHref}>Back to the address list</a>
