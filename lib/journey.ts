@@ -125,6 +125,36 @@ export function homeRoute(postcode: string, homeKey?: string | null): string {
   return `${HOME_ROUTE}?${params.toString()}`;
 }
 
+// The narrowed home route (M7.15C, 18 Nov 2026): the
+// whole-postcode check carrying a street (or building)
+// narrowing, so a street pick lands on that street's
+// homes — the ladder re-derives the narrowed list from
+// the route's own parameters, exactly as the postcode
+// form's resolution does.
+export function narrowedHomeRoute(
+  postcode: string,
+  narrowing: { street?: string | null; building?: string | null },
+): string {
+  const params = new URLSearchParams({ postcode });
+  if (narrowing.street) params.set("street", narrowing.street);
+  if (narrowing.building) params.set("building", narrowing.building);
+  return `${HOME_ROUTE}?${params.toString()}`;
+}
+
+// The street choice route (M7.15C, 18 Nov 2026): a
+// street that spans postcodes is picked from the
+// dropdown as (street, town); this route renders the
+// short postcode choice in the picker's list style, and
+// each choice opens that street's homes in that
+// postcode. The parameters carry the DISPLAY forms; the
+// page normalises them against the street table. A
+// street pick never lands on a home directly.
+export function streetChoiceRoute(street: string, town: string | null): string {
+  const params = new URLSearchParams({ street });
+  if (town) params.set("town", town);
+  return `${SEARCH_ROUTE}?${params.toString()}`;
+}
+
 export function widerAreaRoute(outward: string, notFoundPostcode?: string | null): string {
   const params = new URLSearchParams({ outward });
   if (notFoundPostcode) params.set("notfound", notFoundPostcode);
@@ -280,6 +310,18 @@ export function pickerCountLine(count: number): string {
 // meaning — Scotland/NI never reach it (ruling 4).
 export const EMPTY_PICKER_LINE = "No addresses we can list for this postcode yet.";
 
+// The street choice page (M7.15C, 18 Nov 2026): a street
+// spanning postcodes offers one row per postcode on it,
+// in the picker's list style. The line is build-drafted
+// in the site's plain voice and pinned here so any change
+// is deliberate; the founder finalises copy at UAT, as
+// with the unplaced notice.
+export const STREET_CHOICE_LINE =
+  "This street covers more than one postcode — pick yours to see its homes.";
+export function streetChoiceCountLine(count: number): string {
+  return count === 1 ? "1 postcode" : `${count} postcodes`;
+}
+
 // The mid-pick fallback notice (entry-point build, 18 Nov
 // 2026; D72 item 3, gap item 5): a visitor who picked an
 // exact home from the list and lands on the whole-postcode
@@ -307,16 +349,20 @@ export function postcodeNotFoundLine(postcode: string): string {
 // The unplaced notice (founder ruling, 18 Nov 2026): the
 // small line the landing page shows at its search box when
 // an input couldn't be placed. It replaces the retired
-// no-location page (T-WEB-09's old fix route); its wording
-// is drafted from that page's line, keeping the substance —
-// a full postcode or a full address is needed, and a street
-// or place name on its own isn't enough — in the short form
-// a notice at a search box carries. The example stays the
-// neutral SW1A 1AA (fidelity pass 2: the founder's own
-// postcode never appears in visitor-facing copy). The
-// founder reviews the copy at UAT.
+// no-location page (T-WEB-09's old fix route). The example
+// stays the neutral SW1A 1AA (fidelity pass 2: the
+// founder's own postcode never appears in visitor-facing
+// copy). The founder reviews the copy at UAT.
+//
+// M7.15C (18 Nov 2026): the line is REPLACED with the
+// street step's adopted working text. The old line's
+// claim — "a street or place name on its own isn't
+// enough" — became false the day street names became
+// pickable from the list; the new line says what now
+// works. Submitting without a pick still lands here: a
+// fuzzy match is never applied on submit, ever.
 export const UNPLACED_NOTICE_LINE =
-  "We couldn't place that — try a full postcode, for example SW1A 1AA, or a full address with its postcode. A street or place name on its own isn't enough.";
+  "We couldn't place that. Try a full postcode — for example SW1A 1AA — or start typing a street name and pick it from the list.";
 
 // The not-covered page (ruling 4): the check is never
 // refused; every section carries its served not-covered

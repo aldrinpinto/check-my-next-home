@@ -17,6 +17,8 @@
 
 import pg from "pg";
 
+import { rebuildPickingStreets } from "../loaders/picking-index-filing.mjs";
+
 const EXPECTED_TABLES = [
   "postcode_cache",
   "price_paid",
@@ -121,6 +123,66 @@ try {
     [FAR.longitude, FAR.latitude],
   );
   assert(notCovering.rows[0].n === 0, "point-in-polygon correctly excludes the far point");
+
+  // ---- Street suggestions (M7.15C, migration 0031).
+  // The fuzzy tier's foundations, proved against the
+  // real database: the extension is on, the pinned
+  // threshold separates the prep's witness pair from an
+  // unrelated street, and the filing machinery's rebuild
+  // derives the street table at its ruled grain.
+  const trgm = await client.query("SELECT 1 AS ok FROM pg_extension WHERE extname = 'pg_trgm'");
+  assert(trgm.rows.length === 1, "pg_trgm extension is on (migration 0031)");
+
+  const sims = await client.query(
+    `SELECT similarity('BUGDALE RISE', 'BIRKDALE RISE') AS hit,
+            similarity('BUGDALE RISE', 'BIRKDALE ROAD') AS miss`,
+  );
+  const hit = Number(sims.rows[0].hit);
+  const miss = Number(sims.rows[0].miss);
+  assert(
+    hit >= 0.4,
+    `the witness misspelling clears the pinned 0.4 threshold (BUGDALE RISE ~ BIRKDALE RISE = ${hit.toFixed(4)})`,
+  );
+  assert(
+    miss < 0.4,
+    `an unrelated street stays below it (BUGDALE RISE ~ BIRKDALE ROAD = ${miss.toFixed(4)})`,
+  );
+
+  await client.query(
+    `INSERT INTO picking_index (postcode, paon, saon, street, town, home_key, sources, sales_edition, epc_edition)
+     VALUES ('CM3 2JT', '19', NULL, 'BIRKDALE RISE', 'CHELMSFORD', '19||BIRKDALE RISE', ARRAY['sales'], 'proof', NULL),
+            ('CM3 2JT', '21', NULL, 'BIRKDALE RISE', 'CHELMSFORD', '21||BIRKDALE RISE', ARRAY['sales'], 'proof', NULL),
+            ('CM3 2JU', '31', NULL, 'BIRKDALE RISE', 'CHELMSFORD', '31||BIRKDALE RISE', ARRAY['sales'], 'proof', NULL)`,
+  );
+  await rebuildPickingStreets(client);
+  const streets = await client.query(
+    `SELECT street_norm, town, town_norm, postcode, home_count
+       FROM picking_streets
+      WHERE street_norm = 'BIRKDALE RISE'
+      ORDER BY postcode`,
+  );
+  assert(streets.rows.length === 2, "the street rebuild files one row per (street, postcode)");
+  assert(
+    streets.rows[0].postcode === "CM3 2JT" &&
+      streets.rows[0].home_count === 2 &&
+      streets.rows[0].town === "CHELMSFORD" &&
+      streets.rows[0].town_norm === "CHELMSFORD",
+    "the street row carries its town and home count (CM3 2JT: 2 homes)",
+  );
+  assert(
+    streets.rows[1].postcode === "CM3 2JU" && streets.rows[1].home_count === 1,
+    "the same street in a second postcode is its own row (CM3 2JU: 1 home)",
+  );
+  // set_limit is session state; the proof's connection
+  // ends with the process, so nothing leaks past it.
+  await client.query("SELECT set_limit(0.4)");
+  const fuzzy = await client.query(
+    "SELECT street_norm FROM picking_streets WHERE street_norm % 'BUGDALE RISE'",
+  );
+  assert(
+    fuzzy.rows.some((row) => row.street_norm === "BIRKDALE RISE"),
+    "the % operator at the pinned limit offers the real street for the misspelling",
+  );
 
   await client.query("ROLLBACK");
   console.log("All proofs passed; test rows rolled back.");

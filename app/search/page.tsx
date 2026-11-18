@@ -3,21 +3,25 @@ import { redirect } from "next/navigation";
 import PostcodeBox from "../../components/PostcodeBox";
 import ResultsPage from "../../components/ResultsPage";
 import ShortlistButton from "../../components/ShortlistButton";
+import StreetChoice from "../../components/StreetChoice";
 import WholeCheckFailure from "../../components/WholeCheckFailure";
-import { createAddressSource, resolveAddressInput } from "../../lib/address";
+import { createAddressSource, displayText, resolveAddressInput } from "../../lib/address";
 import { homeKeyOf } from "../../lib/bundle-cache";
 import {
   UNPLACED_NOTICE_URL,
   WIDER_AREA_BANNER_HEADING,
   WIDER_AREA_BANNER_LINE,
   homeRoute,
+  narrowedHomeRoute,
   postcodeNotFoundLine,
+  postcodeRoute,
   widerAreaRoute,
 } from "../../lib/journey";
 import { buildDistrictResultsView, buildWiderAreaView } from "../../lib/results";
 import { checkDistrictWider, resolutionForPostcodeRoute } from "../../lib/server/serve";
 import { buildShortlistCard } from "../../lib/shortlist-card";
 import { getDbPool } from "../../lib/server/db";
+import { createStreetSource, streetNormOf } from "../../lib/server/streets";
 
 import type { Metadata } from "next";
 
@@ -49,7 +53,12 @@ export const metadata: Metadata = pageMetadata({
 // the standalone no-location page was retired by the same
 // day's earlier ruling (an input that can't be placed
 // returns to the landing page with a small notice at its
-// search box, never a page of its own).
+// search box, never a page of its own). Since M7.15C it
+// also carries the street form: a street picked from the
+// dropdown that spans postcodes arrives as (street, town)
+// and renders the short postcode choice (or redirects to
+// the one postcode's narrowed check when the street sits
+// in exactly one).
 
 export const dynamic = "force-dynamic";
 
@@ -61,6 +70,7 @@ export default async function SearchPage({
     outward?: string;
     notfound?: string;
     street?: string;
+    town?: string;
     building?: string;
     picked?: string;
   }>;
@@ -176,6 +186,42 @@ export default async function SearchPage({
     );
   }
 
+  if (params.street && !params.postcode) {
+    // The street choice (M7.15C, 18 Nov 2026): a street
+    // picked from the dropdown that spans postcodes
+    // lands here as (street, town). The street table
+    // answers which postcodes it sits in: none — the
+    // pick named a street we hold nothing on now — the
+    // unplaced notice; exactly one — straight to that
+    // postcode's check, narrowed to the street (the
+    // postcode form below re-decides it); several — the
+    // short choice, in the picker's list style. The
+    // parameters carry display forms; the lookup
+    // normalises them against the filed table, so a
+    // hand-typed variant of this URL resolves against
+    // filed fact, never against its own text.
+    let rows;
+    try {
+      rows = await createStreetSource(getDbPool()).streetPostcodes(
+        streetNormOf(params.street),
+        streetNormOf(params.town ?? ""),
+      );
+    } catch {
+      return <WholeCheckFailure />;
+    }
+    if (rows.length === 0) redirect(UNPLACED_NOTICE_URL);
+    if (rows.length === 1) {
+      redirect(postcodeRoute(rows[0].postcode, { street: rows[0].street }));
+    }
+    return (
+      <StreetChoice
+        street={displayText(params.street)}
+        town={params.town ? displayText(params.town) : null}
+        rows={rows}
+      />
+    );
+  }
+
   if (!params.postcode) redirect(UNPLACED_NOTICE_URL);
 
   const postcode = params.postcode;
@@ -207,5 +253,19 @@ export default async function SearchPage({
   // /search?postcode=… land on the check, never a 404.
   // Scotland / NI take the same redirect (ruling 4's
   // destination was always the home route).
+  //
+  // M7.15C: a resolution carrying a street (or building)
+  // narrowing — a street pick's landing — keeps it: the
+  // redirect names the narrowed home route, so the
+  // check opens with its list already narrowed to the
+  // street, as the adopted design rules.
+  if (resolution.street || resolution.building) {
+    redirect(
+      narrowedHomeRoute(postcode, {
+        street: resolution.street,
+        building: resolution.building,
+      }),
+    );
+  }
   redirect(homeRoute(postcode));
 }

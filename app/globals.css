@@ -1296,6 +1296,20 @@ body:has(.main--home) .site-footer {
   overflow-y: auto;
 }
 
+/* M7.15C (18 Nov 2026): the grouped fragment panel —
+   when the suggestions carry more than one group, each
+   group's list shows about five rows before scrolling.
+   This is where the founder's grouped Postcodes cap of
+   5 lives: a RENDER window, never a served cut — the
+   fragment's Postcodes group serves its complete
+   matching set (the E161G fix) and the full set stays
+   reachable by scrolling, exactly as the full-postcode
+   home list behaves above. The single-group panel (the
+   Homes list above all) keeps the D71 form untouched. */
+.postcode-box__suggestions:has(.suggest__group + .suggest__group) .suggest__list {
+  max-height: min(12rem, 40vh);
+}
+
 .suggest__item {
   display: block;
   width: 100%;

@@ -158,10 +158,60 @@ export async function swapStagedExtract(client, source) {
   );
 }
 
+// Rebuild the derived street table (migration 0031)
+// from the union index as it stands: one row per
+// (street, postcode) the index holds homes on, with the
+// street's display form, the town its homes file most
+// (ties by name) and its home count. The normalisation
+// is the home key's own recipe (normKeyPart above),
+// written out in SQL so the table speaks the same form
+// the ladder's street matching does. The SELECT mirrors
+// migration 0031's initial build.
+export async function rebuildPickingStreets(client) {
+  await client.query("DELETE FROM picking_streets");
+  await client.query(
+    `WITH per_town AS (
+       SELECT btrim(regexp_replace(regexp_replace(upper(street), '[^A-Z0-9]+', ' ', 'g'), ' +', ' ', 'g')) AS street_norm,
+              postcode,
+              town,
+              count(*)::int AS homes,
+              min(street) AS street_display
+         FROM picking_index
+        WHERE street IS NOT NULL
+        GROUP BY 1, 2, 3
+     ),
+     per_street AS (
+       SELECT street_norm,
+              postcode,
+              min(street_display) AS street_display,
+              (array_agg(town ORDER BY homes DESC, town IS NULL, town))[1] AS town,
+              sum(homes)::int AS home_count
+         FROM per_town
+        GROUP BY street_norm, postcode
+     )
+     INSERT INTO picking_streets (street_norm, street_display, town, town_norm, postcode, home_count)
+     SELECT street_norm,
+            street_display,
+            town,
+            CASE WHEN town IS NULL THEN ''
+                 ELSE btrim(regexp_replace(regexp_replace(upper(town), '[^A-Z0-9]+', ' ', 'g'), ' +', ' ', 'g'))
+            END,
+            postcode,
+            home_count
+       FROM per_street
+      WHERE street_norm <> ''`,
+  );
+}
+
 // Rebuild the served union from the two extracts. Runs
 // inside the caller's transaction. With includeEpc
 // false the union is built from the sales extract alone
-// — the kill switch's rebuild.
+// — the kill switch's rebuild. The street table
+// rebuilds at the end, from the union just written —
+// every path that changes the union (both filing
+// passes and the EPC kill switch) refreshes the streets
+// with it, so the suggestions can never name a street
+// the served index does not hold (M7.15C).
 export async function rebuildPickingIndex(client, { includeEpc = true } = {}) {
   await client.query("DELETE FROM picking_index");
   if (includeEpc) {
@@ -204,6 +254,7 @@ export async function rebuildPickingIndex(client, { includeEpc = true } = {}) {
          FROM picking_sales_extract s`,
     );
   }
+  await rebuildPickingStreets(client);
 }
 
 // Record a filed edition and its proof counts on the

@@ -3557,3 +3557,97 @@ home's own £270,000 stays banned, and the district median is now pinned
 positively in its own form (the sold-prices section carrying "The
 district median across E16 as a whole — it does not value any one
 home."). No product code changed.
+
+## Dropdown package (18 Nov 2026) — M7.15C: street suggestions, the three groups, the E161G fix
+
+The search box's dropdown grows from the entry point's
+two shapes (a fragment's Postcodes, a full postcode's
+Homes) to the founder's ruled fragment form: three
+groups — Postcodes, Streets, Properties — in that
+order, in the Master's dropdown language (the same
+shell, group labels and row anatomy the picker dropdown
+of Master view 25 shows; no finalised sample depicts
+this open panel, so it is built in that language, not
+against a sample). The full-postcode Homes form is
+untouched, byte for byte.
+
+What was built:
+
+- **Streets** (lib/server/streets.ts over migration
+  0031's derived street table): exact word-prefix
+  matches first; pg_trgm fuzzy matches (threshold 0.4,
+  witnessed: the Bugdale/Birkdale pair at 0.5000,
+  unrelated pairs at 0.2273 and below) only when exact
+  found at most one, below the exact rows, as choices
+  only — a submit never applies one. A street pick
+  leads to the street's homes: one postcode goes
+  straight to its check narrowed to the street (the
+  rung-2 redirect and the home route now carry the
+  narrowing end to end); several postcodes render the
+  new street choice page (components/StreetChoice.tsx)
+  in the picker's list style — the HomeList shell, the
+  pinned explainer/count forms, one plain link row per
+  postcode, biggest first.
+- **Properties**: the picking union's homes inside the
+  typed bound (the fragment's postcode prefix and/or
+  the served streets), each row the home's full address
+  line, picking straight into that home's check.
+- **The E161G fix**: the fragment's Postcodes serve
+  their complete matching set (defensive ceiling
+  1,000, truncations logged) — the old cap of 8 cut
+  E16 1GN out of E161G's twenty live matches. The
+  grouped cap of 5 is a render window: in the grouped
+  panel each group's list shows about five rows before
+  scrolling (app/globals.css, the `:has(.suggest__group
+  - .suggest__group)` rule on .suggest\_\_list); the
+    single-group panel keeps the D71 19rem form. The
+    resolution — cap governs rendering, never the served
+    set — is recorded in docs/entry-point.md's M7.15C
+    note as the standing reading.
+- **The couldn't-place notice** carries the adopted
+  replacement text (street names are pickable now; the
+  old line said they weren't enough). Founder finalises
+  at UAT, with the choice page's drafted line.
+
+Pins changed, each under the founder's 18 Nov 2026
+rulings:
+
+- tests/entry-point.test.ts, the D71 describe: "a
+  partial postcode still caps at 8 in total" is
+  re-pinned as "a partial postcode serves its complete
+  matching set (the E161G fix, M7.15C)" — all twelve
+  synthetic postcodes serve. Reason: the fragment cap
+  the D71 amendment kept is the very cut the deploy
+  round found hiding E16 1GN; the founder's fix
+  supersedes it.
+- tests/entry-point.test.ts, scenario (a): a "CM3 2J"
+  fragment now serves two groups (Postcodes,
+  Properties) where it served one. Reason: the
+  three-group ruling — the fragment's own homes are
+  part of its answer now.
+- tests/journey.test.ts and e2e/journey.e2e.ts: the
+  unplaced notice pinned verbatim in its new form.
+  Reason: the M7.15C adopted replacement, above.
+- e2e/suggest.e2e.ts, the E16 spec: the group-label
+  assertion scopes to the first group and the narrowed
+  count to the Postcodes listbox. Reason: the panel
+  legitimately carries three groups now — the
+  Properties group adds options below the postcodes,
+  so a panel-wide count no longer names the postcode
+  narrowing the spec exists to pin. New specs in the
+  same file cover the street pick, the fuzzy choice
+  and the properties pick against the seeded corpus;
+  CI is their first execution (Playwright does not run
+  on this VM).
+- No bundle-shape pins moved: the short bundle, the
+  replay shapes and buildWiderAreaView are untouched,
+  and the full-postcode Homes branch is byte-identical.
+
+Samples-deviation check: no finalised Master view
+depicts the fragment dropdown open, and none depicts a
+street choice page; both are built in the Master's
+established forms (the dropdown shell and group anatomy
+of view 25's picker dropdown; the picker list of the
+whole-postcode check). No sample change is needed; if
+the founder wants the choice page sampled, it joins the
+Master at his word.

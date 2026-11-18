@@ -242,7 +242,7 @@ test.describe("checker journey — regression", () => {
         "You're not buying a house. You're choosing your family's home.",
       );
       await expect(page.locator(".unplaced-notice")).toHaveText(
-        "We couldn't place that — try a full postcode, for example SW1A 1AA, or a full address with its postcode. A street or place name on its own isn't enough.",
+        "We couldn't place that. Try a full postcode — for example SW1A 1AA — or start typing a street name and pick it from the list.",
       );
       await expect(page.locator("#postcode")).toBeVisible();
 

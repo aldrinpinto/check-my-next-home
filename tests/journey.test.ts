@@ -20,8 +20,10 @@ import {
   WHOLE_CHECK_FAILURE_HEADING,
   floodRowResult,
   historyRowResult,
+  STREET_CHOICE_LINE,
   homeRoute,
   journeyDestination,
+  narrowedHomeRoute,
   nationOfLsoa,
   nearbyRowResults,
   notCoveredHeading,
@@ -31,6 +33,8 @@ import {
   postcodeRoute,
   rowFailureLine,
   scopeLabelFor,
+  streetChoiceCountLine,
+  streetChoiceRoute,
   widerAreaRoute,
 } from "../lib/journey";
 import type { NearbyBundle } from "../lib/nearby";
@@ -115,6 +119,22 @@ describe("the route family (fold-in 1)", () => {
     expect(HOME_ROUTE).toBe("/search/home");
     expect(FAILED_ROUTE).toBe("/search/failed");
   });
+
+  it("builds the M7.15C street routes: the choice, and the narrowed home route", () => {
+    expect(streetChoiceRoute("Birkdale Rise", "Chelmsford")).toBe(
+      "/search?street=Birkdale+Rise&town=Chelmsford",
+    );
+    expect(streetChoiceRoute("Birkdale Rise", null)).toBe("/search?street=Birkdale+Rise");
+    expect(narrowedHomeRoute("CM3 2JT", { street: "BIRKDALE RISE" })).toBe(
+      "/search/home?postcode=CM3+2JT&street=BIRKDALE+RISE",
+    );
+    expect(narrowedHomeRoute("CM3 2JT", {})).toBe("/search/home?postcode=CM3+2JT");
+    expect(STREET_CHOICE_LINE).toBe(
+      "This street covers more than one postcode — pick yours to see its homes.",
+    );
+    expect(streetChoiceCountLine(1)).toBe("1 postcode");
+    expect(streetChoiceCountLine(3)).toBe("3 postcodes");
+  });
 });
 
 describe("the routing table (journeyDestination)", () => {
@@ -184,7 +204,7 @@ describe("pinned journey copy", () => {
   it("pins the named states verbatim", () => {
     expect(EMPTY_PICKER_LINE).toBe("No addresses we can list for this postcode yet.");
     expect(UNPLACED_NOTICE_LINE).toBe(
-      "We couldn't place that — try a full postcode, for example SW1A 1AA, or a full address with its postcode. A street or place name on its own isn't enough.",
+      "We couldn't place that. Try a full postcode — for example SW1A 1AA — or start typing a street name and pick it from the list.",
     );
     expect(WHOLE_CHECK_FAILURE_HEADING).toBe("This check couldn't be completed");
     expect(HOLDING_LINE).toBe("The check is complete. This home's full results open on this page.");

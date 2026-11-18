@@ -65,7 +65,19 @@ import type {
 } from "../../lib/address";
 import { partsKey } from "../../lib/server/hybrid";
 import type { PostioAddress } from "../../lib/server/postio";
-import type { SuggestionSource } from "../../lib/server/suggestions";
+import type {
+  PropertyQuery,
+  StreetSuggestion,
+  SuggestionSource,
+} from "../../lib/server/suggestions";
+
+function fixtureNorm(value: string): string {
+  return value
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
 
 export const BIRKDALE = "CM3 2JT";
 export const MINERVA = "KT17 1FH";
@@ -93,6 +105,48 @@ export interface EntryFixture {
   postioLists: Record<string, PostioAddress[]>;
   filedRows: LoadedAddressParts[];
   indexRows: LoadedAddressParts[];
+}
+
+// The union's rows across every postcode (filed first,
+// index-only behind, deduped by the home key) — the
+// rows the M7.15C streets and properties derive from.
+function fixtureUnionRows(
+  filedRows: LoadedAddressParts[],
+  indexRows: LoadedAddressParts[],
+): LoadedAddressParts[] {
+  const filedKeys = new Set(filedRows.map((row) => partsKey(row)));
+  return [...filedRows, ...indexRows.filter((row) => !filedKeys.has(partsKey(row)))];
+}
+
+// The street units the derived street table would hold
+// for this world: one per (street, town), with the
+// postcodes it sits in and its home count.
+function fixtureStreetUnits(
+  filedRows: LoadedAddressParts[],
+  indexRows: LoadedAddressParts[],
+): StreetSuggestion[] {
+  const byKey = new Map<string, { street: string; town: string | null; postcodes: Set<string>; homes: number }>();
+  for (const row of fixtureUnionRows(filedRows, indexRows)) {
+    if (!row.street) continue;
+    const key = `${fixtureNorm(row.street)}|${fixtureNorm(row.town ?? "")}`;
+    const unit = byKey.get(key) ?? {
+      street: row.street,
+      town: row.town,
+      postcodes: new Set<string>(),
+      homes: 0,
+    };
+    unit.postcodes.add(row.postcode);
+    unit.homes += 1;
+    byKey.set(key, unit);
+  }
+  return [...byKey.values()]
+    .map((unit) => ({
+      street: unit.street,
+      town: unit.town,
+      postcodes: [...unit.postcodes].sort(),
+      homes: unit.homes,
+    }))
+    .sort((a, b) => fixtureNorm(a.street).localeCompare(fixtureNorm(b.street)));
 }
 
 function postioAddress(
@@ -192,6 +246,53 @@ export function buildEntryFixture(): EntryFixture {
       return [...directory.keys()]
         .filter((postcode) => postcode.startsWith(prefix))
         .sort()
+        .slice(0, limit);
+    },
+    // The M7.15C streets + properties (18 Nov 2026): the
+    // street units derive from the union's rows exactly
+    // as the derived street table derives from the
+    // picking index — one unit per (street, town), its
+    // postcodes and home count riding behind the pick.
+    // The fuzzy tier is SCRIPTED, as this fixture's
+    // Postio is: its fuzzy truth is that BUGDALE RISE is
+    // near BIRKDALE RISE (the real pg_trgm pair is
+    // witnessed in db/prove.mjs at 0.5000 against the
+    // pinned 0.4 threshold).
+    async streetsByPrefix(words: string[], limit: number) {
+      return fixtureStreetUnits(filedRows, indexRows)
+        .filter((unit) => {
+          const tokens = fixtureNorm(unit.street).split(" ");
+          return (
+            words.length <= tokens.length &&
+            words.every((word, i) => tokens[i].startsWith(word))
+          );
+        })
+        .slice(0, limit);
+    },
+    async streetsByFuzzy(words: string[], limit: number) {
+      if (words.join(" ") === "BUGDALE RISE") {
+        return fixtureStreetUnits(filedRows, indexRows)
+          .filter((unit) => unit.street === "BIRKDALE RISE")
+          .slice(0, limit);
+      }
+      return [];
+    },
+    async propertiesMatching(query: PropertyQuery, limit: number) {
+      // Candidates inside the bound only — the word
+      // filter, dedupe, order and cap are the read
+      // model's own (suggestionsFor), as against the
+      // real source.
+      return fixtureUnionRows(filedRows, indexRows)
+        .filter((parts) => {
+          const inPrefix =
+            query.postcodePrefix !== null && parts.postcode.startsWith(query.postcodePrefix);
+          const inStreet = query.streetPostcodes.some(
+            (pair) =>
+              pair.postcode === parts.postcode &&
+              pair.streetNorm === fixtureNorm(parts.street ?? ""),
+          );
+          return inPrefix || inStreet;
+        })
         .slice(0, limit);
     },
     addFiledRow(parts: LoadedAddressParts) {

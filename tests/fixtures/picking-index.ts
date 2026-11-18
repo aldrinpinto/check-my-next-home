@@ -26,6 +26,29 @@ export interface PickingIndexRow extends PickingPartsRow {
   epc_edition: string | null;
 }
 
+// One row of the derived street table (migration 0031,
+// M7.15C): the (street, postcode) grain with its town
+// and home count.
+export interface PickingStreetRow {
+  street_norm: string;
+  street_display: string;
+  town: string | null;
+  town_norm: string;
+  postcode: string;
+  home_count: number;
+}
+
+// The home key's normalisation, mirrored in JS (the
+// filing machinery's normKeyPart): upper case,
+// punctuation to spaces, runs collapsed, trimmed.
+function normKeyPartJs(value: string): string {
+  return value
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, " ")
+    .replace(/ +/g, " ")
+    .trim();
+}
+
 export interface PickingEditionRow {
   source: string;
   edition: string | null;
@@ -85,6 +108,10 @@ export class FakePickingDb {
   salesExtract: PickingPartsRow[] = [];
   epcExtract: PickingPartsRow[] = [];
   index: PickingIndexRow[] = [];
+  // The derived street table (migration 0031): rebuilt
+  // from the index by the filing machinery's hook on
+  // every union rebuild, kill switch included.
+  streets: PickingStreetRow[] = [];
   editions: PickingEditionRow[] = [blankEdition("sales"), blankEdition("epc")];
   // price_paid rows for the read-model tests: full sale
   // rows (the sold-prices source's columns) — the
@@ -106,6 +133,7 @@ export class FakePickingDb {
       salesExtract: this.salesExtract,
       epcExtract: this.epcExtract,
       index: this.index,
+      streets: this.streets,
       editions: this.editions,
     });
   }
@@ -118,6 +146,7 @@ export class FakePickingDb {
     this.salesExtract = state.salesExtract;
     this.epcExtract = state.epcExtract;
     this.index = state.index;
+    this.streets = state.streets ?? [];
     this.editions = state.editions;
     this.snapshot = null;
   }
@@ -265,6 +294,77 @@ export class FakePickingDb {
         }
       }
       this.index = [...byKey.values()];
+      return { rows: [] };
+    }
+
+    if (sql === "DELETE FROM picking_streets") {
+      this.streets = [];
+      return { rows: [] };
+    }
+    if (sql.startsWith("WITH per_town AS")) {
+      // The street rebuild (M7.15C): derive the table
+      // from the index exactly as the SQL does — group
+      // by (street_norm, postcode, town), the town a
+      // (street, postcode) carries is its homes' most
+      // filed town (ties by name, nulls last), the
+      // display is the smallest filed street form.
+      interface PerTown {
+        streetNorm: string;
+        postcode: string;
+        town: string | null;
+        homes: number;
+        display: string;
+      }
+      const perTown = new Map<string, PerTown>();
+      for (const row of this.index) {
+        if (row.street === null) continue;
+        const streetNorm = normKeyPartJs(row.street);
+        const key = `${streetNorm}\u0001${row.postcode}\u0001${row.town ?? ""}`;
+        const current = perTown.get(key) ?? {
+          streetNorm,
+          postcode: row.postcode,
+          town: row.town,
+          homes: 0,
+          display: row.street,
+        };
+        current.homes += 1;
+        if (row.street < current.display) current.display = row.street;
+        perTown.set(key, current);
+      }
+      const perStreet = new Map<
+        string,
+        { streetNorm: string; postcode: string; display: string; towns: PerTown[]; homes: number }
+      >();
+      for (const townRow of perTown.values()) {
+        const key = `${townRow.streetNorm}\u0001${townRow.postcode}`;
+        const current = perStreet.get(key) ?? {
+          streetNorm: townRow.streetNorm,
+          postcode: townRow.postcode,
+          display: townRow.display,
+          towns: [],
+          homes: 0,
+        };
+        if (townRow.display < current.display) current.display = townRow.display;
+        current.towns.push(townRow);
+        current.homes += townRow.homes;
+        perStreet.set(key, current);
+      }
+      this.streets = [...perStreet.values()]
+        .filter((street) => street.streetNorm !== "")
+        .map((street) => {
+          const towns = [...street.towns].sort(
+            (a, b) => b.homes - a.homes || compareNullable(a.town, b.town),
+          );
+          const town = towns[0]?.town ?? null;
+          return {
+            street_norm: street.streetNorm,
+            street_display: street.display,
+            town,
+            town_norm: town === null ? "" : normKeyPartJs(town),
+            postcode: street.postcode,
+            home_count: street.homes,
+          };
+        });
       return { rows: [] };
     }
 

@@ -26,6 +26,7 @@ import {
   checkResults,
   pickerRowsFor,
   promoteTransientIfFiled,
+  resolutionForPostcodeRoute,
   resolutionForRoute,
   resolutionNotCovered,
 } from "../../../lib/server/serve";
@@ -155,7 +156,13 @@ async function Results({
 export default async function HomePage({
   searchParams,
 }: {
-  searchParams: Promise<{ postcode?: string; home?: string; notfound?: string }>;
+  searchParams: Promise<{
+    postcode?: string;
+    home?: string;
+    notfound?: string;
+    street?: string;
+    building?: string;
+  }>;
 }) {
   const params = await searchParams;
   const postcode = params.postcode;
@@ -163,8 +170,24 @@ export default async function HomePage({
   const homeKey = params.home ?? null;
   const req = newRequestId();
 
+  // The narrowed form of this route (M7.15C, 18 Nov
+  // 2026): a street pick lands here carrying the street
+  // it picked. With no home key named, the ladder
+  // re-derives the narrowed resolution from the route's
+  // own parameters — the same derivation the postcode
+  // form runs — so the check opens with its home list
+  // already narrowed to the street, under the street's
+  // name as its heading. A home key outranks the
+  // narrowing entirely: a picked home is a picked home.
+  let narrowed: AddressResolution | null = null;
   let resolution;
   try {
+    if (!homeKey && (params.street || params.building)) {
+      narrowed = await resolutionForPostcodeRoute(postcode, {
+        street: params.street ?? null,
+        building: params.building ?? null,
+      });
+    }
     resolution = await resolutionForRoute(postcode, homeKey, req);
   } catch {
     return <WholeCheckFailure retryHref={homeRoute(postcode, homeKey)} />;
@@ -177,6 +200,12 @@ export default async function HomePage({
     if (homeKey) redirect(homeRoute(postcode));
     redirect(SEARCH_ROUTE);
   }
+  if (narrowed?.rung === 1) {
+    // The narrowing named one home outright (a building
+    // that is a single home): its own check, canonically.
+    redirect(homeRoute(postcode, homeKeyOf(narrowed)));
+  }
+  if (narrowed?.rung === 2) resolution = narrowed;
   if (resolution.rung === 3) redirect(widerAreaRoute(resolution.outward, postcode));
   if (resolution.rung === 4) redirect(SEARCH_ROUTE);
 

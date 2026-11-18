@@ -194,6 +194,26 @@ describe("the fixture pass — real rows, SQL dedupe", () => {
       streets: 2,
       previous_homes: null,
     });
+    // The derived street table (M7.15C, migration 0031)
+    // rebuilt with the union: one row per (street,
+    // postcode), its town and home count riding with it.
+    expect(db.streets).toHaveLength(2);
+    expect(db.streets).toContainEqual({
+      street_norm: "BIRKDALE RISE",
+      street_display: "BIRKDALE RISE",
+      town: "CHELMSFORD",
+      town_norm: "CHELMSFORD",
+      postcode: "CM3 2JT",
+      home_count: 27,
+    });
+    expect(db.streets).toContainEqual({
+      street_norm: "EXETER ROAD",
+      street_display: "EXETER ROAD",
+      town: "LONDON",
+      town_norm: "LONDON",
+      postcode: "E16 1GN",
+      home_count: 7,
+    });
   });
 
   it("drives the committed fixture directory through the --file path itself", async () => {

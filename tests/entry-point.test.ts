@@ -103,7 +103,12 @@ afterEach(() => {
 describe("(a) local only — Birkdale CM3 2JT", () => {
   it("suggestions come from the filed directory and the filed homes", async () => {
     const postcodes = await suggestionsFor("CM3 2J", fixture.source, "a1");
-    expect(postcodes.groups).toHaveLength(1);
+    // M7.15C (18 Nov 2026): a fragment now serves the
+    // three groups the founder ruled — Postcodes, then
+    // Properties from the same prefix (this fixture's
+    // world files no street under a CM3 fragment typed
+    // as pure postcode characters, so no Streets group).
+    expect(postcodes.groups.map((group) => group.label)).toEqual(["Postcodes", "Properties"]);
     expect(postcodes.groups[0].label).toBe("Postcodes");
     expect(postcodes.groups[0].items.map((item) => item.label)).toContain(BIRKDALE);
     // The Postcodes group links straight to the
@@ -154,11 +159,14 @@ describe("(a) local only — Birkdale CM3 2JT", () => {
 
 // ------------------------------------------------------------------
 // The D71 amendment's bounds (founder ruling, 18 Nov
-// 2026): the full-postcode list is complete; the fragment
-// cap of 8 stands; the defensive ceiling logs.
+// 2026): the full-postcode list is complete; the
+// defensive ceiling logs. The fragment cap of 8 the
+// amendment originally kept was superseded the same
+// evening by the E161G fix (M7.15C): fragment postcode
+// results now serve their complete matching set too.
 // ------------------------------------------------------------------
 
-describe("the D71 amendment — complete full-postcode list, fragment cap kept", () => {
+describe("the D71 amendment — complete full-postcode list; fragment cap superseded at M7.15C", () => {
   const SYNTH = "ZZ1 1AA";
   // Twelve postcodes under one prefix, and a full
   // postcode whose homes are seeded in STRING order so
@@ -181,14 +189,36 @@ describe("the D71 amendment — complete full-postcode list, fragment cap kept",
       async addressesInPostcode(postcode) {
         return postcode === SYNTH ? homes : [];
       },
+      // This world's streets: none filed (M7.15C).
+      async streetsByPrefix() {
+        return [];
+      },
+      async streetsByFuzzy() {
+        return [];
+      },
+      async propertiesMatching(query, limit) {
+        if (query.postcodePrefix === null) return [];
+        return homes
+          .filter((parts) => parts.postcode.startsWith(query.postcodePrefix as string))
+          .slice(0, limit);
+      },
     };
   }
 
-  it("a partial postcode still caps at 8 in total", async () => {
+  it("a partial postcode serves its complete matching set (the E161G fix, M7.15C)", async () => {
+    // RE-PINNED at M7.15C (18 Nov 2026): this spec used to
+    // pin the fragment cap of 8 ("a partial postcode
+    // still caps at 8 in total"). The deploy round found
+    // that cap cutting E16 1GN out of "E161G"'s twenty
+    // live matches against the complete directory — a
+    // typed fragment making a real postcode unreachable.
+    // The founder's fix brings fragment results onto the
+    // D71 pattern: the complete set, scrollable, bounded
+    // only by the defensive ceiling. All twelve synthetic
+    // postcodes now serve.
     const result = await suggestionsFor("ZZ1 1", syntheticSource(3), "x1");
-    expect(result.groups).toHaveLength(1);
     expect(result.groups[0].label).toBe("Postcodes");
-    expect(result.groups[0].items).toHaveLength(8);
+    expect(result.groups[0].items).toHaveLength(12);
   });
 
   it("a full postcode serves every home, in natural order", async () => {
@@ -245,6 +275,18 @@ describe("two-digit districts — partial-postcode suggestions", () => {
           .slice(0, limit);
       },
       async addressesInPostcode() {
+        return [];
+      },
+      // This world's streets and properties: none filed
+      // (M7.15C) — its specs pin the Postcodes group
+      // alone, exactly as its directory serves.
+      async streetsByPrefix() {
+        return [];
+      },
+      async streetsByFuzzy() {
+        return [];
+      },
+      async propertiesMatching() {
         return [];
       },
     };

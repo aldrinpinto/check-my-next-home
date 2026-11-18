@@ -17,22 +17,55 @@
 // The shapes (D71): from ~3 characters, a partial postcode
 // suggests FULL postcodes; a full postcode suggests that
 // postcode's HOMES inline, filtered by any address words
-// typed with it. Bare street or place names suggest
-// nothing (D71's scope ruling stands — no national
-// street-name index). The two groups are "Postcodes" and
-// "Homes"; each item carries the href a pick navigates to,
-// so the client holds no routing logic of its own.
+// typed with it. Each item carries the href a pick
+// navigates to, so the client holds no routing logic of
+// its own.
 //
 // D71 AMENDMENT (founder ruling, 18 Nov 2026): a full
 // postcode's Homes group carries that postcode's COMPLETE
 // home list — the original cap of 8 hid homes past the cut
 // (the founder's own 19 Birkdale Rise sat out of view at
-// CM3 2JT, on a street the site holds in full). The cap of
-// 8 still governs every fragment shape (the partial-
-// postcode Postcodes group above all); the full-postcode
-// list is bounded only by a defensive ceiling far above
-// any real postcode's home count, and hitting it logs
-// rather than truncating silently.
+// CM3 2JT, on a street the site holds in full). The
+// full-postcode list is bounded only by a defensive
+// ceiling far above any real postcode's home count, and
+// hitting it logs rather than truncating silently.
+//
+// M7.15C (founder rulings, 18 Nov 2026): the fragment
+// shapes gain the ruled three groups — Postcodes,
+// Streets, Properties — and two scope rulings land with
+// them.
+//   * STREETS: D71's "bare street names suggest nothing"
+//     is superseded. Street suggestions now come from
+//     held data — the picking index's derived street
+//     table (lib/server/streets.ts) — in two tiers:
+//     exact word-prefix matches, then pg_trgm fuzzy
+//     matches offered AS CHOICES ONLY when the exact
+//     tier found nothing or nearly nothing. A street
+//     pick leads to that street's homes (one postcode:
+//     straight to its check, narrowed; several: the
+//     short postcode choice) — never to a home, and a
+//     submit never applies a fuzzy match silently.
+//   * THE E161G FIX: the fragment cap of 8 is gone. The
+//     deploy round found it cutting E16 1GN out of the
+//     fragment E161G's twenty live matches against the
+//     complete directory — a typed fragment making a
+//     real postcode unreachable. Fragment postcode
+//     results now ride the D71 pattern: the complete
+//     matching set, scrollable, bounded only by the
+//     same defensive ceiling as the full-postcode list.
+//     The grouped Postcodes cap of 5 the same ruling set
+//     governs how many rows RENDER before scrolling (the
+//     panel's CSS, app/globals.css) — never how many
+//     matches exist; the full set stays reachable by
+//     scrolling, exactly as the home list behaves.
+//   * PROPERTIES: the picking index's homes matched by
+//     the fragment's postcode prefix and/or the served
+//     streets, filtered by the typed address words —
+//     each shown as its full address line, a pick going
+//     straight to that home's check. Capped at 5, as
+//     Streets are; Postcodes alone serve unbounded
+//     (to the ceiling), because a postcode is the one
+//     thing a fragment must never lose.
 //
 // Server-time budget: under 100ms (D72 item 4). Both reads
 // are prefix/index reads over filed tables — the postcode
@@ -42,22 +75,20 @@
 import {
   classifyAddressInput,
   compareAddressParts,
+  displayText,
   labelForAddressParts,
-  type AddressQueryable,
   type LoadedAddressParts,
 } from "../address";
 import { homeKeyOf } from "../bundle-cache";
-import { homeRoute } from "../journey";
+import { homeRoute, postcodeRoute, streetChoiceRoute } from "../journey";
 import { entryNow, logEntry } from "./entry-log";
 import { createPickingIndexSource } from "./picking-index";
+import { createStreetSource, type StreetQueryable, type StreetSuggestion } from "./streets";
+
+export type { StreetSuggestion } from "./streets";
 
 // Suggestions start at 3 typed characters (D71).
 export const SUGGEST_MIN_CHARS = 3;
-// The cap across both groups for the FRAGMENT shapes
-// (D72 item 6): a partial postcode's Postcodes group.
-// A full postcode's Homes group is NOT under this cap —
-// it serves the complete list (D71 amendment, above).
-export const SUGGEST_TOTAL_CAP = 8;
 // The defensive ceiling on a full postcode's Homes group
 // (D71 amendment): a postcode's homes number in the
 // hundreds at most, so 1,000 sits far above any real
@@ -65,6 +96,35 @@ export const SUGGEST_TOTAL_CAP = 8;
 // reaching it logs (suggestions.ceiling) and truncates
 // at the ceiling — never silently, and never below it.
 export const SUGGEST_FULL_POSTCODE_CEILING = 1_000;
+// The same defensive ceiling for a fragment's Postcodes
+// group (M7.15C, the E161G fix): the complete matching
+// set serves, scrollable — a fragment's real matches
+// number in the dozens, so 1,000 is again far above any
+// honest list, and reaching it logs the same way.
+export const SUGGEST_FRAGMENT_CEILING = 1_000;
+// The grouped caps (founder ruling, 18 Nov 2026): the
+// Streets and Properties groups serve at most five
+// each. (The Postcodes group's "cap of 5" is a RENDER
+// window only — see the header; the served set is the
+// complete match.)
+export const SUGGEST_STREET_CAP = 5;
+export const SUGGEST_PROPERTY_CAP = 5;
+// The fuzzy street tier (M7.15C): it runs only when the
+// exact tier found at most this many streets — a
+// misspelling's exact tier is empty, a part-typed real
+// street's is not — and it may add at most this many
+// rows, below the exact ones, inside the group cap.
+// (The prep's shape: fuzzy ≤ 4 of the group's rows.)
+export const SUGGEST_STREET_FUZZY_TRIGGER = 1;
+export const SUGGEST_STREET_FUZZY_CAP = 4;
+// The properties read's fetch bound per source table:
+// the read model fetches candidates within the typed
+// bound (a postcode prefix and/or the served streets'
+// postcodes) and this module owns the word filter, the
+// dedupe, the order and the cap — one implementation,
+// as the full-postcode branch owns its filter. A
+// fragment's honest candidate set is far below this.
+const PROPERTIES_FETCH_LIMIT = 2_000;
 
 export interface SuggestionItem {
   label: string;
@@ -72,17 +132,42 @@ export interface SuggestionItem {
 }
 
 export interface SuggestionGroups {
-  groups: { label: "Postcodes" | "Homes"; items: SuggestionItem[] }[];
+  groups: { label: "Postcodes" | "Streets" | "Properties" | "Homes"; items: SuggestionItem[] }[];
 }
 
-// The read model's one new query shape over the filed
-// directory; the homes read is the resolver's own.
+// A properties query: the homes inside a bound — a
+// postcode prefix (the fragment's winning parse), the
+// served streets' (street, postcode) pairs, or both.
+// Implementations return candidate rows within the
+// bound, FILED rows first (the union's precedence), up
+// to the fetch limit; suggestionsFor applies the typed
+// words, the dedupe, the ruling's order and the cap.
+export interface PropertyQuery {
+  postcodePrefix: string | null;
+  streetPostcodes: { streetNorm: string; postcode: string }[];
+}
+
+// The read model's query shapes over the filed tables:
+// the directory prefix read, the union's per-postcode
+// homes, the street tiers (lib/server/streets.ts) and
+// the properties candidates.
 export interface SuggestionSource {
   postcodesByPrefix(prefix: string, limit: number): Promise<string[]>;
   addressesInPostcode(postcode: string): Promise<LoadedAddressParts[]>;
+  streetsByPrefix(words: string[], limit: number): Promise<StreetSuggestion[]>;
+  streetsByFuzzy(words: string[], limit: number): Promise<StreetSuggestion[]>;
+  propertiesMatching(query: PropertyQuery, limit: number): Promise<LoadedAddressParts[]>;
 }
 
-export function createSuggestionSource(db: AddressQueryable): SuggestionSource {
+// The street normalisation expression, restated in SQL
+// (the home key's recipe — see lib/server/streets.ts):
+// the properties read matches a home to a served street
+// by it, so a street's homes are its index rows on that
+// street in that postcode, exactly as filed.
+const STREET_NORM_SQL =
+  "btrim(regexp_replace(regexp_replace(upper(street), '[^A-Z0-9]+', ' ', 'g'), ' +', ' ', 'g'))";
+
+export function createSuggestionSource(db: StreetQueryable): SuggestionSource {
   // Homes come from the picker's union (M7.15B): the
   // filed price_paid rows plus the national picking
   // index, the filed rows winning collisions — so the
@@ -90,6 +175,7 @@ export function createSuggestionSource(db: AddressQueryable): SuggestionSource {
   // only after a check has filed them. The postcode
   // prefix read below is unchanged.
   const union = createPickingIndexSource(db);
+  const streets = createStreetSource(db);
   return {
     async postcodesByPrefix(prefix, limit) {
       // The prefix arrives in the directory's own spaced
@@ -102,6 +188,45 @@ export function createSuggestionSource(db: AddressQueryable): SuggestionSource {
       return rows.map((row) => row.postcode as string);
     },
     addressesInPostcode: (postcode) => union.unionAddressesInPostcode(postcode),
+    streetsByPrefix: (words, limit) => streets.streetsByPrefix(words, limit),
+    streetsByFuzzy: (words, limit) => streets.streetsByFuzzy(words, limit),
+    async propertiesMatching(query, limit) {
+      const conditions: string[] = [];
+      const params: unknown[] = [];
+      if (query.postcodePrefix !== null) {
+        params.push(`${query.postcodePrefix}%`);
+        conditions.push(`postcode LIKE $${params.length}`);
+      }
+      if (query.streetPostcodes.length > 0) {
+        const pairs = query.streetPostcodes.map((pair) => {
+          params.push(pair.postcode, pair.streetNorm);
+          return `(postcode = $${params.length - 1} AND ${STREET_NORM_SQL} = $${params.length})`;
+        });
+        conditions.push(`(${pairs.join(" OR ")})`);
+      }
+      if (conditions.length === 0) return [];
+      const where = conditions.join(" OR ");
+      params.push(limit);
+      const limitParam = `$${params.length}`;
+      // Filed rows first (their parts win the dedupe in
+      // suggestionsFor), then the picking index's — the
+      // union's precedence, kept by concatenation; the
+      // caller sorts. Each side is bounded by the fetch
+      // limit on its own postcode-prefixed read.
+      const filed = await db.query(
+        `SELECT DISTINCT paon, saon, street, locality, town, postcode
+           FROM price_paid WHERE ${where}
+          ORDER BY postcode, street, paon, saon LIMIT ${limitParam}`,
+        params,
+      );
+      const indexed = await db.query(
+        `SELECT paon, saon, street, NULL AS locality, town, postcode
+           FROM picking_index WHERE ${where}
+          ORDER BY postcode, street, paon, saon LIMIT ${limitParam}`,
+        params,
+      );
+      return [...filed.rows, ...indexed.rows] as unknown as LoadedAddressParts[];
+    },
   };
 }
 
@@ -200,6 +325,77 @@ function norm(value: string): string {
     .replace(/\s+/g, " ");
 }
 
+// The typed words a fragment leaves behind once its
+// postcode-shaped tokens are accounted for (M7.15C):
+// "Birkdale Rise CM3" leaves BIRKDALE RISE; "E161G"
+// leaves nothing; "CM3 2" leaves nothing. A token is
+// postcode-shaped when it IS the outward, when it
+// carries the outward plus a plausible inward start
+// ("E161G"), or when it is a spaced inward start right
+// after such a token ("CM3 2"). What remains is what
+// the visitor meant as address words — the streets'
+// and properties' matching material.
+function fragmentWordsOf(input: { outward: string | null; text: string }): string[] {
+  const tokens = input.text.split(" ").filter(Boolean);
+  if (!input.outward) return tokens;
+  const words: string[] = [];
+  let previousWasFragment = false;
+  for (const token of tokens) {
+    const isOutward = token === input.outward;
+    const isCompactFragment =
+      token.startsWith(input.outward) &&
+      token.length > input.outward.length &&
+      inwardPartialOk(token.slice(input.outward.length));
+    const isSpacedInward = previousWasFragment && /^[0-9][A-Z]{0,2}$/.test(token);
+    if (isOutward || isCompactFragment || isSpacedInward) {
+      previousWasFragment = true;
+      continue;
+    }
+    previousWasFragment = false;
+    words.push(token);
+  }
+  return words;
+}
+
+// A street unit's identity for the fuzzy dedupe: the
+// same street in the same town is the same suggestion
+// whichever tier named it.
+function streetUnitKey(unit: StreetSuggestion): string {
+  return `${norm(unit.street)}|${norm(unit.town ?? "")}`;
+}
+
+// One street suggestion's item. The label is the street
+// in display casing with its town; a street whose homes
+// file no town falls back to its postcode where it has
+// exactly one (the prep's rule) — with several postcodes
+// and no town, the street name alone leads to the
+// choice, whose rows carry the postcodes. The href is
+// the pick's whole meaning: one postcode goes straight
+// to that postcode's check (the ladder narrows its list
+// to the street from the route's own parameter);
+// several go to the short postcode choice. Never a home.
+function streetItemOf(unit: StreetSuggestion): SuggestionItem {
+  const street = displayText(unit.street);
+  const town = unit.town ? displayText(unit.town) : null;
+  const label = town
+    ? `${street}, ${town}`
+    : unit.postcodes.length === 1
+      ? `${street}, ${unit.postcodes[0]}`
+      : street;
+  if (unit.postcodes.length === 1) {
+    return { label, href: postcodeRoute(unit.postcodes[0], { street: unit.street }) };
+  }
+  return { label, href: streetChoiceRoute(street, town) };
+}
+
+// One property suggestion's label: the home's full
+// address line — its picker label, its town where one
+// is filed, and its postcode.
+function propertyLabelOf(parts: LoadedAddressParts): string {
+  const town = parts.town ? `, ${displayText(parts.town)}` : "";
+  return `${labelForAddressParts(parts)}${town}, ${parts.postcode}`;
+}
+
 // The suggestions for one typed input. Pure over the
 // source, so the scenarios test it against fixture rows.
 export async function suggestionsFor(
@@ -218,6 +414,7 @@ export async function suggestionsFor(
       reason: "too-short",
       ms: entryNow() - started,
       postcodes: 0,
+      streets: 0,
       homes: 0,
     });
     return { groups };
@@ -271,61 +468,144 @@ export async function suggestionsFor(
       ms: entryNow() - started,
       shape: "full-postcode",
       postcodes: 0,
+      streets: 0,
       homes: items.length,
     });
     return { groups };
   }
 
-  const candidates = spacedPrefixCandidatesOf(raw);
+  // ---- The fragment shapes (M7.15C): the three groups.
+  // Group order is the ruling's — Postcodes, Streets,
+  // Properties — and each group serves under its own
+  // rule (see the header): Postcodes complete to the
+  // ceiling, Streets and Properties capped at five.
+  const shape = input.outward ? "partial-postcode" : "text";
+
+  // Postcodes: the first candidate the filed directory
+  // answers wins. The candidate order (an explicit
+  // space's parse, then the longest district) is a
+  // preference, not a verdict: a candidate that names
+  // nothing filed — "CM32", a district that does not
+  // exist — falls through to the next ("CM3 2").
+  let servedPrefix: string | null = null;
+  let postcodeCount = 0;
+  // The raw-string parse names the candidates when the
+  // input LEADS with its fragment ("E161G", "CM3 2"). A
+  // mixed input — address words with the fragment among
+  // them ("Birkdale Rise CM3") — parses to none, and the
+  // classifier's outward stands as the one candidate:
+  // the district the visitor demonstrably typed.
+  const parsed = spacedPrefixCandidatesOf(raw);
+  const candidates = parsed.length > 0 ? parsed : input.outward ? [input.outward] : [];
   if (candidates.length > 0 && input.outward) {
-    // The first candidate the filed directory answers
-    // wins. The candidate order (an explicit space's
-    // parse, then the longest district) is a preference,
-    // not a verdict: a candidate that names nothing
-    // filed — "CM32", a district that does not exist —
-    // falls through to the next ("CM3 2"). A prefix that
-    // has quietly become a whole postcode ("CM3 2JT"
-    // typed without the classifier seeing it as one
-    // cannot happen — classifyAddressInput runs first;
-    // this guard is for a prefix equal to a full postcode
-    // arriving via the outward path) still serves the
-    // postcode itself.
-    let items: SuggestionItem[] = [];
     for (const prefix of candidates) {
-      const postcodes = await source.postcodesByPrefix(prefix, SUGGEST_TOTAL_CAP);
+      const postcodes = await source.postcodesByPrefix(prefix, SUGGEST_FRAGMENT_CEILING + 1);
       if (postcodes.length === 0) continue;
-      items = postcodes.map((postcode) => ({
-        label: postcode,
-        // The whole-postcode check directly (founder
-        // ruling, 18 Nov 2026: the picker route the
-        // postcode link used to name is retired and only
-        // redirects here).
-        href: homeRoute(postcode),
-      }));
+      servedPrefix = prefix;
+      if (postcodes.length > SUGGEST_FRAGMENT_CEILING) {
+        // The defensive ceiling, exactly as the
+        // full-postcode list treats it: log the true
+        // count, serve the first ceiling-many.
+        logEntry(req, "suggestions.ceiling", {
+          layer: "local",
+          reason: "fragment-ceiling",
+          postcodes: postcodes.length,
+          ceiling: SUGGEST_FRAGMENT_CEILING,
+        });
+        postcodes.length = SUGGEST_FRAGMENT_CEILING;
+      }
+      postcodeCount = postcodes.length;
+      groups.push({
+        label: "Postcodes",
+        items: postcodes.map((postcode) => ({
+          label: postcode,
+          // The whole-postcode check directly (founder
+          // ruling, 18 Nov 2026: the picker route the
+          // postcode link used to name is retired and only
+          // redirects here).
+          href: homeRoute(postcode),
+        })),
+      });
       break;
     }
-    if (items.length > 0) groups.push({ label: "Postcodes", items });
-    logEntry(req, "suggestions.served", {
-      layer: "local",
-      reason: items.length > 0 ? "ok" : "empty",
-      ms: entryNow() - started,
-      shape: "partial-postcode",
-      postcodes: items.length,
-      homes: 0,
-    });
-    return { groups };
   }
 
-  // No postcode fragment: a bare street or place name —
-  // out of scope by ruling, and the box's submit path
-  // carries the honest no-location answer for it.
+  // The words the fragment leaves: the streets' and
+  // properties' material. Pure-digit words (a house
+  // number on its own) are no street's material — the
+  // street tiers skip them; the properties keep them.
+  const typedWords = fragmentWordsOf(input);
+  const streetWords = typedWords.filter((word) => !/^[0-9]+$/.test(word));
+
+  // Streets: exact tier first; the fuzzy tier tops up
+  // only when exact found nothing or nearly nothing,
+  // its rows below the exact ones, deduplicated, inside
+  // the group cap. The fuzzy rows are the READ MODEL's
+  // real streets — a misspelling is offered the real
+  // street as a choice, never served back as typed.
+  let streetUnits: StreetSuggestion[] = [];
+  if (streetWords.length > 0) {
+    streetUnits = await source.streetsByPrefix(streetWords, SUGGEST_STREET_CAP);
+    if (streetUnits.length <= SUGGEST_STREET_FUZZY_TRIGGER) {
+      const seen = new Set(streetUnits.map(streetUnitKey));
+      const fuzzy = await source.streetsByFuzzy(streetWords, SUGGEST_STREET_FUZZY_CAP);
+      for (const unit of fuzzy) {
+        if (streetUnits.length >= SUGGEST_STREET_CAP) break;
+        if (seen.has(streetUnitKey(unit))) continue;
+        seen.add(streetUnitKey(unit));
+        streetUnits.push(unit);
+      }
+    }
+  }
+  if (streetUnits.length > 0) {
+    groups.push({ label: "Streets", items: streetUnits.map(streetItemOf) });
+  }
+
+  // Properties: the union's homes inside the typed
+  // bound — the winning postcode prefix and/or the
+  // served streets — narrowed by every typed word (the
+  // full-postcode branch's whole-token rule), deduped
+  // by home key with the filed form winning, ordered by
+  // postcode then natural address order, capped at
+  // five. With neither bound there is nothing honest to
+  // offer: a bare word never scans the nation's homes.
+  let propertyCount = 0;
+  const streetPostcodes = streetUnits.flatMap((unit) =>
+    unit.postcodes.map((postcode) => ({ streetNorm: norm(unit.street), postcode })),
+  );
+  if (servedPrefix !== null || streetPostcodes.length > 0) {
+    const rows = await source.propertiesMatching(
+      { postcodePrefix: servedPrefix, streetPostcodes },
+      PROPERTIES_FETCH_LIMIT,
+    );
+    const sorted = [...rows].sort((a, b) =>
+      a.postcode === b.postcode ? compareAddressParts(a, b) : a.postcode < b.postcode ? -1 : 1,
+    );
+    const items: SuggestionItem[] = [];
+    const seen = new Set<string>();
+    for (const parts of sorted) {
+      const haystack = norm(
+        [parts.paon ?? "", parts.saon ?? "", parts.street ?? "", parts.town ?? ""].join(" "),
+      );
+      if (!typedWords.every((word) => ` ${haystack} `.includes(` ${word} `))) continue;
+      const key = keyForParts(parts);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      items.push({ label: propertyLabelOf(parts), href: homeRoute(parts.postcode, key) });
+      if (items.length >= SUGGEST_PROPERTY_CAP) break;
+    }
+    propertyCount = items.length;
+    if (items.length > 0) groups.push({ label: "Properties", items });
+  }
+
   logEntry(req, "suggestions.served", {
     layer: "local",
-    reason: "no-postcode-fragment",
+    reason: groups.length > 0 ? "ok" : "empty",
     ms: entryNow() - started,
-    shape: "text",
-    postcodes: 0,
-    homes: 0,
+    shape,
+    postcodes: postcodeCount,
+    streets: streetUnits.length,
+    homes: propertyCount,
   });
   return { groups };
 }

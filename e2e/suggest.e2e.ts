@@ -103,7 +103,13 @@ test.describe("suggestions dropdown — regression", () => {
 
       await box.fill("E161");
       await expect(panel).toBeVisible();
-      await expect(panel.locator(".suggest__group-label")).toHaveText("Postcodes");
+      // M7.15C re-pin: the panel now carries the three
+      // groups, so the label assertion scopes to the
+      // FIRST group — the ruling's order puts Postcodes
+      // first — and the counts scope to the Postcodes
+      // list itself (the Properties group adds options
+      // of its own below).
+      await expect(panel.locator(".suggest__group-label").first()).toHaveText("Postcodes");
       await expect(panel.getByRole("option", { name: "E16 1GN", exact: true })).toBeAttached();
 
       await box.fill("E161G");
@@ -116,7 +122,90 @@ test.describe("suggestions dropdown — regression", () => {
       // the served set was already correct, as the unit
       // pins in tests/entry-point.test.ts prove against
       // this same two-postcode directory).
-      await expect(panel.getByRole("option")).toHaveCount(1);
+      await expect(
+        panel.getByRole("listbox", { name: "Postcodes" }).getByRole("option"),
+      ).toHaveCount(1);
+    },
+  );
+
+  test(
+    "Birkdale Rise: the Streets group offers the street; the pick lands on the check narrowed to it",
+    { tag: "@regression" },
+    async ({ page }) => {
+      // M7.15C: a street name suggests the street itself
+      // (held data — the seeded picking index files
+      // BIRKDALE RISE in CM3 2JT alone, so the pick goes
+      // straight to that postcode's check with its home
+      // list narrowed to the street, under the street's
+      // name as the list's heading).
+      await page.goto("/");
+      const box = page.locator("#postcode");
+      const panel = page.locator("#postcode-suggestions");
+      await box.fill("Birkdale Rise");
+      await expect(panel).toBeVisible();
+      const street = panel
+        .getByRole("listbox", { name: "Streets" })
+        .getByRole("option", { name: "Birkdale Rise, Chelmsford", exact: true });
+      await expect(street).toBeAttached();
+      await street.click();
+      await page.waitForURL(/\/search\/home\?postcode=CM3\+2JT&street=BIRKDALE\+RISE/);
+      await expect(page.locator(".picker h2")).toHaveText("Birkdale Rise");
+      await expect(page.locator(".picker__row", { hasText: "19 Birkdale Rise" })).toBeAttached();
+    },
+  );
+
+  test(
+    "Bugdale Rise: a misspelling is offered the real street as a choice — never applied silently",
+    { tag: "@regression" },
+    async ({ page }) => {
+      // M7.15C's fuzzy tier (pg_trgm, threshold 0.4): the
+      // seeded street table holds BIRKDALE RISE, whose
+      // similarity to the typed BUGDALE RISE is 0.5000 —
+      // the prep's witness pair. The real street is
+      // offered as a choice; the typed misspelling is
+      // never itself an option, and picking the choice
+      // lands exactly where the correctly-spelled pick
+      // lands.
+      await page.goto("/");
+      const box = page.locator("#postcode");
+      const panel = page.locator("#postcode-suggestions");
+      await box.fill("Bugdale Rise");
+      await expect(panel).toBeVisible();
+      const streets = panel.getByRole("listbox", { name: "Streets" });
+      await expect(
+        streets.getByRole("option", { name: "Birkdale Rise, Chelmsford", exact: true }),
+      ).toBeAttached();
+      await expect(streets.getByRole("option", { name: /Bugdale/ })).toHaveCount(0);
+      await streets.getByRole("option", { name: "Birkdale Rise, Chelmsford", exact: true }).click();
+      await page.waitForURL(/\/search\/home\?postcode=CM3\+2JT&street=BIRKDALE\+RISE/);
+      await expect(page.locator(".picker h2")).toHaveText("Birkdale Rise");
+    },
+  );
+
+  test(
+    "Birkdale Rise: the Properties group names the street's homes; a pick lands in the home's check",
+    { tag: "@regression" },
+    async ({ page }) => {
+      // M7.15C: the same keystrokes also serve the
+      // street's own homes as Properties — full address
+      // lines, a pick going straight to that home's
+      // check (the results H1 is the line's own form:
+      // address + postcode, the town riding only in the
+      // suggestion).
+      await page.goto("/");
+      const box = page.locator("#postcode");
+      const panel = page.locator("#postcode-suggestions");
+      await box.fill("Birkdale Rise");
+      await expect(panel).toBeVisible();
+      const properties = panel.getByRole("listbox", { name: "Properties" });
+      const first = properties.getByRole("option").first();
+      await expect(first).toBeAttached();
+      const label = (await first.textContent()) ?? "";
+      expect(label).toMatch(/Birkdale Rise, Chelmsford, CM3 2JT$/);
+      await first.click();
+      await page.waitForURL(/\/search\/home\?postcode=CM3\+2JT&home=/);
+      await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
+      await expect(page.locator(".results-head h1")).toHaveText(label.replace(", Chelmsford", ""));
     },
   );
 

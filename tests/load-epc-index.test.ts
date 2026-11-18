@@ -363,6 +363,15 @@ describe("the kill switch — EPC separability, tested", () => {
       log: () => {},
     });
     expect(db.index.some((r) => r.sources.includes("epc"))).toBe(true);
+    // The derived street table (M7.15C) tracks the
+    // union: the EPC pass brought Beaulieu's street in.
+    expect(db.streets).toContainEqual(
+      expect.objectContaining({
+        street_norm: "GEORGE HEARD CRESCENT",
+        postcode: "CM1 6ER",
+        home_count: 49,
+      }),
+    );
 
     await removeEpcFromIndex(db as never);
 
@@ -370,6 +379,17 @@ describe("the kill switch — EPC separability, tested", () => {
     expect(db.index.filter((r) => r.postcode === "CM1 6ER")).toHaveLength(0);
     expect(db.index.filter((r) => r.postcode === "KT17 1FH")).toHaveLength(0);
     expect(db.index.every((r) => !r.sources.includes("epc"))).toBe(true);
+    // And the street table rebuilt with the reduced
+    // union — an EPC-only street is no longer
+    // suggestible, the sales streets stand unchanged.
+    expect(db.streets.some((s) => s.street_norm === "GEORGE HEARD CRESCENT")).toBe(false);
+    expect(db.streets).toContainEqual(
+      expect.objectContaining({
+        street_norm: "BIRKDALE RISE",
+        postcode: "CM3 2JT",
+        home_count: 27,
+      }),
+    );
     // (ii)+(iii): what remains is exactly the sales-only
     // index — merged rows keep their sales parts with the
     // EPC tag stripped (the sales-only snapshot's rows
