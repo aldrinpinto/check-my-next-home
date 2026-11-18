@@ -204,11 +204,19 @@ test.describe("results page — regression", () => {
       await expect(page.locator('[data-section="flood"]')).toContainText(
         /District shares describe the district|flood maps are not filed/,
       );
+      // The district median serves in the district's own
+      // form, under its own caption.
+      await expect(page.locator('[data-section="sold-prices"]')).toContainText(
+        "The district median across E16 as a whole — it does not value any one home.",
+      );
       const body = await page.locator("main").innerText();
-      // The seeded home's own figures never appear — the
-      // district's figures are the district's own.
+      // The seeded home's own sale price never appears —
+      // the district's figures are the district's own. The
+      // district median is pinned in its own form above,
+      // never banned by value: over the seeded corpus the
+      // E16 district median legitimately computes to the
+      // same £310,000 as one postcode's median (CI #225).
       expect(body).not.toContain("£270,000");
-      expect(body).not.toContain("£310,000");
       expect(body).not.toContain("£4.99");
       expect(body).not.toContain("need an exact postcode");
       expect(body).not.toContain("needs an exact postcode");

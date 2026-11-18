@@ -3546,3 +3546,14 @@ outward, nation }` for all-Scottish / all-NI districts.
 - No unit pins were changed: `buildWiderAreaView` and the rung-3 short
   bundle are untouched (Scotland / NI and the shortlist card still ride
   them), and no golden replay shape changed.
+
+CI #225 follow-up (18 Nov 2026): the rung-3 district spec's blanket ban
+on the string "£310,000" failed its first CI run — over the seeded
+corpus the E16 district median legitimately computes to £310,000 (9
+sales, terraced split £310,999, under the district caption), the same
+figure as the E16 1GN postcode median. The product was right; the spec
+had banned a value instead of a form. The ban is removed, the seeded
+home's own £270,000 stays banned, and the district median is now pinned
+positively in its own form (the sold-prices section carrying "The
+district median across E16 as a whole — it does not value any one
+home."). No product code changed.
