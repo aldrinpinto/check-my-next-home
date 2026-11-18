@@ -61,7 +61,9 @@
     "load:timers": "node loaders/run-loaders.mjs --timers",
     "canary": "node loaders/run-loaders.mjs --canary-only",
     "load:tribunal-building-safety": "node loaders/load-tribunal-building-safety.mjs",
-    "load:company-ownership": "node loaders/load-company-ownership.mjs"
+    "load:company-ownership": "node loaders/load-company-ownership.mjs",
+    "load:picking-index": "node loaders/load-picking-index.mjs",
+    "load:epc-index": "node loaders/load-epc-index.mjs"
   },
   "version": "0.1.0",
   "dependencies": {

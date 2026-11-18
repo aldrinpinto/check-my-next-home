@@ -751,6 +751,35 @@ Family:
     governs serving only — filing proceeds while it is
     off, exactly as company ownership files behind its
     flag.
+40. **picking_index + picking_sales_extract +
+    picking_epc_extract + picking_index_editions** —
+    the national picking index (migration 0030, plan
+    step M7.15B): the address PARTS of the nation's
+    homes — postcode, PAON, SAON, street, town, and the
+    home key the parts normalise to — held so the entry
+    point's picker can name a postcode's homes from day
+    one. The served table (picking_index) is built from
+    the two retained per-source extracts, one per
+    register (Land Registry Price Paid parts; EPC
+    certificate addresses), each refreshed by its own
+    loader pass through an unlogged staging table and
+    deduped in SQL on (postcode, home key); on a
+    collision the sales parts win and both provenances
+    are kept in the row's `sources` tags and per-source
+    edition columns. The separability is the point:
+    rebuilding the union from the sales extract alone
+    removes every EPC-derived row without touching a
+    sales row (the kill switch, if the register ever
+    objects to the picking use). `picking_index_editions`
+    holds one row per source — the filed edition, when
+    it was filed, and the DISTINCT counts (postcodes,
+    homes, streets-with-town) the pass printed as its
+    proof, plus any refused re-extract's count. No brain
+    reads any of these tables: the index is identity for
+    picking, never evidence for an answer, and
+    `price_paid` is deliberately NOT filled nationally
+    by this family — rows-present there remains the
+    sold-prices brain's proof of a load.
 
 ## Physical decisions (recorded at build, M3.3)
 

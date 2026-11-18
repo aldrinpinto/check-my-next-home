@@ -306,13 +306,27 @@ describe("the schedule registry (M5.15 / D19)", () => {
 
   it("every timed loader carries the 30-minute default, and the classes keep their thresholds", () => {
     expect(DEFAULT_TIMEOUT_MINUTES).toBe(30);
+    // The named exception (plan step M7.15B, D19's
+    // headroom rule with the measurement named): the
+    // picking index's two passes stream multi-GB
+    // national files — the Price Paid complete file
+    // alone streams ~35 minutes at the measured
+    // ~2.6MB/s — so they carry a measured 180 minutes,
+    // pinned here so the exception cannot drift.
+    const MEASURED_TIMEOUT_EXCEPTIONS = new Map([
+      ["load-picking-index", 180],
+      ["load-epc-index", 180],
+    ]);
     for (const entry of LOADER_SCHEDULE) {
       if (entry.cadence === "operator") continue;
-      expect(entry.timeoutMinutes, entry.item).toBe(DEFAULT_TIMEOUT_MINUTES);
-      expect(timeoutMinutesFor(entry.item)).toBe(30);
+      const expected = MEASURED_TIMEOUT_EXCEPTIONS.get(entry.item) ?? DEFAULT_TIMEOUT_MINUTES;
+      expect(entry.timeoutMinutes, entry.item).toBe(expected);
+      expect(timeoutMinutesFor(entry.item)).toBe(expected);
     }
     expect(thresholdDaysFor("load-crime")).toBe(25);
     expect(thresholdDaysFor("load-company-ownership")).toBe(25);
+    expect(thresholdDaysFor("load-picking-index")).toBe(25);
+    expect(thresholdDaysFor("load-epc-index")).toBe(25);
     expect(thresholdDaysFor("load-postcodes")).toBe(70);
     expect(thresholdDaysFor("load-tribunal-building-safety")).toBe(70);
     expect(thresholdDaysFor("load-census")).toBe(STATIC_THRESHOLD_DAYS);

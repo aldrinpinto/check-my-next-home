@@ -52,12 +52,16 @@ import type { ResolveRecordStore } from "./resolve-records";
 
 // When the local list at a postcode holds fewer distinct
 // homes than this, it is "short" and Postio supplements
-// it. A postcode typically carries 15–30 delivery points;
-// filed sales are only the homes that have sold since
-// 1995, so a short filed list is a partial list, and the
-// hybrid's promise is every address. The constant is a
-// build judgement, recorded in docs/entry-point.md.
-export const POSTIO_SUPPLEMENT_BELOW = 25;
+// it. The local list is the union of the filed sales and
+// the national picking index (M7.15B); the preload
+// recalibrated this floor from 25 to 5. At 25 the
+// supplement kept paying to re-list homes the index
+// already names; below five, the local tier genuinely
+// barely knows the postcode — a brand-new or mostly
+// non-residential one — and the supplement earns its
+// 2.6p. The constant is a build judgement, recorded in
+// docs/entry-point.md.
+export const POSTIO_SUPPLEMENT_BELOW = 5;
 
 // The in-process Postio list memory's lifetime.
 export const POSTIO_LIST_MEMORY_MS = 5 * 60 * 1000;

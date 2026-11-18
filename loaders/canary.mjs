@@ -21,6 +21,7 @@ import { join } from "node:path";
 
 import { probePlanningApplication } from "./canary-planning-application.mjs";
 import { probePostio } from "./canary-postio.mjs";
+import { probePickingIndex } from "./canary-picking-index.mjs";
 import { probeFloodDefences } from "./canary-flood-defences.mjs";
 import { probeCouncilTax } from "./canary-council-tax.mjs";
 import { probeBsrRegister } from "./canary-bsr-register.mjs";
@@ -2351,5 +2352,6 @@ export async function runCanaryProbes() {
   await run("mhclg-council-tax", probeCouncilTax);
   await run("bsr-register", probeBsrRegister);
   await run("postio", probePostio);
+  await run("picking-index", probePickingIndex);
   return results;
 }

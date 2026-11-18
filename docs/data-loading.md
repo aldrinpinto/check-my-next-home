@@ -10,25 +10,26 @@ calculation, not a data source. Computed answers are also cached per
 postcode and refreshed whenever a loader files new data.
 
 Cadences below are as registered in the loader schedule
-(`LOADER_SCHEDULE` in `loaders/run-loaders.mjs`, 42 loaders) on
-16 November 2026.
+(`LOADER_SCHEDULE` in `loaders/run-loaders.mjs`, 44 loaders) on
+18 November 2026.
 
 ## 1. Held in our database, filed in bulk ahead of time
 
 ### Refreshed monthly
 
-| Dataset                                      | Source                      | Notes                                                             |
-| -------------------------------------------- | --------------------------- | ----------------------------------------------------------------- |
-| Sold prices                                  | HM Land Registry Price Paid | Also loads on first touch (Section 2)                             |
-| Crime counts around a postcode               | Police.uk                   | Also loads on first touch (Section 2)                             |
-| England crime totals (the comparison figure) | Police.uk monthly archives  | Filed one row per month, never overwritten                        |
-| Energy certificates (EPC)                    | The EPC register            | Also loads on first touch (Section 2)                             |
-| Schools                                      | Department for Education    |                                                                   |
-| Health — GP surgeries and hospitals          | NHS sources                 |                                                                   |
-| EV chargers                                  | Open Charge Map             |                                                                   |
-| Claimant Count                               | DWP, via Nomis              |                                                                   |
-| Universal Credit — people and households     | DWP Stat-Xplore             | The data itself publishes quarterly; the loader checks monthly    |
-| Company ownership titles                     | HM Land Registry            | Held behind an off switch until written licence clearance arrives |
+| Dataset                                      | Source                      | Notes                                                                                                                                                                                                                                                 |
+| -------------------------------------------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Sold prices                                  | HM Land Registry Price Paid | Also loads on first touch (Section 2)                                                                                                                                                                                                                 |
+| Crime counts around a postcode               | Police.uk                   | Also loads on first touch (Section 2)                                                                                                                                                                                                                 |
+| England crime totals (the comparison figure) | Police.uk monthly archives  | Filed one row per month, never overwritten                                                                                                                                                                                                            |
+| Energy certificates (EPC)                    | The EPC register            | Also loads on first touch (Section 2)                                                                                                                                                                                                                 |
+| Schools                                      | Department for Education    |                                                                                                                                                                                                                                                       |
+| Health — GP surgeries and hospitals          | NHS sources                 |                                                                                                                                                                                                                                                       |
+| EV chargers                                  | Open Charge Map             |                                                                                                                                                                                                                                                       |
+| Claimant Count                               | DWP, via Nomis              |                                                                                                                                                                                                                                                       |
+| Universal Credit — people and households     | DWP Stat-Xplore             | The data itself publishes quarterly; the loader checks monthly                                                                                                                                                                                        |
+| Company ownership titles                     | HM Land Registry            | Held behind an off switch until written licence clearance arrives                                                                                                                                                                                     |
+| Picking index — sales address parts          | HM Land Registry Price Paid | Address parts only (postcode, PAON, SAON, street, town), streamed from the complete file in a monthly full re-extract; the picker's identity index (plan step M7.15B) — never evidence, and `price_paid` itself is NOT filled nationally by this pass |
 
 ### Refreshed quarterly
 
@@ -70,10 +71,11 @@ Cadences below are as registered in the loader schedule
 
 ### Run by hand only (never on the automatic timer — the first pass takes hours)
 
-| Dataset                             | Source          | Notes                   |
-| ----------------------------------- | --------------- | ----------------------- |
-| Noise maps — road, rail and airport | Defra           |                         |
-| Priority habitats inventory         | Natural England | 818,225 habitat patches |
+| Dataset                                       | Source           | Notes                                                                                                                                                                                                                                                                          |
+| --------------------------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Noise maps — road, rail and airport           | Defra            |                                                                                                                                                                                                                                                                                |
+| Priority habitats inventory                   | Natural England  | 818,225 habitat patches                                                                                                                                                                                                                                                        |
+| Picking index — EPC certificate address parts | The EPC register | The register's bulk domestic file sits behind its own sign-in, so the founder downloads it and the pass is run by hand, monthly (plan step M7.15B). Certificate addresses only, under a strict parser; held in their own extract, removable as one operation (the kill switch) |
 
 ## 2. Filed on first touch, then held
 
@@ -82,6 +84,9 @@ checks a postcode nobody has checked before, the check itself loads just
 that postcode and files the result; every later check reads the filed
 copy, which the monthly cycle then keeps fresh. This exists because
 filing these for all 1.8 million postcodes on day one is not practical.
+The picking index (Section 1, plan step M7.15B) does not change this: it
+holds address parts for picking only, and a postcode's first check still
+files its evidence exactly as before.
 
 ## 3. Pulled live at the moment of the check, never stored
 
@@ -105,6 +110,10 @@ filing these for all 1.8 million postcodes on day one is not practical.
    is set up, the timers are installed and every bulk dataset is filed
    nationally in one pass; the two hand-run datasets and the solar
    sampling run as supervised first passes, because they take hours.
+   The M7.15B picking index does NOT discharge this step's promise: it
+   is a parts-only index for picking, and the national filing of the
+   full datasets themselves — `price_paid` included — still happens
+   here, as described.
 3. **Steady state:** a monthly run files whatever has fallen due
    (monthly datasets after about 25 days, quarterly after about 70
    days, one-off datasets once); on the 15th of each month a canary

@@ -132,6 +132,21 @@ export const LOADER_SCHEDULE = [
   { item: "load-noise", cadence: "operator" },
   { item: "load-broadband", cadence: "static", timeoutMinutes: 30 },
   { item: "load-mobile", cadence: "static", timeoutMinutes: 30 },
+  // The picking index's two passes (plan step M7.15B).
+  // The sales pass is a monthly FULL re-extract of the
+  // ~5.3GB Price Paid complete file: its own measured
+  // exception to the 30-minute default (D19's headroom
+  // rule, with the measurement named) — the file alone
+  // streams for ~35 minutes at the sandbox's measured
+  // ~2.6MB/s, so 180 minutes is the honest timeout, not
+  // headroom for its own sake. The EPC pass reads a
+  // founder-dropped bulk file of the same order of size
+  // and shares the exception; it is scheduled monthly
+  // but runs as an OPERATOR plan entry (the timer cannot
+  // fetch a file that sits behind the register's
+  // sign-in) — see its plan entry.
+  { item: "load-picking-index", cadence: "monthly", timeoutMinutes: 180 },
+  { item: "load-epc-index", cadence: "monthly", timeoutMinutes: 180 },
 ];
 
 const SCHEDULE_BY_ITEM = new Map(LOADER_SCHEDULE.map((e) => [e.item, e]));
@@ -358,6 +373,8 @@ export const FRIENDLY_NAMES = {
     "Building safety orders — published tribunal decisions in the BSA/BSB case series",
   "load-company-ownership":
     "Company ownership — Land Registry company-owned titles, Companies House snapshots",
+  "load-picking-index": "Picking index — Land Registry address parts",
+  "load-epc-index": "Picking index — EPC certificate addresses",
   onspd: "Postcode directory source (canary)",
   ppd: "Sold prices source (canary)",
   police: "Crime source (canary)",
@@ -405,6 +422,7 @@ export const FRIENDLY_NAMES = {
   "mhclg-council-tax": "Council tax source (canary)",
   "bsr-register": "Building Safety Register (canary)",
   postio: "Postio address backstop (canary)",
+  "picking-index": "Picking index freshness (canary)",
 };
 
 function shortDetail(item) {
@@ -452,6 +470,14 @@ function shortDetail(item) {
       return counts.length
         ? `${counts.reduce((a, b) => a + b, 0)} certificates checked`
         : "updated";
+    }
+    case "load-picking-index": {
+      const homes = pick(/([\d,]+) distinct homes/);
+      return homes ? `${homes} homes in the picking index` : "updated";
+    }
+    case "load-epc-index": {
+      const homes = pick(/([\d,]+) distinct homes/);
+      return homes ? `${homes} homes in the picking index` : "updated";
     }
     case "load-health": {
       const ods = pick(/ODS (\d{4}-\d{2}-\d{2})/);
@@ -910,6 +936,8 @@ async function main() {
       await runAndLog("load-council-tax", ["--file", fx("council-tax")]);
       await runAndLog("load-tribunal-building-safety", ["--file", fx("tribunal-building-safety")]);
       await runAndLog("load-company-ownership", ["--file", fx("company-ownership")]);
+      await runAndLog("load-picking-index", ["--file", fx("picking-index")]);
+      await runAndLog("load-epc-index", ["--file", fx("epc-index")]);
     } else {
       if (!client) throw new Error("a live run needs the run-record database (DATABASE_URL)");
       const lastSuccess = async (item) => {
@@ -1038,6 +1066,33 @@ async function main() {
         ),
         args: [],
       });
+      // The picking index (plan step M7.15B). The sales
+      // pass is a monthly FULL re-extract of the Price
+      // Paid complete file under its own 180-minute
+      // schedule timeout: it streams the file itself and
+      // files address parts only — it never reads the
+      // postcode directory and never writes price_paid,
+      // so it is directory-free like the shape loaders.
+      plan.push({
+        item: "load-picking-index",
+        due: dueDecision(
+          await lastSuccess("load-picking-index"),
+          thresholdDaysFor("load-picking-index"),
+        ),
+        args: [],
+      });
+      // The EPC half of the picking index is an OPERATOR
+      // entry, on the noise precedent: the register's
+      // bulk file sits behind the register's own sign-in,
+      // so the timer cannot fetch it — the founder
+      // downloads it and runs the loader by hand. The
+      // plan entry exists so every monthly run's record
+      // and email lists it as SKIPPED with the date it
+      // last filed: the standing prompt to download and
+      // file a fresh copy. Its schedule entry stays
+      // monthly so its staleness threshold is the monthly
+      // one wherever it is read.
+      plan.push({ item: "load-epc-index", operator: true, args: [] });
       // Census 2021 (plan step M5.8) is the static class:
       // due exactly once, when it has never loaded, and
       // never automatically again — the nomis-census canary
@@ -1199,6 +1254,7 @@ async function main() {
         "load-tribunal-building-safety",
         "load-company-ownership",
         "load-crime-national",
+        "load-picking-index",
       ]);
 
       for (const step of plan) {

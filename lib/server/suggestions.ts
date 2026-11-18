@@ -1,10 +1,11 @@
 // The local suggestion read model (entry-point build,
 // 18 Nov 2026; decisions D71 + D72).
 //
-// What the search box may suggest, from LOCAL FILED DATA
-// ONLY — the postcode directory (postcode_cache, the full
-// ONSPD as filed) and the filed sale addresses
-// (price_paid, as filed). A keystroke never reaches Postio
+// What the search box may suggest, from LOCAL DATA
+// ONLY — the postcode directory (postcode_cache, the
+// full ONSPD as filed) and the picker's union of homes
+// (the filed sale addresses plus the national picking
+// index, M7.15B). A keystroke never reaches Postio
 // (D72 item 4: Postio's free search is abuse-monitored and
 // the key can be suspended; and nothing paid sits behind a
 // keystroke). The endpoint this feeds is therefore a
@@ -30,7 +31,6 @@
 
 import {
   classifyAddressInput,
-  createAddressSource,
   labelForAddressParts,
   type AddressQueryable,
   type LoadedAddressParts,
@@ -38,6 +38,7 @@ import {
 import { homeKeyOf } from "../bundle-cache";
 import { homeRoute, postcodeRoute } from "../journey";
 import { entryNow, logEntry } from "./entry-log";
+import { createPickingIndexSource } from "./picking-index";
 
 // Suggestions start at 3 typed characters (D71).
 export const SUGGEST_MIN_CHARS = 3;
@@ -61,7 +62,13 @@ export interface SuggestionSource {
 }
 
 export function createSuggestionSource(db: AddressQueryable): SuggestionSource {
-  const addresses = createAddressSource(db);
+  // Homes come from the picker's union (M7.15B): the
+  // filed price_paid rows plus the national picking
+  // index, the filed rows winning collisions — so the
+  // dropdown names a postcode's homes from day one, not
+  // only after a check has filed them. The postcode
+  // prefix read below is unchanged.
+  const union = createPickingIndexSource(db);
   return {
     async postcodesByPrefix(prefix, limit) {
       // The prefix arrives in the directory's own spaced
@@ -73,7 +80,7 @@ export function createSuggestionSource(db: AddressQueryable): SuggestionSource {
       );
       return rows.map((row) => row.postcode as string);
     },
-    addressesInPostcode: (postcode) => addresses.addressesInPostcode(postcode),
+    addressesInPostcode: (postcode) => union.unionAddressesInPostcode(postcode),
   };
 }
 

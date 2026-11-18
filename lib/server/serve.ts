@@ -15,6 +15,7 @@ import {
   classifyAddressInput,
   createAddressSource,
   labelForAddressParts,
+  parsePaon,
   resolveAddressInput,
   type AddressResolution,
   type ResolvedAddress,
@@ -35,6 +36,7 @@ import { buildSoldPricesBundle, createSoldPricesSource } from "../sold-prices";
 import { getDbPool } from "./db";
 import { logEntry } from "./entry-log";
 import { pickerList, promotionKeyFor, type PickerRow } from "./hybrid";
+import { createPickingIndexSource } from "./picking-index";
 import { getPostioClient } from "./postio";
 import { createDbResolveRecordStore, isResolveToken } from "./resolve-records";
 
@@ -106,8 +108,16 @@ export async function resolutionForRoute(
     return { rung: 1, kind: "home", address, directory };
   }
 
-  const rows = await source.addressesInPostcode(postcode);
-  for (const parts of rows) {
+  // A durable home key resolves against the UNION of the
+  // filed rows and the picking index (M7.15B): an
+  // index-only home is a first-class local home — its key
+  // is derived from its index parts exactly as a filed
+  // home's is from its price_paid parts, and the resolved
+  // address it serves from is those parts. No token, no
+  // TTL, no Postio call. The filed rows are tried first:
+  // where both name the home, the filed form serves.
+  const union = await createPickingIndexSource(db).unionAddressesInPostcode(postcode);
+  for (const parts of union) {
     const address: ResolvedAddress = { ...parts, label: labelForAddressParts(parts) };
     const candidate: AddressResolution = { rung: 1, kind: "home", address, directory };
     if (homeKeyOf(candidate) === homeKey) return candidate;
@@ -115,21 +125,57 @@ export async function resolutionForRoute(
   return null;
 }
 
-// The picker's rows for a route (entry-point build, D72):
-// the ladder's local list, supplemented by Postio when it
-// is short — the hybrid brain (lib/server/hybrid.ts) owns
-// the merge, the dedupe and the decision log; this is only
-// its wiring to the real deps.
+// The picker's rows for a route (entry-point build, D72;
+// union from M7.15B): the local list is the UNION of the
+// ladder's filed rows (the caller's `local` — already
+// narrowed by the frozen resolver) and the picking
+// index's index-only rows for the postcode, narrowed
+// here by the route's own street/building so a narrowed
+// picker never widens back to the whole postcode. The
+// hybrid brain (lib/server/hybrid.ts) owns the Postio
+// supplement decision, the merge, the dedupe and the
+// decision log; this is only its wiring to the real
+// deps. An index read that fails leaves the filed list
+// standing — the picker degrades to the pre-preload
+// behaviour, never to an error.
 export async function pickerRowsFor(
   postcode: string,
   local: ResolvedAddress[],
   narrowing: { street: string | null; building: string | null },
   req: string,
 ): Promise<PickerRow[]> {
+  let unionLocal = local;
+  try {
+    const indexOnly =
+      await createPickingIndexSource(getDbPool()).indexOnlyAddressesInPostcode(postcode);
+    if (indexOnly.length > 0) {
+      const narrowed = indexOnly.filter((parts) => {
+        if (narrowing.street && (parts.street ?? null) !== narrowing.street) {
+          return false;
+        }
+        if (narrowing.building) {
+          const name = parsePaon(parts.paon ?? "").name;
+          if ((name ?? "").toUpperCase() !== narrowing.building.toUpperCase()) {
+            return false;
+          }
+        }
+        return true;
+      });
+      unionLocal = [
+        ...local,
+        ...narrowed.map((parts) => ({
+          ...parts,
+          label: labelForAddressParts(parts),
+        })),
+      ];
+    }
+  } catch {
+    // The filed list stands (see the header note).
+  }
   const { rows } = await pickerList({
     postio: getPostioClient(),
     postcode,
-    local,
+    local: unionLocal,
     narrowing,
     req,
   });

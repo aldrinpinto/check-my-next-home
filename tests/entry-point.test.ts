@@ -28,6 +28,7 @@ import {
   BIRKDALE,
   buildEntryFixture,
   COMBINATION,
+  FALLBACK,
   MINERVA,
   type EntryFixture,
 } from "./fixtures/entry-point";
@@ -43,13 +44,20 @@ import {
 //   (b) POSTIO ONLY — Minerva KT17 1FH: nothing filed;
 //       Postio's list carries the picker and Flat 4's pick
 //       resolves into a transient record.
-//   (c) FALLBACK — Beaulieu CM1 6ER: local empty and
-//       Postio failing (error / timeout / zero-balance /
-//       empty in turn); a pick lands on the whole-postcode
+//   (c) FALLBACK — Southminster CM0 7AA (the M7.15B
+//       neither-source witness): local empty and Postio
+//       failing (error / timeout / zero-balance / empty
+//       in turn); a pick lands on the whole-postcode
 //       check with the notice flag.
 //   (d) COMBINATION — EX1 1AA: local partial + Postio
 //       merged and deduped; a Postio pick that promotes to
 //       its home key once its sale is filed.
+//   (e) EPC-COVERED — Beaulieu CM1 6ER (M7.15B): no filed
+//       sales, but the picking index holds its 49
+//       certificate homes, so the local tier carries the
+//       picker and Postio is never called. (Beaulieu
+//       carried scenario (c) until the preload flipped
+//       it — the flip is the step's acceptance witness.)
 //
 // Every scenario also asserts the decision log: one
 // request id must show which layer answered, and why.
@@ -242,10 +250,12 @@ describe("(b) postio only — Minerva KT17 1FH", () => {
 });
 
 // ------------------------------------------------------------------
-// (c) FALLBACK — Beaulieu CM1 6ER
+// (c) FALLBACK — Southminster CM0 7AA (the neither-source
+// witness: no filed sales, no index rows from either
+// source — see tests/fixtures/entry-point.ts)
 // ------------------------------------------------------------------
 
-describe("(c) fallback — Beaulieu CM1 6ER", () => {
+describe("(c) fallback — Southminster CM0 7AA", () => {
   it("Postio erroring: the list degrades silently, a pick falls back WITH the notice flag", async () => {
     const postio = createFakePostioClient({
       postcodes: fixture.postioLists,
@@ -253,7 +263,7 @@ describe("(c) fallback — Beaulieu CM1 6ER", () => {
     });
     const store = createMemoryResolveRecordStore();
 
-    const list = await pickerList({ postio, postcode: BEAULIEU, local: [], req: "c1" });
+    const list = await pickerList({ postio, postcode: FALLBACK, local: [], req: "c1" });
     expect(list.rows).toHaveLength(0);
     expect(list.postioFrom).toBe("failed");
     const listLog = logsFor("c1").find((l) => l.includes("event=picker.list"));
@@ -262,13 +272,13 @@ describe("(c) fallback — Beaulieu CM1 6ER", () => {
     const pick = await resolvePick({
       postio,
       store,
-      postcode: BEAULIEU,
+      postcode: FALLBACK,
       udprn: "4001",
       req: "c1",
     });
     expect(pick.kind).toBe("fallback");
     if (pick.kind !== "fallback") throw new Error("unreachable");
-    expect(pick.url).toBe(`/search/home?postcode=CM1+6ER&notfound=${PICK_FALLBACK_FLAG}`);
+    expect(pick.url).toBe(`/search/home?postcode=CM0+7AA&notfound=${PICK_FALLBACK_FLAG}`);
     expect(store.size()).toBe(0);
     const pickLog = logsFor("c1").find((l) => l.includes("event=pick.resolved"));
     expect(pickLog).toContain("layer=fallback");
@@ -283,7 +293,7 @@ describe("(c) fallback — Beaulieu CM1 6ER", () => {
     const pick = await resolvePick({
       postio,
       store: createMemoryResolveRecordStore(),
-      postcode: BEAULIEU,
+      postcode: FALLBACK,
       udprn: "4001",
       req: "c2",
     });
@@ -299,7 +309,7 @@ describe("(c) fallback — Beaulieu CM1 6ER", () => {
     const pick = await resolvePick({
       postio,
       store: createMemoryResolveRecordStore(),
-      postcode: BEAULIEU,
+      postcode: FALLBACK,
       udprn: "4001",
       req: "c3",
     });
@@ -309,19 +319,56 @@ describe("(c) fallback — Beaulieu CM1 6ER", () => {
 
   it("an empty Postio list is a silent local-only list, not a failure", async () => {
     const postio = createFakePostioClient({ postcodes: {} });
-    const list = await pickerList({ postio, postcode: BEAULIEU, local: [], req: "c4" });
+    const list = await pickerList({ postio, postcode: FALLBACK, local: [], req: "c4" });
     expect(list.rows).toHaveLength(0);
     expect(list.postioFrom).toBe("live");
     expect(list.postioCount).toBe(0);
   });
 
   it("the fallback destination and its notice line are the pinned forms", () => {
-    expect(pickFallbackUrl(BEAULIEU)).toBe("/search/home?postcode=CM1+6ER&notfound=pick");
+    expect(pickFallbackUrl(FALLBACK)).toBe("/search/home?postcode=CM0+7AA&notfound=pick");
     // PENDING the founder's final copy approval — pinned so
     // any change is deliberate (flagged in the build's
     // terminal report and docs/entry-point.md).
     expect(PICK_FALLBACK_LINE).toBe(
       "We couldn't load that exact home just now — here's the check for the whole postcode instead.",
+    );
+  });
+});
+
+// ------------------------------------------------------------------
+// (e) EPC-COVERED — Beaulieu CM1 6ER (M7.15B: the index
+// holds the 49 certificate homes; the local tier carries
+// the picker)
+// ------------------------------------------------------------------
+
+describe("(e) EPC-covered — Beaulieu CM1 6ER", () => {
+  it("the union serves all 49 certificate homes locally — Postio is never called", async () => {
+    const postio = createFakePostioClient({ postcodes: fixture.postioLists });
+    const union = await fixture.source.addressesInPostcode(BEAULIEU);
+    expect(union).toHaveLength(49);
+    const local: ResolvedAddress[] = union.map((parts) => ({
+      ...parts,
+      label: labelForAddressParts(parts),
+    }));
+    const list = await pickerList({ postio, postcode: BEAULIEU, local, req: "e1" });
+    expect(postio.calls).toHaveLength(0);
+    expect(list.rows).toHaveLength(49);
+    expect(list.rows.every((row) => row.source === "local")).toBe(true);
+    // The rows carry durable home keys, not tokens: an
+    // index-only home is a first-class local home.
+    const last = list.rows.find((row) => row.label === "49 George Heard Crescent");
+    expect(last?.key).toBe("49||GEORGE HEARD CRESCENT");
+    expect(isResolveToken(last?.key ?? "")).toBe(false);
+    expect(logsFor("e1").some((l) => l.includes("event=picker.list"))).toBe(true);
+  });
+
+  it("suggestions serve the certificate homes from the local union", async () => {
+    const homes = await suggestionsFor(BEAULIEU, fixture.source, "e2");
+    expect(homes.groups[0].label).toBe("Homes");
+    expect(homes.groups[0].items).toHaveLength(8); // the cap
+    expect(homes.groups[0].items.map((item) => item.label)).toContain(
+      `1 George Heard Crescent, ${BEAULIEU}`,
     );
   });
 });

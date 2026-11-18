@@ -1,8 +1,9 @@
 // Entry-point scenario fixtures (entry-point build,
-// 18 Nov 2026) — the founder's requirement: named
-// postcodes for each hybrid scenario, somewhere permanent.
+// 18 Nov 2026; extended by M7.15B the same day) — the
+// founder's requirement: named postcodes for each hybrid
+// scenario, somewhere permanent.
 //
-// Four postcodes carry the four scenarios the specs in
+// Five postcodes carry the five scenarios the specs in
 // tests/entry-point.test.ts prove, each against an
 // in-memory filed world and a scripted fake Postio:
 //
@@ -11,20 +12,27 @@
 //       Birkdale Rise among them) — a complete local list,
 //       so the backstop is never called. The fake Postio
 //       knows the street too; the scenario asserts it was
-//       not asked.
+//       not asked. The picking index holds duplicates of
+//       five of the filed homes: the union dedupes them
+//       away (M7.15B).
 //   (b) KT17 1FH — Minerva House, Ceres Crescent, Epsom.
-//       POSTIO ONLY. The directory holds the postcode; no
-//       sale is filed. Postio returns Flats 3–9 of Minerva
-//       House as separate delivery points (the founder's
-//       18 Nov live test saw exactly this shape); Flat 4 is
-//       the scenario's pick.
-//   (c) CM1 6ER — Beaulieu, Chelmsford (the D72 witness:
-//       0 filed sales, 49 filed EPC certificates — and no
-//       EPC parser in this build). FALLBACK. Local is
-//       empty and the fake Postio is scripted to fail
-//       (error / timeout / zero-balance / empty in turn):
-//       the journey lands on the whole-postcode check, with
-//       the notice when a pick was attempted.
+//       POSTIO ONLY. The directory holds the postcode; the
+//       local tier (filed + index) knows nothing. Postio
+//       returns Flats 3–9 of Minerva House as separate
+//       delivery points (the founder's 18 Nov live test
+//       saw exactly this shape); Flat 4 is the scenario's
+//       pick.
+//   (c) CM0 7AA — Southminster (the M7.15B fallback
+//       witness, chosen because NEITHER source knows a
+//       home there: it stands in the ONSPD excerpt the
+//       directory fixture carries, and it appears in
+//       neither the Price Paid fixture file nor the EPC
+//       fixture — no filed sales, no index rows from
+//       either source). FALLBACK. Local is empty and the
+//       fake Postio is scripted to fail (error / timeout
+//       / zero-balance / empty in turn): the journey lands
+//       on the whole-postcode check, with the notice when
+//       a pick was attempted.
 //   (d) EX1 1AA — High Street (a fixture postcode).
 //       COMBINATION. Two homes filed locally; Postio
 //       returns those same two plus two more — the merged
@@ -32,15 +40,30 @@
 //       3 High Street starts Postio-only and PROMOTES to
 //       its home key once the scenario files its sale (the
 //       cold load landing).
+//   (e) CM1 6ER — Beaulieu, Chelmsford (the D72 witness:
+//       0 filed sales, 49 EPC certificates). EPC-COVERED
+//       (M7.15B): the picking index holds the 49
+//       certificate homes (the odd numbers 1–97 on George
+//       Heard Crescent, as the register's witnessed data
+//       files them), so the local tier carries the picker
+//       and Postio is never called. This postcode carried
+//       scenario (c) until the preload; it flipped the
+//       day the EPC half loaded, which is exactly the
+//       behaviour the step exists to produce.
 //
 // The filed world is mutable (addFiledRow) so scenario (d)
-// can land its cold load mid-test.
+// can land its cold load mid-test. The source's
+// addressesInPostcode serves the UNION (filed rows +
+// index rows, deduped by the home key, filed winning) —
+// the read model lib/server/picking-index.ts serves in
+// production.
 
 import type {
   AddressDataSource,
   DirectoryPostcode,
   LoadedAddressParts,
 } from "../../lib/address";
+import { partsKey } from "../../lib/server/hybrid";
 import type { PostioAddress } from "../../lib/server/postio";
 import type { SuggestionSource } from "../../lib/server/suggestions";
 
@@ -48,6 +71,7 @@ export const BIRKDALE = "CM3 2JT";
 export const MINERVA = "KT17 1FH";
 export const BEAULIEU = "CM1 6ER";
 export const COMBINATION = "EX1 1AA";
+export const FALLBACK = "CM0 7AA";
 
 function directoryRow(postcode: string, lsoaCode: string): DirectoryPostcode {
   return {
@@ -68,6 +92,7 @@ export interface EntryFixture {
   };
   postioLists: Record<string, PostioAddress[]>;
   filedRows: LoadedAddressParts[];
+  indexRows: LoadedAddressParts[];
 }
 
 function postioAddress(
@@ -84,6 +109,7 @@ export function buildEntryFixture(): EntryFixture {
     [MINERVA, directoryRow(MINERVA, "E01000001")],
     [BEAULIEU, directoryRow(BEAULIEU, "E01000002")],
     [COMBINATION, directoryRow(COMBINATION, "E01000003")],
+    [FALLBACK, directoryRow(FALLBACK, "E01000004")],
   ]);
 
   const filedRows: LoadedAddressParts[] = [];
@@ -110,12 +136,50 @@ export function buildEntryFixture(): EntryFixture {
     });
   }
 
+  // The picking index's rows (M7.15B): what the national
+  // preload filed. The union the source serves is these
+  // behind the filed rows, deduped by the home key.
+  const indexRows: LoadedAddressParts[] = [];
+  // (a) Birkdale: the index also names five of the filed
+  // homes (both registers know them) — the union must
+  // still serve thirty rows, not thirty-five.
+  for (let n = 1; n <= 5; n += 1) {
+    indexRows.push({
+      postcode: BIRKDALE,
+      paon: String(n),
+      saon: null,
+      street: "BIRKDALE RISE",
+      locality: null,
+      town: "CHELMSFORD",
+    });
+  }
+  // (e) Beaulieu: the 49 certificate homes — the odd
+  // numbers 1–97 on George Heard Crescent, exactly as
+  // the register's witnessed data files them.
+  for (let n = 1; n <= 97; n += 2) {
+    indexRows.push({
+      postcode: BEAULIEU,
+      paon: String(n),
+      saon: null,
+      street: "GEORGE HEARD CRESCENT",
+      locality: null,
+      town: "CHELMSFORD",
+    });
+  }
+
   const source = {
     async directoryPostcode(postcode: string) {
       return directory.get(postcode) ?? null;
     },
     async addressesInPostcode(postcode: string) {
-      return filedRows.filter((row) => row.postcode === postcode);
+      // The union (M7.15B): filed rows first (they win),
+      // then the index rows no filed row names.
+      const filed = filedRows.filter((row) => row.postcode === postcode);
+      const filedKeys = new Set(filed.map((row) => partsKey(row)));
+      const indexOnly = indexRows.filter(
+        (row) => row.postcode === postcode && !filedKeys.has(partsKey(row)),
+      );
+      return [...filed, ...indexOnly];
     },
     async districtSummary(outward: string) {
       const count = [...directory.keys()].filter((p) => p.split(" ")[0] === outward).length;
@@ -174,24 +238,25 @@ export function buildEntryFixture(): EntryFixture {
   return {
     source,
     filedRows,
+    indexRows,
     postioLists: {
       [BIRKDALE]: birkdalePostio,
       [MINERVA]: minervaFlats,
       [COMBINATION]: combinationPostio,
-      // (c) Beaulieu: the fake is scripted per-scenario in
-      // the specs (failures), and its healthy list is one
+      // (c) Southminster: the fake is scripted per-scenario
+      // in the specs (failures), and its healthy list is one
       // house — used by the "empty" turn of the fallback.
-      [BEAULIEU]: [
+      [FALLBACK]: [
         postioAddress(
           "4001",
           {
-            postcode: BEAULIEU,
+            postcode: FALLBACK,
             paon: "1",
             saon: null,
-            street: "CENTENARY WAY",
-            town: "CHELMSFORD",
+            street: "STATION ROAD",
+            town: "SOUTHMINSTER",
           },
-          "1 Centenary Way",
+          "1 Station Road",
         ),
       ],
     },
