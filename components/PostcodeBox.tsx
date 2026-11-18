@@ -49,6 +49,10 @@ import { Button, SuggestionShell, type SuggestionGroup, type SuggestionItem } fr
 // navigate straight to the item's route (the picker for a
 // postcode, the home's check for a home); the robot check
 // stays on the typed-submit path only, exactly as ruled.
+// One pick does not navigate (M7.15D): a Places item
+// files its filed name into the field, expanding the
+// panel to that place's districts — the town chooser
+// lives inside this dropdown, never on a page.
 // Keyboard: up/down move the active suggestion, Enter
 // chooses it, Escape closes the panel. D71 amendment
 // (18 Nov 2026): for a full postcode the panel carries the
@@ -137,6 +141,13 @@ export default function PostcodeBox({
   const [panelOpen, setPanelOpen] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
   const hrefByIdRef = useRef(new Map<string, string>());
+  // The one non-navigating pick (M7.15D): a Places item
+  // carries the filed place name instead of an href —
+  // choosing it files the name into the field, and the
+  // ordinary suggest fetch then serves that place's
+  // districts in the same panel (the town chooser lives
+  // inside the picker; there is no town page).
+  const placeByIdRef = useRef(new Map<string, string>());
   const suggestSeqRef = useRef(0);
   const choosingRef = useRef(false);
   // Below the 3-character floor the panel is derived shut
@@ -164,23 +175,29 @@ export default function PostcodeBox({
           const response = await fetch(`/api/suggest?q=${encodeURIComponent(typed)}`);
           if (!response.ok) throw new Error("suggest-failed");
           const data = (await response.json()) as {
-            groups?: { label: string; items: { label: string; href: string }[] }[];
+            groups?: {
+              label: string;
+              items: { label: string; href: string | null; place?: string }[];
+            }[];
           };
           // A newer keystroke superseded this response —
           // drop it, never repaint with stale suggestions.
           if (seq !== suggestSeqRef.current) return;
           const hrefs = new Map<string, string>();
+          const places = new Map<string, string>();
           let n = 0;
           const groups: SuggestionGroup[] = (data.groups ?? []).map((group) => ({
             label: group.label,
             items: group.items.map((item) => {
               const id = `suggest-${n}`;
               n += 1;
-              hrefs.set(id, item.href);
+              if (item.href) hrefs.set(id, item.href);
+              if (item.place) places.set(id, item.place);
               return { id, label: item.label };
             }),
           }));
           hrefByIdRef.current = hrefs;
+          placeByIdRef.current = places;
           setLiveGroups(groups);
           setPanelOpen(groups.length > 0);
           setActiveId(null);
@@ -208,6 +225,19 @@ export default function PostcodeBox({
 
   function choose(item: SuggestionItem) {
     if (choosingRef.current) return;
+    // A Places pick (M7.15D) expands in place: file the
+    // filed name into the field — the value change
+    // re-runs the suggest fetch, whose answer carries
+    // the place's districts in the same panel. No
+    // navigation, and the choosing latch stays off: the
+    // visitor's next pick (a district) still has to land.
+    const place = placeByIdRef.current.get(item.id);
+    if (place) {
+      setValue(place);
+      setActiveId(null);
+      setPanelOpen(true);
+      return;
+    }
     const href = hrefByIdRef.current.get(item.id);
     if (!href) return;
     choosingRef.current = true;

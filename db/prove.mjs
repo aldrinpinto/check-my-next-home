@@ -17,7 +17,7 @@
 
 import pg from "pg";
 
-import { rebuildPickingStreets } from "../loaders/picking-index-filing.mjs";
+import { rebuildPickingPlaces, rebuildPickingStreets } from "../loaders/picking-index-filing.mjs";
 
 const EXPECTED_TABLES = [
   "postcode_cache",
@@ -182,6 +182,72 @@ try {
   assert(
     fuzzy.rows.some((row) => row.street_norm === "BIRKDALE RISE"),
     "the % operator at the pinned limit offers the real street for the misspelling",
+  );
+
+  // ---- Place suggestions (M7.15D, migration 0032).
+  // The same foundations for the Places group: the
+  // plan's witness pair separates at the same pinned
+  // 0.4 (the transposition clears it, the nearest
+  // unrelated real town stays below), the filing
+  // machinery's rebuild derives the place table at its
+  // ruled grain from the very rows the street proof
+  // filed, and the served-district predicate — the
+  // district bundle's own test, read off the directory's
+  // LSOA letters — separates an England district from a
+  // Scottish one.
+  const placeSims = await client.query(
+    `SELECT similarity('CHLEMSFORD', 'CHELMSFORD') AS hit,
+            similarity('CHELMSFORD', 'CHELTENHAM') AS miss`,
+  );
+  const placeHit = Number(placeSims.rows[0].hit);
+  const placeMiss = Number(placeSims.rows[0].miss);
+  assert(
+    placeHit >= 0.4,
+    `the witness place misspelling clears the pinned 0.4 threshold (CHLEMSFORD ~ CHELMSFORD = ${placeHit.toFixed(4)})`,
+  );
+  assert(
+    placeMiss < 0.4,
+    `the nearest unrelated real town stays below it (CHELMSFORD ~ CHELTENHAM = ${placeMiss.toFixed(4)})`,
+  );
+
+  await rebuildPickingPlaces(client);
+  const placeRows = await client.query(
+    `SELECT place_norm, place_display, outward, postcode_count
+       FROM picking_places
+      WHERE place_norm = 'CHELMSFORD'`,
+  );
+  assert(placeRows.rows.length === 1, "the place rebuild files one row per (place, district)");
+  assert(
+    placeRows.rows[0].outward === "CM3" &&
+      placeRows.rows[0].place_display === "CHELMSFORD" &&
+      placeRows.rows[0].postcode_count === 2,
+    "the place row carries its district and distinct postcode count (Chelmsford in CM3: CM3 2JT + CM3 2JU)",
+  );
+  const fuzzyPlace = await client.query(
+    "SELECT place_norm FROM picking_places WHERE place_norm % 'CHLEMSFORD'",
+  );
+  assert(
+    fuzzyPlace.rows.some((row) => row.place_norm === "CHELMSFORD"),
+    "the % operator at the pinned limit offers the real place for the misspelling",
+  );
+
+  await client.query(
+    `INSERT INTO postcode_cache (postcode, latitude, longitude, lsoa_code)
+     VALUES ('CM3 9ZZ', 51.75, 0.58, 'E01021395'),
+            ('EH9 9ZZ', 55.95, -3.19, 'S01014710')`,
+  );
+  const served = await client.query(
+    `SELECT
+       EXISTS (SELECT 1 FROM postcode_cache
+                WHERE postcode LIKE 'CM3 %'
+                  AND (lsoa_code LIKE 'E%' OR lsoa_code LIKE 'W%')) AS england,
+       EXISTS (SELECT 1 FROM postcode_cache
+                WHERE postcode LIKE 'EH9 %'
+                  AND (lsoa_code LIKE 'E%' OR lsoa_code LIKE 'W%')) AS scotland`,
+  );
+  assert(
+    served.rows[0].england === true && served.rows[0].scotland === false,
+    "the served-district predicate offers an England district and withholds a Scottish one",
   );
 
   await client.query("ROLLBACK");

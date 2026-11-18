@@ -214,6 +214,22 @@ describe("the fixture pass — real rows, SQL dedupe", () => {
       postcode: "E16 1GN",
       home_count: 7,
     });
+    // The derived place table (M7.15D, migration 0032)
+    // rebuilt with the same union: one row per (place,
+    // district) the index holds homes under the town in.
+    expect(db.places).toHaveLength(2);
+    expect(db.places).toContainEqual({
+      place_norm: "CHELMSFORD",
+      place_display: "CHELMSFORD",
+      outward: "CM3",
+      postcode_count: 1,
+    });
+    expect(db.places).toContainEqual({
+      place_norm: "LONDON",
+      place_display: "LONDON",
+      outward: "E16",
+      postcode_count: 1,
+    });
   });
 
   it("drives the committed fixture directory through the --file path itself", async () => {

@@ -372,6 +372,17 @@ describe("the kill switch — EPC separability, tested", () => {
         home_count: 49,
       }),
     );
+    // The derived place table (M7.15D) tracks it the
+    // same way: the EPC pass brought Chelmsford's CM1
+    // district in, beside the sales pass's CM3.
+    expect(db.places).toContainEqual(
+      expect.objectContaining({
+        place_norm: "CHELMSFORD",
+        place_display: "CHELMSFORD",
+        outward: "CM1",
+        postcode_count: 1,
+      }),
+    );
 
     await removeEpcFromIndex(db as never);
 
@@ -388,6 +399,17 @@ describe("the kill switch — EPC separability, tested", () => {
         street_norm: "BIRKDALE RISE",
         postcode: "CM3 2JT",
         home_count: 27,
+      }),
+    );
+    // And the place table rebuilt with the reduced
+    // union — Beaulieu's district is no longer offered
+    // under Chelmsford, the sales districts stand.
+    expect(db.places.some((p) => p.outward === "CM1")).toBe(false);
+    expect(db.places).toContainEqual(
+      expect.objectContaining({
+        place_norm: "CHELMSFORD",
+        outward: "CM3",
+        postcode_count: 1,
       }),
     );
     // (ii)+(iii): what remains is exactly the sales-only

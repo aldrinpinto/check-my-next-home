@@ -64,6 +64,7 @@ import type {
   LoadedAddressParts,
 } from "../../lib/address";
 import { partsKey } from "../../lib/server/hybrid";
+import type { PlaceSuggestion } from "../../lib/server/places";
 import type { PostioAddress } from "../../lib/server/postio";
 import type {
   PropertyQuery,
@@ -116,6 +117,43 @@ function fixtureUnionRows(
 ): LoadedAddressParts[] {
   const filedKeys = new Set(filedRows.map((row) => partsKey(row)));
   return [...filedRows, ...indexRows.filter((row) => !filedKeys.has(partsKey(row)))];
+}
+
+// The place units the derived place table would hold
+// for this world (M7.15D): one per filed town, with the
+// districts it serves. A district serves when the
+// fixture directory holds a postcode in it under an
+// England or Wales LSOA code — the district bundle's
+// own test, read off this world's directory rows (the
+// excerpt's letters stand for the nation's). A place
+// whose districts none serve — London here, whose E16
+// the excerpt's directory does not carry — is not
+// offered, exactly as the real read model answers.
+function fixturePlaceUnits(
+  directory: Map<string, DirectoryPostcode>,
+  filedRows: LoadedAddressParts[],
+  indexRows: LoadedAddressParts[],
+): PlaceSuggestion[] {
+  const lettersByOutward = new Map<string, Set<string>>();
+  for (const row of directory.values()) {
+    const outward = row.postcode.split(" ")[0];
+    const letters = lettersByOutward.get(outward) ?? new Set<string>();
+    letters.add((row.lsoaCode ?? "").charAt(0));
+    lettersByOutward.set(outward, letters);
+  }
+  const districtsByPlace = new Map<string, Set<string>>();
+  for (const row of fixtureUnionRows(filedRows, indexRows)) {
+    if (!row.town) continue;
+    const outward = row.postcode.split(" ")[0];
+    const letters = lettersByOutward.get(outward);
+    if (!letters || (!letters.has("E") && !letters.has("W"))) continue;
+    const districts = districtsByPlace.get(row.town) ?? new Set<string>();
+    districts.add(outward);
+    districtsByPlace.set(row.town, districts);
+  }
+  return [...districtsByPlace.entries()]
+    .map(([place, districts]) => ({ place, districts: [...districts].sort() }))
+    .sort((a, b) => fixtureNorm(a.place).localeCompare(fixtureNorm(b.place)));
 }
 
 // The street units the derived street table would hold
@@ -294,6 +332,40 @@ export function buildEntryFixture(): EntryFixture {
           return inPrefix || inStreet;
         })
         .slice(0, limit);
+    },
+    // The M7.15D places (18 Nov 2026): the place units
+    // derive from the union's filed towns exactly as the
+    // derived place table derives from the picking
+    // index — one unit per town, its served districts
+    // riding behind the pick. The fuzzy tier is SCRIPTED,
+    // as this fixture's streets are: its fuzzy truth is
+    // that CHLEMSFORD is near CHELMSFORD (the real
+    // pg_trgm pair is witnessed in db/prove.mjs at
+    // 0.4667 against the pinned 0.4 threshold).
+    async placesByPrefix(words: string[], limit: number) {
+      return fixturePlaceUnits(directory, filedRows, indexRows)
+        .filter((unit) => {
+          const tokens = fixtureNorm(unit.place).split(" ");
+          return (
+            words.length <= tokens.length &&
+            words.every((word, i) => tokens[i].startsWith(word))
+          );
+        })
+        .slice(0, limit);
+    },
+    async placesByFuzzy(words: string[], limit: number) {
+      if (words.join(" ") === "CHLEMSFORD") {
+        return fixturePlaceUnits(directory, filedRows, indexRows)
+          .filter((unit) => unit.place === "CHELMSFORD")
+          .slice(0, limit);
+      }
+      return [];
+    },
+    async placeDistricts(placeNorm: string) {
+      const unit = fixturePlaceUnits(directory, filedRows, indexRows).find(
+        (candidate) => fixtureNorm(candidate.place) === placeNorm,
+      );
+      return unit ? unit.districts : [];
     },
     addFiledRow(parts: LoadedAddressParts) {
       filedRows.push(parts);

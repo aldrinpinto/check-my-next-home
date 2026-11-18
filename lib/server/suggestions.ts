@@ -67,6 +67,31 @@
 //     (to the ceiling), because a postcode is the one
 //     thing a fragment must never lose.
 //
+// M7.15D (founder ruling, 18 Nov 2026): the fragment
+// shapes gain the fourth group — PLACES — and, behind a
+// fully named place, its DISTRICTS. A town or place
+// name offers the place (lib/server/places.ts: the
+// picking index's town-as-filed, two tiers like the
+// streets — exact word-prefix, then pg_trgm fuzzy AS
+// CHOICES ONLY at the same pinned threshold, witnessed
+// on the plan's pair: CHLEMSFORD ~ CHELMSFORD 0.4667
+// against CHELMSFORD ~ CHELTENHAM 0.2222). When the
+// typed words exactly name one of the exact tier's
+// places, its districts ride the same panel under
+// "Districts in <Place>" — the town chooser lives
+// inside the picker (Final Sample Master view 25);
+// there is no town page. A district item is the
+// wider-area page's route. A place item itself carries
+// NO route: its pick files the filed name into the
+// search field (the client's one non-navigating pick),
+// and the districts then expand from the real name —
+// a fuzzy place is never expanded unpicked, and a
+// place pick never lands on a home. The honesty rule
+// is the district bundle's own: only districts the
+// district page serves in its own form are offered,
+// and a place with none is not offered (Scotland / NI
+// keep the not-covered form; Phase 3 owns them).
+//
 // Server-time budget: under 100ms (D72 item 4). Both reads
 // are prefix/index reads over filed tables — the postcode
 // prefix query rides the postcode column's index, and the
@@ -80,12 +105,14 @@ import {
   type LoadedAddressParts,
 } from "../address";
 import { homeKeyOf } from "../bundle-cache";
-import { homeRoute, postcodeRoute, streetChoiceRoute } from "../journey";
+import { homeRoute, postcodeRoute, streetChoiceRoute, widerAreaRoute } from "../journey";
 import { entryNow, logEntry } from "./entry-log";
 import { createPickingIndexSource } from "./picking-index";
+import { createPlaceSource, placeNormOf, type PlaceSuggestion } from "./places";
 import { createStreetSource, type StreetQueryable, type StreetSuggestion } from "./streets";
 
 export type { StreetSuggestion } from "./streets";
+export type { PlaceSuggestion } from "./places";
 
 // Suggestions start at 3 typed characters (D71).
 export const SUGGEST_MIN_CHARS = 3;
@@ -117,6 +144,14 @@ export const SUGGEST_PROPERTY_CAP = 5;
 // (The prep's shape: fuzzy ≤ 4 of the group's rows.)
 export const SUGGEST_STREET_FUZZY_TRIGGER = 1;
 export const SUGGEST_STREET_FUZZY_CAP = 4;
+// The Places group (M7.15D): capped at 5 like Streets
+// and Properties. Its fuzzy tier mirrors the streets'
+// exactly — it runs only when the exact tier found at
+// most one place, and may add at most four rows below
+// the exact ones, inside the group cap.
+export const SUGGEST_PLACE_CAP = 5;
+export const SUGGEST_PLACE_FUZZY_TRIGGER = 1;
+export const SUGGEST_PLACE_FUZZY_CAP = 4;
 // The properties read's fetch bound per source table:
 // the read model fetches candidates within the typed
 // bound (a postcode prefix and/or the served streets'
@@ -128,11 +163,24 @@ const PROPERTIES_FETCH_LIMIT = 2_000;
 
 export interface SuggestionItem {
   label: string;
-  href: string;
+  // The route a pick navigates to — null for exactly
+  // one item kind (M7.15D): a Places item, whose pick
+  // expands the panel in place instead of navigating
+  // (the town chooser lives inside the picker, view
+  // 25). A place item carries the filed place name in
+  // `place`; the client files it into the search field
+  // and the ordinary fetch then serves that place's
+  // districts. Every other item kind always carries a
+  // real href.
+  href: string | null;
+  place?: string;
 }
 
 export interface SuggestionGroups {
-  groups: { label: "Postcodes" | "Streets" | "Properties" | "Homes"; items: SuggestionItem[] }[];
+  groups: {
+    label: "Postcodes" | "Streets" | "Properties" | "Homes" | "Places" | `Districts in ${string}`;
+    items: SuggestionItem[];
+  }[];
 }
 
 // A properties query: the homes inside a bound — a
@@ -157,6 +205,9 @@ export interface SuggestionSource {
   streetsByPrefix(words: string[], limit: number): Promise<StreetSuggestion[]>;
   streetsByFuzzy(words: string[], limit: number): Promise<StreetSuggestion[]>;
   propertiesMatching(query: PropertyQuery, limit: number): Promise<LoadedAddressParts[]>;
+  placesByPrefix(words: string[], limit: number): Promise<PlaceSuggestion[]>;
+  placesByFuzzy(words: string[], limit: number): Promise<PlaceSuggestion[]>;
+  placeDistricts(placeNorm: string): Promise<string[]>;
 }
 
 // The street normalisation expression, restated in SQL
@@ -176,6 +227,7 @@ export function createSuggestionSource(db: StreetQueryable): SuggestionSource {
   // prefix read below is unchanged.
   const union = createPickingIndexSource(db);
   const streets = createStreetSource(db);
+  const places = createPlaceSource(db);
   return {
     async postcodesByPrefix(prefix, limit) {
       // The prefix arrives in the directory's own spaced
@@ -190,6 +242,9 @@ export function createSuggestionSource(db: StreetQueryable): SuggestionSource {
     addressesInPostcode: (postcode) => union.unionAddressesInPostcode(postcode),
     streetsByPrefix: (words, limit) => streets.streetsByPrefix(words, limit),
     streetsByFuzzy: (words, limit) => streets.streetsByFuzzy(words, limit),
+    placesByPrefix: (words, limit) => places.placesByPrefix(words, limit),
+    placesByFuzzy: (words, limit) => places.placesByFuzzy(words, limit),
+    placeDistricts: (placeNorm) => places.placeDistricts(placeNorm),
     async propertiesMatching(query, limit) {
       const conditions: string[] = [];
       const params: unknown[] = [];
@@ -396,6 +451,27 @@ function propertyLabelOf(parts: LoadedAddressParts): string {
   return `${labelForAddressParts(parts)}${town}, ${parts.postcode}`;
 }
 
+// One place suggestion's item (M7.15D): the place in
+// display casing, carrying NO route — the pick files
+// the filed name into the search field (the client's
+// one non-navigating pick), and the districts expand
+// from the real name on the fetch that follows. A
+// place pick never lands on a home, and never leaves
+// the dropdown for a page of its own.
+function placeItemOf(unit: PlaceSuggestion): SuggestionItem {
+  const place = displayText(unit.place);
+  return { label: place, href: null, place };
+}
+
+// One district suggestion's item: the district code
+// leading, the place it belongs to behind it (Master
+// view 25's row form, in held data — the sample's
+// hand-written district descriptions are shelf copy,
+// not filed fact), and the wider-area page's route.
+function districtItemOf(outward: string, placeDisplay: string): SuggestionItem {
+  return { label: `${outward} — ${placeDisplay}`, href: widerAreaRoute(outward) };
+}
+
 // The suggestions for one typed input. Pure over the
 // source, so the scenarios test it against fixture rows.
 export async function suggestionsFor(
@@ -470,15 +546,20 @@ export async function suggestionsFor(
       postcodes: 0,
       streets: 0,
       homes: items.length,
+      places: 0,
+      districts: 0,
     });
     return { groups };
   }
 
-  // ---- The fragment shapes (M7.15C): the three groups.
-  // Group order is the ruling's — Postcodes, Streets,
-  // Properties — and each group serves under its own
+  // ---- The fragment shapes (M7.15C, M7.15D): the
+  // groups. Group order — Postcodes, Streets,
+  // Properties, Places, then the named place's
+  // Districts — and each group serves under its own
   // rule (see the header): Postcodes complete to the
-  // ceiling, Streets and Properties capped at five.
+  // ceiling, Streets, Properties and Places capped at
+  // five, the Districts the named place's complete
+  // served set.
   const shape = input.outward ? "partial-postcode" : "text";
 
   // Postcodes: the first candidate the filed directory
@@ -598,6 +679,60 @@ export async function suggestionsFor(
     if (items.length > 0) groups.push({ label: "Properties", items });
   }
 
+  // Places (M7.15D): the fourth group. Exact tier first;
+  // the fuzzy tier tops up only when exact found nothing
+  // or nearly nothing, its rows below the exact ones,
+  // deduplicated, inside the group cap — the streets'
+  // arrangement exactly. The fuzzy rows are the READ
+  // MODEL's real places: a misspelling is offered the
+  // real place as a choice, never served back as typed.
+  let placeUnits: PlaceSuggestion[] = [];
+  let exactPlaceUnits: PlaceSuggestion[] = [];
+  if (streetWords.length > 0) {
+    exactPlaceUnits = await source.placesByPrefix(streetWords, SUGGEST_PLACE_CAP);
+    placeUnits = [...exactPlaceUnits];
+    if (placeUnits.length <= SUGGEST_PLACE_FUZZY_TRIGGER) {
+      const seen = new Set(placeUnits.map((unit) => placeNormOf(unit.place)));
+      const fuzzy = await source.placesByFuzzy(streetWords, SUGGEST_PLACE_FUZZY_CAP);
+      for (const unit of fuzzy) {
+        if (placeUnits.length >= SUGGEST_PLACE_CAP) break;
+        if (seen.has(placeNormOf(unit.place))) continue;
+        seen.add(placeNormOf(unit.place));
+        placeUnits.push(unit);
+      }
+    }
+  }
+  if (placeUnits.length > 0) {
+    groups.push({ label: "Places", items: placeUnits.map(placeItemOf) });
+  }
+
+  // The districts (M7.15D): when the typed words exactly
+  // name one of the EXACT tier's places — typed in full,
+  // or filed there by a place pick — that place's
+  // districts ride the same panel, in the picker's list
+  // style, each leading to its wider-area page. A fuzzy
+  // place never expands unpicked: expansion is the
+  // exact name's alone, so a misspelling's panel holds
+  // the choice and nothing else. The districts are read
+  // from the source at expansion time (not carried on
+  // the unit), under the same served-district rule the
+  // tiers apply.
+  let districtCount = 0;
+  const namedPlace = exactPlaceUnits.find(
+    (unit) => placeNormOf(unit.place) === streetWords.join(" "),
+  );
+  if (namedPlace) {
+    const districts = await source.placeDistricts(placeNormOf(namedPlace.place));
+    districtCount = districts.length;
+    if (districts.length > 0) {
+      const placeDisplay = displayText(namedPlace.place);
+      groups.push({
+        label: `Districts in ${placeDisplay}`,
+        items: districts.map((outward) => districtItemOf(outward, placeDisplay)),
+      });
+    }
+  }
+
   logEntry(req, "suggestions.served", {
     layer: "local",
     reason: groups.length > 0 ? "ok" : "empty",
@@ -606,6 +741,8 @@ export async function suggestionsFor(
     postcodes: postcodeCount,
     streets: streetUnits.length,
     homes: propertyCount,
+    places: placeUnits.length,
+    districts: districtCount,
   });
   return { groups };
 }

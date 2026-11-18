@@ -3651,3 +3651,87 @@ of view 25's picker dropdown; the picker list of the
 whole-postcode check). No sample change is needed; if
 the founder wants the choice page sampled, it joins the
 Master at his word.
+
+## Place search (18 Nov 2026) — M7.15D: the Places group and the in-picker district expansion
+
+The build (docs/entry-point.md carries the build
+note): a fourth group, Places, in the search dropdown,
+and behind a fully named place its Districts group —
+the town chooser inside the picker, per the founder's
+ruling and Master view 25. Places derive from held
+data only (the picking index's town-as-filed; migration
+0032's derived place table), fuzzy matching is offered
+as choices only at the streets' pinned threshold on
+place witnesses, and a district pick lands on the
+wider-area page. A place pick is the dropdown's one
+non-navigating pick: it files the filed name into the
+search field, and the districts expand in the same
+panel.
+
+Samples-deviation check — against Master view 25
+("Town chooser, picker dropdown": the landing with
+"Chelmsford" typed, the dropdown open on the Places
+group and the Districts in Chelmsford group), walked
+element by element:
+
+- Group set: the view's two heads are the product's
+  two group labels, verbatim — "Places" and "Districts
+  in Chelmsford" (the product's label is the filed
+  place's display form: "Districts in <Place>"). ✓
+- Group order: the view shows Places first and
+  Districts immediately behind it, but no other group
+  co-occurs in the view, so it does not settle Places'
+  position among Postcodes / Streets / Properties.
+  The product follows the plan step's own enumeration
+  — Places is "a fourth group" — and serves Postcodes,
+  Streets, Properties, Places, then the Districts group
+  immediately behind its place, preserving the view's
+  one settled relation (Districts directly after
+  Places). Recorded as a judgement, not a sample fact.
+- The place row: the view draws a pin, the bold place
+  name, and a sub-line ("Town in Essex · Covers
+  districts CM1, CM2 and CM3 — pick a district below
+  for the wider-area page"). The product serves the
+  single-line name in the suggestion shell's established
+  item form, as every group in the built dropdown does.
+  Deviation, with its reason: the sub-line's county is
+  not held data (no source files a place's county), and
+  its district content is carried by the Districts group
+  itself, directly below — the line would repeat the
+  group it introduces. If the founder wants the richer
+  row, it is a shell change across all groups, not a
+  Places-only form.
+- The district rows: the view draws a code chip, a
+  bold "CM1 — <description>" and a settlements sub-line
+  ("Chelmsford city centre, Springfield, Broomfield and
+  Chelmer Village"). The product serves "CM1 —
+  Chelmsford" as a single line. Deviation, with its
+  reason: the view's descriptions and settlement lists
+  are hand-written sample copy, not derivable from held
+  data — no source files which settlements a district
+  covers or a one-line characterisation of it, and the
+  product states only filed facts. The row's leading
+  form (code, dash, name) is the view's.
+- The view's "Sample →" badge on the CM3 row is a
+  shelf marker, not product furniture — not built, as
+  with the other views' annotations.
+- The view's footnote ("No separate town page. Typing
+  a town simply expands this list…") and its note-grid
+  are the shelf's commentary explaining the design to
+  the reader, not product copy — not built. The
+  behaviour they describe is the behaviour built: no
+  town page exists; the expansion happens in this list.
+- The grouped panel's render window: unchanged CSS —
+  the M7.15C `:has()` rule is generic over group count,
+  so the fourth and fifth groups scroll in the same
+  window in the same spirit. No CSS change was needed;
+  recorded here because the brief named it the one
+  allowed interaction.
+
+No bundle-shape pins moved: the short bundle, the
+replay shapes and the district serve path are
+untouched, and the full-postcode Homes branch is
+byte-identical. No Master change is needed — view 25
+already depicts this surface; the two row-form
+deviations above are recorded for the founder's eye at
+UAT (M7.16), where the dropdown is judged in use.

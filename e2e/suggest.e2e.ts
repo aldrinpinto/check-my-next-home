@@ -232,4 +232,68 @@ test.describe("suggestions dropdown — regression", () => {
       await expect(page.locator(".results-head h1")).toHaveText(label ?? "");
     },
   );
+
+  // M7.15D — place search (18 Nov 2026). The seeded
+  // corpus files Chelmsford in two districts (the EPC
+  // fixture's CM1 6ER and the sales fixture's CM3 2JT),
+  // so the offered districts are CM1 and CM3 — the
+  // seeded world holds no CM2 Chelmsford row, and the
+  // panel must not invent one.
+  test(
+    "typing the town offers the place and its districts; a district lands on the wider-area page",
+    { tag: "@regression" },
+    async ({ page }) => {
+      await page.goto("/");
+      const input = page.getByLabel("Enter a postcode");
+      await input.fill("Chelmsford");
+      await page.waitForTimeout(400);
+      const groups = await page.locator(".suggest__group-label").allTextContents();
+      expect(groups).toEqual(["Places", "Districts in Chelmsford"]);
+      await expect(page.getByRole("option", { name: "Chelmsford", exact: true })).toBeVisible();
+      await expect(page.getByRole("option", { name: "CM1 — Chelmsford" })).toBeVisible();
+      await expect(page.getByRole("option", { name: "CM2 — Chelmsford" })).toHaveCount(0);
+      await page.getByRole("option", { name: "CM3 — Chelmsford" }).click();
+      await page.waitForURL("**/search?outward=CM3");
+      await expect(page.locator("h1")).toHaveText("Wider area — CM3, not this exact home");
+    },
+  );
+
+  test(
+    "picking the place from a part-typed name files the name and expands its districts in place",
+    { tag: "@regression" },
+    async ({ page }) => {
+      await page.goto("/");
+      const input = page.getByLabel("Enter a postcode");
+      await input.fill("Chelms");
+      await page.waitForTimeout(400);
+      // The place is offered; its districts are not —
+      // expansion waits for the full name.
+      await expect(page.getByRole("option", { name: "Chelmsford", exact: true })).toBeVisible();
+      expect(await page.locator(".suggest__group-label").allTextContents()).toEqual(["Places"]);
+      await page.getByRole("option", { name: "Chelmsford", exact: true }).click();
+      // The pick files the filed name into the field —
+      // no navigation — and the districts expand in the
+      // same panel.
+      await expect(input).toHaveValue("Chelmsford");
+      await expect(page.getByRole("option", { name: "CM1 — Chelmsford" })).toBeVisible();
+      const groups = await page.locator(".suggest__group-label").allTextContents();
+      expect(groups).toEqual(["Places", "Districts in Chelmsford"]);
+      await page.getByRole("option", { name: "CM1 — Chelmsford" }).click();
+      await page.waitForURL("**/search?outward=CM1");
+      await expect(page.locator("h1")).toHaveText("Wider area — CM1, not this exact home");
+    },
+  );
+
+  test(
+    "a misspelt town is offered the real place as a choice — and expands nothing unpicked",
+    { tag: "@regression" },
+    async ({ page }) => {
+      await page.goto("/");
+      const input = page.getByLabel("Enter a postcode");
+      await input.fill("Chlemsford");
+      await page.waitForTimeout(400);
+      await expect(page.getByRole("option", { name: "Chelmsford", exact: true })).toBeVisible();
+      expect(await page.locator(".suggest__group-label").allTextContents()).toEqual(["Places"]);
+    },
+  );
 });

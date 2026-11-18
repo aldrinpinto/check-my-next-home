@@ -196,6 +196,16 @@ describe("the D71 amendment — complete full-postcode list; fragment cap supers
       async streetsByFuzzy() {
         return [];
       },
+      // This world's places: none filed (M7.15D).
+      async placesByPrefix() {
+        return [];
+      },
+      async placesByFuzzy() {
+        return [];
+      },
+      async placeDistricts() {
+        return [];
+      },
       async propertiesMatching(query, limit) {
         if (query.postcodePrefix === null) return [];
         return homes
@@ -284,6 +294,16 @@ describe("two-digit districts — partial-postcode suggestions", () => {
         return [];
       },
       async streetsByFuzzy() {
+        return [];
+      },
+      // This world's places: none filed (M7.15D).
+      async placesByPrefix() {
+        return [];
+      },
+      async placesByFuzzy() {
+        return [];
+      },
+      async placeDistricts() {
         return [];
       },
       async propertiesMatching() {

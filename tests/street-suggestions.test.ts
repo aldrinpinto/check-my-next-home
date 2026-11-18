@@ -159,6 +159,43 @@ function fakeSource(): SuggestionSource {
         return inPrefix || inStreet;
       }).slice(0, limit);
     },
+    // This world's places (M7.15D): its towns stand in
+    // the street rows' towns — Chelmsford (CM1/CM3
+    // districts in this world's directory letters) and
+    // Exeter (EX1). The place specs live in
+    // tests/place-suggestions.test.ts; these reads keep
+    // this world's source honest at the widened port.
+    async placesByPrefix(words, limit) {
+      const districtsByPlace = new Map<string, Set<string>>();
+      for (const row of STREET_ROWS) {
+        if (!row.town) continue;
+        const outward = row.postcode.split(" ")[0];
+        const districts = districtsByPlace.get(row.town) ?? new Set<string>();
+        districts.add(outward);
+        districtsByPlace.set(row.town, districts);
+      }
+      return [...districtsByPlace.entries()]
+        .map(([place, districts]) => ({ place, districts: [...districts].sort() }))
+        .filter((unit) => prefixMatch(words, norm(unit.place)))
+        .slice(0, limit);
+    },
+    async placesByFuzzy() {
+      return [];
+    },
+    async placeDistricts(placeNorm) {
+      const districtsByPlace = new Map<string, Set<string>>();
+      for (const row of STREET_ROWS) {
+        if (!row.town) continue;
+        const outward = row.postcode.split(" ")[0];
+        const districts = districtsByPlace.get(row.town) ?? new Set<string>();
+        districts.add(outward);
+        districtsByPlace.set(row.town, districts);
+      }
+      for (const [place, districts] of districtsByPlace) {
+        if (norm(place) === placeNorm) return [...districts].sort();
+      }
+      return [];
+    },
   };
 }
 
@@ -298,8 +335,11 @@ describe("street suggestions — pick from a list, never a guess", () => {
       const result = await suggestionsFor(raw, fakeSource(), "s8");
       const streets = result.groups.find((group) => group.label === "Streets");
       for (const item of streets!.items) {
+        // A street item always carries its route (only a
+        // Places item's href is null — M7.15D).
+        expect(item.href).not.toBeNull();
         expect(item.href).not.toContain("home=");
-        expect(item.href.startsWith("/search?")).toBe(true);
+        expect(item.href!.startsWith("/search?")).toBe(true);
       }
     }
   });

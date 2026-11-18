@@ -38,6 +38,16 @@ export interface PickingStreetRow {
   home_count: number;
 }
 
+// One row of the derived place table (migration 0032,
+// M7.15D): the (place, district) grain with its display
+// form and distinct postcode count.
+export interface PickingPlaceRow {
+  place_norm: string;
+  place_display: string;
+  outward: string;
+  postcode_count: number;
+}
+
 // The home key's normalisation, mirrored in JS (the
 // filing machinery's normKeyPart): upper case,
 // punctuation to spaces, runs collapsed, trimmed.
@@ -112,6 +122,9 @@ export class FakePickingDb {
   // from the index by the filing machinery's hook on
   // every union rebuild, kill switch included.
   streets: PickingStreetRow[] = [];
+  // The derived place table (migration 0032): rebuilt
+  // by the same hook, on the same paths.
+  places: PickingPlaceRow[] = [];
   editions: PickingEditionRow[] = [blankEdition("sales"), blankEdition("epc")];
   // price_paid rows for the read-model tests: full sale
   // rows (the sold-prices source's columns) — the
@@ -134,6 +147,7 @@ export class FakePickingDb {
       epcExtract: this.epcExtract,
       index: this.index,
       streets: this.streets,
+      places: this.places,
       editions: this.editions,
     });
   }
@@ -147,6 +161,7 @@ export class FakePickingDb {
     this.epcExtract = state.epcExtract;
     this.index = state.index;
     this.streets = state.streets ?? [];
+    this.places = state.places ?? [];
     this.editions = state.editions;
     this.snapshot = null;
   }
@@ -363,6 +378,71 @@ export class FakePickingDb {
             town_norm: town === null ? "" : normKeyPartJs(town),
             postcode: street.postcode,
             home_count: street.homes,
+          };
+        });
+      return { rows: [] };
+    }
+
+    if (sql === "DELETE FROM picking_places") {
+      this.places = [];
+      return { rows: [] };
+    }
+    if (sql.startsWith("WITH per_place_town AS")) {
+      // The place rebuild (M7.15D): derive the table
+      // from the index exactly as the SQL does — group
+      // by (place_norm, outward, town) counting distinct
+      // postcodes, then per (place, outward) the display
+      // is the town form with the most postcodes (ties
+      // by name) and the count is the sum.
+      interface PerPlaceTown {
+        placeNorm: string;
+        outward: string;
+        town: string;
+        postcodes: Set<string>;
+      }
+      const perTown = new Map<string, PerPlaceTown>();
+      for (const row of this.index) {
+        if (row.town === null) continue;
+        const placeNorm = normKeyPartJs(row.town);
+        const outward = row.postcode.split(" ")[0];
+        const key = `${placeNorm}\u0001${outward}\u0001${row.town}`;
+        const current = perTown.get(key) ?? {
+          placeNorm,
+          outward,
+          town: row.town,
+          postcodes: new Set<string>(),
+        };
+        current.postcodes.add(row.postcode);
+        perTown.set(key, current);
+      }
+      const perPlace = new Map<
+        string,
+        { placeNorm: string; outward: string; towns: PerPlaceTown[]; postcodes: number }
+      >();
+      for (const townRow of perTown.values()) {
+        const key = `${townRow.placeNorm}\u0001${townRow.outward}`;
+        const current = perPlace.get(key) ?? {
+          placeNorm: townRow.placeNorm,
+          outward: townRow.outward,
+          towns: [],
+          postcodes: 0,
+        };
+        current.towns.push(townRow);
+        current.postcodes += townRow.postcodes.size;
+        perPlace.set(key, current);
+      }
+      this.places = [...perPlace.values()]
+        .filter((place) => place.placeNorm !== "")
+        .map((place) => {
+          const towns = [...place.towns].sort(
+            (a, b) =>
+              b.postcodes.size - a.postcodes.size || compareNullable(a.town, b.town),
+          );
+          return {
+            place_norm: place.placeNorm,
+            place_display: towns[0].town,
+            outward: place.outward,
+            postcode_count: place.postcodes,
           };
         });
       return { rows: [] };

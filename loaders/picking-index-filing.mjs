@@ -203,6 +203,41 @@ export async function rebuildPickingStreets(client) {
   );
 }
 
+// Rebuild the derived place table (migration 0032)
+// from the union index as it stands: one row per
+// (place, district) the index holds homes under a
+// filed town in, with the place's display form and its
+// distinct postcode count. The normalisation is the
+// home key's own recipe (normKeyPart above), written
+// out in SQL. The SELECT mirrors migration 0032's
+// initial build.
+export async function rebuildPickingPlaces(client) {
+  await client.query("DELETE FROM picking_places");
+  await client.query(
+    `WITH per_place_town AS (
+       SELECT btrim(regexp_replace(regexp_replace(upper(town), '[^A-Z0-9]+', ' ', 'g'), ' +', ' ', 'g')) AS place_norm,
+              split_part(postcode, ' ', 1) AS outward,
+              town,
+              count(DISTINCT postcode)::int AS postcodes
+         FROM picking_index
+        WHERE town IS NOT NULL
+        GROUP BY 1, 2, 3
+     ),
+     per_place AS (
+       SELECT place_norm,
+              outward,
+              (array_agg(town ORDER BY postcodes DESC, town))[1] AS place_display,
+              sum(postcodes)::int AS postcode_count
+         FROM per_place_town
+        GROUP BY place_norm, outward
+     )
+     INSERT INTO picking_places (place_norm, place_display, outward, postcode_count)
+     SELECT place_norm, place_display, outward, postcode_count
+       FROM per_place
+      WHERE place_norm <> ''`,
+  );
+}
+
 // Rebuild the served union from the two extracts. Runs
 // inside the caller's transaction. With includeEpc
 // false the union is built from the sales extract alone
@@ -211,7 +246,9 @@ export async function rebuildPickingStreets(client) {
 // every path that changes the union (both filing
 // passes and the EPC kill switch) refreshes the streets
 // with it, so the suggestions can never name a street
-// the served index does not hold (M7.15C).
+// the served index does not hold (M7.15C). The place
+// table (M7.15D) rebuilds beside it on the same paths,
+// under the same rule for place names.
 export async function rebuildPickingIndex(client, { includeEpc = true } = {}) {
   await client.query("DELETE FROM picking_index");
   if (includeEpc) {
@@ -255,6 +292,7 @@ export async function rebuildPickingIndex(client, { includeEpc = true } = {}) {
     );
   }
   await rebuildPickingStreets(client);
+  await rebuildPickingPlaces(client);
 }
 
 // Record a filed edition and its proof counts on the

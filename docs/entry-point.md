@@ -176,19 +176,19 @@ carrying the request id. **To follow one request:**
 grep "entry req=<request-id>" <server log>
 ```
 
-| Event                 | Meaning                                                                                                                                                                                                                                                                         |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `suggestions.served`  | The local suggestions behind one keystroke pause: `shape=` (partial-postcode / full-postcode / text), the group counts (`postcodes=` `streets=` `homes=` — the last is the Homes count on a full postcode, the Properties count on a fragment), `ms=`. Layer is always `local`. |
-| `suggestions.limited` | A suggestions call refused by the rate limit.                                                                                                                                                                                                                                   |
-| `suggestions.ceiling` | A served list ran past the defensive ceiling of 1,000: a full postcode's home list (D71 amendment, `homes=` the true count) or a fragment's postcode matches (M7.15C, `postcodes=` the true count), `ceiling=` the bound served. A truncation is logged, never silent.          |
-| `picker.list`         | The picker list's composition: `local=` `postio=` `deduped=` counts, `postioFrom=` (live / memory / failed / not-called), `reason=` (`local-complete`, `merged`, `postio-<failure>`).                                                                                           |
-| `postio.call`         | One Postio call: `op=` (postcode / search / udprn / connect), `reason=` (`ok`, `timeout`, `error`, `zero-balance`, `no-key`, `refused`), `ms=`, and Postio's own `postioRequestId=` when it answered.                                                                           |
-| `pick.resolved`       | A pick's outcome: `layer=local` never occurs (local picks navigate directly); `layer=postio reason=resolved via=memory                                                                                                                                                          | udprn-call`, or `layer=fallback reason=postio-<failure>`. |
-| `transient.created`   | A resolve record was written for a pick.                                                                                                                                                                                                                                        |
-| `transient.served`    | A route re-derived a home from a record.                                                                                                                                                                                                                                        |
-| `transient.promoted`  | The home is now filed locally; the canonical key took over and the record lapsed.                                                                                                                                                                                               |
-| `transient.expired`   | A record outlived its 24 hours and was deleted on sight.                                                                                                                                                                                                                        |
-| `fallback.notice`     | The mid-pick fallback notice was served on the postcode-level page.                                                                                                                                                                                                             |
+| Event                 | Meaning                                                                                                                                                                                                                                                                                                                                                                          |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `suggestions.served`  | The local suggestions behind one keystroke pause: `shape=` (partial-postcode / full-postcode / text), the group counts (`postcodes=` `streets=` `homes=` `places=` `districts=` — `homes=` is the Homes count on a full postcode, the Properties count on a fragment; `places=`/`districts=` are the M7.15D group counts, 0 on a full postcode), `ms=`. Layer is always `local`. |
+| `suggestions.limited` | A suggestions call refused by the rate limit.                                                                                                                                                                                                                                                                                                                                    |
+| `suggestions.ceiling` | A served list ran past the defensive ceiling of 1,000: a full postcode's home list (D71 amendment, `homes=` the true count) or a fragment's postcode matches (M7.15C, `postcodes=` the true count), `ceiling=` the bound served. A truncation is logged, never silent.                                                                                                           |
+| `picker.list`         | The picker list's composition: `local=` `postio=` `deduped=` counts, `postioFrom=` (live / memory / failed / not-called), `reason=` (`local-complete`, `merged`, `postio-<failure>`).                                                                                                                                                                                            |
+| `postio.call`         | One Postio call: `op=` (postcode / search / udprn / connect), `reason=` (`ok`, `timeout`, `error`, `zero-balance`, `no-key`, `refused`), `ms=`, and Postio's own `postioRequestId=` when it answered.                                                                                                                                                                            |
+| `pick.resolved`       | A pick's outcome: `layer=local` never occurs (local picks navigate directly); `layer=postio reason=resolved via=memory                                                                                                                                                                                                                                                           | udprn-call`, or `layer=fallback reason=postio-<failure>`. |
+| `transient.created`   | A resolve record was written for a pick.                                                                                                                                                                                                                                                                                                                                         |
+| `transient.served`    | A route re-derived a home from a record.                                                                                                                                                                                                                                                                                                                                         |
+| `transient.promoted`  | The home is now filed locally; the canonical key took over and the record lapsed.                                                                                                                                                                                                                                                                                                |
+| `transient.expired`   | A record outlived its 24 hours and was deleted on sight.                                                                                                                                                                                                                                                                                                                         |
+| `fallback.notice`     | The mid-pick fallback notice was served on the postcode-level page.                                                                                                                                                                                                                                                                                                              |
 
 The typed query itself is never logged — only its
 classified shape and the counts it produced.
@@ -683,3 +683,119 @@ multi-postcode choice page has no e2e witness — the
 seeded corpus holds no street spanning postcodes; it
 is unit- and render-pinned, and its first live exercise
 is the play server.
+
+## M7.15D — place search (build note, 18 Nov 2026)
+
+The dropdown's fourth group, on the founder's ruling
+of 18 Nov 2026: typing a town or place name offers the
+place under **Places** (capped at 5, like Streets and
+Properties); a place whose name stands typed in full —
+or picked, which files the name — offers its postcode
+districts in the same panel under **Districts in
+\<Place\>**; a district leads to that district's
+wider-area page. The town chooser lives inside the
+picker (Final Sample Master view 25); there is no town
+page, and a place pick never lands on a home. The
+group order is Postcodes, Streets, Properties, Places,
+Districts — the plan names Places "a fourth group";
+view 25 shows Places and Districts alone together (no
+other group co-occurs in it), so the order among the
+groups follows the plan's enumeration, and the
+Districts group rides immediately behind its place.
+The grouped panel's CSS needed no change: the render
+window's `:has()` rule is already generic over group
+count, and the panel scrolls.
+
+**Where places come from — a premise, refined.** The
+step text says places derive from "post towns in the
+national postcode directory and the picking index's
+town-as-filed". The directory as filed carries no post
+town: the postcode loader files ONSPD's columns
+(postcode, coordinates, council, ward, region, LSOA,
+MSOA), and ONSPD has no post town to file. The held
+post towns are the picking index's town-as-filed — the
+Price Paid town and the EPC register's post town, the
+same union the district brain's places read draws on.
+Places therefore derive wholly from held data, no new
+source, Postio no part — the substance of the premise
+holds; the directory's part is the districts
+themselves and their standing, below.
+
+**The place table.** Migration 0032 derives
+`picking_places` from the picking index — one row per
+(place, district), the place's display form and its
+distinct postcode count — rebuilt inside every union
+rebuild (both filing passes and the EPC kill switch)
+by `rebuildPickingPlaces` in the shared filing
+machinery, the streets' pattern exactly. A place is
+suggestible exactly where we hold homes filed under
+its name. The read model is lib/server/places.ts, the
+street read model's sibling: exact word-prefix tier,
+then the pg_trgm fuzzy tier under the same discipline
+(threshold set inside one transaction; offered only
+when the exact tier found at most one place; at most
+four rows, below the exact ones, inside the cap).
+
+**The threshold, witnessed for places.** The streets'
+pinned 0.4 carries, on its own witnesses, measured
+against the real function before the build (PGlite's
+pg_trgm; db/prove.mjs re-proves the pair against real
+Postgres): the plan's witness, the transposition
+CHLEMSFORD ~ CHELMSFORD, scores **0.4667**; the
+nearest unrelated real town, CHELMSFORD ~ CHELTENHAM,
+scores **0.2222**. Fuzzy stays a choice only: the
+typed misspelling is never served back, a fuzzy place
+expands nothing unpicked (expansion is the exact
+name's alone), and submitting never applies a fuzzy
+match — there is no code path from a suggestion to a
+submission. No "did you mean" wording anywhere.
+
+**The honesty rule.** A district is offered iff the
+district page serves it in its own form — the district
+bundle's own test: the district's filed postcodes in
+the directory carry an England or Wales LSOA code. A
+Scotland / NI district keeps the not-covered form, so
+the place flow never offers it, and a place with no
+served district is not offered at all. The read model
+applies the test live against the directory (an EXISTS
+over the district's postcodes), so the offer cannot
+drift from the page it leads to. By construction the
+index's England & Wales sources file no Scottish
+towns — as with streets, the rule is the guard, pinned
+by a fixture Scottish place in the unit tests and by
+the predicate's proof in db/prove.mjs. It is a guard
+with no e2e witness in the seeded corpus (which files
+no Scottish towns) — the same position as M7.15C's
+multi-postcode street choice: unit-pinned, first live
+exercise on the play server.
+
+**The one wire-contract extension.** A place pick
+cannot navigate — the ruling puts the chooser inside
+the picker — so a Places item is the dropdown's one
+non-navigating item: `{ label, href: null, place }`.
+The client files the filed name into the search field;
+the ordinary debounced fetch then serves that place
+exactly, with its Districts group — the state view 25
+depicts. Every other item kind keeps `{ label, href }`
+exactly; the full-postcode Homes branch is untouched,
+as are the street flows and every bundle shape.
+
+**Coverage.** tests/place-suggestions.test.ts (its own
+witness world: Chelmsford over CM1/CM2/CM3, the
+scripted transposition, a seven-place cap family, a
+Scottish place) plus witnesses against the shared
+entry-point fixture, whose source grew the three place
+reads over its own union — its Chelmsford honestly
+serves CM1 and CM3 only, no CM2 being filed there. The
+loader suites pin the place table's rebuild on a sales
+filing, an EPC filing and the kill switch.
+db/prove.mjs proves the threshold witnesses, the
+rebuild grain and the served-district predicate
+against real Postgres. e2e/suggest.e2e.ts gains the
+place journeys against the seeded corpus: the town
+typed in full (Places + Districts, CM1 and CM3 — the
+seeded world files no CM2 Chelmsford row, and a spec
+pins its absence), the place picked from a part-typed
+name expanding in place, and the misspelling offered
+as a choice only. Playwright cannot run locally; CI is
+their first execution.
