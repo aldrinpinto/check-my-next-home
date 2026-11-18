@@ -1835,9 +1835,15 @@ body:has(.main--home) .site-footer {
   font-weight: 600;
 }
 
-/* .results-disclaimer-short retired (parity fix batch,
-   item 16): no disclaimer line sits under the pills; the
-   closing disclaimer block at the page foot stands. */
+/* The D9 short form beside the results (D66): a quiet
+   line under the summary strip, above the tabs. Retired
+   by the parity batch's item 16 and restored at CI #222
+   — the decisions (D9, D38, M7.4) govern over the
+   sample's HTML, whose stylesheet carries this class. */
+.results-disclaimer-short {
+  font-size: var(--font-size-small);
+  margin-bottom: var(--space-5);
+}
 
 /* The 'About these checks' expander (M7.12, stacked build
    18 Nov 2026): the one home for the results page's links

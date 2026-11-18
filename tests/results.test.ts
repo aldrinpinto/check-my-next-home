@@ -1891,10 +1891,21 @@ describe("results — the rendered page", () => {
     const view = buildResultsView(input());
     const html = renderToStaticMarkup(createElement(ResultsPage, { view }));
     expect(html).toContain("pill pill--summary");
-    // Item 16 (parity fix batch): the D9 short form no
-    // longer sits under the pills — the Master carries no
-    // disclaimer line there; the closing block stands.
-    expect(html).not.toContain(DISCLAIMER_SHORT_FORM);
+    // The D9 short form verbatim beside the results
+    // (D66; M7.4's Disclaimer (D9) line): under the
+    // strip, above the tabs — and the closing block
+    // stands at the foot as a separate instance. The
+    // parity batch's item 16 removed the line against
+    // the Master's HTML and this pin asserted its
+    // absence; CI #222 reversed both: where the Final
+    // Design and a decision differ, the decision
+    // governs (M7.4's check line).
+    expect(html).toContain(`<p class="results-disclaimer-short">${DISCLAIMER_SHORT_FORM}</p>`);
+    const stripAt = html.indexOf("results-strip");
+    const shortFormAt = html.indexOf("results-disclaimer-short");
+    const tabsAt = html.indexOf("Family Checks");
+    expect(shortFormAt).toBeGreaterThan(stripAt);
+    expect(shortFormAt).toBeLessThan(tabsAt);
     expect(html).toContain(DISCLAIMER_CLOSING_BLOCK);
     expect(html).toContain('<a href="/how-we-check">How we check</a>.');
     // Tab order is fixed (D76): Family, Neighbourhood, Home, Nearby.

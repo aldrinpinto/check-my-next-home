@@ -9,6 +9,7 @@ import type { ShortlistCard } from "../lib/shortlist";
 import {
   DISCLAIMER_CLOSING_BLOCK,
   DISCLAIMER_CLOSING_LINK_LABEL,
+  DISCLAIMER_SHORT_FORM,
   HOW_WE_CHECK_PATH,
   REPORT_PRICE_LABEL,
 } from "../lib/site";
@@ -304,10 +305,16 @@ export default function ResultsPage({
           {view.warningsStrip.line}
         </p>
       )}
-      {/* Item 16 (parity fix batch): the short disclaimer
-          line under the pills is removed — the Master
-          carries none there; the closing disclaimer block
-          at the foot of the page stands. */}
+      {/* The D9 short form verbatim beside the results
+          (D66; M7.4's Disclaimer (D9) line) — under the
+          strip, above the tabs. The parity batch's item
+          16 removed it against the Master's HTML; CI #222
+          restored it: where the Final Design and a
+          decision differ, the decision governs (M7.4's
+          check line), and the Master's stylesheet still
+          carries this class's dress. The closing block
+          at the foot is a separate instance, untouched. */}
+      <p className="results-disclaimer-short">{DISCLAIMER_SHORT_FORM}</p>
       <Tabs
         ariaLabel="Your check, in four parts"
         tabs={view.tabs.map((tab) => ({

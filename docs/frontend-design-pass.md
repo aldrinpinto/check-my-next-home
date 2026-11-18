@@ -3195,3 +3195,38 @@ the item 8/9 pins runs the no-England-figure case with
 headlineBand B, pinning the five-pill strip at unit
 level so the seeded case stays executable where the
 mis-inference came from.
+
+### Follow-up (18 Nov 2026) — CI #222: item 16 reversed, the D9 short form restored
+
+CI #222 on the CI #221 fix round's HEAD passed checks,
+secrets and database; the browser job passed 115 of 116. The one failure was the Birkdale smoke spec at
+its short-disclaimer assertion — masked in CI #220
+and #221 by the earlier pill failures in the same
+spec, so it had never run against the batch.
+
+Mechanism: item 16 of the parity batch removed the
+D9 short form from beside the results, judging by the
+Final Sample Master's HTML, which does not show it
+there. The governing record says otherwise: D66 with
+M7.4's "Disclaimer (D9)" check line places the short
+form verbatim under the results strip, above the
+tabs. Where a finalised sample and a decision differ,
+the decision governs — the same conformed-by-ruling
+pattern as items 13 and 18, where rulings stood and
+the Master was not conformed. Item 16 is therefore
+REVERSED: the audit's premise was the sample's
+omission, and an omission in the sample does not
+repeal a decision. The closing disclaimer block at
+the foot of the page is a separate instance and was
+never touched.
+
+Fix (product): the short form is restored in
+components/ResultsPage.tsx in its ruled place, with
+its dress in app/globals.css — the class the Master's
+own stylesheet still carries. The unit pin that
+asserted its absence is reversed: it now asserts the
+short form's presence and position (after the strip,
+before the tabs) and the closing block's separate
+presence at the foot. No assertion was weakened; the
+e2e smoke spec's expectation stands as written and
+is the CI proof of the restoration.
