@@ -2557,3 +2557,76 @@ results header, fixtures, replay and loader data), which is
 legitimate and untouched, and tests/sample-report.test.ts
 already pins the served sample page free of the real street
 name and postcode.
+
+## CI #215 fix (18 Nov 2026) — the two Beaulieu picker specs asserted the pre-preload world
+
+CI run #215 on main 2cbc267 (the M7.15B national preload)
+came back with checks, secrets and database green and the
+browser job at 108 passed / 2 failed: e2e/journey.e2e.ts
+"Beaulieu CM1 6ER: the empty picker is one named state…"
+and e2e/results.e2e.ts "rung 2 at Beaulieu CM1 6ER: the
+pinned label with the picker embedded…" both expected
+`.picker__empty-line` ("No addresses we can list for this
+postcode yet.") and the element was not found.
+
+Diagnosis — stale specs, not a serve regression (the
+CI #213 pattern). The browser harness seeds through
+scripts/seed-golden.mjs, whose runner fixture pass now
+files both halves of the picking index (run-loaders.mjs
+runs load-picking-index and load-epc-index over
+tests/fixtures), and the EPC fixture slice carries
+Beaulieu's 49 certificates — the odd numbers on George
+Heard Crescent. The union read model serves those 49
+homes in the picker on both surfaces (the rung-1 picker
+page and the rung-2 embedded picker share pickerRowsFor),
+so the picker renders its list branch, not the empty
+branch. The database job's green run over the identical
+fixture pass proves the index files in this
+configuration; had the index been empty in the seed, the
+read model degrades to filed-only — and Beaulieu has no
+filed sales, so the empty line would have rendered and
+both specs would have passed. The failure is only
+explicable by the picker being full, which is the
+preload working as adopted.
+
+The fix asserts the served world. Both Beaulieu specs
+now pin the new truth: no empty line, the count line
+"49 addresses", and the "49 George Heard Crescent" row
+present; the journey spec keeps its postcode-level path
+(the whole-postcode link through to the rung-2 label),
+and a new journey spec pins the durable-key behaviour —
+picking the index-only home confirms onto the canonical
+home route (`home=49||GEORGE HEARD CRESCENT`), never a
+transient token, and reaches its results. The
+empty-picker coverage is re-homed, not deleted: new
+journey and rung-2 specs run it on Southminster
+CM0 7AA, the neither-source witness — the directory
+fixture holds the postcode, and no seeded fixture files
+a sale, a certificate or an index row for it (verified
+across every fixture the seed files), so its union is
+empty and the named empty state is its served truth.
+
+Sweep: the only `.picker__empty-line` expectations in
+the suite were the two fixed. The calculators spec's
+Beaulieu premise (no filed sale, so the postcode-level
+calculators start empty) is untouched by the index —
+the index carries address parts only and no brain reads
+it — and it passed #215 as it stands. The EPC index
+fixture also covers CM3 2JT, E16 1GN and KT17 1FH, whose
+picker specs (Birkdale, Exeter, Minerva) all passed
+#215 against the union world; no other spec asserts a
+picker count or an exhaustive picker list. The unit
+suite was already aligned by the build itself
+(tests/entry-point.test.ts scenario (e) asserts Beaulieu
+EPC-covered; tests/picking-index.test.ts pins the union;
+the invariant test proves a golden bundle byte-identical
+with the index present) and the checks job was green.
+
+Masking note: each changed spec now asserts the world
+the seeded harness actually serves — Beaulieu's picker
+full of the fixture's own certificate homes, CM0 7AA's
+empty — and the proof is the seed chain itself
+(serve-e2e → seed-golden → the runner's fixture pass →
+the two loaders over the fixture slices whose contents
+are enumerated above), not a fixture hand-built to make
+the assertion pass.

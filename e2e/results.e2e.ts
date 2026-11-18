@@ -299,12 +299,41 @@ test.describe("results page — regression", () => {
   );
 
   test(
-    "rung 2 at Beaulieu CM1 6ER: the pinned label with the picker embedded at the head of the page",
+    "rung 2 at Beaulieu CM1 6ER: the pinned label with the picking index's homes embedded at the head of the page (M7.15B)",
     { tag: "@regression" },
     async ({ page }) => {
       await page.goto("/search/home?postcode=CM1+6ER");
       await expect(page.locator(".results-header h1")).toHaveText(
         "Postcode area — CM1 6ER, not one exact home",
+      );
+      await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
+      // M7.15B: the embedded picker reads the same union
+      // as the rung-1 picker, so Beaulieu's 49 index homes
+      // are listed here too — the empty line this spec
+      // asserted before the preload is gone by design
+      // (CI #215). The empty embedded picker is pinned on
+      // CM0 7AA in the next spec.
+      await expect(page.locator(".picker__empty-line")).toHaveCount(0);
+      await expect(page.locator(".picker__count")).toHaveText("49 addresses");
+      await expect(
+        page.getByRole("button", { name: "49 George Heard Crescent", exact: true }),
+      ).toBeVisible();
+      await expect(page.getByRole("tab")).toHaveCount(4);
+    },
+  );
+
+  test(
+    "rung 2 at Southminster CM0 7AA: the pinned label with the empty picker embedded at the head of the page",
+    { tag: "@regression" },
+    async ({ page }) => {
+      // CM0 7AA is the neither-source witness: held in the
+      // directory fixture, with no sale, certificate or
+      // index row in any seeded fixture — its union is
+      // empty, so the embedded picker serves the named
+      // empty state.
+      await page.goto("/search/home?postcode=CM0+7AA");
+      await expect(page.locator(".results-header h1")).toHaveText(
+        "Postcode area — CM0 7AA, not one exact home",
       );
       await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
       await expect(page.locator(".picker__empty-line")).toHaveText(

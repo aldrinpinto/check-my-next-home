@@ -304,18 +304,70 @@ test.describe("checker journey — regression", () => {
   );
 
   test(
-    "Beaulieu CM1 6ER: the empty picker is one named state, proceeding to postcode-level results",
+    "Beaulieu CM1 6ER: the picker lists the picking index's homes (M7.15B), proceeding to postcode-level results",
     { tag: "@regression" },
     async ({ page }) => {
       await searchFromHome(page, "CM1 6ER");
       await page.waitForURL("**/search?postcode=CM1+6ER");
-      await expect(page.locator(".picker__empty-line")).toHaveText(
-        "No addresses we can list for this postcode yet.",
-      );
+      // M7.15B: the harness seed's fixture pass files the
+      // EPC half of the picking index, and Beaulieu's 49
+      // certificate homes (the odd numbers on George Heard
+      // Crescent) are exactly what the union serves here —
+      // the empty picker this spec asserted before the
+      // preload is gone by design (CI #215).
+      await expect(page.locator(".picker__empty-line")).toHaveCount(0);
+      await expect(page.locator(".picker__count")).toHaveText("49 addresses");
+      await expect(
+        page.getByRole("button", { name: "49 George Heard Crescent", exact: true }),
+      ).toBeVisible();
       await page.getByRole("link", { name: "See the check for the whole postcode" }).click();
       await page.waitForURL("**/search/home?postcode=CM1+6ER");
       await expect(page.locator(".results-header h1")).toHaveText(
         "Postcode area — CM1 6ER, not one exact home",
+      );
+    },
+  );
+
+  test(
+    "Beaulieu CM1 6ER: an index-only home confirms through its durable home key, never a token (M7.15B)",
+    { tag: "@regression" },
+    async ({ page }) => {
+      await searchFromHome(page, "CM1 6ER");
+      await page.waitForURL("**/search?postcode=CM1+6ER");
+      await page.getByRole("button", { name: "49 George Heard Crescent", exact: true }).click();
+      await page.getByRole("button", { name: "Check this address" }).click();
+      // The row carries the home's durable key — the same
+      // key a filed sale would carry — so the confirm lands
+      // on the canonical home route, not on a transient
+      // resolve token.
+      await page.waitForURL(
+        /\/search\/home\?postcode=CM1\+6ER&home=49%7C%7CGEORGE\+HEARD\+CRESCENT/,
+      );
+      await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
+      await expect(page.locator(".results-header h1")).toHaveText("49 George Heard Crescent");
+    },
+  );
+
+  test(
+    "Southminster CM0 7AA: the empty picker is one named state, proceeding to postcode-level results",
+    { tag: "@regression" },
+    async ({ page }) => {
+      // The neither-source witness (the entry-point unit
+      // scenarios' own postcode): the directory fixture
+      // holds CM0 7AA, but no seeded fixture files a sale,
+      // a certificate or an index row for it, so the union
+      // is empty and the named empty state is the served
+      // truth. (Before M7.15B this spec ran on Beaulieu,
+      // whose picker the preload deliberately filled.)
+      await searchFromHome(page, "CM0 7AA");
+      await page.waitForURL("**/search?postcode=CM0+7AA");
+      await expect(page.locator(".picker__empty-line")).toHaveText(
+        "No addresses we can list for this postcode yet.",
+      );
+      await page.getByRole("link", { name: "See the check for the whole postcode" }).click();
+      await page.waitForURL("**/search/home?postcode=CM0+7AA");
+      await expect(page.locator(".results-header h1")).toHaveText(
+        "Postcode area — CM0 7AA, not one exact home",
       );
     },
   );
