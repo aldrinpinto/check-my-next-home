@@ -3063,3 +3063,60 @@ byte-identical with the picking index present or
 absent — the own-sales projection derives from the
 already-filed own history and adds no served figure to
 the full bundle.
+
+### Follow-up (18 Nov 2026) — CI #220: the specs catch up with the batch
+
+CI #220 on the batch's HEAD passed checks and secrets;
+the database job failed one test and the browser job
+twelve specs. Every failure traced to a spec or fixture
+still asserting the PRE-BATCH served form where the
+batch deliberately changed the form under the founder's
+approval. Each fix below was verified against the
+serving code before the expectation moved; no product
+code changed (the two candidate product bugs — the
+phone home list and the two-instance shortlist control —
+were verified as correct product behaviour; both
+failures were spec-side).
+
+**The golden-replay pin (database).** The replay's
+crime-calibration test asserted the England figure as an
+arithmetic identity on the excerpted corpus: the fixture
+total 5,503,997 over the three golden LSOAs' 5,899
+residents → 933,039 per 1,000. That pin had captured the
+thin-base bug's own output — the very figure item 9's
+guard exists to suppress. Under
+`ENGLAND_BASE_MIN_RESIDENTS` the excerpt's base is not a
+national base, so the served England figure is correctly
+absent on the replay corpus and the pin now asserts
+exactly that (`englandFigure` is null for the three
+golden homes; their per-head goldens stand). Item 9's
+guard supersedes the pin; the production pair (51.7
+against 94.5) remains pinned at unit level.
+
+**Browser specs.** e2e/headlines.e2e.ts: the built-up
+line now pins item 26's compact form ("Inside the X
+built-up area"). e2e/home.e2e.ts: the hero kicker pins
+item 1's stop-less form. e2e/phone.e2e.ts: the home-list
+spec now waits for the first `.picker__row` before
+counting — the list renders inside the results behind
+the checking screen's advance (components/HomeList.tsx
+on the rung-2 results), and the one-shot count raced
+the advance and read zero; the list itself renders as
+designed. e2e/results.e2e.ts: the Birkdale strip pins
+the guarded four pills (Schools · Flood · Noise ·
+Deprivation — no Crime pill without an England figure,
+per item 8's unit pins); the crime assertions in the
+smoke, refresh and calibration specs pin the guarded
+served text (the total line and window line, with the
+England comparison asserted absent); the flood spec
+pins item 25's "No live flood warnings are in force
+for this area just now."; the air-noise spec pins item
+24's single line ("Road noise day below 55 dB and
+night below 50 dB" with the Defra fineprint).
+e2e/shortlist.e2e.ts: the comparison miles pin item
+43's plain form (`.compare-mi`, "name · 0.4 mi", no
+tinted class); the at-3-saved spec now exercises BOTH
+shortlist instances (item 6) — each carries its own
+full-notice state, tapping either at full shows the
+message in that place and saves nothing, and the saved
+state stays in sync through the change subscription.

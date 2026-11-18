@@ -271,7 +271,14 @@ test.describe("shortlist — regression", () => {
       );
       const primaryRow = compare.locator('.compare-table [data-compare-row="primary"]');
       await expect(primaryRow.locator("td").first()).toContainText("Birkdale Primary School");
-      await expect(primaryRow.locator(".place-row__miles--green").first()).toHaveText("0.4 mi");
+      // Item 43 (parity fix batch): comparison miles are
+      // the Master's plain bold Forest text after a "·" —
+      // no tinted distance pill (the .place-row__miles--*
+      // classes are gone from comparison cells).
+      await expect(primaryRow.locator("td").first()).toContainText(
+        "Birkdale Primary School · 0.4 mi",
+      );
+      await expect(primaryRow.locator(".compare-mi").first()).toHaveText("0.4 mi");
       // Legacy pointer cells still render their pointer;
       // the real cells render their lines.
       for (const rowKey of ["flood", "crime"]) {
@@ -325,9 +332,13 @@ test.describe("shortlist — regression", () => {
 
       // The simple message stands where the button was
       // (founder's ruling, 17 Nov 2026): the full line, a
-      // link to the shortlist, and no panel anywhere. Both
-      // control places (results head + buy bar, item 6)
-      // carry the message; the first stands for both.
+      // link to the shortlist, and no panel anywhere. A
+      // rung-1 page carries TWO control instances (results
+      // head + buy bar, item 6); each carries its own
+      // notice state, so the tapped instance shows the
+      // message while the other still offers its button —
+      // and tapping that one shows the message there too,
+      // saving nothing either time.
       const full = page.locator(".shortlist-full-line").first();
       await expect(full).toBeVisible();
       await expect(full).toContainText("Your shortlist is full — it holds 3 homes.");
@@ -336,8 +347,12 @@ test.describe("shortlist — regression", () => {
         "/shortlist",
       );
       await expect(page.locator(".shortlist-panel")).toHaveCount(0);
+      const other = page.getByRole("button", { name: "Shortlist this home" });
+      await expect(other).toHaveCount(1);
+      await other.click();
+      await expect(page.locator(".shortlist-full-line")).toHaveCount(2);
       await expect(page.getByRole("button", { name: "Shortlist this home" })).toHaveCount(0);
-      // Nothing was saved by the tap.
+      // Nothing was saved by either tap.
       await expect(page.locator(".shortlist-count")).toHaveText("3");
 
       // Free a slot on the shortlist page, via the message's

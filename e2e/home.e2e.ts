@@ -22,7 +22,10 @@ test.describe("home page — smoke", () => {
       await page.goto("/");
 
       const kicker = page.locator(".hero__kicker");
-      await expect(kicker).toHaveText("For the family who'll live there — not just the buyer.");
+      // Item 1 (parity fix batch): the hero kicker carries
+      // NO full stop — the stopped form is the manifesto
+      // block's line only (SITE_KICKER vs SITE_MANIFESTO).
+      await expect(kicker).toHaveText("For the family who'll live there — not just the buyer");
       await expect(page.locator("h1")).toHaveText(
         "You're not buying a house. You're choosing your family's home.",
       );

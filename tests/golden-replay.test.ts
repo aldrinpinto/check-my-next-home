@@ -476,23 +476,22 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
     expect(perHead("exeter1")?.per1000).toBe(122.5);
     expect(perHead("minerva1")?.per1000).toBe(49.0);
     // The England embedding landed through the real national
-    // loader: on this excerpted corpus the denominator is
-    // the three golden LSOAs' 5,899 residents, so the served
-    // England figure is the fixture total's arithmetic on
-    // the excerpt — asserted as an identity, not a value.
-    // (The real figure, on the full bases, is the golden
-    // matrix's M6.20 lock from the live backfill.)
-    const fixtureTotal = 5503997;
-    const expectedEngland = Math.round(((fixtureTotal / 5899) * 1000 + Number.EPSILON) * 10) / 10;
+    // loader, but on this excerpted corpus the embedded base
+    // is the three golden LSOAs' 5,899 residents — far below
+    // the credibility floor (ENGLAND_BASE_MIN_RESIDENTS, the
+    // parity fix batch's item 9 guard, 18 Nov 2026). The
+    // pre-guard pin asserted the arithmetic on that thin base
+    // (5,503,997 / 5,899 → 933,039 per 1,000): it had captured
+    // the thin-base bug's own output, and the guard supersedes
+    // it — on the excerpt the England figure is withheld and
+    // the local rate serves alone. (The real figure, on the
+    // full bases, is the golden matrix's M6.20 lock from the
+    // live backfill.)
     for (const tag of ["birkdale1", "exeter1", "minerva1"]) {
       const c = get(tag).crime;
       if (c.kind !== "crime" || c.crime.state !== "served")
         throw new Error(`${tag}: expected served crime`);
-      expect(c.crime.englandFigure?.englandPer1000).toBe(expectedEngland);
-      // On the excerpt the multiples round to 0.0 and are
-      // withheld — the line carries the figures only.
-      expect(c.crime.englandFigure?.multiple).toBeNull();
-      expect(c.crime.englandFigure?.line).not.toContain("times");
+      expect(c.crime.englandFigure).toBeNull();
     }
     // Cardiff's capture carries no basis: no calibration,
     // even with the embedding filed.

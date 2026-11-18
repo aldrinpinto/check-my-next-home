@@ -271,6 +271,11 @@ test.describe("phone-first — 360×740 (T-WEB-01)", () => {
       await searchFromHome(page, "CM3 2JT");
       await page.waitForURL("**/search/home?postcode=CM3+2JT");
       const rows = page.locator(".picker__row");
+      // The list renders inside the results, behind the
+      // checking screen's advance — wait for the first row
+      // before counting (an immediate count races the
+      // advance and reads zero).
+      await expect(rows.first()).toBeVisible({ timeout: 30_000 });
       expect(await rows.count(), "the list carries the postcode's homes").toBeGreaterThan(1);
       for (const row of await rows.all()) {
         await expectTapTarget(row, "a home-list row");

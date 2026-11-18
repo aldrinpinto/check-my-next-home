@@ -81,7 +81,7 @@ const GOLDEN_HOMES: GoldenHome[] = [
     rowName: "19 Birkdale Rise",
     council: "Braintree",
     brownfieldLine: "2 recorded brownfield sites within 2 miles of the postcode point",
-    builtUpLine: "the postcode point falls inside the Hatfield Peverel built-up area",
+    builtUpLine: "Inside the Hatfield Peverel built-up area",
   },
   {
     label: "Exeter E16 1GN",
@@ -89,7 +89,7 @@ const GOLDEN_HOMES: GoldenHome[] = [
     rowName: "6 Exeter Road",
     council: "Newham",
     brownfieldLine: "97 recorded brownfield sites within 2 miles of the postcode point",
-    builtUpLine: "the postcode point falls inside the Newham built-up area",
+    builtUpLine: "Inside the Newham built-up area",
   },
   {
     label: "Minerva KT17 1FH",
@@ -97,7 +97,7 @@ const GOLDEN_HOMES: GoldenHome[] = [
     rowName: /Flat 4, Minerva House/,
     council: "Epsom and Ewell",
     brownfieldLine: "30 recorded brownfield sites within 2 miles of the postcode point",
-    builtUpLine: "the postcode point falls inside the Ewell built-up area",
+    builtUpLine: "Inside the Ewell built-up area",
   },
 ];
 
