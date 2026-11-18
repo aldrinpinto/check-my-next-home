@@ -145,9 +145,20 @@ test.describe("M7.9 headlines — regression", () => {
         // two D33 figures in one line, each half restated
         // in its own section below — present, shaped as
         // composed, and the section's only monthly total.
+        // The enumeration covers both line forms the
+        // section renders: plain lines (.results-line) and
+        // the Master's tagged rows, whose text rides in
+        // .results-row__text — the lead itself has been a
+        // tagged row (the £ / MONTH badge row, exactly as
+        // the sample carries it) since the parity fix
+        // batch conformed the Costs rows to the sample's
+        // .row form; before the batch it was a plain line
+        // and this filter saw it (CI #221 diagnosis).
         const costs = page.locator('[data-section="costs"]');
         await expect(costs).toContainText(COMPOSED_LEAD);
-        const costLines = await costs.locator(".results-line").allTextContents();
+        const costLines = await costs
+          .locator(".results-line, .results-row__text")
+          .allTextContents();
         const totals = costLines.filter((line) => /^About £[\d,.]+ a month:/.test(line.trim()));
         expect(totals).toHaveLength(1);
         expect(totals[0]).toMatch(COMPOSED_LEAD);

@@ -3120,3 +3120,78 @@ shortlist instances (item 6) — each carries its own
 full-notice state, tapping either at full shows the
 message in that place and saves nothing, and the saved
 state stays in sync through the change subscription.
+
+### Follow-up (18 Nov 2026) — CI #221: two diagnoses, both spec-side
+
+CI #221 on the fix round's HEAD passed checks, secrets
+and database in full (the golden-replay correction
+held); the browser job passed 112 of 116. The four
+failures sat in two clusters, each diagnosed to its
+mechanism before any expectation moved. No product
+code and no seed code changed in this round either.
+
+**Cluster A — the headlines costs lead (3 specs).** The
+specs filter the Costs section's line texts for the
+composed monthly lead and found none. The lead was
+never removed: the batch's Costs recomposition (items
+21–22) changed its BLOCK TYPE from a plain `line` to a
+`tagged-line` — the Master's own form, whose Costs
+section carries the lead as a `.row` with the
+£ / MONTH badge, verified in the sample file — and the
+renderer maps `line` to `.results-line` but
+`tagged-line` to `.results-row` (text in
+`.results-row__text`). The spec enumerated only
+`.results-line`, so the lead was invisible to the
+filter while the section-level text assertion on the
+same lead passed. Pre-batch (2a7e1c6) the lead was a
+plain line and the filter saw it; in CI #220 the
+assertion sat masked behind the built-up-area failure.
+The lead's substance is unchanged and required: M7.9's
+record settles the composed lead as the permitted D33
+form (the two derived monthly figures in one line,
+each half restated in its own section, "Mortgage not
+included"); D33's never-sum rule binds the brains'
+served shapes (no total-like field) and bars a
+standalone cost-of-ownership headline — neither is
+breached, and item 22's dedupe stands (the council-tax
+fact is stated once, in its tagged row). Fix: the
+spec's enumeration now covers both rendered line forms
+(`.results-line, .results-row__text`); the
+exactly-one-monthly-total assertion and the
+COMPOSED_LEAD match are unchanged.
+
+**Cluster B — the Birkdale pill count (1 spec), and a
+correction to the CI #220 follow-up above.** That
+follow-up's sentence "the Birkdale strip pins the
+guarded four pills" records an inference, not an
+observation: CI #220's smoke spec failed at nth(2)
+(expected "Crime", received "Noise") before any count
+was asserted, so the count was never observed in #220.
+The inference was drawn from the unit pill fixtures —
+whose `shortSections()` stub carries the EPC section
+at headlineBand C, a "neither" fact under D75, so no
+EPC pill can serve in those pins. The seeded corpus's
+Birkdale home carries a band-B certificate: EPC is a
+good fact, fourth in the good fill (Flood · Noise ·
+Deprivation · EPC) behind the one concerning fact
+(Schools), and the strip is FIVE pills —
+Schools · Flood · Noise · Deprivation · EPC — in both
+runs, deterministically. The pill logic reads the same
+`englandFigure` the crime section reads, so the
+strip and the section cannot disagree: the section
+served the guarded form in #221 (the calibration spec
+passed) because the seeded base can never pass the
+guard — `nationalForWindow` needs every window month
+filed in crime_national_months AND at least 30,000
+E01 areas in lsoa_bases (the fixture holds the golden
+rows only), so every seeded artefact's `national`
+stays null. No run-to-run variance mechanism exists:
+every Birkdale pill input is filed by the seed before
+the server starts, and no cold load touches them.
+Fix: the smoke spec pins the true five-pill strip
+(count 5; nth(4) is EPC with figure "B"), with the
+derivation in its comment; and a new unit pin beside
+the item 8/9 pins runs the no-England-figure case with
+headlineBand B, pinning the five-pill strip at unit
+level so the seeded case stays executable where the
+mis-inference came from.

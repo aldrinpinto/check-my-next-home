@@ -850,6 +850,48 @@ describe("results — pill logic D75 (fold-in)", () => {
     expect(pills?.some((pill) => pill.label === "Crime")).toBe(false);
   });
 
+  it("CI #221 diagnosis: with no England figure but a band-B certificate (the seeded corpus's Birkdale), the strip fills to five and ends with the EPC pill", () => {
+    // The pin above runs on shortSections()'s headlineBand
+    // C — a "neither" fact, so no EPC pill can serve and
+    // the strip stops at four. The SEEDED corpus's
+    // Birkdale home carries a band-B certificate: EPC is
+    // a good fact there, fourth in the good fill after
+    // Flood, Noise and Deprivation, and the strip is
+    // five. (The #220 fix round inferred four pills for
+    // the browser strip from this fixture's C; CI #221's
+    // count assertion corrected it — this pin keeps the
+    // seeded case executable at unit level.)
+    const pills = summaryPills({
+      nearby: nearbyWith({
+        "schools-primary": primaryNear,
+        "schools-secondary": category({
+          category: "schools-secondary",
+          state: "within",
+          places: [{ name: "Maltings Academy", miles: 1.87, detail: null, sixthForm: true }],
+          countWithin: 1,
+        }),
+      }) as Extract<NearbyBundle, { kind: "distances" }>,
+      flood: floodBundle(noWarnings),
+      crime: crimeBundle(null, null, 122.5),
+      sections: shortSections({
+        epc: {
+          state: "served",
+          headlineBand: "B",
+          headlineAssessmentLabel: "the newest certificate for this home is assessed band B",
+          line: "energy certificates for CM3 2JT",
+        },
+      }),
+      area: d75Area(),
+    });
+    expect(pills?.map(pillText)).toEqual([
+      "Schools · 0.4 / 1.9 mi",
+      "Flood · Very low",
+      "Noise · Quiet",
+      "Deprivation · 8 of 10",
+      "EPC · B",
+    ]);
+  });
+
   it("item 8 (parity fix batch): the corrupted England figure reproduces the live Exeter departure — the diagnosis pin", () => {
     // The play server's thin LSOA base divided the national
     // total by 5,899 residents, serving an "England figure"

@@ -73,10 +73,23 @@ test.describe("results page — smoke", () => {
       // base is thin, so the item-9 guard (parity fix
       // batch) withholds the England figure, and with no
       // England figure no Crime pill serves at all (item
-      // 8's unit pins). The strip here is therefore four
-      // pills: Schools · Flood · Noise · Deprivation.
+      // 8's unit pins). The good facts then fill in D75
+      // priority order — Flood, Noise, Deprivation, and
+      // EPC: this home's matched certificate is band B,
+      // which is a good fact (the unit suite's pill
+      // fixtures carry headlineBand C, a "neither", which
+      // is why the unit pins never show the EPC pill; the
+      // seeded corpus's band is B). The strip here is
+      // therefore five pills: Schools · Flood · Noise ·
+      // Deprivation · EPC. (CI #220 never observed the
+      // count — it failed at nth(2) on the absent Crime
+      // pill; the four-pill form pinned in the #220 fix
+      // round was an inference from those unit fixtures,
+      // corrected at CI #221 — the strip was five in both
+      // runs, deterministically: every input is filed by
+      // the seed before the server starts.)
       const pills = page.locator(".results-strip .pill--summary");
-      await expect(pills).toHaveCount(4);
+      await expect(pills).toHaveCount(5);
       await expect(pills.nth(0)).toContainText("Schools");
       await expect(pills.nth(0).locator(".pill__figure")).toHaveText("0.3 / 1.9 mi");
       await expect(pills.nth(1)).toContainText("Flood");
@@ -84,6 +97,8 @@ test.describe("results page — smoke", () => {
       await expect(pills.nth(2)).toContainText("Noise");
       await expect(pills.nth(3)).toContainText("Deprivation");
       await expect(pills.nth(3)).toContainText("8 of 10");
+      await expect(pills.nth(4)).toContainText("EPC");
+      await expect(pills.nth(4).locator(".pill__figure")).toHaveText("B");
       await expect(page.locator(".results-strip .place-row__miles")).toHaveCount(0);
 
       // The D9 short form, verbatim, beside the results.
