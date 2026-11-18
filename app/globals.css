@@ -4166,3 +4166,238 @@ a.picker__row {
     font-size: 3.2rem;
   }
 }
+
+/* --- District page (founder ruling, 18 Nov 2026) --------------------
+   The wider-area page in the results page's own layout
+   system: the heading block's scope line and fact chips,
+   the district-only section forms (table, decile spread,
+   stacked share bar, calibration bars) and the bridge —
+   the page's only forward path, into a full-postcode
+   check. Built from the kit's tokens only. */
+
+.results-scope-line {
+  font-size: var(--font-size-lead);
+  margin-bottom: var(--space-3);
+}
+
+.district-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.district-chips .chip {
+  border: 1px solid var(--cmnh-brass-pale);
+  border-radius: 999px;
+  background: var(--colour-surface);
+  padding: 4px 12px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+/* The label/value table: label and its small detail at the
+   left, the value heavy at the right, a dashed rule
+   beneath — the place-row's rhythm at table grain. Rows
+   wrap on a 360px screen rather than overflowing. */
+.results-table {
+  margin: 0 0 var(--space-3);
+}
+
+.results-table__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 14px;
+  padding: 8px 0;
+  border-bottom: 1px dashed #e5e0d0;
+}
+
+.results-table__label {
+  min-width: 0;
+  font-weight: 600;
+}
+
+.results-table__detail {
+  display: block;
+  font-weight: 400;
+  font-size: 0.82rem;
+  color: var(--colour-muted);
+}
+
+.results-table__value {
+  font-weight: 800;
+  white-space: nowrap;
+  color: var(--cmnh-forest-deep);
+}
+
+/* The deprivation decile spread: ten cells, the count
+   above the decile number; empty deciles sit muted. */
+.deciles {
+  display: flex;
+  gap: 4px;
+  margin: 0 0 var(--space-3);
+}
+
+.decile {
+  flex: 1 1 0;
+  min-width: 0;
+  text-align: center;
+  border: 1px solid var(--colour-tile-line);
+  border-radius: var(--radius-tile);
+  background: var(--colour-card);
+  padding: 6px 2px;
+}
+
+.decile__count {
+  display: block;
+  font-family: var(--font-family-display);
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--cmnh-forest-deep);
+}
+
+.decile__num {
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  color: var(--colour-muted);
+}
+
+.decile[data-empty] {
+  opacity: 0.55;
+}
+
+/* The flood roll-up's stacked share bar: one segment per
+   band, widths are the served shares. Colour names the
+   band only — High deepest, the unbanded share palest. */
+.stackbar {
+  display: flex;
+  width: 100%;
+  height: 18px;
+  border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid var(--colour-tile-line);
+  margin: 0 0 var(--space-2);
+}
+
+.stackbar__seg {
+  display: block;
+  height: 100%;
+}
+
+.stackbar__seg--high {
+  background: #8c3b2e;
+}
+
+.stackbar__seg--medium {
+  background: #c96f2e;
+}
+
+.stackbar__seg--low {
+  background: var(--cmnh-brass);
+}
+
+.stackbar__seg--very-low {
+  background: #7fae7a;
+}
+
+.stackbar__seg--none {
+  background: #e9e4d2;
+}
+
+/* The crime calibration bars: label, track, figure. */
+.district-bars {
+  margin: 0 0 var(--space-3);
+}
+
+.district-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+}
+
+.district-bar__label {
+  flex: 0 0 4.5rem;
+  font-weight: 700;
+}
+
+.district-bar__track {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 12px;
+  border-radius: 999px;
+  background: #e9e4d2;
+  overflow: hidden;
+}
+
+.district-bar__fill {
+  display: block;
+  height: 100%;
+  background: var(--cmnh-forest);
+}
+
+.district-bar__text {
+  flex: 0 0 auto;
+  font-size: 0.85rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* The bridge: a deep-forest panel carrying the postcode
+   box (its label and hint take the on-dark colours) and
+   the district's postcodes as chips into their checks. */
+.district-bridge {
+  background: var(--cmnh-forest-deep);
+  color: var(--colour-on-dark);
+  border-radius: var(--radius-card);
+  padding: var(--space-5);
+  margin-top: var(--space-6);
+}
+
+.district-bridge__heading {
+  font-family: var(--font-family-display);
+  color: var(--colour-on-dark);
+  margin-bottom: var(--space-2);
+}
+
+.district-bridge__line {
+  margin-bottom: var(--space-4);
+}
+
+.district-bridge .field__label {
+  color: var(--colour-on-dark);
+}
+
+.district-bridge .field__hint {
+  color: var(--colour-accent-on-dark);
+}
+
+.district-bridge__links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.district-bridge__chip {
+  border: 1px solid var(--cmnh-brass-pale);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-weight: 700;
+  font-size: 0.88rem;
+  color: var(--colour-on-dark);
+  text-decoration: none;
+}
+
+.district-bridge__chip:hover {
+  background: var(--cmnh-forest);
+}
+
+.district-bridge__more {
+  font-size: 0.88rem;
+  color: var(--colour-accent-on-dark);
+}

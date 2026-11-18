@@ -15,6 +15,7 @@ import {
 } from "../lib/site";
 import Calculators from "./Calculators";
 import { Notice, SummaryPill } from "./kit";
+import PostcodeBox from "./PostcodeBox";
 import ShortlistButton from "./ShortlistButton";
 import Tabs from "./Tabs";
 
@@ -232,6 +233,74 @@ function Block({ block, reportHref }: { block: SectionBlock; reportHref: string 
           </p>
         </div>
       );
+    // District-page forms (18 Nov 2026): only district
+    // views carry these blocks.
+    case "table":
+      return (
+        <div className="results-table">
+          {block.rows.map((row) => (
+            <div className="results-table__row" key={row.label}>
+              <span className="results-table__label">
+                {row.label}
+                {row.detail && <span className="results-table__detail">{row.detail}</span>}
+              </span>
+              <span className="results-table__value">{row.value}</span>
+            </div>
+          ))}
+        </div>
+      );
+    case "deciles":
+      return (
+        <div
+          className="deciles"
+          role="img"
+          aria-label="Small areas counted in each deprivation decile, 1 to 10"
+        >
+          {block.counts.map((count, index) => (
+            <div className="decile" key={index} data-empty={count === 0 || undefined}>
+              <span className="decile__count">{count > 0 ? count : "·"}</span>
+              <span className="decile__num">{index + 1}</span>
+            </div>
+          ))}
+        </div>
+      );
+    case "stackbar":
+      return (
+        <div
+          className="stackbar"
+          role="img"
+          aria-label={block.segments
+            .map((segment) => `${segment.label} ${segment.pct}%`)
+            .join(", ")}
+        >
+          {block.segments
+            .filter((segment) => segment.pct > 0)
+            .map((segment) => (
+              <span
+                className={`stackbar__seg stackbar__seg--${segment.tone}`}
+                key={segment.label}
+                style={{ width: `${segment.pct}%` }}
+              />
+            ))}
+        </div>
+      );
+    case "bars":
+      return (
+        <div className="district-bars">
+          {block.rows.map((row) => (
+            <div className="district-bar" key={row.label}>
+              <span className="district-bar__label">{row.label}</span>
+              <span className="district-bar__track">
+                <span
+                  className="district-bar__fill"
+                  style={{ width: `${Math.max(0, Math.min(100, row.pctOfMax))}%` }}
+                />
+              </span>
+              <span className="district-bar__text">{row.text}</span>
+            </div>
+          ))}
+        </div>
+      );
   }
 }
 
@@ -334,6 +403,25 @@ export default function ResultsPage({
           ),
         }))}
       />
+      {view.bridge && (
+        <div className="district-bridge">
+          <h2 className="district-bridge__heading">{view.bridge.heading}</h2>
+          <p className="district-bridge__line">{view.bridge.line}</p>
+          <PostcodeBox />
+          <div className="district-bridge__links">
+            {view.bridge.postcodes.map((link) => (
+              <a className="district-bridge__chip" key={link.postcode} href={link.href}>
+                {link.postcode}
+              </a>
+            ))}
+            {view.bridge.moreCount > 0 && (
+              <span className="district-bridge__more">
+                and {view.bridge.moreCount} more postcodes in {view.bridge.outward} — type one above
+              </span>
+            )}
+          </div>
+        </div>
+      )}
       {view.buyBar && (
         <div className="buy-bar">
           <h2 className="buy-bar__heading">{view.buyBar.heading}</h2>

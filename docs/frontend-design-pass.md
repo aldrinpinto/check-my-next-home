@@ -3375,3 +3375,174 @@ reads "Willow Close close-up". The /sample-report
 H1 expectation in e2e/seo.e2e.ts reads "12 Willow
 Close". lib/seo.ts carries no example-home copy and
 needed no change.
+
+## Wider-area / district page build (18 Nov 2026) — the rung-3 page becomes the district page
+
+Founder rulings of 18 Nov 2026: the wider-area page's contents were agreed
+section by section, and — after the samples were first drawn as a page of
+their own — the layout was ruled to follow the FINALISED RESULTS PAGE's
+layout system: the same shell, heading block, section presentation and
+four-tab structure (D76), with the district sections distributed across the
+tabs in the groupings the results page uses for the corresponding checks.
+NO UPSELL anywhere on the wider-area page: no buy bar, no report link, no
+truncation lines, no summary pills (the standing rule — buy bar at rungs
+1–2 only — applied whole). The only forward path is the bridge into a
+full-postcode check. Scotland / NI rung-3 behaviour is unchanged: their
+districts keep the M7.4 form (unlock banner over the named-state results
+page) whole, and `buildWiderAreaView` still serves them.
+
+### What was built
+
+- `lib/district.ts` (new) — the district brain. District membership is
+  derived from filed postcode rows only (a postcode's district is its
+  outward code); no boundary is invented. `buildDistrictBundle(outward,
+source, { warningSource })` returns `{ kind: "district", outward, head,
+sections }` for England & Wales districts and `{ kind: "not-covered",
+outward, nation }` for all-Scottish / all-NI districts.
+  `createDistrictSource(db)` is the only database implementation;
+  `createDistrictWarningSource()` reads the same EA flood-monitoring feed
+  as `lib/flood.ts`. `lib/area-bundle.ts` gained two one-word changes:
+  `censusRows` and `medianAgeOf` are exported so the district brain reuses
+  the census arithmetic instead of forking it. No existing bundle shape
+  changed; `tests/fixtures/replay/bundle-shapes.json` is untouched.
+- `lib/results.ts` — `buildDistrictResultsView(bundle)` composes the
+  district bundle into a `ResultsView` in the results layout system:
+  Family Checks → Schools; The Neighbourhood → The district itself, The
+  neighbourhood in numbers, Crime, Deprivation, Air quality; Home, Costs &
+  Risks → Sold prices, Costs (council tax + broadband & mobile under the
+  district's own `district-costs` key, so the expander never links the
+  home page's EPC / EV check pages for content the district page does not
+  carry), Flood; What's Nearby → Everyday counts. Four new section block
+  forms (table, deciles, stackbar, bars) exist for district views only.
+  The view carries `pills: null`, `buyBar: null`, `reportHref: null`,
+  `calculators: null` and the new optional `bridge` — rendered by
+  `components/ResultsPage.tsx` after the tabs, in the buy bar's position:
+  the deep-forest panel with the postcode box and up to eight of the
+  district's postcodes as links into their checks, plus a count of the
+  rest. Per the results page's own discipline (item 15), per-section
+  source lines ride in the view model unrendered; every figure's grain
+  rides in its own line instead.
+- `lib/server/serve.ts` — `checkDistrictWider(resolution)` returns the
+  unchanged short bundle (it still feeds the rung-3 shortlist card) plus
+  the district bundle, the warnings source wired in.
+- `app/search/page.tsx` — the rung-3 branch renders the district page for
+  England & Wales districts: the results page's `.results-head` heading
+  block (scope-label H1, the district scope line, filed fact chips —
+  region, post town, councils, grain — and the ShortlistButton), the
+  not-found line where one applies, then `ResultsPage`. The unlock banner
+  no longer renders on this path; the Scotland / NI path below it is
+  byte-for-byte the old page.
+- `app/globals.css` — the `.district-*` forms, the results table, deciles,
+  stackbar and bars, in the kit's tokens.
+
+### Per-section data source and derivation
+
+1. **The district itself** — settlements from the district's filed sales
+   localities (fallback: post towns), display-cased; homes = the picking
+   index's row count for the district; residents / households = the filed
+   LSOA bases (`lsoa_bases`) summed over the district's LSOAs; live
+   postcodes and small areas counted from the district's `postcode_cache`
+   rows.
+2. **The neighbourhood in numbers (Census)** — `census_stats` fragments
+   summed as integer counts across the district's MSOAs (the district's
+   MSOAs are the distinct `msoa_code`s of its E+W postcode rows), then the
+   rung-1 labelled-lines arithmetic (the area brain's own `censusRows` /
+   `medianAgeOf`) at district grain. Audit item 37 closed on this page:
+   the section speaks in its own words — no "need an exact postcode"
+   wording anywhere on the district page (pinned in tests and e2e).
+3. **Crime** — PREMISE CHECK FAILED, recorded plainly: the brief assumed
+   crime is filed per LSOA. It is not. Crime is filed only as per-postcode
+   artefacts (counts within 1 mile of a postcode's point, for postcodes
+   somebody checked) plus England monthly totals; `lib/crime.ts`'s own
+   header states rung 3 serves no figure for exactly this reason. Summing
+   overlapping 1-mile circles across a district would double-count over a
+   self-selected sample, so the section serves its own honest line
+   (wording in `lib/district.ts`, `CRIME_NOT_FILED_LINE`). The port and
+   the served form stand ready — district total, per-1,000, category
+   breakdown, and the D77(a) England pair under the SAME guard as the home
+   page (`ENGLAND_BASE_MIN_RESIDENTS = 30,000,000`, imported from
+   `lib/crime.ts`) — for the day an LSOA-grain filing exists; the unit
+   tests pin the served form and the guard through the port.
+4. **Sold prices** — `price_paid`, category A only (D23), district-wide:
+   the median stated only at five or more sales, the count and date span
+   named; per-type medians only at five or more sales of that type, the
+   rest folded into one counted line. Never a valuation.
+5. **Deprivation** — `neighbourhood_stats.imd_decile` counted per decile
+   over the district's English LSOAs: a spread, never a score. Welsh
+   districts serve the not-covered line (Wales publishes its own index).
+6. **Council tax** — every distinct council on the district's postcode
+   rows, joined to `council_tax_charges` on the authority name (the area
+   brain's own join), latest tax year, Band D area average with the
+   parish-averaged flag carried; councils with no filed charges are named
+   as not filed, never silently dropped.
+7. **Broadband & mobile** — the filed per-postcode Ofcom answers in
+   `postcode_cache.answers`: each figure is the MEAN of the filed
+   per-postcode shares across the district's postcodes, worded as exactly
+   that (the filed share is a share of premises, so a district share of
+   premises cannot be derived without premise counts); mobile serves the
+   4G outdoor at-least-one-operator share per local authority area.
+8. **Schools** — `schools` rows whose postcode sits in the district:
+   counts by phase, grammar = selective admissions among secondaries,
+   Ofsted grades from `ofsted_outcomes` in their published order, schools
+   without an outcome counted as not yet inspected.
+9. **Everyday counts** — `health_points` by filed postcode (GP practices
+   and branch surgeries together, dentists, pharmacies); stations file no
+   postcode, so a station counts where its NEAREST filed postcode sits in
+   the district (KNN over the filed points) — the derivation is stated in
+   the section's own closing line.
+10. **Flood roll-up** — new aggregation over the EXISTING EA layers, no
+    new data source. Each English postcode's point is read against the
+    filed layer geometries (`flood_layers`): rivers & sea from the
+    risk-of-flooding-from-rivers-and-sea bands, surface water from its own
+    layer — two blocks, never merged — each serving the share of counted
+    postcodes in each band plus the "no band published" share; the
+    planning flood zones (FZ3 / FZ2 shares) ride inside the rivers & sea
+    block, drawn as if defences were not there. Named corridors are the
+    watercourse names of filed flood defences within 2 miles of the
+    district's postcode points (the layers' own `detail` field carries
+    source/origin, never area names). Live warnings are composed over the
+    district's own spread — one EA feed call on the centroid of its
+    English postcode points, radius the farthest point plus headroom —
+    filtered with the flood brain's discipline (severity levels 1–3 only,
+    deduped by description, point-less warnings kept). The section closes
+    with the honesty line: district shares describe the district; the
+    exact home's own check decides for a home. Welsh districts serve the
+    not-covered line (EA maps cover England; NRW publishes Wales's).
+11. **Air quality** — `air_grid`: each postcode's nearest modelled square
+    within 1 km (the area brain's own read), the range (min–max) over the
+    distinct squares of the latest year present, labelled modelled.
+12. **The bridge** — "Checking one home in CM3?" with the full postcode
+    box and the district's postcodes as links into `/search/home`.
+
+### Pins changed, each under the founder ruling of 18 Nov 2026
+
+- `e2e/journey.e2e.ts` T-WEB-07 — was "lands on the wider-area page with
+  the unlock banner" (asserted the banner's heading); now asserts the
+  district page: scope-label H1 unchanged, four tabs, no unlock banner,
+  the bridge heading "Checking one home in E16?". Reason: the ruling
+  replaced the banner with the bridge as the only forward path.
+- `e2e/journey.e2e.ts` mistypes spec — the labelled-box assertions moved
+  from `.unlock-banner .field__label` / `.field__hint` to
+  `.district-bridge .field__label` / `.field__hint`; the label and hint
+  copy itself is unchanged. Reason: the box now lives in the bridge.
+- `e2e/results.e2e.ts` rung-3 spec — rewritten: was scope label + the
+  rung-3 refusal lines ("crime counts need an exact postcode") + no
+  this-home figures; now scope label + district sections in the four tabs
+  - the crime section's district honest line + the flood honesty line (or
+    its not-filed line where the seeded layers do not file) + no £4.99, no
+    /report link, no strip, no buy bar, no banner, and an explicit absence
+    assertion for the refusal wording. The £270,000 / £310,000 absence
+    assertions stand (they are the seeded home's own figures; the district's
+    figures are its own). Reason: the ruling superseded the refusal-line
+    treatment for England & Wales districts.
+- `e2e/phone.e2e.ts` rung-3 spec — the shortlist toggle selector moved
+  from `.results-header` to `.results-head` (the district page uses the
+  results page's heading block); the 16px input assertion moved from
+  `.unlock-banner #postcode` to `.district-bridge #postcode`;
+  `expectNoTable` dropped — the district page legitimately carries tables
+  (sold types, crime categories, council tax), which must instead fit the
+  screen, covered by the kept no-sideways-scroll assertion. Reason: the
+  layout ruling.
+- No unit pins were changed: `buildWiderAreaView` and the rung-3 short
+  bundle are untouched (Scotland / NI and the shortlist card still ride
+  them), and no golden replay shape changed.

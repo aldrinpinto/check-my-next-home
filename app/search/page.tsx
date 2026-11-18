@@ -14,8 +14,8 @@ import {
   postcodeNotFoundLine,
   widerAreaRoute,
 } from "../../lib/journey";
-import { buildWiderAreaView } from "../../lib/results";
-import { checkResultsWider, resolutionForPostcodeRoute } from "../../lib/server/serve";
+import { buildDistrictResultsView, buildWiderAreaView } from "../../lib/results";
+import { checkDistrictWider, resolutionForPostcodeRoute } from "../../lib/server/serve";
 import { buildShortlistCard } from "../../lib/shortlist-card";
 import { getDbPool } from "../../lib/server/db";
 
@@ -71,10 +71,10 @@ export default async function SearchPage({
     // The wider-area landing (rung 3): the scope label is
     // the resolution's own; a typed full postcode the
     // directory does not hold adds its not-found line.
-    // M7.4: below the unlock banner the same results page
-    // renders in its rung-3 form — every section its named
-    // state, no this-home figures, no this-home report
-    // offered (ruling 3).
+    // England & Wales districts render the district page
+    // (18 Nov 2026 ruling); Scotland / NI keep the M7.4
+    // rung-3 form — unlock banner over the named-state
+    // results page, no this-home figures, no report.
     let resolution;
     try {
       resolution = await resolveAddressInput(params.outward, createAddressSource(getDbPool()));
@@ -93,21 +93,70 @@ export default async function SearchPage({
         redirect(homeRoute(resolution.directory.postcode, homeKeyOf(resolution)));
       redirect(homeRoute(resolution.directory.postcode));
     }
-    let view;
-    let card;
+    let served;
     try {
-      const { short } = await checkResultsWider(resolution);
-      view = buildWiderAreaView(short);
-      // M7.5: a wider-area result is shortlistable (D44) —
-      // its card carries the wider-area headline facts
-      // under the scope label and counts toward the 3. The
-      // record is assembled from this same derivation and
-      // embedded in the control beside the scope label
-      // (fold-in 8).
-      card = buildShortlistCard({ resolution, short });
+      served = await checkDistrictWider(resolution);
     } catch {
       return <WholeCheckFailure retryHref={widerAreaRoute(resolution.outward, params.notfound)} />;
     }
+    const { short, district } = served;
+    // M7.5: a wider-area result is shortlistable (D44) —
+    // its card carries the wider-area headline facts
+    // under the scope label and counts toward the 3. The
+    // record is assembled from this same derivation and
+    // embedded in the control beside the scope label
+    // (fold-in 8).
+    const card = buildShortlistCard({ resolution, short });
+    if (district.kind === "district") {
+      // The district page (founder ruling, 18 Nov 2026):
+      // the results page's own layout system — same shell,
+      // heading block and four D76 tabs — carrying the
+      // district's twelve sections at district grain. No
+      // unlock banner and no upsell anywhere: the only
+      // forward path is the bridge into a full-postcode
+      // check, rendered by the view after the tabs.
+      const view = buildDistrictResultsView(district);
+      const head = district.head;
+      const councilsChip =
+        head.councils.length === 0
+          ? null
+          : head.councils.length === 1
+            ? head.councils[0]
+            : `Straddles ${head.councils.join(" & ")} councils`;
+      return (
+        <main className="journey-page main--wide">
+          <header className="results-head">
+            <div className="head-text">
+              <h1 className="page-title">{resolution.label}</h1>
+              <p className="results-scope-line">
+                Facts about the {resolution.outward} district as a whole — not about one home. For
+                one home, check its full postcode.
+              </p>
+              <div className="district-chips">
+                {head.region && <span className="chip">{head.region}</span>}
+                {head.postTown && <span className="chip">Part of {head.postTown} post town</span>}
+                {councilsChip && <span className="chip">{councilsChip}</span>}
+                <span className="chip">Grain: whole district</span>
+              </div>
+            </div>
+            {card && (
+              <div className="results-actions">
+                <ShortlistButton card={card} />
+              </div>
+            )}
+          </header>
+          {params.notfound && (
+            <p className="journey-notice">{postcodeNotFoundLine(params.notfound)}</p>
+          )}
+          <ResultsPage view={view} />
+        </main>
+      );
+    }
+    // Scotland / Northern Ireland keep the rung-3 form
+    // whole (Phase 3 owns their district treatment): the
+    // unlock banner above the results page in its rung-3
+    // named-state form.
+    const view = buildWiderAreaView(short);
     return (
       <main className="journey-page main--wide">
         <header className="results-header results-header--row">

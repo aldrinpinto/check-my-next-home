@@ -164,13 +164,22 @@ test.describe("checker journey — regression", () => {
   );
 
   test(
-    "an outward code lands on the wider-area page with the unlock banner (T-WEB-07)",
+    "an outward code lands on the district page: scope label, four tabs and the bridge (T-WEB-07)",
     { tag: "@regression" },
     async ({ page }) => {
       await searchFromHome(page, "E16");
       await page.waitForURL("**/search?outward=E16");
       await expect(page.locator("h1")).toHaveText("Wider area — E16, not this exact home");
-      await expect(page.locator(".unlock-banner h2")).toHaveText("Know the full postcode?");
+      // The district page (founder ruling, 18 Nov 2026)
+      // supersedes the unlock banner: the results page's
+      // four tabs carry the district sections, and the
+      // bridge is the only forward path.
+      await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByRole("tab")).toHaveCount(4);
+      await expect(page.locator(".unlock-banner")).toHaveCount(0);
+      await expect(page.locator(".district-bridge__heading")).toHaveText(
+        "Checking one home in E16?",
+      );
     },
   );
 
@@ -258,10 +267,13 @@ test.describe("checker journey — regression", () => {
       // The labelled form of the box (M7.3's label and
       // hint, the hint's example the neutral SW1A 1AA —
       // the founder's own postcode never appears in
-      // visitor-facing copy) serves on the wider-area
-      // banner's retry box.
-      await expect(page.locator(".unlock-banner .field__label")).toHaveText("Postcode or address");
-      await expect(page.locator(".unlock-banner .field__hint")).toHaveText(
+      // visitor-facing copy) serves in the district
+      // page's bridge box (18 Nov 2026: the bridge
+      // replaced the unlock banner as the forward path).
+      await expect(page.locator(".district-bridge .field__label")).toHaveText(
+        "Postcode or address",
+      );
+      await expect(page.locator(".district-bridge .field__hint")).toHaveText(
         "For example, SW1A 1AA — or the full address, with its postcode.",
       );
 

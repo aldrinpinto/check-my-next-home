@@ -3,7 +3,10 @@ import type { AreaBundle } from "./area-bundle";
 import type { CrimeBundle } from "./crime";
 import { CHECK_PAGES } from "./check-pages";
 import { FLOOD_BAND_DEFINITIONS, type FloodBundle, type FloodLiveWarnings } from "./flood";
-import { nationName, nationOfLsoa, type Nation } from "./journey";
+import type { DistrictBundle, DistrictFloodBlock } from "./district";
+
+type DistrictServed = Extract<DistrictBundle, { kind: "district" }>;
+import { homeRoute, nationName, nationOfLsoa, type Nation } from "./journey";
 import type { CategoryAnswer, NearbyBundle, NearbyPlace } from "./nearby";
 import { REPORT_PRICE_LABEL } from "./site";
 import type { ShortBundle, ShortPolygonLayer, ShortSections } from "./short-bundle";
@@ -694,7 +697,23 @@ export type SectionBlock =
       overflowLine: string | null;
       attributionLine: string;
       link: { label: string; url: string };
-    };
+    }
+  // District-page forms (18 Nov 2026): a label/value table
+  // (sold types, crime categories, council tax), the
+  // deprivation decile spread, a stacked share bar (the
+  // flood roll-up) and paired comparison bars (crime
+  // calibration). Only district views carry these.
+  | { type: "table"; rows: { label: string; value: string; detail?: string | null }[] }
+  | { type: "deciles"; counts: number[] }
+  | {
+      type: "stackbar";
+      segments: {
+        label: string;
+        pct: number;
+        tone: "high" | "medium" | "low" | "very-low" | "none";
+      }[];
+    }
+  | { type: "bars"; rows: { label: string; text: string; pctOfMax: number }[] };
 
 export interface ResultsSectionView {
   key: string;
@@ -732,6 +751,14 @@ export const SECTION_CHECK_LINKS: Record<string, string[]> = {
   pets: ["/check/family-essentials"],
   crime: ["/check/crime"],
   "air-noise": ["/check/air-quality", "/check/noise"],
+  // District-page sections (18 Nov 2026): the district page's
+  // own section keys map to the same check pages. The
+  // district Costs section carries council tax, broadband
+  // and mobile only — never the home page's EPC / EV links.
+  schools: ["/check/schools"],
+  air: ["/check/air-quality"],
+  everyday: ["/check/family-essentials", "/check/public-transport"],
+  "district-costs": ["/check/council-tax-band", "/check/broadband", "/check/mobile-coverage"],
   "sold-prices": ["/check/sold-prices"],
   costs: [
     "/check/council-tax-band",
@@ -1403,6 +1430,18 @@ export interface ResultsView {
   // area).
   floodWarningsState: "warnings" | "none" | "unavailable" | null;
   tabs: ResultsTabView[];
+  // The district page's bridge (founder ruling, 18 Nov
+  // 2026): the ONLY forward path on the wider-area page —
+  // into a full-postcode check. No buy bar, no report link
+  // and no upsell anywhere at rung 3. Present only on the
+  // district view; every other view leaves it unset.
+  bridge?: {
+    heading: string;
+    line: string;
+    postcodes: { postcode: string; href: string }[];
+    moreCount: number;
+    outward: string;
+  } | null;
 }
 
 function linesSection(
@@ -2490,5 +2529,660 @@ export function buildWiderAreaView(
     warningsStrip: { kind: "none" },
     floodWarningsState: null,
     tabs,
+  };
+}
+
+// ------------------------------------------------------------------
+// The district view (founder ruling, 18 Nov 2026)
+//
+// The wider-area page renders through THIS layout system —
+// the same shell, heading block, section presentation and
+// four D76 tabs as the results page — with the district
+// sections distributed across the tabs in the groupings the
+// results page uses for the corresponding checks:
+//
+//   Family Checks:        Schools
+//   The Neighbourhood:    The district itself · The
+//                         neighbourhood in numbers · Crime ·
+//                         Deprivation · Air quality
+//   Home, Costs & Risks:  Sold prices · Costs (council tax,
+//                         broadband & mobile) · Flood
+//   What's Nearby:        Everyday counts
+//
+// NO UPSELL anywhere at rung 3: no buy bar, no report link,
+// no truncation lines, no summary pills. The only forward
+// path is the bridge into a full-postcode check, rendered
+// after the tabs. Every figure carries its district grain
+// in its own line; section source lines ride in the view
+// model as they do on the results page.
+// ------------------------------------------------------------------
+
+function districtCount(value: number): string {
+  return value.toLocaleString("en-GB");
+}
+
+function districtJoinNames(names: string[]): string {
+  if (names.length <= 1) return names.join("");
+  if (names.length === 2) return `${names[0]} and ${names[1]}`;
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
+function districtAgeText(value: number): string {
+  const whole = Math.floor(value);
+  return value - whole === 0.5 ? `${whole}½` : `${Math.round(value)}`;
+}
+
+function districtShortGroup(label: string): string {
+  return label
+    .replace(/^Asian, Asian British or Asian Welsh$/, "Asian")
+    .replace(/^Black, Black British, Black Welsh, Caribbean or African$/, "Black")
+    .replace(/^Mixed or Multiple ethnic groups$/, "Mixed or multiple groups");
+}
+
+function districtPence(pence: number): string {
+  return `£${(pence / 100).toLocaleString("en-GB", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
+function districtAirValue(value: number): string {
+  return `${Number(value.toFixed(2))}`;
+}
+
+function districtCensusSection(bundle: DistrictServed): ResultsSectionView {
+  const census = bundle.sections.census;
+  const outward = bundle.outward;
+  if (census.state !== "served") {
+    return linesSection("census", "The neighbourhood in numbers", [
+      {
+        type: "line",
+        text: census.line ?? "Census 2021 figures are not filed for this district's areas yet.",
+      },
+    ]);
+  }
+  const blocks: SectionBlock[] = [];
+  if (census.ageYears) {
+    let under18 = 0;
+    let workingAge = 0;
+    let over65 = 0;
+    let ageTotal = 0;
+    census.ageYears.forEach((count, age) => {
+      ageTotal += count;
+      if (age < 18) under18 += count;
+      else if (age < 65) workingAge += count;
+      else over65 += count;
+    });
+    if (ageTotal > 0) {
+      const share = (n: number) => Math.round((n / ageTotal) * 100);
+      blocks.push({
+        type: "line",
+        text:
+          `Age mix — Under 18: ${share(under18)}% · 18–64: ${share(workingAge)}% · ` +
+          `65 and over: ${share(over65)}%.` +
+          (census.medianAge != null
+            ? ` The typical (median) age is ${districtAgeText(census.medianAge.value)}.`
+            : ""),
+      });
+    }
+  }
+  if (
+    census.householdsTotal != null &&
+    census.residentsTotal != null &&
+    census.householdsTotal > 0
+  ) {
+    blocks.push({
+      type: "line",
+      text:
+        `Households — ${districtCount(census.householdsTotal)} households and ` +
+        `${districtCount(census.residentsTotal)} residents across the district's ` +
+        `Census areas — ${(census.residentsTotal / census.householdsTotal).toFixed(1)} ` +
+        `people per household on average.`,
+    });
+  }
+  const tableByCode = (code: string) => census.tables.find((table) => table.code === code);
+  const tenureTable = tableByCode("ts054");
+  const tenureRow = (label: string) =>
+    tenureTable?.rows.find((row) => row.label === label) ??
+    tenureTable?.groups?.find((row) => row.label === label);
+  const owned = tenureRow("Owned");
+  const outright = tenureRow("Owned: Owns outright");
+  const mortgage = tenureRow("Owned: Owns with a mortgage or loan");
+  const privateRented = tenureRow("Private rented");
+  const socialPct = census.socialRented?.pct ?? tenureRow("Social rented")?.pct;
+  if (owned && outright && mortgage && socialPct != null && privateRented) {
+    blocks.push({
+      type: "line",
+      text:
+        `Owning and renting — ${Math.round(owned.pct / 10)} in 10 households across ` +
+        `${outward} own their home: ${Math.round(outright.pct)}% outright and ` +
+        `${Math.round(mortgage.pct)}% with a mortgage. ${Math.round(socialPct)}% rent ` +
+        `from a social landlord, ${Math.round(privateRented.pct)}% rent privately.`,
+    });
+  }
+  const ethnicGroups = tableByCode("ts021")?.groups ?? [];
+  const white = ethnicGroups.find((group) => group.label === "White");
+  const otherGroups = ethnicGroups
+    .filter((group) => group.label !== "White")
+    .sort((a, b) => b.pct - a.pct);
+  if (white && otherGroups.length >= 2) {
+    blocks.push({
+      type: "line",
+      text:
+        `The people here — ${Math.round(white.pct)} in 100 residents are White; the ` +
+        `next largest groups are ${districtShortGroup(otherGroups[0].label)} ` +
+        `(${Math.round(otherGroups[0].pct)} in 100) and ` +
+        `${districtShortGroup(otherGroups[1].label)} (${Math.round(otherGroups[1].pct)} in 100).`,
+    });
+  }
+  const religionRows = (tableByCode("ts030")?.rows ?? []).slice(0, 4);
+  if (religionRows.length > 0) {
+    blocks.push({
+      type: "line",
+      text: `Religion — ${religionRows
+        .map((row) => `${row.label}: ${Math.round(row.pct)}%`)
+        .join(" · ")}.`,
+    });
+  }
+  const accommodationRows = tableByCode("ts044")?.rows ?? [];
+  const detached = accommodationRows.find((row) => row.label === "Detached");
+  const semi = accommodationRows.find((row) => row.label === "Semi-detached");
+  const flatPct = accommodationRows
+    .filter((row) => row.label.startsWith("A flat"))
+    .reduce((sum, row) => sum + row.pct, 0);
+  if (detached && semi) {
+    blocks.push({
+      type: "line",
+      text:
+        `The homes themselves — About ${Math.round((detached.pct + semi.pct) / 10)} in 10 ` +
+        `homes are detached or semi-detached houses` +
+        (flatPct >= 2 ? `; about 1 in ${Math.max(2, Math.round(100 / flatPct))} is a flat.` : "."),
+    });
+  }
+  blocks.push({
+    type: "line",
+    text:
+      `Census 2021 figures summed across the ${census.msoaCount} Census areas this ` +
+      `district's postcodes fall in. Facts as published, in the Census's own words — no scores.`,
+  });
+  return linesSection("census", "The neighbourhood in numbers", blocks, census.sourceLine);
+}
+
+function districtCrimeSection(bundle: DistrictServed): ResultsSectionView {
+  const crime = bundle.sections.crime;
+  const outward = bundle.outward;
+  if (crime.state !== "served" || crime.total == null || crime.per1000 == null) {
+    return linesSection("crime", "Crime", [
+      {
+        type: "line",
+        text: crime.line ?? "Crime is not filed for this district yet.",
+      },
+    ]);
+  }
+  const tiles: { label: string; value: string }[] = [
+    { label: "Recorded crimes — latest 12 months", value: districtCount(crime.total) },
+    { label: `Per 1,000 residents — ${outward}`, value: crime.per1000.toFixed(1) },
+  ];
+  if (crime.england) {
+    tiles.push({
+      label: "Per 1,000 residents — England",
+      value: crime.england.englandPer1000.toFixed(1),
+    });
+  }
+  const blocks: SectionBlock[] = [{ type: "tiles", tiles }];
+  if (crime.england) {
+    const max = Math.max(crime.per1000, crime.england.englandPer1000);
+    blocks.push({
+      type: "bars",
+      rows: [
+        {
+          label: outward,
+          text: `${crime.per1000.toFixed(1)} per 1,000 residents`,
+          pctOfMax: max > 0 ? (crime.per1000 / max) * 100 : 0,
+        },
+        {
+          label: "England",
+          text: `${crime.england.englandPer1000.toFixed(1)} per 1,000 residents`,
+          pctOfMax: max > 0 ? (crime.england.englandPer1000 / max) * 100 : 0,
+        },
+      ],
+    });
+    blocks.push({ type: "line", text: crime.england.line });
+  }
+  if (crime.windowLine) {
+    blocks.push({ type: "line", text: `Recorded in the 12 months ${crime.windowLine}.` });
+  }
+  blocks.push({ type: "subheading", text: "By category" });
+  blocks.push({
+    type: "table",
+    rows: crime.categories.map((category) => ({
+      label: category.label,
+      value: districtCount(category.count),
+    })),
+  });
+  return linesSection("crime", "Crime", blocks, crime.sourceLine);
+}
+
+function districtFloodBandBlocks(block: DistrictFloodBlock): SectionBlock[] {
+  const tones: Record<string, "high" | "medium" | "low" | "very-low" | "none"> = {
+    High: "high",
+    Medium: "medium",
+    Low: "low",
+    "Very low": "very-low",
+    "No band published": "none",
+  };
+  const blocks: SectionBlock[] = [
+    { type: "subheading", text: block.title },
+    {
+      type: "stackbar",
+      segments: block.buckets.map((bucket) => ({
+        label: bucket.label,
+        pct: bucket.pct,
+        tone: tones[bucket.label] ?? "none",
+      })),
+    },
+    {
+      type: "line",
+      text:
+        block.buckets.map((bucket) => `${bucket.label} ${bucket.pct}%`).join(" · ") +
+        ` — shares of the ${districtCount(block.counted)} postcodes counted.`,
+    },
+  ];
+  const definitions = block.buckets.filter((bucket) => bucket.definition != null);
+  if (definitions.length > 0) {
+    blocks.push({
+      type: "line",
+      text: definitions.map((bucket) => `${bucket.label}: ${bucket.definition}`).join(". ") + ".",
+    });
+  }
+  return blocks;
+}
+
+function districtFloodSection(bundle: DistrictServed): ResultsSectionView {
+  const flood = bundle.sections.flood;
+  if (flood.state !== "served") {
+    return linesSection("flood", "Flood", [
+      { type: "line", text: flood.line ?? "Flood answers are not filed for this district yet." },
+    ]);
+  }
+  const blocks: SectionBlock[] = [];
+  if (flood.warnings.state === "unavailable") {
+    blocks.push({ type: "notice", variant: "gap", text: flood.warnings.line });
+  } else {
+    blocks.push({ type: "line", text: flood.warnings.line });
+    for (const area of flood.warnings.areas) {
+      blocks.push({ type: "line", text: `${area.severity} — ${area.description}` });
+    }
+  }
+  if (flood.riversSea) {
+    blocks.push(...districtFloodBandBlocks(flood.riversSea));
+  }
+  if (flood.zones) {
+    blocks.push({
+      type: "line",
+      text:
+        `Planning flood zones (drawn as if defences were not there): ` +
+        `${flood.zones.zone3Pct}% of counted postcodes fall in Flood Zone 3 ` +
+        `and ${flood.zones.zone2Pct}% in Flood Zone 2.`,
+    });
+  }
+  if (flood.watercourses.length > 0) {
+    blocks.push({
+      type: "line",
+      text: `Flood defences are recorded along the ${districtJoinNames(flood.watercourses)} within 2 miles of the district's postcodes.`,
+    });
+  }
+  if (flood.surfaceWater) {
+    blocks.push(...districtFloodBandBlocks(flood.surfaceWater));
+  }
+  blocks.push({
+    type: "line",
+    text: `Counted over the ${districtCount(flood.countedPostcodes)} English postcodes filed in the district — each postcode's point read against the Environment Agency's published maps.`,
+  });
+  blocks.push({ type: "line", text: flood.honestyLine });
+  return linesSection("flood", "Flood", blocks);
+}
+
+function districtCostsSection(bundle: DistrictServed): ResultsSectionView {
+  const tax = bundle.sections.councilTax;
+  const connectivity = bundle.sections.connectivity;
+  const outward = bundle.outward;
+  const blocks: SectionBlock[] = [{ type: "subheading", text: "Council tax" }];
+  if (tax.councils.length === 0 && tax.unfiledCouncils.length === 0) {
+    blocks.push({
+      type: "line",
+      text: "Council tax is not filed for this district's councils yet.",
+    });
+  }
+  for (const council of tax.councils) {
+    blocks.push({
+      type: "tagged-line",
+      lead: council.authorityName,
+      texts: [
+        `Band D ${districtPence(council.bandDAreaAveragePence)} a year — the council's average Band D for ${council.taxYear}${council.parishAveraged ? ", parish precepts averaged in" : ""}.`,
+      ],
+    });
+  }
+  for (const name of tax.unfiledCouncils) {
+    blocks.push({
+      type: "line",
+      text: `${name} — its council tax charges are not filed yet.`,
+    });
+  }
+  blocks.push({ type: "subheading", text: "Broadband & mobile" });
+  if (connectivity.state !== "served" || connectivity.broadband == null) {
+    blocks.push({
+      type: "line",
+      text: "Broadband answers are not filed for this district's postcodes yet.",
+    });
+  } else {
+    blocks.push({
+      type: "tagged-line",
+      lead: "Broadband",
+      texts: [
+        `Gigabit-capable: ${connectivity.broadband.gigabitMeanPct}% of premises on average.`,
+        `Superfast (30 Mbps or more): ${connectivity.broadband.superfastMeanPct}% of premises on average.`,
+      ],
+      fineprint: `Each figure is the average of each postcode's own filed share, across the ${districtCount(connectivity.broadband.postcodesCounted)} ${outward} postcodes with a filed answer (${connectivity.broadband.snapshot}).`,
+    });
+  }
+  if (connectivity.state !== "served" || connectivity.mobile == null) {
+    blocks.push({
+      type: "line",
+      text: "Mobile coverage is not filed for this district's postcodes yet.",
+    });
+  } else {
+    for (const area of connectivity.mobile.areas) {
+      blocks.push({
+        type: "line",
+        text:
+          area.fourGOutdoorAtLeastOnePct != null
+            ? `${area.lauaName} — 4G outdoors from at least one network covers ${area.fourGOutdoorAtLeastOnePct}% of the area.`
+            : `${area.lauaName} — Ofcom does not publish a 4G outdoor figure for this area.`,
+      });
+    }
+  }
+  return linesSection("district-costs", "Costs", blocks, connectivity.sourceLine);
+}
+
+export function buildDistrictResultsView(bundle: DistrictServed): ResultsView {
+  const { outward, head, sections } = bundle;
+
+  const districtTiles: { label: string; value: string }[] = [];
+  if (sections.district.homes != null) {
+    districtTiles.push({ label: "Homes", value: districtCount(sections.district.homes) });
+  }
+  if (sections.district.residents != null) {
+    districtTiles.push({
+      label: "Residents",
+      value: districtCount(sections.district.residents),
+    });
+  }
+  districtTiles.push({ label: "Live postcodes", value: districtCount(head.postcodeCount) });
+  districtTiles.push({ label: "Small areas (LSOAs)", value: districtCount(head.lsoaCount) });
+  const districtBlocks: SectionBlock[] = [];
+  if (sections.district.settlements.length > 0) {
+    const shown = sections.district.settlements.slice(0, 12);
+    const more = sections.district.settlementsCount - shown.length;
+    districtBlocks.push({
+      type: "line",
+      text: `Settlements filed across ${outward}: ${shown.join(" · ")}${more > 0 ? ` · and ${more} more` : ""}.`,
+    });
+  }
+  if (districtTiles.length > 0) {
+    districtBlocks.push({ type: "tiles", tiles: districtTiles });
+  }
+
+  const deprivationBlocks: SectionBlock[] =
+    sections.deprivation.state === "served"
+      ? [
+          {
+            type: "line",
+            text:
+              `England splits every small area into ten bands (deciles) — 1 is among the ` +
+              `most deprived in England, 10 among the least. Here is where ${outward}'s ` +
+              `${districtCount(sections.deprivation.areasCounted)} small areas fall. Shown as ` +
+              `a spread, never collapsed into one number.`,
+          },
+          { type: "deciles", counts: sections.deprivation.counts },
+        ]
+      : [
+          {
+            type: "line",
+            text:
+              sections.deprivation.line ??
+              "Deprivation is not filed for this district's small areas yet.",
+          },
+        ];
+
+  const soldBlocks: SectionBlock[] = [];
+  if (sections.soldPrices.state !== "served") {
+    soldBlocks.push({
+      type: "line",
+      text: "No sales are filed for this district's postcodes yet.",
+    });
+  } else {
+    const soldTiles: { label: string; value: string; sub?: string | null }[] = [];
+    if (sections.soldPrices.median != null) {
+      soldTiles.push({
+        label: "Median sold price",
+        value: formatPounds(sections.soldPrices.median),
+      });
+    }
+    soldTiles.push({
+      label: "Sales counted",
+      value: districtCount(sections.soldPrices.count),
+      sub: sections.soldPrices.spanLine,
+    });
+    soldBlocks.push({ type: "tiles", tiles: soldTiles });
+    if (sections.soldPrices.median == null && sections.soldPrices.count > 0) {
+      soldBlocks.push({
+        type: "line",
+        text: "Too few sales are filed to state a district median — a median is stated from five sales.",
+      });
+    }
+    if (sections.soldPrices.types.length > 0) {
+      soldBlocks.push({ type: "subheading", text: "By house type" });
+      soldBlocks.push({
+        type: "table",
+        rows: sections.soldPrices.types.map((typeRow) => ({
+          label: typeRow.label,
+          value: formatPounds(typeRow.median),
+          detail: `${districtCount(typeRow.count)} sales`,
+        })),
+      });
+    }
+    if (sections.soldPrices.foldedTypeCount > 0) {
+      soldBlocks.push({
+        type: "line",
+        text: `Plus ${districtCount(sections.soldPrices.foldedTypeCount)} sales of other types — fewer than five of each type, so no median is stated for them.`,
+      });
+    }
+    soldBlocks.push({
+      type: "line",
+      text: `The district median across ${outward} as a whole — it does not value any one home.`,
+    });
+  }
+
+  const schoolsBlocks: SectionBlock[] = [];
+  if (sections.schools.state !== "served") {
+    schoolsBlocks.push({
+      type: "line",
+      text: "Schools are not filed for this district yet.",
+    });
+  } else {
+    schoolsBlocks.push({
+      type: "line",
+      text: `${districtCount(sections.schools.counted)} schools are filed inside ${outward}.`,
+    });
+    const phaseTiles = [
+      { label: "Primary", count: sections.schools.primary },
+      { label: "Secondary", count: sections.schools.secondary },
+      { label: "All-through", count: sections.schools.allThrough },
+      { label: "16 plus", count: sections.schools.post16 },
+      { label: "Other", count: sections.schools.otherPhase },
+    ].filter((phase) => phase.count > 0);
+    if (phaseTiles.length > 0) {
+      schoolsBlocks.push({
+        type: "tiles",
+        tiles: phaseTiles.map((phase) => ({
+          label: phase.label,
+          value: districtCount(phase.count),
+        })),
+      });
+    }
+    schoolsBlocks.push({
+      type: "line",
+      text:
+        sections.schools.grammar > 0
+          ? `Grammar schools (selective, test entry): ${districtCount(sections.schools.grammar)} in the district.`
+          : `No grammar school is filed inside ${outward}.`,
+    });
+    if (sections.schools.ofsted.length > 0) {
+      schoolsBlocks.push({ type: "subheading", text: "Ofsted grades" });
+      schoolsBlocks.push({
+        type: "table",
+        rows: sections.schools.ofsted.map((row) => ({
+          label: row.rating,
+          value: districtCount(row.count),
+        })),
+      });
+    }
+    if (sections.schools.notYetInspected > 0) {
+      schoolsBlocks.push({
+        type: "line",
+        text: `Not yet inspected: ${districtCount(sections.schools.notYetInspected)}.`,
+      });
+    }
+  }
+
+  const everydayBlocks: SectionBlock[] = [];
+  if (sections.everyday.state !== "served") {
+    everydayBlocks.push({
+      type: "line",
+      text: "Everyday counts are not filed for this district yet.",
+    });
+  } else {
+    everydayBlocks.push({
+      type: "tiles",
+      tiles: [
+        { label: "GP surgeries", value: districtCount(sections.everyday.gp) },
+        { label: "Dentists", value: districtCount(sections.everyday.dentists) },
+        { label: "Pharmacies", value: districtCount(sections.everyday.pharmacies) },
+        { label: "Rail stations", value: districtCount(sections.everyday.stations.length) },
+      ],
+    });
+    if (sections.everyday.stations.length > 0) {
+      everydayBlocks.push({
+        type: "line",
+        text: `Stations: ${sections.everyday.stations.join(" · ")}.`,
+      });
+    }
+    everydayBlocks.push({
+      type: "line",
+      text: "GPs, dentists and pharmacies are counted by their filed postcodes inside the district; stations are counted by their nearest filed postcode.",
+    });
+  }
+
+  const airRanges: string[] = [];
+  if (sections.air.no2) {
+    airRanges.push(
+      `NO₂ ${districtAirValue(sections.air.no2.min)}–${districtAirValue(sections.air.no2.max)} µg/m³`,
+    );
+  }
+  if (sections.air.pm25) {
+    airRanges.push(
+      `PM2.5 ${districtAirValue(sections.air.pm25.min)}–${districtAirValue(sections.air.pm25.max)} µg/m³`,
+    );
+  }
+  if (sections.air.pm10) {
+    airRanges.push(
+      `PM10 ${districtAirValue(sections.air.pm10.min)}–${districtAirValue(sections.air.pm10.max)} µg/m³`,
+    );
+  }
+  const airBlocks: SectionBlock[] =
+    sections.air.state !== "served" || airRanges.length === 0
+      ? [
+          {
+            type: "line",
+            text: "Modelled air quality is not filed for this district's postcodes yet.",
+          },
+        ]
+      : [
+          {
+            type: "tagged-line",
+            lead: "Air quality — modelled",
+            texts: airRanges,
+            tag: "MODELLED",
+            tagTone: "grey",
+          },
+          {
+            type: "line",
+            text: `The range across the ${districtCount(sections.air.squaresCounted)} modelled 1 km squares the district's postcodes fall in${sections.air.year != null ? `, ${sections.air.year}` : ""}. Modelled — not a measurement at any one home.`,
+          },
+        ];
+
+  const tabs: ResultsTabView[] = [
+    {
+      id: "family",
+      label: "Family Checks",
+      sections: [linesSection("schools", "Schools", schoolsBlocks, sections.schools.sourceLine)],
+    },
+    {
+      id: "neighbourhood",
+      label: "The Neighbourhood",
+      sections: [
+        linesSection(
+          "district",
+          "The district itself",
+          districtBlocks,
+          sections.district.sourceLine,
+        ),
+        districtCensusSection(bundle),
+        districtCrimeSection(bundle),
+        linesSection(
+          "deprivation",
+          "Deprivation",
+          deprivationBlocks,
+          sections.deprivation.sourceLine,
+        ),
+        linesSection("air", "Air quality", airBlocks, sections.air.sourceLine),
+      ],
+    },
+    {
+      id: "home",
+      label: "Home, Costs & Risks",
+      sections: [
+        linesSection("sold-prices", "Sold prices", soldBlocks, sections.soldPrices.sourceLine),
+        districtCostsSection(bundle),
+        districtFloodSection(bundle),
+      ],
+    },
+    {
+      id: "nearby",
+      label: "What's Nearby",
+      sections: [linesSection("everyday", "Everyday counts", everydayBlocks)],
+    },
+  ];
+
+  return {
+    pills: null,
+    reportHref: null,
+    buyBar: null,
+    calculators: null,
+    checkLinks: checkLinksForTabs(tabs),
+    warningsStrip: { kind: "none" },
+    floodWarningsState: sections.flood.state === "served" ? sections.flood.warnings.state : null,
+    tabs,
+    bridge: {
+      heading: `Checking one home in ${outward}?`,
+      line: "The district tells you about the area. A full postcode tells you about the home — its flood point, its nearest schools, its street's crime and its sold history.",
+      postcodes: sections.bridge.postcodes.slice(0, 8).map((postcode) => ({
+        postcode,
+        href: homeRoute(postcode),
+      })),
+      moreCount: Math.max(0, sections.bridge.postcodes.length - 8),
+      outward,
+    },
   };
 }

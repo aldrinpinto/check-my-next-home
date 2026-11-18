@@ -421,22 +421,30 @@ test.describe("phone-first — 360×740 (T-WEB-01)", () => {
   );
 
   test(
-    "the rung-3 wider area: nothing scrolls sideways; the toggle beside the heading and the banner's input hold their phone forms (F2/F3)",
+    "the rung-3 district page: nothing scrolls sideways; the toggle beside the heading and the bridge's input hold their phone forms (F2/F3)",
     { tag: "@regression" },
     async ({ page }) => {
       await page.goto("/search?outward=E16");
       await expect(page.locator("h1")).toHaveText("Wider area — E16, not this exact home");
       // At rung 3 the shortlist control stays beside the
       // scope-label heading (M7.6) — a full target there.
+      // The district page's heading block is the results
+      // page's own .results-head (18 Nov 2026).
       await expectTapTarget(
-        page.locator(".results-header [data-shortlist-toggle]"),
+        page.locator(".results-head [data-shortlist-toggle]"),
         "the wider area's shortlist toggle",
       );
-      const bannerInput = page.locator(".unlock-banner #postcode");
-      const fontSize = await bannerInput.evaluate((element) => getComputedStyle(element).fontSize);
-      expect(fontSize, "the banner's postcode input computes to 16px").toBe("16px");
+      // The bridge replaced the unlock banner as the
+      // forward path; its postcode input keeps the 16px
+      // phone form. The district page legitimately carries
+      // tables (sold types, crime categories, council
+      // tax), so the no-table check does not apply here —
+      // the tables must fit the screen instead, which the
+      // sideways-scroll check below covers.
+      const bridgeInput = page.locator(".district-bridge #postcode");
+      const fontSize = await bridgeInput.evaluate((element) => getComputedStyle(element).fontSize);
+      expect(fontSize, "the bridge's postcode input computes to 16px").toBe("16px");
       await expectNoSidewaysScroll(page);
-      await expectNoTable(page);
     },
   );
 

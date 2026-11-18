@@ -3986,7 +3986,7 @@ const CENSUS_TABLE_TITLES: Record<string, string> = {
   ts054: "Tenure",
 };
 
-function censusRows(counts: Record<string, number>, total: number): CensusRowServed[] {
+export function censusRows(counts: Record<string, number>, total: number): CensusRowServed[] {
   return Object.entries(counts).map(([label, count]) => ({
     label,
     count,
@@ -3999,7 +3999,7 @@ function censusRows(counts: Record<string, number>, total: number): CensusRowSer
 // where the cumulative count crosses N/2) — the same
 // arithmetic, so the brain's calculated figure is the
 // loader's locked one (Birkdale 46.5 at one decimal).
-function medianAgeOf(years: number[]): number {
+export function medianAgeOf(years: number[]): number {
   const total = years.reduce((sum, n) => sum + n, 0);
   const half = total / 2;
   let cum = 0;

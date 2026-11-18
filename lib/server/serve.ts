@@ -23,6 +23,11 @@ import {
 import { buildAreaBundle, createAreaSource } from "../area-bundle";
 import { createCachedBrains, homeKeyOf } from "../bundle-cache";
 import { buildCrimeBundle, createCrimeSource } from "../crime";
+import {
+  buildDistrictBundle,
+  createDistrictSource,
+  createDistrictWarningSource,
+} from "../district";
 import { buildFloodBundle, createFloodSource } from "../flood";
 import { buildNearbyBundle, createNearbySource } from "../nearby";
 import { buildShortBundle } from "../short-bundle";
@@ -304,4 +309,21 @@ export async function checkResultsWider(resolution: AddressResolution) {
   if (short.kind !== "wider-area")
     throw new Error(`wider-area derivation: unexpected short bundle kind ${short.kind}`);
   return { short };
+}
+
+// The rung-3 route's full serve (district page, 18 Nov
+// 2026): the short bundle (unchanged — it still feeds the
+// rung-3 shortlist card) plus the district bundle built
+// from the district's filed rows, with the live-warnings
+// source wired in for the flood roll-up.
+export async function checkDistrictWider(resolution: AddressResolution) {
+  const { short } = await checkResultsWider(resolution);
+  if (resolution.rung !== 3)
+    throw new Error(`district derivation: unexpected rung ${resolution.rung}`);
+  const district = await buildDistrictBundle(
+    resolution.outward,
+    createDistrictSource(getDbPool()),
+    { warningSource: createDistrictWarningSource() },
+  );
+  return { short, district };
 }

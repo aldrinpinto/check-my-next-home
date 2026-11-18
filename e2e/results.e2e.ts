@@ -183,7 +183,7 @@ test.describe("results page — smoke", () => {
 
 test.describe("results page — regression", () => {
   test(
-    "the rung-3 wider-area page: scope label, named states, no this-home figures, no this-home report",
+    "the rung-3 district page: scope label, district sections in the four tabs, the crime honest line, no report, no upsell",
     { tag: "@regression" },
     async ({ page }) => {
       await searchFromHome(page, "E16");
@@ -191,17 +191,38 @@ test.describe("results page — regression", () => {
       await expect(page.locator("h1")).toHaveText("Wider area — E16, not this exact home");
       await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
       await expect(page.getByRole("tab")).toHaveCount(4);
+      await expect(page.locator(".results-scope-line")).toContainText("district as a whole");
+      // Crime at district grain serves its own honest line
+      // (founder ruling, 18 Nov 2026): no district total
+      // exists that does not double-count the per-postcode
+      // 1-mile circles — the old rung-3 refusal wording is
+      // gone from the page whole.
       await expect(page.locator('[data-section="crime"]')).toContainText(
-        "crime counts need an exact postcode",
+        "no district crime total that does not double-count",
+      );
+      await openTab(page, "Home, Costs & Risks");
+      await expect(page.locator('[data-section="flood"]')).toContainText(
+        /District shares describe the district|flood maps are not filed/,
       );
       const body = await page.locator("main").innerText();
+      // The seeded home's own figures never appear — the
+      // district's figures are the district's own.
       expect(body).not.toContain("£270,000");
       expect(body).not.toContain("£310,000");
       expect(body).not.toContain("£4.99");
+      expect(body).not.toContain("need an exact postcode");
+      expect(body).not.toContain("needs an exact postcode");
       // No report link in any form — the bare route or the
-      // M7.6 contract form (href^= catches both).
+      // M7.6 contract form (href^= catches both) — and no
+      // upsell furniture anywhere at rung 3.
       await expect(page.locator('a[href^="/report"]')).toHaveCount(0);
       await expect(page.locator(".results-strip")).toHaveCount(0);
+      await expect(page.locator(".buy-bar")).toHaveCount(0);
+      await expect(page.locator(".unlock-banner")).toHaveCount(0);
+      // The bridge is the page's only forward path.
+      await expect(page.locator(".district-bridge__heading")).toHaveText(
+        "Checking one home in E16?",
+      );
     },
   );
 
