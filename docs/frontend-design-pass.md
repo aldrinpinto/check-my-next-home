@@ -2630,3 +2630,113 @@ empty — and the proof is the seed chain itself
 the two loaders over the fixture slices whose contents
 are enumerated above), not a fixture hand-built to make
 the assertion pass.
+
+## CI #216 fix (18 Nov 2026) — the CM0 7AA rung-2 spec asserted a settled page the harness leaves permanently cold
+
+CI run #216 on main cbfe92d (the CI #215 fix) came back
+with checks, secrets and database green and the browser
+job at 112 passed / 1 failed: e2e/results.e2e.ts "rung 2
+at Southminster CM0 7AA: the pinned label with the empty
+picker embedded at the head of the page". The pinned
+label assertion passed ("Postcode area — CM0 7AA, not
+one exact home"), but the `.results` container never
+appeared within 30s, so the spec never reached its
+empty-picker assertion. Identical on retry. Every
+Beaulieu spec passed, and the CM0 7AA journey spec
+passed — but that spec only asserts the URL and the
+heading after the whole-postcode click; it never waits
+for `.results`, so it never proved the page settles.
+
+Diagnosis — the spec asserted a state the seeded corpus
+makes unreachable; the serve path behaved exactly as
+designed. The chain:
+
+1. The results page reveals `.results` only when the
+   checking screen advances, which needs its three
+   /api/check calls settled AND the server-rendered
+   derivation (`checkResults`) complete. Both paths run
+   `buildSoldPricesBundle` for the postcode.
+2. CM0 7AA is held in the directory (its ONSPD fixture
+   row) but has NOTHING else filed — and, crucially, no
+   sold-prices load stamp. The seed stamps no-sale
+   postcodes only for the golden set in
+   tests/fixtures/replay/directory-rows.json (CM1 6ER
+   among them); CM0 7AA arrived via the ONSPD directory
+   fixture, outside that loop, so no stamp.
+3. A covered postcode with no filed rows and no stamp
+   is loaded on first check (D23: "an answer is never
+   read from emptiness" — pinned in the sold-prices
+   suite: the load precedes every figure, and
+   loaded-none is served only after a load). The
+   brain-invoked load spawns load-sold-prices.mjs with
+   no fixture directory, which streams the full
+   pp-complete.csv (5.3+ GB) from the Land Registry's
+   public endpoint, with no timeout anywhere in the
+   chain by design — a production first load takes as
+   long as the stream takes, once per postcode, and the
+   stamp makes every later check instant.
+4. So every render and every /api/check/area call for
+   CM0 7AA in the harness starts a fresh multi-GB
+   stream that cannot finish inside a 30s assertion
+   window; the stamp never lands, and `.results` never
+   appears. The other brains are not the blocker: crime
+   catches its cold-load failure into the not-filed
+   state and its live load is Police.uk API calls (the
+   same first-check load Beaulieu's passing specs ride
+   on), the EPC cold load fails fast with no token in
+   the harness, flood's live-warnings hook is budgeted
+   at 2 seconds, and the embedded picker's Postio
+   supplement is inert without a key. Beaulieu differs
+   in exactly one load-bearing way: the seed stamps it,
+   so its derivation settles from filed data alone.
+
+The designed behaviour is not a defect: a brand-new
+postcode's first check paying the one-time cold load —
+checking screen up, no figures read from emptiness —
+is the M6.3/D23 doctrine, unit-pinned, and the
+whole-check failure page is the designed surface when
+a load fails outright. What was wrong is the harness
+corpus: the witness was left permanently cold, a state
+no production postcode stays in after its first check.
+
+The fix completes the corpus, and the spec keeps every
+assertion. scripts/seed-golden.mjs now runs the
+sold-prices loader over the assembled fixture dir for
+CM0 7AA (the fixture file holds no CM0 rows — verified
+by grep across the land-registry fixtures — so it
+files none) and stamps it with the same guards as the
+golden no-sale postcodes, recording the witness's
+position in the seed's header: loaded, none recorded.
+CM0 7AA's rung-2 page now settles exactly as a
+production postcode's does after its first check —
+picker empty, sold prices loaded-none, crime and EPC
+not-filed — and the results spec's comment names the
+stamp as the reason it can assert the settled page.
+The spec's navigation (the direct rung-2 URL, the same
+form as the Beaulieu and Birkdale specs) and all its
+assertions are unchanged.
+
+A local pin closes the masking gap the failure named —
+every rung-2 postcode the unit suites composed before
+now carried SOME filed data. A new test in
+tests/short-bundle.test.ts ("a zero-filed postcode
+settles") composes the exact derivation the results
+route awaits — the five real builders over fake
+sources in their zero states (sold stamped loaded-none,
+crime's load failing into not-filed, flood's layers
+unfiled, the area sections not-filed), the short
+derivation and the results view — and asserts it
+completes with the honest states, the pinned scope
+label and the four tabs.
+
+Sweep: every other postcode the e2e suite drives to a
+results page is filed or stamped (CM3 2JT, E16 1GN,
+KT17 1FH, CF11 8AA), not-covered (EH1 1AD — the
+Scotland branch renders without the checking screen
+and its builders short-circuit on coverage before any
+load), a wider-area outward code (rung 3, whose
+builders answer named states without touching their
+sources), or unheld (ZZ1 1ZZ, CM3 2JA — the
+couldn't-place and wider-area paths, no results
+render). CM0 7AA was the only covered, unstamped,
+zero-filed postcode at rung 2.

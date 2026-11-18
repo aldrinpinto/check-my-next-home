@@ -30,6 +30,23 @@
 // exactly as in production (D30) — no E2E spec depends on
 // it completing.
 //
+// A seventh postcode stands apart: Southminster CM0 7AA,
+// the neither-source witness (M7.15B). The directory
+// fixture holds it, and the seed deliberately files
+// nothing else for it — no sales, no crime artefact, no
+// EPC, no index rows — with ONE exception: its sold-prices
+// load is run over the fixture file (which holds no CM0
+// rows, so it files none) and stamped, exactly as the
+// golden no-sale postcodes are stamped below. The stamp
+// is what lets its rung-2 page settle in the harness: an
+// unstamped covered postcode is loaded on first check
+// (D23 — an answer is never read from emptiness), and the
+// live load streams the full Price Paid file, which no
+// spec can wait out. With the stamp, CM0 7AA stands in
+// the loaded-none state a production postcode reaches
+// after its first check — its picker empty, and every
+// other section in its not-filed form (CI #216).
+//
 // Usage: DATABASE_URL=… node scripts/seed-golden.mjs
 // Re-running is safe: the loaders file idempotently and
 // the direct inserts below are conflict-guarded.
@@ -186,6 +203,18 @@ try {
     ...postcodes,
   ]);
 
+  // The neither-source witness (see the header): the same
+  // load over the same dir for CM0 7AA files nothing — the
+  // fixture file holds no CM0 rows — and the stamp below
+  // records that the load happened (CI #216).
+  await step("sold prices over the assembled dir (CM0 7AA, files none)", "node", [
+    join(REPO, "loaders/load-sold-prices.mjs"),
+    "--file",
+    soldDir,
+    "--",
+    "CM0 7AA",
+  ]);
+
   const crimeDir = await mkdtemp(join(tmpdir(), "seed-crime-"));
   await cp(join(REPO, "tests/fixtures/police-uk"), crimeDir, { recursive: true });
   const fixture = JSON.parse(await readFile(join(crimeDir, "fixture.json"), "utf8"));
@@ -233,6 +262,20 @@ try {
       [r.postcode, loadStamp],
     );
   }
+
+  // The neither-source witness carries the same stamp
+  // (CI #216): its directory row came from the ONSPD
+  // fixture, not from directory-rows.json, so the loop
+  // above never reaches it. Same guards: no filed sales,
+  // no existing stamp.
+  await pool.query(
+    `UPDATE postcode_cache
+        SET answers = jsonb_set(answers, '{soldPricesLoad}', $2::jsonb, true)
+      WHERE postcode = $1
+        AND NOT EXISTS (SELECT 1 FROM price_paid WHERE postcode = $1)
+        AND NOT (answers ? 'soldPricesLoad')`,
+    ["CM0 7AA", loadStamp],
+  );
 
   for (const [pc, file] of [
     ["CA20 1EX", "zero-witness-ca20-1ex.json"],

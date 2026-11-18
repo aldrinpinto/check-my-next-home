@@ -330,7 +330,14 @@ test.describe("results page — regression", () => {
       // directory fixture, with no sale, certificate or
       // index row in any seeded fixture — its union is
       // empty, so the embedded picker serves the named
-      // empty state.
+      // empty state. Its results derivation settles from
+      // filed data alone because the seed files its
+      // sold-prices load stamp (loaded, none recorded —
+      // the state a production postcode reaches after its
+      // first check): an unstamped covered postcode would
+      // be cold-loaded on this first check (D23), and the
+      // live load streams the full Price Paid file, which
+      // no assertion window can wait out (CI #216).
       await page.goto("/search/home?postcode=CM0+7AA");
       await expect(page.locator(".results-header h1")).toHaveText(
         "Postcode area — CM0 7AA, not one exact home",

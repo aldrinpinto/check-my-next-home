@@ -29,6 +29,7 @@ import {
   type FloodLayerType,
 } from "../lib/flood";
 import { buildNearbyBundle, type NearbyDataSource, type NearbyPoint } from "../lib/nearby";
+import { buildResultsView, resultsScopeLabel } from "../lib/results";
 import { buildShortBundle, type ShortBundle } from "../lib/short-bundle";
 import {
   buildSoldPricesBundle,
@@ -3668,5 +3669,72 @@ describe("short bundle — live flood warnings (M6.22, decision D42)", () => {
         /gap|percent|difference|trend|direction|score|rate|rank|verdict|compar/i,
       );
     }
+  });
+});
+
+describe("short bundle — a zero-filed postcode settles (CI #216)", () => {
+  it("composes the rung-2 derivation for CM0 7AA from the loaded-none / not-filed states alone", async () => {
+    // The masking gap CI #216 named: every rung-2 postcode
+    // composed before this one carried SOME filed data — a
+    // sale, a crime artefact, an EPC, a flood layer.
+    // Southminster CM0 7AA is the neither-source witness:
+    // held in the directory, with no sales, no crime
+    // artefact, no EPC and no index rows anywhere. The
+    // state its rung-2 page serves is the one a production
+    // postcode reaches after its first check — sold prices
+    // loaded-none under the load stamp the seed files for
+    // it (an unstamped covered postcode is cold-loaded on
+    // first check, D23; that live load is the serve path's
+    // designed behaviour and is pinned in the sold-prices
+    // suite, not here), crime not-filed (its cold load
+    // attempted and failed, as this suite's fake fails),
+    // flood's layers unfiled, the area sections in their
+    // not-filed forms. This pins that the full assembly —
+    // the five builders, the short derivation and the
+    // results view, the exact composition the results
+    // route awaits — completes over that emptiness and
+    // names it honestly: no throw, no invented figure.
+    const dir = directory({
+      postcode: "CM0 7AA",
+      latitude: 51.673,
+      longitude: 0.831,
+      lsoaCode: "E01021906",
+    });
+    fileFloodFacts(dir, {
+      flood_zone: floodFacts({ sourceName: ZONES_SOURCE, sourceDate: "2026-10-21", filedCount: 0 }),
+      rofrs: floodFacts({ sourceName: ROFRS_SOURCE, sourceDate: "2026-11-03", filedCount: 0 }),
+      rofsw: floodFacts({ sourceName: ROFSW_SOURCE, sourceDate: "2026-11-10", filedCount: 0 }),
+    });
+    const resolution = addressList(dir);
+    // The stamp and nothing else: no rows, the edition
+    // recorded — the loaded-none proof, as the seed files
+    // it for the witness.
+    const soldSource = new FakeSoldPricesSource(new Map(), new Map([["CM0 7AA", "2026-10-28"]]));
+    const [nearby, soldPrices, crime, flood, area] = await Promise.all([
+      buildNearbyBundle(resolution, nearbySource),
+      buildSoldPricesBundle(resolution, soldSource),
+      buildCrimeBundle(resolution, crimeSource, { now: NOW }),
+      buildFloodBundle(resolution, floodSource),
+      buildAreaBundle(resolution, areaSource),
+    ]);
+    if (soldPrices.kind !== "sold-prices") throw new Error("expected a sold-prices bundle");
+    expect(soldPrices.loadState).toBe("loaded-none");
+    expect(soldPrices.recordedCount).toBe(0);
+    if (crime.kind !== "crime") throw new Error("expected a crime bundle");
+    expect(crime.crime.state).toBe("not-filed");
+    const short = buildShortBundle({ nearby, soldPrices, crime, flood, area });
+    if (short.kind !== "short-bundle") throw new Error("expected a short bundle");
+    const view = buildResultsView({
+      resolution,
+      nearby,
+      flood,
+      area,
+      sold: soldPrices,
+      crime,
+      short,
+      homeKey: null,
+    });
+    expect(resultsScopeLabel(resolution)).toBe("Postcode area — CM0 7AA, not one exact home");
+    expect(view.tabs).toHaveLength(4);
   });
 });
