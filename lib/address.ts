@@ -152,7 +152,16 @@ function numericPart(token: string | null): number {
 // ------------------------------------------------------------------
 
 const FULL_POSTCODE_RE = /\b([A-Z]{1,2}[0-9][A-Z0-9]?)\s*([0-9][A-Z]{2})\b/g;
-const OUTWARD_RE = /\b([A-Z]{1,2}[0-9][A-Z0-9]?)\b/;
+// The outward token of a partial postcode. The match may
+// end mid-token where the inward code begins — a digit
+// follows ("E161" carries outward E16) — so the trailing
+// guard is "not a letter", not a word boundary: a plain
+// \b can never match there, and until 18 Nov 2026 it
+// made compact partials in two-digit districts (E161,
+// E161G, SW1A1) classify as carrying no outward at all.
+// It still never ends immediately before a letter, which
+// would split the outward's own digit+letter form.
+const OUTWARD_RE = /\b([A-Z]{1,2}[0-9][A-Z0-9]?)(?![A-Z])/;
 
 // Normalise a string that is meant to be one full postcode, tolerant
 // of case and spacing ("cm32jt" -> "CM3 2JT"). Returns null for
@@ -277,26 +286,78 @@ function addressKey(parts: LoadedAddressParts): string {
   return [parts.paon ?? "", parts.saon ?? "", parts.street ?? ""].join("|");
 }
 
-function sortAddresses(addresses: ResolvedAddress[]): ResolvedAddress[] {
-  const key = (a: ResolvedAddress): [string, string, number, number, string] => {
-    const paon = parsePaon(a.paon);
+// The letter suffix of a number token, for natural sorting
+// ("535A" -> "A"; "535" and a missing token -> "").
+function numberSuffix(token: string | null): string {
+  if (!token) return "";
+  const match = /^[0-9]+([A-Z]?)$/.exec(token);
+  return match ? match[1] : "";
+}
+
+// THE natural-order comparator for home rows (founder fix,
+// 18 Nov 2026): every served list of homes — the resolver's
+// rung-2 list, the picking union behind the suggestions
+// dropdown, and the picker's merged local + Postio list —
+// is ordered by this one comparator, so a street's homes
+// read the way Royal Mail's address finder lists them
+// (1, 2, 3 … 10, 12, 14), never in string order
+// (1, 10, 14, 3 …). The key, in order:
+//
+//   - the street (case-folded; the filed form is upper
+//     case already, a Postio row's is not);
+//   - the building part's number, numerically, then its
+//     letter suffix, so 535, then 535A, then 536. A
+//     number the building part carries ANYWHERE —
+//     leading ("12 MINERVA HOUSE"), trailing
+//     ("MINERVA HOUSE 12") or after a comma
+//     ("TILLY COURT, 29") — is the building's street
+//     number (parsePaon extracts it wherever it sits),
+//     so a named building interleaves among the numbered
+//     houses at its number, the way Royal Mail lists
+//     "1, Tilly Court, 29 Hastings Road" between 27 and
+//     31 (refinement, 18 Nov 2026, from the founder's
+//     E16 1GF screenshots). A building part with NO
+//     number at all sorts after the whole numbered run
+//     (a missing number reads as +Infinity);
+//   - at the same street number, a plain numbered house
+//     before a named building, named buildings
+//     alphabetical by name;
+//   - the flat/unit part's number, numerically, then its
+//     suffix (Flat 2 before Flat 10);
+//   - the display label, as the final tiebreak.
+//
+// Membership and precedence are NOT this comparator's
+// business: where two layers name the same home, the
+// dedupe (by home key, filed winning) has already kept
+// one row before any list is ordered.
+export function compareAddressParts(a: LoadedAddressParts, b: LoadedAddressParts): number {
+  const key = (
+    parts: LoadedAddressParts,
+  ): [string, number, string, number, string, number, string, string] => {
+    const paon = parsePaon(parts.paon);
+    const flat = flatKeyOf(parts.saon);
     return [
-      a.street ?? "",
-      paon.name ?? "",
+      (parts.street ?? "").trim().toUpperCase(),
       numericPart(paon.number),
-      numericPart(flatKeyOf(a.saon)),
-      a.label,
+      numberSuffix(paon.number),
+      paon.name === null ? 0 : 1,
+      paon.name ?? "",
+      numericPart(flat),
+      numberSuffix(flat),
+      labelForAddressParts(parts),
     ];
   };
-  return [...addresses].sort((x, y) => {
-    const kx = key(x);
-    const ky = key(y);
-    for (let i = 0; i < kx.length; i += 1) {
-      if (kx[i] < ky[i]) return -1;
-      if (kx[i] > ky[i]) return 1;
-    }
-    return 0;
-  });
+  const kx = key(a);
+  const ky = key(b);
+  for (let i = 0; i < kx.length; i += 1) {
+    if (kx[i] < ky[i]) return -1;
+    if (kx[i] > ky[i]) return 1;
+  }
+  return 0;
+}
+
+function sortAddresses(addresses: ResolvedAddress[]): ResolvedAddress[] {
+  return [...addresses].sort(compareAddressParts);
 }
 
 // ------------------------------------------------------------------

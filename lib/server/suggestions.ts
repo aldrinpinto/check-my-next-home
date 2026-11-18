@@ -20,9 +20,19 @@
 // typed with it. Bare street or place names suggest
 // nothing (D71's scope ruling stands — no national
 // street-name index). The two groups are "Postcodes" and
-// "Homes", capped at 8 in total; each item carries the
-// href a pick navigates to, so the client holds no routing
-// logic of its own.
+// "Homes"; each item carries the href a pick navigates to,
+// so the client holds no routing logic of its own.
+//
+// D71 AMENDMENT (founder ruling, 18 Nov 2026): a full
+// postcode's Homes group carries that postcode's COMPLETE
+// home list — the original cap of 8 hid homes past the cut
+// (the founder's own 19 Birkdale Rise sat out of view at
+// CM3 2JT, on a street the site holds in full). The cap of
+// 8 still governs every fragment shape (the partial-
+// postcode Postcodes group above all); the full-postcode
+// list is bounded only by a defensive ceiling far above
+// any real postcode's home count, and hitting it logs
+// rather than truncating silently.
 //
 // Server-time budget: under 100ms (D72 item 4). Both reads
 // are prefix/index reads over filed tables — the postcode
@@ -31,6 +41,7 @@
 
 import {
   classifyAddressInput,
+  compareAddressParts,
   labelForAddressParts,
   type AddressQueryable,
   type LoadedAddressParts,
@@ -42,8 +53,18 @@ import { createPickingIndexSource } from "./picking-index";
 
 // Suggestions start at 3 typed characters (D71).
 export const SUGGEST_MIN_CHARS = 3;
-// The cap across both groups (D72 item 6).
+// The cap across both groups for the FRAGMENT shapes
+// (D72 item 6): a partial postcode's Postcodes group.
+// A full postcode's Homes group is NOT under this cap —
+// it serves the complete list (D71 amendment, above).
 export const SUGGEST_TOTAL_CAP = 8;
+// The defensive ceiling on a full postcode's Homes group
+// (D71 amendment): a postcode's homes number in the
+// hundreds at most, so 1,000 sits far above any real
+// list. It exists only to bound a pathological response;
+// reaching it logs (suggestions.ceiling) and truncates
+// at the ceiling — never silently, and never below it.
+export const SUGGEST_FULL_POSTCODE_CEILING = 1_000;
 
 export interface SuggestionItem {
   label: string;
@@ -84,19 +105,78 @@ export function createSuggestionSource(db: AddressQueryable): SuggestionSource {
   };
 }
 
-// The spaced prefix a partial input names: "cm3" -> "CM3",
-// "CM3 2" / "cm32" -> "CM3 2". Returns null when the input
-// carries no postcode-shaped fragment at all. The outward
-// code is letters + a digit + an optional LETTER (CM3,
-// SW1A) — a digit after the outward's digit belongs to
-// the inward code, so the parse must not eat it.
-export function spacedPrefixOf(raw: string): string | null {
+// The inward code's shape, whole or cut off mid-typing:
+// a digit, then up to two letters — "", "1", "1G" and
+// "1GN" are all a visitor may have typed so far. A rest
+// that breaks this ("61", say) cannot be an inward start,
+// which is what prunes the impossible parses below.
+function inwardPartialOk(rest: string): boolean {
+  return rest === "" || /^[0-9][A-Z]{0,2}$/.test(rest);
+}
+
+// The spaced prefixes a partial input may name, best
+// first. UK outward codes are 1–2 letters + 1–2 digits
+// (E16, SE15, EH12, B24, LS12) or 1–2 letters + a digit
+// + a letter (SW1A, EC1V, W1A) — the parse must allow
+// BOTH digit shapes. (The founder-found bug, 18 Nov
+// 2026: the old parse allowed ONE digit only — letters +
+// a digit + an optional letter — so a two-digit district
+// was split after its first digit: "E161" produced the
+// prefix "E1 61", which matches nothing filed, and
+// partial-postcode suggestions silently returned nothing
+// for every two-digit district in the country.)
+//
+// One string can still parse two ways: "CM32" is the
+// district CM32 with nothing after it, or CM3 with the
+// inward's "2" — and "SE15" is the same shape the other
+// way (SE1 with a "5", or the district SE15, which is a
+// real district). No string-only rule separates those;
+// an explicit space in what was typed does ("CM3 2" is
+// unambiguous), so that parse leads when present, then
+// the longest district, then the shorter one.
+// suggestionsFor serves the first candidate the filed
+// directory actually answers — the directory is the
+// disambiguator of last resort.
+export function spacedPrefixCandidatesOf(raw: string): string[] {
+  const candidates: string[] = [];
+  const add = (district: string, rest: string) => {
+    if (!inwardPartialOk(rest)) return;
+    const prefix = rest === "" ? district : `${district} ${rest}`;
+    if (!candidates.includes(prefix)) candidates.push(prefix);
+  };
+
+  // An explicit space pins the outward / inward boundary
+  // exactly where the visitor put it.
+  const spaced = /^([A-Z]{1,2}[0-9][A-Z0-9]?)\s+([0-9][A-Z]{0,2})$/.exec(
+    raw.toUpperCase().trim().replace(/\s+/g, " "),
+  );
+  if (spaced) add(spaced[1], spaced[2]);
+
   const compact = raw.toUpperCase().replace(/[^A-Z0-9]/g, "");
-  const match = /^([A-Z]{1,2}[0-9][A-Z]?)([0-9][A-Z0-9]*)?$/.exec(compact);
-  if (!match) return null;
-  const outward = match[1];
-  const rest = match[2] ?? "";
-  return rest === "" ? outward : `${outward} ${rest}`;
+  // Longest district first: two digits (E16), then digit
+  // + letter (SW1A), then one digit (CM3) — the one-digit
+  // form doubles as the shorter-district fallback for a
+  // two-digit string ("CM32" also yields "CM3 2").
+  const twoDigit = /^([A-Z]{1,2}[0-9]{2})(.*)$/.exec(compact);
+  if (twoDigit) add(twoDigit[1], twoDigit[2]);
+  const digitLetter = /^([A-Z]{1,2}[0-9][A-Z])(.*)$/.exec(compact);
+  if (digitLetter) add(digitLetter[1], digitLetter[2]);
+  const oneDigit = /^([A-Z]{1,2}[0-9])(.*)$/.exec(compact);
+  if (oneDigit) add(oneDigit[1], oneDigit[2]);
+  return candidates;
+}
+
+// The spaced prefix a partial input names — the best
+// parse from spacedPrefixCandidatesOf: "cm3" -> "CM3",
+// "CM3 2" -> "CM3 2", "e161" -> "E16 1", "se15" ->
+// "SE15". Returns null when the input carries no
+// postcode-shaped fragment at all. suggestionsFor also
+// walks the remaining candidates when the filed
+// directory answers nothing for the best one (a bare
+// "cm32"'s best parse is the district CM32; the prefix
+// that serves is its fallback, "CM3 2").
+export function spacedPrefixOf(raw: string): string | null {
+  return spacedPrefixCandidatesOf(raw)[0] ?? null;
 }
 
 // The home key for filed parts alone. homeKeyOf's rung-1
@@ -146,8 +226,18 @@ export async function suggestionsFor(
   if (input.postcode) {
     // A full postcode: its filed homes, filtered by the
     // address words typed with it (every typed word must
-    // appear in the home's filed parts).
-    const rows = await source.addressesInPostcode(input.postcode);
+    // appear in the home's filed parts). The homes are
+    // served in natural address order — the picker's own
+    // order (compareAddressParts, founder fix 18 Nov
+    // 2026) — applied here so the dropdown holds it for
+    // any source, not only the union's.
+    //
+    // The list is COMPLETE (D71 amendment, founder ruling
+    // 18 Nov 2026): no cap — the dropdown renders it in a
+    // scrollable region. The filtered list is uncapped
+    // too: words typed with the postcode narrow within
+    // the full list, never within a capped slice of it.
+    const rows = [...(await source.addressesInPostcode(input.postcode))].sort(compareAddressParts);
     const words = input.text.split(" ").filter(Boolean);
     const items: SuggestionItem[] = [];
     const seen = new Set<string>();
@@ -161,7 +251,18 @@ export async function suggestionsFor(
       if (seen.has(key)) continue;
       seen.add(key);
       items.push({ label: `${label}, ${input.postcode}`, href: homeRoute(input.postcode, key) });
-      if (items.length >= SUGGEST_TOTAL_CAP) break;
+    }
+    if (items.length > SUGGEST_FULL_POSTCODE_CEILING) {
+      // The defensive ceiling (see the constant): log the
+      // truncation with the true count, then serve the
+      // first ceiling-many in natural order.
+      logEntry(req, "suggestions.ceiling", {
+        layer: "local",
+        reason: "full-postcode-ceiling",
+        homes: items.length,
+        ceiling: SUGGEST_FULL_POSTCODE_CEILING,
+      });
+      items.length = SUGGEST_FULL_POSTCODE_CEILING;
     }
     if (items.length > 0) groups.push({ label: "Homes", items });
     logEntry(req, "suggestions.served", {
@@ -175,19 +276,30 @@ export async function suggestionsFor(
     return { groups };
   }
 
-  const prefix = spacedPrefixOf(raw);
-  if (prefix && input.outward) {
-    const postcodes = await source.postcodesByPrefix(prefix, SUGGEST_TOTAL_CAP);
-    // A prefix that has quietly become a whole postcode
-    // ("CM3 2JT" typed without the classifier seeing it as
-    // one cannot happen — classifyAddressInput runs first;
+  const candidates = spacedPrefixCandidatesOf(raw);
+  if (candidates.length > 0 && input.outward) {
+    // The first candidate the filed directory answers
+    // wins. The candidate order (an explicit space's
+    // parse, then the longest district) is a preference,
+    // not a verdict: a candidate that names nothing
+    // filed — "CM32", a district that does not exist —
+    // falls through to the next ("CM3 2"). A prefix that
+    // has quietly become a whole postcode ("CM3 2JT"
+    // typed without the classifier seeing it as one
+    // cannot happen — classifyAddressInput runs first;
     // this guard is for a prefix equal to a full postcode
     // arriving via the outward path) still serves the
     // postcode itself.
-    const items = postcodes.map((postcode) => ({
-      label: postcode,
-      href: postcodeRoute(postcode),
-    }));
+    let items: SuggestionItem[] = [];
+    for (const prefix of candidates) {
+      const postcodes = await source.postcodesByPrefix(prefix, SUGGEST_TOTAL_CAP);
+      if (postcodes.length === 0) continue;
+      items = postcodes.map((postcode) => ({
+        label: postcode,
+        href: postcodeRoute(postcode),
+      }));
+      break;
+    }
     if (items.length > 0) groups.push({ label: "Postcodes", items });
     logEntry(req, "suggestions.served", {
       layer: "local",

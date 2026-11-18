@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { labelForAddressParts, type ResolvedAddress } from "../lib/address";
+import {
+  labelForAddressParts,
+  type LoadedAddressParts,
+  type ResolvedAddress,
+} from "../lib/address";
 import { PICK_FALLBACK_FLAG, PICK_FALLBACK_LINE } from "../lib/journey";
 import { setEntryLogSink } from "../lib/server/entry-log";
 import {
@@ -22,7 +26,12 @@ import {
   isResolveToken,
   RESOLVE_RECORD_TTL_MS,
 } from "../lib/server/resolve-records";
-import { suggestionsFor } from "../lib/server/suggestions";
+import {
+  spacedPrefixOf,
+  SUGGEST_FULL_POSTCODE_CEILING,
+  suggestionsFor,
+  type SuggestionSource,
+} from "../lib/server/suggestions";
 import {
   BEAULIEU,
   BIRKDALE,
@@ -101,9 +110,15 @@ describe("(a) local only — Birkdale CM3 2JT", () => {
 
     const homes = await suggestionsFor(BIRKDALE, fixture.source, "a1");
     expect(homes.groups[0].label).toBe("Homes");
-    expect(homes.groups[0].items).toHaveLength(8); // the cap
-    expect(homes.groups[0].items.map((item) => item.label)).toContain(
-      `1 Birkdale Rise, ${BIRKDALE}`,
+    // D71 amendment (founder ruling, 18 Nov 2026): a full
+    // postcode's Homes group is the COMPLETE list — all
+    // thirty filed homes in natural order, 19 Birkdale
+    // Rise among them. Under the old cap of 8 the served
+    // eight stopped at 18 and his own home sat past the
+    // cut (his play-server test, 18 Nov 2026).
+    expect(homes.groups[0].items).toHaveLength(30);
+    expect(homes.groups[0].items.map((item) => item.label)).toEqual(
+      Array.from({ length: 30 }, (_, i) => `${i + 1} Birkdale Rise, ${BIRKDALE}`),
     );
     // Address words typed with the postcode filter the homes.
     const filtered = await suggestionsFor(`19 Birkdale Rise ${BIRKDALE}`, fixture.source, "a1");
@@ -135,6 +150,168 @@ describe("(a) local only — Birkdale CM3 2JT", () => {
 });
 
 // ------------------------------------------------------------------
+// The D71 amendment's bounds (founder ruling, 18 Nov
+// 2026): the full-postcode list is complete; the fragment
+// cap of 8 stands; the defensive ceiling logs.
+// ------------------------------------------------------------------
+
+describe("the D71 amendment — complete full-postcode list, fragment cap kept", () => {
+  const SYNTH = "ZZ1 1AA";
+  // Twelve postcodes under one prefix, and a full
+  // postcode whose homes are seeded in STRING order so
+  // the pins prove the served order is the comparator's.
+  function syntheticSource(homeCount: number): SuggestionSource {
+    const postcodes = Array.from({ length: 12 }, (_, i) => `ZZ1 1A${String.fromCharCode(65 + i)}`);
+    const numbers = Array.from({ length: homeCount }, (_, i) => String(i + 1)).sort();
+    const homes: LoadedAddressParts[] = numbers.map((paon) => ({
+      postcode: SYNTH,
+      paon,
+      saon: null,
+      street: "HIGH STREET",
+      locality: null,
+      town: "EXETER",
+    }));
+    return {
+      async postcodesByPrefix(prefix, limit) {
+        return postcodes.filter((postcode) => postcode.startsWith(prefix)).slice(0, limit);
+      },
+      async addressesInPostcode(postcode) {
+        return postcode === SYNTH ? homes : [];
+      },
+    };
+  }
+
+  it("a partial postcode still caps at 8 in total", async () => {
+    const result = await suggestionsFor("ZZ1 1", syntheticSource(3), "x1");
+    expect(result.groups).toHaveLength(1);
+    expect(result.groups[0].label).toBe("Postcodes");
+    expect(result.groups[0].items).toHaveLength(8);
+  });
+
+  it("a full postcode serves every home, in natural order", async () => {
+    const result = await suggestionsFor(SYNTH, syntheticSource(27), "x2");
+    expect(result.groups[0].label).toBe("Homes");
+    expect(result.groups[0].items).toHaveLength(27);
+    expect(result.groups[0].items.map((item) => item.label)).toEqual(
+      Array.from({ length: 27 }, (_, i) => `${i + 1} High Street, ${SYNTH}`),
+    );
+  });
+
+  it("address words typed with the postcode narrow within the full list", async () => {
+    const result = await suggestionsFor(`27 High ${SYNTH}`, syntheticSource(27), "x3");
+    expect(result.groups[0].items).toHaveLength(1);
+    expect(result.groups[0].items[0].label).toBe(`27 High Street, ${SYNTH}`);
+  });
+
+  it("the defensive ceiling truncates at the ceiling — and logs it, never silently", async () => {
+    const over = SUGGEST_FULL_POSTCODE_CEILING + 5;
+    const result = await suggestionsFor(SYNTH, syntheticSource(over), "x4");
+    expect(result.groups[0].items).toHaveLength(SUGGEST_FULL_POSTCODE_CEILING);
+    expect(result.groups[0].items.at(-1)?.label).toBe(
+      `${SUGGEST_FULL_POSTCODE_CEILING} High Street, ${SYNTH}`,
+    );
+    const ceilingLog = logsFor("x4").find((l) => l.includes("event=suggestions.ceiling"));
+    expect(ceilingLog).toContain(`homes=${over}`);
+    expect(ceilingLog).toContain(`ceiling=${SUGGEST_FULL_POSTCODE_CEILING}`);
+  });
+});
+
+// ------------------------------------------------------------------
+// Two-digit districts — the founder-found suggest bug
+// (18 Nov 2026). The founder, testing the play server,
+// typed E16 and got NO autosuggestions at all, while CM3
+// worked. Cause, in two halves: spacedPrefixOf's outward
+// parse allowed one digit only, so "E161" produced the
+// prefix "E1 61", which matches nothing filed; and the
+// classifier's outward token would not match mid-token,
+// so "E161" carried no outward and the partial branch
+// never ran. Both halves are pinned here (the classifier
+// half also in tests/address.test.ts).
+// ------------------------------------------------------------------
+
+describe("two-digit districts — partial-postcode suggestions", () => {
+  // The witness directory: two E16 postcodes (a real
+  // two-digit district) and the golden CM3 2JT.
+  function districtSource(): SuggestionSource {
+    const directory = ["CM3 2JT", "E16 1EG", "E16 1GN"];
+    return {
+      async postcodesByPrefix(prefix, limit) {
+        return directory
+          .filter((postcode) => postcode.startsWith(prefix))
+          .sort()
+          .slice(0, limit);
+      },
+      async addressesInPostcode() {
+        return [];
+      },
+    };
+  }
+
+  it("the outward parse allows both digit shapes — and the digit+letter form", () => {
+    // Two-digit districts parse whole, at every depth of
+    // typing.
+    expect(spacedPrefixOf("E16")).toBe("E16");
+    expect(spacedPrefixOf("E161")).toBe("E16 1");
+    expect(spacedPrefixOf("E161G")).toBe("E16 1G");
+    expect(spacedPrefixOf("EH12")).toBe("EH12");
+    expect(spacedPrefixOf("B24")).toBe("B24");
+    expect(spacedPrefixOf("SE15")).toBe("SE15");
+    expect(spacedPrefixOf("LS12")).toBe("LS12");
+    expect(spacedPrefixOf("W12")).toBe("W12");
+    // The digit+letter districts, bare and with the
+    // inward begun.
+    expect(spacedPrefixOf("W1A")).toBe("W1A");
+    expect(spacedPrefixOf("SW1A")).toBe("SW1A");
+    expect(spacedPrefixOf("SW1A1")).toBe("SW1A 1");
+    expect(spacedPrefixOf("EC1V")).toBe("EC1V");
+    // The one-digit districts, exactly as before.
+    expect(spacedPrefixOf("CM3")).toBe("CM3");
+    expect(spacedPrefixOf("CM3 2")).toBe("CM3 2");
+  });
+
+  it("a bare two-digit district suggests its postcodes", async () => {
+    const result = await suggestionsFor("E16", districtSource(), "t1");
+    expect(result.groups).toHaveLength(1);
+    expect(result.groups[0].label).toBe("Postcodes");
+    expect(result.groups[0].items.map((item) => item.label)).toEqual(["E16 1EG", "E16 1GN"]);
+  });
+
+  it("a two-digit partial narrows by as much of the inward as was typed", async () => {
+    // "E161" has typed the inward's first digit only, so
+    // both E16 postcodes with a 1-inward are served —
+    // E16 1GN among them (before the fix: nothing at
+    // all). "E161G" has typed one letter more and narrows
+    // to the one postcode.
+    const begun = await suggestionsFor("E161", districtSource(), "t2");
+    expect(begun.groups).toHaveLength(1);
+    expect(begun.groups[0].items.map((item) => item.label)).toEqual(["E16 1EG", "E16 1GN"]);
+
+    const narrowed = await suggestionsFor("E161G", districtSource(), "t2");
+    expect(narrowed.groups).toHaveLength(1);
+    expect(narrowed.groups[0].items.map((item) => item.label)).toEqual(["E16 1GN"]);
+    expect(narrowed.groups[0].items[0].href).toBe("/search?postcode=E16+1GN");
+  });
+
+  it("the one-digit regressions hold: CM3 and CM32 both serve CM3 2JT", async () => {
+    // "CM32" is the ambiguity the candidate walk exists
+    // for: its best parse is the district CM32, which the
+    // directory does not hold, so the walk falls through
+    // to "CM3 2" — the behaviour the site has always had
+    // for this typing.
+    for (const raw of ["CM3", "CM32", "CM3 2"]) {
+      const result = await suggestionsFor(raw, districtSource(), "t3");
+      expect(result.groups).toHaveLength(1);
+      expect(result.groups[0].items.map((item) => item.label)).toEqual(["CM3 2JT"]);
+    }
+  });
+
+  it("a well-formed prefix the directory does not hold still serves nothing", async () => {
+    const result = await suggestionsFor("SW1A", districtSource(), "t4");
+    expect(result.groups).toEqual([]);
+  });
+});
+
+// ------------------------------------------------------------------
 // (b) POSTIO ONLY — Minerva KT17 1FH
 // ------------------------------------------------------------------
 
@@ -146,6 +323,11 @@ describe("(b) postio only — Minerva KT17 1FH", () => {
     const list = await pickerList({ postio, postcode: MINERVA, local: [], req: "b1" });
     expect(list.rows).toHaveLength(7);
     expect(list.rows.every((row) => row.source === "postio")).toBe(true);
+    // The flats serve in natural order (founder fix,
+    // 18 Nov 2026): Flat 3 … Flat 9, numerically.
+    expect(list.rows.map((row) => row.label)).toEqual(
+      [3, 4, 5, 6, 7, 8, 9].map((n) => `Flat ${n}, Minerva House, 12 Ceres Crescent`),
+    );
     expect(list.rows.map((row) => row.label)).toContain("Flat 4, Minerva House, 12 Ceres Crescent");
     expect(postio.calls).toEqual([{ op: "postcode", arg: MINERVA }]);
 
@@ -355,6 +537,13 @@ describe("(e) EPC-covered — Beaulieu CM1 6ER", () => {
     expect(postio.calls).toHaveLength(0);
     expect(list.rows).toHaveLength(49);
     expect(list.rows.every((row) => row.source === "local")).toBe(true);
+    // Natural order (founder fix, 18 Nov 2026): the odd
+    // numbers read 1, 3, 5 … 97 — under string order the
+    // second row would be 11.
+    expect(list.rows.map((row) => row.label).slice(0, 5)).toEqual(
+      [1, 3, 5, 7, 9].map((n) => `${n} George Heard Crescent`),
+    );
+    expect(list.rows[48].label).toBe("97 George Heard Crescent");
     // The rows carry durable home keys, not tokens: an
     // index-only home is a first-class local home.
     const last = list.rows.find((row) => row.label === "49 George Heard Crescent");
@@ -366,9 +555,14 @@ describe("(e) EPC-covered — Beaulieu CM1 6ER", () => {
   it("suggestions serve the certificate homes from the local union", async () => {
     const homes = await suggestionsFor(BEAULIEU, fixture.source, "e2");
     expect(homes.groups[0].label).toBe("Homes");
-    expect(homes.groups[0].items).toHaveLength(8); // the cap
-    expect(homes.groups[0].items.map((item) => item.label)).toContain(
-      `1 George Heard Crescent, ${BEAULIEU}`,
+    // D71 amendment (18 Nov 2026): the COMPLETE list —
+    // all 49 certificate homes in natural order (1, 3, 5
+    // … 97). Under the old cap of 8 only the first eight
+    // were served, and under string order even those
+    // would have read 1, 11, 13, 15, 17, 19, 21, 23.
+    expect(homes.groups[0].items).toHaveLength(49);
+    expect(homes.groups[0].items.map((item) => item.label)).toEqual(
+      Array.from({ length: 49 }, (_, i) => `${2 * i + 1} George Heard Crescent, ${BEAULIEU}`),
     );
   });
 });
@@ -378,7 +572,7 @@ describe("(e) EPC-covered — Beaulieu CM1 6ER", () => {
 // ------------------------------------------------------------------
 
 describe("(d) combination — EX1 1AA", () => {
-  it("local partial + Postio merge into one deduped list, local rows first", async () => {
+  it("local partial + Postio merge into one deduped list in natural address order", async () => {
     const postio = createFakePostioClient({ postcodes: fixture.postioLists });
     const list = await pickerList({
       postio,
@@ -399,6 +593,45 @@ describe("(d) combination — EX1 1AA", () => {
     expect(log).toContain("local=2");
     expect(log).toContain("postio=4");
     expect(log).toContain("deduped=2");
+  });
+
+  it("a Postio row interleaves between local rows — one merged list, never grouped by layer", async () => {
+    // The founder fix (18 Nov 2026) stated as a merge
+    // rule: on this fixture the natural order and the
+    // layer order in the spec above coincide, so this
+    // pin separates them — local holds 2 and 10, Postio
+    // adds 1 and 3, and the served list reads 1, 2, 3,
+    // 10 with the sources interleaved.
+    const parts = (paon: string) => ({
+      postcode: COMBINATION,
+      paon,
+      saon: null,
+      street: "HIGH STREET",
+      locality: null,
+      town: "EXETER",
+    });
+    const local: ResolvedAddress[] = ["2", "10"].map((paon) => ({
+      ...parts(paon),
+      label: labelForAddressParts(parts(paon)),
+    }));
+    const postio = createFakePostioClient({
+      postcodes: {
+        [COMBINATION]: ["1", "2", "3", "10"].map((paon) => ({
+          udprn: `200${paon}`,
+          parts: parts(paon),
+          label: `${paon} High Street`,
+        })),
+      },
+    });
+    const list = await pickerList({ postio, postcode: COMBINATION, local, req: "d1b" });
+    expect(list.rows.map((row) => row.label)).toEqual([
+      "1 High Street",
+      "2 High Street",
+      "3 High Street",
+      "10 High Street",
+    ]);
+    expect(list.rows.map((row) => row.source)).toEqual(["postio", "local", "postio", "local"]);
+    expect(list.dedupedCount).toBe(2);
   });
 
   it("a Postio pick promotes to its home key once its sale is filed", async () => {

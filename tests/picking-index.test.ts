@@ -92,7 +92,7 @@ function seededDb(): FakePickingDb {
 }
 
 describe("the union read model", () => {
-  it("serves filed rows first, then index-only rows, each home once", async () => {
+  it("serves each home once — the filed form winning collisions — in natural address order", async () => {
     const db = seededDb();
     const union = await createPickingIndexSource(db as never).unionAddressesInPostcode("CM3 2JT");
     expect(union.map((p) => p.paon)).toEqual(["19", "21", "23"]);
@@ -167,6 +167,201 @@ describe("the union read model", () => {
       "CM3 2JT",
     );
     expect(union.map((p) => p.paon)).toEqual(["19", "21"]);
+  });
+});
+
+// Natural address order (founder fix, 18 Nov 2026): the
+// founder's own play-server test found the E16 1GN homes
+// listed 1, 10, 14, 3, 5, 6, 7 — string order — where
+// Royal Mail's address finder lists the same street
+// naturally. The union serves ONE merged list in natural
+// order (compareAddressParts), whatever layer each home
+// came from; these pins seed the rows in the string
+// order the underlying queries serve and assert the
+// merged reading. Refinement (same day, the founder's
+// E16 1GF screenshots): a named building that carries a
+// street number interleaves at that number — Royal Mail
+// lists the Tilly Court flats at 29 Hastings Road
+// between 27 and 31 — instead of sitting after every
+// numbered house on the street.
+describe("natural address order — the founder fix (18 Nov 2026)", () => {
+  it("Exeter E16 1GN: filed and index rows merge into one numeric order", async () => {
+    const db = new FakePickingDb();
+    // The filed rows in the order the filed query's own
+    // ORDER BY serves them (string order: 1, 10, 14).
+    db.pricePaid = ["1", "10", "14"].map((paon) =>
+      saleRow({ postcode: "E16 1GN", paon, street: "EXETER ROAD", town: "LONDON" }),
+    );
+    db.index = ["7", "3", "6", "5"].map((paon) =>
+      indexRow({
+        postcode: "E16 1GN",
+        paon,
+        street: "EXETER ROAD",
+        town: "LONDON",
+        home_key: `${paon}||EXETER ROAD`,
+      }),
+    );
+    const union = await createPickingIndexSource(db as never).unionAddressesInPostcode("E16 1GN");
+    expect(union.map((p) => p.paon)).toEqual(["1", "3", "5", "6", "7", "10", "14"]);
+  });
+
+  it("Beaulieu CM1 6ER: the 49 odd numbers read 1, 3, 5 … 97, not 1, 11, 13 …", async () => {
+    const db = new FakePickingDb();
+    const odds: string[] = [];
+    for (let n = 1; n <= 97; n += 2) odds.push(String(n));
+    // Seeded in string order — the order the index's own
+    // ORDER BY serves (1, 11, 13, …, 19, 21, …, 3, 31, …).
+    db.index = [...odds].sort().map((paon) =>
+      indexRow({
+        postcode: "CM1 6ER",
+        paon,
+        street: "GEORGE HEARD CRESCENT",
+        home_key: `${paon}||GEORGE HEARD CRESCENT`,
+        sources: ["epc"],
+        sales_edition: null,
+        epc_edition: "2026-11-18",
+      }),
+    );
+    const union = await createPickingIndexSource(db as never).unionAddressesInPostcode("CM1 6ER");
+    expect(union.map((p) => Number(p.paon))).toEqual(odds.map(Number));
+  });
+
+  it("Minerva KT17 1FH: the flats read Flat 1 … Flat 12 in numeric order", async () => {
+    // The witnessed Minerva House holds Flats 1–9;
+    // Flats 10–12 are added so the pin discriminates
+    // natural order from string order (where FLAT 10
+    // would sit between FLAT 1 and FLAT 2). Half the
+    // flats are filed, half index-only: the merged list
+    // is one order regardless of source.
+    const db = new FakePickingDb();
+    const flats = Array.from({ length: 12 }, (_, i) => `FLAT ${i + 1}`);
+    const stringOrder = [...flats].sort();
+    db.pricePaid = stringOrder
+      .filter((_, i) => i % 2 === 0)
+      .map((saon) =>
+        saleRow({
+          postcode: "KT17 1FH",
+          paon: "MINERVA HOUSE, 12",
+          saon,
+          street: "CERES CRESCENT",
+          town: "EPSOM",
+        }),
+      );
+    db.index = stringOrder
+      .filter((_, i) => i % 2 === 1)
+      .map((saon) =>
+        indexRow({
+          postcode: "KT17 1FH",
+          paon: "MINERVA HOUSE, 12",
+          saon,
+          street: "CERES CRESCENT",
+          town: "EPSOM",
+          home_key: `MINERVA HOUSE 12|${saon}|CERES CRESCENT`,
+        }),
+      );
+    const union = await createPickingIndexSource(db as never).unionAddressesInPostcode("KT17 1FH");
+    expect(union.map((p) => p.saon)).toEqual(flats);
+  });
+
+  it("a suffix sits with its number, a numbered named building interleaves at its number, and a numberless named home follows the numbered run", async () => {
+    const db = new FakePickingDb();
+    db.pricePaid = [
+      saleRow({ postcode: "EX1 1AA", paon: "536", street: "HIGH STREET", town: "EXETER" }),
+      saleRow({ postcode: "EX1 1AA", paon: "14", street: "HIGH STREET", town: "EXETER" }),
+      saleRow({ postcode: "EX1 1AA", paon: "ROSE COTTAGE", street: "HIGH STREET", town: "EXETER" }),
+    ];
+    db.index = [
+      indexRow({
+        postcode: "EX1 1AA",
+        paon: "535A",
+        street: "HIGH STREET",
+        town: "EXETER",
+        home_key: "535A||HIGH STREET",
+      }),
+      indexRow({
+        postcode: "EX1 1AA",
+        paon: "535",
+        street: "HIGH STREET",
+        town: "EXETER",
+        home_key: "535||HIGH STREET",
+      }),
+      indexRow({
+        postcode: "EX1 1AA",
+        paon: "10",
+        street: "HIGH STREET",
+        town: "EXETER",
+        home_key: "10||HIGH STREET",
+      }),
+      indexRow({
+        postcode: "EX1 1AA",
+        paon: "MINERVA HOUSE, 12",
+        street: "HIGH STREET",
+        town: "EXETER",
+        home_key: "MINERVA HOUSE 12||HIGH STREET",
+      }),
+    ];
+    const union = await createPickingIndexSource(db as never).unionAddressesInPostcode("EX1 1AA");
+    // MINERVA HOUSE, 12 carries street number 12, so it
+    // interleaves between 10 and 14 — the pin
+    // discriminates: under the pre-refinement rule the
+    // named building sat after 536. ROSE COTTAGE carries
+    // no number at all, so it still follows the whole
+    // numbered run.
+    expect(union.map((p) => p.paon)).toEqual([
+      "10",
+      "MINERVA HOUSE, 12",
+      "14",
+      "535",
+      "535A",
+      "536",
+      "ROSE COTTAGE",
+    ]);
+  });
+
+  it("Tilly Court E16 1GF: a named building's flats interleave at its street number (the founder's Royal Mail screenshots)", async () => {
+    // Royal Mail's finder for E16 1GF lists "1, Tilly
+    // Court, 29 Hastings Road" and "2, Tilly Court, 29
+    // Hastings Road" between 27 and 31 Hastings Road.
+    // The filed parts carry the number after the comma
+    // (paon "TILLY COURT, 29", saon "1"/"2") — the
+    // number is the building's street number, so the
+    // flats sit at 29 in the street's run, in flat
+    // order, not after 47 at the street's end.
+    const db = new FakePickingDb();
+    db.pricePaid = [
+      saleRow({ postcode: "E16 1GF", paon: "31", street: "HASTINGS ROAD", town: "LONDON" }),
+      saleRow({
+        postcode: "E16 1GF",
+        paon: "TILLY COURT, 29",
+        saon: "2",
+        street: "HASTINGS ROAD",
+        town: "LONDON",
+      }),
+    ];
+    db.index = [
+      indexRow({
+        postcode: "E16 1GF",
+        paon: "27",
+        street: "HASTINGS ROAD",
+        town: "LONDON",
+        home_key: "27||HASTINGS ROAD",
+      }),
+      indexRow({
+        postcode: "E16 1GF",
+        paon: "TILLY COURT, 29",
+        saon: "1",
+        street: "HASTINGS ROAD",
+        town: "LONDON",
+        home_key: "TILLY COURT 29|1|HASTINGS ROAD",
+      }),
+    ];
+    const union = await createPickingIndexSource(db as never).unionAddressesInPostcode("E16 1GF");
+    expect(union.map((p) => [p.paon, p.saon])).toEqual([
+      ["27", null],
+      ["TILLY COURT, 29", "1"],
+      ["TILLY COURT, 29", "2"],
+      ["31", null],
+    ]);
   });
 });
 

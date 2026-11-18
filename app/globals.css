@@ -1127,6 +1127,15 @@ body:has(.main--home) .site-footer {
 
 .suggest__list {
   list-style: none;
+  /* D71 amendment (18 Nov 2026): a full postcode's Homes
+     group carries the postcode's COMPLETE list, so the
+     list is a scrollable region — its height capped at
+     roughly eight rows, and never more than 60% of the
+     viewport on a short screen; the group label stays
+     pinned above it. A short list never reaches the cap
+     and renders exactly as before. */
+  max-height: min(19rem, 60vh);
+  overflow-y: auto;
 }
 
 .suggest__item {

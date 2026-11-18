@@ -225,6 +225,28 @@ describe("classifyAddressInput", () => {
     expect(c.outward).toBe("CM3");
   });
 
+  it("reads a compact partial in a two-digit district, inward begun, as partial", () => {
+    // The classifier half of the founder-found suggest
+    // bug (18 Nov 2026): the outward token's trailing \b
+    // could never match mid-token, so "E161" and "E161G"
+    // classified as carrying no outward at all — and the
+    // suggestions gate (prefix && input.outward) stayed
+    // shut even for a correct prefix. The outward of a
+    // compact partial is the district, however much of
+    // the inward has been typed after it.
+    for (const [raw, outward] of [
+      ["E161", "E16"],
+      ["E161G", "E16"],
+      ["SW1A1", "SW1A"],
+      ["e161g", "E16"],
+    ] as const) {
+      const c = classifyAddressInput(raw);
+      expect(c.postcode).toBeNull();
+      expect(c.partialOnly).toBe(true);
+      expect(c.outward).toBe(outward);
+    }
+  });
+
   it("treats a street with no postcode as carrying no location", () => {
     const c = classifyAddressInput("Birkdale Rise, Hatfield Peverel");
     expect(c.postcode).toBeNull();

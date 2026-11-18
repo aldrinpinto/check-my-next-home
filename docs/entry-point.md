@@ -180,6 +180,7 @@ grep "entry req=<request-id>" <server log>
 | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `suggestions.served`  | The local suggestions behind one keystroke pause: `shape=` (partial-postcode / full-postcode / text), counts, `ms=`. Layer is always `local`.                                                         |
 | `suggestions.limited` | A suggestions call refused by the rate limit.                                                                                                                                                         |
+| `suggestions.ceiling` | A full postcode's home list ran past the defensive ceiling (D71 amendment): `homes=` the true count, `ceiling=` the bound served. A truncation is logged, never silent.                               |
 | `picker.list`         | The picker list's composition: `local=` `postio=` `deduped=` counts, `postioFrom=` (live / memory / failed / not-called), `reason=` (`local-complete`, `merged`, `postio-<failure>`).                 |
 | `postio.call`         | One Postio call: `op=` (postcode / search / udprn / connect), `reason=` (`ok`, `timeout`, `error`, `zero-balance`, `no-key`, `refused`), `ms=`, and Postio's own `postioRequestId=` when it answered. |
 | `pick.resolved`       | A pick's outcome: `layer=local` never occurs (local picks navigate directly); `layer=postio reason=resolved via=memory                                                                                | udprn-call`, or `layer=fallback reason=postio-<failure>`. |
@@ -205,7 +206,7 @@ the outcome.
 | (b) Postio only | **KT17 1FH** (Minerva House)                    | Nothing filed; Postio returns Flats 3–9 as separate delivery points; Flat 4's pick resolves from the warm list memory into a transient record                                                                                                                                                                                                                                     | Postio              | `postio.call op=postcode reason=ok`; `picker.list layer=hybrid`; `transient.created`; `pick.resolved layer=postio via=memory` |
 | (c) Fallback    | **CM0 7AA** (Southminster — the M7.15B witness) | Neither source knows a home there (it stands in the ONSPD excerpt; no filed sales, no index rows from either source — the witness CM1 6ER carried until the preload flipped it). Local empty; Postio scripted to fail in turn (error / timeout / zero-balance / empty). The list degrades silently; a pick lands on the whole-postcode check with `?notfound=pick` and the notice | Fallback            | `picker.list reason=postio-error`; `pick.resolved layer=fallback reason=postio-error` (or `-timeout`, `-zero-balance`)        |
 | (e) EPC-covered | **CM1 6ER** (Beaulieu — the D72 witness)        | No filed sales; the picking index holds its 49 certificate homes. The union serves the picker locally; the fake Postio is never asked; the rows carry durable home keys, not tokens                                                                                                                                                                                               | Local (index)       | `picker.list layer=local reason=local-complete local=49`; zero `postio.call` lines                                            |
-| (d) Combination | **EX1 1AA** (fixture High Street)               | 2 homes filed locally; Postio returns those 2 plus 2 more — merged list of 4, deduped 2, local first. The pick of 3 High Street starts transient, then **promotes** to `3                                                                                                                                                                                                         |                     | HIGH STREET` once its sale is filed (the cold load landing) and the record lapses                                             | Hybrid, then local | `picker.list layer=hybrid local=2 postio=4 deduped=2`; `transient.created`; (in production) `transient.promoted` |
+| (d) Combination | **EX1 1AA** (fixture High Street)               | 2 homes filed locally; Postio returns those 2 plus 2 more — merged list of 4, deduped 2, served in natural address order (the layers decide membership, never display grouping — founder fix, 18 Nov 2026). The pick of 3 High Street starts transient, then **promotes** to `3                                                                                                   |                     | HIGH STREET` once its sale is filed (the cold load landing) and the record lapses                                             | Hybrid, then local | `picker.list layer=hybrid local=2 postio=4 deduped=2`; `transient.created`; (in production) `transient.promoted` |
 
 ## The balance probe — and its one honest limit
 
@@ -348,3 +349,146 @@ run happens on the VPS after deploy, supervised; the
 EPC run when the founder's bulk file arrives. Until a
 pass files, the index reads as empty and the picker
 behaves exactly as it did before the preload.
+
+## D71 amendment — the full-postcode dropdown (build note, 18 Nov 2026)
+
+**The ruling.** The founder, testing the play server
+against Royal Mail's address finder, found the
+dropdown's cap of 8 hiding homes: at CM3 2JT the served
+eight stopped at 18 Birkdale Rise and his own **19
+Birkdale Rise** — filed, with its sale, in data the site
+holds in full — sat past the cut. He ruled the same day:
+for a FULL postcode, the dropdown carries that
+postcode's COMPLETE home list, scrollable, in natural
+address order. This build is that amendment.
+
+**What changed.**
+
+- **Server** (`lib/server/suggestions.ts`): the
+  full-postcode branch of `suggestionsFor` no longer
+  breaks at `SUGGEST_TOTAL_CAP`. The Homes group is the
+  postcode's full union list (the picking-index union,
+  naturally ordered), and address words typed alongside
+  the postcode filter within that full list — the
+  filtered result is uncapped too. The Postio supplement
+  behaviour for short local lists is untouched (a
+  keystroke still never reaches Postio; the supplement
+  lives on the picker path, as before).
+- **The fragment cap stands, exactly.** Partial
+  postcodes (the Postcodes group), fragments and mixed
+  groups still cap at 8 in total (`SUGGEST_TOTAL_CAP`).
+  M7.15C's future Streets group will live under that
+  same fragment cap when it lands; nothing about the
+  fragment shapes changed here.
+- **One bound remains, defensive only:**
+  `SUGGEST_FULL_POSTCODE_CEILING` = 1,000. A postcode's
+  homes number in the hundreds at most, so no real list
+  reaches it; if one ever did, the serve logs
+  `suggestions.ceiling` with the true count and serves
+  the first 1,000 in natural order — a truncation is
+  never silent, and nothing below the ceiling is ever
+  truncated. No pagination: the list is naturally
+  bounded and the picker page remains the full surface.
+- **Client** (`components/PostcodeBox.tsx`,
+  `components/kit.tsx`, `app/globals.css`): the shell
+  and group labels ("Postcodes" / "Homes") are
+  unchanged; a group's list is now a scrollable region
+  (height capped at roughly eight rows, never more than
+  60% of the viewport) under its pinned label. Keyboard
+  up/down traverse the FULL list and the active row is
+  scrolled into view as it moves
+  (`scrollIntoView({ block: "nearest" })`); Enter picks
+  it; a mouse pick works for every row, below the fold
+  included. Short lists never reach the region's cap and
+  render exactly as before.
+
+**Evidence and pins.** The CM3 2JT case is pinned at
+both levels: tests/entry-point.test.ts — scenario (a)
+now asserts all 30 filed Birkdale homes served in
+natural order (19 among them), scenario (e) all 49
+Beaulieu certificate homes, plus a dedicated describe
+for the amendment's bounds (a partial postcode still
+caps at 8; a synthetic 27-home postcode serves all 27
+in natural order; address words narrow within the full
+list; the ceiling truncates at 1,000 and logs). The two
+specs that asserted the old cap on a full-postcode query
+— scenario (a)'s and scenario (e)'s suggestion specs —
+were updated to the new rule. e2e/suggest.e2e.ts runs
+the founder's own case against the served app: the
+CM3 2JT dropdown holds more than 8 homes including
+19 Birkdale Rise, the region scrolls, the keyboard
+walks to 19 (scrolled into view) and Enter lands in its
+check; a second spec picks the last home by mouse.
+
+## Two-digit districts — the partial-suggest bug (fix note, 18 Nov 2026)
+
+**The finding.** The founder, testing the play server
+against Royal Mail's finder, typed a partial postcode
+in a two-digit district — E16 — and got NO
+autosuggestions at all: `/api/suggest?q=E16`, `q=E161`
+and `q=E161G` all returned `{"groups":[]}`, while CM3
+and CM32 correctly returned CM3 2JT. Every partial in
+every two-digit district in the country (E16, SE15,
+EH12, B24, LS12…) was silently dead; one-digit districts
+worked, which is why the golden-corpus testing (CM3,
+KT17) never showed it.
+
+**The cause — two halves, one assumption.** Both halves
+encoded an outward code as letters + ONE digit + an
+optional letter:
+
+- `spacedPrefixOf` (`lib/server/suggestions.ts`) parsed
+  the outward with `^([A-Z]{1,2}[0-9][A-Z]?)(…)$`, so
+  "E161G" parsed as outward "E1" + rest "61G" and
+  produced the prefix "E1 61G" — a string no filed
+  postcode starts with.
+- The classifier's `OUTWARD_RE` (`lib/address.ts`)
+  ended in `\b`, which can never match mid-token, so a
+  compact partial whose inward had begun ("E161",
+  "E161G", "SW1A1") classified as carrying NO outward
+  at all — and the suggestions gate (`prefix &&
+input.outward`) stayed shut whatever the prefix was.
+  The same gate fronts rung 3, so a submitted "E161"
+  also landed on the no-location rung instead of the
+  E16 wider area; it now resolves as the partial it is,
+  exactly as the spaced "CM3 2" always has.
+
+The full-postcode shapes were never affected: the
+classifier's full-postcode regex and `normalisePostcode`
+carry `[A-Z0-9]?` as the outward's fourth character,
+which covers a second digit as readily as a letter
+(E16 1GN's homes served throughout). A sweep of the
+repo found no other site holding the one-digit
+assumption: the loaders' postcode validators are
+full-postcode shapes with the same `[0-9A-Z]?` fourth
+character, and the area derivations (crime, sold
+prices, health) take the letters of an already-spaced
+filed postcode, district-shape agnostic.
+
+**The fix.** The outward grammar is now the real one —
+1–2 letters + 1–2 digits, or 1–2 letters + a digit + a
+letter. `spacedPrefixOf` returns the best of
+`spacedPrefixCandidatesOf`'s parses (an explicit
+space's split first — "CM3 2" is unambiguous — then the
+longest district), and `suggestionsFor` walks the
+candidates, serving the first the filed directory
+answers. The walk is what resolves the one genuinely
+ambiguous shape: "CM32" is CM3 with the inward's "2"
+(the behaviour the site has always had for it) and
+"SE15" is the district SE15 — the same string shape,
+settled only by which prefix the directory holds.
+`OUTWARD_RE`'s trailing `\b` is now `(?![A-Z])`: the
+outward may end where a digit follows (the inward
+beginning), never immediately before a letter.
+
+**Pins.** tests/entry-point.test.ts: the parse pins
+(E16/E161/E161G, EH12, B24, SE15, LS12, W12, W1A,
+SW1A, SW1A1, EC1V, CM3) and the served pins against a
+witness directory (E16 1GN + E16 1EG + CM3 2JT): "E16"
+serves both E16 postcodes; "E161" serves both (only
+the inward's first digit is typed); "E161G" narrows to
+E16 1GN; "CM3"/"CM32"/"CM3 2" all serve CM3 2JT.
+tests/address.test.ts: the classifier pins for compact
+partials. e2e/suggest.e2e.ts: "E161" and "E161G"
+against the served app suggest E16 1GN, the seeded
+corpus's one E16 postcode.

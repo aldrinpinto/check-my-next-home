@@ -24,7 +24,7 @@
 //     pre-preload behaviour, never to an error.
 
 import type { AddressQueryable, LoadedAddressParts } from "../address";
-import { createAddressSource } from "../address";
+import { compareAddressParts, createAddressSource } from "../address";
 import { partsKey } from "./hybrid";
 
 export interface PickingIndexSource {
@@ -33,8 +33,13 @@ export interface PickingIndexSource {
   // Index-only rows: picking_index rows whose home key
   // no filed row carries.
   indexOnlyAddressesInPostcode(postcode: string): Promise<LoadedAddressParts[]>;
-  // The union: filed rows first (they win), then the
-  // index-only rows, in the index's filed order.
+  // The union: filed rows and index-only rows as ONE
+  // list in natural address order (compareAddressParts,
+  // founder fix 18 Nov 2026). The filed rows win
+  // collisions at the dedupe (see split) — precedence
+  // decides whose FORM serves, never a display grouping:
+  // an index-only 3 sorts between a filed 1 and a filed
+  // 10, exactly where a visitor expects it.
   unionAddressesInPostcode(postcode: string): Promise<LoadedAddressParts[]>;
 }
 
@@ -86,7 +91,7 @@ export function createPickingIndexSource(db: AddressQueryable): PickingIndexSour
     indexOnlyAddressesInPostcode: async (postcode) => (await split(postcode)).indexOnlyRows,
     async unionAddressesInPostcode(postcode) {
       const { filedRows, indexOnlyRows } = await split(postcode);
-      return [...filedRows, ...indexOnlyRows];
+      return [...filedRows, ...indexOnlyRows].sort(compareAddressParts);
     },
   };
 }

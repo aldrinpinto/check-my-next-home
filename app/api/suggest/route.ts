@@ -23,8 +23,11 @@
 // The response shape is a contract (pinned by
 // tests/entry-point.test.ts): { groups: [{ label, items:
 // [{ label, href }] }] } — group labels "Postcodes" then
-// "Homes", at most 8 items in total, and every item's href
-// is the route a pick navigates to.
+// "Homes", and every item's href is the route a pick
+// navigates to. Fragment shapes carry at most 8 items in
+// total; a full postcode's Homes group carries that
+// postcode's COMPLETE home list (D71 amendment, founder
+// ruling 18 Nov 2026 — the client renders it scrollable).
 
 import { NextResponse } from "next/server";
 

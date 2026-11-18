@@ -39,6 +39,7 @@
 // item 10).
 
 import {
+  compareAddressParts,
   labelForAddressParts,
   normalisePostcode,
   type LoadedAddressParts,
@@ -194,13 +195,18 @@ export async function pickerList(deps: {
 }): Promise<PickerListResult> {
   const started = entryNow();
   const { postio, postcode, local, req } = deps;
-  const rows: PickerRow[] = local.map((address) => ({
-    key: partsKey(address),
-    label: address.label,
-    source: "local" as const,
-    homeKey: partsKey(address),
+  // Rows are carried with their address parts so the
+  // merged list can be ordered at the end (below).
+  const merged: { row: PickerRow; parts: LoadedAddressParts }[] = local.map((address) => ({
+    row: {
+      key: partsKey(address),
+      label: address.label,
+      source: "local" as const,
+      homeKey: partsKey(address),
+    },
+    parts: address,
   }));
-  const seen = new Set(rows.map((row) => row.key));
+  const seen = new Set(merged.map((entry) => entry.row.key));
   let postioCount = 0;
   let dedupedCount = 0;
   let postioFrom: PickerListResult["postioFrom"] = "not-called";
@@ -225,14 +231,26 @@ export async function pickerList(deps: {
         continue;
       }
       seen.add(key);
-      rows.push({
-        key: `postio:${candidate.udprn}`,
-        label: candidate.label,
-        source: "postio",
-        udprn: candidate.udprn,
+      merged.push({
+        row: {
+          key: `postio:${candidate.udprn}`,
+          label: candidate.label,
+          source: "postio",
+          udprn: candidate.udprn,
+        },
+        parts: candidate.parts,
       });
     }
   }
+
+  // ONE merged list in natural address order
+  // (compareAddressParts, founder fix 18 Nov 2026): the
+  // layers decide which homes are IN the list and, at the
+  // dedupe above, whose form a shared home takes — never
+  // a display grouping. A Postio 3 sorts between a local
+  // 2 and a local 10, where a visitor expects it.
+  merged.sort((x, y) => compareAddressParts(x.parts, y.parts));
+  const rows = merged.map((entry) => entry.row);
 
   logEntry(req, "picker.list", {
     layer: postioCount > 0 ? "hybrid" : "local",

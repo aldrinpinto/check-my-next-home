@@ -162,8 +162,9 @@ export default async function SearchPage({
   const heading =
     resolution.building ?? (resolution.street ? displayText(resolution.street) : postcode);
   // The hybrid list (entry-point build, D72): the ladder's
-  // local rows first, Postio's supplement merged in when
-  // the local list is short — one list, deduplicated. A
+  // local rows, Postio's supplement merged in when
+  // the local list is short — one list, deduplicated, in
+  // natural address order. A
   // merge that fails outright degrades to the local rows:
   // the picker must never dead-end on the backstop.
   let addresses: PickerAddress[];

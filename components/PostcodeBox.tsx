@@ -50,7 +50,12 @@ import { Button, SuggestionShell, type SuggestionGroup, type SuggestionItem } fr
 // postcode, the home's check for a home); the robot check
 // stays on the typed-submit path only, exactly as ruled.
 // Keyboard: up/down move the active suggestion, Enter
-// chooses it, Escape closes the panel. The `suggestions`
+// chooses it, Escape closes the panel. D71 amendment
+// (18 Nov 2026): for a full postcode the panel carries the
+// postcode's COMPLETE home list in a scrollable region
+// (app/globals.css) — the keyboard walks the whole list
+// and the active row is scrolled into view as it moves.
+// The `suggestions`
 // prop remains as a static override (a caller handing
 // groups in suppresses the live fetch); no caller uses it
 // today.
@@ -189,6 +194,17 @@ export default function PostcodeBox({
     }, 140);
     return () => clearTimeout(timer);
   }, [value, suggestions]);
+
+  // Keep the keyboard's active row in view (D71
+  // amendment): on a full postcode's complete list the
+  // active row can sit below the scrollable region's
+  // fold — scroll it to the region's nearest edge
+  // whenever the keyboard moves it. "nearest" leaves an
+  // already-visible row (and the page) untouched.
+  useEffect(() => {
+    if (!activeId) return;
+    document.getElementById(activeId)?.scrollIntoView({ block: "nearest" });
+  }, [activeId]);
 
   function choose(item: SuggestionItem) {
     if (choosingRef.current) return;

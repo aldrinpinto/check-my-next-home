@@ -173,7 +173,10 @@ export function buildEntryFixture(): EntryFixture {
     },
     async addressesInPostcode(postcode: string) {
       // The union (M7.15B): filed rows first (they win),
-      // then the index rows no filed row names.
+      // then the index rows no filed row names. (The real
+      // read model also serves the union in natural
+      // address order; here the surfaces' own comparator
+      // application is what the specs exercise.)
       const filed = filedRows.filter((row) => row.postcode === postcode);
       const filedKeys = new Set(filed.map((row) => partsKey(row)));
       const indexOnly = indexRows.filter(

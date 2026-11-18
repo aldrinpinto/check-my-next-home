@@ -16,6 +16,11 @@
 //                         a keystroke never reaches Postio);
 //   suggestions.limited   a suggestions call refused by the
 //                         rate limit;
+//   suggestions.ceiling   a full postcode's home list ran
+//                         past the defensive ceiling and was
+//                         truncated at it (D71 amendment —
+//                         the truncation is logged, never
+//                         silent);
 //   picker.list           the picker list's composition —
 //                         how many rows each layer supplied
 //                         and how many duplicates were merged;
@@ -48,6 +53,7 @@ import { randomUUID } from "node:crypto";
 export type EntryEvent =
   | "suggestions.served"
   | "suggestions.limited"
+  | "suggestions.ceiling"
   | "picker.list"
   | "postio.call"
   | "pick.resolved"

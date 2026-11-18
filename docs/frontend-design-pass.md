@@ -2740,3 +2740,149 @@ sources), or unheld (ZZ1 1ZZ, CM3 2JA — the
 couldn't-place and wider-area paths, no results
 render). CM0 7AA was the only covered, unstamped,
 zero-filed postcode at rung 2.
+
+## Natural address order (18 Nov 2026) — founder-flagged fidelity fix
+
+The founder's own play-server test (18 Nov 2026,
+screenshots in the chat) compared the site's Homes
+dropdown for E16 1GN against Royal Mail's address
+finder. Royal Mail lists Exeter Road in natural number
+order (1, 2, 3, 4, 5, 6, 7, 10, 12, 14); the site
+listed the homes it holds as "1, 10, 14, 3, 5, 6, 7
+Exeter Road" — string order, inherited from the filed
+queries' ORDER BY street, paon, saon and from the
+union's filed-then-index concatenation. (The two lists
+also differ in membership — Royal Mail's is the full
+PAF list; the site's is the homes the local layers
+hold. That residue is the PAF backstop's known gap,
+not this fix.) He asked for our lists sorted the
+Royal Mail way.
+
+The fix introduces ONE shared comparator,
+compareAddressParts in lib/address.ts, and applies it
+at every point a served home list is ordered:
+
+- the picking union (lib/server/picking-index.ts) now
+  serves filed + index-only rows as one merged list in
+  natural order — the filed form still wins collisions
+  at the dedupe, but precedence no longer groups the
+  display;
+- the suggestions dropdown (lib/server/suggestions.ts)
+  applies the same comparator to the homes it serves,
+  so the capped eight are the first eight in natural
+  order;
+- the picker's merged list (pickerList in
+  lib/server/hybrid.ts) is sorted after the local +
+  Postio merge and dedupe — a Postio row interleaves
+  between local rows by address, never appended as a
+  block;
+- the resolver's own rung-2 list (sortAddresses in
+  lib/address.ts) now delegates to the same comparator,
+  so the degraded-picker fallback path and the narrowed
+  lists read identically.
+
+The comparator's key: street (case-folded); the
+building part's number numerically, then its letter
+suffix (535, 535A, 536); at the same street number, a
+plain numbered house before a named building, named
+buildings alphabetical by name; the flat/unit number
+numerically, then its suffix (Flat 2 before Flat 10);
+the display label as the final tiebreak.
+
+Refinement (18 Nov 2026, the founder's E16 1GF
+screenshots): a number the building part carries
+anywhere — leading, trailing, or after a comma
+("TILLY COURT, 29") — is the building's street number
+for ordering, so a named building interleaves among
+the numbered houses at that number: Royal Mail lists
+"1, Tilly Court, 29 Hastings Road" and its neighbour
+flat between 27 and 31 Hastings Road, and Minerva
+House 12 sits at 12 on Ceres Crescent, not after the
+street's numbered run. Only a building part with no
+number at all (ROSE COTTAGE) still follows the whole
+numbered run, alphabetical among the numberless.
+
+Surfaces checked and deliberately left: the shortlist
+renders in saved order and never re-sorts (the
+visitor's own order, by design); the results and
+nearby lists are ordered by distance, the sold-prices
+history by date, the crime breakdown by count — none
+is an address order, so none follows this rule.
+
+Pins: tests/picking-index.test.ts gains a "natural
+address order" describe — the Exeter witness (filed
+1, 10, 14 + index 3, 5, 6, 7 merge to 1, 3, 5, 6, 7,
+10, 14), the Beaulieu odd numbers (1, 3, 5 … 97, not
+1, 11, 13 …), the Minerva flats (Flat 1 … Flat 12
+across both sources; the witnessed house holds 1–9,
+10–12 added so the pin discriminates natural from
+string order), the suffix/named rules (535, 535A, 536;
+MINERVA HOUSE, 12 interleaving at 12 between 10 and
+14; ROSE COTTAGE, numberless, after the numbered
+run), and the Tilly Court witness (27, the Tilly
+Court flats at 29 in flat order, 31 — the founder's
+E16 1GF screenshots). tests/entry-point.test.ts:
+the (d) combination spec is retitled (it pinned "local
+rows first"; its expectations stand, as on that fixture
+the two orders coincide) and gains an interleave pin
+(local 2 and 10, Postio 1 and 3 serve as 1, 2, 3, 10
+with sources interleaved); the (e) Beaulieu specs now
+assert the exact served order at the picker and at the
+dropdown cap; the (b) Minerva spec asserts the flats'
+exact order. docs/entry-point.md's scenario table is
+updated to match.
+
+## The full-postcode dropdown (18 Nov 2026) — D71 amendment
+
+A second finding from the same play-server test round,
+ruled by the founder the same day: the dropdown's cap
+of 8 hid homes on a full postcode. At CM3 2JT the
+served eight stopped at 18 Birkdale Rise; his own 19
+Birkdale Rise — filed, with its sale — sat past the
+cut, on a street the site holds in full. Natural order
+alone could not cure it (in number order 19 is
+thirteenth of the street's 27 served homes), so D71 is
+amended: **for a full postcode, the dropdown carries
+that postcode's complete home list**. The sentence in
+the natural-order section above — "the capped eight
+are the first eight in natural order" — is superseded
+for the full-postcode shape by this section; the cap
+of 8 still governs every fragment shape (partial
+postcodes, fragments, mixed groups), and M7.15C's
+Streets group will live under that fragment cap.
+
+The dress, in the samples' design language (no sample
+depicts the open dropdown — gap item S-1 — so this is
+built in the shell's own language, as the dropdown
+itself was): the panel, its shell and the "Postcodes" /
+"Homes" group labels are unchanged. A group's list
+becomes a scrollable region — its height capped at
+roughly eight rows (19rem, and never more than 60% of
+the viewport) with the group label pinned above it —
+so a long list reads as one labelled, scrollable list,
+exactly the shape of Royal Mail's finder the founder
+compared against. A short list never reaches the cap
+and renders pixel-identically to before.
+
+Behaviour: the keyboard walks the FULL list (up/down
+traverse every row, not just the visible ones) and the
+active row is scrolled into view inside the region as
+it moves; Enter picks it; the mouse picks any row,
+below the fold included. Server side, the list is the
+picking union complete and naturally ordered, address
+words typed with the postcode filter within the full
+list, and the one remaining bound is a defensive
+ceiling of 1,000 that logs if ever hit (the build note
+in docs/entry-point.md carries the detail).
+
+Pins: tests/entry-point.test.ts — scenario (a) serves
+all 30 Birkdale homes, scenario (e) all 49 Beaulieu
+homes (both specs previously asserted the cap of 8 on
+a full-postcode query and were updated to the new
+rule), plus the amendment's bounds describe (fragment
+cap kept; filtering within the full list; the ceiling
+logs). e2e/suggest.e2e.ts pins the founder's own case
+on the served app: the CM3 2JT dropdown contains
+19 Birkdale Rise in a scrollable region, the keyboard
+reaches it scrolled into view, Enter lands in its
+check, and the last home picks by mouse.

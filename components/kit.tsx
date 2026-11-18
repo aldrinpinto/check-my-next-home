@@ -118,7 +118,10 @@ export function SummaryPill({
 // calls back. No sample depicts the open dropdown (gap
 // item S-1), so the completed behaviour is built in this
 // shell's own design language and the D70 dress is
-// untouched.
+// untouched. D71 amendment (18 Nov 2026): a full
+// postcode's Homes group can carry the postcode's
+// complete list — the group's list is a scrollable
+// region (app/globals.css) under its pinned label.
 export interface SuggestionItem {
   id: string;
   label: string;
