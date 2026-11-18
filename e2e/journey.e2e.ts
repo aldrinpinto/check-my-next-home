@@ -214,32 +214,34 @@ test.describe("checker journey — regression", () => {
   );
 
   test(
-    "the bare route is the no-location fix route, and a bare street name lands there too (ruling 2)",
+    "the bare route redirects to the landing page with the unplaced notice, and a bare street name lands there too (18 Nov 2026)",
     { tag: "@regression" },
     async ({ page }) => {
+      // The standalone no-location page is retired (founder
+      // ruling, 18 Nov 2026): a direct hit on the bare
+      // route returns to the landing page — its own
+      // headline, no separate page served — with the small
+      // notice at the search box.
       await page.goto("/search");
-      await expect(page.locator("h1")).toHaveText("We couldn't place that");
-      await expect(page.locator("#postcode")).toBeVisible();
-      // The retry surface carries the box's standard form:
-      // M7.3's label and hint, the hint's example re-pinned
-      // at fidelity pass 2 to the neutral SW1A 1AA (the
-      // founder's own postcode never appears in
-      // visitor-facing copy). The no-location line above the
-      // box carries the same neutral example.
-      await expect(page.locator(".field__label")).toHaveText("Postcode or address");
-      await expect(page.locator(".field__hint")).toHaveText(
-        "For example, SW1A 1AA — or the full address, with its postcode.",
+      await page.waitForURL(/\/\?notice=unplaced/);
+      await expect(page.locator("h1")).toHaveText(
+        "You're not buying a house. You're choosing your family's home.",
       );
-      await expect(page.locator(".type-lead")).toContainText("for example SW1A 1AA");
+      await expect(page.locator(".unplaced-notice")).toHaveText(
+        "We couldn't place that — try a full postcode, for example SW1A 1AA, or a full address with its postcode. A street or place name on its own isn't enough.",
+      );
+      await expect(page.locator("#postcode")).toBeVisible();
 
+      // A bare street name submitted from the landing box
+      // lands back on the landing page the same way.
       await searchFromHome(page, "Birkdale Rise");
-      await page.waitForURL("**/search");
-      await expect(page.locator("h1")).toHaveText("We couldn't place that");
+      await page.waitForURL(/\/\?notice=unplaced/);
+      await expect(page.locator(".unplaced-notice")).toBeVisible();
     },
   );
 
   test(
-    "mistypes land on their named states: unheld full postcode → wider area naming it; unknown outward → no-location",
+    "mistypes land on their named states: unheld full postcode → wider area naming it; unknown outward → the landing page with the unplaced notice",
     { tag: "@regression" },
     async ({ page }) => {
       await searchFromHome(page, "CM3 2JA");
@@ -248,10 +250,19 @@ test.describe("checker journey — regression", () => {
       await expect(page.locator(".journey-notice")).toHaveText(
         "CM3 2JA isn't a postcode we hold — this is the wider area it points to instead.",
       );
+      // The labelled form of the box (M7.3's label and
+      // hint, the hint's example the neutral SW1A 1AA —
+      // the founder's own postcode never appears in
+      // visitor-facing copy) serves on the wider-area
+      // banner's retry box.
+      await expect(page.locator(".unlock-banner .field__label")).toHaveText("Postcode or address");
+      await expect(page.locator(".unlock-banner .field__hint")).toHaveText(
+        "For example, SW1A 1AA — or the full address, with its postcode.",
+      );
 
       await searchFromHome(page, "ZZ1 1ZZ");
-      await page.waitForURL("**/search");
-      await expect(page.locator("h1")).toHaveText("We couldn't place that");
+      await page.waitForURL(/\/\?notice=unplaced/);
+      await expect(page.locator(".unplaced-notice")).toBeVisible();
     },
   );
 

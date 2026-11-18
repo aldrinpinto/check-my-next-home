@@ -113,6 +113,46 @@ Server env only (see `.env.example`):
 - `POSTIO_API_BASE_URL` — optional override (default
   `https://api.postio.co.uk/v1`); a test-rig setting.
 
+## The list memory — and the warm-path bug of 18 Nov 2026
+
+A fetched Postio list is held in a short in-process memory
+(5 minutes, `POSTIO_LIST_MEMORY_MS`), so back-and-forth
+navigation inside a few minutes never pays twice, and a
+pick that arrives while the list is warm resolves from it
+(`via=memory`) instead of paying for a UDPRN call.
+
+**The bug (found live, 18 Nov 2026):** the play server's
+entry log showed a `picker.list` for KT17 1FH served
+`postioFrom=live` at 10:56:17 and a pick for one of its
+rows (UDPRN 55174696) at 10:57:10 — 53 seconds later,
+inside the TTL — resolving `via=udprn-call`. It paid. The
+logic was correct and fully pinned in
+`tests/entry-point.test.ts`, but the tests run list + pick
+in ONE module instance by construction; the live miss
+means the serving runtime did not share one populated Map
+across the /search render and the /api/pick route — a
+module-instance split in the production bundle, each
+instance holding its own empty memory, which no
+single-instance test can detect.
+
+**The fix (same day, in the M7.10–M7.12 stacked build):**
+the memory is anchored to `globalThis` (the standard
+Next.js pattern for state shared across bundle instances),
+so every instance of `lib/server/hybrid.ts` reads and
+writes the ONE memory; the TTL semantics are unchanged
+(anchored to the live fetch). The memory key is also
+normalised with the project's `normalisePostcode` on both
+write and read, so "KT171FH" and "KT17 1FH" share one
+entry. The pin is strengthened two ways: the warm-pick
+scenario now asserts `via=memory` on the pick's own log
+line explicitly (not merely the absence of a second call),
+and a new scenario simulates the split — the module is
+re-imported fresh (`vi.resetModules`) between the list and
+the pick, and the pick still resolves from the shared
+memory with no second billable call. The deploy
+verification (a through-the-page pick on the play server)
+remains the end-to-end proof.
+
 ## The decision log
 
 Every layer decision writes one structured line to

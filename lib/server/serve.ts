@@ -61,10 +61,10 @@ export async function resolveTypedInput(raw: string): Promise<{
 // Re-derive the resolution a route's parameters name. The
 // postcode must be one the directory holds (the routes are
 // only ever linked with held postcodes; anything else is a
-// hand-typed URL and lands on the no-location route at the
-// page). A home key that no longer resolves returns null —
-// the page sends the visitor back to that postcode's
-// picker, never to a guessed home (fold-in 1).
+// hand-typed URL and lands back on the landing page with
+// the unplaced notice). A home key that no longer resolves
+// returns null — the page sends the visitor back to that
+// postcode's picker, never to a guessed home (fold-in 1).
 export async function resolutionForRoute(
   postcode: string,
   homeKey: string | null,

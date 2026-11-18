@@ -77,6 +77,27 @@ export const CHECK_PAGES: Record<string, CheckPageContent> = {
           "Flood boundaries follow the lie of the land and can change within a single street, so the GOV.UK long-term flood risk service is the place to confirm the position for the building itself before you commit.",
         ],
       },
+      {
+        heading: "How the figure is produced",
+        paragraphs: [
+          "The publisher is the Environment Agency. The check places the postcode's point on the Agency's published maps and reads off the flood zone and the likelihood band recorded for that point — one picture for rivers and the sea, and a separate picture for surface water — exactly as published, with the two pictures never merged. Recorded flood defences are read from the Agency's own defences record for the ground near the point, and live flood warnings are fetched from the Agency's flood-monitoring service at the moment of the check, in the Agency's own words for its named warning areas.",
+          "The maps are served as published — the edition the Agency has published is the edition the check reads, and the answer names its source so the same maps can be read on the Agency's own service.",
+        ],
+      },
+      {
+        heading: "Where the data comes from",
+        paragraphs: [
+          "The official source is the Environment Agency: its flood map for planning (the flood zones), its published likelihood maps for rivers and the sea and for surface water, its AIMS record of flood defences, and its live flood warning service. The GOV.UK long-term flood risk service is the place to confirm the position for a particular building.",
+        ],
+      },
+      {
+        heading: "Known limits",
+        paragraphs: [
+          "The defences record covers only the Environment Agency's own assets — the defences the Agency owns, manages or inspects. Defences recorded by other bodies, and defences on smaller watercourses, are not in it, so an empty defences list never means no defences exist near a home. Flood defences reduce the chance of flooding; they do not remove it, and a defence elsewhere on a watercourse may do nothing for a particular point.",
+          "The years-ahead pictures are published under one climate scenario: UKCP18 projections under RCP 8.5 — the Central allowance for rivers, covering 2040–2069, and the Higher Central allowance for the sea, covering 2036–2065 and allowing for cumulative sea level rise to 2065; for surface water the Central allowance for the 2040–2060 epoch. The Environment Agency's own caveats travel with those pictures: flood likelihood is hard to predict, especially further into the future, the modelled likelihood could turn out bigger or smaller, and the models cannot say when within the period flooding might happen. The scenario pictures are scenarios for planning, not predictions for a home, and they are never set beside the present-day maps as a change.",
+          "The answers describe the postcode point on the published maps, not the building itself: a postcode covers more ground than one home, and the point can fall in a different mapped area from the building. We hold no record of past flooding at any home, and holding no record does not mean a home has never flooded.",
+        ],
+      },
     ],
     sources: "Environment Agency flood zone, surface-water and defences data, as published.",
     related: ["/check/noise", "/check/air-quality"],
@@ -102,6 +123,27 @@ export const CHECK_PAGES: Record<string, CheckPageContent> = {
         paragraphs: [
           "Incidents are recorded against nearby streets, not against individual houses, so a count describes the streets around a home, never the home itself.",
           "The check presents counts and leaves them there. It draws no conclusion about a place from them, and it computes no figure of its own beyond the published per-1,000 basis described above.",
+        ],
+      },
+      {
+        heading: "How the figure is produced",
+        paragraphs: [
+          "The counts come from Police.uk, the publisher of street-level recorded crime data for England and Wales. The method is a count, nothing more: every incident recorded within about a mile of the postcode's point over the 12 months named, added up by the publisher's own category names and again month by month. Incidents are recorded against nearby streets, so the count belongs to the circle around the postcode, never to one home in it.",
+          "The per-1,000 figure is built like this. The numerator is the recorded crimes within about a mile over the 12 months named. The denominator is the Census 2021 residents of the small areas — the LSOAs — that contain the postcodes within that same mile, each LSOA counted whole. The recorded total is divided by that population and multiplied by 1,000. Because each LSOA is counted whole, the areas reach beyond the circle, so the population is larger than the circle's own; and an LSOA the circle only clips, holding no postcode inside the mile, is missed. Both of those workings are part of the figure, not footnotes to it.",
+          "The England figure is built the same way over the same 12 months, from the same published data: England's national recorded total for the window, divided by England's Census 2021 population and multiplied by 1,000. The comparison line — worded as about X% below the England average, or the same form above it — is those two per-1,000 figures set against each other: this circle's figure as a share of England's, expressed as how far below or above it sits. A per-1,000 figure counts recorded crimes against residents; it is not a measure of any one person's chance of being affected, and crimes recorded in the circle include those involving people passing through.",
+        ],
+      },
+      {
+        heading: "Where the data comes from",
+        paragraphs: [
+          "The official sources are Police.uk for the recorded incidents and the national totals, and the Office for National Statistics for the Census 2021 populations both per-1,000 figures divide by. The window served is the 12 months named in the answer, as published.",
+        ],
+      },
+      {
+        heading: "Known limits",
+        paragraphs: [
+          "Recorded is not the same as happened: the counts hold what was recorded by the police in the window, placed at the street points the publisher uses, and a category with no recorded count in the window is simply not listed. Where the filed window has fallen behind, the last-good window serves with that named in the answer rather than the counts being held back.",
+          "Scotland and Northern Ireland are not covered — Police.uk publishes street-level data for England and Wales forces and the British Transport Police. The check draws no conclusion from the counts and works out no figure of its own beyond the per-1,000 basis and the England comparison described above.",
         ],
       },
     ],
@@ -132,6 +174,26 @@ export const CHECK_PAGES: Record<string, CheckPageContent> = {
           "Price Paid covers recorded sales in England and Wales since 1995. A very recent sale may not have reached the published data yet, and some sales — transfers that are not open-market sales — are recorded apart and left out of the typical figure.",
         ],
       },
+      {
+        heading: "How the figure is produced",
+        paragraphs: [
+          "The publisher is HM Land Registry. Price Paid Data is published monthly and holds recorded sales in England and Wales since 1995. The check reads the sales recorded for the postcode itself, newest first, and serves the prices and dates exactly as the register holds them — nothing is adjusted for the passage of time and no gap against any typical figure is worked out.",
+          "Where a typical figure is shown, the method is the middle sale: with five or more recorded sales in the postcode, the sales are placed in price order and the middle one is the median, served with the count of sales behind it and the span of years they cover. With fewer than five, no typical figure is drawn. Sales the register records apart as not open-market sales are left out of that middle figure, though the recorded sales themselves are listed in full.",
+        ],
+      },
+      {
+        heading: "Where the data comes from",
+        paragraphs: [
+          "The official source is HM Land Registry's Price Paid Data, as published — the register of completed sales, published monthly, covering England and Wales since 1995.",
+        ],
+      },
+      {
+        heading: "Known limits",
+        paragraphs: [
+          "A sale reaches the published data only after it is registered, so the most recent sales in a street may not have appeared yet. The register covers England and Wales only: sales in Scotland are recorded by Registers of Scotland and Northern Ireland sits outside this data, and for those nations the check serves its named not-covered state instead of a figure.",
+          "The home's own recorded history is served in full, newest first, as filed — and a home with no recorded sale in the data is shown as exactly that, never filled in from its neighbours.",
+        ],
+      },
     ],
     sources: "HM Land Registry Price Paid Data, as published.",
     related: ["/check/council-tax-band", "/check/planning-constraints"],
@@ -157,6 +219,26 @@ export const CHECK_PAGES: Record<string, CheckPageContent> = {
         paragraphs: [
           "The check holds no catchment position and never promises a school place. Admissions belong to the council and the school; living near a school settles nothing on its own, and cut-off distances change every year.",
           "Distances are straight-line, as the crow flies. The actual school run will usually be longer.",
+        ],
+      },
+      {
+        heading: "How the figure is produced",
+        paragraphs: [
+          "The publisher for the school details is the Department for Education, through its Get Information About Schools register. The method is a distance sort, not a judgement: the schools and nurseries recorded on the registers are placed by their distance from the postcode's point, nearest first, with straight-line distances, and each school's phase and admissions basis are served as the register records them.",
+          "Ofsted outcomes are not produced by this check at all: where Ofsted has published an outcome, it is carried across in Ofsted's own words with the date Ofsted gave it, and nothing is combined, averaged or reworded.",
+        ],
+      },
+      {
+        heading: "Where the data comes from",
+        paragraphs: [
+          "The official sources are the Department for Education's Get Information About Schools register for schools, the Ofsted childcare register for nurseries and pre-schools, and Ofsted's published outcomes — each as published, with the outcome's own date travelling with it.",
+        ],
+      },
+      {
+        heading: "Known limits",
+        paragraphs: [
+          "The registers hold schools and settings as they stand when published: a school that has opened, closed or changed its admissions basis since will show as the register last recorded it. Group childcare settings are listed; childminders are counted in the wider picture, never listed one by one.",
+          "Distance is geography only. The check holds no catchment position, no last distance offered and no view on admissions, and a place depends on the council's and the school's own rules for the year of entry.",
         ],
       },
     ],
@@ -186,6 +268,27 @@ export const CHECK_PAGES: Record<string, CheckPageContent> = {
           "A home with no certificate on the register is shown as exactly that. Nothing is filled in, borrowed from a neighbour, or worked out on its behalf.",
         ],
       },
+      {
+        heading: "How the figure is produced",
+        paragraphs: [
+          "The publisher is the Ministry of Housing, Communities and Local Government, which runs the energy performance certificate register — the service published as Get energy performance of buildings data. The check reads the certificates lodged for the home itself and serves each one as it stands: its band, its recorded floor area, the energy use and running costs the certificate itself sets out, and the improvement steps it names, in the register's own sequence.",
+          "The postcode picture beside it counts certificates, not homes: every certificate recorded for the postcode is counted once, spread across the bands, because one home can hold more than one certificate over the years. Where a home holds two certificates that disagree — on floor area, band or costs — both are served whole; the disagreement is the register's own record, never settled by picking one.",
+          "The geography is the home for its own certificate and the postcode for the spread. The snapshot for a home is its certificate's own day: the date it was assessed and lodged, which travels with the certificate.",
+        ],
+      },
+      {
+        heading: "Where the data comes from",
+        paragraphs: [
+          "The official source is the energy performance certificate register, published by the Ministry of Housing, Communities and Local Government, as published. The certificate is the assessor's record of the home as it stood on the assessment day, lodged on that register.",
+        ],
+      },
+      {
+        heading: "Known limits",
+        paragraphs: [
+          "The register's running costs are the certificate's own modelled costs for heating, hot water and lighting, worked out on the certificate's standard basis — they are the certificate's figures for that home as assessed, not a household's bills, and two certificates for one home can model different costs. The monthly form of those costs, where shown, is the annual figure spread evenly over 12 months, labelled as spread.",
+          "Suggested improvements are the register's modelled steps, named from the register's published list. They are served as the certificate records them — never as advice, and never added together into a promise about a home.",
+        ],
+      },
     ],
     sources: "The official energy performance certificate register, as published.",
     related: ["/check/solar-potential", "/check/council-tax-band"],
@@ -210,6 +313,25 @@ export const CHECK_PAGES: Record<string, CheckPageContent> = {
         heading: "What the check cannot tell you",
         paragraphs: [
           "The check never states a home's own band, and the scale is not this home's bill. Your home's band is the one on its council tax bill; the check gives you the scale to set beside it, nothing more.",
+        ],
+      },
+      {
+        heading: "How the figure is produced",
+        paragraphs: [
+          "For England the publisher is the Ministry of Housing, Communities and Local Government, in its council tax levels set by local authorities; for Wales the figures come from the Welsh Government via StatsWales. The one published figure the check files is the billing authority's average Band D charge for the tax year named. Every other band in the A to H table is worked from that Band D figure by the statutory ratios every council uses, and the table is labelled as derived wherever it appears — only the Band D figure itself is the published one.",
+          "The geography is the billing authority — the council area the postcode sits in — not the postcode and not the home. The snapshot is the tax year named in the answer: council tax is set year by year, and the scale served is that year's scale. The monthly figure, where shown, is the Band D average spread evenly across the 12 months of the year, labelled as spread evenly.",
+        ],
+      },
+      {
+        heading: "Where the data comes from",
+        paragraphs: [
+          "The official sources are the Ministry of Housing, Communities and Local Government's council tax statistics for England and the Welsh Government's figures via StatsWales for Wales, together with councils' published charges — as published, for the tax year named.",
+        ],
+      },
+      {
+        heading: "Known limits",
+        paragraphs: [
+          "No per-home band data is published anywhere for this check to hold, so the check can never state a home's own band, and the authority's average is not any one street's charge: parish charges and the mix of bands in an area move the average, and the filed components are served as filed where they are held. An authority whose year has not been filed yet serves the named not-filed state, never a neighbouring council's figure and never last year's scale dressed as this year's.",
         ],
       },
     ],
@@ -240,6 +362,26 @@ export const CHECK_PAGES: Record<string, CheckPageContent> = {
           "Listed buildings are recorded as points in the national list; the check reports what is recorded near a home and never pronounces on the home's own plot beyond what the data holds.",
         ],
       },
+      {
+        heading: "How the figure is produced",
+        paragraphs: [
+          "The publishers are the national planning datasets on planning.data.gov.uk — council-supplied data gathered nationally — and Historic England, whose National Heritage List for England is the source of record for listed buildings. The method is a point test against published shapes: whether the home's point falls inside a recorded conservation area, an Article 4 direction or a built-up area polygon, and which listed buildings are recorded near the point, nearest first, with straight-line distances.",
+          "The geography is the home's point for the polygon answers and the ground around that point for the listed buildings. The datasets are served as published — each answer is read from the national dataset as it stands, and the built-up area shapes are the Office for National Statistics' December 2024 edition where that layer is the one answering.",
+        ],
+      },
+      {
+        heading: "Where the data comes from",
+        paragraphs: [
+          "The official sources are the planning.data.gov.uk datasets, as published, and Historic England's National Heritage List for England. Planning applications are not a dataset this check holds: the official source for those is the council's own register, reached through the GOV.UK register search the check links to.",
+        ],
+      },
+      {
+        heading: "Known limits",
+        paragraphs: [
+          "The national datasets are only as complete as the councils that supply them. Conservation area coverage has gaps in the national file, so an absence in the data for one council is worded as a finding about the national data, not as proof about the ground; Article 4 directions are published by some councils and not others, and where a council does not publish, the check says so in terms rather than reporting an empty answer as a finding. Welsh and Scottish coverage differs from England's, and the check names the coverage state rather than borrowing an English answer.",
+          "A listed building is recorded as a point in the national list, and a polygon answer is about the point tested: neither pronounces on the whole of a home's plot, its garden or its boundaries, which only the council's own records and a search can settle.",
+        ],
+      },
     ],
     sources:
       "planning.data.gov.uk datasets, as published; Historic England — the National Heritage List for England.",
@@ -264,6 +406,25 @@ export const CHECK_PAGES: Record<string, CheckPageContent> = {
         heading: "What the check cannot tell you",
         paragraphs: [
           "The data is a published snapshot. A charge point can be installed, moved or taken away after the snapshot was taken, and the check cannot say whether a point is working or available on the day you visit.",
+        ],
+      },
+      {
+        heading: "How the figure is produced",
+        paragraphs: [
+          "The publisher of the data the check reads is Open Charge Map, the national charge point data source the product files from. The method is a distance sort: the public charging sites recorded near the postcode's point are listed nearest first, with straight-line distances, each site as the published data records it — its address and its recorded charging provision, unchanged.",
+          "The geography is the ground around the postcode's point, and the snapshot is the published data as published: charge point data changes as sites open and close, and the answer is the record as it stood when filed, refreshed on the product's monthly cycle for this dataset.",
+        ],
+      },
+      {
+        heading: "Where the data comes from",
+        paragraphs: [
+          "The official source named for this check is Open Charge Map — the national charge point data, as published, with its own attribution travelling with the data.",
+        ],
+      },
+      {
+        heading: "Known limits",
+        paragraphs: [
+          "A recorded site is a record, not a promise for today: the data cannot say whether a point is working, free, or still there on the day you visit, and a site recorded near a postcode may sit across a road layout that makes the walk or drive longer than the straight line suggests. Private and workplace-only points are not the public picture this check shows.",
         ],
       },
     ],
@@ -291,6 +452,26 @@ export const CHECK_PAGES: Record<string, CheckPageContent> = {
           "A postcode share is not a prediction for one address, and it is never a speed any home will get. What reaches a particular door depends on the provider and the line to that home, which only an order can settle.",
         ],
       },
+      {
+        heading: "How the figure is produced",
+        paragraphs: [
+          "The publisher is Ofcom, in its Connected Nations coverage data. The method is a share, not a measurement at a home: for the postcode, Ofcom publishes the share of premises where each service is available to order, from providers' returns — the gigabit-capable share, the superfast and ultrafast shares, and the share of premises whose maximum predicted download speed falls in each speed band. Every figure carries the release's snapshot month, and the release the check is filed from is the Connected Nations release with the January 2026 snapshot.",
+          "The geography is the postcode's premises as a whole. Ofcom publishes percentages only at this level — no premise counts — and no full-fibre percentage: gigabit-capable services include cable and other technologies as well as full fibre, and the published data does not separate them.",
+        ],
+      },
+      {
+        heading: "Where the data comes from",
+        paragraphs: [
+          "The official source is Ofcom's Connected Nations fixed broadband coverage data, as published — the January 2026 snapshot release the check is filed from, discovered from Ofcom's own publication page each time the data is refreshed.",
+        ],
+      },
+      {
+        heading: "Known limits",
+        paragraphs: [
+          "The broadband speed bands may sum below 100 by the unclassified share: the premises Ofcom could not match to a provider record with a predicted speed appear in no speed band, and that shortfall is named as unclassified in the answer rather than spread across the bands or dropped without a word. On the mobile side of the same Ofcom release, 5G standalone all-operator figures are not published by Ofcom — a figure Ofcom does not publish is named as not published, never shown as 0.",
+          "Availability is not take-up, and a postcode share is not the speed any one home will get: what reaches a particular door depends on the provider and the line to that home, which only an order can settle. Ofcom files no provider names at this level, so none can be named or chosen between from this data.",
+        ],
+      },
     ],
     sources: "Ofcom Connected Nations coverage data, as published.",
     related: ["/check/mobile-coverage", "/check/ev-charging"],
@@ -314,6 +495,25 @@ export const CHECK_PAGES: Record<string, CheckPageContent> = {
         heading: "What the check cannot tell you",
         paragraphs: [
           "Distances are straight-line, never walking distances; the walk will usually be longer. And the check shows stops and routes as published — timetables change, so today's departures live with the operator.",
+        ],
+      },
+      {
+        heading: "How the figure is produced",
+        paragraphs: [
+          "The publisher is the Department for Transport, through NaPTAN — the National Public Transport Access Nodes dataset. The method is a distance sort: the stops and stations recorded in NaPTAN are placed by their distance from the postcode's point, nearest first, with straight-line distances, and the routes recorded as serving each stop travel with it as published.",
+          "The geography is the ground around the postcode's point across Great Britain, which is NaPTAN's coverage. The data is served as published — NaPTAN is edited continuously by the authorities that supply it, and the answer is the record as filed from it.",
+        ],
+      },
+      {
+        heading: "Where the data comes from",
+        paragraphs: [
+          "The official source is NaPTAN, published by the Department for Transport, as published. Departures and timetables are not part of this data: they live with the operator and the journey planners.",
+        ],
+      },
+      {
+        heading: "Known limits",
+        paragraphs: [
+          "A recorded stop is where the dataset places it, and routes are those the data records as calling there: a stop can be moved, suspended or withdrawn after the record was filed, and a route recorded at a stop says nothing about how often it runs, when it runs, or whether it runs on a Sunday. Straight-line distance is not a walking route, and the walk will usually be longer.",
         ],
       },
     ],
@@ -340,6 +540,25 @@ export const CHECK_PAGES: Record<string, CheckPageContent> = {
         heading: "What the check cannot tell you",
         paragraphs: [
           "Near is only geography. A GP list can be closed to new patients, a dentist's NHS places open and close, and a school place is never promised — the check shows what is near and leaves the asking to you.",
+        ],
+      },
+      {
+        heading: "How the figure is produced",
+        paragraphs: [
+          "This page gathers four official families, each with its own publisher: schools and nurseries from the Department for Education registers and the Ofsted childcare register, GP surgeries and hospitals from NHS service listings — the NHS Organisation Data Service and the Care Quality Commission's directory — with the Commission's published outcomes for hospitals carried as published, with their dates.",
+          "The method is the same distance sort for each family: the recorded places are placed by straight-line distance from the postcode's point, nearest first, and the families are shown side by side without ever being merged into one judgement. The geography is the ground around the postcode's point, and each family's snapshot is its own register as published — the answer names which family each line came from.",
+        ],
+      },
+      {
+        heading: "Where the data comes from",
+        paragraphs: [
+          "The official sources are the Department for Education registers, the NHS service listings and the Care Quality Commission's published outcomes, each as published by its own publisher.",
+        ],
+      },
+      {
+        heading: "Known limits",
+        paragraphs: [
+          "Each register has its own edges: pharmacies and dental practices are never given a Care Quality Commission outcome, because a different regulator covers them; the Commission covers England only, so Welsh places carry no outcome from it; and a hospital outcome joins to the hospital by its official code, never by a name that merely looks the same. A listing is a record that a service is there — it cannot say whether a GP list is open, whether a dentist is taking NHS patients this month, or whether a nursery has a place.",
         ],
       },
     ],
@@ -369,6 +588,25 @@ export const CHECK_PAGES: Record<string, CheckPageContent> = {
           "Until the national first pass is filed for a postcode, the check serves the named not-filed state rather than filling the gap.",
         ],
       },
+      {
+        heading: "How the figure is produced",
+        paragraphs: [
+          "The publisher is Defra — the Department for Environment, Food and Rural Affairs — in its strategic noise mapping. The edition is England Round 4, with the 2022 reference year, published in October 2024. The method is modelling, not measurement: the mapping models road, rail and airport noise across the area and presents the result at the postcode's point in the publisher's own 5 dB bands, one band for the day and one for the night, for each source the mapping covers at that point.",
+          "The geography is the postcode's point on the modelled map of England. A band below the first published band and a point with no modelled source are two different filed states, and the check serves each in its own words — neither is ever written as 0 dB.",
+        ],
+      },
+      {
+        heading: "Where the data comes from",
+        paragraphs: [
+          "The official source is Defra's strategic noise mapping data — England Round 4 (2022 reference year), as published.",
+        ],
+      },
+      {
+        heading: "Known limits",
+        paragraphs: [
+          "Modelled bands describe the mapping's picture of an area, not the sound inside a home: walls, windows, which side of the building a room sits on and the hour you listen all change what a household hears, and none of that is in the model. The mapping is England's: a Welsh or Scottish postcode serves the named not-covered state once filing exists, and until the national first pass is filed for a postcode the check serves its named not-filed state rather than filling the gap.",
+        ],
+      },
     ],
     sources: "Defra strategic noise mapping data, as published.",
     related: ["/check/flood-risk", "/check/air-quality"],
@@ -391,7 +629,62 @@ export const CHECK_PAGES: Record<string, CheckPageContent> = {
       {
         heading: "What the check cannot tell you",
         paragraphs: [
-          "A modelled figure for a square is not a measurement taken at a home, and the check makes no comparison to legal limits in its answer — the yardsticks and the limits material live on the How we check page, where they can be read in full.",
+          "A modelled figure for a square is not a measurement taken at a home. The limits material — the UK legal limits and the World Health Organization guidelines the figures are read against — lives on this page, in the limits section below, where it can be read in full.",
+        ],
+      },
+      {
+        heading: "How the figure is produced",
+        paragraphs: [
+          "The publisher is Defra — the Department for Environment, Food and Rural Affairs — through its Pollution Climate Mapping background maps on UK-AIR. The edition is Defra's 2024 modelled background: the 2024 spreadsheets, for the modelled year 2024. The method is a model, not a monitor: Defra models the background concentration of each pollutant for every kilometre square, and the check serves the annual mean figure for the one square the postcode's point falls in — nitrogen dioxide (NO2), fine particles (PM2.5) and PM10, in micrograms per cubic metre (µg/m³), exactly as published, with no interpolation across squares.",
+          "The geography is that kilometre square, not the home and not the roadside: a background square is the modelled air away from the immediate effect of a single road or chimney, spread across the whole square. Beside the square, two area designations are read at the postcode's point: whether the point falls inside a declared Air Quality Management Area, from Defra's UK-AIR record of declared areas as published, and whether it falls inside a charging zone, from the boundaries the zone operators publish.",
+        ],
+      },
+      {
+        heading: "The legal limits and the guidelines",
+        paragraphs: [
+          "The UK legal limits, as annual means, are set by the Air Quality Standards Regulations 2010: NO2 40 µg/m³, PM10 40 µg/m³, and PM2.5 20 µg/m³. Those are the limit values in law — the figures a zone's compliance is judged against, in the Regulations' own terms.",
+          "The World Health Organization's guidelines, as annual means, are set by the WHO global air quality guidelines 2021: NO2 10 µg/m³, PM2.5 5 µg/m³, and PM10 15 µg/m³. A guideline is not a legal limit: it is the World Health Organization's health-based guideline value, and it is stricter than the UK limit for all three pollutants.",
+          "Why a modelled background square is not a compliance determination: whether a legal limit is met is decided for whole zones, from monitoring and modelling together, by the bodies charged with that judgement. One square's modelled background figure is a single modelled input, at background level, for one square — it is not a measurement at a home, not a roadside figure, and not the zone judgement, so it can never by itself settle whether a limit is met at a home or in a place.",
+          "How the report's yardstick lines are worded follows from that. Each yardstick line sets the modelled figure against the UK limit and against the WHO guideline, as comparisons of the modelled figure — worded as the figure's position against each yardstick, for example within the UK legal limit but above the stricter WHO guideline. A yardstick line is a scale for reading the figure. It is never a pass or fail for the home, and never a statement that a limit is met or breached at that home.",
+        ],
+      },
+      {
+        heading: "Charging zones and declared areas",
+        paragraphs: [
+          "An Air Quality Management Area — an AQMA — is an area a local authority has declared, under the Environment Act 1995, where the air quality objectives are not being met, or are not likely to be met. The declaring authority must then publish an action plan for improving air quality in the area. A declaration is a management designation for the area: it is not a measurement of the air at a home inside it, and being outside a declared area is not a measurement either.",
+          "The charging schemes are areas where driving a vehicle that does not meet the scheme's emission standard can cost the driver money, and whether a vehicle is charged depends on the vehicle, not on the home. The Clean-Air Zones are run by their councils, with Defra: each council runs its own zone, sets its boundary and charges the vehicle classes its zone's class covers. London's ULEZ — the Ultra Low Emission Zone — and London's LEZ — the Low Emission Zone — are run by Transport for London. Scotland's Low Emission Zones are run by their councils, and a vehicle that does not meet the standard may not be driven in them: there is no charge to pay to enter, and driving in the zone can lead to a penalty.",
+          "No charge amounts are ever printed on this site. Amounts change, and what a driver would pay depends on the vehicle, the scheme and the day — so a printed amount could be wrong for the reader in front of it. The official checkers settle it for a particular vehicle: GOV.UK's checker for the Clean-Air Zones, Transport for London's checker for the ULEZ, and Scotland's checker for the Low Emission Zones, linked below.",
+        ],
+        links: [
+          { label: "Check a vehicle on GOV.UK", href: "https://www.gov.uk/clean-air-zones" },
+          {
+            label: "Check a vehicle with Transport for London",
+            href: "https://tfl.gov.uk/modes/driving/check-your-vehicle/",
+          },
+          {
+            label: "Check a vehicle on Scotland's Low Emission Zone checker",
+            href: "https://vehicleemissionscheck.service.gov.scot/",
+          },
+        ],
+      },
+      {
+        heading: "Regulated industrial sites near a home",
+        paragraphs: [
+          "The check also shows the regulated industrial sites recorded near a home, and it shows exactly what the regulator's record holds. The regulator is the Environment Agency, and the data is its Pollution Inventory — its regulated industry record, the annual register (the 2024 vintage, published in November 2025) of the sites the Agency permits for large industrial activities in England. For each site recorded within two miles of the postcode point, nearest first, the check serves the site's filed address — the record carries no site name, so the address is the site's identity — its operator, its permit reference, the activity and sector the record describes, and the releases to air the operator reported for that year.",
+          "Every release figure is the quantity the operator reported to the Environment Agency for that year, served with the reporting threshold for the substance — the level at or above which a quantity must be reported. A substance reported below its threshold was still released: below the reporting threshold is not a measurement of zero, so those returns serve as names on their own labelled line, never as numbers. A site with no releases to air reported for the year says exactly that. Nothing is added together across substances or across sites, and no site is placed in any order but distance.",
+        ],
+      },
+      {
+        heading: "Where the data comes from",
+        paragraphs: [
+          "The official sources are Defra's Pollution Climate Mapping background maps on UK-AIR (the 2024 modelled background) for the square figures, Defra UK-AIR's record of Air Quality Management Areas as published for the declared areas, the zone operators' published boundaries for the charging zones, and the Environment Agency's Pollution Inventory for the regulated industrial sites — each as published by its own publisher.",
+        ],
+      },
+      {
+        heading: "Known limits",
+        paragraphs: [
+          "The Pollution Inventory covers England only: Wales, Scotland and Northern Ireland keep their own inventories — the Welsh Emissions Inventory, the Scottish Pollutant Release Inventory and the Northern Ireland Pollution Inventory — which are not filed here, so for a home in those nations the industrial sites answer serves its named not-covered state. The inventory is an annual register, so a site permitted, closed or changed since the filed year will show as that year's record stands. A site's reported releases are the operator's own returns for the year: they describe what the site reported releasing to air, not the air at a home two miles, or two streets, away.",
+          "The modelled square has its own limits, stated on this page above: it is a background model for a kilometre square in one modelled year, not a measurement, not a roadside figure, and never a compliance determination for a home or a place.",
         ],
       },
     ],
@@ -419,6 +712,25 @@ export const CHECK_PAGES: Record<string, CheckPageContent> = {
           "It is a fact about the place, never about a roof. It says nothing about any one home's roof — its direction, its pitch or its shading — and nothing about what panels on that roof would earn or save.",
         ],
       },
+      {
+        heading: "How the figure is produced",
+        paragraphs: [
+          "The publisher is the European Commission's Joint Research Centre, through PVGIS — its photovoltaic geographical information system. The edition is PVGIS-SARAH3, the radiation database spanning 2005–2023. The method is a long-term model sampled for the location: the yield for the postcode's point is worked out from that database on the standard basis the publisher names — a standard installation, unshaded, south-facing, at a standard pitch, with the standard system loss the basis carries — so one place reads against another on identical terms.",
+          "The geography is the location itself: the modelled cell for the postcode's point. The snapshot is not a single year but the long run behind the database, 2005–2023, which is what makes the figure a place's expected yield across a year rather than one season's weather.",
+        ],
+      },
+      {
+        heading: "Where the data comes from",
+        paragraphs: [
+          "The official source is PVGIS, published by the European Commission Joint Research Centre — PVGIS-SARAH3 (2005–2023), as published.",
+        ],
+      },
+      {
+        heading: "Known limits",
+        paragraphs: [
+          "The standard basis is a deliberate fiction that makes places comparable: a real roof faces the way it faces, at its own pitch, with its own shading from chimneys, trees and the house next door, and panels differ. The figure therefore carries nothing about output, earnings or savings for any one home, and a location with a lower modelled yield can still hold a roof that suits panels better than a higher-yield location's shaded one.",
+        ],
+      },
     ],
     sources:
       "PVGIS — the European Commission Joint Research Centre's photovoltaic geographical information system, as published.",
@@ -443,6 +755,26 @@ export const CHECK_PAGES: Record<string, CheckPageContent> = {
         heading: "What the check cannot tell you",
         paragraphs: [
           "The figures describe the area, not the signal inside one home. What a phone actually picks up in a particular room depends on the building, the handset and the network's day-to-day load — things no published table can settle for a single address.",
+        ],
+      },
+      {
+        heading: "How the figure is produced",
+        paragraphs: [
+          "The publisher is Ofcom, in the same Connected Nations release as the broadband data. The method is a share of premises, modelled: for each network generation and service Ofcom publishes, the check serves the share of premises in the council area with coverage — led, for each service, by the share served by at least one operator, with the all-operators share beside it as the choice figure. That at-least-one share is Ofcom's own sanctioned working: 100 minus the published no-operator share, with the published inputs travelling beside it.",
+          "The geography is the whole council area the postcode sits in — mobile is council-wide, not per-house — and the council is named in every answer, because Ofcom publishes no postcode-level mobile file: the pixel-level data is not released, and its bulk file is one row per local or unitary authority. The snapshot is the release's snapshot month, the January 2026 snapshot of the Connected Nations release the check is filed from, and it travels with the answer.",
+        ],
+      },
+      {
+        heading: "Where the data comes from",
+        paragraphs: [
+          "The official source is Ofcom's Connected Nations mobile coverage data, at local authority level, as published — the January 2026 snapshot release the check is filed from.",
+        ],
+      },
+      {
+        heading: "Known limits",
+        paragraphs: [
+          "5G standalone all-operator figures are not published by Ofcom: in this release those columns are unpublished for every council, so the answer serves them as not published — never as 0, and never as a silently missing row. Only 4G carries a published indoor figure; every 5G service is published for outdoor coverage only, and the answer says which it is serving.",
+          "Ofcom's figures name no network, so no network can be named or chosen between from them. A council-wide modelled share says nothing about the signal in a particular room, which depends on the building, the handset and the network's load on the day — the check serves the area picture and leaves the room to a visit with a phone in hand.",
         ],
       },
     ],

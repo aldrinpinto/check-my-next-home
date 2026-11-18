@@ -27,11 +27,12 @@ export default function RootLayout({
             {TEST_LABEL_TEXT}
           </div>
         )}
-        {/* The chrome wears the samples' two families
-            (D2, parity fix stack, 18 Nov 2026): the
-            content chrome on the .site-pages routes, the
-            app chrome everywhere else — SiteChrome makes
-            the switch by route. */}
+        {/* One header and one footer on every page
+            (chrome unification, founder ruling
+            18 Nov 2026): SiteChrome renders the single
+            unified chrome around every route. The TEST
+            label above is untouched by that ruling — it
+            still renders on every non-production page. */}
         <SiteChrome>{children}</SiteChrome>
         <JsonLd />
       </body>

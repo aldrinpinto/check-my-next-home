@@ -1,7 +1,8 @@
 import type { AddressResolution } from "./address";
 import type { AreaBundle } from "./area-bundle";
 import type { CrimeBundle } from "./crime";
-import type { FloodBundle, FloodLiveWarnings } from "./flood";
+import { CHECK_PAGES } from "./check-pages";
+import { FLOOD_BAND_DEFINITIONS, type FloodBundle, type FloodLiveWarnings } from "./flood";
 import { nationName, nationOfLsoa, type Nation } from "./journey";
 import type { CategoryAnswer, NearbyBundle, NearbyPlace } from "./nearby";
 import { REPORT_PRICE_LABEL } from "./site";
@@ -327,13 +328,15 @@ function placeRow(place: NearbyPlace, family: DistanceFamily): PlaceRow {
             place.cqcRating.date ? ` (published ${formatFiledDate(place.cqcRating.date)})` : ""
           }`
         : null,
-    // The secondary rows' filed sixth-form flags (M6.33),
-    // as filed: yes, no, or not recorded.
+    // The secondary rows' filed sixth-form flags (M6.33).
+    // The yes form takes the sample's plain line (M7.11
+    // O-3, founder adopted 18 Nov 2026); the no and
+    // not-recorded forms stay as filed.
     sixthFormLine:
       place.sixthForm === undefined
         ? null
         : place.sixthForm === true
-          ? "sixth form: yes, as filed"
+          ? "Sixth form at the school"
           : place.sixthForm === false
             ? "sixth form: no, as filed"
             : "sixth form: not recorded",
@@ -442,6 +445,66 @@ export interface ResultsTabView {
   id: string;
   label: string;
   sections: ResultsSectionView[];
+}
+
+// ------------------------------------------------------------------
+// "About these checks" links (M7.12, results side): one
+// link per check to its /check/ page, derived from the
+// sections the view actually carries — the expander at the
+// foot of the results page is the ONLY home for these
+// links (no per-section link lines anywhere). Labels are
+// the check pages' own names from lib/check-pages.ts,
+// never a second hard-coded copy. Sections with no check
+// page (census, parks, shops, food, leisure, visits,
+// worship & libraries) contribute nothing; the Costs
+// section carries five checks in its subsections (council
+// tax, EPC, EV, broadband, mobile), and air-noise carries
+// two (air quality and noise).
+// ------------------------------------------------------------------
+
+export const SECTION_CHECK_LINKS: Record<string, string[]> = {
+  "schools-primary": ["/check/schools"],
+  "schools-secondary": ["/check/schools"],
+  catchment: ["/check/schools"],
+  nurseries: ["/check/family-essentials"],
+  pets: ["/check/family-essentials"],
+  crime: ["/check/crime"],
+  "air-noise": ["/check/air-quality", "/check/noise"],
+  "sold-prices": ["/check/sold-prices"],
+  costs: [
+    "/check/council-tax-band",
+    "/check/epc",
+    "/check/ev-charging",
+    "/check/broadband",
+    "/check/mobile-coverage",
+  ],
+  flood: ["/check/flood-risk"],
+  "planning-protection": ["/check/planning-constraints"],
+  health: ["/check/family-essentials"],
+  hospitals: ["/check/family-essentials"],
+  transport: ["/check/public-transport"],
+};
+
+export interface CheckLink {
+  label: string;
+  href: string;
+}
+
+// Tab order, then section order, then the mapping's own
+// order; duplicates collapse to their first occurrence.
+export function checkLinksForTabs(tabs: ResultsTabView[]): CheckLink[] {
+  const seen = new Set<string>();
+  const links: CheckLink[] = [];
+  for (const tab of tabs) {
+    for (const section of tab.sections) {
+      for (const href of SECTION_CHECK_LINKS[section.key] ?? []) {
+        if (seen.has(href)) continue;
+        seen.add(href);
+        links.push({ label: CHECK_PAGES[href].name, href });
+      }
+    }
+  }
+  return links;
 }
 
 // The section-to-tab placement, transcribed from the Final
@@ -953,6 +1016,20 @@ export function notCoveredLine(checkName: string, nation: Nation): string {
   return `${checkName} isn't part of this check in ${nationName(nation)} — the figures we use cover England and Wales.`;
 }
 
+// The broadband caveat (M7.11 D-1): the sample's words,
+// appended to the broadband line in the Costs section.
+export const BROADBAND_CAVEAT = "the exact package at this home varies by provider";
+
+// The flood absence-state explanations (M7.11 D-2): the
+// rivers & sea form is built from the publisher's own
+// Very-low definition (lib/flood.ts's pinned table, never
+// retyped); the surface-water form is the sample's — the
+// postcode appears only in the extreme 1-in-1,000-year
+// picture, the same annual chance in the sample's words.
+export const FLOOD_ROFRS_ABSENCE_LINE = `The Very low band means ${FLOOD_BAND_DEFINITIONS["Very low"]}.`;
+export const FLOOD_ROFSW_ABSENCE_LINE =
+  "This postcode appears only in the extreme 1-in-1,000-year surface-water picture.";
+
 // Nation gating (Scotland/NI gap check, fold-in workstream
 // 6): the class (a) England-only-register categories, gated
 // in this presentation layer only — zero brain changes, so
@@ -994,7 +1071,15 @@ export interface ResultsView {
   // Null on the wider-area view, which offers no report.
   reportHref: string | null;
   buyBar: { heading: string; line: string; mysteryLine: string; href: string } | null;
-  calculators: { lastSalePrice: number | null };
+  // Null on the wider-area view (M7.10 G2): there is no
+  // home there, so the home-specific calculators are
+  // suppressed like the buy bar. The nation rides with the
+  // view so the stamp duty card can take its Scotland /
+  // Wales named-line form (M7.10 G1).
+  calculators: { lastSalePrice: number | null; nation: Nation } | null;
+  // The "About these checks" expander's links (M7.12),
+  // derived from the sections this view carries.
+  checkLinks: CheckLink[];
   warningsStrip: WarningsStripView;
   // The flood section's live-warnings state as served, so
   // the page (and its tests) can name the state the flood
@@ -1434,7 +1519,12 @@ export function buildResultsView(input: ResultsInput): ResultsView {
     blocks.push(...group("ev-chargers", NEARBY_CATEGORIES).blocks);
     blocks.push({ type: "subheading", text: "Broadband & mobile" });
     const broadband = sections.broadband;
-    if (broadband.line) blocks.push({ type: "line", text: broadband.line });
+    // D-1 (M7.11, founder adopted 18 Nov 2026): the
+    // sample's caveat rides on the broadband line itself,
+    // so the postcode share can never be misread as a
+    // promise about this home's package.
+    if (broadband.line)
+      blocks.push({ type: "line", text: `${broadband.line} — ${BROADBAND_CAVEAT}` });
     if (areaSections?.mobile?.line) blocks.push({ type: "line", text: areaSections.mobile.line });
     if (!broadband.line && !areaSections?.mobile?.line)
       blocks.push({ type: "line", text: "Broadband answers are not covered for this postcode." });
@@ -1458,6 +1548,16 @@ export function buildResultsView(input: ResultsInput): ResultsView {
       if (shortFlood.state === "served") {
         for (const layer of shortFlood.layers) {
           blocks.push({ type: "line", text: layer.line });
+          // D-2 (M7.11, founder adopted 18 Nov 2026): an
+          // absence state carries the plain annual-chance
+          // explanation too, in the publisher's own
+          // definition words — presentation only, keyed on
+          // the served states; the brain's served lines and
+          // bundle shapes do not move.
+          if (layer.layer === "rofrs" && layer.pointState === "no-band-published")
+            blocks.push({ type: "line", text: FLOOD_ROFRS_ABSENCE_LINE });
+          if (layer.layer === "rofsw" && layer.pointState === "below-lowest-band")
+            blocks.push({ type: "line", text: FLOOD_ROFSW_ABSENCE_LINE });
           if (layer.coveringDefinition)
             blocks.push({ type: "line", text: layer.coveringDefinition });
           if (layer.sourceLine) blocks.push({ type: "line", text: layer.sourceLine });
@@ -1632,7 +1732,9 @@ export function buildResultsView(input: ResultsInput): ResultsView {
         sections.soldPrices.state === "served"
           ? (sections.soldPrices.ownLastSale?.price ?? null)
           : null,
+      nation,
     },
+    checkLinks: checkLinksForTabs(tabs),
     warningsStrip: warningsStrip(flood),
     floodWarningsState:
       flood.kind === "flood" && flood.flood.state === "served" && flood.flood.liveWarnings
@@ -1692,18 +1794,24 @@ export function buildWiderAreaView(
     section("places-to-visit", "Places to visit", "nearby"),
     section("worship-libraries", "Places of worship & libraries", "nearby"),
   ];
+  const tabs: ResultsTabView[] = [
+    { id: "family", label: "Family Checks", sections: family },
+    { id: "neighbourhood", label: "The Neighbourhood", sections: neighbourhood },
+    { id: "home", label: "Home, Costs & Risks", sections: home },
+    { id: "nearby", label: "What's Nearby", sections: nearbyTab },
+  ];
   return {
     pills: null,
     reportHref: null,
     buyBar: null,
-    calculators: { lastSalePrice: null },
+    // G2 (M7.10): no calculators on the wider-area view —
+    // there is no home here for them to be about.
+    calculators: null,
+    // The wider-area view carries the "About these checks"
+    // expander too (M7.12): its sections map the same way.
+    checkLinks: checkLinksForTabs(tabs),
     warningsStrip: { kind: "none" },
     floodWarningsState: null,
-    tabs: [
-      { id: "family", label: "Family Checks", sections: family },
-      { id: "neighbourhood", label: "The Neighbourhood", sections: neighbourhood },
-      { id: "home", label: "Home, Costs & Risks", sections: home },
-      { id: "nearby", label: "What's Nearby", sections: nearbyTab },
-    ],
+    tabs,
   };
 }

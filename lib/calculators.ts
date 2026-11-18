@@ -99,7 +99,40 @@ export const STAMP_DUTY_SMALL_PRINT =
 export const MORTGAGE_SMALL_PRINT =
   "Illustration only, on the rate and term you entered — rates change, and this is not advice and not a verdict on what you can afford.";
 
+export const EMPTY_PRICE_PROMPT = "Enter the price you're considering.";
+
 export function stampDutyFraming(lastSalePrice: number | null, duty: number): string {
-  if (lastSalePrice === null) return "Enter the price you're considering.";
+  if (lastSalePrice === null) return EMPTY_PRICE_PROMPT;
   return `On the price this home last sold for, the stamp duty would be £${duty.toLocaleString("en-GB")} — put in the price you'd actually offer, and it moves with you.`;
 }
+
+// The deposit as a share of the price (M7.10 G5): display
+// only, derived from the two figures currently in the
+// boxes — it never feeds the arithmetic. Nothing shows
+// when either figure is not a positive number.
+export function depositShareLine(price: number, deposit: number): string | null {
+  if (!(price > 0) || !(deposit > 0)) return null;
+  return `${Math.round((deposit / price) * 100)}% of the price`;
+}
+
+// Nation forms for the stamp duty card (M7.10 G1, founder
+// ruling 18 Nov 2026): Scotland and Wales charge their own
+// taxes, so the SDLT calculation is replaced by a named
+// line in the D30 pattern plus the official source — no
+// figures are served for either nation. The URLs are the
+// authorities' own pages, verified 18 Nov 2026: Revenue
+// Scotland's residential LBTT page, and GOV.WALES's Land
+// Transaction Tax guide (the Welsh Revenue Authority's tax,
+// published on GOV.WALES).
+export const SCOTLAND_TAX_LINE =
+  "Scotland charges Land and Buildings Transaction Tax instead — this calculator covers England & Northern Ireland.";
+export const SCOTLAND_TAX_LINK = {
+  label: "Land and Buildings Transaction Tax — Revenue Scotland",
+  url: "https://revenue.scot/taxes/land-buildings-transaction-tax/residential-property",
+};
+export const WALES_TAX_LINE =
+  "Wales charges Land Transaction Tax instead — this calculator covers England & Northern Ireland.";
+export const WALES_TAX_LINK = {
+  label: "Land Transaction Tax — GOV.WALES",
+  url: "https://www.gov.wales/land-transaction-tax-guide",
+};

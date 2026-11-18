@@ -25,13 +25,13 @@ export const HOME_HERO_SUBLINE =
 // here. (a) The founder's own postcode never appears in
 // visitor-facing copy — the hint's example is the neutral
 // SW1A 1AA, here and everywhere the example ran (the box's
-// placeholder, the no-location line, the kitchen-sink
+// placeholder, the unplaced notice line, the kitchen-sink
 // specimens). (b) The hero's box takes the decided sample
 // page's bare form: no visible label or hint, the field
 // itself carrying the placeholder below, and the Brass
 // button in the sample's words. The labelled form survives
-// on the journey's own pages (the no-location fix route, the
-// wider-area banner), where the box is a retry, not the
+// on the journey's own pages (the wider-area banner, the
+// whole-check failure), where the box is a retry, not the
 // page's main action.
 export const POSTCODE_BOX_LABEL = "Postcode or address";
 export const POSTCODE_BOX_HINT = "For example, SW1A 1AA — or the full address, with its postcode.";

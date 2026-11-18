@@ -13,12 +13,20 @@
 //
 // The route family (fold-in 1): one family, kept out of
 // /check/… (M7.8's SEO landing namespace):
-//   /search            — the bare route: the no-location fix
-//                        route only (T-WEB-09). With
-//                        ?postcode= it is the postcode form
-//                        (picker / postcode-level state);
-//                        with ?outward= it is the wider-area
-//                        landing (rung 3).
+//   /search            — with ?postcode= it is the postcode
+//                        form (picker / postcode-level
+//                        state); with ?outward= it is the
+//                        wider-area landing (rung 3). The
+//                        BARE route serves nothing of its
+//                        own: it redirects to the landing
+//                        page carrying the unplaced notice
+//                        (the standalone no-location page
+//                        was retired by the founder's ruling
+//                        of 18 Nov 2026 — an input that can't
+//                        be placed returns to the landing
+//                        page with a small notice at its
+//                        search box, never a page of its
+//                        own).
 //   /search/home       — the home form: ?postcode= plus the
 //                        URL-encoded home key (?home=) renders
 //                        checking, then the holding results
@@ -91,6 +99,15 @@ export const SEARCH_ROUTE = "/search";
 export const HOME_ROUTE = "/search/home";
 export const FAILED_ROUTE = "/search/failed";
 
+// The unplaced landing (founder ruling, 18 Nov 2026): an
+// input that can't be placed — and any direct hit on the
+// bare /search route — returns to the landing page with
+// the notice flag in its query; the landing page renders
+// the small notice line at its search box from it.
+export const UNPLACED_NOTICE_PARAM = "notice";
+export const UNPLACED_NOTICE_VALUE = "unplaced";
+export const UNPLACED_NOTICE_URL = `/?${UNPLACED_NOTICE_PARAM}=${UNPLACED_NOTICE_VALUE}`;
+
 export function postcodeRoute(
   postcode: string,
   narrowing?: { street?: string | null; building?: string | null; picked?: string | null },
@@ -138,8 +155,12 @@ export function journeyDestination(
     case 4:
       // No usable location — including a bare street or place
       // name (ruling 2: the narrowed search scope lands it
-      // here, asking for the postcode).
-      return { kind: "no-location", url: SEARCH_ROUTE };
+      // here). Since the founder's ruling of 18 Nov 2026 the
+      // destination is the landing page with the unplaced
+      // notice at its search box — the standalone
+      // no-location page is retired. The kind keeps its name:
+      // it names the resolution state, not a page.
+      return { kind: "no-location", url: UNPLACED_NOTICE_URL };
     case 3:
       // A partial postcode is a wider area, never an error.
       // A full postcode the directory does not hold degrades
@@ -283,14 +304,19 @@ export function postcodeNotFoundLine(postcode: string): string {
   return `${postcode} isn't a postcode we hold — this is the wider area it points to instead.`;
 }
 
-// The no-location route (T-WEB-09): a bare street or place
-// name lands here too (ruling 2), asking for the postcode.
-export const NO_LOCATION_HEADING = "We couldn't place that";
-// Fidelity pass 2 (founder, 17 Nov 2026): the example is the
-// neutral SW1A 1AA — the founder's own postcode never appears
-// in visitor-facing copy.
-export const NO_LOCATION_LINE =
-  "Try a full postcode — for example SW1A 1AA — or a full address with its postcode. A street or place name on its own isn't enough: every town has a street with the same name.";
+// The unplaced notice (founder ruling, 18 Nov 2026): the
+// small line the landing page shows at its search box when
+// an input couldn't be placed. It replaces the retired
+// no-location page (T-WEB-09's old fix route); its wording
+// is drafted from that page's line, keeping the substance —
+// a full postcode or a full address is needed, and a street
+// or place name on its own isn't enough — in the short form
+// a notice at a search box carries. The example stays the
+// neutral SW1A 1AA (fidelity pass 2: the founder's own
+// postcode never appears in visitor-facing copy). The
+// founder reviews the copy at UAT.
+export const UNPLACED_NOTICE_LINE =
+  "We couldn't place that — try a full postcode, for example SW1A 1AA, or a full address with its postcode. A street or place name on its own isn't enough.";
 
 // The not-covered page (ruling 4): the check is never
 // refused; every section carries its served not-covered

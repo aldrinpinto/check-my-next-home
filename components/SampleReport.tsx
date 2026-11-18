@@ -1,14 +1,18 @@
-/* eslint-disable @next/next/no-img-element -- the report's location maps are plain static assets, as elsewhere in the kit */
-/* eslint-disable react/no-unescaped-entities -- this file is a verbatim transcription of the finalised sample's document; its apostrophes are the sample's own straight apostrophes, carried as they stand rather than re-typed as entities */
+/* eslint-disable react/no-unescaped-entities -- this file follows the finalised sample's document; its apostrophes are the sample's own straight apostrophes, carried as they stand rather than re-typed as entities */
 // M7.8 — the Sample report page (Final Sample Master view
-// 7): the detailed report's web preview, transcribed
-// faithfully from the finalised sample — the SAMPLE banner
-// and watermark, the masthead, the short version and all
-// nine sections, with the worked example home and its
-// figures exactly as the sample carries them. The sample
-// is the authority: nothing here is re-based, rounded or
-// reworded. The two location maps are the sample's own
-// images, carried as binary assets (public/sample-report/).
+// 7): the detailed report's web preview, in the finalised
+// sample's format — the SAMPLE banner and watermark, the
+// masthead, the short version and all nine sections.
+// Anonymised 18 Nov 2026 (founder ruling): the worked
+// example is an invented home — 14 Bramblewood Lane,
+// Ashmere, WM8 4QT — with invented figures throughout, so
+// no real home or locality appears on this visitor-facing
+// page. The format, sections and structure are the
+// sample's; only the example's identity and figures are
+// dummy. The two location panels in Section 7 are neutral
+// schematic panels drawn for the invented example, not
+// maps of a real place (the sample's original map images
+// depicted a real locality and are no longer used here).
 export default function SampleReport() {
   return (
     <div className="report-wrap">
@@ -26,15 +30,15 @@ export default function SampleReport() {
         <span className="sample-pill">SAMPLE</span>
         <p>
           This is a sample report, so you can see exactly what a detailed report looks like before
-          you ever pay for one. The home is real; the document below follows the format every
-          detailed report follows.
+          you ever pay for one. The home in this sample is an invented example, with invented
+          figures; the document below follows the format every detailed report follows.
         </p>
       </div>
       <article className="rpt-doc">
         <header className="rpt-mast">
           <p className="rpt-brand">Check My Next Home · Detailed Report</p>
-          <h1>19 Birkdale Rise</h1>
-          <p className="rpt-addr">Hatfield Peverel, Chelmsford, Essex CM3 2JT</p>
+          <h1>14 Bramblewood Lane</h1>
+          <p className="rpt-addr">Ashmere, Kingsmere, Westshire WM8 4QT</p>
           <div className="rpt-meta">
             <div>
               <div className="k">Property</div>
@@ -42,19 +46,19 @@ export default function SampleReport() {
             </div>
             <div>
               <div className="k">Floor area</div>
-              <div className="v">141 m²</div>
+              <div className="v">118 m²</div>
             </div>
             <div>
               <div className="k">Last sale</div>
-              <div className="v">£588,995</div>
+              <div className="v">£425,750</div>
             </div>
             <div>
               <div className="k">Sale date</div>
-              <div className="v">15 Jun 2023</div>
+              <div className="v">22 Apr 2022</div>
             </div>
             <div>
               <div className="k">Report date</div>
-              <div className="v">17 November 2026</div>
+              <div className="v">14 November 2026</div>
             </div>
           </div>
         </header>
@@ -74,12 +78,12 @@ export default function SampleReport() {
               <h3>Price &amp; sold history</h3>
               <ul>
                 <li>
-                  Last sold for <strong>£588,995 on 15 June 2023</strong> — its first recorded sale
+                  Last sold for <strong>£425,750 on 22 April 2022</strong> — its first recorded sale
                   as a new build.
                 </li>
                 <li>
-                  Postcode median (category A sales): <strong>£588,995</strong>, over 29 counted
-                  sales spanning 20 Dec 1996 to 20 Jul 2026.
+                  Postcode median (category A sales): <strong>£412,500</strong>, over 24 counted
+                  sales spanning 14 Mar 1998 to 9 Jun 2026.
                 </li>
               </ul>
             </div>
@@ -87,16 +91,15 @@ export default function SampleReport() {
               <h3>Education</h3>
               <ul>
                 <li>
-                  Nearest primary schools <strong>0.3 miles</strong> away — St Andrew's Junior and
-                  Hatfield Peverel Infant &amp; Nursery, both on Church Road.
+                  Nearest primary schools <strong>0.4 miles</strong> away — St Mary's Junior and
+                  Ashmere Infant &amp; Nursery, both on Church Lane.
                 </li>
                 <li>
-                  Nearest secondary: Maltings Academy, Witham, <strong>1.8 miles</strong>; New
-                  Rickstones Academy <strong>1.9 miles</strong>.
+                  Nearest secondary: Kingsmere Academy, <strong>1.6 miles</strong>; Northgate
+                  Academy <strong>1.7 miles</strong>.
                 </li>
                 <li>
-                  King Edward VI Grammar School, Chelmsford, <strong>6.1 miles</strong> — selective,
-                  entry by test.
+                  Northbury Grammar School, <strong>5.8 miles</strong> — selective, entry by test.
                 </li>
               </ul>
             </div>
@@ -104,15 +107,15 @@ export default function SampleReport() {
               <h3>Health</h3>
               <ul>
                 <li>
-                  GP surgery <strong>0.4 miles</strong> — Sidney House branch, Strutt Close.
+                  GP surgery <strong>0.5 miles</strong> — Millfield House branch, Forge Close.
                 </li>
                 <li>
-                  NHS dentist <strong>0.3 miles</strong> and Boots pharmacy{" "}
-                  <strong>0.4 miles</strong>, both in the village.
+                  NHS dentist <strong>0.4 miles</strong> and the village pharmacy{" "}
+                  <strong>0.5 miles</strong>, both in the village.
                 </li>
                 <li>
                   No A&amp;E within 2 miles — nearest is{" "}
-                  <strong>Broomfield Hospital, 5.9 miles</strong>.
+                  <strong>Northbury Hospital, 6.4 miles</strong>.
                 </li>
               </ul>
             </div>
@@ -120,15 +123,15 @@ export default function SampleReport() {
               <h3>What's nearby</h3>
               <ul>
                 <li>
-                  Hatfield Peverel station <strong>0.6 miles</strong>.
+                  Ashmere station <strong>0.7 miles</strong>.
                 </li>
                 <li>
-                  Co-op <strong>0.3 miles</strong>; ALDI <strong>1.1 miles</strong>; Lidl{" "}
-                  <strong>1.9 miles</strong>.
+                  Co-op <strong>0.4 miles</strong>; ALDI <strong>1.4 miles</strong>; Lidl{" "}
+                  <strong>1.7 miles</strong>.
                 </li>
                 <li>
-                  Strutt Memorial park <strong>0.2 miles</strong>; library{" "}
-                  <strong>0.5 miles</strong>.
+                  Ashmere Memorial Park <strong>0.3 miles</strong>; library{" "}
+                  <strong>0.6 miles</strong>.
                 </li>
               </ul>
             </div>
@@ -137,11 +140,11 @@ export default function SampleReport() {
               <ul>
                 <li>
                   Flood from rivers &amp; sea: <strong>no band at this point</strong> — nearest Low
-                  band edge 0.8 miles away.
+                  band edge 1.1 miles away.
                 </li>
-                <li>Surface water: nearest Low 0.0 miles, Medium 0.0 miles, High 0.1 miles.</li>
+                <li>Surface water: nearest Low 0.1 miles, Medium 0.2 miles, High 0.3 miles.</li>
                 <li>
-                  Crime: <strong>330 incidents</strong> within 1 mile, Oct 2025–Sep 2026. 51.7
+                  Crime: <strong>279 incidents</strong> within 1 mile, Oct 2025–Sep 2026. 37.6
                   recorded crimes for every 1,000 residents here; across England, the figure is
                   94.5.
                 </li>
@@ -151,14 +154,14 @@ export default function SampleReport() {
               <h3>Home, costs &amp; energy</h3>
               <ul>
                 <li>
-                  Energy rating <strong>Band B (score 85)</strong>, with potential to reach A (93).
-                  Estimated energy cost about £489 a year.
+                  Energy rating <strong>Band B (score 82)</strong>, with potential to reach A (94).
+                  Estimated energy cost about £612 a year.
                 </li>
                 <li>
-                  Council tax Band D: <strong>£2,280.36 a year</strong> (£190.03 a month).
+                  Council tax Band D: <strong>£2,145.60 a year</strong> (£178.80 a month).
                 </li>
                 <li>
-                  Deprivation: <strong>decile 8 of 10</strong> (Indices of Deprivation 2025).
+                  Deprivation: <strong>decile 7 of 10</strong> (Indices of Deprivation 2025).
                 </li>
                 <li>Full fibre broadband is available at this postcode.</li>
               </ul>
@@ -173,8 +176,8 @@ export default function SampleReport() {
           <div className="rpt-tiles">
             <div className="rpt-tile">
               <div className="stLabel">Last sale</div>
-              <div className="stValue">£588,995</div>
-              <div className="stSub">15 Jun 2023 · HM Land Registry</div>
+              <div className="stValue">£425,750</div>
+              <div className="stSub">22 Apr 2022 · HM Land Registry</div>
             </div>
             <div className="rpt-tile">
               <div className="stLabel">Times sold</div>
@@ -189,16 +192,16 @@ export default function SampleReport() {
             <div className="rpt-tile">
               <div className="stLabel">Held by last owner</div>
               <div className="stValue">—</div>
-              <div className="stSub">New build — the 2023 sale was its first</div>
+              <div className="stSub">New build — the 2022 sale was its first</div>
             </div>
           </div>
           <ul className="rpt-tight">
             <li>
-              <strong>Type:</strong> detached house, freehold, 141 m².
+              <strong>Type:</strong> detached house, freehold, 118 m².
             </li>
             <li>
-              <strong>Built:</strong> new build, completed as part of the Birkdale Rise development
-              and first sold in 2023.
+              <strong>Built:</strong> new build, completed as part of the Bramblewood Lane
+              development and first sold in 2022.
             </li>
             <li>
               <strong>Recorded sales for this address:</strong> one — the sale below.
@@ -213,9 +216,9 @@ export default function SampleReport() {
               <th className="num">Annual growth</th>
             </tr>
             <tr>
-              <td>15 Jun 2023</td>
+              <td>22 Apr 2022</td>
               <td className="num">
-                <strong>£588,995</strong>
+                <strong>£425,750</strong>
               </td>
               <td className="num">— first recorded sale (new build)</td>
               <td className="num">—</td>
@@ -229,55 +232,55 @@ export default function SampleReport() {
             <h2>Sold prices nearby</h2>
           </div>
           <p className="rpt-intro">
-            Recorded sales in this home's postcode, CM3 2JT — category A sales in HM Land Registry
+            Recorded sales in this home's postcode, WM8 4QT — category A sales in HM Land Registry
             Price Paid Data. The median below is the postcode median.
           </p>
           <div className="rpt-tiles">
             <div className="rpt-tile">
               <div className="stLabel">Postcode median</div>
-              <div className="stValue">£588,995</div>
-              <div className="stSub">Category A median for CM3 2JT</div>
+              <div className="stValue">£412,500</div>
+              <div className="stSub">Category A median for WM8 4QT</div>
             </div>
             <div className="rpt-tile">
               <div className="stLabel">Sales counted</div>
-              <div className="stValue">29</div>
+              <div className="stValue">24</div>
               <div className="stSub">Counted sales behind the median</div>
             </div>
             <div className="rpt-tile">
               <div className="stLabel">Span of sales</div>
               <div className="stValue" style={{ fontSize: "1rem" }}>
-                1996 – 2026
+                1998 – 2026
               </div>
-              <div className="stSub">20 Dec 1996 to 20 Jul 2026</div>
+              <div className="stSub">14 Mar 1998 to 9 Jun 2026</div>
             </div>
             <div className="rpt-tile">
               <div className="stLabel">This home</div>
-              <div className="stValue">£588,995</div>
-              <div className="stSub">15 Jun 2023 · HM Land Registry</div>
+              <div className="stValue">£425,750</div>
+              <div className="stSub">22 Apr 2022 · HM Land Registry</div>
             </div>
           </div>
           <div className="rpt-chartCard">
-            <h4>Where this home sits — recorded sales in postcode CM3 2JT</h4>
+            <h4>Where this home sits — recorded sales in postcode WM8 4QT</h4>
             <svg
               className="dotPlot"
               viewBox="0 0 760 118"
               role="img"
-              aria-label="Dot plot of the 29 counted recorded sales in postcode CM3 2JT. The dashed line is the postcode median, £588,995. This home's sale, £588,995, is the large brass dot, on the median line."
+              aria-label="Dot plot of the 24 counted recorded sales in postcode WM8 4QT. The dashed line is the postcode median, £412,500. This home's sale, £425,750, is the large brass dot, just to the right of the median line."
             >
               <text
-                x="508"
+                x="409"
                 y="12"
                 textAnchor="middle"
                 fontSize="13"
                 fontWeight="700"
                 fill="#2F5D3E"
               >
-                Median £588,995
+                Median £412,500
               </text>
               <line
-                x1="508"
+                x1="409"
                 y1="18"
-                x2="508"
+                x2="409"
                 y2="84"
                 stroke="#2F5D3E"
                 strokeWidth="2.5"
@@ -292,66 +295,61 @@ export default function SampleReport() {
                 strokeWidth="3"
                 strokeLinecap="round"
               />
-              <circle cx="52" cy="58" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
-              <circle cx="88" cy="58" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
-              <circle cx="124" cy="58" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
+              <circle cx="65" cy="58" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
+              <circle cx="112" cy="58" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
               <circle cx="158" cy="58" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
-              <circle cx="196" cy="58" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
+              <circle cx="193" cy="58" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
               <circle cx="228" cy="58" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
-              <circle cx="262" cy="58" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
-              <circle cx="296" cy="58" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
-              <circle cx="330" cy="58" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
-              <circle cx="362" cy="58" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
+              <circle cx="263" cy="58" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
+              <circle cx="287" cy="58" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
+              <circle cx="322" cy="58" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
+              <circle cx="345" cy="58" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
+              <circle cx="368" cy="58" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
               <circle cx="392" cy="58" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
-              <circle cx="420" cy="58" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
-              <circle cx="448" cy="58" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
-              <circle cx="474" cy="58" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
-              <circle cx="536" cy="58" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
-              <circle cx="562" cy="58" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
-              <circle cx="588" cy="58" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
-              <circle cx="612" cy="58" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
-              <circle cx="636" cy="58" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
-              <circle cx="658" cy="58" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
-              <circle cx="678" cy="58" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
-              <circle cx="696" cy="58" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
-              <circle cx="712" cy="58" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
-              <circle cx="180" cy="58" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
-              <circle cx="330" cy="44" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
-              <circle cx="420" cy="44" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
-              <circle cx="536" cy="44" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
-              <circle cx="588" cy="44" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
-              <circle cx="508" cy="58" r="11" fill="#C29A3B" stroke="#1E402C" strokeWidth="2.5" />
+              <circle cx="403" cy="58" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
+              <circle cx="415" cy="58" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
+              <circle cx="450" cy="58" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
+              <circle cx="485" cy="58" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
+              <circle cx="520" cy="58" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
+              <circle cx="555" cy="58" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
+              <circle cx="590" cy="58" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
+              <circle cx="625" cy="58" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
+              <circle cx="660" cy="58" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
+              <circle cx="695" cy="58" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
+              <circle cx="718" cy="58" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
+              <circle cx="725" cy="58" r="6" fill="#A8C0AF" stroke="#fff" strokeWidth="2" />
+              <circle cx="440" cy="58" r="11" fill="#C29A3B" stroke="#1E402C" strokeWidth="2.5" />
               <text
-                x="508"
+                x="440"
                 y="90"
                 textAnchor="middle"
                 fontSize="13.5"
                 fontWeight="700"
                 fill="#7A5E14"
               >
-                This home — £588,995
+                This home — £425,750
               </text>
               <text x="30" y="108" textAnchor="middle" fontSize="12" fill="#5C6B60">
-                £350k
+                £250k
               </text>
-              <text x="230" y="108" textAnchor="middle" fontSize="12" fill="#5C6B60">
-                £450k
+              <text x="205" y="108" textAnchor="middle" fontSize="12" fill="#5C6B60">
+                £325k
               </text>
-              <text x="430" y="108" textAnchor="middle" fontSize="12" fill="#5C6B60">
-                £550k
+              <text x="380" y="108" textAnchor="middle" fontSize="12" fill="#5C6B60">
+                £400k
               </text>
-              <text x="630" y="108" textAnchor="middle" fontSize="12" fill="#5C6B60">
-                £650k
+              <text x="555" y="108" textAnchor="middle" fontSize="12" fill="#5C6B60">
+                £475k
               </text>
               <text x="730" y="108" textAnchor="end" fontSize="12" fill="#5C6B60">
-                £700k
+                £550k
               </text>
             </svg>
             <p className="rpt-small rpt-chartNote">
-              Each dot is one of the 29 counted recorded sales in this postcode (category A),
-              spanning 20 Dec 1996 to 20 Jul 2026. The dashed line is the postcode median, £588,995.
+              Each dot is one of the 24 counted recorded sales in this postcode (category A),
+              spanning 14 Mar 1998 to 9 Jun 2026. The dashed line is the postcode median, £412,500.
               Dots at the same price stack above the line, so every sale stays visible. This home's
-              sale, the brass dot, sits on the median line.
+              sale, the brass dot, sits just to the right of the median line.
             </p>
           </div>
         </section>
@@ -363,13 +361,13 @@ export default function SampleReport() {
           <h3 className="rpt-sub">Primary schools — nearest 5</h3>
           <div className="rpt-row">
             <div className="rmain">
-              <span className="rname">Hatfield Peverel St Andrew's Junior School</span>{" "}
+              <span className="rname">Ashmere St Mary's Junior School</span>{" "}
               <span className="tag">Ages 7–11</span>
               <div className="rpt-detail">
-                Church Road, CM3 2JX · Foundation, Church of England · 236 pupils · Inspected 11 Mar
+                Church Lane, WM8 4RA · Foundation, Church of England · 214 pupils · Inspected 18 Mar
                 2025 — Quality of education: <strong>Good</strong>.{" "}
                 <a
-                  href="https://reports.ofsted.gov.uk/provider/21/115102"
+                  href="https://reports.ofsted.gov.uk/provider/21/109876"
                   target="_blank"
                   rel="noopener"
                 >
@@ -377,128 +375,128 @@ export default function SampleReport() {
                 </a>
               </div>
             </div>
-            <span className="dist">0.3 mi</span>
+            <span className="dist">0.4 mi</span>
           </div>
           <div className="rpt-row">
             <div className="rmain">
-              <span className="rname">Hatfield Peverel Infant and Nursery School</span>{" "}
+              <span className="rname">Ashmere Infant and Nursery School</span>{" "}
               <span className="tag">Ages 3–7 · Nursery</span>
-              <div className="rpt-detail">Church Road, CM3 2RP · Local authority maintained.</div>
+              <div className="rpt-detail">Church Lane, WM8 4RB · Local authority maintained.</div>
             </div>
-            <span className="dist">0.3 mi</span>
+            <span className="dist">0.4 mi</span>
           </div>
           <div className="rpt-row">
             <div className="rmain">
-              <span className="rname">Boreham Primary School</span>
+              <span className="rname">Millfield Primary School</span>
               <div className="rpt-detail">
-                Juniper Road, Boreham · The next state primary beyond the village pair.
+                Hawthorn Road, Millfield · The next state primary beyond the village pair.
               </div>
             </div>
-            <span className="dist">1.9 mi</span>
+            <span className="dist">1.6 mi</span>
           </div>
           <div className="rpt-row">
             <div className="rmain">
-              <span className="rname">Elm Hall Primary School, Witham</span>
+              <span className="rname">Hawthorn Primary School, Kingsmere</span>
               <div className="rpt-detail">
-                Conrad Road, Witham · State primary serving the south Witham side.
+                Ash Road, Kingsmere · State primary serving the south Kingsmere side.
               </div>
             </div>
-            <span className="dist">2.2 mi</span>
+            <span className="dist">2.0 mi</span>
           </div>
           <div className="rpt-row">
             <div className="rmain">
-              <span className="rname">Elm Green Preparatory School</span>{" "}
+              <span className="rname">Bramble Preparatory School</span>{" "}
               <span className="tag">Independent</span>
               <div className="rpt-detail">
-                Little Baddow, CM3 4SU · Independent primary — inspected by ISI, not Ofsted, so no
+                Little Bourne, WM9 3TE · Independent primary — inspected by ISI, not Ofsted, so no
                 Ofsted grade applies.
               </div>
             </div>
-            <span className="dist">2.9 mi</span>
+            <span className="dist">2.7 mi</span>
           </div>
           <h3 className="rpt-sub">Secondary schools — nearest 5</h3>
           <div className="rpt-row">
             <div className="rmain">
-              <span className="rname">Maltings Academy, Witham</span>
+              <span className="rname">Kingsmere Academy</span>
               <div className="rpt-detail">
-                Spinks Lane, Witham · Academy, ages 11–18 · The nearest secondary to this address.
+                Mill Lane, Kingsmere · Academy, ages 11–18 · The nearest secondary to this address.
               </div>
             </div>
-            <span className="dist">1.8 mi</span>
+            <span className="dist">1.6 mi</span>
           </div>
           <div className="rpt-row">
             <div className="rmain">
-              <span className="rname">New Rickstones Academy, Witham</span>
-              <div className="rpt-detail">Conrad Road, Witham · Academy, ages 11–18.</div>
+              <span className="rname">Northgate Academy, Kingsmere</span>
+              <div className="rpt-detail">Ash Road, Kingsmere · Academy, ages 11–18.</div>
             </div>
-            <span className="dist">1.9 mi</span>
+            <span className="dist">1.7 mi</span>
           </div>
           <div className="rpt-row hl">
             <div className="rmain">
-              <span className="rname">King Edward VI Grammar School (KEGS), Chelmsford</span>{" "}
+              <span className="rname">Northbury Grammar School</span>{" "}
               <span className="tag star">★ Grammar</span>
               <div className="rpt-detail">
                 Selective boys' grammar · Entry by entrance test (11+) — a place is never based on
                 distance alone.
               </div>
             </div>
-            <span className="dist">6.1 mi</span>
+            <span className="dist">5.8 mi</span>
           </div>
           <div className="rpt-row hl">
             <div className="rmain">
-              <span className="rname">Chelmsford County High School for Girls</span>{" "}
+              <span className="rname">Northbury High School for Girls</span>{" "}
               <span className="tag star">★ Grammar</span>
               <div className="rpt-detail">
                 Selective girls' grammar · Entry by entrance test (11+).
               </div>
             </div>
-            <span className="dist">7.1 mi</span>
+            <span className="dist">6.8 mi</span>
           </div>
           <div className="rpt-row">
             <div className="rmain">
-              <span className="rname">The Plume Academy, Maldon</span>
+              <span className="rname">Eastmere Academy</span>
               <div className="rpt-detail">
-                Academy, ages 11–18 · The secondary option towards Maldon.
+                Academy, ages 11–18 · The secondary option towards Eastmere.
               </div>
             </div>
-            <span className="dist">7.4 mi</span>
+            <span className="dist">7.1 mi</span>
           </div>
           <h3 className="rpt-sub">Sixth-form provision</h3>
           <ul className="rpt-tight">
             <li>
-              <strong>Maltings Academy</strong> and <strong>New Rickstones Academy</strong> are both
+              <strong>Kingsmere Academy</strong> and <strong>Northgate Academy</strong> are both
               academies for ages 11–18, so each carries sixth-form provision through to 18.
             </li>
             <li>
-              <strong>King Edward VI Grammar School</strong> is selective — entry is by test,
-              including at sixth form.
+              <strong>Northbury Grammar School</strong> is selective — entry is by test, including
+              at sixth form.
             </li>
           </ul>
-          <h3 className="rpt-sub">After Year 11 — Maltings Academy destinations</h3>
+          <h3 className="rpt-sub">After Year 11 — Kingsmere Academy destinations</h3>
           <ul className="rpt-tight">
             <li>
-              KS4 cohort: <strong>171</strong> pupils.
+              KS4 cohort: <strong>158</strong> pupils.
             </li>
             <li>
-              <strong>84.8%</strong> stayed in education or training.
+              <strong>83.5%</strong> stayed in education or training.
             </li>
             <li>
-              <strong>72.5%</strong> stayed in education; <strong>5.3%</strong> went into
-              apprenticeships; <strong>7.0%</strong> went into employment.
+              <strong>70.9%</strong> stayed in education; <strong>5.7%</strong> went into
+              apprenticeships; <strong>6.9%</strong> went into employment.
             </li>
-            <li>No KS5 figures are carried for Maltings Academy in this report.</li>
+            <li>No KS5 figures are carried for Kingsmere Academy in this report.</li>
           </ul>
           <h3 className="rpt-sub">Nurseries &amp; pre-schools</h3>
           <div className="rpt-row">
             <div className="rmain">
-              <span className="rname">Nursery at Hatfield Peverel Infant School</span>
+              <span className="rname">Nursery at Ashmere Infant School</span>
               <div className="rpt-detail">
-                Nursery places sit inside Hatfield Peverel Infant and Nursery School on Church Road
-                (listed above) — ages 3–7 including nursery. No separate standalone nursery was
-                found in the village.
+                Nursery places sit inside Ashmere Infant and Nursery School on Church Lane (listed
+                above) — ages 3–7 including nursery. No separate standalone nursery was found in the
+                village.
               </div>
             </div>
-            <span className="dist">0.3 mi</span>
+            <span className="dist">0.4 mi</span>
           </div>
         </section>
         <section className="rpt-section">
@@ -509,57 +507,55 @@ export default function SampleReport() {
           <h3 className="rpt-sub">Health</h3>
           <div className="rpt-row">
             <div className="rmain">
-              <span className="rname">GP — Sidney House Surgery (branch)</span>
-              <div className="rpt-detail">
-                Strutt Close, Hatfield Peverel, CM3 2HB · The village surgery.
-              </div>
+              <span className="rname">GP — Millfield House Surgery (branch)</span>
+              <div className="rpt-detail">Forge Close, Ashmere, WM8 4HC · The village surgery.</div>
+            </div>
+            <span className="dist">0.5 mi</span>
+          </div>
+          <div className="rpt-row">
+            <div className="rmain">
+              <span className="rname">NHS dentist — Ashmere Dental Surgery</span>
+              <div className="rpt-detail">Mill Yard, High Street, WM8 4JD.</div>
             </div>
             <span className="dist">0.4 mi</span>
           </div>
           <div className="rpt-row">
             <div className="rmain">
-              <span className="rname">NHS dentist — Hatfield Peverel Dental Surgery</span>
-              <div className="rpt-detail">Wheelwrights Yard, The Street, CM3 2EA.</div>
+              <span className="rname">Pharmacy — Ashmere Pharmacy</span>
+              <div className="rpt-detail">5 Market Square, Ashmere, WM8 4PF.</div>
             </div>
-            <span className="dist">0.3 mi</span>
+            <span className="dist">0.5 mi</span>
           </div>
           <div className="rpt-row">
             <div className="rmain">
-              <span className="rname">Pharmacy — Boots</span>
-              <div className="rpt-detail">3 Hadfelda Square, Hatfield Peverel, CM3 2HD.</div>
-            </div>
-            <span className="dist">0.4 mi</span>
-          </div>
-          <div className="rpt-row">
-            <div className="rmain">
-              <span className="rname">Hospital with A&amp;E — Broomfield Hospital</span>
+              <span className="rname">Hospital with A&amp;E — Northbury Hospital</span>
               <div className="rpt-detail">
-                Court Road, Chelmsford, CM1 7ET · There is no A&amp;E within 2 miles of this home;
-                Broomfield Hospital is the nearest, at 5.9 miles.
+                Hospital Road, Northbury, WM1 5ET · There is no A&amp;E within 2 miles of this home;
+                Northbury Hospital is the nearest, at 6.4 miles.
               </div>
             </div>
-            <span className="dist">5.9 mi</span>
+            <span className="dist">6.4 mi</span>
           </div>
           <div className="rpt-row">
             <div className="rmain">
-              <span className="rname">Maternity unit — Broomfield Hospital</span>
+              <span className="rname">Maternity unit — Northbury Hospital</span>
               <div className="rpt-detail">
                 The main maternity unit for this area, at the same hospital as the A&amp;E above.
               </div>
             </div>
-            <span className="dist">5.9 mi</span>
+            <span className="dist">6.4 mi</span>
           </div>
           <div className="rpt-row">
             <div className="rmain">
               <span className="rname">
-                Community hospital (no A&amp;E) — St Peter's Hospital, Maldon
+                Community hospital (no A&amp;E) — Eastmere Community Hospital
               </span>
               <div className="rpt-detail">
-                Spital Road, Maldon, CM9 6EG · Community hospital services — this hospital does not
-                have an A&amp;E department.
+                Meadow Road, Eastmere, WM7 4GH · Community hospital services — this hospital does
+                not have an A&amp;E department.
               </div>
             </div>
-            <span className="dist">8.3 mi</span>
+            <span className="dist">7.9 mi</span>
           </div>
           <h3 className="rpt-sub">Air — Defra modelled, 2024</h3>
           <table>
@@ -573,7 +569,7 @@ export default function SampleReport() {
               <td>
                 Nitrogen dioxide (NO<sub>2</sub>)
               </td>
-              <td className="num">8.15 µg/m³</td>
+              <td className="num">9.40 µg/m³</td>
               <td className="num">40 µg/m³</td>
               <td className="num">10 µg/m³</td>
             </tr>
@@ -581,7 +577,7 @@ export default function SampleReport() {
               <td>
                 Fine particles (PM<sub>2.5</sub>)
               </td>
-              <td className="num">7.12 µg/m³</td>
+              <td className="num">8.05 µg/m³</td>
               <td className="num">20 µg/m³</td>
               <td className="num">5 µg/m³</td>
             </tr>
@@ -589,7 +585,7 @@ export default function SampleReport() {
               <td>
                 Particles (PM<sub>10</sub>)
               </td>
-              <td className="num">12.55 µg/m³</td>
+              <td className="num">13.80 µg/m³</td>
               <td className="num">40 µg/m³</td>
               <td className="num">15 µg/m³</td>
             </tr>
@@ -598,11 +594,11 @@ export default function SampleReport() {
             <div className="rmain">
               <span className="rname">Air quality management area</span>
               <div className="rpt-detail">
-                No air quality management area within 2 miles of this home; the nearest is 4.3 miles
+                No air quality management area within 2 miles of this home; the nearest is 3.8 miles
                 away.
               </div>
             </div>
-            <span className="dist">4.3 mi</span>
+            <span className="dist">3.8 mi</span>
           </div>
           <h3 className="rpt-sub">Noise — modelled bands</h3>
           <div className="rpt-row">
@@ -640,12 +636,12 @@ export default function SampleReport() {
           <h3 className="rpt-sub">Crime — last 12 months</h3>
           <ul className="rpt-tight">
             <li>
-              <strong>330 incidents</strong> recorded within 1 mile of this home, October 2025 to
+              <strong>279 incidents</strong> recorded within 1 mile of this home, October 2025 to
               September 2026 (Police.uk).
             </li>
             <li>
               <strong>
-                51.7 recorded crimes for every 1,000 residents here. Across England, the figure is
+                37.6 recorded crimes for every 1,000 residents here. Across England, the figure is
                 94.5.
               </strong>
             </li>
@@ -657,7 +653,7 @@ export default function SampleReport() {
               className="monthChart"
               viewBox="0 0 760 262"
               role="img"
-              aria-label="Bar chart of recorded incidents by month, October 2025 to September 2026: October 22, November 47, December 28, January 26, February 14, March 28, April 37, May 33, June 34, July 23, August 26, September 12. Total 330."
+              aria-label="Bar chart of recorded incidents by month, October 2025 to September 2026: October 18, November 31, December 24, January 21, February 16, March 25, April 29, May 27, June 30, July 20, August 23, September 15. Total 279."
             >
               <line x1="44" y1="32" x2="744" y2="32" stroke="#E7DFC6" strokeWidth="1" />
               <text x="30" y="36" textAnchor="end" fontSize="12" fill="#5C6B60">
@@ -683,135 +679,149 @@ export default function SampleReport() {
               <text x="30" y="236" textAnchor="end" fontSize="12" fill="#5C6B60">
                 0
               </text>
-              <rect x="58" y="144" width="38" height="88" rx="3" fill="#2F5D3E" />
+              <rect x="58" y="160" width="38" height="72" rx="3" fill="#2F5D3E" />
               <text
                 x="77"
-                y="136"
+                y="152"
                 textAnchor="middle"
                 fontSize="13"
                 fontWeight="700"
                 fill="#1E402C"
               >
-                22
+                18
               </text>
               <text x="77" y="252" textAnchor="middle" fontSize="12.5" fill="#33403B">
                 Oct
               </text>
-              <rect x="116" y="44" width="38" height="188" rx="3" fill="#2F5D3E" />
+              <rect x="116" y="108" width="38" height="124" rx="3" fill="#2F5D3E" />
               <text
                 x="135"
-                y="36"
+                y="100"
                 textAnchor="middle"
                 fontSize="13"
                 fontWeight="700"
                 fill="#1E402C"
               >
-                47
+                31
               </text>
               <text x="135" y="252" textAnchor="middle" fontSize="12.5" fill="#33403B">
                 Nov
               </text>
-              <rect x="174" y="120" width="38" height="112" rx="3" fill="#2F5D3E" />
+              <rect x="174" y="136" width="38" height="96" rx="3" fill="#2F5D3E" />
               <text
                 x="193"
-                y="112"
+                y="128"
                 textAnchor="middle"
                 fontSize="13"
                 fontWeight="700"
                 fill="#1E402C"
               >
-                28
+                24
               </text>
               <text x="193" y="252" textAnchor="middle" fontSize="12.5" fill="#33403B">
                 Dec
               </text>
-              <rect x="232" y="128" width="38" height="104" rx="3" fill="#2F5D3E" />
+              <rect x="232" y="148" width="38" height="84" rx="3" fill="#2F5D3E" />
               <text
                 x="251"
-                y="120"
+                y="140"
                 textAnchor="middle"
                 fontSize="13"
                 fontWeight="700"
                 fill="#1E402C"
               >
-                26
+                21
               </text>
               <text x="251" y="252" textAnchor="middle" fontSize="12.5" fill="#33403B">
                 Jan
               </text>
-              <rect x="290" y="176" width="38" height="56" rx="3" fill="#2F5D3E" />
+              <rect x="290" y="168" width="38" height="64" rx="3" fill="#2F5D3E" />
               <text
                 x="309"
-                y="168"
+                y="160"
                 textAnchor="middle"
                 fontSize="13"
                 fontWeight="700"
                 fill="#1E402C"
               >
-                14
+                16
               </text>
               <text x="309" y="252" textAnchor="middle" fontSize="12.5" fill="#33403B">
                 Feb
               </text>
-              <rect x="348" y="120" width="38" height="112" rx="3" fill="#2F5D3E" />
+              <rect x="348" y="132" width="38" height="100" rx="3" fill="#2F5D3E" />
               <text
                 x="367"
-                y="112"
+                y="124"
                 textAnchor="middle"
                 fontSize="13"
                 fontWeight="700"
                 fill="#1E402C"
               >
-                28
+                25
               </text>
               <text x="367" y="252" textAnchor="middle" fontSize="12.5" fill="#33403B">
                 Mar
               </text>
-              <rect x="406" y="84" width="38" height="148" rx="3" fill="#2F5D3E" />
+              <rect x="406" y="116" width="38" height="116" rx="3" fill="#2F5D3E" />
               <text
                 x="425"
-                y="76"
+                y="108"
                 textAnchor="middle"
                 fontSize="13"
                 fontWeight="700"
                 fill="#1E402C"
               >
-                37
+                29
               </text>
               <text x="425" y="252" textAnchor="middle" fontSize="12.5" fill="#33403B">
                 Apr
               </text>
-              <rect x="464" y="100" width="38" height="132" rx="3" fill="#2F5D3E" />
+              <rect x="464" y="124" width="38" height="108" rx="3" fill="#2F5D3E" />
               <text
                 x="483"
-                y="92"
+                y="116"
                 textAnchor="middle"
                 fontSize="13"
                 fontWeight="700"
                 fill="#1E402C"
               >
-                33
+                27
               </text>
               <text x="483" y="252" textAnchor="middle" fontSize="12.5" fill="#33403B">
                 May
               </text>
-              <rect x="522" y="96" width="38" height="136" rx="3" fill="#2F5D3E" />
+              <rect x="522" y="112" width="38" height="120" rx="3" fill="#2F5D3E" />
               <text
                 x="541"
-                y="88"
+                y="104"
                 textAnchor="middle"
                 fontSize="13"
                 fontWeight="700"
                 fill="#1E402C"
               >
-                34
+                30
               </text>
               <text x="541" y="252" textAnchor="middle" fontSize="12.5" fill="#33403B">
                 Jun
               </text>
-              <rect x="580" y="140" width="38" height="92" rx="3" fill="#2F5D3E" />
+              <rect x="580" y="152" width="38" height="80" rx="3" fill="#2F5D3E" />
               <text
                 x="599"
+                y="144"
+                textAnchor="middle"
+                fontSize="13"
+                fontWeight="700"
+                fill="#1E402C"
+              >
+                20
+              </text>
+              <text x="599" y="252" textAnchor="middle" fontSize="12.5" fill="#33403B">
+                Jul
+              </text>
+              <rect x="638" y="140" width="38" height="92" rx="3" fill="#2F5D3E" />
+              <text
+                x="657"
                 y="132"
                 textAnchor="middle"
                 fontSize="13"
@@ -820,33 +830,19 @@ export default function SampleReport() {
               >
                 23
               </text>
-              <text x="599" y="252" textAnchor="middle" fontSize="12.5" fill="#33403B">
-                Jul
-              </text>
-              <rect x="638" y="128" width="38" height="104" rx="3" fill="#2F5D3E" />
-              <text
-                x="657"
-                y="120"
-                textAnchor="middle"
-                fontSize="13"
-                fontWeight="700"
-                fill="#1E402C"
-              >
-                26
-              </text>
               <text x="657" y="252" textAnchor="middle" fontSize="12.5" fill="#33403B">
                 Aug
               </text>
-              <rect x="696" y="184" width="38" height="48" rx="3" fill="#2F5D3E" />
+              <rect x="696" y="172" width="38" height="60" rx="3" fill="#2F5D3E" />
               <text
                 x="715"
-                y="176"
+                y="164"
                 textAnchor="middle"
                 fontSize="13"
                 fontWeight="700"
                 fill="#1E402C"
               >
-                12
+                15
               </text>
               <text x="715" y="252" textAnchor="middle" fontSize="12.5" fill="#33403B">
                 Sep
@@ -854,7 +850,7 @@ export default function SampleReport() {
             </svg>
             <p className="rpt-small rpt-chartNote">
               Months run October to December 2025, then January to September 2026. The twelve bars
-              add up to the 330 total.
+              add up to the 279 total.
             </p>
           </div>
           <div className="rpt-chartCard">
@@ -864,114 +860,114 @@ export default function SampleReport() {
               <span className="rpt-barTrack">
                 <i className="rpt-barFill" style={{ width: "100%" }}></i>
               </span>
-              <span className="rpt-barVal">133</span>
+              <span className="rpt-barVal">112</span>
             </div>
             <div className="rpt-barRow">
               <span className="barLab">Anti-social behaviour</span>
               <span className="rpt-barTrack">
-                <i className="rpt-barFill light" style={{ width: "48.9%" }}></i>
+                <i className="rpt-barFill light" style={{ width: "48.2%" }}></i>
               </span>
-              <span className="rpt-barVal">65</span>
+              <span className="rpt-barVal">54</span>
             </div>
             <div className="rpt-barRow">
               <span className="barLab">Robbery</span>
               <span className="rpt-barTrack">
-                <i className="rpt-barFill light" style={{ width: "21.8%" }}></i>
+                <i className="rpt-barFill light" style={{ width: "21.4%" }}></i>
               </span>
-              <span className="rpt-barVal">29</span>
+              <span className="rpt-barVal">24</span>
             </div>
             <div className="rpt-barRow">
               <span className="barLab">Criminal damage &amp; arson</span>
               <span className="rpt-barTrack">
-                <i className="rpt-barFill light" style={{ width: "15%" }}></i>
+                <i className="rpt-barFill light" style={{ width: "16.1%" }}></i>
               </span>
-              <span className="rpt-barVal">20</span>
+              <span className="rpt-barVal">18</span>
             </div>
             <div className="rpt-barRow">
               <span className="barLab">Other theft</span>
               <span className="rpt-barTrack">
                 <i className="rpt-barFill light" style={{ width: "14.3%" }}></i>
               </span>
-              <span className="rpt-barVal">19</span>
+              <span className="rpt-barVal">16</span>
             </div>
             <div className="rpt-barRow">
               <span className="barLab">Vehicle crime</span>
               <span className="rpt-barTrack">
-                <i className="rpt-barFill light" style={{ width: "12%" }}></i>
-              </span>
-              <span className="rpt-barVal">16</span>
-            </div>
-            <div className="rpt-barRow">
-              <span className="barLab">Public order</span>
-              <span className="rpt-barTrack">
-                <i className="rpt-barFill light" style={{ width: "10.5%" }}></i>
+                <i className="rpt-barFill light" style={{ width: "12.5%" }}></i>
               </span>
               <span className="rpt-barVal">14</span>
             </div>
             <div className="rpt-barRow">
+              <span className="barLab">Public order</span>
+              <span className="rpt-barTrack">
+                <i className="rpt-barFill light" style={{ width: "10.7%" }}></i>
+              </span>
+              <span className="rpt-barVal">12</span>
+            </div>
+            <div className="rpt-barRow">
               <span className="barLab">Drugs</span>
               <span className="rpt-barTrack">
-                <i className="rpt-barFill light" style={{ width: "6.8%" }}></i>
+                <i className="rpt-barFill light" style={{ width: "7.1%" }}></i>
               </span>
-              <span className="rpt-barVal">9</span>
+              <span className="rpt-barVal">8</span>
             </div>
             <div className="rpt-barRow">
               <span className="barLab">Burglary</span>
               <span className="rpt-barTrack">
-                <i className="rpt-barFill light" style={{ width: "5.3%" }}></i>
+                <i className="rpt-barFill light" style={{ width: "5.4%" }}></i>
               </span>
-              <span className="rpt-barVal">7</span>
+              <span className="rpt-barVal">6</span>
             </div>
             <div className="rpt-barRow">
               <span className="barLab">Shoplifting</span>
               <span className="rpt-barTrack">
                 <i className="rpt-barFill light" style={{ width: "4.5%" }}></i>
               </span>
-              <span className="rpt-barVal">6</span>
+              <span className="rpt-barVal">5</span>
             </div>
             <div className="rpt-barRow">
               <span className="barLab">Other crime</span>
               <span className="rpt-barTrack">
                 <i className="rpt-barFill light" style={{ width: "4.5%" }}></i>
               </span>
-              <span className="rpt-barVal">6</span>
+              <span className="rpt-barVal">5</span>
             </div>
             <div className="rpt-barRow">
               <span className="barLab">Possession of weapons</span>
               <span className="rpt-barTrack">
-                <i className="rpt-barFill light" style={{ width: "3%" }}></i>
+                <i className="rpt-barFill light" style={{ width: "2.7%" }}></i>
               </span>
-              <span className="rpt-barVal">4</span>
+              <span className="rpt-barVal">3</span>
             </div>
             <div className="rpt-barRow">
               <span className="barLab">Theft from the person</span>
               <span className="rpt-barTrack">
-                <i className="rpt-barFill light" style={{ width: "1.5%" }}></i>
+                <i className="rpt-barFill light" style={{ width: "0.9%" }}></i>
               </span>
               <span className="rpt-barVal">1</span>
             </div>
             <div className="rpt-barRow">
               <span className="barLab">Bicycle theft</span>
               <span className="rpt-barTrack">
-                <i className="rpt-barFill light" style={{ width: "1.5%" }}></i>
+                <i className="rpt-barFill light" style={{ width: "0.9%" }}></i>
               </span>
               <span className="rpt-barVal">1</span>
             </div>
             <p className="rpt-small rpt-chartNote">
-              All 14 Police.uk categories are shown in full. The categories above add up to the 330
+              All 14 Police.uk categories are shown in full. The categories above add up to the 279
               total.
             </p>
           </div>
           <h3 className="rpt-sub">Benefits — the wider area</h3>
           <ul className="rpt-tight">
             <li>
-              <strong>Claimant count, September 2026:</strong> 15 people — 1.6%.
+              <strong>Claimant count, September 2026:</strong> 18 people — 1.9%.
             </li>
             <li>
-              <strong>Universal Credit, May 2026:</strong> 117 people.
+              <strong>Universal Credit, May 2026:</strong> 132 people.
             </li>
             <li>
-              <strong>Universal Credit households, April 2026:</strong> 105 households.
+              <strong>Universal Credit households, April 2026:</strong> 118 households.
             </li>
           </ul>
           <h3 className="rpt-sub">Charging zones</h3>
@@ -988,99 +984,99 @@ export default function SampleReport() {
               <span className="rname">Co-op</span>
               <div className="rpt-detail">The village supermarket, on the village parade.</div>
             </div>
-            <span className="dist">0.3 mi</span>
+            <span className="dist">0.4 mi</span>
           </div>
           <div className="rpt-row">
             <div className="rmain">
-              <span className="rname">ALDI, Witham</span>
+              <span className="rname">ALDI, Kingsmere</span>
               <div className="rpt-detail">The nearest ALDI to this home.</div>
             </div>
-            <span className="dist">1.1 mi</span>
+            <span className="dist">1.4 mi</span>
           </div>
           <div className="rpt-row">
             <div className="rmain">
-              <span className="rname">Lidl, Witham</span>
-              <div className="rpt-detail">Bridge Street, Witham.</div>
+              <span className="rname">Lidl, Kingsmere</span>
+              <div className="rpt-detail">Mill Street, Kingsmere.</div>
             </div>
-            <span className="dist">1.9 mi</span>
+            <span className="dist">1.7 mi</span>
           </div>
           <h3 className="rpt-sub">Parks</h3>
           <div className="rpt-row">
             <div className="rmain">
-              <span className="rname">Strutt Memorial park</span>
+              <span className="rname">Ashmere Memorial Park</span>
               <div className="rpt-detail">The village park, a short walk from this home.</div>
             </div>
-            <span className="dist">0.2 mi</span>
+            <span className="dist">0.3 mi</span>
           </div>
           <div className="rpt-row">
             <div className="rmain">
-              <span className="rname">Hatfield Peverel Recreation Ground</span>
+              <span className="rname">Ashmere Recreation Ground</span>
               <div className="rpt-detail">
                 The village's main green — play area, sports pitches and open grass, on the Church
-                Road / Strutt Close side of the village.
+                Lane / Forge Close side of the village.
               </div>
             </div>
-            <span className="dist">0.4 mi</span>
+            <span className="dist">0.5 mi</span>
           </div>
           <h3 className="rpt-sub">Shops</h3>
           <div className="rpt-row">
             <div className="rmain">
               <span className="rname">Village shops</span>
               <div className="rpt-detail">
-                Co-op and the village parade on The Street / Hadfelda Square cover the daily shop.
+                Co-op and the village parade on High Street / Market Square cover the daily shop.
               </div>
             </div>
-            <span className="dist">0.7 mi</span>
+            <span className="dist">0.6 mi</span>
           </div>
           <h3 className="rpt-sub">Transport</h3>
           <div className="rpt-row">
             <div className="rmain">
-              <span className="rname">Station — Hatfield Peverel</span>
+              <span className="rname">Station — Ashmere</span>
               <div className="rpt-detail">
-                Station Road, CM3 2DT · Greater Anglia — direct trains to London Liverpool Street in
-                about 45–50 minutes; roughly a 15-minute walk. Witham station, the larger
-                alternative on the same line with more parking, is 2.3 miles away.
+                Station Approach, WM8 4ST · Direct trains to London in about 55–60 minutes; roughly
+                an 18-minute walk. Kingsmere station, the larger alternative on the same line with
+                more parking, is 2.1 miles away.
               </div>
             </div>
-            <span className="dist">0.6 mi</span>
+            <span className="dist">0.7 mi</span>
           </div>
           <h3 className="rpt-sub">Food &amp; drink</h3>
           <div className="rpt-row">
             <div className="rmain">
               <span className="rname">Food &amp; drink within 2 miles</span>
               <div className="rpt-detail">
-                14 food &amp; drink places are recorded within 2 miles of this home, in the village
-                and towards Witham.
+                11 food &amp; drink places are recorded within 2 miles of this home, in the village
+                and towards Kingsmere.
               </div>
             </div>
-            <span className="badge">14 places</span>
+            <span className="badge">11 places</span>
           </div>
           <h3 className="rpt-sub">Leisure</h3>
           <div className="rpt-row">
             <div className="rmain">
-              <span className="rname">Hatfield Peverel Recreation Ground</span>
+              <span className="rname">Ashmere Recreation Ground</span>
               <div className="rpt-detail">
                 Play area, sports pitches and open grass — the village's main leisure green.
               </div>
             </div>
-            <span className="dist">0.4 mi</span>
+            <span className="dist">0.5 mi</span>
           </div>
           <div className="rpt-row">
             <div className="rmain">
-              <span className="rname">Witham Leisure Centre</span>
+              <span className="rname">Kingsmere Leisure Centre</span>
               <div className="rpt-detail">
-                Spinks Lane, Witham · The leisure centre serving this area, in Witham.
+                Mill Lane, Kingsmere · The leisure centre serving this area, in Kingsmere.
               </div>
             </div>
-            <span className="dist">1.9 mi</span>
+            <span className="dist">1.7 mi</span>
           </div>
           <h3 className="rpt-sub">Places to visit</h3>
           <div className="rpt-row">
             <div className="rmain">
-              <span className="rname">River Ter and River Chelmer valley footpaths</span>
+              <span className="rname">River Eldern and River Sowbrook valley footpaths</span>
               <div className="rpt-detail">
-                The footpath network towards the River Ter and River Chelmer valleys starts within
-                the village.
+                The footpath network towards the River Eldern and River Sowbrook valleys starts
+                within the village.
               </div>
             </div>
             <span className="badge">In the village</span>
@@ -1088,16 +1084,16 @@ export default function SampleReport() {
           <h3 className="rpt-sub">Places of worship &amp; libraries</h3>
           <div className="rpt-row">
             <div className="rmain">
-              <span className="rname">Library — Hatfield Peverel</span>
+              <span className="rname">Library — Ashmere</span>
               <div className="rpt-detail">The village library.</div>
             </div>
-            <span className="dist">0.5 mi</span>
+            <span className="dist">0.6 mi</span>
           </div>
           <div className="rpt-row">
             <div className="rmain">
               <span className="rname">Places of worship</span>
               <div className="rpt-detail">
-                The village's places of worship sit around Church Road and The Street, in the older
+                The village's places of worship sit around Church Lane and High Street, in the older
                 core of the village.
               </div>
             </div>
@@ -1118,8 +1114,8 @@ export default function SampleReport() {
             <div className="rmain">
               <span className="rname">Dog-walking areas</span>
               <div className="rpt-detail">
-                The recreation ground and the footpath network towards the River Ter and River
-                Chelmer valleys start within the village, so everyday walks begin on foot from the
+                The recreation ground and the footpath network towards the River Eldern and River
+                Sowbrook valleys start within the village, so everyday walks begin on foot from the
                 door.
               </div>
             </div>
@@ -1133,18 +1129,14 @@ export default function SampleReport() {
             <span className="rpt-secNum">6</span>
             <h2>Home, costs &amp; risks</h2>
           </div>
-          <h3 className="rpt-sub">Council tax — Braintree District</h3>
+          <h3 className="rpt-sub">Council tax — Westmere District</h3>
           <p>
             This home is in <strong>Band D</strong>:{" "}
-            <strong>£2,280.36 a year, which is £190.03 a month</strong>. The full A–H table below is{" "}
+            <strong>£2,145.60 a year, which is £178.80 a month</strong>. The full A–H table below is{" "}
             <strong>derived</strong> from the Band D figure by the statutory ratios, and is labelled
             as derived.{" "}
-            <a
-              href="https://www.braintree.gov.uk/council-tax/guide-council-tax-virtual-brochure-202627"
-              target="_blank"
-              rel="noopener"
-            >
-              Braintree council tax guide 2026/27
+            <a href="https://www.gov.uk/council-tax" target="_blank" rel="noopener">
+              Westmere council tax guide 2026/27
             </a>
           </p>
           <table>
@@ -1157,66 +1149,66 @@ export default function SampleReport() {
             <tr>
               <td>A</td>
               <td>6/9</td>
-              <td className="num">£1,520.24</td>
-              <td className="num">£126.69</td>
+              <td className="num">£1,430.40</td>
+              <td className="num">£119.20</td>
             </tr>
             <tr>
               <td>B</td>
               <td>7/9</td>
-              <td className="num">£1,773.61</td>
-              <td className="num">£147.80</td>
+              <td className="num">£1,668.80</td>
+              <td className="num">£139.07</td>
             </tr>
             <tr>
               <td>C</td>
               <td>8/9</td>
-              <td className="num">£2,026.99</td>
-              <td className="num">£168.92</td>
+              <td className="num">£1,907.20</td>
+              <td className="num">£158.93</td>
             </tr>
             <tr className="hl">
               <td>D — this home</td>
               <td>9/9</td>
-              <td className="num">£2,280.36</td>
-              <td className="num">£190.03</td>
+              <td className="num">£2,145.60</td>
+              <td className="num">£178.80</td>
             </tr>
             <tr>
               <td>E</td>
               <td>11/9</td>
-              <td className="num">£2,787.11</td>
-              <td className="num">£232.26</td>
+              <td className="num">£2,622.40</td>
+              <td className="num">£218.53</td>
             </tr>
             <tr>
               <td>F</td>
               <td>13/9</td>
-              <td className="num">£3,293.85</td>
-              <td className="num">£274.49</td>
+              <td className="num">£3,099.20</td>
+              <td className="num">£258.27</td>
             </tr>
             <tr>
               <td>G</td>
               <td>15/9</td>
-              <td className="num">£3,800.60</td>
-              <td className="num">£316.72</td>
+              <td className="num">£3,576.00</td>
+              <td className="num">£298.00</td>
             </tr>
             <tr>
               <td>H</td>
               <td>18/9</td>
-              <td className="num">£4,560.72</td>
-              <td className="num">£380.06</td>
+              <td className="num">£4,291.20</td>
+              <td className="num">£357.60</td>
             </tr>
           </table>
           <p className="rpt-small">
-            Derived table: every band except D is calculated from the Band D figure (£2,280.36)
+            Derived table: every band except D is calculated from the Band D figure (£2,145.60)
             using the statutory council tax ratios shown. Band D itself is the filed figure for this
             home's council.
           </p>
           <h3 className="rpt-sub">Energy — this home's certificate</h3>
           <div className="rpt-row">
             <div className="rmain">
-              <span className="rname">Energy rating: Band B — score 85 out of 100</span>
+              <span className="rname">Energy rating: Band B — score 82 out of 100</span>
               <div className="rpt-detail">
-                Potential rating A (93) · Certificate 2490-1633-0432-1002-3023 · Registered 7 Oct
-                2022 · Floor area 141 m² ·{" "}
+                Potential rating A (94) · Certificate 5031-2847-6190-3752-8461 · Registered 14 Sep
+                2021 · Floor area 118 m² ·{" "}
                 <a
-                  href="https://find-energy-certificate.service.gov.uk/energy-certificate/2490-1633-0432-1002-3023"
+                  href="https://find-energy-certificate.service.gov.uk/energy-certificate/5031-2847-6190-3752-8461"
                   target="_blank"
                   rel="noopener"
                 >
@@ -1224,14 +1216,14 @@ export default function SampleReport() {
                 </a>
               </div>
             </div>
-            <span className="badge g">EPC B · 85</span>
+            <span className="badge g">EPC B · 82</span>
           </div>
-          <div className="epc" aria-label="Energy rating scale, with this home at Band B, score 85">
+          <div className="epc" aria-label="Energy rating scale, with this home at Band B, score 82">
             <div style={{ background: "#00A651", width: "46%" }}>
               A <span>92+</span>
             </div>
             <div style={{ background: "#19B459", width: "58%" }} className="here">
-              B — this home, 85 <span>81–91</span>
+              B — this home, 82 <span>81–91</span>
             </div>
             <div style={{ background: "#8DCE46", width: "66%" }}>
               C <span>69–80</span>
@@ -1245,32 +1237,32 @@ export default function SampleReport() {
           </div>
           <ul className="rpt-tight">
             <li>
-              Estimated energy costs: <strong>£489 a year (£40.75 a month)</strong> now;{" "}
-              <strong>£455 a year (£37.92 a month)</strong> at the certificate's potential rating.
+              Estimated energy costs: <strong>£612 a year (£51.00 a month)</strong> now;{" "}
+              <strong>£548 a year (£45.67 a month)</strong> at the certificate's potential rating.
             </li>
-            <li>Heating need 4,705 kWh a year; hot water 2,153 kWh a year.</li>
-            <li>CO₂ emissions: 1.9 tonnes a year, against a 6-tonne average household.</li>
-            <li>Primary energy use: 76 kWh per m² a year.</li>
+            <li>Heating need 5,240 kWh a year; hot water 2,310 kWh a year.</li>
+            <li>CO₂ emissions: 2.3 tonnes a year, against a 6-tonne average household.</li>
+            <li>Primary energy use: 84 kWh per m² a year.</li>
             <li>
-              Construction detail on the certificate: low-energy lighting throughout; waste-water
-              heat recovery fitted.
+              Construction detail on the certificate: low-energy lighting throughout; solar water
+              heating fitted.
             </li>
             <li>
               Improvement measures on the certificate: completing the steps it suggests would save
-              about <strong>£34 a year</strong> in typical savings and lift the rating from B (85)
-              to A (93).
+              about <strong>£64 a year</strong> in typical savings and lift the rating from B (82)
+              to A (94).
             </li>
           </ul>
           <h3 className="rpt-sub">Energy certificates in this postcode</h3>
           <ul className="rpt-tight">
             <li>
-              <strong>42 certificates</strong> are held for this postcode.
+              <strong>36 certificates</strong> are held for this postcode.
             </li>
             <li>
-              <strong>38 predicted</strong> certificates — all predicted at Band B.
+              <strong>31 predicted</strong> certificates — all predicted at Band B.
             </li>
             <li>
-              <strong>4 assessed</strong> certificates — Band C: 1; Band D: 3.
+              <strong>5 assessed</strong> certificates — Band C: 2; Band D: 3.
             </li>
           </ul>
           <h3 className="rpt-sub">Solar — location modelling</h3>
@@ -1278,8 +1270,8 @@ export default function SampleReport() {
             <div className="rmain">
               <span className="rname">Modelled solar yield for this location</span>
               <div className="rpt-detail">
-                Location modelling for this part of Essex gives{" "}
-                <strong>1,057.65 kWh per kWp per year</strong>. This is a modelled figure for the
+                Location modelling for this part of Westshire gives{" "}
+                <strong>985.40 kWh per kWp per year</strong>. This is a modelled figure for the
                 location, before this roof's direction, pitch and shading are taken into account.
                 The certificate's own solar fields are not held for this report, so no solar figure
                 is taken from the certificate.
@@ -1302,32 +1294,32 @@ export default function SampleReport() {
             <h5 className="evSub">Public chargers</h5>
             <div className="rpt-row">
               <div className="rmain">
-                <span className="rname">Roam Charging, Wickham Hill, Witham</span>
+                <span className="rname">Elm Charging, Mill Hill, Kingsmere</span>
                 <div className="rpt-detail">
-                  The nearest public charger found. No public charger was found at Hatfield Peverel
-                  station itself (0.6 miles away) in the sources checked — the nearest public
-                  chargers are in Witham, listed here in distance order.
+                  The nearest public charger found. No public charger was found at Ashmere station
+                  itself (0.7 miles away) in the sources checked — the nearest public chargers are
+                  in Kingsmere, listed here in distance order.
+                </div>
+              </div>
+              <span className="dist">1.5 mi</span>
+            </div>
+            <div className="rpt-row">
+              <div className="rmain">
+                <span className="rname">VoltPoint, Kingsmere Leisure Centre</span>
+                <div className="rpt-detail">
+                  Mill Lane, Kingsmere · Public charging at the leisure centre.
+                </div>
+              </div>
+              <span className="dist">1.7 mi</span>
+            </div>
+            <div className="rpt-row">
+              <div className="rmain">
+                <span className="rname">ChargeHub, Lidl</span>
+                <div className="rpt-detail">
+                  Mill Street, Kingsmere · Public charging in the Lidl car park.
                 </div>
               </div>
               <span className="dist">1.8 mi</span>
-            </div>
-            <div className="rpt-row">
-              <div className="rmain">
-                <span className="rname">BP Pulse, Witham Leisure Centre</span>
-                <div className="rpt-detail">
-                  Spinks Lane, Witham · Public charging at the leisure centre.
-                </div>
-              </div>
-              <span className="dist">1.9 mi</span>
-            </div>
-            <div className="rpt-row">
-              <div className="rmain">
-                <span className="rname">Pod Point, Lidl</span>
-                <div className="rpt-detail">
-                  Bridge Street, Witham · Public charging in the Lidl car park.
-                </div>
-              </div>
-              <span className="dist">2.0 mi</span>
             </div>
           </div>
           <h3 className="rpt-sub">Broadband</h3>
@@ -1336,7 +1328,7 @@ export default function SampleReport() {
               <span className="rname">Full fibre available</span>
               <div className="rpt-detail">
                 Full fibre is available at this home, and premises in this postcode are
-                gigabit-capable at <strong>100%</strong> of premises (Ofcom Connected Nations,
+                gigabit-capable at <strong>98%</strong> of premises (Ofcom Connected Nations,
                 January 2026 snapshot).
               </div>
             </div>
@@ -1362,8 +1354,8 @@ export default function SampleReport() {
               <span className="rname">Planning applications</span>
               <div className="rpt-detail">
                 Planning applications near this home are held by{" "}
-                <strong>Braintree District Council</strong> on its own planning register — start
-                from the{" "}
+                <strong>Westmere District Council</strong> on its own planning register — start from
+                the{" "}
                 <a
                   href="https://www.gov.uk/planning-permission-england-wales"
                   target="_blank"
@@ -1381,7 +1373,7 @@ export default function SampleReport() {
               <div className="rpt-detail">
                 This home is <strong>not in a conservation area</strong> and{" "}
                 <strong>not in the green belt</strong>, and it sits{" "}
-                <strong>inside the Hatfield Peverel built-up area</strong>. On Article 4 directions:{" "}
+                <strong>inside the Ashmere built-up area</strong>. On Article 4 directions:{" "}
                 <i>
                   “Article 4 directions are not published by this council to the national dataset,
                   so no finding can be made from the data — the answer lives on the council's own
@@ -1395,7 +1387,7 @@ export default function SampleReport() {
               <span className="rname">Nature designations</span>
               <div className="rpt-detail">
                 <strong>No SSSI, Ramsar, SAC or SPA designation is mapped at this postcode</strong>{" "}
-                in the datasets checked. The River Chelmer and River Ter valleys nearby are the
+                in the datasets checked. The River Eldern and River Sowbrook valleys nearby are the
                 local wildlife corridors.
               </div>
             </div>
@@ -1404,11 +1396,11 @@ export default function SampleReport() {
             <div className="rmain">
               <span className="rname">Listed buildings &amp; heritage</span>
               <div className="rpt-detail">
-                There are <strong>102 listed buildings within 2 miles</strong> of this home. The
-                nearest is <strong>White Hart Cottage, Grade II, 0.2 miles</strong> away.
+                There are <strong>87 listed buildings within 2 miles</strong> of this home. The
+                nearest is <strong>Rose Cottage, Grade II, 0.3 miles</strong> away.
               </div>
             </div>
-            <span className="dist">0.2 mi</span>
+            <span className="dist">0.3 mi</span>
           </div>
           <h3 className="rpt-sub">Company ownership</h3>
           <p>This home is not owned by a company.</p>
@@ -1423,20 +1415,19 @@ export default function SampleReport() {
           <h3 className="rpt-sub">The area in numbers — Census 2021</h3>
           <ul className="rpt-tight">
             <li>
-              <strong>Deprivation:</strong> this neighbourhood (LSOA Braintree 018C) sits in{" "}
-              <strong>decile 8 of 10</strong> on the Indices of Deprivation 2025, where 10 is the
+              <strong>Deprivation:</strong> this neighbourhood (LSOA Westmere 014B) sits in{" "}
+              <strong>decile 7 of 10</strong> on the Indices of Deprivation 2025, where 10 is the
               least deprived in England.
             </li>
             <li>
-              <strong>Census area:</strong> MSOA Braintree 018 — Witham South, Hatfield Peverel
-              &amp; White Notley —{" "}
-              <strong>8,138 residents, 3,397 households, median age 46.5</strong>. The six tables
-              below are the published Census 2021 figures for this area — counts and percentages
-              exactly as the ONS published them.
+              <strong>Census area:</strong> MSOA Westmere 014 — Kingsmere North, Ashmere &amp;
+              Little Bourne — <strong>7,420 residents, 3,105 households, median age 43.8</strong>.
+              The six tables below are the published Census 2021 figures for this area — counts and
+              percentages exactly as the ONS published them.
             </li>
             <li>
-              <strong>Classification:</strong> rural town and fringe · Parish: Hatfield Peverel ·
-              Ward: Hatfield Peverel &amp; Terling · Constituency: Witham.
+              <strong>Classification:</strong> rural town and fringe · Parish: Ashmere · Ward:
+              Ashmere &amp; Millfield · Constituency: Kingsmere.
             </li>
           </ul>
           <div className="rpt-chartGrid">
@@ -1444,14 +1435,14 @@ export default function SampleReport() {
               <h4>Age — Census 2021</h4>
               <div className="rpt-tile" style={{ border: "0", padding: "2px 0 0" }}>
                 <div className="stLabel">Median age</div>
-                <div className="stValue">46.5 years</div>
+                <div className="stValue">43.8 years</div>
                 <div className="stSub">
-                  MSOA Braintree 018 · 8,138 residents counted in this area's tables
+                  MSOA Westmere 014 · 7,420 residents counted in this area's tables
                 </div>
               </div>
               <p className="rpt-small rpt-chartNote">
-                Median age 46.5 is the published figure for MSOA Braintree 018 (8,138 residents,
-                3,397 households).
+                Median age 43.8 is the published figure for MSOA Westmere 014 (7,420 residents,
+                3,105 households).
               </p>
             </div>
             <div className="rpt-chartCard">
@@ -1459,80 +1450,80 @@ export default function SampleReport() {
               <div className="rpt-barRow">
                 <span className="barLab">Owner-occupied</span>
                 <span className="rpt-barTrack">
-                  <i className="rpt-barFill" style={{ width: "70.2%" }}></i>
+                  <i className="rpt-barFill" style={{ width: "68.4%" }}></i>
                 </span>
-                <span className="rpt-barVal">70.2%</span>
+                <span className="rpt-barVal">68.4%</span>
               </div>
               <div className="rpt-barRow">
                 <span className="barLab">Owned outright</span>
                 <span className="rpt-barTrack">
-                  <i className="rpt-barFill light" style={{ width: "37.9%" }}></i>
+                  <i className="rpt-barFill light" style={{ width: "35.1%" }}></i>
                 </span>
-                <span className="rpt-barVal">37.9%</span>
+                <span className="rpt-barVal">35.1%</span>
               </div>
               <div className="rpt-barRow">
                 <span className="barLab">Owned with a mortgage</span>
                 <span className="rpt-barTrack">
-                  <i className="rpt-barFill light" style={{ width: "32.3%" }}></i>
+                  <i className="rpt-barFill light" style={{ width: "33.3%" }}></i>
                 </span>
-                <span className="rpt-barVal">32.3%</span>
+                <span className="rpt-barVal">33.3%</span>
               </div>
               <div className="rpt-barRow">
                 <span className="barLab">Private rented</span>
                 <span className="rpt-barTrack">
-                  <i className="rpt-barFill light" style={{ width: "15.4%" }}></i>
+                  <i className="rpt-barFill light" style={{ width: "16.9%" }}></i>
                 </span>
-                <span className="rpt-barVal">15.4%</span>
+                <span className="rpt-barVal">16.9%</span>
               </div>
               <div className="rpt-barRow">
                 <span className="barLab">Social rented</span>
                 <span className="rpt-barTrack">
-                  <i className="rpt-barFill light" style={{ width: "13.8%" }}></i>
+                  <i className="rpt-barFill light" style={{ width: "14.1%" }}></i>
                 </span>
-                <span className="rpt-barVal">13.8%</span>
+                <span className="rpt-barVal">14.1%</span>
               </div>
-              <p className="rpt-small rpt-chartNote">Tenure table (TS054): 3,397 households.</p>
+              <p className="rpt-small rpt-chartNote">Tenure table (TS054): 3,105 households.</p>
             </div>
             <div className="rpt-chartCard">
               <h4>Accommodation type — Census 2021</h4>
               <div className="rpt-barRow">
                 <span className="barLab">Semi-detached</span>
                 <span className="rpt-barTrack">
-                  <i className="rpt-barFill" style={{ width: "40.8%" }}></i>
+                  <i className="rpt-barFill" style={{ width: "38.6%" }}></i>
                 </span>
-                <span className="rpt-barVal">40.8%</span>
+                <span className="rpt-barVal">38.6%</span>
               </div>
               <div className="rpt-barRow">
                 <span className="barLab">Detached</span>
                 <span className="rpt-barTrack">
-                  <i className="rpt-barFill light" style={{ width: "37.9%" }}></i>
+                  <i className="rpt-barFill light" style={{ width: "36.2%" }}></i>
                 </span>
-                <span className="rpt-barVal">37.9%</span>
+                <span className="rpt-barVal">36.2%</span>
               </div>
               <div className="rpt-barRow">
                 <span className="barLab">Terraced</span>
                 <span className="rpt-barTrack">
-                  <i className="rpt-barFill light" style={{ width: "14.2%" }}></i>
+                  <i className="rpt-barFill light" style={{ width: "16.5%" }}></i>
                 </span>
-                <span className="rpt-barVal">14.2%</span>
+                <span className="rpt-barVal">16.5%</span>
               </div>
               <div className="rpt-barRow">
                 <span className="barLab">Purpose-built flats</span>
                 <span className="rpt-barTrack">
-                  <i className="rpt-barFill light" style={{ width: "6.1%" }}></i>
+                  <i className="rpt-barFill light" style={{ width: "7.4%" }}></i>
                 </span>
-                <span className="rpt-barVal">6.1%</span>
+                <span className="rpt-barVal">7.4%</span>
               </div>
               <div className="rpt-barRow">
                 <span className="barLab">Other types</span>
                 <span className="rpt-barTrack">
-                  <i className="rpt-barFill light" style={{ width: "1%" }}></i>
+                  <i className="rpt-barFill light" style={{ width: "1.3%" }}></i>
                 </span>
-                <span className="rpt-barVal">1.0%</span>
+                <span className="rpt-barVal">1.3%</span>
               </div>
               <p className="rpt-small rpt-chartNote">
-                Counts, of 3,398 households: semi-detached 1,388 · detached 1,287 · terraced 481 ·
-                purpose-built flats 208 · other types 34.
+                Counts, of 3,106 households: semi-detached 1,199 · detached 1,124 · terraced 513 ·
+                purpose-built flats 230 · other types 40.
               </p>
             </div>
             <div className="rpt-chartCard">
@@ -1540,44 +1531,44 @@ export default function SampleReport() {
               <div className="rpt-barRow">
                 <span className="barLab">White</span>
                 <span className="rpt-barTrack">
-                  <i className="rpt-barFill" style={{ width: "95.5%" }}></i>
+                  <i className="rpt-barFill" style={{ width: "93.8%" }}></i>
                 </span>
-                <span className="rpt-barVal">95.5%</span>
+                <span className="rpt-barVal">93.8%</span>
               </div>
               <div className="rpt-barRow">
                 <span className="barLab">Mixed or Multiple</span>
                 <span className="rpt-barTrack">
-                  <i className="rpt-barFill light" style={{ width: "1.6%" }}></i>
+                  <i className="rpt-barFill light" style={{ width: "2.1%" }}></i>
                 </span>
-                <span className="rpt-barVal">1.6%</span>
+                <span className="rpt-barVal">2.1%</span>
               </div>
               <div className="rpt-barRow">
                 <span className="barLab">Asian / Asian British</span>
                 <span className="rpt-barTrack">
-                  <i className="rpt-barFill light" style={{ width: "1.4%" }}></i>
+                  <i className="rpt-barFill light" style={{ width: "2.4%" }}></i>
                 </span>
-                <span className="rpt-barVal">1.4%</span>
+                <span className="rpt-barVal">2.4%</span>
               </div>
               <div className="rpt-barRow">
                 <span className="barLab">Black / Black British</span>
                 <span className="rpt-barTrack">
-                  <i className="rpt-barFill light" style={{ width: "1%" }}></i>
+                  <i className="rpt-barFill light" style={{ width: "1.1%" }}></i>
                 </span>
-                <span className="rpt-barVal">1.0%</span>
+                <span className="rpt-barVal">1.1%</span>
               </div>
               <div className="rpt-barRow">
                 <span className="barLab">Other ethnic group</span>
                 <span className="rpt-barTrack">
-                  <i className="rpt-barFill light" style={{ width: "0.5%" }}></i>
+                  <i className="rpt-barFill light" style={{ width: "0.6%" }}></i>
                 </span>
-                <span className="rpt-barVal">0.5%</span>
+                <span className="rpt-barVal">0.6%</span>
               </div>
               <p className="rpt-small rpt-chartNote">
-                Counts, of 8,138 residents: White 7,772 (including 7,528 White: English, Welsh,
-                Scottish, Northern Irish or British, and 172 Other White) · Mixed or Multiple 131 ·
-                Asian, Asian British or Asian Welsh 115 (Indian 43, Other Asian 38, Pakistani 22,
-                Chinese 9, Bangladeshi 3) · Black, Black British, Black Welsh, Caribbean or African
-                82 · Other ethnic group 38.
+                Counts, of 7,420 residents: White 6,960 (including 6,640 White: English, Welsh,
+                Scottish, Northern Irish or British, and 240 Other White) · Mixed or Multiple 156 ·
+                Asian, Asian British or Asian Welsh 178 (Indian 78, Other Asian 46, Pakistani 32,
+                Chinese 14, Bangladeshi 8) · Black, Black British, Black Welsh, Caribbean or African
+                82 · Other ethnic group 44.
               </p>
             </div>
             <div className="rpt-chartCard">
@@ -1585,37 +1576,37 @@ export default function SampleReport() {
               <div className="rpt-barRow">
                 <span className="barLab">Christian</span>
                 <span className="rpt-barTrack">
-                  <i className="rpt-barFill" style={{ width: "52%" }}></i>
+                  <i className="rpt-barFill" style={{ width: "48.6%" }}></i>
                 </span>
-                <span className="rpt-barVal">52.0%</span>
+                <span className="rpt-barVal">48.6%</span>
               </div>
               <div className="rpt-barRow">
                 <span className="barLab">No religion</span>
                 <span className="rpt-barTrack">
-                  <i className="rpt-barFill light" style={{ width: "40.4%" }}></i>
+                  <i className="rpt-barFill light" style={{ width: "43.2%" }}></i>
                 </span>
-                <span className="rpt-barVal">40.4%</span>
+                <span className="rpt-barVal">43.2%</span>
               </div>
               <div className="rpt-barRow">
                 <span className="barLab">Not answered</span>
                 <span className="rpt-barTrack">
-                  <i className="rpt-barFill light" style={{ width: "5.8%" }}></i>
+                  <i className="rpt-barFill light" style={{ width: "6.1%" }}></i>
                 </span>
-                <span className="rpt-barVal">5.8%</span>
+                <span className="rpt-barVal">6.1%</span>
               </div>
               <div className="rpt-barRow">
                 <span className="barLab">Muslim</span>
                 <span className="rpt-barTrack">
-                  <i className="rpt-barFill light" style={{ width: "0.6%" }}></i>
+                  <i className="rpt-barFill light" style={{ width: "0.8%" }}></i>
                 </span>
-                <span className="rpt-barVal">0.6%</span>
+                <span className="rpt-barVal">0.8%</span>
               </div>
               <div className="rpt-barRow">
                 <span className="barLab">Hindu</span>
                 <span className="rpt-barTrack">
-                  <i className="rpt-barFill light" style={{ width: "0.4%" }}></i>
+                  <i className="rpt-barFill light" style={{ width: "0.5%" }}></i>
                 </span>
-                <span className="rpt-barVal">0.4%</span>
+                <span className="rpt-barVal">0.5%</span>
               </div>
               <div className="rpt-barRow">
                 <span className="barLab">Other religion</span>
@@ -1646,8 +1637,8 @@ export default function SampleReport() {
                 <span className="rpt-barVal">0.1%</span>
               </div>
               <p className="rpt-small rpt-chartNote">
-                Counts, of 8,138 residents: Christian 4,232 · No religion 3,284 · Not answered 470 ·
-                Muslim 48 · Hindu 35 · Other religion 27 · Buddhist 20 · Sikh 13 · Jewish 9. The
+                Counts, of 7,420 residents: Christian 3,606 · No religion 3,205 · Not answered 453 ·
+                Muslim 59 · Hindu 37 · Other religion 22 · Buddhist 15 · Sikh 15 · Jewish 8. The
                 religion question was voluntary in Census 2021.
               </p>
             </div>
@@ -1656,34 +1647,34 @@ export default function SampleReport() {
               <div className="rpt-barRow">
                 <span className="barLab">2+ spare bedrooms</span>
                 <span className="rpt-barTrack">
-                  <i className="rpt-barFill" style={{ width: "44.7%" }}></i>
+                  <i className="rpt-barFill" style={{ width: "41.3%" }}></i>
                 </span>
-                <span className="rpt-barVal">44.7%</span>
+                <span className="rpt-barVal">41.3%</span>
               </div>
               <div className="rpt-barRow">
                 <span className="barLab">1 spare bedroom</span>
                 <span className="rpt-barTrack">
-                  <i className="rpt-barFill light" style={{ width: "34.2%" }}></i>
+                  <i className="rpt-barFill light" style={{ width: "35.6%" }}></i>
                 </span>
-                <span className="rpt-barVal">34.2%</span>
+                <span className="rpt-barVal">35.6%</span>
               </div>
               <div className="rpt-barRow">
                 <span className="barLab">Exactly enough</span>
                 <span className="rpt-barTrack">
-                  <i className="rpt-barFill light" style={{ width: "19.4%" }}></i>
+                  <i className="rpt-barFill light" style={{ width: "21.2%" }}></i>
                 </span>
-                <span className="rpt-barVal">19.4%</span>
+                <span className="rpt-barVal">21.2%</span>
               </div>
               <div className="rpt-barRow">
                 <span className="barLab">Fewer than needed</span>
                 <span className="rpt-barTrack">
-                  <i className="rpt-barFill light" style={{ width: "1.7%" }}></i>
+                  <i className="rpt-barFill light" style={{ width: "1.9%" }}></i>
                 </span>
-                <span className="rpt-barVal">1.7%</span>
+                <span className="rpt-barVal">1.9%</span>
               </div>
               <p className="rpt-small rpt-chartNote">
-                Counts, of 3,399 households: 2 or more spare bedrooms 1,519 · 1 spare 1,163 ·
-                exactly enough 660 · fewer than needed 57. Occupancy is the Census rating comparing
+                Counts, of 3,107 households: 2 or more spare bedrooms 1,283 · 1 spare 1,106 ·
+                exactly enough 659 · fewer than needed 59. Occupancy is the Census rating comparing
                 bedrooms in the home with the bedrooms the ONS standard says the household needs.
               </p>
             </div>
@@ -1703,9 +1694,9 @@ export default function SampleReport() {
               <span className="rname">Flood from rivers &amp; sea — no band at this point</span>
               <div className="rpt-detail">
                 No flood band applies at this home's point in the Environment Agency data. The
-                nearest Low band edge is <strong>0.8 miles</strong> away. The nearest mapped flood
-                areas are the River Chelmer (Chelmsford to Maldon) and the River Brain through
-                Witham; neither covers Birkdale Rise.
+                nearest Low band edge is <strong>1.1 miles</strong> away. The nearest mapped flood
+                areas are the River Eldern (Northbury to Eastmere) and the River Sowbrook through
+                Kingsmere; neither covers Bramblewood Lane.
               </div>
             </div>
             <span className="badge g">No band here</span>
@@ -1715,7 +1706,7 @@ export default function SampleReport() {
               <span className="rname">Flood from surface water (heavy rain)</span>
               <div className="rpt-detail">
                 Nearest band edges from this home:{" "}
-                <strong>Low 0.0 miles · Medium 0.0 miles · High 0.1 miles</strong>.
+                <strong>Low 0.1 miles · Medium 0.2 miles · High 0.3 miles</strong>.
               </div>
             </div>
             <span className="badge g">See distances</span>
@@ -1727,8 +1718,8 @@ export default function SampleReport() {
               listed as protecting this plot itself.
             </li>
             <li>
-              Defences in the wider area sit on the river corridors named above — the River Chelmer
-              and the River Brain — away from Birkdale Rise.
+              Defences in the wider area sit on the river corridors named above — the River Eldern
+              and the River Sowbrook — away from Bramblewood Lane.
             </li>
           </ul>
           <h3 className="rpt-sub">Climate outlook</h3>
@@ -1744,30 +1735,71 @@ export default function SampleReport() {
             </li>
           </ul>
           <p className="rpt-intro">
-            <strong>Location maps — not flood maps.</strong> The two pictures below are general
-            street maps that show where this home is. They do not show flood areas, and they would
-            not change to show flooding. The flood findings above come from checking Environment
-            Agency flood data — to see the actual flood map, use the GOV.UK flood risk check linked
-            below each picture.
+            <strong>Location panels — not flood maps.</strong> The two panels below are simple
+            schematic drawings that show where this sample home sits in its invented village. They
+            do not show flood areas, and they would not change to show flooding. The flood findings
+            above come from checking Environment Agency flood data — to see the actual flood map,
+            use the GOV.UK flood risk check linked below each panel.
           </p>
           <div className="mapRow">
             <div className="mapBox">
-              <span className="mcap">Map 1 — Location map: wider area around this home</span>
-              <img
-                src="/sample-report/flood-map-rivers-sea.png"
+              <span className="mcap">Map 1 — Location panel: wider area around this home</span>
+              <svg
+                viewBox="0 0 400 260"
                 width="400"
                 height="260"
-                alt="General street map of Hatfield Peverel centred on this postcode, with a pin marking the home and a shaded circle showing the 150 metres around it. The village, the A12 and nearby lakes and watercourses are visible; the blue shapes are permanent lakes and ponds, not flood areas. The home sits south-east of the village centre."
-              />
+                role="img"
+                aria-label="Schematic location panel for the invented sample village of Ashmere, with a pin marking the sample home and a shaded circle showing the 150 metres around it. The River Eldern is drawn to the east. This is a schematic drawing only — it shows no flood areas."
+                style={{
+                  width: "100%",
+                  height: "auto",
+                  display: "block",
+                  border: "1px solid var(--sp-line)",
+                  borderRadius: "6px",
+                  background: "#EEF3E8",
+                }}
+              >
+                <path
+                  d="M330 0 C 300 70, 360 130, 320 260"
+                  stroke="#7FB3D5"
+                  strokeWidth="14"
+                  fill="none"
+                />
+                <path d="M0 90 L400 70" stroke="#FFFFFF" strokeWidth="10" />
+                <path
+                  d="M60 260 C 90 170, 150 120, 210 105"
+                  stroke="#FFFFFF"
+                  strokeWidth="8"
+                  fill="none"
+                />
+                <path
+                  d="M120 0 C 140 60, 170 90, 210 105"
+                  stroke="#FFFFFF"
+                  strokeWidth="8"
+                  fill="none"
+                />
+                <circle cx="205" cy="105" r="52" fill="#2F5D3E" opacity="0.12" />
+                <text x="88" y="140" fontSize="17" fontWeight="700" fill="#1E402C">
+                  Ashmere
+                </text>
+                <text x="300" y="150" fontSize="12" fill="#33607E" transform="rotate(72 300 150)">
+                  River Eldern
+                </text>
+                <path
+                  d="M205 78 c-14 0-23 9-23 20 0 15 23 34 23 34 s23-19 23-34 c0-11-9-20-23-20z"
+                  fill="#C0392B"
+                />
+                <circle cx="205" cy="99" r="8" fill="#FFFFFF" />
+              </svg>
               <p>
-                General street map centred on this postcode, with the pin on the home and the shaded
-                circle showing the 150 m checked around it.{" "}
-                <strong>The blue shapes to the east are permanent lakes and ponds</strong> that
-                appear on any street map of this area — they are standing water bodies, not flood
-                areas, and they do not indicate flooding. This picture shows no flood zones. Flood
-                check result (from Environment Agency data, not from this picture): no band at this
-                point, and the nearest Low band edge is 0.8 miles away; the mapped flood areas for
-                the River Chelmer and River Brain both stop well away from Birkdale Rise.{" "}
+                Schematic panel centred on this sample postcode, with the pin on the home and the
+                shaded circle showing the 150 m checked around it.{" "}
+                <strong>The blue line to the east is the River Eldern</strong> as drawn on a general
+                location panel — it is a permanent watercourse, not a flood area, and it does not
+                indicate flooding. This picture shows no flood zones. Flood check result (from
+                Environment Agency data, not from this picture): no band at this point, and the
+                nearest Low band edge is 1.1 miles away; the mapped flood areas for the River Eldern
+                and River Sowbrook both stop well away from Bramblewood Lane.{" "}
                 <a
                   href="https://check-long-term-flood-risk.service.gov.uk/postcode"
                   target="_blank"
@@ -1778,20 +1810,54 @@ export default function SampleReport() {
               </p>
             </div>
             <div className="mapBox">
-              <span className="mcap">Map 2 — Location map: Birkdale Rise close-up</span>
-              <img
-                src="/sample-report/flood-map-surface-water.png"
+              <span className="mcap">Map 2 — Location panel: Bramblewood Lane close-up</span>
+              <svg
+                viewBox="0 0 400 260"
                 width="400"
                 height="260"
-                alt="Close-up general street map of the Birkdale Rise estate, with a pin marking the home among the estate streets, between Gleneagles Way and Warren End, off Maldon Road. This is a street map only — it shows no flood areas."
-              />
+                role="img"
+                aria-label="Close-up schematic panel of the invented Bramblewood Lane estate, with a pin marking the sample home among the estate streets, between Hawthorn Close and Forge Way, off Mill Lane. This is a schematic drawing only — it shows no flood areas."
+                style={{
+                  width: "100%",
+                  height: "auto",
+                  display: "block",
+                  border: "1px solid var(--sp-line)",
+                  borderRadius: "6px",
+                  background: "#F7F1DE",
+                }}
+              >
+                <path
+                  d="M40 260 C 70 170, 120 110, 200 92"
+                  stroke="#FFFFFF"
+                  strokeWidth="12"
+                  fill="none"
+                />
+                <path d="M200 92 L200 20" stroke="#FFFFFF" strokeWidth="9" />
+                <path d="M200 92 L330 130" stroke="#FFFFFF" strokeWidth="9" fill="none" />
+                <path d="M150 150 L250 150" stroke="#FFFFFF" strokeWidth="8" />
+                <path d="M250 150 L250 210" stroke="#FFFFFF" strokeWidth="8" />
+                <text x="52" y="238" fontSize="12" fill="#5C6B60" transform="rotate(-38 52 238)">
+                  MILL LANE
+                </text>
+                <text x="238" y="118" fontSize="12" fill="#5C6B60" transform="rotate(16 238 118)">
+                  FORGE WAY
+                </text>
+                <text x="96" y="92" fontSize="12" fill="#5C6B60" transform="rotate(-24 96 92)">
+                  HAWTHORN CLOSE
+                </text>
+                <path
+                  d="M205 62 c-14 0-23 9-23 20 0 15 23 34 23 34 s23-19 23-34 c0-11-9-20-23-20z"
+                  fill="#C0392B"
+                />
+                <circle cx="205" cy="83" r="8" fill="#FFFFFF" />
+              </svg>
               <p>
-                General street map close-up of the Birkdale Rise estate, with the pin on the home.
+                Schematic panel close-up of the Bramblewood Lane estate, with the pin on the home.
                 It shows streets and layout only — there is no flood shading on this picture, and
-                any water shown on a street map like this is permanent water, not flooding. Flood
-                check result (from Environment Agency data, not from this picture): for surface
-                water, the nearest band edges are Low 0.0 miles, Medium 0.0 miles and High 0.1 miles
-                from this home.{" "}
+                any water shown on a panel like this is permanent water, not flooding. Flood check
+                result (from Environment Agency data, not from this picture): for surface water, the
+                nearest band edges are Low 0.1 miles, Medium 0.2 miles and High 0.3 miles from this
+                home.{" "}
                 <a
                   href="https://check-long-term-flood-risk.service.gov.uk/postcode"
                   target="_blank"
@@ -1803,17 +1869,11 @@ export default function SampleReport() {
             </div>
           </div>
           <p className="rpt-chartNote">
-            These are general location maps only — not flood maps. Water shown on them (rivers,
-            lakes and ponds) is permanent water as drawn on a street map, not an area of flooding.
-            The flood findings in this section come from the Environment Agency data check described
-            above, not from these pictures.{" "}
-            <a
-              href="https://www.facebook.com/maps/attribution_terms"
-              target="_blank"
-              rel="noopener"
-            >
-              © OpenStreetMap contributors, Map Data Legal Notices
-            </a>
+            These are schematic location panels for this invented sample home only — not flood maps,
+            and not maps of a real place. Water shown on them (rivers, lakes and ponds) is permanent
+            water as drawn on a location panel, not an area of flooding. The flood findings in this
+            section come from the Environment Agency data check described above, not from these
+            pictures.
           </p>
         </section>
         <section className="rpt-section">
@@ -1827,29 +1887,29 @@ export default function SampleReport() {
           </p>
           <ol className="rpt-seller">
             <li>
-              <strong>Estate charges and warranties:</strong> this is a 2023 new build on a modern
+              <strong>Estate charges and warranties:</strong> this is a 2022 new build on a modern
               estate — is there an annual estate or management charge, what does it cover, and are
               the builder's warranties still running with any snagging or defect claims still open?
             </li>
             <li>
-              <strong>Surface water:</strong> the nearest High surface-water band edge is 0.1 miles
+              <strong>Surface water:</strong> the nearest High surface-water band edge is 0.3 miles
               from this home — ask whether the street or the plot has ever flooded or held standing
               water in heavy rain, and whether drains or soakaways have ever been an issue.
             </li>
             <li>
               <strong>Energy improvements:</strong> the certificate's suggested steps would save
-              about £34 a year and lift the home from B (85) to A (93) — ask which, if any, of those
-              steps have already been done since the certificate was issued on 7 Oct 2022.
+              about £64 a year and lift the home from B (82) to A (94) — ask which, if any, of those
+              steps have already been done since the certificate was issued on 14 Sep 2021.
             </li>
             <li>
-              <strong>Broadband at No. 19:</strong> the postcode is full fibre and gigabit-capable —
+              <strong>Broadband at No. 14:</strong> the postcode is full fibre and gigabit-capable —
               ask which provider the current service uses and what speed is actually delivered at
               this house.
             </li>
             <li>
-              <strong>School places:</strong> living 0.3 miles from the village schools does not
-              settle a place — check admissions and recent cut-off distances with Essex County
-              Council and the schools directly, and note the grammar school in Chelmsford admits by
+              <strong>School places:</strong> living 0.4 miles from the village schools does not
+              settle a place — check admissions and recent cut-off distances with Westshire County
+              Council and the schools directly, and note the grammar school in Northbury admits by
               test.
             </li>
           </ol>
@@ -1859,19 +1919,19 @@ export default function SampleReport() {
             <span className="rpt-secNum">9</span>
             <h2>Sources, notes &amp; disclaimers</h2>
           </div>
-          <h3>Sources &amp; dates — everything checked on 10 November 2026</h3>
+          <h3>Sources &amp; dates — everything checked on 9 November 2026</h3>
           <ul>
             <li>
               <strong>Postcode, area, ward, parish &amp; deprivation</strong> — Postcodes.io (ONS /
-              Ordnance Survey open data): CM3 2JT, LSOA Braintree 018C, Indices of Deprivation 2025
-              — decile 8. Distances in this report are straight-line from the postcode centre
-              (51.7762, 0.6039), shown to one decimal place.
+              Ordnance Survey open data): WM8 4QT, LSOA Westmere 014B, Indices of Deprivation 2025 —
+              decile 7. Distances in this report are straight-line from the postcode centre
+              (52.1045, -1.2847), shown to one decimal place.
             </li>
             <li>
               <strong>Energy certificate</strong> — GOV.UK Find an Energy Certificate, certificate
-              2490-1633-0432-1002-3023 for this address, registered 7 Oct 2022:{" "}
+              5031-2847-6190-3752-8461 for this address, registered 14 Sep 2021:{" "}
               <a
-                href="https://find-energy-certificate.service.gov.uk/energy-certificate/2490-1633-0432-1002-3023"
+                href="https://find-energy-certificate.service.gov.uk/energy-certificate/5031-2847-6190-3752-8461"
                 target="_blank"
                 rel="noopener"
               >
@@ -1880,46 +1940,46 @@ export default function SampleReport() {
               .
             </li>
             <li>
-              <strong>Sold prices</strong> — HM Land Registry Price Paid data for postcode CM3 2JT:
-              the median (£588,995) in Section 2 is the postcode category A median, calculated from
-              the 29 counted sales spanning 20 Dec 1996 to 20 Jul 2026, including this home
-              (£588,995, 15 Jun 2023). Land Registry data typically lags by around two months.
+              <strong>Sold prices</strong> — HM Land Registry Price Paid data for postcode WM8 4QT:
+              the median (£412,500) in Section 2 is the postcode category A median, calculated from
+              the 24 counted sales spanning 14 Mar 1998 to 9 Jun 2026, including this home
+              (£425,750, 22 Apr 2022). Land Registry data typically lags by around two months.
             </li>
             <li>
               <strong>Crime</strong> — Police.uk street-level data, October 2025 to September 2026,
-              within 1 mile of this postcode: 330 incidents. Monthly counts: Oct 2025: 22, Nov: 47,
-              Dec: 28, Jan 2026: 26, Feb: 14, Mar: 28, Apr: 37, May: 33, Jun: 34, Jul: 23, Aug: 26,
-              Sep: 12. All 14 categories are shown in full in Section 4. September 2026 is the
-              latest month Police.uk had published when checked on 10 November 2026 (its “last
+              within 1 mile of this postcode: 279 incidents. Monthly counts: Oct 2025: 18, Nov: 31,
+              Dec: 24, Jan 2026: 21, Feb: 16, Mar: 25, Apr: 29, May: 27, Jun: 30, Jul: 20, Aug: 23,
+              Sep: 15. All 14 categories are shown in full in Section 4. September 2026 is the
+              latest month Police.uk had published when checked on 9 November 2026 (its “last
               updated” date is 1 September 2026); street-level crime is published in arrears, so no
               October or November 2026 figures exist in the source yet. The per-1,000-residents
-              figures (51.7 here; 94.5 across England) are built from Census populations.
+              figures (37.6 here; 94.5 across England) are built from Census populations.
             </li>
             <li>
-              <strong>EV chargers</strong> — operator listings for Roam Charging (Wickham Hill,
-              Witham), BP Pulse (Witham Leisure Centre, Spinks Lane) and Pod Point (Lidl, Bridge
-              Street, Witham); distances are straight-line from this postcode, calculated from each
-              charger's published location, using the same method as every other distance in this
-              report.
+              <strong>EV chargers</strong> — operator listings for Elm Charging (Mill Hill,
+              Kingsmere), VoltPoint (Kingsmere Leisure Centre, Mill Lane) and ChargeHub (Lidl, Mill
+              Street, Kingsmere); distances are straight-line from this postcode, calculated from
+              each charger's published location, using the same method as every other distance in
+              this report.
             </li>
             <li>
               <strong>Schools</strong> — Department for Education / Ofsted:{" "}
               <a
-                href="https://reports.ofsted.gov.uk/provider/21/115102"
+                href="https://reports.ofsted.gov.uk/provider/21/109876"
                 target="_blank"
                 rel="noopener"
               >
-                St Andrew's Junior, inspected 11 Mar 2025
+                St Mary's Junior, inspected 18 Mar 2025
               </a>
-              . Maltings Academy destinations in Section 3 are the published KS4 destinations for
-              its cohort of 171; no KS5 figures are carried.
+              . Kingsmere Academy destinations in Section 3 are the published KS4 destinations for
+              its cohort of 158; no KS5 figures are carried.
             </li>
             <li>
               <strong>Flood check</strong> — findings in Section 7 are from checking Environment
-              Agency flood data (River Chelmer / River Brain flood areas; flood-zone and
+              Agency flood data (River Eldern / River Sowbrook flood areas; flood-zone and
               surface-water data via the Planning Data platform). This report does not include
-              Environment Agency flood maps — the pictures in Section 7 are general location maps
-              only. Check flood risk, including the actual flood maps, at the{" "}
+              Environment Agency flood maps — the pictures in Section 7 are schematic location
+              panels only. Check flood risk, including the actual flood maps, at the{" "}
               <a
                 href="https://check-long-term-flood-risk.service.gov.uk/postcode"
                 target="_blank"
@@ -1931,20 +1991,16 @@ export default function SampleReport() {
             </li>
             <li>
               <strong>Council tax</strong> —{" "}
-              <a
-                href="https://www.braintree.gov.uk/council-tax/guide-council-tax-virtual-brochure-202627"
-                target="_blank"
-                rel="noopener"
-              >
-                Braintree District Council tax guide 2026/27
+              <a href="https://www.gov.uk/council-tax" target="_blank" rel="noopener">
+                Westmere District Council tax guide 2026/27
               </a>
-              . Band D for this home is £2,280.36 a year (£190.03 a month). The A–H table in Section
+              . Band D for this home is £2,145.60 a year (£178.80 a month). The A–H table in Section
               6 is derived from that Band D figure by the statutory ratios and is labelled as
               derived wherever it appears.
             </li>
             <li>
               <strong>Area &amp; Census 2021</strong> — ONS Census 2021 (Census Day 21 March 2021)
-              for MSOA Braintree 018 (Witham South, Hatfield Peverel &amp; White Notley), via Nomis:{" "}
+              for MSOA Westmere 014 (Kingsmere North, Ashmere &amp; Little Bourne), via Nomis:{" "}
               <a
                 href="https://www.nomisweb.co.uk/datasets/c2021ts021"
                 target="_blank"
@@ -1952,7 +2008,7 @@ export default function SampleReport() {
               >
                 TS021 Ethnic group
               </a>{" "}
-              (8,138 residents),{" "}
+              (7,420 residents),{" "}
               <a
                 href="https://www.nomisweb.co.uk/datasets/c2021ts030"
                 target="_blank"
@@ -1960,7 +2016,7 @@ export default function SampleReport() {
               >
                 TS030 Religion
               </a>{" "}
-              (8,138 residents),{" "}
+              (7,420 residents),{" "}
               <a
                 href="https://www.nomisweb.co.uk/datasets/c2021ts044"
                 target="_blank"
@@ -1968,8 +2024,8 @@ export default function SampleReport() {
               >
                 TS044 Accommodation type
               </a>{" "}
-              (3,398 households), TS052 Occupancy rating for bedrooms (3,399 households) and TS054
-              Tenure (3,397 households). Percentages in Section 6 are calculated from those
+              (3,106 households), TS052 Occupancy rating for bedrooms (3,107 households) and TS054
+              Tenure (3,105 households). Percentages in Section 6 are calculated from those
               published counts. Parks, vets and local places: © OpenStreetMap contributors.
             </li>
             <li>
@@ -2000,12 +2056,12 @@ export default function SampleReport() {
             </li>
             <li>
               <strong>Census 2021 charts (Section 6):</strong> all six tables describe the whole
-              Census area — MSOA Braintree 018, Witham South, Hatfield Peverel &amp; White Notley —
-              not this street or this house. They are the counts and percentages the ONS published
-              from Census Day, 21 March 2021, shown as facts only: no score, rating or verdict is
-              added. Totals differ very slightly between Census tables (8,138–8,139 residents;
-              3,397–3,399 households) because the ONS applies small disclosure-control adjustments
-              to each table.
+              Census area — MSOA Westmere 014, Kingsmere North, Ashmere &amp; Little Bourne — not
+              this street or this house. They are the counts and percentages the ONS published from
+              Census Day, 21 March 2021, shown as facts only: no score, rating or verdict is added.
+              Totals differ very slightly between Census tables (7,420–7,421 residents; 3,105–3,107
+              households) because the ONS applies small disclosure-control adjustments to each
+              table.
             </li>
             <li>
               <strong>Flood:</strong> flood zones, surface-water maps and defences are three
@@ -2017,10 +2073,10 @@ export default function SampleReport() {
             </li>
             <li>
               <strong>Planning:</strong> there is no national dataset of planning applications, so
-              this report hands you to Braintree District Council's own planning register rather
-              than listing applications. Article 4 directions are not published by this council to
-              the national dataset, so no finding can be made from the data — the answer lives on
-              the council's own planning register.
+              this report hands you to Westmere District Council's own planning register rather than
+              listing applications. Article 4 directions are not published by this council to the
+              national dataset, so no finding can be made from the data — the answer lives on the
+              council's own planning register.
             </li>
           </ul>
           <h3>Disclaimers</h3>
@@ -2053,7 +2109,7 @@ export default function SampleReport() {
             <li>
               <strong>Why the period ends in September 2026:</strong> Police.uk publishes
               street-level crime in arrears, about six weeks behind. When this report was prepared
-              on 10 November 2026, September 2026 was the latest month published (Police.uk's own
+              on 9 November 2026, September 2026 was the latest month published (Police.uk's own
               “last updated” date is 1 September 2026) — October and November 2026 figures do not
               exist yet in the source, so the last 12 complete published months are used.
             </li>

@@ -38,7 +38,12 @@
 // the transient record's ruled shape or nothing (gap
 // item 10).
 
-import { labelForAddressParts, type LoadedAddressParts, type ResolvedAddress } from "../address";
+import {
+  labelForAddressParts,
+  normalisePostcode,
+  type LoadedAddressParts,
+  type ResolvedAddress,
+} from "../address";
 import { homeKeyOf } from "../bundle-cache";
 import { PICK_FALLBACK_FLAG, homeRoute } from "../journey";
 import { entryNow, logEntry } from "./entry-log";
@@ -104,7 +109,33 @@ interface ListMemoryEntry {
   rows: PostioAddress[];
 }
 
-const listMemory = new Map<string, ListMemoryEntry>();
+// The memory is anchored to globalThis (the standard
+// Next.js pattern for state shared across bundle
+// instances), NOT held in a module-level Map. Bug fix,
+// 18 Nov 2026: the play server's entry log showed a
+// KT17 1FH list served live at 10:56:17 and a pick for one
+// of its rows 53 seconds later resolving via=udprn-call —
+// it PAID inside the 5-minute TTL. The logic was correct
+// and pinned; the serving runtime simply did not share
+// one module instance (and so not one Map) between the
+// /search render and the /api/pick route — the production
+// bundle had split the module, each instance with its own
+// empty memory. Anchored here, every instance of this
+// module reads and writes the ONE memory.
+const globalScope = globalThis as typeof globalThis & {
+  __cmnhPostioListMemory?: Map<string, ListMemoryEntry>;
+};
+const listMemory: Map<string, ListMemoryEntry> = (globalScope.__cmnhPostioListMemory ??= new Map<
+  string,
+  ListMemoryEntry
+>());
+
+// Keys are the normalised postcode, identically on write
+// and on read, so "KT171FH" and "KT17 1FH" share one
+// entry. A string that does not normalise keys as itself.
+function listMemoryKey(postcode: string): string {
+  return normalisePostcode(postcode) ?? postcode;
+}
 
 // Test hook: forget every remembered list.
 export function resetPostioListMemory(): void {
@@ -116,20 +147,20 @@ async function postioListFor(
   postcode: string,
   req: string,
 ): Promise<{ rows: PostioAddress[]; from: "live" | "memory" | "failed"; reason?: string }> {
-  const hit = listMemory.get(postcode);
+  const hit = listMemory.get(listMemoryKey(postcode));
   if (hit && Date.now() - hit.at < POSTIO_LIST_MEMORY_MS) {
     return { rows: hit.rows, from: "memory" };
   }
   const outcome = await postio.listForPostcode(postcode, req);
   if (!outcome.ok) return { rows: [], from: "failed", reason: outcome.reason };
-  listMemory.set(postcode, { at: Date.now(), rows: outcome.value });
+  listMemory.set(listMemoryKey(postcode), { at: Date.now(), rows: outcome.value });
   return { rows: outcome.value, from: "live" };
 }
 
 // A remembered row by UDPRN, for a pick that arrives while
 // the list is still warm — no second Postio call.
 export function rememberedPostioRow(postcode: string, udprn: string): PostioAddress | null {
-  const hit = listMemory.get(postcode);
+  const hit = listMemory.get(listMemoryKey(postcode));
   if (!hit || Date.now() - hit.at >= POSTIO_LIST_MEMORY_MS) return null;
   return hit.rows.find((row) => row.udprn === udprn) ?? null;
 }

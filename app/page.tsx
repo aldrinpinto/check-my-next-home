@@ -1,8 +1,11 @@
+import { Suspense } from "react";
+
 import AudienceCards from "../components/AudienceCards";
 import CheckTiles from "../components/CheckTiles";
 import HowItWorks from "../components/HowItWorks";
 import PostcodeBox from "../components/PostcodeBox";
 import ReportBand from "../components/ReportBand";
+import UnplacedNotice from "../components/UnplacedNotice";
 import {
   HOME_CARDS_HEADING,
   HOME_CARDS_SUB,
@@ -76,6 +79,9 @@ export default function Home() {
         <h1>{HOME_HERO_HEADLINE}</h1>
         <p className="type-lead">{HOME_HERO_SUBLINE}</p>
         <PostcodeBox bare />
+        <Suspense fallback={null}>
+          <UnplacedNotice />
+        </Suspense>
         <p className="hero__small">{HOME_HERO_SMALL_LINE}</p>
       </section>
 

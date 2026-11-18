@@ -101,6 +101,21 @@ export const HOW_WE_CHECK_CARDS: HowWeCheckCard[] = [
       "the deprivation figure comes from the MHCLG Indices of Deprivation 2025 and is served as a decile — a position from 1 to 10 — never converted into a score. Census figures describe the wider area around a home, and we say which area each table covers.",
   },
   {
+    // The tenth card (M7.12, founder ruling 18 Nov 2026):
+    // added to the Final Sample Master's view 4 first, and
+    // this constant conforms the product to it — the words
+    // are the Master's, verbatim, as with the other nine.
+    icon: "∿",
+    heading: "Air quality & noise",
+    source: "Source · Defra",
+    paragraphs: [
+      "We show the modelled air quality figures for the square kilometre around the home — nitrogen dioxide and fine particles — and the published noise bands for its point, for road, rail and airport, by day and by night. The two are shown separately, in the publisher's own words, and never merged into a single answer.",
+    ],
+    howLabel: "How the figures are produced:",
+    howText:
+      "both are modelled, not measured. The air figures are Defra's modelled background concentrations for the square; the noise bands come from Defra's strategic noise mapping, modelled across the area. Neither is a reading taken at the home itself, and the check never turns them into a verdict on how a home will sound.",
+  },
+  {
     icon: "¤",
     heading: "Costs",
     source: "Source · MHCLG · EPC register · Ofcom",

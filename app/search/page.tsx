@@ -8,12 +8,12 @@ import WholeCheckFailure from "../../components/WholeCheckFailure";
 import { createAddressSource, displayText, resolveAddressInput } from "../../lib/address";
 import { homeKeyOf } from "../../lib/bundle-cache";
 import {
-  NO_LOCATION_HEADING,
-  NO_LOCATION_LINE,
+  UNPLACED_NOTICE_URL,
   WIDER_AREA_BANNER_HEADING,
   WIDER_AREA_BANNER_LINE,
   homeRoute,
   postcodeNotFoundLine,
+  postcodeRoute,
   widerAreaRoute,
 } from "../../lib/journey";
 import { buildWiderAreaView } from "../../lib/results";
@@ -49,23 +49,17 @@ export const metadata: Metadata = pageMetadata({
 // step M7.3, fold-in 1): /search carrying the normalised
 // postcode renders the picker or the postcode-level state;
 // carrying an outward code it renders the wider-area
-// landing (rung 3); carrying nothing it is the no-location
-// fix route only (T-WEB-09). Server-rendered from the
+// landing (rung 3); carrying nothing it redirects to the
+// landing page with the unplaced notice — the standalone
+// no-location page was retired by the founder's ruling of
+// 18 Nov 2026 (an input that can't be placed returns to
+// the landing page with a small notice at its search box,
+// never a page of its own). Server-rendered from the
 // frozen ladder — the page never guesses an address: a
 // narrowing rides as the filed street / display building
 // and the brain re-decides the list.
 
 export const dynamic = "force-dynamic";
-
-function NoLocation() {
-  return (
-    <main className="journey-page">
-      <h1>{NO_LOCATION_HEADING}</h1>
-      <p className="type-lead">{NO_LOCATION_LINE}</p>
-      <PostcodeBox autoFocus />
-    </main>
-  );
-}
 
 export default async function SearchPage({
   searchParams,
@@ -95,7 +89,16 @@ export default async function SearchPage({
     } catch {
       return <WholeCheckFailure />;
     }
-    if (resolution.rung !== 3) return <NoLocation />;
+    if (resolution.rung !== 3) {
+      // Not a wider area: a full postcode that arrived in
+      // the outward slot re-enters through the postcode
+      // form (which re-decides its rung); anything
+      // unplaceable returns to the landing page with the
+      // unplaced notice (the retired no-location page's
+      // replacement, 18 Nov 2026).
+      if (resolution.rung === 4) redirect(UNPLACED_NOTICE_URL);
+      redirect(postcodeRoute(resolution.directory.postcode));
+    }
     let view;
     let card;
     try {
@@ -130,7 +133,7 @@ export default async function SearchPage({
     );
   }
 
-  if (!params.postcode) return <NoLocation />;
+  if (!params.postcode) redirect(UNPLACED_NOTICE_URL);
 
   const postcode = params.postcode;
   let resolution;
@@ -150,7 +153,7 @@ export default async function SearchPage({
     redirect(widerAreaRoute(resolution.outward, postcode));
   }
   if (resolution.rung === 4) {
-    redirect("/search");
+    redirect(UNPLACED_NOTICE_URL);
   }
 
   // Rung 2. Scotland / NI never render a picker (ruling 4).

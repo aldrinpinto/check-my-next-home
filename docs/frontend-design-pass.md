@@ -2306,3 +2306,176 @@ lib/results.ts ("Plus N more … in the detailed report —
 £4.99"). The row's DRESS follows the sample exactly; its
 words stay the ruled ones — copy rulings outrank sample
 transcription, and no D-rule was reopened by this stack.
+
+## The M7.10–M7.12 stacked build (18 Nov 2026)
+
+One stack, eight workstreams (A–H), built in the foldin
+tree on 162d0dd and gated as one. The founder's rulings of
+18 Nov govern throughout; where a ruling and a sample
+conflicted, the ruling won and the Master was conformed in
+the same stack.
+
+A — M7.10 calculators. The calculators take the kit's
+field classes throughout (16px inputs, 44px targets; the
+phone spec now asserts the section at 360px) and a small
+Regression E2E spec (e2e/calculators.e2e.ts). The nation
+is threaded into the calculators view: for Scotland the
+stamp-duty card serves the named LBTT line and for Wales
+the named LTT line (each with its official link, no
+figures, in the D30 named-line form); the mortgage card is
+unchanged for every nation, and England, Northern Ireland
+and unknown nations keep the SDLT card exactly. Both cards
+are suppressed on the rung-3 wider-area view (the view's
+calculators field is null there, like the buy bar). The
+two cards keep their independent price boxes; the deposit
+is also shown as a percentage, as the deposit field's hint,
+derived live from the two figures (the kit's field pattern
+has no beside-the-box slot — the placement is recorded
+here as a build judgement). Editing any field clears that
+card's result; Calculate with no valid price serves "Enter
+the price you're considering." on both cards.
+
+B — M7.11 figures in place. The Costs broadband line gains
+the sample's caveat, "the exact package at this home
+varies by provider". Flood absence states gain the plain
+annual-chance explanation, composed at the presentation
+layer in lib/results.ts from the served states and the
+publisher's own band definitions in lib/flood.ts (no brain
+or bundle-shape change): the rivers-and-sea no-band state
+carries the Very low definition ("a chance of flooding in
+any given year of less than 1 in 1,000"), the surface-water
+below-lowest state names the extreme 1-in-1,000-year
+picture it appears in. Of the prep's minor bundle, only
+O-3 was folded: the sixth-form yes-form is now the
+sample's plain line, "Sixth form at the school". The
+"School places & catchments" duplication is kept, as
+ruled (a deliberate deviation); the A&E row line and the
+unrated-row silence stand.
+
+C — M7.12 check pages. All fifteen /check/ pages are
+deepened in lib/check-pages.ts to carry "How the figure is
+produced", "Where the data comes from" and "Known limits"
+sections, their existing copy preserved. The payloads: the
+crime page carries the D39 calibration working in full
+(the mile's recorded crimes over the Census 2021 residents
+of the LSOAs containing the postcodes within that mile,
+each LSOA counted whole; the England pair likewise); the
+air-quality page carries D50 in full (the UK Air Quality
+Standards Regulations 2010 annual means against the WHO
+2021 guidelines, the modelled square named as not a
+compliance determination), the AQMA and charging-zones
+explainer and the regulated-industrial-sites explainer
+(Environment Agency Pollution Inventory, 2024 vintage
+published Nov 2025, England only, below-threshold returns
+named never numbered); the flood page carries D49 in full
+(the Agency's own defence assets only; UKCP18, RCP 8.5,
+the Central and Higher Central allowances with their
+epochs). The air page's live dead end is fixed: its limits
+material now lives in its own limits section, not "on the
+How we check page". Charging zones are written
+"Clean-Air Zones" hyphenated throughout the new copy
+because tests/banned-wording.ts bans the substring "clean
+air". Editions are named only where the repo sources them;
+eight pages (flood-risk, schools, epc, council-tax-band,
+planning-constraints, ev-charging, public-transport,
+family-essentials) honestly carry publisher + "as
+published" with no edition. Results-side, the links to the
+check pages live ONLY in the new 'About these checks'
+expander — recorded plainly: the build brief called that
+expander existing, and it was not, in the product or in
+any of the Master's sixteen views; the founder's ruling
+(links in the expander, no per-section lines) was
+therefore built by CREATING it — a collapsed details block
+in the kit's dress at the foot of the results page, after
+the calculators and before the closing disclaimer, listing
+one link per check present in the view in tab order,
+labels taken from lib/check-pages.ts itself. The Master
+was NOT given a matching expander (outside the briefed
+Master edits); parity for it is the founder's call. The
+How-we-check overview gains its tenth card, "Air quality &
+noise", seventh in the order — drafted into the Master
+first (the founder finalises its wording before the
+sample change counts as final), then conformed into
+lib/site-pages.ts with the Master's exact words.
+
+D — Sample-report anonymisation (founder bug report,
+18 Nov). The product's /sample-report presented the
+founder's real home with its real figures; it now presents
+an invented dummy throughout — 14 Bramblewood Lane,
+Ashmere, Kingsmere, Westshire WM8 4QT (WM is not a real
+postcode area, so it cannot resolve to a real home) — with
+every figure rebuilt dummy and internally consistent, and
+its banner says so. Both flood-map images depicted the
+real locality, so their uses are replaced with neutral
+inline-SVG schematic panels and the image files are
+DELETED (public/sample-report/, both PNGs and their .b64
+sources, with the materialise entries and the asset pin
+removed — the push must express the deletions or the maps
+return). A new test pins the served page free of
+"Birkdale" and "CM3 2JT". The Master's own worked example
+was anonymised in the same stack (see E) to a DIFFERENT
+dummy — 12 Willow Close, Millbrook MB3 4QX — so the Master
+and the product now carry two different invented sample
+homes; aligning them on one dummy is an open point for the
+founder, recorded here rather than silently picked.
+
+E — Chrome unification (founder rulings, 18 Nov, under
+D70). One header on every page: the landing form — one-line
+Roof-Tick mark, brass capitalised tagline, single row, nav
+right (How we check · Sample report · About · Shortlist ·
+Contact, the count badge kept) — with the mark plus the
+"Check My Next Home" title as ONE link home. One footer:
+the landing form, its link row gaining "Privacy policy",
+and "Data from named official sources. Facts, not scores."
+very small at the extreme bottom-right. The content chrome
+(square mark, second-row nav with pill, the long closing
+line as footer small print) is retired in the product and
+in the Master alike; the Master's views were conformed to
+the unified chrome in the same stack (view 11, the email,
+keeps no header or footer by design), and its worked
+example was anonymised there (see D). Tests assert the
+unified header and footer render identically across a
+landing route, a content route, the shortlist and a
+results route, and the retired forms are asserted absent.
+
+F — The gift claim samples are folded into the Final
+Sample Master as new views after the sixteen, taken
+exactly from the check-together-gift-claim-flow-samples
+artifact in their final approved forms (Claim; Claimed;
+Same email as the buyer; Claimed with a different email;
+Already used; Expired, the £4.99 clause included; Link not
+recognised) — no rewording, none on the landing page, the
+Master's unified chrome where a screen carries chrome.
+
+G — The no-location page retired (founder finding, 18 Nov,
+play-server review). The standalone "We couldn't place
+that" page is gone: an input that can't be placed returns
+the visitor to the LANDING page with a small notice at its
+search box, and a direct hit on the bare /search route
+redirects there the same way (the routing table's rung-4
+destination is now the landing URL with the notice flag;
+the /search route's own unplaceable exits redirect there
+too; a full postcode arriving in the outward slot re-enters
+through the postcode form). The notice, drafted from the
+retired page's line and kept short for its seat, reads:
+"We couldn't place that — try a full postcode, for example
+SW1A 1AA, or a full address with its postcode. A street or
+place name on its own isn't enough." It renders from a
+small client island on the landing page, so the landing
+stays static; the founder reviews the copy at UAT. The
+in-context not-found line on the picker and wider-area
+pages (postcodeNotFoundLine) is untouched — it was always
+a small in-page line — and the whole-check failure state
+is untouched: a failed check is not an unplaceable input.
+
+H — The Postio warm-path fix (bug found live, 18 Nov; the
+full evidence and reasoning are in docs/entry-point.md).
+The list memory in lib/server/hybrid.ts is anchored to
+globalThis, so the /search render and the /api/pick route
+share the ONE memory even when the production bundle loads
+the module more than once, and its key is normalised with
+normalisePostcode on write and read alike. The warm-pick
+pin now asserts via=memory explicitly, and a new scenario
+simulates the instance split by re-importing the module
+between the list and the pick. No other hybrid behaviour
+moves.

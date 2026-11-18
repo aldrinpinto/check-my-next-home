@@ -30,7 +30,11 @@ import Tabs from "./Tabs";
 // active; the D42 failure line travels with it), the D9
 // short form verbatim beside the results (D66), the three
 // tabs in their fixed order, and the Final Design's closing
-// disclaimer block at the very bottom. The page opens
+// disclaimer block at the very bottom. Below the tabs sit
+// the buy bar, the calculators (absent on the wider-area
+// view, M7.10 G2) and the collapsed "About these checks"
+// expander (M7.12) — the only home for the per-check links,
+// derived in lib/results.ts from the sections carried. The page opens
 // expanded; the website has no collapsed form, and tab
 // state stays out of the URL — the Tabs block always opens
 // on the first tab, Family Checks.
@@ -238,7 +242,24 @@ export default function ResultsPage({
           </p>
         </div>
       )}
-      <Calculators lastSalePrice={view.calculators.lastSalePrice} />
+      {view.calculators && (
+        <Calculators
+          lastSalePrice={view.calculators.lastSalePrice}
+          nation={view.calculators.nation}
+        />
+      )}
+      {view.checkLinks.length > 0 && (
+        <details className="about-checks">
+          <summary>About these checks</summary>
+          <ul className="about-checks__list">
+            {view.checkLinks.map((link) => (
+              <li key={link.href}>
+                <a href={link.href}>{link.label}</a>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
       <p className="results-disclaimer-closing">
         {DISCLAIMER_CLOSING_BLOCK} <a href={HOW_WE_CHECK_PATH}>{DISCLAIMER_CLOSING_LINK_LABEL}</a>.
       </p>

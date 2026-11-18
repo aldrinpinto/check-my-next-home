@@ -28,18 +28,11 @@ export const BINARY_ASSETS = [
   { source: "app/apple-icon.png.b64", target: "app/apple-icon.png" },
   // The Open Graph card (1200x630, composed at M7.1 from the pack).
   { source: "public/og-image.png.b64", target: "public/og-image.png" },
-  // The Sample report's two location maps (M7.8): the
-  // finalised sample's own images, carried into the product
-  // so the /sample-report preview shows the same pictures
-  // the sample shows.
-  {
-    source: "public/sample-report/flood-map-rivers-sea.png.b64",
-    target: "public/sample-report/flood-map-rivers-sea.png",
-  },
-  {
-    source: "public/sample-report/flood-map-surface-water.png.b64",
-    target: "public/sample-report/flood-map-surface-water.png",
-  },
+  // The Sample report's two location maps (M7.8) were
+  // removed 18 Nov 2026 with the sample-report
+  // anonymisation: the maps depicted a real locality, so
+  // the page now draws neutral schematic panels instead
+  // and the image assets are no longer carried or served.
   // The self-hosted typefaces (D70, R1): Newsreader (display)
   // and DM Sans (text/UI), latin subsets from the Fontsource
   // packages (@fontsource/newsreader, @fontsource/dm-sans —

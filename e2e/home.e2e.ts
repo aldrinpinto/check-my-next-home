@@ -84,7 +84,7 @@ test.describe("home page — regression", () => {
       // button in the sample's words. The labelled form
       // (M7.3's re-pin for the wider input) serves the
       // journey's retry surfaces — its label and hint are
-      // asserted on the no-location route in
+      // asserted on the wider-area banner's box in
       // e2e/journey.e2e.ts.
       await expect(page.locator(".field__hint")).toHaveCount(0);
       await expect(page.locator(".postcode-box .visually-hidden")).toHaveText(

@@ -137,21 +137,21 @@ test.describe("SEO pages — regression", () => {
     },
   );
 
-  // The parity guards (D1/D1a/D2, parity fix stack,
+  // The parity guards (D1/D1a, parity fix stack,
   // 18 Nov 2026): the site pages once rendered squeezed
-  // into the reading column, About's cards stacked, under
-  // the wrong chrome family — copy-correct, layout-wrong,
-  // and nothing caught it. These assertions measure the
-  // layout itself, so the divergence cannot return
-  // silently: the content chrome is present, the main is
-  // not width-capped, and About's cards sit in a real grid.
+  // into the reading column and About's cards stacked —
+  // copy-correct, layout-wrong, and nothing caught it.
+  // These assertions measure the layout itself, so the
+  // divergence cannot return silently: the main is not
+  // width-capped, and About's cards sit in a real grid.
+  // (The D2 chrome-family part of the guard is superseded
+  // by the unified-chrome test below: the founder retired
+  // the content chrome on 18 Nov 2026.)
   test(
-    "the site pages wear the content chrome at the sample's measure",
+    "the site pages keep the sample's measure and About's card grid",
     { tag: "@regression" },
     async ({ page }) => {
       await page.goto("/about");
-      await expect(page.locator("header.site-header--content")).toHaveCount(1);
-      await expect(page.locator("footer.site-footer--content")).toHaveCount(1);
       const innerWidth = await page
         .locator(".site-pages__inner")
         .evaluate((element) => element.getBoundingClientRect().width);
@@ -164,20 +164,65 @@ test.describe("SEO pages — regression", () => {
         (element) => getComputedStyle(element).gridTemplateColumns.split(" ").length,
       );
       expect(columns).toBeGreaterThanOrEqual(2);
-      // The footer sits flush under the cream main — the
-      // closed band: no top margin on the content footer.
-      const footerMarginTop = await page
-        .locator("footer.site-footer--content")
-        .evaluate((element) => parseFloat(getComputedStyle(element).marginTop));
-      expect(footerMarginTop).toBe(0);
     },
   );
 
-  test("the app pages keep the app chrome", { tag: "@regression" }, async ({ page }) => {
-    await page.goto("/");
-    await expect(page.locator("header.site-header--content")).toHaveCount(0);
-    await expect(page.locator("footer.site-footer--content")).toHaveCount(0);
-    await page.goto("/shortlist");
-    await expect(page.locator("header.site-header--content")).toHaveCount(0);
-  });
+  // Chrome unification (founder ruling, 18 Nov 2026): ONE
+  // header and ONE footer on every page — the landing
+  // (app) forms. The same unified chrome must render on
+  // the landing route, a content route, /shortlist and a
+  // results route: the Roof-Tick header with the brand
+  // block as one home link, and the app footer with the
+  // Privacy policy link and the sources line at the
+  // extreme bottom-right, set very small.
+  test(
+    "every surface renders the one unified header and footer",
+    { tag: "@regression" },
+    async ({ page }) => {
+      for (const path of ["/", "/about", "/shortlist", "/search/home?postcode=CM3%202JT"]) {
+        await page.goto(path);
+        // No trace of the retired content chrome.
+        await expect(page.locator("header.site-header--content")).toHaveCount(0);
+        await expect(page.locator("footer.site-footer--content")).toHaveCount(0);
+        // The unified header, with the brand block as one
+        // Link home carrying the Roof-Tick mark.
+        await expect(page.locator("header.site-header")).toHaveCount(1);
+        const brand = page.locator('header.site-header a.brand[href="/"]');
+        await expect(brand).toHaveCount(1);
+        await expect(brand.locator('img[src="/brand/logo-mark.svg"]')).toHaveCount(1);
+        await expect(brand.locator(".brand__name")).toHaveText("Check My Next Home");
+        // The unified footer, with Privacy policy in its
+        // link row.
+        await expect(page.locator("footer.site-footer")).toHaveCount(1);
+        await expect(page.locator('footer a[href="/privacy"]')).toHaveCount(1);
+        await expect(page.locator('footer a[href="/privacy"]')).toHaveText("Privacy policy");
+        // The sources line: present once, on its own bottom
+        // row, below the main footer row, at the right edge
+        // and set smaller than the footer body text.
+        const sources = page.locator("footer .site-footer__sources");
+        await expect(sources).toHaveCount(1);
+        await expect(sources).toHaveText("Data from named official sources. Facts, not scores.");
+        const geometry = await page.locator("footer.site-footer").evaluate((footer) => {
+          const sourcesEl = footer.querySelector(".site-footer__sources")!;
+          const innerEl = footer.querySelector(".site-footer__inner")!;
+          const sourcesBox = sourcesEl.getBoundingClientRect();
+          const innerBox = innerEl.getBoundingClientRect();
+          const footerBox = footer.getBoundingClientRect();
+          return {
+            sourcesFontSize: parseFloat(getComputedStyle(sourcesEl).fontSize),
+            innerFontSize: parseFloat(getComputedStyle(innerEl).fontSize),
+            sourcesBelowInner: sourcesBox.top >= innerBox.bottom - 1,
+            // Aligned to the main footer row's right edge
+            // (the centred container, not the viewport edge).
+            sourcesAtRight: Math.abs(sourcesBox.right - innerBox.right) <= 40,
+            sourcesAboveFooterBottom: Math.abs(sourcesBox.bottom - footerBox.bottom) <= 20,
+          };
+        });
+        expect(geometry.sourcesFontSize).toBeLessThan(geometry.innerFontSize);
+        expect(geometry.sourcesBelowInner).toBe(true);
+        expect(geometry.sourcesAtRight).toBe(true);
+        expect(geometry.sourcesAboveFooterBottom).toBe(true);
+      }
+    },
+  );
 });

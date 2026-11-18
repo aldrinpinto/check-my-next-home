@@ -5,7 +5,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 
 import KitchenSinkPage from "../app/kitchen-sink/page";
-import SiteFooter from "../components/SiteFooter";
+import SiteChrome from "../components/SiteChrome";
+import SiteFooter, { FOOTER_SOURCES_LINE } from "../components/SiteFooter";
 import SiteHeader from "../components/SiteHeader";
 import Tabs from "../components/Tabs";
 import { Button, DataTable, Notice, SummaryPill, TextField } from "../components/kit";
@@ -153,9 +154,6 @@ describe("brand assets at their fixed destinations", () => {
         "public/fonts/dm-sans-latin-900-normal.woff2",
         "public/fonts/newsreader-latin-600-normal.woff2",
         "public/fonts/newsreader-latin-700-normal.woff2",
-        // The Sample report's location maps (M7.8).
-        "public/sample-report/flood-map-rivers-sea.png",
-        "public/sample-report/flood-map-surface-water.png",
       ].sort(),
     );
     for (const { source } of BINARY_ASSETS) {
@@ -227,7 +225,8 @@ describe("header and footer shells", () => {
     // How we check, Sample report, About, Shortlist, with no
     // "Check a home" button. D44's Guides item is superseded
     // for the chrome and returns when guide pages exist.
-    const labels = ["How we check", "Sample report", "About", "Shortlist"];
+    // D77(g) adds Contact at the end of the set.
+    const labels = ["How we check", "Sample report", "About", "Shortlist", "Contact"];
     let lastIndex = -1;
     for (const label of labels) {
       const index = header.indexOf(`>${label}<`);
@@ -238,16 +237,34 @@ describe("header and footer shells", () => {
     expect(header).toContain('href="/sample-report"');
     expect(header).toContain('href="/about"');
     expect(header).toContain('href="/shortlist"');
+    expect(header).toContain('href="/contact"');
     expect(header).not.toContain('href="/guides"');
+  });
+
+  it("renders the brand block as one home link", () => {
+    // Chrome unification (18 Nov 2026): mark + name +
+    // tagline are ONE Link to "/" in the unified header,
+    // so the logo and title take the visitor home from
+    // every page.
+    expect(header).toContain('<a class="brand" href="/">');
+    expect(header).toContain('src="/brand/logo-mark.svg"');
   });
 
   it("renders the footer's sample form: middle links and the sources line (fidelity pass 2)", () => {
     // The footer's set, in order — D77(g) as amended by the
     // founder's ruling of 18 Nov 2026: Guides joins between
-    // About and Contact, pointing at the /guides hub. The
-    // header's set above carries no Guides (its own pin
+    // About and Contact, pointing at the /guides hub, and
+    // chrome unification adds Privacy policy after Contact.
+    // The header's set above carries no Guides (its own pin
     // stands): the ruling is footer-only.
-    const labels = ["How we check", "Sample report", "About", "Guides", "Contact"];
+    const labels = [
+      "How we check",
+      "Sample report",
+      "About",
+      "Guides",
+      "Contact",
+      "Privacy policy",
+    ];
     let lastIndex = -1;
     for (const label of labels) {
       const index = footer.indexOf(`>${label}<`);
@@ -256,7 +273,28 @@ describe("header and footer shells", () => {
     }
     expect(footer).toContain('href="/guides"');
     expect(footer).toContain('href="/contact"');
-    expect(footer).toContain("Data from named official sources. Facts, not scores.");
+    expect(footer).toContain('href="/privacy"');
+    expect(footer).toContain(FOOTER_SOURCES_LINE);
+    expect(FOOTER_SOURCES_LINE).toBe("Data from named official sources. Facts, not scores.");
+  });
+
+  it("places the sources line on its own bottom row, after the main footer row", () => {
+    // Chrome unification (18 Nov 2026): the sources line is
+    // NOT on the main footer row — it sits in
+    // .site-footer__bottom, which follows
+    // .site-footer__inner in the markup (its extreme
+    // bottom-right, very-small styling is pinned in the
+    // CSS assertions in the unified-chrome describe below).
+    const innerAt = footer.indexOf("site-footer__inner");
+    const bottomAt = footer.indexOf("site-footer__bottom");
+    const sourcesAt = footer.indexOf("site-footer__sources");
+    expect(innerAt).toBeGreaterThan(-1);
+    expect(bottomAt).toBeGreaterThan(innerAt);
+    expect(sourcesAt).toBeGreaterThan(bottomAt);
+    expect(footer).not.toContain("site-footer--content");
+    // The retired content footer's closing line is gone
+    // as footer small print.
+    expect(footer).not.toContain("Every fact from an official source, shown with its source");
   });
 
   it("renders no Shortlist badge until a count is passed (the count is M7.5's)", () => {
@@ -271,6 +309,105 @@ describe("header and footer shells", () => {
     expect(footer).toContain('src="/brand/logo-mark-reversed.svg"');
     expect(footer).toContain(SITE_NAME);
     expect(footer).toContain(SITE_TAGLINE);
+  });
+});
+
+describe("unified chrome (founder ruling, 18 Nov 2026)", () => {
+  // Route-level rendering is not this suite's pattern — the
+  // existing chrome tests render the header/footer shells
+  // directly with renderToStaticMarkup. So the four-surface
+  // identity is asserted at the SiteChrome level: SiteChrome
+  // is the wrapper the root layout puts around EVERY route,
+  // it no longer takes a route or a variant, and rendering
+  // it with representative children for the four surfaces
+  // (landing, a content route, /shortlist and a results
+  // route) must yield byte-identical header and footer
+  // markup on each. The served-route version of the same
+  // assertion lives in e2e/seo.e2e.ts.
+  const surfaces = [
+    { name: "landing route", marker: "landing-surface" },
+    { name: "content route (/about)", marker: "about-surface" },
+    { name: "/shortlist", marker: "shortlist-surface" },
+    { name: "results route", marker: "results-surface" },
+  ] as const;
+
+  const chromeOf = (html: string) => ({
+    header: html.match(/<header[\s\S]*?<\/header>/)?.[0],
+    footer: html.match(/<footer[\s\S]*?<\/footer>/)?.[0],
+  });
+
+  it("renders identical header and footer across the four surfaces", () => {
+    const renders = surfaces.map(({ marker }) =>
+      renderToStaticMarkup(createElement(SiteChrome, null, createElement("main", null, marker))),
+    );
+    const first = chromeOf(renders[0]);
+    expect(first.header).toBeTruthy();
+    expect(first.footer).toBeTruthy();
+    for (const [index, html] of renders.entries()) {
+      expect(html, surfaces[index].name).toContain(surfaces[index].marker);
+      const { header, footer } = chromeOf(html);
+      expect(header, surfaces[index].name).toBe(first.header);
+      expect(footer, surfaces[index].name).toBe(first.footer);
+    }
+  });
+
+  it("carries the unified header and footer markers on every surface", () => {
+    for (const { name, marker } of surfaces) {
+      const html = renderToStaticMarkup(
+        createElement(SiteChrome, null, createElement("main", null, marker)),
+      );
+      // The unified (app) header: Roof-Tick mark, live-text
+      // name/tagline, the brand block as one home link, and
+      // the PRIMARY_NAV set including Shortlist and Contact.
+      expect(html, name).toContain('<header class="site-header">');
+      expect(html, name).toContain('<a class="brand" href="/">');
+      expect(html, name).toContain('src="/brand/logo-mark.svg"');
+      expect(html, name).toContain(SITE_NAME);
+      expect(html, name).toContain(SITE_TAGLINE);
+      expect(html, name).toContain('href="/shortlist"');
+      expect(html, name).toContain('href="/contact"');
+      // The unified (app) footer: reversed mark, the link
+      // row including Privacy policy, and the sources line
+      // on its own bottom row.
+      expect(html, name).toContain('<footer class="site-footer">');
+      expect(html, name).toContain('src="/brand/logo-mark-reversed.svg"');
+      expect(html, name).toContain(
+        '<a class="site-footer__link" href="/privacy">Privacy policy</a>',
+      );
+      expect(html, name).toContain('<div class="site-footer__bottom">');
+      expect(html, name).toContain(`<p class="site-footer__sources">${FOOTER_SOURCES_LINE}</p>`);
+      // No trace of the retired content chrome on any surface.
+      expect(html, name).not.toContain("site-header--content");
+      expect(html, name).not.toContain("site-footer--content");
+      expect(html, name).not.toContain("Every fact from an official source, shown with its source");
+    }
+  });
+
+  it("retires the content chrome from the stylesheet and pins the bottom-right sources line", () => {
+    const css = read("app/globals.css");
+    expect(css).not.toContain(".site-header--content");
+    expect(css).not.toContain(".site-footer--content");
+    // The bottom row pushes its only item to the extreme
+    // right, and the sources line is set very small —
+    // 0.625rem against the footer body's 0.78125rem.
+    expect(css).toContain(".site-footer__bottom");
+    expect(css).toContain("justify-content: flex-end");
+    expect(css).toMatch(/\.site-footer__sources \{[^}]*font-size: 0\.625rem/);
+    expect(css).toMatch(/\.site-footer__sources \{[^}]*text-align: right/);
+  });
+
+  it("exports no content-footer small print from the footer module", async () => {
+    const footerModule = await import("../components/SiteFooter");
+    expect("FOOTER_CONTENT_SMALL" in footerModule).toBe(false);
+    const headerModule = await import("../components/SiteHeader");
+    // PRIMARY_NAV is unchanged by the unification.
+    expect(headerModule.PRIMARY_NAV.map((item) => item.label)).toEqual([
+      "How we check",
+      "Sample report",
+      "About",
+      "Shortlist",
+      "Contact",
+    ]);
   });
 });
 

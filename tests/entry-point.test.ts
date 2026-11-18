@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { labelForAddressParts, type ResolvedAddress } from "../lib/address";
 import { PICK_FALLBACK_FLAG, PICK_FALLBACK_LINE } from "../lib/journey";
@@ -175,6 +175,54 @@ describe("(b) postio only — Minerva KT17 1FH", () => {
     expect(path.some((l) => l.includes("event=pick.resolved") && l.includes("layer=postio"))).toBe(
       true,
     );
+    // The warm path is asserted EXPLICITLY, not inferred
+    // from the absence of a second call: the pick's own
+    // log line names via=memory (the 18 Nov warm-path bug
+    // — a paid UDPRN call 53 seconds after the list, inside
+    // the TTL — is exactly a via that silently wasn't).
+    expect(path.some((l) => l.includes("event=pick.resolved") && l.includes("via=memory"))).toBe(
+      true,
+    );
+    expect(path.some((l) => l.includes("via=udprn-call"))).toBe(false);
+  });
+
+  it("the list memory survives a module-instance split (the production bundle's shape)", async () => {
+    // The live miss of 18 Nov 2026: the /search render and
+    // the /api/pick route were served by separate instances
+    // of hybrid.ts, each with its own module-level Map, so
+    // the pick found an empty memory and paid. The memory
+    // is anchored to globalThis precisely so this shape
+    // cannot recur — simulated here by re-importing the
+    // module fresh (vi.resetModules) between the list and
+    // the pick, which is the closest the harness can come
+    // to two bundle instances.
+    const postio = createFakePostioClient({ postcodes: fixture.postioLists });
+    const store = createMemoryResolveRecordStore();
+
+    const first = await import("../lib/server/hybrid");
+    const list = await first.pickerList({ postio, postcode: MINERVA, local: [], req: "b3" });
+    expect(list.postioFrom).toBe("live");
+    expect(postio.calls).toHaveLength(1);
+
+    vi.resetModules();
+    const second = await import("../lib/server/hybrid");
+    expect(second).not.toBe(first);
+
+    // The second instance reads the first instance's
+    // memory — including under the unspaced key form.
+    expect(second.rememberedPostioRow("KT171FH", "1004")).not.toBeNull();
+
+    const pick = await second.resolvePick({
+      postio,
+      store,
+      postcode: MINERVA,
+      udprn: "1004",
+      req: "b3",
+    });
+    expect(pick.kind).toBe("transient");
+    // Still exactly one billable call: the pick resolved
+    // from the shared warm memory, not by a UDPRN call.
+    expect(postio.calls).toHaveLength(1);
   });
 
   it("a cold pick (list memory empty) resolves by the one UDPRN call", async () => {

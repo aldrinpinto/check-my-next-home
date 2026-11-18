@@ -5,11 +5,15 @@ import { describe, expect, it } from "vitest";
 import ResultsPage from "../components/ResultsPage";
 import type { AddressResolution } from "../lib/address";
 import type { AreaBundle } from "../lib/area-bundle";
+import { CHECK_PAGES, CHECK_PAGE_PATHS } from "../lib/check-pages";
 import type { CrimeBundle } from "../lib/crime";
 import type { FloodBundle, FloodLayerType, FloodLiveWarnings, FloodPointState } from "../lib/flood";
 import type { CategoryAnswer, NearbyBundle, NearbyCategory } from "../lib/nearby";
 import {
+  BROADBAND_CAVEAT,
   CATCHMENT_BLOCK_LINE,
+  FLOOD_ROFRS_ABSENCE_LINE,
+  FLOOD_ROFSW_ABSENCE_LINE,
   REPORT_ROUTE,
   RESULTS_TABS,
   buildResultsView,
@@ -640,7 +644,9 @@ describe("results — place groups", () => {
       },
       true,
     );
-    expect(group.rows[0].sixthFormLine).toBe("sixth form: yes, as filed");
+    // O-3 (M7.11): the yes form is the sample's plain line;
+    // the not-recorded form stays as filed.
+    expect(group.rows[0].sixthFormLine).toBe("Sixth form at the school");
     expect(group.rows[1].sixthFormLine).toBe("sixth form: not recorded");
     expect(group.selectiveLine).toContain("Grammar School");
     // Destinations are report depth: the row model carries
@@ -1352,7 +1358,7 @@ describe("results — the built view", () => {
     expect(view.buyBar?.line).toBe(
       "Everything behind the headlines — the breakdowns, the flood findings with location maps, the fuller EPC detail and the questions to ask the seller — in one dated, print-ready document. Or save this home and compare it first.",
     );
-    expect(view.calculators.lastSalePrice).toBe(588995);
+    expect(view.calculators?.lastSalePrice).toBe(588995);
   });
 
   it("the buy bar carries the mystery tease and the contract href (M7.6, D21 as amended)", () => {
@@ -1746,5 +1752,251 @@ describe("results — the rendered page", () => {
     expect(DISCLAIMER_CLOSING_BLOCK).toBe(
       "School places are never promised and catchments are not guaranteed — check council and school admissions, apply by 31 Oct (secondary) / 15 Jan (primary). GP lists and NHS dentist places open and close. Pet data from OpenStreetMap may be incomplete. Air quality, noise and solar are modelled. Distances are straight-line. This result is information, not advice. Full method, sources and disclaimers:",
     );
+  });
+});
+
+describe("results — M7.11 figures in place (D-1/D-2/O-3)", () => {
+  it("D-1: the broadband line in Costs carries the sample's varies-by-provider caveat", () => {
+    const view = buildResultsView(input());
+    const costs = section(view, "home", "costs");
+    const text = JSON.stringify(costs.blocks);
+    expect(text).toContain(
+      `98% of homes in this postcode can get gigabit broadband — ${BROADBAND_CAVEAT}`,
+    );
+    expect(BROADBAND_CAVEAT).toBe("the exact package at this home varies by provider");
+  });
+
+  it("D-2: the rivers & sea absence state gains the publisher's annual-chance explanation", () => {
+    // The publisher's own Very-low definition words
+    // (lib/flood.ts's pinned table), never retyped here.
+    expect(FLOOD_ROFRS_ABSENCE_LINE).toBe(
+      "The Very low band means a chance of flooding in any given year of less than 1 in 1,000.",
+    );
+    const view = buildResultsView(input());
+    const flood = section(view, "home", "flood");
+    const text = JSON.stringify(flood.blocks);
+    // The base fixture's rofrs layer serves
+    // "no-band-published" — the explanation rides beside
+    // its served line, which itself does not move.
+    expect(text).toContain("no river or sea flood band is published for this postcode point");
+    expect(text).toContain(FLOOD_ROFRS_ABSENCE_LINE);
+  });
+
+  it("D-2: the surface-water below-lowest-band state gains the sample's extreme-picture line", () => {
+    expect(FLOOD_ROFSW_ABSENCE_LINE).toBe(
+      "This postcode appears only in the extreme 1-in-1,000-year surface-water picture.",
+    );
+    const sections = shortSections({
+      flood: {
+        state: "served",
+        liveWarnings: null,
+        layers: [
+          floodLayer("flood_zone", "zone-1", null, "this postcode point is in Flood Zone 1"),
+          floodLayer(
+            "rofrs",
+            "no-band-published",
+            null,
+            "no river or sea flood band is published for this postcode point",
+          ),
+          floodLayer(
+            "rofsw",
+            "below-lowest-band",
+            null,
+            "no surface-water band reaches this point — below the lowest band this product publishes",
+          ),
+        ],
+      },
+    });
+    const view = buildResultsView(
+      input({ short: { rung: 1, kind: "short-bundle", postcode: "CM3 2JT", sections } }),
+    );
+    const text = JSON.stringify(section(view, "home", "flood").blocks);
+    expect(text).toContain(FLOOD_ROFSW_ABSENCE_LINE);
+    expect(text).toContain(FLOOD_ROFRS_ABSENCE_LINE);
+  });
+
+  it("D-2: a layer inside a band gains no absence explanation", () => {
+    const sections = shortSections({
+      flood: {
+        state: "served",
+        liveWarnings: null,
+        layers: [
+          floodLayer("flood_zone", "zone-1", null, "this postcode point is in Flood Zone 1"),
+          {
+            ...floodLayer("rofrs", "inside", "Low", "a Low river band covers this point"),
+            coveringDefinition:
+              "a chance of flooding in any given year between 1 in 1,000 and 1 in 100",
+          },
+          floodLayer(
+            "rofsw",
+            "below-lowest-band",
+            null,
+            "no surface-water band reaches this point — below the lowest band this product publishes",
+          ),
+        ],
+      },
+    });
+    const view = buildResultsView(
+      input({ short: { rung: 1, kind: "short-bundle", postcode: "CM3 2JT", sections } }),
+    );
+    const text = JSON.stringify(section(view, "home", "flood").blocks);
+    expect(text).not.toContain(FLOOD_ROFRS_ABSENCE_LINE);
+    expect(text).toContain(FLOOD_ROFSW_ABSENCE_LINE);
+  });
+
+  it("O-3: the sixth-form no form stays as filed", () => {
+    const secondary = category({
+      category: "schools-secondary",
+      state: "within",
+      places: [{ name: "No Sixth School", miles: 1.2, detail: null, sixthForm: false, urn: "2" }],
+      countWithin: 1,
+      nearestSelective: null,
+      nearestSelectiveLine: null,
+    });
+    const group = placeGroupView(
+      secondary,
+      {
+        heading: "Secondary schools",
+        groupLabel: "secondary schools",
+        display: 2,
+        family: "school",
+      },
+      true,
+    );
+    expect(group.rows[0].sixthFormLine).toBe("sixth form: no, as filed");
+  });
+});
+
+describe("results — calculators in the view (M7.10 G1/G2)", () => {
+  const resolutionFor = (lsoaCode: string, postcode: string): AddressResolution => ({
+    rung: 2,
+    kind: "address-list",
+    directory: { ...directory, postcode, lsoaCode },
+    street: null,
+    building: null,
+    addresses: [],
+  });
+
+  it("the view threads the home's nation into the calculators (G1)", () => {
+    expect(buildResultsView(input()).calculators?.nation).toBe("england");
+    expect(
+      buildResultsView(input({ resolution: resolutionFor("S01000001", "EH1 1AD") })).calculators
+        ?.nation,
+    ).toBe("scotland");
+    expect(
+      buildResultsView(input({ resolution: resolutionFor("W01000001", "CF11 8AA") })).calculators
+        ?.nation,
+    ).toBe("wales");
+    expect(
+      buildResultsView(input({ resolution: resolutionFor("N01000001", "BT1 1AA") })).calculators
+        ?.nation,
+    ).toBe("northern-ireland");
+  });
+
+  it("Scotland renders the LBTT named line and no SDLT calculation; Wales renders the LTT line (G1)", () => {
+    const scotland = renderToStaticMarkup(
+      createElement(ResultsPage, {
+        view: buildResultsView(input({ resolution: resolutionFor("S01000001", "EH1 1AD") })),
+      }),
+    );
+    expect(scotland).toContain("Land and Buildings Transaction Tax");
+    expect(scotland).toContain(
+      "https://revenue.scot/taxes/land-buildings-transaction-tax/residential-property",
+    );
+    expect(scotland).not.toContain("Calculate stamp duty");
+    expect(scotland).toContain("Calculate monthly payment");
+
+    const wales = renderToStaticMarkup(
+      createElement(ResultsPage, {
+        view: buildResultsView(input({ resolution: resolutionFor("W01000001", "CF11 8AA") })),
+      }),
+    );
+    expect(wales).toContain("Land Transaction Tax");
+    expect(wales).toContain("https://www.gov.wales/land-transaction-tax-guide");
+    expect(wales).not.toContain("Calculate stamp duty");
+  });
+});
+
+describe("results — About these checks (M7.12)", () => {
+  it("every link resolves within CHECK_PAGE_PATHS and carries the check page's own name", () => {
+    const view = buildResultsView(input());
+    expect(view.checkLinks.length).toBeGreaterThan(0);
+    for (const link of view.checkLinks) {
+      expect(CHECK_PAGE_PATHS).toContain(link.href);
+      expect(link.label).toBe(CHECK_PAGES[link.href].name);
+    }
+    // Deduped: no check page appears twice.
+    expect(new Set(view.checkLinks.map((link) => link.href)).size).toBe(view.checkLinks.length);
+  });
+
+  it("covers every mapped section the view carries, in tab order", () => {
+    const view = buildResultsView(input());
+    expect(view.checkLinks.map((link) => link.href)).toEqual([
+      "/check/schools",
+      "/check/family-essentials",
+      "/check/crime",
+      "/check/air-quality",
+      "/check/noise",
+      "/check/sold-prices",
+      "/check/council-tax-band",
+      "/check/epc",
+      "/check/ev-charging",
+      "/check/broadband",
+      "/check/mobile-coverage",
+      "/check/flood-risk",
+      "/check/planning-constraints",
+      "/check/public-transport",
+    ]);
+  });
+
+  it("renders as a collapsed expander after the calculators and before the closing disclaimer — and nowhere else", () => {
+    const view = buildResultsView(input());
+    const html = renderToStaticMarkup(createElement(ResultsPage, { view }));
+    expect(html).toContain("<details");
+    expect(html).toContain("<summary>About these checks</summary>");
+    const calculatorsAt = html.indexOf("Could this home fit your life?");
+    const expanderAt = html.indexOf("About these checks");
+    const closingAt = html.indexOf("results-disclaimer-closing");
+    expect(calculatorsAt).toBeGreaterThan(-1);
+    expect(expanderAt).toBeGreaterThan(calculatorsAt);
+    expect(closingAt).toBeGreaterThan(expanderAt);
+    // The expander is the only home for these links: no
+    // /check/ link appears anywhere before it.
+    expect(html.slice(0, expanderAt)).not.toContain('href="/check/');
+    for (const link of view.checkLinks) {
+      expect(html).toContain(`<a href="${link.href}">${link.label}</a>`);
+    }
+  });
+
+  it("the wider-area view carries no calculators (G2) but carries the expander, mapped the same way", () => {
+    const widerShort: Extract<ShortBundle, { kind: "wider-area" }> = {
+      rung: 3,
+      kind: "wider-area",
+      sections: Object.fromEntries(
+        [
+          "soldPrices",
+          "flood",
+          "crime",
+          "epc",
+          "councilTax",
+          "constraints",
+          "heritage",
+          "nature",
+          "air",
+          "noise",
+          "broadband",
+          "nearby",
+        ].map((key) => [key, { state: "unavailable", reason: `${key} needs an exact postcode` }]),
+      ) as never,
+    };
+    const view = buildWiderAreaView(widerShort);
+    expect(view.calculators).toBeNull();
+    expect(view.checkLinks.map((link) => link.href)).toEqual(
+      buildResultsView(input()).checkLinks.map((link) => link.href),
+    );
+    const html = renderToStaticMarkup(createElement(ResultsPage, { view }));
+    expect(html).not.toContain("Could this home fit your life?");
+    expect(html).not.toContain("Calculate stamp duty");
+    expect(html).toContain("<summary>About these checks</summary>");
   });
 });

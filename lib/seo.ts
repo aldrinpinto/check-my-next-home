@@ -244,7 +244,7 @@ export const PAGE_SEO = {
   "/sample-report": {
     title: "Sample report | Check My Next Home",
     description:
-      "A sample of the detailed report, worked in full on one real home — every section the report carries, so you can see exactly what a report holds before you order one.",
+      "A sample of the detailed report, worked in full on one example home — every section the report carries, so you can see exactly what a report holds before you order one.",
   },
   "/contact": {
     title: "Contact | Check My Next Home",

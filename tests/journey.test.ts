@@ -10,13 +10,14 @@ import {
   FAILED_ROUTE,
   HOLDING_LINE,
   HOME_ROUTE,
-  NO_LOCATION_HEADING,
   NOT_COVERED_INTRO,
   OWNERSHIP_NOT_PART_LINE,
   PICKER_CONFIRM_LABEL,
   PICKER_EXPLAINER,
   SEARCH_ROUTE,
   TURNSTILE_BLOCK_LINE,
+  UNPLACED_NOTICE_LINE,
+  UNPLACED_NOTICE_URL,
   WHOLE_CHECK_FAILURE_HEADING,
   floodRowResult,
   historyRowResult,
@@ -118,11 +119,15 @@ describe("the route family (fold-in 1)", () => {
 });
 
 describe("the routing table (journeyDestination)", () => {
-  it("sends no-location to the bare fix route", () => {
+  it("sends no-location back to the landing page with the unplaced notice (18 Nov 2026)", () => {
+    // The standalone no-location page is retired: an
+    // unplaceable input returns to the landing page, the
+    // notice flag in its query — never a page of its own.
     expect(journeyDestination({ rung: 4, kind: "no-location" }, { postcode: null }, null)).toEqual({
       kind: "no-location",
-      url: "/search",
+      url: UNPLACED_NOTICE_URL,
     });
+    expect(UNPLACED_NOTICE_URL).toBe("/?notice=unplaced");
   });
 
   it("sends a typed outward code to the wider-area landing without a not-found line", () => {
@@ -175,7 +180,9 @@ describe("nations from the filed area code", () => {
 describe("pinned journey copy", () => {
   it("pins the named states verbatim", () => {
     expect(EMPTY_PICKER_LINE).toBe("No addresses we can list for this postcode yet.");
-    expect(NO_LOCATION_HEADING).toBe("We couldn't place that");
+    expect(UNPLACED_NOTICE_LINE).toBe(
+      "We couldn't place that — try a full postcode, for example SW1A 1AA, or a full address with its postcode. A street or place name on its own isn't enough.",
+    );
     expect(WHOLE_CHECK_FAILURE_HEADING).toBe("This check couldn't be completed");
     expect(HOLDING_LINE).toBe("The check is complete. This home's full results open on this page.");
     expect(TURNSTILE_BLOCK_LINE).toBe(

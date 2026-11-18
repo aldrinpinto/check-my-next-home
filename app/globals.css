@@ -140,7 +140,9 @@
      its content pages — the warm line, its soft form and
      the wash — carried here once; the .site-pages block
      below already holds them as its --sp-* set, and the
-     shortlist and content chrome consume these. */
+     shortlist and site pages consume these. (The tokens
+     stay after the content chrome's retirement: the
+     .site-pages blocks below still use them.) */
   --colour-line-warm: #e7dfc6;
   --colour-line-warm-soft: #efe8d2;
   --colour-wash: #f7f1dc;
@@ -481,9 +483,13 @@ p {
    text. Fidelity pass 2 (17 Nov 2026): the footer's form is
    the decided sample page's — one row at the sample's
    padding, the wordmark block at the sample's smaller size
-   with its tagline Brass (not Brass pale), the middle links
-   as a single line, and the sources line on the right, all
-   at the sample's 12.5px in Brass pale on Deep Forest. */
+   with its tagline Brass (not Brass pale) and the middle
+   links as a single line, at the sample's 12.5px in Brass
+   pale on Deep Forest. Chrome unification (founder ruling,
+   18 Nov 2026): the sources line no longer sits on that row
+   — it moves to the extreme bottom-right of the footer, on
+   its own bottom row (.site-footer__bottom), set very small,
+   clearly smaller than the footer's 12.5px body text. */
 .site-footer {
   background: var(--colour-dark-surface);
   color: var(--colour-accent-on-dark);
@@ -493,7 +499,7 @@ p {
 .site-footer__inner {
   max-width: var(--container-wide);
   margin: 0 auto;
-  padding: 1.625rem var(--space-4);
+  padding: 1.625rem var(--space-4) var(--space-2);
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -530,193 +536,24 @@ p {
   text-decoration-thickness: 2px;
 }
 
+/* The footer's bottom row (chrome unification, 18 Nov
+   2026): its own row under the main footer row, holding
+   only the sources line, pushed to the extreme right. */
+.site-footer__bottom {
+  max-width: var(--container-wide);
+  margin: 0 auto;
+  padding: 0 var(--space-4) 1rem;
+  display: flex;
+  justify-content: flex-end;
+}
+
 .site-footer__sources {
   margin-bottom: 0;
-}
-
-/* === The content chrome (D2, parity fix stack,
-   18 Nov 2026) ==========================================
-   The samples carry TWO chrome families: the app chrome
-   above (landing, results, shortlist — views 1–3, 13–16)
-   and this content chrome for the site pages (views
-   4–8): a 1080px header with the 44px Forest-square mark,
-   the Newsreader wordmark with the tagline under it (not
-   uppercase), the nav as a second row under a hairline
-   with the current page as a Forest pill, and a stacked
-   footer — wordmark-only brand, the tagline set in
-   Newsreader, the nav row and the small print, all inside
-   the 1080px container. The footer carries no top margin:
-   the band between the cream main and the footer is
-   closed. Worn by the .site-pages routes only, through
-   components/SiteChrome.tsx. */
-.site-header--content {
-  background: var(--cmnh-white);
-  border-bottom: 1px solid var(--colour-line-warm);
-  padding: 1.15rem 0 0.95rem;
-}
-
-.site-header--content .site-header-in {
-  max-width: 1080px;
-  margin: 0 auto;
-  padding: 0 1.6rem;
-}
-
-.site-header--content .brand-row {
-  display: flex;
-  align-items: center;
-  gap: 0.8rem;
-}
-
-.site-header--content .brand-mark {
-  width: 44px;
-  height: 44px;
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--cmnh-forest);
-  border-radius: 12px;
-}
-
-.site-header--content .brand-mark svg {
-  width: 26px;
-  height: 26px;
-  display: block;
-}
-
-.site-header--content .wordmark {
-  display: block;
-  font-family: var(--font-family-display);
-  font-weight: 700;
-  font-size: 1.55rem;
-  color: var(--cmnh-forest-deep);
-  line-height: 1.05;
-  letter-spacing: -0.01em;
-}
-
-.site-header--content .wordmark-tag {
-  display: block;
-  font-family: var(--font-family);
-  font-size: 0.78rem;
-  color: var(--colour-muted);
-  margin-top: 0.12rem;
-}
-
-.site-header--content .site-nav {
-  margin-top: 0.85rem;
-  padding-top: 0.6rem;
-  border-top: 1px solid var(--colour-line-warm-soft);
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-}
-
-.site-header--content .site-nav a,
-.site-header--content .site-nav .nav-here {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  min-height: 40px;
-  padding: 0.35rem 0.7rem;
-  border-radius: 8px;
-  color: var(--cmnh-forest);
-  text-decoration: none;
-  font-weight: 600;
-  font-size: 0.95rem;
-}
-
-.site-header--content .site-nav a:hover {
-  background: var(--colour-wash);
-  text-decoration: none;
-}
-
-.site-header--content .site-nav a[aria-current="page"],
-.site-header--content .site-nav .nav-here {
-  background: var(--cmnh-forest);
-  color: var(--cmnh-white);
-}
-
-.site-header--content .site-nav .nav-sep {
-  color: var(--cmnh-brass);
-  padding: 0 0.1rem;
-  user-select: none;
-}
-
-.site-header--content .shortlist-count {
-  background: var(--cmnh-brass);
-  color: var(--cmnh-forest-deep);
-  min-width: 22px;
-  height: 22px;
-  margin-left: 0;
-  padding: 0 6px;
-  font-size: 0.78rem;
-}
-
-@media (max-width: 720px) {
-  .site-header--content .site-header-in {
-    padding: 0 1rem;
-  }
-  .site-header--content .wordmark {
-    font-size: 1.38rem;
-  }
-}
-
-.site-footer--content {
-  margin-top: 0;
-  padding: 2.2rem 1rem 2.4rem;
-}
-
-.site-footer--content .footer-in {
-  max-width: 1080px;
-  margin: 0 auto;
-  padding: 0 0.6rem;
-}
-
-.site-footer--content .footer-brand {
-  font-family: var(--font-family-display);
-  font-weight: 700;
-  font-size: 1.3rem;
-  color: var(--cmnh-white);
-}
-
-.site-footer--content .footer-tag {
-  font-family: var(--font-family-display);
-  font-size: 1.02rem;
-  color: var(--cmnh-brass-pale);
-  margin-top: 0.3rem;
-}
-
-.site-footer--content .footer-nav {
-  margin-top: 1.1rem;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.2rem 0.5rem;
-}
-
-.site-footer--content .footer-nav a {
-  color: var(--cmnh-white);
-  text-decoration: none;
-  font-weight: 600;
-  font-size: 0.95rem;
-  padding: 0.3rem 0.2rem;
-}
-
-.site-footer--content .footer-nav a:hover {
-  text-decoration: underline;
-}
-
-.site-footer--content .footer-nav .nav-sep {
-  color: var(--cmnh-brass);
-  user-select: none;
-}
-
-.site-footer--content .footer-small {
-  margin-top: 1.1rem;
-  font-size: 0.84rem;
-  line-height: 1.55;
-  color: rgba(253, 248, 232, 0.65);
-  max-width: 70ch;
+  /* Very small — clearly smaller than the footer body
+     text (0.78125rem on .site-footer__inner). */
+  font-size: 0.625rem;
+  line-height: 1.3;
+  text-align: right;
 }
 
 /* --- Buttons ------------------------------------------------------ */
@@ -1139,7 +976,8 @@ body:has(.main--home) {
 }
 
 body:has(.main--home) .site-header__inner,
-body:has(.main--home) .site-footer__inner {
+body:has(.main--home) .site-footer__inner,
+body:has(.main--home) .site-footer__bottom {
   max-width: 63.75rem;
   padding-inline: 1.875rem;
 }
@@ -1726,6 +1564,15 @@ body:has(.main--home) .site-footer {
   margin-bottom: var(--space-5);
 }
 
+/* The landing page's unplaced notice (18 Nov 2026): the
+   journey-notice form seated in the hero, directly under
+   the search box — its own top margin, left-aligned like
+   the hero's small line beneath it. */
+.unplaced-notice {
+  margin-top: var(--space-4);
+  text-align: left;
+}
+
 .journey-actions {
   margin-top: var(--space-5);
 }
@@ -1970,6 +1817,46 @@ body:has(.main--home) .site-footer {
 .results-disclaimer-short {
   font-size: var(--font-size-small);
   margin-bottom: var(--space-5);
+}
+
+/* The 'About these checks' expander (M7.12, stacked build
+   18 Nov 2026): the one home for the results page's links
+   to the per-check How we check pages — a collapsed
+   details block in the kit's dress, its summary a full
+   tap target, sitting between the calculators and the
+   closing disclaimer. No sample carries this element (the
+   founder's ruling created it), so it is built in the
+   samples' design language: hairline border, tile radius,
+   Forest summary in the section-label register. */
+.about-checks {
+  border: 1px solid #dbe6df;
+  border-radius: var(--radius-tile);
+  padding: 0 14px;
+  margin: 18px 0 0;
+}
+
+.about-checks summary {
+  min-height: var(--tap-target);
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--cmnh-forest);
+}
+
+.about-checks__list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.about-checks__list a {
+  color: var(--cmnh-forest);
 }
 
 /* D3 (parity fix stack, 18 Nov 2026): the closing

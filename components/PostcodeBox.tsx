@@ -62,8 +62,8 @@ import { Button, SuggestionShell, type SuggestionGroup, type SuggestionItem } fr
 // and the Brass button in the sample's words. The submit
 // path is identical in both forms; only the furniture
 // differs. The standard form (label, hint, Forest button)
-// serves the journey's retry surfaces — the no-location fix
-// route and the wider-area banner. Both forms carry the
+// serves the journey's retry surfaces — the wider-area
+// banner and the whole-check failure. Both forms carry the
 // neutral SW1A 1AA example: the founder's own postcode never
 // appears in visitor-facing copy.
 

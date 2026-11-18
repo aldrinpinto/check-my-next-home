@@ -35,7 +35,8 @@ import { expect, test } from "./fixtures";
 //   checking screen; rung-1 results with each of the
 //   four tabs opened in turn; rung-2 results with the
 //   picker embedded; the rung-3 wider area; the Scotland
-//   not-covered results; the no-location route; the
+//   not-covered results; the unplaced landing (the bare
+//   /search redirect); the
 //   whole-check failure; /shortlist empty, with one home
 //   and with the three-home comparison; the /report
 //   holding page; and the buy bar's full-shortlist state.
@@ -52,7 +53,9 @@ import { expect, test } from "./fixtures";
 // picker rows and their confirm button, the four tabs,
 // the buy bar's report and shortlist pills, the
 // shortlist cards' Remove buttons and the comparison
-// blocks' report buttons, and — the adopted exception,
+// blocks' report buttons, the calculators' five inputs
+// and two Calculate buttons (M7.10 G3), and — the
+// adopted exception,
 // whose element changed when the add-a-4th panel was
 // ruled out — the full message's "See your shortlist"
 // link, which carries the kit's tap target as invisible
@@ -364,6 +367,40 @@ test.describe("phone-first — 360×740 (T-WEB-01)", () => {
   );
 
   test(
+    "rung-1 results, the calculators: every input computes to 16px and every input and Calculate button is a 44px target (M7.10 G3, F2/F3)",
+    { tag: "@regression" },
+    async ({ page }) => {
+      await searchFromHome(page, "CM3 2JT");
+      await pickAndReachResults(page, "19 Birkdale Rise");
+      const calculators = page.locator(".calculators");
+      await calculators.scrollIntoViewIfNeeded();
+      await expect(calculators).toBeVisible();
+
+      // G3: the five labelled inputs render through the
+      // kit's field block — 16px text (no iOS focus-zoom)
+      // and the 44px tap-target floor on each.
+      const inputs = calculators.locator(".field__input");
+      await expect(inputs).toHaveCount(5);
+      for (const input of await inputs.all()) {
+        const fontSize = await input.evaluate((element) => getComputedStyle(element).fontSize);
+        expect(fontSize, "a calculator input computes to 16px").toBe("16px");
+        await expectTapTarget(input, "a calculator input");
+        await expectInsideViewport(input, PHONE.width, "a calculator input");
+      }
+      await expectTapTarget(
+        calculators.getByRole("button", { name: "Calculate monthly payment" }),
+        "the mortgage Calculate button",
+      );
+      await expectTapTarget(
+        calculators.getByRole("button", { name: "Calculate stamp duty" }),
+        "the stamp duty Calculate button",
+      );
+      await expectNoSidewaysScroll(page);
+      await expectNoTable(page);
+    },
+  );
+
+  test(
     "rung-2 results: the embedded picker's rows are 44px targets and nothing scrolls sideways (F1/F2)",
     { tag: "@regression" },
     async ({ page }) => {
@@ -417,15 +454,20 @@ test.describe("phone-first — 360×740 (T-WEB-01)", () => {
   );
 
   test(
-    "the no-location route: nothing scrolls sideways and the retry box is 16px (F3)",
+    "the unplaced landing (the retired no-location route): nothing scrolls sideways and the hero box is 16px (F3)",
     { tag: "@regression" },
     async ({ page }) => {
+      // Since 18 Nov 2026 the bare route redirects to the
+      // landing page with the unplaced notice; the F3
+      // property (a 16px input, so a phone never zooms)
+      // now rides on the landing's hero box.
       await page.goto("/search");
-      await expect(page.locator("h1")).toHaveText("We couldn't place that");
+      await page.waitForURL(/\/\?notice=unplaced/);
+      await expect(page.locator(".unplaced-notice")).toBeVisible();
       const fontSize = await page
         .locator("#postcode")
         .evaluate((element) => getComputedStyle(element).fontSize);
-      expect(fontSize, "the retry box's input computes to 16px").toBe("16px");
+      expect(fontSize, "the hero box's input computes to 16px").toBe("16px");
       await expectNoSidewaysScroll(page);
       await expectNoTable(page);
     },
