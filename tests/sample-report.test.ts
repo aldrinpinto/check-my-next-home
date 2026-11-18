@@ -6,18 +6,31 @@ import SampleReport from "../components/SampleReport";
 
 // Sample-report anonymisation (founder bug report, 18 Nov
 // 2026): the /sample-report page must never present a real
-// home. The worked example is an invented home — 14
-// Bramblewood Lane, Ashmere, WM8 4QT — with invented
-// figures throughout. These pins hold that: the served
-// sample report contains the dummy example, and none of
-// the real home's address, postcode or locality traces.
+// home. The worked example is an invented home with
+// invented figures throughout. Dummy-home alignment
+// (founder ruling, 18 Nov 2026): the one dummy home
+// everywhere is the Final Sample Master's — 12 Willow
+// Close, Millbrook, MB3 4QX — and this page's example and
+// figures are the Master's worked example, transposed.
+// These pins hold that: the served sample report contains
+// the Master's dummy example, none of the real home's
+// address, postcode or locality traces, and no trace of
+// the retired first dummy (14 Bramblewood Lane, Ashmere,
+// WM8 4QT).
 describe("the served sample report (anonymised example home)", () => {
   const html = renderToString(createElement(SampleReport));
 
-  it("presents the invented example home, not a real one", () => {
-    expect(html).toContain("14 Bramblewood Lane");
-    expect(html).toContain("Ashmere, Kingsmere, Westshire WM8 4QT");
+  it("presents the Master's invented example home, not a real one", () => {
+    expect(html).toContain("12 Willow Close");
+    expect(html).toContain("Millbrook, Kingsford, Kent MB3 4QX");
     expect(html).toContain("invented example");
+  });
+
+  it("carries the Master's worked-example figures for that home", () => {
+    expect(html).toContain("£425,000");
+    expect(html).toContain("22 Mar 2022");
+    expect(html).toContain("over 29 counted");
+    expect(html).toContain("0000-0000-0000-0000-0000");
   });
 
   it("contains neither the real street name nor the real postcode", () => {
@@ -25,11 +38,22 @@ describe("the served sample report (anonymised example home)", () => {
     expect(html).not.toContain("CM3 2JT");
   });
 
+  it("contains no trace of the retired first dummy home", () => {
+    for (const trace of ["Bramblewood", "Ashmere", "WM8 4QT", "425,750", "5031-2847"]) {
+      expect(html, trace).not.toContain(trace);
+    }
+  });
+
   it("carries no other trace of the real locality", () => {
+    // "River Brain" is deliberately NOT in this list: the
+    // Master's worked example names a River Brain among its
+    // invented flood-area rivers (through its fictional
+    // Northbrook), so the string now appears as part of the
+    // dummy example, carrying no reference to the real
+    // home, street or postcode.
     for (const trace of [
       "Hatfield Peverel",
       "Witham",
-      "River Brain",
       "River Chelmer",
       "River Ter",
       "Gleneagles Way",
@@ -49,7 +73,7 @@ describe("the served sample report (anonymised example home)", () => {
     expect(html).not.toContain("/sample-report/flood-map");
     expect(html).not.toContain("<img");
     expect(html).toContain("Schematic location panel");
-    expect(html).toContain("Bramblewood Lane close-up");
+    expect(html).toContain("Willow Close close-up");
   });
 
   it("keeps the report's sections, in the sample's order", () => {

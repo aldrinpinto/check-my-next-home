@@ -51,6 +51,28 @@ export const POSTCODE_BOX_BUTTON_BARE = "Check this home";
 export const HOME_HERO_SMALL_LINE =
   "Free headlines for every home, from named official sources. Detailed report £4.99 — one home, no account, no subscription.";
 
+// The source strip directly under the hero (founder's
+// ruling, 18 Nov 2026 — the samples' Version B, chosen over
+// the text strip and over the bodies' real logos): the
+// heading and the eight sources' short-form names, in the
+// strip's order. Multi-word names stack on two lines in
+// their lockups, so the lines are the pinned copy; the
+// glyphs beside them are drawn in components/SourceStrip.tsx
+// — drawn lockups in the sample's form, never the bodies'
+// real logos and never image files.
+export const HOME_SOURCE_STRIP_HEADING = "Powered by official UK data";
+export const HOME_SOURCE_STRIP_SOURCES = [
+  { id: "hmlr", lines: ["HM Land", "Registry"] },
+  { id: "ea", lines: ["Environment", "Agency"] },
+  { id: "police", lines: ["Police.uk"] },
+  { id: "ofcom", lines: ["Ofcom"] },
+  { id: "defra", lines: ["Defra"] },
+  { id: "ons", lines: ["ONS"] },
+  { id: "dfe", lines: ["DfE"] },
+  { id: "epc", lines: ["EPC", "Register"] },
+] as const;
+export type HomeSourceStripSourceId = (typeof HOME_SOURCE_STRIP_SOURCES)[number]["id"];
+
 // The three audience cards, directly under the hero (D70
 // R3): a title, a one-line intro and the family-language
 // check list. The copy is the decided landing page's

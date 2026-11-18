@@ -1094,11 +1094,20 @@ export function summaryPills(input: SummaryPillsInput): SummaryPill[] | null {
     }
   }
 
-  // 6 Noise — good if road AND rail both in the lowest
-  // modelled bands (day <55 dB, night <50 dB — the
-  // below-range band, or "No modelled … noise", the
+  // 6 Noise — good if road, rail AND airport are all in
+  // the lowest modelled bands (day <55 dB, night <50 dB —
+  // the below-range band, or "No modelled … noise", the
   // no-contribution state noiseBandLow also accepts);
-  // concerning if day >=65 or night >=60 on either.
+  // concerning if day >=65 or night >=60 on any filed
+  // band. The founder ruled (18 Nov 2026) that airport
+  // counts toward the pill like road and rail: the
+  // concerning scan already read every filed band, and
+  // the good test now reads the airport band too — a
+  // filed airport band that is not low blocks the
+  // "Quiet" pill. Where no airport band is filed the
+  // airport leg passes (the loader files absence itself
+  // as a "No modelled airport noise" band, which is
+  // low); road and rail stay required, as before.
   {
     const noise = areaSections?.noise;
     if (noise && noise.state === "served" && noise.bands.length > 0) {
@@ -1107,6 +1116,10 @@ export function summaryPills(input: SummaryPillsInput): SummaryPill[] | null {
       );
       const road = noise.bands.find((band) => band.sourceKind === "road");
       const rail = noise.bands.find((band) => band.sourceKind === "rail");
+      const airport = noise.bands.find((band) => band.sourceKind === "airport");
+      const airportLow =
+        airport === undefined ||
+        (noiseBandLow(airport.dayBand, true) && noiseBandLow(airport.nightBand, false));
       const good =
         !concerning &&
         road !== undefined &&
@@ -1114,7 +1127,8 @@ export function summaryPills(input: SummaryPillsInput): SummaryPill[] | null {
         noiseBandLow(road.dayBand, true) &&
         noiseBandLow(road.nightBand, false) &&
         noiseBandLow(rail.dayBand, true) &&
-        noiseBandLow(rail.nightBand, false);
+        noiseBandLow(rail.nightBand, false) &&
+        airportLow;
       add(concerning ? "concerning" : good ? "good" : "neither", {
         label: "Noise",
         figure: concerning ? "Noisy" : "Quiet",

@@ -26,6 +26,8 @@ import {
   HOME_REPORT_BAND_LINE,
   HOME_REPORT_BAND_PRICE,
   HOME_REPORT_BAND_PRICE_LINES,
+  HOME_SOURCE_STRIP_HEADING,
+  HOME_SOURCE_STRIP_SOURCES,
   POSTCODE_BOX_BUTTON,
   POSTCODE_BOX_BUTTON_BARE,
   POSTCODE_BOX_HINT,
@@ -81,6 +83,11 @@ import {
 // and the family-names panel and "what it checks" list pins
 // retired with their sections. Named in the pass's section
 // of docs/frontend-design-pass.md.
+// Source strip pins (founder's ruling, 18 Nov 2026 — the
+// samples' Version B): the strip's heading and the eight
+// sources' name lines pinned verbatim, and the rendered
+// strip's place under the hero pinned. Named in the strip's
+// section of docs/frontend-design-pass.md.
 
 const ROOT = process.cwd();
 const read = (path: string) => readFileSync(join(ROOT, path), "utf8");
@@ -217,6 +224,30 @@ describe("home page copy (lib/home.ts)", () => {
     expect(HOME_REPORT_BAND_PRICE_LINES).toEqual(["per home · one-off", "no subscription"]);
   });
 
+  it("pins the source strip's heading and the eight sources' lines, in order (founder's ruling, 18 Nov 2026)", () => {
+    expect(HOME_SOURCE_STRIP_HEADING).toBe("Powered by official UK data");
+    expect(HOME_SOURCE_STRIP_SOURCES.map((source) => source.id)).toEqual([
+      "hmlr",
+      "ea",
+      "police",
+      "ofcom",
+      "defra",
+      "ons",
+      "dfe",
+      "epc",
+    ]);
+    expect(HOME_SOURCE_STRIP_SOURCES.map((source) => [...source.lines])).toEqual([
+      ["HM Land", "Registry"],
+      ["Environment", "Agency"],
+      ["Police.uk"],
+      ["Ofcom"],
+      ["Defra"],
+      ["ONS"],
+      ["DfE"],
+      ["EPC", "Register"],
+    ]);
+  });
+
   it("pins the manifesto block's lines", () => {
     expect(HOME_MANIFESTO_HEADLINE).toBe("A house is bricks. A home is family.");
     // Founder follow-on (17 Nov 2026): the decided sample
@@ -289,6 +320,32 @@ describe("the rendered home page", () => {
     expect(html).not.toContain(SAMPLE_REPORT_HEADING);
     expect(html).not.toContain(SAMPLE_REPORT_LINE);
     expect(html).not.toContain(SAMPLE_REPORT_LINK_TEXT);
+  });
+
+  it("renders the source strip under the hero, before the cards (founder's ruling, 18 Nov 2026)", () => {
+    const small = html.indexOf(HOME_HERO_SMALL_LINE);
+    const strip = html.indexOf("source-strip");
+    const head = html.indexOf(HOME_SOURCE_STRIP_HEADING);
+    const cards = html.indexOf(HOME_CARDS_HEADING);
+    for (const index of [strip, head]) {
+      expect(index).toBeGreaterThan(-1);
+    }
+    expect(small).toBeLessThan(strip);
+    expect(strip).toBeLessThan(cards);
+    // The eight drawn lockups, each with its pinned name
+    // lines — the multi-word names stacked on two lines.
+    expect(html.split('class="source-lockup"')).toHaveLength(9);
+    for (const source of HOME_SOURCE_STRIP_SOURCES) {
+      expect(html).toContain(`source-lockup__name--${source.id}`);
+      for (const line of source.lines) {
+        expect(html).toContain(`<span class="source-lockup__line">${line}</span>`);
+      }
+    }
+    // Drawn lockups only: the strip's glyphs are inline SVG,
+    // and no image carries a body's real logo.
+    const stripHtml = html.slice(strip, cards);
+    expect(stripHtml).toContain("<svg");
+    expect(stripHtml).not.toContain("<img");
   });
 
   it("shows the manifesto block once, after the tile grid", () => {

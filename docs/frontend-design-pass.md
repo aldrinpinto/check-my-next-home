@@ -3230,3 +3230,148 @@ before the tabs) and the closing block's separate
 presence at the foot. No assertion was weakened; the
 e2e smoke spec's expectation stands as written and
 is the CI proof of the restoration.
+
+## Source strip (18 Nov 2026) — the landing gains the "Powered by official UK data" band
+
+The founder reviewed three strip samples (the
+source-strip landing samples) and ruled (18 Nov 2026):
+the landing page carries the strip in the samples'
+Version B form — drawn greyscale lockups — over the
+Version A text strip (names only) and over Version C
+(the bodies' real official logos in colour). The
+strip is a white band directly below the hero/search
+block, headed "Powered by official UK data", carrying
+eight lockups in one row at desktop width, wrapping
+on phone widths: a drawn glyph beside each source's
+short-form name, the multi-word names stacked on two
+lines — "HM Land" over "Registry", "Environment"
+over "Agency", "EPC" over "Register" — with the glyph
+sized to the full height of the two stacked lines;
+the one-word names (Police.uk, Ofcom, Defra, ONS,
+DfE) sit on one line, vertically centred in the same
+band, their glyphs at the same height.
+
+Built as components/SourceStrip.tsx (the eight glyphs
+drawn inline as SVG — no image files, no official
+logos, no external assets), its copy pinned in
+lib/home.ts (HOME_SOURCE_STRIP_HEADING,
+HOME_SOURCE_STRIP_SOURCES) and its dress in
+app/globals.css (.source-strip and the .source-lockup
+classes, on three new tokens: --colour-lockup,
+--colour-lockup-name, --colour-strip-head — the
+sample's own greys). Scope is the strip only: no
+footer change, no other page, no other copy.
+
+Pins: tests/home-page.test.ts pins the heading and
+the eight sources' lines verbatim and the rendered
+strip's place under the hero; e2e/home.e2e.ts gains a
+regression spec (eight lockups, inline SVG only, the
+eleven name lines in order, the band between the
+hero's small line and the audience cards). No
+existing spec needed adjustment — no landing locator
+collides with the strip's words. The strip carries
+no figures, so the figure register is untouched.
+
+The Final Sample Master's landing view (view 1) is
+being conformed with the identical strip in the same
+round, so the Master and the product stay in step.
+
+## Noise pill ruling (18 Nov 2026) — airport counts, all three sources
+
+The 18 Nov conformance audit of the D75 pills left
+one judgement open: D75's text names road and rail
+for the Noise pill, but the concerning scan in
+lib/results.ts read every filed band, airport
+included, while the good test read road and rail
+only — so a filed airport band could make the pill
+"Noisy" but could never stop it reading "Quiet".
+The founder ruled (18 Nov 2026): the Noise pill
+counts airport, road and rail — all three. The
+audit's open judgement is closed.
+
+The change is the smallest that makes the two sides
+symmetric: the good test now also requires the
+filed airport band to be low (day in the below-range
+band or "No modelled airport noise", night the
+same), alongside road and rail as before. Where no
+airport band is filed the airport leg passes — the
+loader files absence itself as a "No modelled
+airport noise" band, which is low — and road and
+rail stay required, exactly as they were. Concerning
+behaviour, the thresholds (day >=65, night >=60 on
+any filed band), the D75 factor order and every
+other factor are untouched. No served golden shape
+moves: Birkdale's airport band files as "No modelled
+airport noise", and E16 1GN's as "Below 55 dB" by day
+with no modelled noise by night — both low.
+
+Pins (tests/results.test.ts, beside the existing
+noise pins): a loud filed airport band (65–69 dB by
+day) with road and rail quiet serves the concerning
+pill with the "Noisy" figure; a filed airport band
+inside the published range (55–59 dB by day) with
+road and rail in the lowest bands now serves NO
+Noise pill at all — before this change that shape
+served "Quiet"; all three sources in the lowest
+bands serve the good pill with the "Quiet" figure.
+
+## Dummy-home alignment (18 Nov 2026) — one dummy home everywhere, the Master's
+
+The site carried two invented example homes: the
+Final Sample Master's sample report works 12 Willow
+Close, Millbrook, MB3 4QX, and the product's
+/sample-report worked 14 Bramblewood Lane, Ashmere,
+WM8 4QT (the anonymisation build's dummy). The
+founder ruled (18 Nov 2026): one dummy home
+everywhere — the Master's. The product's sample
+report is rebuilt on the Master's worked example,
+transposed verbatim from the Master: the home, its
+£425,000 sale of 22 Mar 2022, the £425,000 postcode
+median over 29 counted sales (20 Dec 1996 – 20 Jul
+2026), the fictional schools, surgery, hospital and
+council, the derived A–H council-tax table from
+Band D £2,145.00, the zero dummy EPC certificate
+0000-0000-0000-0000-0000, and every figure that
+belongs to the example. The report's format,
+structure and section order do not change, and the
+invented-example banner stands exactly as pinned.
+
+Where the Master's example and the product's format
+did not line up, resolved as follows. (1) The
+Master contradicts itself on the median: its short
+version says £412,500 while its Section 2 tiles,
+dot plot, chart note and sources all say £425,000
+over the same 29 sales — the product serves
+£425,000, the Master's own consensus, with the
+home's dot on the median line. (2) The Master's
+seller question 4 reads "Broadband at No. 19", a
+residual of the pre-anonymisation original; the
+product serves "No. 12", matching its own masthead.
+(3) Section 7: the Master carries real map images;
+the product deliberately serves neutral schematic
+SVG panels (pinned: no image, "Schematic location
+panel") — the panels stay schematic, redrawn and
+re-captioned for Willow Close (village Millbrook,
+River Bourne; close-up streets Riverton Road,
+Meadow Way, Orchard End, from the Master's own
+close-up description). (4) The Master's stamp duty
+£11,250 sits in its results view, not its report
+view; the product report carries no stamp-duty
+figure and none was transposed. (5) The Master's
+flood text names a River Brain among its invented
+rivers; the sample-report test's real-locality
+sweep therefore no longer lists "River Brain" —
+the string now appears only as part of the dummy
+example, and every other real-locality trace stays
+pinned absent.
+
+Pins: tests/sample-report.test.ts presents the
+Willow Close home and its figures, keeps the
+standing "Birkdale"/"CM3 2JT" absence assertions,
+and sweeps the retired dummy out of the served page
+("Bramblewood", "Ashmere", "WM8 4QT", "425,750",
+"5031-2847" all absent); the schematic-panel pin
+reads "Willow Close close-up". The /sample-report
+H1 expectation in e2e/seo.e2e.ts reads "12 Willow
+Close". lib/seo.ts carries no example-home copy and
+needed no change.

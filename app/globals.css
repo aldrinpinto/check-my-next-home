@@ -158,6 +158,16 @@
   --colour-sub: #5a6b5e;
   --colour-faint: #7a8272;
 
+  /* The source strip's greys (founder's ruling, 18 Nov
+     2026 — the samples' Version B): the drawn lockups'
+     greyscale — the lockup grey its glyphs are stroked in,
+     the name grey, and the strip head's warm grey. The
+     sample's own values, carried here once; the
+     .source-strip block below consumes them. */
+  --colour-lockup: #6b6b6b;
+  --colour-lockup-name: #5c5c5c;
+  --colour-strip-head: #8a8272;
+
   /* Distance colours (D70 R5): colour sits on the miles
      figure only, as the design's .dist chips — a tinted
      ground with its dark text colour. The orange is the
@@ -1058,6 +1068,145 @@ body:has(.main--home) .site-footer {
   color: var(--colour-faint);
   margin-top: 0.625rem;
   margin-bottom: 0;
+}
+
+/* The source strip (founder's ruling, 18 Nov 2026 — the
+   samples' Version B, chosen over the text strip and over
+   the bodies' real logos): a white band directly under the
+   hero, headed "Powered by official UK data", carrying the
+   eight sources as drawn greyscale lockups — a drawn glyph
+   beside each short-form name, the multi-word names stacked
+   on two lines with the glyph at the full height of the two
+   lines (31px against two lines at 1.18), the one-word
+   names centred in the same band with their glyphs at the
+   same height. One row at desktop width; the row wraps on
+   narrower screens, as in the sample. */
+.source-strip {
+  background: var(--cmnh-white);
+  border-top: 1px solid var(--cmnh-brass-pale);
+  border-bottom: 1px solid var(--cmnh-brass-pale);
+  padding: 1.25rem 1.875rem 1.375rem;
+  text-align: center;
+}
+
+.source-strip__head {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--colour-strip-head);
+  margin: 0 0 0.875rem;
+}
+
+.source-strip__logos {
+  display: flex;
+  flex-wrap: nowrap;
+  justify-content: center;
+  align-items: center;
+  gap: 0.5rem 1.125rem;
+  max-width: 62.5rem;
+  margin: 0 auto;
+}
+
+.source-lockup {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4375rem;
+  color: var(--colour-lockup);
+  filter: grayscale(1);
+  opacity: 0.82;
+  text-align: left;
+  white-space: nowrap;
+  flex: none;
+}
+
+.source-lockup svg {
+  flex: none;
+  display: block;
+  width: 1.9375rem;
+  height: 1.9375rem;
+}
+
+.source-lockup__name {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  line-height: 1.18;
+  color: var(--colour-lockup-name);
+  white-space: nowrap;
+}
+
+.source-lockup__line {
+  display: block;
+  white-space: nowrap;
+}
+
+/* The eight names' dresses, as drawn in the sample: the
+   Land Registry lockup in a serif, the rest in the text
+   face at each lockup's own size, weight and tracking. */
+.source-lockup__name--hmlr {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.source-lockup__name--ea {
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.source-lockup__name--police {
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+}
+
+.source-lockup__name--ofcom {
+  font-size: 0.86rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.source-lockup__name--defra {
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.source-lockup__name--ons {
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.source-lockup__name--dfe {
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.source-lockup__name--epc {
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+@media (max-width: 56.25rem) {
+  .source-strip__logos {
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 40rem) {
+  .source-strip {
+    padding-left: 1.125rem;
+    padding-right: 1.125rem;
+  }
+
+  .source-strip__logos {
+    flex-wrap: wrap;
+    gap: 0.625rem 0.875rem;
+  }
 }
 
 /* The search box (D70 R8 + the founder's 17 Nov ruling):

@@ -5,6 +5,7 @@ import CheckTiles from "../components/CheckTiles";
 import HowItWorks from "../components/HowItWorks";
 import PostcodeBox from "../components/PostcodeBox";
 import ReportBand from "../components/ReportBand";
+import SourceStrip from "../components/SourceStrip";
 import UnplacedNotice from "../components/UnplacedNotice";
 import {
   HOME_CARDS_HEADING,
@@ -48,6 +49,10 @@ export const metadata: Metadata = pageMetadata({ ...PAGE_SEO["/"], path: "/" });
 //   button) with the sample's small line under it. The three
 //   imagery panels D70 R2 placed here are retired — the
 //   sample goes from the sub-line straight to the search.
+//   The source strip (founder's ruling, 18 Nov 2026 — the
+//   samples' Version B): the white "Powered by official UK
+//   data" band directly under the hero, its eight sources
+//   as drawn greyscale lockups (components/SourceStrip.tsx).
 //   "Moving looks different for every family" — the three
 //   audience cards (the decided page's intros and check
 //   lists, Cream-filled) on a white panel section.
@@ -84,6 +89,8 @@ export default function Home() {
         </Suspense>
         <p className="hero__small">{HOME_HERO_SMALL_LINE}</p>
       </section>
+
+      <SourceStrip />
 
       <section className="home-section home-section--alt" aria-labelledby="audience-cards-heading">
         <h2 id="audience-cards-heading">{HOME_CARDS_HEADING}</h2>

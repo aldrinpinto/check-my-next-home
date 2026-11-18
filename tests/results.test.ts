@@ -1138,6 +1138,155 @@ describe("results — pill logic D75 (fold-in)", () => {
     expect(pills?.some((pill) => pill.label === "Noise")).toBe(false);
   });
 
+  it("a loud airport band earns the concerning Noise pill even with road and rail quiet", () => {
+    // The founder ruled (18 Nov 2026) that the Noise
+    // pill counts airport, road and rail — all three.
+    // The concerning scan has always read every filed
+    // band, airport included; this pin holds that side
+    // of the ruling in place: a filed airport band at
+    // 65–69 dB by day is high (day >=65), so Noise
+    // serves as a concerning pill with the "Noisy"
+    // figure however quiet road and rail are.
+    const pills = summaryPills({
+      nearby: baseNearby as Extract<NearbyBundle, { kind: "distances" }>,
+      flood: floodBundle(noWarnings),
+      crime: crimeBundle(0.5),
+      sections: shortSections(),
+      area: d75Area({
+        noise: {
+          state: "served",
+          line: null,
+          bands: [
+            {
+              sourceKind: "road",
+              label: "road noise",
+              dayBand: "Below 55 dB",
+              nightBand: "Below 50 dB",
+              line: "road noise: Below 55 dB by day, Below 50 dB by night",
+            },
+            {
+              sourceKind: "rail",
+              label: "rail noise",
+              dayBand: "Below 55 dB",
+              nightBand: "Below 50 dB",
+              line: "rail noise: Below 55 dB by day, Below 50 dB by night",
+            },
+            {
+              sourceKind: "airport",
+              label: "airport noise",
+              dayBand: "65–69 dB",
+              nightBand: "Below 50 dB",
+              line: "airport noise: 65–69 dB by day, Below 50 dB by night",
+            },
+          ],
+          headlineBand: { sourceKind: "road", dayBand: "Below 55 dB" },
+          sourceLine: null,
+        },
+      }),
+    });
+    const noisePill = pills?.find((pill) => pill.label === "Noise");
+    expect(noisePill?.figure).toBe("Noisy");
+  });
+
+  it("an airport band inside the published range blocks the good Noise pill: Noise stays off", () => {
+    // The new behaviour under the founder's 18 Nov 2026
+    // ruling. Before it, the good test read road and
+    // rail only, so this shape — road and rail in the
+    // lowest bands, a real airport band of 55–59 dB by
+    // day filed beside them — served "Noise · Quiet"
+    // over a section reporting that airport band. The
+    // airport band is neither low (not the below-range
+    // band) nor high (under the day >=65 threshold), so
+    // Noise now takes no pill at all.
+    const pills = summaryPills({
+      nearby: baseNearby as Extract<NearbyBundle, { kind: "distances" }>,
+      flood: floodBundle(noWarnings),
+      crime: crimeBundle(0.5),
+      sections: shortSections(),
+      area: d75Area({
+        noise: {
+          state: "served",
+          line: null,
+          bands: [
+            {
+              sourceKind: "road",
+              label: "road noise",
+              dayBand: "Below 55 dB",
+              nightBand: "Below 50 dB",
+              line: "road noise: Below 55 dB by day, Below 50 dB by night",
+            },
+            {
+              sourceKind: "rail",
+              label: "rail noise",
+              dayBand: "Below 55 dB",
+              nightBand: "Below 50 dB",
+              line: "rail noise: Below 55 dB by day, Below 50 dB by night",
+            },
+            {
+              sourceKind: "airport",
+              label: "airport noise",
+              dayBand: "55–59 dB",
+              nightBand: "Below 50 dB",
+              line: "airport noise: 55–59 dB by day, Below 50 dB by night",
+            },
+          ],
+          headlineBand: { sourceKind: "road", dayBand: "Below 55 dB" },
+          sourceLine: null,
+        },
+      }),
+    });
+    expect(pills?.some((pill) => pill.label === "Noise")).toBe(false);
+  });
+
+  it("all three sources in the lowest bands earn the good Noise pill", () => {
+    // The good side of the founder's 18 Nov 2026
+    // ruling: road, rail and airport all in the
+    // below-range bands (day below 55 dB, night below
+    // 50 dB) — Noise serves as a good pill with the
+    // "Quiet" figure. (The golden-shape pin above
+    // covers the same verdict where rail and airport
+    // file as "No modelled … noise" instead.)
+    const pills = summaryPills({
+      nearby: baseNearby as Extract<NearbyBundle, { kind: "distances" }>,
+      flood: floodBundle(noWarnings),
+      crime: crimeBundle(0.5),
+      sections: shortSections(),
+      area: d75Area({
+        noise: {
+          state: "served",
+          line: null,
+          bands: [
+            {
+              sourceKind: "road",
+              label: "road noise",
+              dayBand: "Below 55 dB",
+              nightBand: "Below 50 dB",
+              line: "road noise: Below 55 dB by day, Below 50 dB by night",
+            },
+            {
+              sourceKind: "rail",
+              label: "rail noise",
+              dayBand: "Below 55 dB",
+              nightBand: "Below 50 dB",
+              line: "rail noise: Below 55 dB by day, Below 50 dB by night",
+            },
+            {
+              sourceKind: "airport",
+              label: "airport noise",
+              dayBand: "Below 55 dB",
+              nightBand: "Below 50 dB",
+              line: "airport noise: Below 55 dB by day, Below 50 dB by night",
+            },
+          ],
+          headlineBand: { sourceKind: "road", dayBand: "Below 55 dB" },
+          sourceLine: null,
+        },
+      }),
+    });
+    const noisePill = pills?.find((pill) => pill.label === "Noise");
+    expect(noisePill?.figure).toBe("Quiet");
+  });
+
   it("concerning facts come first in priority order, capped at three, then good facts fill", () => {
     const sections = shortSections({
       flood: {

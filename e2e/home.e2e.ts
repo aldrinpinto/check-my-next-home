@@ -129,6 +129,51 @@ test.describe("home page — regression", () => {
     },
   );
 
+  test(
+    "the source strip sits under the hero: eight drawn lockups, the multi-word names stacked (founder's ruling, 18 Nov 2026)",
+    { tag: "@regression" },
+    async ({ page }) => {
+      await page.goto("/");
+
+      const strip = page.locator(".source-strip");
+      await expect(strip.locator(".source-strip__head")).toHaveText("Powered by official UK data");
+      await expect(strip.locator(".source-lockup")).toHaveCount(8);
+      // Drawn glyphs only: inline SVG beside each name, and
+      // no image carries a body's real logo.
+      await expect(strip.locator(".source-lockup svg")).toHaveCount(8);
+      await expect(strip.locator("img")).toHaveCount(0);
+      // The name lines, in the strip's order: the multi-word
+      // names stacked on two lines, the one-word names whole.
+      await expect(strip.locator(".source-lockup__line")).toHaveText([
+        "HM Land",
+        "Registry",
+        "Environment",
+        "Agency",
+        "Police.uk",
+        "Ofcom",
+        "Defra",
+        "ONS",
+        "DfE",
+        "EPC",
+        "Register",
+      ]);
+
+      // The band sits directly under the hero, above the
+      // audience cards — document order is the stack order.
+      const tops = await page.evaluate(() => {
+        const pick = (selector: string) =>
+          document.querySelector(selector)?.getBoundingClientRect().top ?? Number.NaN;
+        return {
+          small: pick(".hero__small"),
+          strip: pick(".source-strip"),
+          cards: pick("#audience-cards-heading"),
+        };
+      });
+      expect(tops.small).toBeLessThan(tops.strip);
+      expect(tops.strip).toBeLessThan(tops.cards);
+    },
+  );
+
   // Retired at fidelity pass 2: the "what it checks" spec —
   // the ruled list leaves the landing (the tile grid is the
   // page's only tour of the checks, as in the sample).
