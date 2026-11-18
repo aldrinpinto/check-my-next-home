@@ -155,6 +155,14 @@ import { INDUSTRIAL_SITES_ENABLED } from "./site";
 
 export const DISTANCE_BASIS_LABEL = "straight-line distance from the postcode point";
 export const RADIUS_MILES = 2;
+
+// The grammar (selective) search radius (parity fix batch,
+// 18 Nov 2026): the nearest selective secondary school is
+// served out to this distance — grammar schools are area
+// destinations, not 2-mile list entries (the Birkdale
+// golden's grammar, KEGS, sits 6.1 miles away). Beyond it
+// the selective fact serves its absence, as before.
+export const SELECTIVE_SEARCH_MILES = 10;
 export const LIST_SIZE = 3;
 
 const EARTH_RADIUS_MILES = 3956;
@@ -969,12 +977,34 @@ async function buildCategory(
   };
   if (key === "schools-secondary") {
     const selective = named.find((m) => m.point.selective === true);
-    answer.nearestSelective = selective
-      ? { name: selective.point.name as string, miles: round3(selective.raw) }
-      : null;
-    answer.nearestSelectiveLine = selective
-      ? `the nearest selective secondary school is ${selective.point.name as string} — selective means admission by entrance test`
-      : null;
+    if (selective) {
+      answer.nearestSelective = {
+        name: selective.point.name as string,
+        miles: round3(selective.raw),
+      };
+      answer.nearestSelectiveLine = `the nearest selective secondary school is ${selective.point.name as string} — selective means admission by entrance test`;
+    } else {
+      // The grammar fact does not stop at the 2-mile list
+      // radius (parity fix batch, 18 Nov 2026): a grammar
+      // school is a destination families travel to — the
+      // golden truth is KEGS at 6.1 miles from the Birkdale
+      // home — so where no selective school sits within the
+      // list, the nearest within the wider grammar search
+      // serves instead, measured on the same haversine.
+      // Beyond the search, the fact is honestly absent.
+      const wider = await source.pointsWithin(key, latitude, longitude, SELECTIVE_SEARCH_MILES);
+      let best: { name: string; miles: number } | null = null;
+      for (const point of wider) {
+        if (point.selective !== true || point.name === null || point.name === "") continue;
+        const miles = haversineMiles(latitude, longitude, point.latitude, point.longitude);
+        if (miles <= RADIUS_MILES || miles > SELECTIVE_SEARCH_MILES) continue;
+        if (!best || miles < best.miles) best = { name: point.name, miles };
+      }
+      answer.nearestSelective = best ? { name: best.name, miles: round3(best.miles) } : null;
+      answer.nearestSelectiveLine = best
+        ? `the nearest selective secondary school is ${best.name} — selective means admission by entrance test`
+        : null;
+    }
   }
   if (places.length > 0) return answer;
   if (spec.essential) {
@@ -1091,11 +1121,28 @@ export async function buildNearbyBundle(
 // a place, and the filedCount subquery counts places, not
 // destination rows.
 const CATEGORY_SQL: Record<NearbyCategory, string> = {
-  "schools-primary": `SELECT name, latitude, longitude, NULL::text AS detail,
-      (admissions_policy = 'Selective') AS selective
-    FROM schools WHERE phase = 'Primary' AND geom IS NOT NULL`,
+  // The two school queries also yield the filed parts the
+  // served detail line is composed from (parity fix batch,
+  // 18 Nov 2026): the age range, the filed address, the
+  // school type and the URN-joined Ofsted outcome — the
+  // data was always filed (schools + ofsted_outcomes) and
+  // the rows served bare only because the detail column
+  // was selected NULL. Composition happens in toPoint,
+  // beside the other per-category mappings; the served
+  // shape does not change (detail was always the field).
+  "schools-primary": `SELECT s.name, s.latitude, s.longitude, NULL::text AS detail,
+      (s.admissions_policy = 'Selective') AS selective,
+      s.age_range_low, s.age_range_high, s.address AS school_address,
+      s.school_type, s.phase AS school_phase,
+      oo.rating AS ofsted_rating, oo.inspection_date::text AS ofsted_date
+    FROM schools s
+    LEFT JOIN ofsted_outcomes oo ON oo.urn = s.urn
+    WHERE s.phase = 'Primary' AND s.geom IS NOT NULL`,
   "schools-secondary": `SELECT s.name, s.latitude, s.longitude, NULL::text AS detail,
       (s.admissions_policy = 'Selective') AS selective,
+      s.age_range_low, s.age_range_high, s.address AS school_address,
+      s.school_type, s.phase AS school_phase,
+      oo.rating AS ofsted_rating, oo.inspection_date::text AS ofsted_date,
       CASE s.sixth_form
         WHEN 'Has a sixth form' THEN true
         WHEN 'Does not have a sixth form' THEN false
@@ -1116,6 +1163,7 @@ const CATEGORY_SQL: Record<NearbyCategory, string> = {
       d5.apprenticeships AS d5_apprenticeships, d5.apprenticeships_low AS d5_apprenticeships_low,
       d5.employment AS d5_employment, d5.employment_low AS d5_employment_low
     FROM schools s
+    LEFT JOIN ofsted_outcomes oo ON oo.urn = s.urn
     LEFT JOIN school_destinations d4 ON d4.urn = s.urn AND d4.stage = 'ks4'
     LEFT JOIN school_destinations d5 ON d5.urn = s.urn AND d5.stage = 'ks5'
     WHERE s.phase = 'Secondary' AND s.geom IS NOT NULL`,
@@ -1147,25 +1195,29 @@ const CATEGORY_SQL: Record<NearbyCategory, string> = {
       AND school_type <> 'British schools overseas'
       AND school_type <> 'Welsh establishment'
       AND geom IS NOT NULL`,
-  nurseries: `SELECT name, latitude, longitude, NULL::text AS detail,
+  // Nurseries and the health kinds serve their filed
+  // address as the detail (parity fix batch, 18 Nov 2026):
+  // nurseries.address and health_points.address were filed
+  // by their loaders from the start.
+  nurseries: `SELECT name, latitude, longitude, address AS detail,
       NULL::boolean AS selective
     FROM nurseries WHERE geom IS NOT NULL`,
-  gp: `SELECT hp.name, hp.latitude, hp.longitude, NULL::text AS detail,
+  gp: `SELECT hp.name, hp.latitude, hp.longitude, hp.address AS detail,
       NULL::boolean AS selective,
       cr.rating AS cqc_rating, cr.rating_date::text AS cqc_rating_date
     FROM health_points hp
     LEFT JOIN cqc_ratings cr ON cr.health_point_id = hp.id
     WHERE hp.service_type IN ('gp_practice', 'gp_branch_surgery') AND hp.geom IS NOT NULL`,
-  dentist: `SELECT name, latitude, longitude, NULL::text AS detail,
+  dentist: `SELECT name, latitude, longitude, address AS detail,
       NULL::boolean AS selective
     FROM health_points WHERE service_type = 'dentist' AND geom IS NOT NULL`,
-  pharmacy: `SELECT name, latitude, longitude, NULL::text AS detail,
+  pharmacy: `SELECT name, latitude, longitude, address AS detail,
       NULL::boolean AS selective
     FROM health_points WHERE service_type = 'pharmacy' AND geom IS NOT NULL`,
   // A&E is the nearest hospital whose emergency flag is YES —
   // the three-state flag: no-data hospitals (NULL) are never
   // counted either way (D22).
-  ae: `SELECT hp.name, hp.latitude, hp.longitude, NULL::text AS detail,
+  ae: `SELECT hp.name, hp.latitude, hp.longitude, hp.address AS detail,
       NULL::boolean AS selective,
       cr.rating AS cqc_rating, cr.rating_date::text AS cqc_rating_date
     FROM health_points hp
@@ -1176,13 +1228,19 @@ const CATEGORY_SQL: Record<NearbyCategory, string> = {
   // the directory's service types cannot select them. The
   // pipe-wrapping makes the membership test exact: a group
   // files only as a whole pipe-delimited member.
-  maternity: `SELECT hp.name, hp.latitude, hp.longitude, NULL::text AS detail,
+  maternity: `SELECT hp.name, hp.latitude, hp.longitude, hp.address AS detail,
       NULL::boolean AS selective,
       cr.rating AS cqc_rating, cr.rating_date::text AS cqc_rating_date
     FROM health_points hp
     LEFT JOIN cqc_ratings cr ON cr.health_point_id = hp.id
     WHERE hp.service_type = 'hospital' AND hp.geom IS NOT NULL
       AND ('|' || hp.cqc_population_groups || '|') LIKE '%|Maternity|%'`,
+  // transport_stops, osm_points and greenspace_points file
+  // no address or detail fields (name + type + point only),
+  // so their rows serve detail NULL — there is nothing
+  // filed to compose a detail line from (parity fix batch,
+  // 18 Nov 2026; the gap is the loaders' filing shape, and
+  // it is named here rather than papered over).
   station: `SELECT name, latitude, longitude, NULL::text AS detail,
       NULL::boolean AS selective
     FROM transport_stops WHERE stop_type IN ('RLY', 'MET', 'TMU') AND geom IS NOT NULL`,
@@ -1253,6 +1311,60 @@ const CATEGORY_NEAREST_SQL: Partial<Record<NearbyCategory, string>> = {
       AND geom IS NOT NULL`,
 };
 
+const MONTH_NAMES_SHORT = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+// The school detail line, composed from the filed parts
+// (parity fix batch, 18 Nov 2026) in the Final Sample
+// Master's form: "Ages 7–11 • Church Road • Ofsted: Good
+// (inspected March 2025)" — a secondary row carries its
+// type in display form between the ages and the address
+// ("Ages 11–18 • Academy • Riverside Lane, Northbrook").
+// Every part serves only when filed: no ages without the
+// filed range, no Ofsted part without a filed outcome, no
+// type word the mapping cannot name. The inspection date
+// states month and year, as the sample states it.
+function schoolDetailOf(row: Record<string, unknown>): string | null {
+  const parts: string[] = [];
+  const low = typeof row.age_range_low === "number" ? row.age_range_low : null;
+  const high = typeof row.age_range_high === "number" ? row.age_range_high : null;
+  if (low !== null && high !== null) parts.push(`Ages ${low}–${high}`);
+  if (row.school_phase === "Secondary" && typeof row.school_type === "string") {
+    const type = row.school_type;
+    const display = type.startsWith("Academy")
+      ? "Academy"
+      : type === "Free school"
+        ? "Free school"
+        : type === "Maintained school"
+          ? null
+          : type;
+    if (display) parts.push(display);
+  }
+  if (typeof row.school_address === "string" && row.school_address.trim() !== "")
+    parts.push(row.school_address.trim());
+  if (typeof row.ofsted_rating === "string" && row.ofsted_rating !== "") {
+    let ofsted = `Ofsted: ${row.ofsted_rating}`;
+    if (typeof row.ofsted_date === "string") {
+      const match = /^(\d{4})-(\d{2})-\d{2}/.exec(row.ofsted_date);
+      if (match) ofsted += ` (inspected ${MONTH_NAMES_SHORT[Number(match[2]) - 1]} ${match[1]})`;
+    }
+    parts.push(ofsted);
+  }
+  return parts.length > 0 ? parts.join(" • ") : null;
+}
+
 function toPoint(row: Record<string, unknown>): NearbyPoint {
   const point: NearbyPoint = {
     name: typeof row.name === "string" ? row.name : null,
@@ -1261,6 +1373,11 @@ function toPoint(row: Record<string, unknown>): NearbyPoint {
     detail: typeof row.detail === "string" ? row.detail : null,
   };
   if (typeof row.selective === "boolean") point.selective = row.selective;
+  // The two school queries yield the detail parts (see
+  // schoolDetailOf); every other category's query does not
+  // select them, so the composition stays absent there by
+  // construction.
+  if ("school_phase" in row) point.detail = schoolDetailOf(row);
   // The health queries yield the rating columns (null
   // across the LEFT JOIN where no rating files); every
   // other category's query does not select them, so the

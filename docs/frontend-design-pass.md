@@ -2886,3 +2886,180 @@ on the served app: the CM3 2JT dropdown contains
 19 Birkdale Rise in a scrollable region, the keyboard
 reaches it scrolled into view, Enter lands in its
 check, and the last home picks by mouse.
+
+## Parity fix batch (18 Nov 2026) — the audit items, the picker removal, and CI #218
+
+The founder's parity audit of the play server against
+the Final Sample Master (which governs every conflict,
+copy AND layout) produced 45 numbered items across the
+landing, checking, results, privacy and shortlist
+surfaces; this batch builds the approved set, removes
+the picker page on the founder's ruling of the same
+day, and fixes CI #218. Excluded by ruling and NOT
+touched: item 10 (play-server seed coverage — no code
+change), 13/17/18 (rulings/open call), 27 (company
+ownership, HMLR-gated), 32 (contact wiring), 34–38
+(the wider-area page, founder decision pending), 42
+(the 44px Remove stands), 33 (already fixed on the
+Master).
+
+**Landing.** Item 1: the hero kicker loses its full
+stop (`SITE_KICKER`); the stopped form remains only in
+the manifesto block (`SITE_MANIFESTO`).
+
+**Checking screen.** Items 2–4: the screen renders
+standalone — never inside the results shell — with the
+Master's slim eyebrow as its only address reference
+(`<b>street address</b> · town · <b>postcode</b>`; the
+postcode alone at rung 2), its heading in the page-title
+form, and neither the "Back to the address list" link
+nor the visible status line.
+
+**Results page.** Item 5: the H1 carries the postcode
+("19 Birkdale Rise, CM3 2JT"). Item 6: "Shortlist this
+home" and the priced "Get the full report — £4.99" sit
+level with the H1 in the new `.results-head` flex row;
+the buy bar stays below. Item 7: each summary pill is
+ONE white pill — label, "·" separator, tinted figure
+chip. Item 8: no pill-code change was needed — the
+selection already implements D75; the live Exeter
+departure traced to item 9's corrupt England figure
+flipping Crime's band, and three pins now lock the
+strip against the diagnosis (an Exeter-shaped pair, a
+null England figure admitting no Crime pill, and the
+corrupt 933,039 figure reading "Below England
+average"). Item 9 (code half): the crime brain serves
+the England comparison only from a credibly national
+base — `ENGLAND_BASE_MIN_RESIDENTS` (30,000,000) in
+lib/crime.ts and `ENGLAND_BASE_MIN_AREAS` (30,000) in
+the loader — and the figure always formats to one
+decimal; below the guard the local rate serves WITHOUT
+the comparison. (The data half, the national LSOA load,
+is a separate server operation.) Item 11: school rows
+carry their composed detail (ages, road, Ofsted outcome
+— the inspection date lives in the truncation line, as
+the Master composes it). Item 12: the grammar line
+exists — the nearest selective school is searched over
+a 10-mile grammar radius when none is within the list,
+and renders as the Master's starred row with its
+SELECTIVE — TEST ENTRY badge (Birkdale's golden truth:
+KEGS 6.1 mi). Item 14: exactly ONE truncation upsell
+per truncated group, in the Master's merged truncRow
+form (lead + detail + £4.99 chip + "Get the full report
+→"); the section-level upsell panel is gone, its rows
+now the same truncRow. Item 15: per-section source
+lines no longer render on the results page (sources
+live on the check pages and in the report). Item 16:
+the short disclaimer line under the pills is removed.
+Item 19: the buy-bar button is the unpriced "Get the
+full report"; the priced form is only the head's.
+Item 20: sold history is the Master's four stat tiles
+(Last sale with its human date and "• Land Registry";
+Times sold; Change since prev. with the previous sale
+named; Held by last owner in the "4 years 3 months"
+form) over a rung-1 own-sales projection on the short
+bundle, plus the property-type line ending "These
+figures describe recorded sales only — they are not a
+valuation of this home."; every date on the section is
+human-formatted. The D23 median line is retained,
+human-dated — the audit did not call for its removal.
+Item 21: the EPC row leads Costs in the Master's
+certificate form (band, score, potential band + score
+— the loader now files `ratingPotential` and the area
+bundle serves it — and the validity date, registration
+
+- 10 years). Item 22: council tax is stated ONCE, as
+  the Master's single Band D line with its £/MONTH and
+  BAND badges; the duplicate restatement is gone.
+  Item 23: air quality is the Master's single MODELLED
+  line — all three pollutants at two decimals — with the
+  Defra fineprint. Item 24: noise is one MODELLED line
+  (road, rail, airport in that order; "below X dB" forms;
+  ranges as filed) with "Defra modelled bands."
+  Item 25: flood is two verdict blocks with CHECK tags;
+  no live warnings reads "No live flood warnings are in
+  force for this area just now."; the timestamped warning
+  block and the dataset-wording leads are gone, and the
+  flood-zone layer moves to report depth. Item 26:
+  planning lines are compact FACTS-tagged lines; every
+  distance goes through the uniform 1-decimal
+  `formatMiles`; beyond-nearest lines name what the
+  feature is the nearest OF. Item 28: a hospital whose
+  name leads both the A&E and maternity groups appears
+  once (the maternity group yields). Item 29: place rows
+  carry composed detail lines from filed data — schools,
+  nurseries, GP, dentist, pharmacy, A&E and maternity
+  from their filed addresses/ratings; the categories
+  whose datasets file no detail fields (station, bus
+  stop, supermarket, food-and-drink, leisure, parks,
+  libraries, vets, the pet categories) cannot be composed
+  and are recorded NOT FIXED in the batch report.
+  Item 30: worship detail renders the capitalised
+  religion display form, never the raw OSM tag; OSM files
+  religion only, not denomination, so the Master's
+  "Church of England" cannot be stated from held data —
+  recorded PARTIAL. Item 31: headings conformed —
+  "Parks", "Leisure", "Nurseries".
+
+**Shortlist.** Item 39: the header count badge is
+brass with deep-forest text at the Master's 22px.
+Item 40: the add button takes the Master's form (white
+pill, 48px, 0.98rem at 700); the saved state is the
+pale green #DFF0E2 with its green-line border.
+Item 41: the EMPTY state's search card is the sample's
+plain form — a text input ("Enter a postcode — e.g.
+SW1A 1AA") and a brass "Check this home" submit, no
+suggestions and no picker behaviour; the saved states'
+PostcodeBox is untouched. Item 43: comparison miles
+are plain bold forest text after a "·" — the tinted
+pills are gone. Item 44: the phone comparison form
+drops its extra sale line. Item 45: the comparison
+table's foot row opens with `<th scope="row">`
+carrying the screen-reader-only "Reports" label.
+
+**The picker removal (founder ruling, 18 Nov 2026).**
+The picker-dress items raised from the founder's KT1
+1JS screenshot were cancelled as moot the same day:
+the page itself is removed. A full-postcode button
+press goes to the whole-postcode check; that page
+carries the full home list at its head (the union read
+model, natural order, uncapped; the `pickerList` hybrid
+— local union + Postio supplement below the floor —
+re-points to it); `/search?postcode=` redirects to the
+check; the dropdown's Postcodes group links straight
+there; Scotland/NI routing is untouched. The full
+ruling note lives in docs/entry-point.md.
+`components/AddressPicker.tsx` is deleted; the list
+lives in `components/HomeList.tsx`. Every earlier
+section of this document that describes the picker as
+a page (the D70/D73 journey descriptions, the CI #215
+note) describes the pre-removal world — the list, its
+union and its order are unchanged; only its home moved.
+
+**CI #218.** The browser job's one failure was a spec
+race, not a product defect: after typing "E161" the
+panel correctly holds TWO options (the seeded corpus
+legitimately holds E16 1GN and E16 1EG), and the spec's
+one-shot count read that pair before the debounced
+"E161G" response repainted. The unit pins prove the
+served set for "E161G" is exactly ["E16 1GN"]. The
+spec now asserts the narrowed count in Playwright's
+retrying form, with the diagnosis recorded at the
+assertion.
+
+**Re-pins taken under the Master's authority** (each
+recorded in the batch report): the bundle shapes for
+`ServedCertificate.potentialRating` and
+`ShortSoldPrices.ownSales` (five pins in
+tests/fixtures/replay/bundle-shapes.json); the D37
+figure register gains the ownSales leaves under the
+existing "sold.own-sale" explainer; the results,
+journey, entry-point, nearby (the Exeter grammar
+re-pin: Bexley Grammar School, 5.484 mi), home-page and
+shortlist expectations updated to the Master's forms
+and the new journey. The golden-home bundle invariant
+holds: a golden home's sold-prices bundle is
+byte-identical with the picking index present or
+absent — the own-sales projection derives from the
+already-filed own history and adds no served figure to
+the full bundle.

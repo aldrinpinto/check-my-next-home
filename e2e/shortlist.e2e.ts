@@ -105,11 +105,13 @@ async function seedShortlist(page: Page, cards: ShortlistCard[]) {
 }
 
 async function reachResults(page: Page, postcode: string, rowName: string | RegExp) {
+  // The retired picker route redirects to the
+  // whole-postcode check (picker removed, 18 Nov 2026);
+  // its home list's rows are links to each home's check.
   await page.goto(`/search?postcode=${postcode.replace(" ", "+")}`);
-  // D70 R6: the picker is select-then-confirm.
-  await page.getByRole("button", { name: rowName }).first().click();
-  await page.getByRole("button", { name: "Check this address" }).click();
   await page.waitForURL(/\/search\/home\?postcode=/);
+  await page.getByRole("link", { name: rowName }).first().click();
+  await page.waitForURL(/\/search\/home\?postcode=.*&home=/);
   await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
 }
 
@@ -128,13 +130,15 @@ test.describe("shortlist — smoke", () => {
         let context = await launch();
         let persistent = context.pages()[0] ?? (await context.newPage());
         await persistent.goto("/search?postcode=CM3+2JT");
-        await persistent.getByRole("button", { name: "19 Birkdale Rise" }).first().click();
-        await persistent.getByRole("button", { name: "Check this address" }).click();
         await persistent.waitForURL(/\/search\/home\?postcode=/);
+        await persistent.getByRole("link", { name: "19 Birkdale Rise" }).first().click();
+        await persistent.waitForURL(/\/search\/home\?postcode=.*&home=/);
         await expect(persistent.locator(".results")).toBeVisible({ timeout: 30_000 });
-        await persistent.getByRole("button", { name: "Shortlist this home" }).click();
+        // Two shortlist controls render on a rung-1 page
+        // (results head + buy bar, item 6) — either saves.
+        await persistent.getByRole("button", { name: "Shortlist this home" }).first().click();
         await expect(
-          persistent.getByRole("button", { name: "Shortlisted — tap to remove" }),
+          persistent.getByRole("button", { name: "Shortlisted — tap to remove" }).first(),
         ).toBeVisible();
         await context.close();
 
@@ -168,9 +172,12 @@ test.describe("shortlist — regression", () => {
     async ({ page }) => {
       await reachResults(page, "CM3 2JT", "19 Birkdale Rise");
       await expect(page.locator(".shortlist-count")).toHaveCount(0);
-      await page.getByRole("button", { name: "Shortlist this home" }).click();
+      // Two controls render on a rung-1 page (results head
+      // + buy bar, item 6); they stay in sync, so the first
+      // drives both assertions.
+      await page.getByRole("button", { name: "Shortlist this home" }).first().click();
       await expect(page.locator(".shortlist-count")).toHaveText("1");
-      await page.getByRole("button", { name: "Shortlisted — tap to remove" }).click();
+      await page.getByRole("button", { name: "Shortlisted — tap to remove" }).first().click();
       await expect(page.locator(".shortlist-count")).toHaveCount(0);
     },
   );
@@ -314,12 +321,14 @@ test.describe("shortlist — regression", () => {
     async ({ page }) => {
       await seedShortlist(page, [BIRKDALE_CARD, EXETER_CARD, WIDER_AREA_CARD]);
       await reachResults(page, "KT17 1FH", /Flat 4, Minerva House/);
-      await page.getByRole("button", { name: "Shortlist this home" }).click();
+      await page.getByRole("button", { name: "Shortlist this home" }).first().click();
 
       // The simple message stands where the button was
       // (founder's ruling, 17 Nov 2026): the full line, a
-      // link to the shortlist, and no panel anywhere.
-      const full = page.locator(".shortlist-full-line");
+      // link to the shortlist, and no panel anywhere. Both
+      // control places (results head + buy bar, item 6)
+      // carry the message; the first stands for both.
+      const full = page.locator(".shortlist-full-line").first();
       await expect(full).toBeVisible();
       await expect(full).toContainText("Your shortlist is full — it holds 3 homes.");
       await expect(full.getByRole("link", { name: "See your shortlist" })).toHaveAttribute(
@@ -338,8 +347,10 @@ test.describe("shortlist — regression", () => {
       await page.getByRole("button", { name: "Remove 6 Exeter Road, E16 1GN" }).click();
       await expect(page.locator(".shortlist-card")).toHaveCount(2);
       await reachResults(page, "KT17 1FH", /Flat 4, Minerva House/);
-      await page.getByRole("button", { name: "Shortlist this home" }).click();
-      await expect(page.getByRole("button", { name: "Shortlisted — tap to remove" })).toBeVisible();
+      await page.getByRole("button", { name: "Shortlist this home" }).first().click();
+      await expect(
+        page.getByRole("button", { name: "Shortlisted — tap to remove" }).first(),
+      ).toBeVisible();
       await expect(page.locator(".shortlist-count")).toHaveText("3");
       await page.goto("/shortlist");
       await expect(page.locator(".shortlist-card")).toHaveCount(3);

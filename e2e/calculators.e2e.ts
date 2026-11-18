@@ -8,8 +8,8 @@ import { expect, test } from "./fixtures";
 //
 // Coverage, against the harness's seeded postcodes:
 //   - pre-fill from the home's last sale: Birkdale
-//     CM3 2JT, rung 1 through the picker (19 Birkdale
-//     Rise, last sale £588,995).
+//     CM3 2JT, rung 1 through the postcode check's home
+//     list (19 Birkdale Rise, last sale £588,995).
 //   - buyer-choice switching changing the stamp duty
 //     result, and editing clearing a card's result (G4):
 //     the same Birkdale page, at a typed £300,000 where
@@ -44,10 +44,11 @@ async function searchFromHome(page: Page, text: string) {
 
 async function reachBirkdaleResults(page: Page) {
   await searchFromHome(page, "CM3 2JT");
-  await page.waitForURL("**/search?postcode=CM3+2JT");
-  await page.getByRole("button", { name: "19 Birkdale Rise" }).first().click();
-  await page.getByRole("button", { name: "Check this address" }).click();
-  await page.waitForURL(/\/search\/home\?postcode=/);
+  // Picker removed (18 Nov 2026): the submit lands on the
+  // whole-postcode check; the home list's row is a link.
+  await page.waitForURL("**/search/home?postcode=CM3+2JT");
+  await page.getByRole("link", { name: "19 Birkdale Rise" }).first().click();
+  await page.waitForURL(/\/search\/home\?postcode=.*&home=/);
   await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
   await page.locator(".calculators").scrollIntoViewIfNeeded();
 }

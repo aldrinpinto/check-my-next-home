@@ -155,6 +155,22 @@ export type ShortSoldPrices =
       // the postcode median are separate facts, presented
       // side by side, never compared.
       ownLastSale?: { price: number; date: string } | null;
+      // The home's FULL recorded history, newest first
+      // (parity fix batch, 18 Nov 2026): the results page's
+      // four sold-history tiles — times sold, change since
+      // the previous sale, held by the last owner, and the
+      // property-type line — are composed from it. The
+      // facts are the full bundle's own served sales,
+      // projected whole: a home's recorded history is a
+      // handful of sales, and a truncated pick could not
+      // state the count honestly.
+      ownSales?: {
+        price: number;
+        date: string;
+        propertyType: string | null;
+        tenure: string | null;
+        newBuild: boolean | null;
+      }[];
       ownLine?: string | null;
       median: ShortMedian;
       // The flat's building median (rung 1, flats); null for
@@ -526,6 +542,13 @@ function shortSoldPrices(bundle: Extract<SoldPricesBundle, { rung: 1 | 2 }>): Sh
   return {
     ...base,
     ownLastSale: own ? { price: own.price, date: own.date } : null,
+    ownSales: bundle.ownHistory.map((sale) => ({
+      price: sale.price,
+      date: sale.date,
+      propertyType: sale.propertyType,
+      tenure: sale.tenure,
+      newBuild: sale.newBuild,
+    })),
     ownLine: bundle.ownLine,
     buildingMedian: bundle.building
       ? {

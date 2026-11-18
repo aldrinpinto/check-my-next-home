@@ -12,7 +12,6 @@ import {
   HOME_ROUTE,
   NOT_COVERED_INTRO,
   OWNERSHIP_NOT_PART_LINE,
-  PICKER_CONFIRM_LABEL,
   PICKER_EXPLAINER,
   SEARCH_ROUTE,
   TURNSTILE_BLOCK_LINE,
@@ -144,10 +143,14 @@ describe("the routing table (journeyDestination)", () => {
     });
   });
 
-  it("sends an England/Wales list to the picker, carrying the narrowing", () => {
+  it("sends an England/Wales list straight to the whole-postcode check (picker removed, 18 Nov 2026)", () => {
+    // Founder ruling (parity fix batch): the picker page
+    // is removed — a full postcode with no home picked goes
+    // to the whole-postcode check, which carries the full
+    // home list itself. The narrowing no longer routes.
     expect(journeyDestination(birkdaleList, { postcode: "CM3 2JT" }, null)).toEqual({
-      kind: "picker",
-      url: "/search?postcode=CM3+2JT&street=BIRKDALE+RISE",
+      kind: "postcode-results",
+      url: "/search/home?postcode=CM3+2JT",
     });
   });
 
@@ -221,7 +224,10 @@ describe("pinned journey copy", () => {
     expect(PICKER_EXPLAINER).toBe(
       "Schools and flood are address-sensitive, so pick your exact house before anything is checked.",
     );
-    expect(PICKER_CONFIRM_LABEL).toBe("Check this address →");
+    // The picker's confirm label and postcode-level link
+    // retired with the page (18 Nov 2026): the home list
+    // lives on the postcode check, whose rows link straight
+    // to each home — no confirm step, no level link.
     expect(scopeLabelFor(birkdale)).toBe("19 Birkdale Rise, CM3 2JT");
     expect(scopeLabelFor(birkdaleList)).toBe("CM3 2JT — the whole postcode, not one home");
   });

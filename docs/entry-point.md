@@ -492,3 +492,62 @@ tests/address.test.ts: the classifier pins for compact
 partials. e2e/suggest.e2e.ts: "E161" and "E161G"
 against the served app suggest E16 1GN, the seeded
 corpus's one E16 postcode.
+
+## The picker page is removed (founder ruling, 18 Nov 2026)
+
+**The ruling.** The address picker page — the
+`/search?postcode=` page that listed a full postcode's
+homes behind a select-then-confirm step — is REMOVED
+entirely. A button press with a full postcode and no
+home picked now goes straight to the WHOLE-POSTCODE
+CHECK (rung 2), the destination the picker's "See the
+check for the whole postcode" link used to lead to.
+
+**The list moved, not deleted.** The whole-postcode
+check page now carries the postcode's FULL home list at
+its head: the same union read model (filed sales +
+filed certificates + the picking index), in natural
+address order, uncapped as the dropdown's full-postcode
+list is, each home a link straight to its own check.
+The hybrid supplement machinery re-points to this list:
+`pickerList` (local union + the Postio supplement below
+the floor, with its warm list memory and transient
+records) serves the list on the postcode check exactly
+as it served the picker page, so no behaviour is lost —
+without the list, a button-presser could never reach a
+home check at all. A Postio-served row still resolves
+through `/api/pick` into its transient record; a local
+row is a plain link carrying the home's durable key.
+Zero-home postcodes keep the named fallback line ("No
+addresses we can list for this postcode yet.") on the
+postcode check.
+
+**The route retires as a redirect.** `/search?postcode=
+<full postcode>` redirects to the whole-postcode check,
+so old links and bookmarks never 404. The dropdown's
+Postcodes group now links straight to the check (the
+redirect remains for anything already published).
+Picking a home in the dropdown still goes straight to
+the home check, unchanged. Scotland/NI routing is
+untouched — the not-covered page renders no list, as
+before. The D71 amendment's line "the picker page
+remains the full surface" is superseded by this ruling:
+the postcode check is now the full surface, list
+included.
+
+**What was deleted.** `components/AddressPicker.tsx`
+(the select-then-confirm island), the picker's confirm
+label and its postcode-level link, and the picker's
+slot in the journey routing table (`journeyDestination`
+now returns the postcode-results destination for a
+covered full postcode). The checking screen's "Back to
+the address list" link went with the page it pointed
+at.
+
+**Specs reworked.** tests/journey.test.ts (the routing
+table and the pinned copy), tests/entry-point.test.ts
+(the Postcodes group's hrefs), and the e2e journey
+family — journey, results, headlines, calculators,
+report-door, shortlist, phone, suggest — now assert the
+new journey: button press → postcode check carrying the
+full list; a home pick from that list → the home check.

@@ -52,10 +52,12 @@ async function searchFromHome(page: Page, text: string) {
 }
 
 async function reachResults(page: Page, postcode: string, rowName: string | RegExp) {
-  await page.waitForURL(`**/search?postcode=${postcode.replace(" ", "+")}`);
-  await page.getByRole("button", { name: rowName }).first().click();
-  await page.getByRole("button", { name: "Check this address" }).click();
-  await page.waitForURL(/\/search\/home\?postcode=/);
+  // Picker removed (18 Nov 2026): the submit lands on the
+  // whole-postcode check; its home list's rows are links
+  // straight to each home's check.
+  await page.waitForURL(`**/search/home?postcode=${postcode.replace(" ", "+")}`);
+  await page.getByRole("link", { name: rowName }).first().click();
+  await page.waitForURL(/\/search\/home\?postcode=.*&home=/);
   await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
 }
 

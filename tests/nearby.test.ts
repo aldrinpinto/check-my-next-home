@@ -1172,7 +1172,7 @@ describe("nearby bundle — 6 Exeter Road, E16 1GN", () => {
     expect(top(bundle, "dentist")[0]).toEqual(["APPLEBY CENTRE", 0.265]);
   });
 
-  it("serves schools: 13 secondaries within 2 miles, none of them selective", async () => {
+  it("serves schools: 13 secondaries within 2 miles, none selective among them; the grammar search finds Bexley Grammar beyond the radius", async () => {
     const bundle = await bundleFor("E16 1GN");
     expect(top(bundle, "schools-secondary")).toEqual([
       ["Rokeby School", 0.333],
@@ -1180,7 +1180,21 @@ describe("nearby bundle — 6 Exeter Road, E16 1GN", () => {
       ["Cumberland Community School", 0.696],
     ]);
     expect(category(bundle, "schools-secondary").countWithin).toBe(13);
-    expect(category(bundle, "schools-secondary").nearestSelective).toBeNull();
+    // Re-pinned (parity fix batch, item 12): the grammar
+    // fact now searches the wider grammar radius (10 mi)
+    // when no selective school is within the list — the
+    // fixture corpus holds Bexley Grammar School 5.484 mi
+    // away, so the fact serves where it previously read
+    // null under the 2-mile-only search. None of the 13
+    // within-radius secondaries is selective (the count
+    // and list above are unchanged).
+    expect(category(bundle, "schools-secondary").nearestSelective).toEqual({
+      name: "Bexley Grammar School",
+      miles: 5.484,
+    });
+    expect(category(bundle, "schools-secondary").nearestSelectiveLine).toContain(
+      "Bexley Grammar School",
+    );
     // The GIAS fixture cut holds no primary near E16 (it was cut
     // around the secondaries), so the primary answer exercises
     // the beyond-radius path here; the national figure is fixed

@@ -6,7 +6,7 @@ import { FLOOD_BAND_DEFINITIONS, type FloodBundle, type FloodLiveWarnings } from
 import { nationName, nationOfLsoa, type Nation } from "./journey";
 import type { CategoryAnswer, NearbyBundle, NearbyPlace } from "./nearby";
 import { REPORT_PRICE_LABEL } from "./site";
-import type { ShortBundle, ShortSections } from "./short-bundle";
+import type { ShortBundle, ShortPolygonLayer, ShortSections } from "./short-bundle";
 import type { SoldPricesBundle } from "./sold-prices";
 
 // The free results page's derivations (plan step M7.4).
@@ -145,6 +145,114 @@ export function resultsScopeLabel(resolution: AddressResolution): string {
 // partial-postcode visitor is never offered a this-home
 // report), so its truncation lines render as plain count
 // lines.
+// The Price Paid property-type and tenure codes, in the
+// display forms the Master's sold-prices property line
+// uses (parity fix batch, item 20). The same maps live in
+// lib/shortlist-card.ts for the shortlist cards; that
+// module imports this one, so the maps are replicated
+// here rather than imported — keep the two in step.
+const PROPERTY_TYPE_LABELS: Record<string, string> = {
+  D: "Detached",
+  S: "Semi-detached",
+  T: "Terraced",
+  F: "Flat or maisonette",
+  O: "Other",
+};
+const TENURE_LABELS: Record<string, string> = {
+  F: "Freehold",
+  L: "Leasehold",
+};
+
+// A signed pounds figure for the Change tile: "+£12,500",
+// "-£3,000", "£0".
+function signedPounds(diff: number): string {
+  if (diff > 0) return `+${formatPounds(diff)}`;
+  if (diff < 0) return `-${formatPounds(-diff)}`;
+  return formatPounds(0);
+}
+
+// The planning rows' compact facts (parity fix batch,
+// item 26): the Master's constraints row joins short
+// facts — "Not in a conservation area • Not in the green
+// belt • Inside the Millbrook built-up area" — composed
+// here from each layer's state and inside name. A state
+// with no compact fact (not published, sparse coverage,
+// not filed) returns null and the caller falls back to
+// the layer's own line.
+function polygonFact(layer: ShortPolygonLayer): string | null {
+  const inside = layer.insideName;
+  switch (layer.layer) {
+    case "conservation_area":
+      if (layer.state === "inside")
+        return inside ? `In the ${inside} conservation area` : "In a conservation area";
+      if (layer.state === "none-found") return "Not in a conservation area";
+      return null;
+    case "green_belt":
+      if (layer.state === "inside")
+        return inside ? `In the ${inside} green belt` : "In the green belt";
+      if (layer.state === "none-found") return "Not in the green belt";
+      return null;
+    case "built_up_area":
+      if (layer.state === "inside")
+        return inside ? `Inside the ${inside} built-up area` : "Inside a built-up area";
+      if (layer.state === "none-found") return "Outside any built-up area";
+      return null;
+    case "article_4_area":
+      if (layer.state === "inside")
+        return inside ? `In the ${inside} Article 4 area` : "In an Article 4 area";
+      if (layer.state === "none-found") return "Not in an Article 4 area";
+      return null;
+    default:
+      return null;
+  }
+}
+
+// A beyond-nearest line in the item-26 form: it names
+// what the feature is the nearest OF and carries the
+// uniform 1-decimal miles (the brain's own beyond lines
+// carry raw floats — "2.887 miles" — and unnamed
+// features; both are presentation faults this recomposes
+// from the same served facts).
+function beyondNearestLine(feature: string, name: string, miles: number): string {
+  return `The nearest ${feature} is ${name}, ${formatMiles(miles)} miles away.`;
+}
+
+const POLYGON_FEATURE_NAMES: Record<string, string> = {
+  conservation_area: "conservation area",
+  article_4_area: "Article 4 area",
+  green_belt: "green belt",
+  ancient_woodland: "ancient woodland",
+};
+
+// An EPC certificate's validity end: certificates are
+// valid for ten years from registration (the register's
+// own rule), so the Master's "valid until 14 May 2032"
+// is the registration date plus ten years, human-formed.
+// A 29 February registration lands on 28 February in the
+// non-leap tenth year.
+function epcValidUntil(registrationDate: string): string {
+  const [year, month, day] = registrationDate.split("-").map(Number);
+  const safeDay = month === 2 && day === 29 ? 28 : day;
+  const iso = `${year + 10}-${String(month).padStart(2, "0")}-${String(safeDay).padStart(2, "0")}`;
+  return formatFiledDate(iso);
+}
+
+// The Held tile's duration, in the plain form: "3 years 4
+// months", "1 year", "4 months", "Less than a month".
+function heldDuration(fromIso: string, toIso: string): string {
+  const [fy, fm, fd] = fromIso.split("-").map(Number);
+  const [ty, tm, td] = toIso.split("-").map(Number);
+  let months = (ty - fy) * 12 + (tm - fm);
+  if (td < fd) months -= 1;
+  if (months <= 0) return "Less than a month";
+  const years = Math.floor(months / 12);
+  const rest = months % 12;
+  const parts: string[] = [];
+  if (years > 0) parts.push(`${years} year${years === 1 ? "" : "s"}`);
+  if (rest > 0) parts.push(`${rest} month${rest === 1 ? "" : "s"}`);
+  return parts.join(" ");
+}
+
 export function reportLinkable(rung: number): boolean {
   return rung === 1 || rung === 2;
 }
@@ -158,7 +266,16 @@ export function reportLinkable(rung: number): boolean {
 
 export interface TruncationView {
   n: number;
-  text: string;
+  // The row's lead, in the Master's truncRow form (parity
+  // fix batch, 18 Nov 2026): "Plus 3 more primary schools"
+  // — the price is the row's own chip, never part of the
+  // lead's text (the pre-batch form carried "… in the
+  // detailed report — £4.99" inside the text; the sample's
+  // row carries the lead, an optional detail line, the
+  // £4.99 chip and the "Get the full report →" arrow as
+  // separate parts).
+  lead: string;
+  detail: string | null;
   href: string | null;
 }
 
@@ -168,12 +285,14 @@ export function truncationFor(
   groupLabel: string,
   linkable: boolean,
   href: string = REPORT_ROUTE,
+  detail: string | null = null,
 ): TruncationView | null {
   const n = countWithin - shown;
   if (n <= 0) return null;
   return {
     n,
-    text: `Plus ${n} more ${groupLabel} in the detailed report — ${REPORT_PRICE_LABEL}`,
+    lead: `Plus ${n} more ${groupLabel}`,
+    detail,
     href: linkable ? href : null,
   };
 }
@@ -186,9 +305,17 @@ export interface PlaceRow {
   name: string;
   milesText: string;
   band: DistanceBand;
+  // The row's detail line, in the Final Sample Master's
+  // composed form (parity fix batch, 18 Nov 2026): the
+  // filed detail (a school's ages/address/Ofsted line, a
+  // health point's address), then the CQC part where the
+  // place carries a rating, then a secondary school's
+  // sixth-form part — joined with " • ", as the sample's
+  // rows join them. The parts were separate spans before
+  // this batch (ratingLine / sixthFormLine); the sample
+  // carries one detail line per row, so the view now
+  // composes one.
   detail: string | null;
-  ratingLine: string | null;
-  sixthFormLine: string | null;
 }
 
 export interface PlaceGroupView {
@@ -200,9 +327,13 @@ export interface PlaceGroupView {
   // nearest the rows also carry). Null while places serve.
   line: string | null;
   truncation: TruncationView | null;
-  // Schools-secondary only: the brain's nearest-selective
-  // sentence, verbatim.
-  selectiveLine: string | null;
+  // Schools-secondary only (parity fix batch): the
+  // grammar row in the Master's form — the nearest
+  // selective school's name and distance, rendered as the
+  // sample's row--grammar with its SELECTIVE — TEST ENTRY
+  // badge. Null where no selective school serves (the
+  // brain's fact, out to its grammar search radius).
+  grammar: { name: string; milesText: string; band: DistanceBand } | null;
 }
 
 interface CategoryPresentation {
@@ -210,6 +341,18 @@ interface CategoryPresentation {
   groupLabel: string;
   display: number;
   family: DistanceFamily;
+  // The Master's row-name form for the kinds that share a
+  // section with other kinds (parity fix batch): the
+  // Health rows lead "GP — ", "NHS dentist — ",
+  // "Pharmacy — "; worship and library rows lead with
+  // their kind the same way; the A&E row carries its
+  // department as a suffix ("… — A&E department").
+  namePrefix?: string;
+  nameSuffix?: string;
+  // places-of-worship only: the filed detail is a raw OSM
+  // religion tag and renders through worshipDetailDisplay
+  // (item 30) — never as the tag itself.
+  detailDisplay?: "worship";
 }
 
 // The per-tab display counts (Final Design, Section 6):
@@ -240,15 +383,42 @@ export const FAMILY_CATEGORIES: Record<string, CategoryPresentation> = {
     family: "school",
   },
   nurseries: {
-    heading: "Nurseries & pre-schools",
+    // Heading conformed to the Final Sample Master (parity
+    // fix batch, 18 Nov 2026): "Nurseries", not "Nurseries
+    // & pre-schools".
+    heading: "Nurseries",
     groupLabel: "nurseries",
     display: 1,
     family: "school",
   },
-  gp: { heading: "GP surgeries", groupLabel: "GP surgeries", display: 1, family: "everyday" },
-  dentist: { heading: "NHS dentists", groupLabel: "NHS dentists", display: 1, family: "everyday" },
-  pharmacy: { heading: "Pharmacies", groupLabel: "pharmacies", display: 1, family: "everyday" },
-  ae: { heading: "A&E hospitals", groupLabel: "A&E hospitals", display: 1, family: "hospital" },
+  gp: {
+    heading: "GP surgeries",
+    groupLabel: "GP surgeries",
+    display: 1,
+    family: "everyday",
+    namePrefix: "GP",
+  },
+  dentist: {
+    heading: "NHS dentists",
+    groupLabel: "NHS dentists",
+    display: 1,
+    family: "everyday",
+    namePrefix: "NHS dentist",
+  },
+  pharmacy: {
+    heading: "Pharmacies",
+    groupLabel: "pharmacies",
+    display: 1,
+    family: "everyday",
+    namePrefix: "Pharmacy",
+  },
+  ae: {
+    heading: "A&E hospitals",
+    groupLabel: "A&E hospitals",
+    display: 1,
+    family: "hospital",
+    nameSuffix: " — A&E department",
+  },
   maternity: {
     heading: "Maternity units",
     groupLabel: "maternity units",
@@ -259,12 +429,19 @@ export const FAMILY_CATEGORIES: Record<string, CategoryPresentation> = {
 
 export const NEARBY_CATEGORIES: Record<string, CategoryPresentation> = {
   station: { heading: "Stations", groupLabel: "stations", display: 1, family: "everyday" },
-  "bus-stop": { heading: "Bus stops", groupLabel: "bus stops", display: 1, family: "everyday" },
+  "bus-stop": {
+    heading: "Bus stops",
+    groupLabel: "bus stops",
+    display: 1,
+    family: "everyday",
+    namePrefix: "Bus stop",
+  },
   supermarket: {
     heading: "Supermarkets & food shops",
     groupLabel: "supermarkets",
     display: 1,
     family: "everyday",
+    namePrefix: "Supermarket",
   },
   "food-and-drink": {
     heading: "Food & drink",
@@ -273,7 +450,9 @@ export const NEARBY_CATEGORIES: Record<string, CategoryPresentation> = {
     family: "everyday",
   },
   parks: {
-    heading: "Parks & greenspace",
+    // Heading conformed to the Master (parity fix batch):
+    // "Parks", not "Parks & greenspace".
+    heading: "Parks",
     groupLabel: "parks and greenspace",
     display: 1,
     family: "everyday",
@@ -293,7 +472,9 @@ export const NEARBY_CATEGORIES: Record<string, CategoryPresentation> = {
     family: "everyday",
   },
   leisure: {
-    heading: "Leisure & gyms",
+    // Heading conformed to the Master (parity fix batch):
+    // "Leisure", not "Leisure & gyms".
+    heading: "Leisure",
     groupLabel: "leisure places",
     display: 1,
     family: "everyday",
@@ -309,37 +490,79 @@ export const NEARBY_CATEGORIES: Record<string, CategoryPresentation> = {
     groupLabel: "places of worship",
     display: 1,
     family: "everyday",
+    namePrefix: "Place of worship",
+    detailDisplay: "worship",
   },
-  libraries: { heading: "Libraries", groupLabel: "libraries", display: 1, family: "everyday" },
+  libraries: {
+    heading: "Libraries",
+    groupLabel: "libraries",
+    display: 1,
+    family: "everyday",
+    namePrefix: "Library",
+  },
 };
 
-function placeRow(place: NearbyPlace, family: DistanceFamily): PlaceRow {
+// The place-of-worship detail's display form (parity fix
+// batch, item 30): the filed detail is the OSM religion
+// tag verbatim ("christian") — a raw tag never renders.
+// The display form is the properly capitalised religion.
+// The Master's "Church of England" is a DENOMINATION: the
+// denomination tag is not filed by the OSM loader (only
+// religion is), so no denomination can be stated from the
+// data held — the capitalised religion is the honest form
+// until the filing widens.
+const WORSHIP_DETAIL_DISPLAY: Record<string, string> = {
+  christian: "Christian",
+  muslim: "Muslim",
+  jewish: "Jewish",
+  hindu: "Hindu",
+  sikh: "Sikh",
+  buddhist: "Buddhist",
+  bahai: "Baháʼí",
+  jain: "Jain",
+  shinto: "Shinto",
+  taoist: "Taoist",
+  zoroastrian: "Zoroastrian",
+  pagan: "Pagan",
+  animist: "Animist",
+  multifaith: "Multifaith",
+  none: "No religion",
+};
+
+export function worshipDetailDisplay(detail: string): string {
+  const key = detail.trim().toLowerCase();
+  return WORSHIP_DETAIL_DISPLAY[key] ?? detail.charAt(0).toUpperCase() + detail.slice(1);
+}
+
+function placeRow(
+  place: NearbyPlace,
+  family: DistanceFamily,
+  presentation: CategoryPresentation,
+): PlaceRow {
+  // The detail line's parts, in the Master's order: the
+  // filed detail, the CQC part, the sixth-form part.
+  const parts: string[] = [];
+  if (place.detail)
+    parts.push(
+      presentation.detailDisplay === "worship" ? worshipDetailDisplay(place.detail) : place.detail,
+    );
+  // The CQC overall rating (M6.25), as a detail part in
+  // the sample's form — "CQC overall rating: Good". The
+  // rating's publication date stays at report depth; the
+  // sample's row does not carry it.
+  if (place.cqcRating != null) parts.push(`CQC overall rating: ${place.cqcRating.rating}`);
+  // The secondary rows' filed sixth-form flags (M6.33) as
+  // the detail's last part. The yes form is the sample's
+  // plain words (M7.11 O-3, founder adopted 18 Nov 2026);
+  // the no and not-recorded forms stay as filed.
+  if (place.sixthForm === true) parts.push("Sixth form at the school");
+  else if (place.sixthForm === false) parts.push("sixth form: no, as filed");
+  else if (place.sixthForm === null && "sixthForm" in place) parts.push("sixth form: not recorded");
   return {
-    name: place.name,
+    name: `${presentation.namePrefix ? `${presentation.namePrefix} — ` : ""}${place.name}${presentation.nameSuffix ?? ""}`,
     milesText: `${formatMiles(place.miles)} mi`,
     band: distanceBand(family, place.miles),
-    detail: place.detail ?? null,
-    // The CQC overall rating with its publication date
-    // (M6.25): England health rows only, never worded as an
-    // inspection date; an unrated row (null) stays bare.
-    ratingLine:
-      place.cqcRating != null
-        ? `CQC overall rating: ${place.cqcRating.rating}${
-            place.cqcRating.date ? ` (published ${formatFiledDate(place.cqcRating.date)})` : ""
-          }`
-        : null,
-    // The secondary rows' filed sixth-form flags (M6.33).
-    // The yes form takes the sample's plain line (M7.11
-    // O-3, founder adopted 18 Nov 2026); the no and
-    // not-recorded forms stay as filed.
-    sixthFormLine:
-      place.sixthForm === undefined
-        ? null
-        : place.sixthForm === true
-          ? "Sixth form at the school"
-          : place.sixthForm === false
-            ? "sixth form: no, as filed"
-            : "sixth form: not recorded",
+    detail: parts.length > 0 ? parts.join(" • ") : null,
   };
 }
 
@@ -348,6 +571,7 @@ export function placeGroupView(
   presentation: CategoryPresentation,
   linkable: boolean,
   href: string = REPORT_ROUTE,
+  truncationDetail: string | null = null,
 ): PlaceGroupView {
   const base: PlaceGroupView = {
     key: category.category,
@@ -355,20 +579,29 @@ export function placeGroupView(
     rows: [],
     line: null,
     truncation: null,
-    selectiveLine:
-      category.category === "schools-secondary" ? (category.nearestSelectiveLine ?? null) : null,
+    // The grammar row (parity fix batch): the brain's
+    // nearest selective fact, in the Master's row form.
+    grammar:
+      category.category === "schools-secondary" && category.nearestSelective
+        ? {
+            name: category.nearestSelective.name,
+            milesText: `${formatMiles(category.nearestSelective.miles)} mi`,
+            band: distanceBand("school", category.nearestSelective.miles),
+          }
+        : null,
   };
   if (category.state === "within") {
     const shown = category.places.slice(0, presentation.display);
     return {
       ...base,
-      rows: shown.map((place) => placeRow(place, presentation.family)),
+      rows: shown.map((place) => placeRow(place, presentation.family, presentation)),
       truncation: truncationFor(
         category.countWithin,
         shown.length,
         presentation.groupLabel,
         linkable,
         href,
+        truncationDetail,
       ),
     };
   }
@@ -382,6 +615,7 @@ export function placeGroupView(
         placeRow(
           { name: category.beyondNearest.name, miles: category.beyondNearest.miles, detail: null },
           presentation.family,
+          presentation,
         ),
       ],
     };
@@ -420,7 +654,35 @@ export type SectionBlock =
   | { type: "notice"; variant: "warning" | "stale" | "gap"; text: string }
   | { type: "places"; group: PlaceGroupView }
   | { type: "link"; label: string; url: string }
-  | { type: "tiles"; tiles: { label: string; value: string }[] }
+  // The Master's stat tiles (parity fix batch): label,
+  // value, and the small sub-line beneath the value ("22
+  // Mar 2022 • Land Registry").
+  | { type: "tiles"; tiles: { label: string; value: string; sub?: string | null }[] }
+  // The Master's row form (parity fix batch): a bold lead,
+  // one or more small text lines, an optional fineprint
+  // line, and an optional badge at the right — the Costs
+  // rows (BAND + £/YR, EPC, COVERAGE, £ / MONTH), the air
+  // and noise rows (MODELLED) and the planning rows
+  // (FACTS) all render in this one form.
+  | {
+      type: "tagged-line";
+      lead?: string;
+      texts: string[];
+      fineprint?: string | null;
+      tag?: string;
+      tagTone?: "a" | "g" | "grey";
+    }
+  // The flood verdict row (parity fix batch, item 25): a
+  // bold check name, its verdict-led text, the CHECK badge,
+  // and — on the rivers & sea row only — the no-warnings
+  // sentence as a second line when no warning is in force.
+  | {
+      type: "verdict";
+      name: string;
+      text: string;
+      tag: string;
+      note?: string | null;
+    }
   | {
       type: "flood-warnings";
       warnings: {
@@ -616,7 +878,10 @@ export interface SummaryPill {
 
 export function pillText(pill: SummaryPill): string {
   if (!pill.figure) return pill.label;
-  return `${pill.label} ${pill.figure}${pill.mark ? ` ${pill.mark}` : ""}`;
+  // The Master's one-pill form (parity fix batch, item
+  // 7): label and figure joined by " · " inside the one
+  // white pill — "Schools · 0.3 / 1.8 mi".
+  return `${pill.label} · ${pill.figure}${pill.mark ? ` ${pill.mark}` : ""}`;
 }
 
 const milesPill = (label: string, family: DistanceFamily, miles: number): SummaryPill => ({
@@ -645,6 +910,42 @@ interface PillFactor {
 // flood cell (lib/shortlist-card.ts) derives its two bands
 // through this same mapping, so the absence states can
 // never drift between the results page and the comparison.
+// The noise single line (parity fix batch, item 24): the
+// Master's form joins the filed bands into one sentence —
+// "Road noise day below 55 dB and night below 50 dB; rail
+// noise day below 55 dB". Composed from the brain's filed
+// band texts: a "Below X dB" band reads "below X dB"; a
+// range band ("55–59 dB") reads as filed; a source with no
+// filed band contributes no clause (the section's fallback
+// line covers it). Source order is road, rail, airport.
+const NOISE_SOURCE_ORDER = ["road", "rail", "airport"];
+
+function noiseBandPhrase(band: string): string {
+  return band.startsWith("Below ") ? `below ${band.slice("Below ".length)}` : band;
+}
+
+export function noiseSingleLine(
+  bands: { sourceKind: string; label: string; dayBand: string | null; nightBand: string | null }[],
+): string | null {
+  const ordered = [...bands].sort(
+    (a, b) => NOISE_SOURCE_ORDER.indexOf(a.sourceKind) - NOISE_SOURCE_ORDER.indexOf(b.sourceKind),
+  );
+  const clauses: string[] = [];
+  for (const band of ordered) {
+    const label = `${band.label.charAt(0).toUpperCase()}${band.label.slice(1)}`;
+    if (band.dayBand && band.dayBand.startsWith("No modelled")) {
+      clauses.push(`${label} — no modelled noise`);
+      continue;
+    }
+    if (!band.dayBand) continue;
+    let clause = `${label} day ${noiseBandPhrase(band.dayBand)}`;
+    if (band.nightBand && !band.nightBand.startsWith("No modelled"))
+      clause += ` and night ${noiseBandPhrase(band.nightBand)}`;
+    clauses.push(clause);
+  }
+  return clauses.length > 0 ? `${clauses.join("; ")}.` : null;
+}
+
 export function floodBandOf(layer: {
   coveringLabel: string | null;
   pointState: string;
@@ -1205,30 +1506,39 @@ export function buildResultsView(input: ResultsInput): ResultsView {
     table: Record<string, CategoryPresentation>,
     lead: string | null,
     detail: string | null,
-  ): ResultsSectionView => withUpsell(group(key, table), lead, detail);
-  // A schools-style upsell from the group's own truncation:
-  // lead names the unshown count, detail the full count.
-  const schoolsUpsell = (key: string, noun: string, detailTail: string): ResultsSectionView => {
+  ): ResultsSectionView => withUpsell(suppressTruncation(group(key, table)), lead, detail);
+  // A schools group's truncation detail (parity fix
+  // batch, item 14): the Master's truncRow is ONE row —
+  // the count lead and the detail together (the pre-batch
+  // page carried the count row AND a separate upsell panel
+  // for the same group). The detail names the full count,
+  // as the sample's does.
+  const schoolsUpsell = (key: string, detailTail: string): ResultsSectionView => {
     const section = group(key, FAMILY_CATEGORIES);
     const first = section.blocks[0];
     if (first && first.type === "places" && first.group.truncation) {
       const category = categories.get(key);
       const total = category?.countWithin ?? 0;
-      section.blocks.push({
-        type: "upsell",
-        lead: `Plus ${first.group.truncation.n} more ${noun}`,
-        detail: `All ${total}, with their Ofsted ratings and inspection dates${detailTail}`,
-      });
+      first.group.truncation.detail = `All ${total}, with their Ofsted ratings and inspection dates${detailTail}.`;
+    }
+    return section;
+  };
+  // Suppress a group's own count truncation where the
+  // section's single "plus more" row already speaks for
+  // the group (item 14: exactly one truncation upsell per
+  // truncated group — the Master's sections carry the one
+  // plain or merged truncRow, never both forms).
+  const suppressTruncation = (section: ResultsSectionView): ResultsSectionView => {
+    for (const block of section.blocks) {
+      if (block.type === "places") block.group.truncation = null;
     }
     return section;
   };
 
   // --- Family Checks --------------------------------------
   const familySections: ResultsSectionView[] = [];
-  familySections.push(schoolsUpsell("schools-primary", "primary schools", ""));
-  familySections.push(
-    schoolsUpsell("schools-secondary", "secondary schools", ", and sixth-form provision"),
-  );
+  familySections.push(schoolsUpsell("schools-primary", ""));
+  familySections.push(schoolsUpsell("schools-secondary", ", and sixth-form provision"));
   // The catchment honesty block and the served school
   // deadlines line ride together: both are England / Wales
   // schools-admin content, present exactly when the brain
@@ -1246,19 +1556,28 @@ export function buildResultsView(input: ResultsInput): ResultsView {
   {
     const nurseries = group("nurseries", FAMILY_CATEGORIES);
     const category = categories.get("nurseries");
-    if (category && category.state === "within")
-      nurseries.blocks.push({
-        type: "upsell",
-        lead: "Plus more nurseries & pre-schools",
-        detail: "The full list of nurseries and pre-schools near this home.",
-      });
+    if (category && category.state === "within") {
+      // The merged truncRow (item 14): the Master's
+      // nurseries row carries the "plus more" lead and the
+      // full-list detail as ONE row, replacing both the
+      // group's count row and the old separate panel.
+      const first = nurseries.blocks[0];
+      if (first && first.type === "places") {
+        first.group.truncation = {
+          n: Math.max(0, category.countWithin - first.group.rows.length),
+          lead: "Plus more nurseries & pre-schools",
+          detail: "The full list of nurseries and pre-schools near this home.",
+          href: linkable ? reportHref : null,
+        };
+      }
+    }
     familySections.push(nurseries);
   }
   // Pets (D76): vet, pet shops and pet boarding in one
   // section, the boarding as a subsection.
   {
     const blocks: SectionBlock[] = [];
-    const vets = group("vets", NEARBY_CATEGORIES);
+    const vets = suppressTruncation(group("vets", NEARBY_CATEGORIES));
     blocks.push(...vets.blocks);
     const vetCategory = categories.get("vets");
     if (vetCategory && vetCategory.state === "within")
@@ -1395,7 +1714,11 @@ export function buildResultsView(input: ResultsInput): ResultsView {
         });
         blocks.push({
           type: "line",
-          text: `That's ${String(Number(per1000.toFixed(1)))} recorded crimes for every 1,000 residents here. Across England, the figure is ${String(Number(england.toFixed(1)))}.`,
+          // One decimal, always (parity fix batch, item 9):
+          // the pair states both figures in the same form —
+          // "51.7" and "94.5" — never a stripped whole
+          // ("94") and never a raw float.
+          text: `That's ${per1000 === 0 ? "0" : per1000.toFixed(1)} recorded crimes for every 1,000 residents here. Across England, the figure is ${england === 0 ? "0" : england.toFixed(1)}.`,
         });
         blocks.push({
           type: "line",
@@ -1415,30 +1738,72 @@ export function buildResultsView(input: ResultsInput): ResultsView {
     }
     neighbourhoodSections.push(linesSection("crime", "Crime", blocks, sourceLine));
   }
-  // Air quality & noise (D76: one combined section).
+  // Air quality & noise (D76: one combined section). The
+  // Master's form (parity fix batch, items 23/24): two
+  // MODELLED rows — the air row carries all three
+  // pollutants at two decimals with the Defra fineprint;
+  // the noise row carries the single joined band line
+  // with its fineprint. The pre-batch form led with the
+  // brain's headline-figure and per-band lines.
   {
     const blocks: SectionBlock[] = [];
-    blocks.push({ type: "subheading", text: "Air quality" });
     const air = sections.air;
-    if (air.headlineFigure) blocks.push({ type: "line", text: air.headlineFigure.line });
-    if (air.line) blocks.push({ type: "line", text: air.line });
-    if (blocks.length === 1)
-      blocks.push({ type: "line", text: "Air quality is not covered for this postcode." });
-    blocks.push({ type: "subheading", text: "Noise" });
-    let noiseSource: string | null = null;
+    // The three pollutant values live on the area bundle's
+    // full air section (the short projection carries only
+    // the headline figure).
+    const airFull = areaSections?.air ?? null;
+    if (
+      airFull &&
+      airFull.state === "served" &&
+      airFull.no2 != null &&
+      airFull.pm25 != null &&
+      airFull.pm10 != null &&
+      airFull.year != null
+    ) {
+      blocks.push({
+        type: "tagged-line",
+        lead: "Air quality",
+        texts: [
+          `Nitrogen dioxide (NO2) ${airFull.no2.toFixed(2)} µg/m³ a year; PM2.5 ${airFull.pm25.toFixed(2)} µg/m³; PM10 ${airFull.pm10.toFixed(2)} µg/m³.`,
+        ],
+        fineprint: `Defra modelled background for this postcode, ${airFull.year}. This is a modelled estimate, not a measurement at this address.`,
+        tag: "MODELLED",
+        tagTone: "grey",
+      });
+    } else {
+      if (air.headlineFigure) blocks.push({ type: "line", text: air.headlineFigure.line });
+      if (air.line) blocks.push({ type: "line", text: air.line });
+      if (blocks.length === 0)
+        blocks.push({ type: "line", text: "Air quality is not covered for this postcode." });
+    }
+    let noisePushed = false;
     if (areaSections?.noise) {
       const noise = areaSections.noise;
-      noiseSource = noise.sourceLine;
       if (noise.state === "served") {
-        for (const band of noise.bands) blocks.push({ type: "line", text: band.line });
-        if (blocks.length === 3 && noise.line) blocks.push({ type: "line", text: noise.line });
+        const single = noiseSingleLine(noise.bands);
+        if (single) {
+          blocks.push({
+            type: "tagged-line",
+            lead: "Noise",
+            texts: [single],
+            fineprint: "Defra modelled bands.",
+            tag: "MODELLED",
+            tagTone: "grey",
+          });
+          noisePushed = true;
+        } else if (noise.line) {
+          blocks.push({ type: "line", text: noise.line });
+          noisePushed = true;
+        }
       } else if (noise.line) {
         blocks.push({ type: "line", text: noise.line });
+        noisePushed = true;
       }
     }
-    if (blocks.length === 3)
+    if (!noisePushed)
       blocks.push({ type: "line", text: "Noise bands are not covered for this postcode." });
-    let sourceLine: string | null = noiseSource;
+    let sourceLine: string | null = null;
+    if (areaSections?.noise) sourceLine = areaSections.noise.sourceLine;
     if (area.kind === "area-bundle" && area.sections.air.sourceLine)
       sourceLine = area.sections.air.sourceLine;
     neighbourhoodSections.push(
@@ -1454,18 +1819,112 @@ export function buildResultsView(input: ResultsInput): ResultsView {
     const blocks: SectionBlock[] = [];
     if (sold.state === "served") {
       if (sold.stateLine) blocks.push({ type: "line", text: sold.stateLine });
-      const tiles: { label: string; value: string }[] = [];
-      if (sold.ownLastSale)
-        tiles.push({
-          label: "Last sale of this home",
-          value: `${formatPounds(sold.ownLastSale.price)} — ${formatFiledDate(sold.ownLastSale.date)}`,
+      // The Master's four stat tiles (parity fix batch,
+      // item 20), composed from the home's own recorded
+      // sales: Last sale, Times sold, Change since prev.,
+      // Held by last owner — every date in the human form,
+      // never an ISO date. Below them, the property-type
+      // line ending in the not-a-valuation sentence.
+      const ownSales = sold.ownSales ?? [];
+      if (ownSales.length > 0) {
+        const last = ownSales[ownSales.length - 1];
+        const prev = ownSales.length >= 2 ? ownSales[ownSales.length - 2] : null;
+        blocks.push({
+          type: "tiles",
+          tiles: [
+            {
+              label: "Last sale",
+              value: formatPounds(last.price),
+              sub: `${formatFiledDate(last.date)} • Land Registry`,
+            },
+            {
+              label: "Times sold",
+              value: String(ownSales.length),
+              sub:
+                ownSales.length === 1
+                  ? "Only recorded sale found"
+                  : `${ownSales.length} recorded sales found`,
+            },
+            prev
+              ? {
+                  label: "Change since prev.",
+                  value: signedPounds(last.price - prev.price),
+                  sub: `Previous sale ${formatPounds(prev.price)} — ${formatFiledDate(prev.date)}`,
+                }
+              : { label: "Change since prev.", value: "—", sub: "First recorded sale" },
+            prev
+              ? {
+                  label: "Held by last owner",
+                  value: heldDuration(prev.date, last.date),
+                  sub: `Bought ${formatFiledDate(prev.date)} — sold ${formatFiledDate(last.date)}`,
+                }
+              : {
+                  label: "Held by last owner",
+                  value: "—",
+                  sub: last.newBuild
+                    ? `New build — the ${last.date.slice(0, 4)} sale was its first`
+                    : "First recorded sale",
+                },
+          ],
         });
-      if (sold.median.state === "served" && sold.median.value !== null)
-        tiles.push({ label: "Postcode median", value: formatPounds(sold.median.value) });
-      if (tiles.length > 0) blocks.push({ type: "tiles", tiles });
-      if (sold.ownLine) blocks.push({ type: "line", text: sold.ownLine });
-      if (sold.median.line) blocks.push({ type: "line", text: sold.median.line });
-      if (sold.buildingMedian?.line) blocks.push({ type: "line", text: sold.buildingMedian.line });
+        const typeLabel = last.propertyType
+          ? (PROPERTY_TYPE_LABELS[last.propertyType] ?? null)
+          : null;
+        if (typeLabel) {
+          const tenure = last.tenure ? TENURE_LABELS[last.tenure] : undefined;
+          const parts = [
+            typeLabel,
+            tenure ? tenure.toLowerCase() : null,
+            last.newBuild ? "new build" : null,
+          ].filter((part): part is string => part !== null);
+          blocks.push({
+            type: "line",
+            text: `${parts.join(", ")}. These figures describe recorded sales only — they are not a valuation of this home.`,
+          });
+        }
+      } else {
+        const tiles: { label: string; value: string }[] = [];
+        if (sold.ownLastSale)
+          tiles.push({
+            label: "Last sale of this home",
+            value: `${formatPounds(sold.ownLastSale.price)} — ${formatFiledDate(sold.ownLastSale.date)}`,
+          });
+        if (sold.median.state === "served" && sold.median.value !== null)
+          tiles.push({ label: "Postcode median", value: formatPounds(sold.median.value) });
+        if (tiles.length > 0) blocks.push({ type: "tiles", tiles });
+        if (sold.ownLine) blocks.push({ type: "line", text: sold.ownLine });
+      }
+      // The median lines, human-dated (item 20): the
+      // brain's own lines carry ISO spans ("2013-09-20 to
+      // 2024-01-31"); the served form composes the same
+      // facts with human dates. Non-served states keep the
+      // brain's line (the below-threshold and not-filed
+      // forms carry no span).
+      if (
+        sold.median.state === "served" &&
+        sold.median.value != null &&
+        sold.median.spanFrom &&
+        sold.median.spanTo
+      )
+        blocks.push({
+          type: "line",
+          text: `Postcode median ${formatPounds(sold.median.value)} — counted over ${sold.median.counted} recorded sales, ${formatFiledDate(sold.median.spanFrom)} to ${formatFiledDate(sold.median.spanTo)}.`,
+        });
+      else if (sold.median.line) blocks.push({ type: "line", text: sold.median.line });
+      if (sold.buildingMedian) {
+        const building = sold.buildingMedian;
+        if (
+          building.state === "served" &&
+          building.value != null &&
+          building.spanFrom &&
+          building.spanTo
+        )
+          blocks.push({
+            type: "line",
+            text: `${building.building} median ${formatPounds(building.value)} — counted over ${building.counted} recorded sales of the building, ${formatFiledDate(building.spanFrom)} to ${formatFiledDate(building.spanTo)}.`,
+          });
+        else if (building.line) blocks.push({ type: "line", text: building.line });
+      }
       blocks.push({
         type: "upsell",
         lead: "Plus the full sale-by-sale table & sold prices nearby",
@@ -1488,33 +1947,88 @@ export function buildResultsView(input: ResultsInput): ResultsView {
     const epc = sections.epc;
     const taxFull = areaSections?.councilTax;
     const certCosts = areaSections?.epc?.certificates?.[0]?.energyCosts ?? null;
+    const money = (pence: number) =>
+      pence % 100 === 0
+        ? formatPounds(pence / 100)
+        : `£${(pence / 100).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     if (
       tax.state === "served" &&
       taxFull?.bandDMonthlyPence != null &&
       taxFull?.bandDAveragePence != null &&
       certCosts
     ) {
-      const money = (pence: number) =>
-        pence % 100 === 0
-          ? formatPounds(pence / 100)
-          : `£${(pence / 100).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
       const totalMonthly = taxFull.bandDMonthlyPence + certCosts.currentMonthlyPence;
+      // The Master's monthly row (parity fix batch): the
+      // £ / MONTH badge row; the year's figures ride in
+      // the brain's own pence-true labels (the tax year
+      // figure is the filed Band D label, the energy year
+      // figure the certificate's own label).
       blocks.push({
-        type: "line",
-        text: `About ${money(totalMonthly)} a month: council tax ${money(taxFull.bandDMonthlyPence)} a month (Band D average, ${money(taxFull.bandDAveragePence)} a year) + EPC estimated energy about ${money(certCosts.currentMonthlyPence)} a month (${money(certCosts.currentAnnualPence)} a year). Mortgage not included.`,
+        type: "tagged-line",
+        texts: [
+          `About ${money(totalMonthly)} a month: council tax ${money(taxFull.bandDMonthlyPence)} a month (Band D average, ${taxFull.bandDAverageLabel} a year) + EPC estimated energy about ${money(certCosts.currentMonthlyPence)} a month (${certCosts.currentAnnualLabel} a year). Mortgage not included.`,
+        ],
+        tag: "£ / MONTH",
+        tagTone: "grey",
       });
     }
-    blocks.push({ type: "subheading", text: "Council tax" });
-    if (tax.line) blocks.push({ type: "line", text: tax.line });
-    if (areaSections?.councilTax?.monthlyLine && tax.state === "served")
-      blocks.push({ type: "line", text: areaSections.councilTax.monthlyLine });
-    if (tax.line === null && blocks.length === 1)
-      blocks.push({ type: "line", text: "Council tax is not covered for this postcode." });
-    blocks.push({ type: "subheading", text: "EPC & energy" });
-    if (epc.headlineAssessmentLabel)
-      blocks.push({ type: "line", text: epc.headlineAssessmentLabel });
-    if (epc.line) blocks.push({ type: "line", text: epc.line });
-    if (certCosts) blocks.push({ type: "line", text: certCosts.line });
+    // Council tax, stated ONCE (item 22): the Master's
+    // single Band D line — yearly, monthly, and the
+    // average/own-band sentence. The pre-batch page stated
+    // the tax twice (the section line and the brain's
+    // monthly line). The named states (not filed, not
+    // covered) keep the section's own line, plainly.
+    if (
+      tax.state === "served" &&
+      taxFull?.authority &&
+      taxFull?.bandDAverageLabel &&
+      taxFull?.bandDMonthlyLabel
+    ) {
+      blocks.push({
+        type: "tagged-line",
+        lead: "Council tax",
+        texts: [
+          `Band D — ${taxFull.authority}: ${taxFull.bandDAverageLabel} a year, ${taxFull.bandDMonthlyLabel} a month. That is the authority's Band D average; this home's own band isn't published.`,
+        ],
+        tag: "BAND + £/YR",
+        tagTone: "a",
+      });
+    } else {
+      if (tax.line) blocks.push({ type: "line", text: tax.line });
+      if (tax.line === null)
+        blocks.push({ type: "line", text: "Council tax is not covered for this postcode." });
+    }
+    // EPC & energy (item 21): the rating leads, in the
+    // Master's form, composed from the home's filed
+    // certificate — band, score, potential band and score,
+    // validity — before the modelled-cost sentence. Rung 1
+    // only: the certificate is THIS home's. Where no
+    // matched certificate serves, the section's own lines
+    // stand as before.
+    const cert = areaSections?.epc?.certificates?.[0] ?? null;
+    if (resolution.rung === 1 && cert && cert.band && cert.rating != null) {
+      let text = `Rating ${cert.band} — score ${cert.rating} out of 100`;
+      if (cert.potentialBand)
+        text += `, with potential to reach ${cert.potentialBand}${cert.potentialRating != null ? ` (${cert.potentialRating})` : ""}`;
+      text += ".";
+      if (cert.registrationDate)
+        text += ` Certificate for this home, valid until ${epcValidUntil(cert.registrationDate)}.`;
+      if (cert.energyCosts)
+        text += ` Estimated energy cost about ${cert.energyCosts.currentAnnualLabel} a year at the certificate's prices.`;
+      blocks.push({
+        type: "tagged-line",
+        lead: "EPC & energy",
+        texts: [text],
+        tag: "EPC",
+        tagTone: "g",
+      });
+    } else {
+      blocks.push({ type: "subheading", text: "EPC & energy" });
+      if (epc.headlineAssessmentLabel)
+        blocks.push({ type: "line", text: epc.headlineAssessmentLabel });
+      if (epc.line) blocks.push({ type: "line", text: epc.line });
+      if (certCosts) blocks.push({ type: "line", text: certCosts.line });
+    }
     blocks.push({ type: "subheading", text: "EV charging" });
     blocks.push(...group("ev-chargers", NEARBY_CATEGORIES).blocks);
     blocks.push({ type: "subheading", text: "Broadband & mobile" });
@@ -1538,30 +2052,56 @@ export function buildResultsView(input: ResultsInput): ResultsView {
       area.kind === "area-bundle" ? (area.sections.councilTax?.sourceLine ?? null) : null;
     homeSections.push(linesSection("costs", "Costs", blocks, sourceLine));
   }
-  // Flood: live warnings first, then the layers (never
-  // merged, D25), then the D77/F4-softened upsell.
+  // Flood: the Master's verdict-led form (parity fix
+  // batch, item 25) — two verdict rows with CHECK tags,
+  // Rivers & sea then Surface water, each leading with
+  // its band and the band's own definition; the
+  // no-warnings sentence rides inside the rivers row when
+  // no warning is in force. Live warnings, when any are
+  // in force, keep their block above the rows. The
+  // pre-batch form led with the timestamped warnings
+  // block in every state and the layers' dataset-wording
+  // lines. The flood-zone layer does not render on this
+  // page (the sample carries the two risk checks); its
+  // fact stays at report depth.
   {
     const blocks: SectionBlock[] = [];
     if (flood.kind === "flood" && flood.flood.state === "served") {
-      if (flood.flood.liveWarnings) blocks.push(floodWarningsBlock(flood.flood.liveWarnings));
+      const live = flood.flood.liveWarnings;
+      if (live && live.state === "warnings") blocks.push(floodWarningsBlock(live));
+      if (live && live.state === "unavailable" && live.line)
+        blocks.push({ type: "line", text: live.line });
       const shortFlood = sections.flood;
       if (shortFlood.state === "served") {
-        for (const layer of shortFlood.layers) {
-          blocks.push({ type: "line", text: layer.line });
-          // D-2 (M7.11, founder adopted 18 Nov 2026): an
-          // absence state carries the plain annual-chance
-          // explanation too, in the publisher's own
-          // definition words — presentation only, keyed on
-          // the served states; the brain's served lines and
-          // bundle shapes do not move.
-          if (layer.layer === "rofrs" && layer.pointState === "no-band-published")
-            blocks.push({ type: "line", text: FLOOD_ROFRS_ABSENCE_LINE });
-          if (layer.layer === "rofsw" && layer.pointState === "below-lowest-band")
-            blocks.push({ type: "line", text: FLOOD_ROFSW_ABSENCE_LINE });
-          if (layer.coveringDefinition)
-            blocks.push({ type: "line", text: layer.coveringDefinition });
-          if (layer.sourceLine) blocks.push({ type: "line", text: layer.sourceLine });
-        }
+        const verdictFor = (layerKind: "rofrs" | "rofsw", name: string): SectionBlock | null => {
+          const layer = shortFlood.layers.find((entry) => entry.layer === layerKind);
+          if (!layer) return null;
+          let text: string;
+          if (layer.pointState === "inside" && layer.coveringLabel) {
+            const definition = layer.coveringDefinition ?? "";
+            text = `${layer.coveringLabel} — ${definition}${definition.endsWith(".") ? "" : "."}`;
+          } else if (layer.pointState === "no-band-published") {
+            text = `Very low — ${FLOOD_BAND_DEFINITIONS["Very low"]}.`;
+          } else if (layer.pointState === "below-lowest-band") {
+            text = `Very low — ${FLOOD_ROFSW_ABSENCE_LINE.charAt(0).toLowerCase()}${FLOOD_ROFSW_ABSENCE_LINE.slice(1)}`;
+          } else {
+            text = layer.line;
+          }
+          return {
+            type: "verdict",
+            name,
+            text,
+            tag: "CHECK",
+            note:
+              layerKind === "rofrs" && live?.state === "none"
+                ? "No live flood warnings are in force for this area just now."
+                : null,
+          };
+        };
+        const rivers = verdictFor("rofrs", "Rivers & sea");
+        if (rivers) blocks.push(rivers);
+        const surface = verdictFor("rofsw", "Surface water");
+        if (surface) blocks.push(surface);
       }
     } else if (flood.kind === "not-covered") {
       blocks.push({ type: "line", text: flood.flood.reason });
@@ -1579,37 +2119,120 @@ export function buildResultsView(input: ResultsInput): ResultsView {
   // the founder's single-line form (M7.9, below).
   {
     const blocks: SectionBlock[] = [];
-    blocks.push({ type: "subheading", text: "Planning constraints" });
     const constraints = sections.constraints;
-    for (const layer of [
-      constraints.conservationArea,
-      constraints.article4,
-      constraints.greenBelt,
-      constraints.builtUpArea,
-    ]) {
-      blocks.push({ type: "line", text: layer.line });
-      if (layer.beyondLine) blocks.push({ type: "line", text: layer.beyondLine });
+    // The Master's planning rows (parity fix batch, item
+    // 26): compact FACTS-tagged rows — the constraints row
+    // joins the layers' short facts; a layer with no
+    // compact fact (Article 4 not published, a sparse or
+    // unfiled layer) states its own line as a further text
+    // instead, exactly as the sample's second line does.
+    // Beyond-nearest facts recompose in the named,
+    // 1-decimal form. Brownfield keeps its own line (a
+    // count fact, not a polygon state) with its beyond
+    // fact recomposed the same way.
+    {
+      const layers = [
+        constraints.conservationArea,
+        constraints.article4,
+        constraints.greenBelt,
+        constraints.builtUpArea,
+      ];
+      const facts: string[] = [];
+      const extraTexts: string[] = [];
+      for (const layer of layers) {
+        const fact = polygonFact(layer);
+        if (fact) facts.push(fact);
+        else extraTexts.push(layer.line);
+        const nearest = layer.nearest;
+        if (layer.beyondLine && nearest && nearest.name && layer.state !== "inside")
+          extraTexts.push(
+            beyondNearestLine(
+              POLYGON_FEATURE_NAMES[layer.layer] ?? "area",
+              nearest.name,
+              nearest.miles,
+            ),
+          );
+        else if (layer.beyondLine && layer.state !== "inside") extraTexts.push(layer.beyondLine);
+      }
+      const texts: string[] = [];
+      if (facts.length > 0) texts.push(facts.join(" • "));
+      texts.push(...extraTexts);
+      texts.push(constraints.brownfield.line);
+      if (
+        constraints.brownfield.beyondLine &&
+        constraints.brownfield.nearest &&
+        constraints.brownfield.countWithin === 0
+      )
+        texts.push(
+          `The nearest recorded brownfield site is ${constraints.brownfield.nearest.label}, ${formatMiles(constraints.brownfield.nearest.miles)} miles away.`,
+        );
+      else if (constraints.brownfield.beyondLine) texts.push(constraints.brownfield.beyondLine);
+      blocks.push({
+        type: "tagged-line",
+        lead: "Planning constraints",
+        texts,
+        tag: "FACTS",
+        tagTone: "grey",
+      });
     }
-    blocks.push({ type: "line", text: constraints.brownfield.line });
-    if (constraints.brownfield.beyondLine)
-      blocks.push({ type: "line", text: constraints.brownfield.beyondLine });
-    blocks.push({ type: "subheading", text: "Nature designations" });
-    const nature = sections.nature;
-    if (nature.coverageLine) blocks.push({ type: "line", text: nature.coverageLine });
-    blocks.push({ type: "line", text: nature.placesLine });
-    if (nature.designationsLine) blocks.push({ type: "line", text: nature.designationsLine });
-    if (nature.beyondLine) blocks.push({ type: "line", text: nature.beyondLine });
-    blocks.push({ type: "line", text: nature.ancientWoodland.line });
-    blocks.push({ type: "line", text: nature.priorityHabitat.line });
-    blocks.push({ type: "subheading", text: "Listed building & heritage" });
-    const heritage = sections.heritage;
-    blocks.push({ type: "line", text: heritage.listed.line });
-    if (heritage.listed.beyondLine) blocks.push({ type: "line", text: heritage.listed.beyondLine });
-    if (heritage.atPoint.state === "recorded")
-      blocks.push({ type: "line", text: heritage.atPoint.line });
-    else if (heritage.atPoint.state === "needs-exact-home")
-      blocks.push({ type: "line", text: heritage.atPoint.reason });
-    blocks.push({ type: "subheading", text: "Planning applications nearby" });
+    {
+      const nature = sections.nature;
+      const texts: string[] = [];
+      const placesText = nature.designationsLine
+        ? `${nature.placesLine} — ${nature.designationsLine}`
+        : nature.placesLine;
+      texts.push(placesText);
+      const nearestPlace = nature.nearestPlace;
+      if (nature.beyondLine && nearestPlace && nearestPlace.name)
+        texts.push(
+          beyondNearestLine("designated nature site", nearestPlace.name, nearestPlace.miles),
+        );
+      else if (nature.beyondLine) texts.push(nature.beyondLine);
+      const woodlandFact = polygonFact(nature.ancientWoodland);
+      texts.push(
+        woodlandFact
+          ? `Ancient woodland: ${woodlandFact.charAt(0).toLowerCase()}${woodlandFact.slice(1)}`
+          : nature.ancientWoodland.line,
+      );
+      const woodlandNearest = nature.ancientWoodland.nearest;
+      if (
+        nature.ancientWoodland.beyondLine &&
+        woodlandNearest &&
+        woodlandNearest.name &&
+        nature.ancientWoodland.state !== "inside"
+      )
+        texts.push(
+          beyondNearestLine("ancient woodland", woodlandNearest.name, woodlandNearest.miles),
+        );
+      texts.push(nature.priorityHabitat.line);
+      blocks.push({
+        type: "tagged-line",
+        lead: "Nature designations",
+        texts,
+        fineprint: nature.coverageLine ?? "In the datasets checked.",
+        tag: "FACTS",
+        tagTone: "grey",
+      });
+    }
+    {
+      const heritage = sections.heritage;
+      const texts: string[] = [heritage.listed.line];
+      const listedNearest = heritage.listed.nearest;
+      if (heritage.listed.beyondLine && listedNearest && listedNearest.name)
+        texts.push(
+          `The nearest listed building is ${listedNearest.name} (Grade ${listedNearest.grade}), ${formatMiles(listedNearest.miles)} miles away.`,
+        );
+      else if (heritage.listed.beyondLine) texts.push(heritage.listed.beyondLine);
+      if (heritage.atPoint.state === "recorded") texts.push(heritage.atPoint.line);
+      else if (heritage.atPoint.state === "needs-exact-home") texts.push(heritage.atPoint.reason);
+      blocks.push({
+        type: "tagged-line",
+        lead: "Listed building & heritage",
+        texts,
+        tag: "FACTS",
+        tagTone: "grey",
+      });
+    }
     const sourceLine: string | null = constraints.conservationArea.sourceLine;
     // The hand-off is read from the short bundle's pick
     // (M7.9), not the area bundle: one derivation feeds
@@ -1620,7 +2243,12 @@ export function buildResultsView(input: ResultsInput): ResultsView {
     // was always the constraints one it remains here.
     const planning = sections.planningApplications;
     if (planning) {
-      blocks.push({ type: "line", text: planning.line });
+      // The Master's applications row carries no badge.
+      blocks.push({
+        type: "tagged-line",
+        lead: "Planning applications nearby",
+        texts: [planning.line],
+      });
       if (planning.link)
         blocks.push({ type: "link", label: planning.link.label, url: planning.link.url });
     }
@@ -1629,7 +2257,6 @@ export function buildResultsView(input: ResultsInput): ResultsView {
         state?: string;
         line?: string | null;
       };
-      blocks.push({ type: "subheading", text: "Company ownership" });
       // The founder's form ruling (17 Nov 2026, M7.9):
       // the free page's company line is the finalised
       // sample's single line — "Owned by a company: Yes."
@@ -1641,10 +2268,19 @@ export function buildResultsView(input: ResultsInput): ResultsView {
       // remains the report-depth form and is not rendered
       // here.
       if (ownership.state === "served")
-        blocks.push({ type: "line", text: "Owned by a company: Yes." });
+        blocks.push({
+          type: "tagged-line",
+          lead: "Company ownership",
+          texts: ["Owned by a company: Yes."],
+        });
       else if (ownership.state === "not-company-owned")
-        blocks.push({ type: "line", text: "Owned by a company: No." });
-      else if (ownership.line) blocks.push({ type: "line", text: ownership.line });
+        blocks.push({
+          type: "tagged-line",
+          lead: "Company ownership",
+          texts: ["Owned by a company: No."],
+        });
+      else if (ownership.line)
+        blocks.push({ type: "tagged-line", lead: "Company ownership", texts: [ownership.line] });
     }
     homeSections.push(
       linesSection("planning-protection", "Planning, protection & ownership", blocks, sourceLine),
@@ -1655,7 +2291,11 @@ export function buildResultsView(input: ResultsInput): ResultsView {
   const nearbySections: ResultsSectionView[] = [];
   {
     const blocks: SectionBlock[] = [];
-    blocks.push(...group("gp", FAMILY_CATEGORIES).blocks);
+    // The GP group's own count row is suppressed (item
+    // 14): the section's one plain truncRow below speaks
+    // for the health groups together, as the Master's
+    // Health section carries the one row.
+    blocks.push(...suppressTruncation(group("gp", FAMILY_CATEGORIES)).blocks);
     blocks.push(...group("dentist", FAMILY_CATEGORIES).blocks);
     blocks.push(...group("pharmacy", FAMILY_CATEGORIES).blocks);
     blocks.push({ type: "upsell", lead: "Plus more GPs & dentists", detail: null });
@@ -1663,8 +2303,28 @@ export function buildResultsView(input: ResultsInput): ResultsView {
   }
   {
     const blocks: SectionBlock[] = [];
-    blocks.push(...group("ae", FAMILY_CATEGORIES).blocks);
-    blocks.push(...group("maternity", FAMILY_CATEGORIES).blocks);
+    // Item 28 (parity fix batch): the same hospital must
+    // not appear twice in its section. A hospital that is
+    // both the nearest A&E and the nearest maternity unit
+    // (Broomfield at Birkdale, Epsom General at Minerva,
+    // Newham at Exeter) served in both groups — each with
+    // its own "none within 2 miles" line where beyond —
+    // because the two categories read the same filed
+    // hospitals independently. The A&E group leads (it is
+    // the section's headline fact); the maternity group is
+    // suppressed when its lead place IS the A&E lead
+    // place. Item 14: the A&E group's count row is also
+    // suppressed — the section's merged truncRow below is
+    // its one upsell.
+    const aeCategory = categories.get("ae");
+    const maternityCategory = categories.get("maternity");
+    const leadName = (category: CategoryAnswer | undefined): string | null =>
+      category?.places[0]?.name ?? category?.beyondNearest?.name ?? null;
+    const aeLead = leadName(aeCategory);
+    const maternityDuplicatesAe =
+      aeLead !== null && maternityCategory !== undefined && leadName(maternityCategory) === aeLead;
+    blocks.push(...suppressTruncation(group("ae", FAMILY_CATEGORIES)).blocks);
+    if (!maternityDuplicatesAe) blocks.push(...group("maternity", FAMILY_CATEGORIES).blocks);
     if (!gated.has("ae"))
       blocks.push({
         type: "upsell",
@@ -1699,8 +2359,11 @@ export function buildResultsView(input: ResultsInput): ResultsView {
   nearbySections.push(group("places-to-visit", NEARBY_CATEGORIES));
   {
     const blocks: SectionBlock[] = [];
-    blocks.push(...group("places-of-worship", NEARBY_CATEGORIES).blocks);
-    blocks.push(...group("libraries", NEARBY_CATEGORIES).blocks);
+    // Item 14: the two groups' own count rows are
+    // suppressed — the section's one plain truncRow below
+    // speaks for the combined lists, as the Master's does.
+    blocks.push(...suppressTruncation(group("places-of-worship", NEARBY_CATEGORIES)).blocks);
+    blocks.push(...suppressTruncation(group("libraries", NEARBY_CATEGORIES)).blocks);
     blocks.push({
       type: "upsell",
       lead: "Plus the full Food & drink, Leisure, Places to visit, worship & library lists",
@@ -1754,7 +2417,7 @@ export function buildResultsView(input: ResultsInput): ResultsView {
 const RUNG3_FAMILY: { key: string; heading: string; shortKey: keyof ShortSections | "nearby" }[] = [
   { key: "schools-primary", heading: "Primary schools", shortKey: "nearby" },
   { key: "schools-secondary", heading: "Secondary schools", shortKey: "nearby" },
-  { key: "nurseries", heading: "Nurseries & pre-schools", shortKey: "nearby" },
+  { key: "nurseries", heading: "Nurseries", shortKey: "nearby" },
   { key: "pets", heading: "Pets", shortKey: "nearby" },
 ];
 

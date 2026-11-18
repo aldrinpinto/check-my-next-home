@@ -106,7 +106,10 @@ describe("(a) local only — Birkdale CM3 2JT", () => {
     expect(postcodes.groups).toHaveLength(1);
     expect(postcodes.groups[0].label).toBe("Postcodes");
     expect(postcodes.groups[0].items.map((item) => item.label)).toContain(BIRKDALE);
-    expect(postcodes.groups[0].items[0].href).toBe("/search?postcode=CM3+2JT");
+    // The Postcodes group links straight to the
+    // whole-postcode check (picker removed, 18 Nov 2026 —
+    // the /search?postcode= route only redirects there).
+    expect(postcodes.groups[0].items[0].href).toBe("/search/home?postcode=CM3+2JT");
 
     const homes = await suggestionsFor(BIRKDALE, fixture.source, "a1");
     expect(homes.groups[0].label).toBe("Homes");
@@ -289,7 +292,7 @@ describe("two-digit districts — partial-postcode suggestions", () => {
     const narrowed = await suggestionsFor("E161G", districtSource(), "t2");
     expect(narrowed.groups).toHaveLength(1);
     expect(narrowed.groups[0].items.map((item) => item.label)).toEqual(["E16 1GN"]);
-    expect(narrowed.groups[0].items[0].href).toBe("/search?postcode=E16+1GN");
+    expect(narrowed.groups[0].items[0].href).toBe("/search/home?postcode=E16+1GN");
   });
 
   it("the one-digit regressions hold: CM3 and CM32 both serve CM3 2JT", async () => {

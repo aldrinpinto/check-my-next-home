@@ -47,7 +47,7 @@ import {
   type LoadedAddressParts,
 } from "../address";
 import { homeKeyOf } from "../bundle-cache";
-import { homeRoute, postcodeRoute } from "../journey";
+import { homeRoute } from "../journey";
 import { entryNow, logEntry } from "./entry-log";
 import { createPickingIndexSource } from "./picking-index";
 
@@ -296,7 +296,11 @@ export async function suggestionsFor(
       if (postcodes.length === 0) continue;
       items = postcodes.map((postcode) => ({
         label: postcode,
-        href: postcodeRoute(postcode),
+        // The whole-postcode check directly (founder
+        // ruling, 18 Nov 2026: the picker route the
+        // postcode link used to name is retired and only
+        // redirects here).
+        href: homeRoute(postcode),
       }));
       break;
     }

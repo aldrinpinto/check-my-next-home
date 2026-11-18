@@ -86,6 +86,8 @@ export function Card({ title, children }: { title?: string; children: ReactNode 
 // the pill itself is never coloured. A pill with no figure
 // is the family's fact form. The model is lib/results.ts's
 // SummaryPill; pillText there recomposes the served string.
+// Parity fix batch (item 7): the Master's form joins the
+// label and the chip with " · " inside the one white pill.
 export function SummaryPill({
   label,
   figure,
@@ -100,7 +102,14 @@ export function SummaryPill({
   return (
     <span className="pill pill--summary">
       <span className="pill__label">{label}</span>
-      {figure && <span className={`pill__figure pill__figure--${band ?? "green"}`}>{figure}</span>}
+      {figure && (
+        <>
+          <span className="pill__sep" aria-hidden="true">
+            ·
+          </span>
+          <span className={`pill__figure pill__figure--${band ?? "green"}`}>{figure}</span>
+        </>
+      )}
       {mark && <span className="pill__mark">{mark}</span>}
     </span>
   );

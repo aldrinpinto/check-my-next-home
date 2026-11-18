@@ -35,13 +35,20 @@ export default function CheckingScreen({
   postcode,
   homeKey,
   heading,
-  backHref,
+  eyebrow,
   children,
 }: {
   postcode: string;
   homeKey: string | null;
   heading: string;
-  backHref: string | null;
+  // The slim eyebrow (parity fix batch, items 2–4): the
+  // Master's checking view is a STANDALONE screen — no
+  // results H1, manifesto or scope line above it, no back
+  // link, no visible status line; the only address
+  // reference is this eyebrow ("19 Birkdale Rise ·
+  // Hatfield Peverel · CM3 2JT"). At rung 2 the lead IS
+  // the postcode and renders alone.
+  eyebrow: { lead: string; town?: string | null };
   children: ReactNode;
 }) {
   const [doneCount, setDoneCount] = useState(0);
@@ -98,7 +105,16 @@ export default function CheckingScreen({
 
   return (
     <section className="checking" aria-label={heading}>
-      <h2>{heading}</h2>
+      <p className="addr-line">
+        {eyebrow.lead !== postcode && (
+          <>
+            <b>{eyebrow.lead}</b>
+            {eyebrow.town ? ` · ${eyebrow.town}` : ""} ·{" "}
+          </>
+        )}
+        <b>{postcode}</b>
+      </p>
+      <h1 className="page-title">{heading}</h1>
       <p className="checking__intro">{CHECKING_INTRO}</p>
       <div
         className="checking__progress"
@@ -110,11 +126,6 @@ export default function CheckingScreen({
       >
         <div className="checking__progress-bar" style={{ width: `${progressPct}%` }} />
       </div>
-      {backHref && (
-        <p className="checking__back">
-          <a href={backHref}>Back to the address list</a>
-        </p>
-      )}
       <ul className="checking__rows">
         {CHECKING_ROWS.map((row, index) => {
           const done = index < doneCount;
@@ -140,9 +151,6 @@ export default function CheckingScreen({
           );
         })}
       </ul>
-      <p className="checking__status" role="status" aria-live="polite">
-        {doneCount >= CHECKING_ROWS.length ? "Every check has finished." : "Checks are running."}
-      </p>
     </section>
   );
 }

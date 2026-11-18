@@ -139,7 +139,6 @@ export function widerAreaRoute(outward: string, notFoundPostcode?: string | null
 // ------------------------------------------------------------------
 
 export type JourneyDestination =
-  | { kind: "picker"; url: string }
   | { kind: "home"; url: string }
   | { kind: "postcode-results"; url: string }
   | { kind: "not-covered"; url: string }
@@ -177,13 +176,14 @@ export function journeyDestination(
         // to the not-covered results page.
         return { kind: "not-covered", url: homeRoute(postcode) };
       }
-      return {
-        kind: "picker",
-        url: postcodeRoute(postcode, {
-          street: resolution.street,
-          building: resolution.building,
-        }),
-      };
+      // Founder ruling, 18 Nov 2026 (parity fix batch): the
+      // picker page is REMOVED. A full postcode with no home
+      // picked goes straight to the whole-postcode check,
+      // which now carries the postcode's full home list
+      // itself (the picker's list, moved). The old picker
+      // route redirects to the same destination (see
+      // app/search/page.tsx).
+      return { kind: "postcode-results", url: homeRoute(postcode) };
     }
     case 1: {
       const postcode = resolution.directory.postcode;
@@ -264,21 +264,21 @@ export function rowFailureLine(rowLabel: string): string {
   return `${rowLabel} couldn't be checked just now — the rest of the check still opens.`;
 }
 
-// The picker (fold-in 3). The explainer is the design's own
-// line (Stop W2), addressed to the visitor; the confirm is
-// the design's button (D70 R6: select-then-confirm).
+// The home list on the whole-postcode check (fold-in 3's
+// picker list, moved by the founder's ruling of 18 Nov
+// 2026: the picker page is removed and its list lives on
+// the postcode check itself). The explainer is the
+// design's own line (Stop W2), addressed to the visitor.
 export const PICKER_EXPLAINER =
   "Schools and flood are address-sensitive, so pick your exact house before anything is checked.";
-export const PICKER_CONFIRM_LABEL = "Check this address →";
 export function pickerCountLine(count: number): string {
   return count === 1 ? "1 address" : `${count} addresses`;
 }
 
-// The empty picker (fold-in 4): a valid England/Wales full
+// The empty list (fold-in 4): a valid England/Wales full
 // postcode with zero filed addresses. One named state, one
 // meaning — Scotland/NI never reach it (ruling 4).
 export const EMPTY_PICKER_LINE = "No addresses we can list for this postcode yet.";
-export const POSTCODE_LEVEL_LINK = "See the check for the whole postcode";
 
 // The mid-pick fallback notice (entry-point build, 18 Nov
 // 2026; D72 item 3, gap item 5): a visitor who picked an

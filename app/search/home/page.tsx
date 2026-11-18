@@ -1,9 +1,10 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
 
-import AddressPicker, { type PickerAddress } from "../../../components/AddressPicker";
 import CheckingScreen from "../../../components/CheckingScreen";
+import HomeList, { type PickerAddress } from "../../../components/HomeList";
 import ResultsPage from "../../../components/ResultsPage";
+import ShortlistButton from "../../../components/ShortlistButton";
 import WholeCheckFailure from "../../../components/WholeCheckFailure";
 import { displayText, type AddressResolution } from "../../../lib/address";
 import { homeKeyOf } from "../../../lib/bundle-cache";
@@ -17,9 +18,9 @@ import {
   homeRoute,
   nationOfLsoa,
   notCoveredHeading,
-  postcodeRoute,
   widerAreaRoute,
 } from "../../../lib/journey";
+import { REPORT_PRICE_LABEL } from "../../../lib/site";
 import { buildResultsView, resultsScopeLabel } from "../../../lib/results";
 import {
   checkResults,
@@ -52,8 +53,8 @@ export const metadata: Metadata = pageMetadata({
 // postcode and, for a picked home, its shareable key. The
 // page re-derives the resolution from loaded data on every
 // request — a refresh re-serves from the D29 cache; a stale
-// or unknown key returns to that postcode's picker, never
-// to a guessed home.
+// or unknown key returns to that postcode's check (whose
+// home list carries every home), never to a guessed home.
 //
 // M7.4: the checking screen's auto-advance lands on the real
 // results page (components/ResultsPage.tsx over
@@ -78,12 +79,14 @@ async function Results({
   resolution,
   pickerAddresses,
   pickerHeading,
+  pickFallback,
 }: {
   postcode: string;
   homeKey: string | null;
   resolution: AddressResolution;
   pickerAddresses: PickerAddress[];
   pickerHeading: string;
+  pickFallback: boolean;
 }) {
   let view;
   let results;
@@ -97,11 +100,6 @@ async function Results({
   // — rung 2 has no home to shortlist, and the not-covered
   // branch below never reaches this component). The record
   // is assembled from this same derivation (fold-in 8).
-  // M7.6: the add control itself renders inside the
-  // results page's buy bar beside the report button — the
-  // move M7.5 recorded as owed — so the card is handed to
-  // ResultsPage here; there is no second control in the
-  // header area.
   const card =
     resolution.rung === 1
       ? buildShortlistCard({
@@ -112,10 +110,42 @@ async function Results({
           routeKey: homeKey,
         })
       : null;
+  // The results head (parity fix batch, items 5/6): the
+  // Master's flex row — the H1 carrying the postcode
+  // ("19 Birkdale Rise, CM3 2JT") with the manifesto line
+  // under it, and at rung 1 the Shortlist control and the
+  // priced report button level with it. The head renders
+  // HERE, inside the results, so the checking screen
+  // stands alone before it (item 2). The buy bar below
+  // the tabs keeps its own unpriced button and control —
+  // the Master carries both.
+  const heading =
+    resolution.rung === 1
+      ? `${resolution.address.label}, ${postcode}`
+      : resultsScopeLabel(resolution);
   return (
     <>
+      <header className="results-head">
+        <div className="head-text">
+          <h1 className="page-title">{heading}</h1>
+          {/* D77(b): the line under the Results heading is
+              the manifesto line. */}
+          <p className="results-manifesto-line">{SITE_MANIFESTO}</p>
+        </div>
+        {resolution.rung === 1 && (
+          <div className="results-actions">
+            {card && <ShortlistButton card={card} />}
+            {view.reportHref && (
+              <a className="report-btn" href={view.reportHref}>
+                Get the full report — {REPORT_PRICE_LABEL}
+              </a>
+            )}
+          </div>
+        )}
+      </header>
+      {pickFallback && <p className="journey-notice">{PICK_FALLBACK_LINE}</p>}
       {resolution.rung === 2 && (
-        <AddressPicker postcode={postcode} heading={pickerHeading} addresses={pickerAddresses} />
+        <HomeList postcode={postcode} heading={pickerHeading} addresses={pickerAddresses} />
       )}
       <ResultsPage view={view} shortlistCard={card} />
     </>
@@ -141,8 +171,10 @@ export default async function HomePage({
   }
   if (!resolution) {
     // A key the directory no longer holds: back to the
-    // picker for this postcode (fold-in 1).
-    if (homeKey) redirect(postcodeRoute(postcode));
+    // postcode's own check, whose home list carries every
+    // home (fold-in 1; the picker page it used to name was
+    // removed 18 Nov 2026).
+    if (homeKey) redirect(homeRoute(postcode));
     redirect(SEARCH_ROUTE);
   }
   if (resolution.rung === 3) redirect(widerAreaRoute(resolution.outward, postcode));
@@ -195,11 +227,6 @@ export default async function HomePage({
     );
   }
 
-  const heading = resolution.rung === 1 ? resolution.address.label : resultsScopeLabel(resolution);
-  const backHref =
-    resolution.rung === 1
-      ? postcodeRoute(postcode, { picked: homeKeyOf(resolution) })
-      : postcodeRoute(postcode);
   const pickerAddresses: PickerAddress[] =
     resolution.rung === 2
       ? await pickerRowsFor(
@@ -228,23 +255,28 @@ export default async function HomePage({
       ? (resolution.building ?? (resolution.street ? displayText(resolution.street) : postcode))
       : "";
 
+  // The checking screen's eyebrow (item 2): the address
+  // label and town at rung 1; the postcode alone at rung 2.
+  const eyebrow =
+    resolution.rung === 1
+      ? {
+          lead: resolution.address.label,
+          town: resolution.address.town ? displayText(resolution.address.town) : null,
+        }
+      : { lead: postcode, town: null };
+
   return (
     <main className="journey-page main--wide">
-      <header className="results-header">
-        <h1>{heading}</h1>
-        {/* D77(b): the line under the Results heading is the
-            manifesto line. */}
-        <p className="results-manifesto-line">{SITE_MANIFESTO}</p>
-        {resolution.rung === 1 && (
-          <p className="results-header__scope">{resultsScopeLabel(resolution)}</p>
-        )}
-      </header>
-      {pickFallback && <p className="journey-notice">{PICK_FALLBACK_LINE}</p>}
+      {/* Item 2 (parity fix batch): nothing of the results
+          shell renders above the checking screen — the
+          results head, the fallback notice and the home
+          list all render inside Results, after the check
+          completes. */}
       <CheckingScreen
         postcode={postcode}
         homeKey={routeKey}
         heading={resolution.rung === 1 ? CHECKING_HEADING_HOME : CHECKING_HEADING_POSTCODE}
-        backHref={backHref}
+        eyebrow={eyebrow}
       >
         <Suspense fallback={<p className="results-loading">Opening your results…</p>}>
           <Results
@@ -253,6 +285,7 @@ export default async function HomePage({
             resolution={resolution}
             pickerAddresses={pickerAddresses}
             pickerHeading={pickerHeading}
+            pickFallback={pickFallback}
           />
         </Suspense>
       </CheckingScreen>

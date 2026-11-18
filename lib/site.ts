@@ -15,6 +15,13 @@ export const SITE_TAGLINE = "Check the house. Choose the home.";
 // never in a title or a meta description.
 export const SITE_MANIFESTO = "For the family who'll live there — not just the buyer.";
 
+// The manifesto's kicker form (parity fix batch, 18 Nov 2026):
+// the Final Sample Master's hero kicker carries NO full stop —
+// the stop exists only in the manifesto block's line and in the
+// results page's intro line, which keep SITE_MANIFESTO above.
+// The landing hero's kicker renders this form.
+export const SITE_KICKER = "For the family who'll live there — not just the buyer";
+
 // The homepage hero headline (D44, founder ruling 16 Nov 2026;
 // corrected at M7.2). The M3 family headline this constant used
 // to carry was kept as hero copy by D38; D44 retired it from

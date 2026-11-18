@@ -79,7 +79,7 @@ test.describe("suggestions dropdown — regression", () => {
       await box.press("Enter");
       await page.waitForURL(/\/search\/home\?postcode=CM3\+2JT&home=19%7C%7CBIRKDALE\+RISE/);
       await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
-      await expect(page.locator(".results-header h1")).toHaveText("19 Birkdale Rise");
+      await expect(page.locator(".results-head h1")).toHaveText("19 Birkdale Rise, CM3 2JT");
     },
   );
 
@@ -91,8 +91,12 @@ test.describe("suggestions dropdown — regression", () => {
       // parse allowed one digit only, so every partial in
       // a two-digit district — E16 typed at the play
       // server — returned no suggestions at all, while
-      // one-digit CM3 worked. The seeded corpus holds
-      // exactly one E16 postcode, E16 1GN.
+      // one-digit CM3 worked. The seeded directory holds
+      // TWO E16 postcodes — E16 1GN (the golden home) and
+      // E16 1EG (a replay directory row) — so "E161"
+      // serves both, and "E161G" narrows by the spaced
+      // prefix "E16 1G" to E16 1GN alone: E16 1EG's
+      // inward begins 1E, not 1G.
       await page.goto("/");
       const box = page.locator("#postcode");
       const panel = page.locator("#postcode-suggestions");
@@ -104,7 +108,15 @@ test.describe("suggestions dropdown — regression", () => {
 
       await box.fill("E161G");
       await expect(panel.getByRole("option", { name: "E16 1GN", exact: true })).toBeAttached();
-      expect(await panel.getByRole("option").count()).toBe(1);
+      // The narrowed count is asserted with Playwright's
+      // retrying form: the panel still shows the "E161"
+      // pair until the debounced "E161G" response lands,
+      // and a one-shot count() reads that stale pair
+      // (CI #218: expected 1, got 2, on both attempts —
+      // the served set was already correct, as the unit
+      // pins in tests/entry-point.test.ts prove against
+      // this same two-postcode directory).
+      await expect(panel.getByRole("option")).toHaveCount(1);
     },
   );
 
@@ -126,9 +138,9 @@ test.describe("suggestions dropdown — regression", () => {
       await last.click();
       await page.waitForURL(/\/search\/home\?postcode=CM3\+2JT&home=/);
       await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
-      await expect(page.locator(".results-header h1")).toHaveText(
-        (label ?? "").replace(/, CM3 2JT$/, ""),
-      );
+      // Item 5 (parity fix batch): the H1 is the option's
+      // own label form — address + postcode.
+      await expect(page.locator(".results-head h1")).toHaveText(label ?? "");
     },
   );
 });

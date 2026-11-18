@@ -6,13 +6,20 @@ import { expect, test } from "./fixtures";
 // app + the seeded golden corpus (scripts/seed-golden.mjs).
 //
 // Smoke: the step's authored journey — full postcode →
-// picker → checking → results — once per universal golden
-// home. These gate the step in CI. Regression: everything
-// else the step makes testable (outward codes,
-// normalisation, the mistype classes, the nations, the
-// empty picker, Back, the robot check, the whole-check
-// failure, refresh). No Regression spec is promoted to
-// Smoke (D68 clause 7).
+// postcode check (carrying the full home list) → checking
+// → results — once per universal golden home. These gate
+// the step in CI. Regression: everything else the step
+// makes testable (outward codes, normalisation, the
+// mistype classes, the nations, the empty home list, the
+// standalone checking screen, the robot check, the
+// whole-check failure, refresh). No Regression spec is
+// promoted to Smoke (D68 clause 7).
+//
+// Picker removal (founder ruling, 18 Nov 2026, parity fix
+// batch): the picker page is retired — a button press with
+// a full postcode lands on the whole-postcode check, whose
+// home list links straight to each home's check, and
+// /search?postcode= redirects there.
 //
 // M7.4 re-pointed the holding-page assertions at the real
 // results page (.results) that replaced it; M7.4's own
@@ -33,52 +40,51 @@ async function searchFromHome(page: Page, text: string) {
 }
 
 async function pickAndReachResults(page: Page, postcode: string, rowName: string) {
-  await page.waitForURL(`**/search?postcode=${postcode.replace(" ", "+")}`);
-  // D70 R6: the picker is select-then-confirm — tapping a
-  // row selects it; the Ink button starts the check.
-  await page.getByRole("button", { name: rowName, exact: true }).click();
-  await page.getByRole("button", { name: "Check this address" }).click();
-  await page.waitForURL(/\/search\/home\?postcode=/);
+  // The submit lands on the whole-postcode check (the
+  // /search?postcode= route redirects there); its home
+  // list's rows are links straight to each home's check.
+  await page.waitForURL(`**/search/home?postcode=${postcode.replace(" ", "+")}`);
+  await page.getByRole("link", { name: rowName, exact: true }).click();
+  await page.waitForURL(/\/search\/home\?postcode=.*&home=/);
   await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
 }
 
 test.describe("checker journey — smoke", () => {
   test(
-    "Birkdale CM3 2JT: postcode → picker → checking → results",
+    "Birkdale CM3 2JT: postcode → home list → checking → results",
     { tag: "@smoke" },
     async ({ page }) => {
       await searchFromHome(page, "CM3 2JT");
       await pickAndReachResults(page, "CM3 2JT", "19 Birkdale Rise");
-      await expect(page.locator(".results-header h1")).toHaveText("19 Birkdale Rise");
-      await expect(page.locator(".results-header__scope")).toHaveText("19 Birkdale Rise, CM3 2JT");
+      // Item 5 (parity fix batch): the H1 carries the
+      // postcode, in the Master's form.
+      await expect(page.locator(".results-head h1")).toHaveText("19 Birkdale Rise, CM3 2JT");
     },
   );
 
   test(
-    "Exeter E16 1GN: postcode → picker → checking → results",
+    "Exeter E16 1GN: postcode → home list → checking → results",
     { tag: "@smoke" },
     async ({ page }) => {
       await searchFromHome(page, "E16 1GN");
       await pickAndReachResults(page, "E16 1GN", "6 Exeter Road");
-      await expect(page.locator(".results-header h1")).toHaveText("6 Exeter Road");
-      await expect(page.locator(".results-header__scope")).toHaveText("6 Exeter Road, E16 1GN");
+      await expect(page.locator(".results-head h1")).toHaveText("6 Exeter Road, E16 1GN");
     },
   );
 
   test(
-    "Minerva KT17 1FH: postcode → picker → checking → results",
+    "Minerva KT17 1FH: postcode → home list → checking → results",
     { tag: "@smoke" },
     async ({ page }) => {
       await searchFromHome(page, "KT17 1FH");
-      await page.waitForURL("**/search?postcode=KT17+1FH");
+      await page.waitForURL("**/search/home?postcode=KT17+1FH");
       await page
-        .getByRole("button", { name: /Flat 4, Minerva House/ })
+        .getByRole("link", { name: /Flat 4, Minerva House/ })
         .first()
         .click();
-      await page.getByRole("button", { name: "Check this address" }).click();
       await page.waitForURL(/\/search\/home\?postcode=KT17\+1FH&home=/);
       await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
-      await expect(page.locator(".results-header__scope")).toContainText("KT17 1FH");
+      await expect(page.locator(".results-head h1")).toContainText("KT17 1FH");
     },
   );
 });
@@ -98,11 +104,10 @@ test.describe("checker journey — regression", () => {
         await route.continue();
       });
       await searchFromHome(page, "CM3 2JT");
-      await page.waitForURL("**/search?postcode=CM3+2JT");
-      await page.getByRole("button", { name: "19 Birkdale Rise", exact: true }).click();
-      await page.getByRole("button", { name: "Check this address" }).click();
+      await page.waitForURL("**/search/home?postcode=CM3+2JT");
+      await page.getByRole("link", { name: "19 Birkdale Rise", exact: true }).click();
 
-      await expect(page.locator(".checking h2")).toHaveText("Your check is under way");
+      await expect(page.locator(".checking .page-title")).toHaveText("Your check is under way");
       const rows = page.locator(".checking__row");
       await expect(rows).toHaveCount(5);
       await expect(page.locator(".checking__row-label")).toHaveText([
@@ -131,7 +136,7 @@ test.describe("checker journey — regression", () => {
   );
 
   test(
-    "Back from checking returns to the picker with the pick retained and focused",
+    "the checking screen stands alone: no results shell, no back link, no status line (items 2–4)",
     { tag: "@regression" },
     async ({ page }) => {
       await page.route("**/api/check/**", async (route) => {
@@ -139,19 +144,22 @@ test.describe("checker journey — regression", () => {
         await route.continue();
       });
       await searchFromHome(page, "CM3 2JT");
-      await page.waitForURL("**/search?postcode=CM3+2JT");
-      await page.getByRole("button", { name: "19 Birkdale Rise", exact: true }).click();
-      await page.getByRole("button", { name: "Check this address" }).click();
+      await page.waitForURL("**/search/home?postcode=CM3+2JT");
+      await page.getByRole("link", { name: "19 Birkdale Rise", exact: true }).click();
       await expect(page.locator(".checking__row")).toHaveCount(5);
 
-      await page.getByRole("link", { name: "Back to the address list" }).click();
-      await page.waitForURL(/\/search\?postcode=CM3\+2JT&picked=/);
-      // D70 R6: the retained pick is the selected row —
-      // pressed, current, and focused.
-      const picked = page.getByRole("button", { name: "19 Birkdale Rise", exact: true });
-      await expect(picked).toHaveAttribute("aria-pressed", "true");
-      await expect(picked).toHaveAttribute("aria-current", "true");
-      await expect(picked).toBeFocused();
+      // Item 2: the screen is NOT inside the results shell
+      // — no results H1, no manifesto, no results block.
+      await expect(page.locator(".results")).toHaveCount(0);
+      await expect(page.locator(".results-head")).toHaveCount(0);
+      // The only address reference is the slim eyebrow.
+      await expect(page.locator(".checking .addr-line")).toContainText("19 Birkdale Rise");
+      await expect(page.locator(".checking .addr-line")).toContainText("CM3 2JT");
+      // Item 3: no "Back to the address list" link.
+      await expect(page.getByRole("link", { name: "Back to the address list" })).toHaveCount(0);
+      // Item 4: no visible status line.
+      await expect(page.locator(".checking")).not.toContainText("Checks are running.");
+      await expect(page.locator(".checking")).not.toContainText("Every check has finished.");
     },
   );
 
@@ -167,18 +175,16 @@ test.describe("checker journey — regression", () => {
   );
 
   test(
-    "normalisation: 'e161gn' and ' cm3 2jt ' reach the same pickers as the tidy forms",
+    "normalisation: 'e161gn' and ' cm3 2jt ' reach the same home lists as the tidy forms",
     { tag: "@regression" },
     async ({ page }) => {
       await searchFromHome(page, "e161gn");
-      await page.waitForURL("**/search?postcode=E16+1GN");
-      await expect(page.getByRole("button", { name: "6 Exeter Road", exact: true })).toBeVisible();
+      await page.waitForURL("**/search/home?postcode=E16+1GN");
+      await expect(page.getByRole("link", { name: "6 Exeter Road", exact: true })).toBeVisible();
 
       await searchFromHome(page, " cm3 2jt ");
-      await page.waitForURL("**/search?postcode=CM3+2JT");
-      await expect(
-        page.getByRole("button", { name: "19 Birkdale Rise", exact: true }),
-      ).toBeVisible();
+      await page.waitForURL("**/search/home?postcode=CM3+2JT");
+      await expect(page.getByRole("link", { name: "19 Birkdale Rise", exact: true })).toBeVisible();
     },
   );
 
@@ -193,23 +199,22 @@ test.describe("checker journey — regression", () => {
   );
 
   test(
-    "the postcode-level results embed the picker — picking a home upgrades in place (T-WEB-08)",
+    "the postcode check carries the full home list — a home pick goes straight to that home's check (T-WEB-08, picker removed)",
     { tag: "@regression" },
     async ({ page }) => {
       await page.goto("/search/home?postcode=CM3+2JT");
       await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
       // Rung 2's results-page scope label (M7.4, ruling 3).
-      await expect(page.locator(".results-header h1")).toHaveText(
+      await expect(page.locator(".results-head h1")).toHaveText(
         "Postcode area — CM3 2JT, not one exact home",
       );
       await page
         .locator(".picker")
-        .getByRole("button", { name: "19 Birkdale Rise", exact: true })
+        .getByRole("link", { name: "19 Birkdale Rise", exact: true })
         .click();
-      await page.locator(".picker").getByRole("button", { name: "Check this address" }).click();
       await page.waitForURL(/\/search\/home\?postcode=CM3\+2JT&home=/);
       await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
-      await expect(page.locator(".results-header h1")).toHaveText("19 Birkdale Rise");
+      await expect(page.locator(".results-head h1")).toHaveText("19 Birkdale Rise, CM3 2JT");
     },
   );
 
@@ -267,7 +272,7 @@ test.describe("checker journey — regression", () => {
   );
 
   test(
-    "Edinburgh EH1 1AD skips the picker — straight to the not-covered page (ruling 4)",
+    "Edinburgh EH1 1AD goes straight to the not-covered page (ruling 4)",
     { tag: "@regression" },
     async ({ page }) => {
       await searchFromHome(page, "EH1 1AD");
@@ -304,52 +309,53 @@ test.describe("checker journey — regression", () => {
   );
 
   test(
-    "Beaulieu CM1 6ER: the picker lists the picking index's homes (M7.15B), proceeding to postcode-level results",
+    "Beaulieu CM1 6ER: the postcode check lists the picking index's homes (M7.15B)",
     { tag: "@regression" },
     async ({ page }) => {
       await searchFromHome(page, "CM1 6ER");
-      await page.waitForURL("**/search?postcode=CM1+6ER");
+      // The submit redirects to the whole-postcode check,
+      // which carries the list (picker removed).
+      await page.waitForURL("**/search/home?postcode=CM1+6ER");
       // M7.15B: the harness seed's fixture pass files the
       // EPC half of the picking index, and Beaulieu's 49
       // certificate homes (the odd numbers on George Heard
       // Crescent) are exactly what the union serves here —
-      // the empty picker this spec asserted before the
+      // the empty list this spec asserted before the
       // preload is gone by design (CI #215).
       await expect(page.locator(".picker__empty-line")).toHaveCount(0);
       await expect(page.locator(".picker__count")).toHaveText("49 addresses");
       await expect(
-        page.getByRole("button", { name: "49 George Heard Crescent", exact: true }),
+        page.getByRole("link", { name: "49 George Heard Crescent", exact: true }),
       ).toBeVisible();
-      await page.getByRole("link", { name: "See the check for the whole postcode" }).click();
-      await page.waitForURL("**/search/home?postcode=CM1+6ER");
-      await expect(page.locator(".results-header h1")).toHaveText(
+      await expect(page.locator(".results-head h1")).toHaveText(
         "Postcode area — CM1 6ER, not one exact home",
       );
     },
   );
 
   test(
-    "Beaulieu CM1 6ER: an index-only home confirms through its durable home key, never a token (M7.15B)",
+    "Beaulieu CM1 6ER: an index-only home links through its durable home key, never a token (M7.15B)",
     { tag: "@regression" },
     async ({ page }) => {
       await searchFromHome(page, "CM1 6ER");
-      await page.waitForURL("**/search?postcode=CM1+6ER");
-      await page.getByRole("button", { name: "49 George Heard Crescent", exact: true }).click();
-      await page.getByRole("button", { name: "Check this address" }).click();
-      // The row carries the home's durable key — the same
-      // key a filed sale would carry — so the confirm lands
-      // on the canonical home route, not on a transient
-      // resolve token.
+      await page.waitForURL("**/search/home?postcode=CM1+6ER");
+      await page.getByRole("link", { name: "49 George Heard Crescent", exact: true }).click();
+      // The row's link carries the home's durable key —
+      // the same key a filed sale would carry — so the
+      // pick lands on the canonical home route, not on a
+      // transient resolve token.
       await page.waitForURL(
         /\/search\/home\?postcode=CM1\+6ER&home=49%7C%7CGEORGE\+HEARD\+CRESCENT/,
       );
       await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
-      await expect(page.locator(".results-header h1")).toHaveText("49 George Heard Crescent");
+      await expect(page.locator(".results-head h1")).toHaveText(
+        "49 George Heard Crescent, CM1 6ER",
+      );
     },
   );
 
   test(
-    "Southminster CM0 7AA: the empty picker is one named state, proceeding to postcode-level results",
+    "Southminster CM0 7AA: the empty home list is one named state on the postcode check",
     { tag: "@regression" },
     async ({ page }) => {
       // The neither-source witness (the entry-point unit
@@ -358,29 +364,25 @@ test.describe("checker journey — regression", () => {
       // a certificate or an index row for it, so the union
       // is empty and the named empty state is the served
       // truth. (Before M7.15B this spec ran on Beaulieu,
-      // whose picker the preload deliberately filled.)
+      // whose list the preload deliberately filled.)
       await searchFromHome(page, "CM0 7AA");
-      await page.waitForURL("**/search?postcode=CM0+7AA");
+      await page.waitForURL("**/search/home?postcode=CM0+7AA");
       await expect(page.locator(".picker__empty-line")).toHaveText(
         "No addresses we can list for this postcode yet.",
       );
-      await page.getByRole("link", { name: "See the check for the whole postcode" }).click();
-      await page.waitForURL("**/search/home?postcode=CM0+7AA");
-      await expect(page.locator(".results-header h1")).toHaveText(
+      await expect(page.locator(".results-head h1")).toHaveText(
         "Postcode area — CM0 7AA, not one exact home",
       );
     },
   );
 
   test(
-    "a stale home key returns to that postcode's picker, never a guessed home (fold-in 1)",
+    "a stale home key returns to that postcode's check, never a guessed home (fold-in 1)",
     { tag: "@regression" },
     async ({ page }) => {
       await page.goto("/search/home?postcode=CM3+2JT&home=no-such%7C%7Ckey");
-      await page.waitForURL("**/search?postcode=CM3+2JT");
-      await expect(
-        page.getByRole("button", { name: "19 Birkdale Rise", exact: true }),
-      ).toBeVisible();
+      await page.waitForURL("**/search/home?postcode=CM3+2JT");
+      await expect(page.getByRole("link", { name: "19 Birkdale Rise", exact: true })).toBeVisible();
     },
   );
 
@@ -392,7 +394,7 @@ test.describe("checker journey — regression", () => {
       await pickAndReachResults(page, "CM3 2JT", "19 Birkdale Rise");
       await page.reload();
       await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
-      await expect(page.locator(".results-header h1")).toHaveText("19 Birkdale Rise");
+      await expect(page.locator(".results-head h1")).toHaveText("19 Birkdale Rise, CM3 2JT");
     },
   );
 
@@ -408,8 +410,8 @@ test.describe("checker journey — regression", () => {
       // the real-path proof — Cloudflare's published test
       // keys against the real widget and verify endpoint.
       await searchFromHome(page, "E16 1GN");
-      await page.waitForURL("**/search?postcode=E16+1GN");
-      await expect(page.getByRole("button", { name: "6 Exeter Road", exact: true })).toBeVisible();
+      await page.waitForURL("**/search/home?postcode=E16+1GN");
+      await expect(page.getByRole("link", { name: "6 Exeter Road", exact: true })).toBeVisible();
     },
   );
 

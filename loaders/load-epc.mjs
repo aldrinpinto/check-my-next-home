@@ -213,6 +213,15 @@ function minimise(stub, doc) {
     band: doc.current_energy_efficiency_band ?? stub.currentEnergyEfficiencyBand ?? null,
     ratingCurrent: doc.energy_rating_current ?? null,
     potentialBand: doc.potential_energy_efficiency_band ?? null,
+    // The potential SCORE beside the potential band, widened
+    // in by the parity fix batch (18 Nov 2026): the results
+    // page's EPC line states the potential in the sample's
+    // form — "potential to reach A (91)" — and the band alone
+    // cannot carry the figure. Optional in the artefact for
+    // the usual reason: filings made before this widening do
+    // not carry it, and a certificate read from one serves
+    // the band without the score until re-filed.
+    ratingPotential: doc.energy_rating_potential ?? null,
     totalFloorArea: doc.total_floor_area ?? null,
     dwellingType:
       typeof dwelling === "object" && dwelling !== null

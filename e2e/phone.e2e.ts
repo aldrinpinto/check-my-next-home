@@ -31,10 +31,12 @@ import { expect, test } from "./fixtures";
 //   of the no-sideways-scroll guarantee, so nothing can
 //   mask a block silently cut off.
 //   R4 — the surface set is enumerated, never crawled:
-//   the landing; the picker with a full list; the
+//   the landing; the postcode check with its full home
+//   list (the picker's list, moved there when the picker
+//   page was removed, 18 Nov 2026); the
 //   checking screen; rung-1 results with each of the
 //   four tabs opened in turn; rung-2 results with the
-//   picker embedded; the rung-3 wider area; the Scotland
+//   home list at their head; the rung-3 wider area; the Scotland
 //   not-covered results; the unplaced landing (the bare
 //   /search redirect); the
 //   whole-check failure; /shortlist empty, with one home
@@ -50,7 +52,7 @@ import { expect, test } from "./fixtures";
 // shortlist). F2 — tap targets measured by bounding box
 // over the block set as it now stands: the header's five
 // nav links, the postcode input and its submit, the
-// picker rows and their confirm button, the four tabs,
+// home-list rows, the four tabs,
 // the buy bar's report and shortlist pills, the
 // shortlist cards' Remove buttons and the comparison
 // blocks' report buttons, the calculators' five inputs
@@ -116,10 +118,10 @@ async function searchFromHome(page: Page, text: string) {
 }
 
 async function pickAndReachResults(page: Page, rowName: string | RegExp) {
-  // D70 R6: the picker is select-then-confirm.
-  await page.getByRole("button", { name: rowName }).first().click();
-  await page.getByRole("button", { name: "Check this address" }).click();
-  await page.waitForURL(/\/search\/home\?postcode=/);
+  // Picker removed (18 Nov 2026): the postcode check's
+  // home list rows are links straight to each home.
+  await page.getByRole("link", { name: rowName }).first().click();
+  await page.waitForURL(/\/search\/home\?postcode=.*&home=/);
   await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
 }
 
@@ -263,22 +265,17 @@ test.describe("phone-first — 360×740 (T-WEB-01)", () => {
   );
 
   test(
-    "the picker: a full list of 44px rows, nothing scrolls sideways (F1/F2)",
+    "the home list on the postcode check: a full list of 44px rows, nothing scrolls sideways (F1/F2)",
     { tag: "@regression" },
     async ({ page }) => {
       await searchFromHome(page, "CM3 2JT");
-      await page.waitForURL("**/search?postcode=CM3+2JT");
+      await page.waitForURL("**/search/home?postcode=CM3+2JT");
       const rows = page.locator(".picker__row");
-      expect(await rows.count(), "the picker lists the postcode's homes").toBeGreaterThan(1);
+      expect(await rows.count(), "the list carries the postcode's homes").toBeGreaterThan(1);
       for (const row of await rows.all()) {
-        await expectTapTarget(row, "a picker row");
-        await expectInsideViewport(row, PHONE.width, "a picker row");
+        await expectTapTarget(row, "a home-list row");
+        await expectInsideViewport(row, PHONE.width, "a home-list row");
       }
-      await page.getByRole("button", { name: "19 Birkdale Rise", exact: true }).click();
-      await expectTapTarget(
-        page.getByRole("button", { name: "Check this address" }),
-        "the picker's confirm button",
-      );
       await expectNoSidewaysScroll(page);
       await expectNoTable(page);
     },
@@ -296,10 +293,9 @@ test.describe("phone-first — 360×740 (T-WEB-01)", () => {
         await route.continue();
       });
       await searchFromHome(page, "CM3 2JT");
-      await page.waitForURL("**/search?postcode=CM3+2JT");
-      await page.getByRole("button", { name: "19 Birkdale Rise", exact: true }).click();
-      await page.getByRole("button", { name: "Check this address" }).click();
-      await expect(page.locator(".checking h2")).toHaveText("Your check is under way");
+      await page.waitForURL("**/search/home?postcode=CM3+2JT");
+      await page.getByRole("link", { name: "19 Birkdale Rise", exact: true }).click();
+      await expect(page.locator(".checking .page-title")).toHaveText("Your check is under way");
       await expect(page.locator(".checking__row")).toHaveCount(5);
       await expectNoSidewaysScroll(page);
 
@@ -360,7 +356,7 @@ test.describe("phone-first — 360×740 (T-WEB-01)", () => {
       await expect(bar.locator(".buy-bar__mystery")).toContainText("mystery extra");
       await expectTapTarget(bar.locator(".report-btn"), "the buy bar's report button");
       await expectTapTarget(
-        page.locator("[data-shortlist-toggle]"),
+        bar.locator("[data-shortlist-toggle]"),
         "the buy bar's shortlist toggle",
       );
     },
@@ -401,18 +397,18 @@ test.describe("phone-first — 360×740 (T-WEB-01)", () => {
   );
 
   test(
-    "rung-2 results: the embedded picker's rows are 44px targets and nothing scrolls sideways (F1/F2)",
+    "rung-2 results: the home list's rows are 44px targets and nothing scrolls sideways (F1/F2)",
     { tag: "@regression" },
     async ({ page }) => {
       await page.goto("/search/home?postcode=CM3+2JT");
       await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
-      await expect(page.locator(".results-header h1")).toHaveText(
+      await expect(page.locator(".results-head h1")).toHaveText(
         "Postcode area — CM3 2JT, not one exact home",
       );
       const rows = page.locator(".picker__row");
-      expect(await rows.count(), "the picker is embedded with its list").toBeGreaterThan(1);
+      expect(await rows.count(), "the home list sits at the head of the page").toBeGreaterThan(1);
       for (const row of await rows.all()) {
-        await expectTapTarget(row, "an embedded picker row");
+        await expectTapTarget(row, "a home-list row");
       }
       await expectNoSidewaysScroll(page);
       await expectNoTable(page);
@@ -590,14 +586,15 @@ test.describe("phone-first — 360×740 (T-WEB-01)", () => {
       await seedShortlist(page, [BIRKDALE_CARD, EXETER_CARD, WIDER_AREA_CARD]);
       await page.goto("/search?postcode=KT17+1FH");
       await pickAndReachResults(page, /Flat 4, Minerva House/);
-      await page.getByRole("button", { name: "Shortlist this home" }).click();
+      await page.getByRole("button", { name: "Shortlist this home" }).first().click();
 
       // The simple message stands where the button was
       // (founder's ruling, 17 Nov 2026) — no panel — and
       // its link, the only way forward from that state,
       // measures at the tap target under its kit
-      // treatment (M7.7, F2 as reconciled).
-      const full = page.locator(".shortlist-full-line");
+      // treatment (M7.7, F2 as reconciled). Both control
+      // places carry it (item 6); the first stands for both.
+      const full = page.locator(".shortlist-full-line").first();
       await expect(full).toBeVisible();
       await expect(full).toContainText("Your shortlist is full — it holds 3 homes.");
       await expectTapTarget(

@@ -428,6 +428,11 @@ export interface EpcCertificate {
   band: string | null;
   ratingCurrent: number | null;
   potentialBand: string | null;
+  // The register's potential score beside the potential
+  // band (parity fix batch, 18 Nov 2026 — see the loader's
+  // minimisation). Optional: artefacts filed before the
+  // widening do not carry the key.
+  ratingPotential?: number | null;
   totalFloorArea: number | null;
   dwellingType: string | null;
   assessmentType: string | null;
@@ -2110,6 +2115,11 @@ export interface ServedCertificate {
   // register filed no rating: no figure, no line.
   ratingLine: string | null;
   potentialBand: string | null;
+  // The potential score (parity fix batch, 18 Nov 2026):
+  // null where the filed artefact predates the loader's
+  // widening — the results line then states the potential
+  // band without its score.
+  potentialRating: number | null;
   floorAreaSqM: number | null;
   dwellingType: string | null;
   assessmentType: string | null;
@@ -2480,6 +2490,7 @@ function toServedCertificate(cert: EpcCertificate): ServedCertificate {
         ? null
         : "this number is the register's energy-efficiency measure for this home — the certificate's band derives from it",
     potentialBand: cert.potentialBand,
+    potentialRating: cert.ratingPotential ?? null,
     floorAreaSqM: cert.totalFloorArea,
     dwellingType: cert.dwellingType,
     assessmentType: cert.assessmentType,

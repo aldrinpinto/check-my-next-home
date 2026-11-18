@@ -464,17 +464,19 @@ p {
    ShortlistCountBadge.tsx, a client island reading browser
    storage — the badge shows only at 1 or more). */
 .shortlist-count {
+  /* Item 39 (parity fix batch, 18 Nov 2026): the Master's
+     count badge — Brass with Deep Forest text, 22px. */
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 1.5rem;
-  height: 1.5rem;
+  min-width: 22px;
+  height: 22px;
   margin-left: var(--space-2);
-  padding: 0 var(--space-2);
+  padding: 0 6px;
   border-radius: 999px;
-  background: var(--cmnh-forest);
-  color: var(--cmnh-cream);
-  font-size: var(--font-size-caption);
+  background: var(--cmnh-brass);
+  color: var(--cmnh-forest-deep);
+  font-size: 0.78rem;
   font-weight: 700;
 }
 
@@ -739,14 +741,21 @@ a:hover {
 .pill {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-2);
-  padding: 6px 10px;
+  gap: 6px;
+  /* Item 7 (parity fix batch): the Master's pill padding. */
+  padding: 6px 9px;
   border: 1px solid var(--colour-band-line);
   border-radius: 999px;
   background: var(--cmnh-white);
   font-size: 0.82rem;
   font-weight: 800;
   color: var(--cmnh-ink);
+}
+
+/* The " · " between a pill's label and its figure chip
+   (item 7): part of the one pill, never a separate chip. */
+.pill__sep {
+  font-weight: 800;
 }
 
 .pill__figure {
@@ -1631,7 +1640,10 @@ body:has(.main--home) .site-footer {
   min-height: 2.75rem;
   padding: var(--space-2) var(--space-3);
   border: 0;
-  border-bottom: 1px solid #eee;
+  /* The divider takes the card-line token (parity fix
+     batch: the literal #eee was the only raw hex in the
+     list's dress). */
+  border-bottom: 1px solid var(--colour-card-line);
   background: var(--cmnh-white);
   color: var(--colour-text);
   font: inherit;
@@ -1680,7 +1692,10 @@ body:has(.main--home) .site-footer {
   margin: 0 auto;
 }
 
-.checking h2 {
+/* The checking heading is the page's h1 in the Master's
+   form (parity fix batch, item 2: the standalone checking
+   view's title is its page title). */
+.checking .page-title {
   font-family: var(--font-family-display);
   font-weight: 700;
   font-size: clamp(1.9rem, 1.55rem + 1.5vw, 2.2rem);
@@ -1752,14 +1767,11 @@ body:has(.main--home) .site-footer {
   flex: 1 1 10rem;
 }
 
-.checking__status {
-  font-size: var(--font-size-small);
-}
-
-.results-header__scope {
-  font-size: var(--font-size-lead);
-  margin-bottom: var(--space-5);
-}
+/* .checking__status and .results-header__scope retired
+   (parity fix batch, items 4/5): the checking screen
+   carries no visible status line, and the results H1
+   itself carries the postcode the scope line used to
+   repeat. */
 
 .holding {
   border: 1px solid var(--cmnh-brass-pale);
@@ -1823,10 +1835,9 @@ body:has(.main--home) .site-footer {
   font-weight: 600;
 }
 
-.results-disclaimer-short {
-  font-size: var(--font-size-small);
-  margin-bottom: var(--space-5);
-}
+/* .results-disclaimer-short retired (parity fix batch,
+   item 16): no disclaimer line sits under the pills; the
+   closing disclaimer block at the page foot stands. */
 
 /* The 'About these checks' expander (M7.12, stacked build
    18 Nov 2026): the one home for the results page's links
@@ -1998,6 +2009,193 @@ a.trunc-row:hover {
   color: var(--cmnh-ink);
 }
 
+/* The truncRow's parts (parity fix batch, item 14): the
+   main block stacks the lead over its detail; the CTA is
+   the £4.99 chip and the arrow, at the right. */
+.trunc-row__main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+}
+
+.trunc-row__detail {
+  font-weight: 400;
+  font-size: 0.85rem;
+}
+
+.trunc-row__cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.trunc-row__price {
+  background: var(--cmnh-forest);
+  color: var(--cmnh-white);
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 999px;
+}
+
+.trunc-row__arrow {
+  font-weight: 900;
+}
+
+/* --- Parity fix batch (18 Nov 2026): the results head,
+   the checking eyebrow, the Master's row form and badges,
+   the comparison miles -------------------------------- */
+
+/* The results head (items 5/6): the H1 block and the
+   actions in one flex row, as the Master's .results-head
+   depicts; the actions wrap under the heading on narrow
+   screens. */
+.results-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: var(--space-3);
+}
+
+.results-head .head-text {
+  min-width: 0;
+}
+
+.results-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* The checking screen's slim eyebrow (item 2): the only
+   address reference on the standalone checking view. */
+.addr-line {
+  font-size: 0.92rem;
+  color: var(--colour-muted);
+  margin: 0 0 var(--space-2);
+}
+
+.addr-line b {
+  color: var(--cmnh-ink);
+}
+
+/* The Master's .row form for tagged lines and flood
+   verdicts: the lead and texts stacked at the left, the
+   badge at the right, a dashed rule beneath. */
+.results-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 11px 0;
+  border-bottom: 1px dashed #e5e0d0;
+}
+
+.results-row__main {
+  min-width: 0;
+}
+
+.results-row__lead {
+  display: block;
+  font-weight: 700;
+}
+
+.results-row__text {
+  display: block;
+  font-size: var(--font-size-small);
+}
+
+.results-row__fineprint {
+  display: block;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: var(--colour-muted);
+  margin-top: 3px;
+}
+
+/* The Master's badge family (results scope): one pill,
+   three tones. */
+.badge {
+  white-space: nowrap;
+  font-weight: 900;
+  font-size: 0.8rem;
+  padding: 5px 8px;
+  border-radius: 999px;
+  height: fit-content;
+}
+
+.badge--g {
+  background: var(--dist-green-bg);
+  color: var(--dist-green);
+}
+
+.badge--a {
+  background: #fff0c2;
+  color: #713f12;
+}
+
+.badge--grey {
+  background: #eee;
+  color: #444;
+}
+
+.badge--grammar {
+  background: #fff0c2;
+  color: #713f12;
+}
+
+/* The grammar row (item 12): the Master's row--grammar
+   dress on the place-row form. */
+.place-row--grammar {
+  background: var(--colour-surface);
+  border: 1px solid #cfe0d8;
+  border-radius: var(--radius-tile);
+  padding: 11px 12px;
+  margin-top: 8px;
+}
+
+/* The comparison miles (item 43): plain bold Forest text,
+   never a tinted pill. */
+.compare-mi {
+  color: var(--cmnh-forest);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* The shortlist empty state's plain search form (item
+   41): the card's own measures — 52px field and button,
+   10px radius — with no dropdown shell. */
+.shortlist-search-form {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.shortlist-search-form input {
+  flex: 1 1 16rem;
+  min-height: 52px;
+  border-radius: 10px;
+  border: 1px solid var(--colour-card-line);
+  padding: 0 14px;
+  font: inherit;
+}
+
+.shortlist-search-form__button {
+  min-height: 52px;
+  border-radius: 10px;
+}
+
+/* Home-list rows render as links as well as buttons (the
+   picker's list, moved onto the postcode check): a link
+   row carries no underline. */
+a.picker__row {
+  text-decoration: none;
+}
+
 @media (max-width: 40rem) {
   .trunc-row {
     flex-wrap: wrap;
@@ -2040,10 +2238,19 @@ a.trunc-row:hover {
 
 .results-tile__value {
   display: block;
-  font-size: 1.2rem;
-  font-weight: 900;
+  /* The Master's stat tile value (parity fix batch, item
+     20): Newsreader, 1.18rem, weight 700, Deep Forest. */
+  font-family: var(--font-family-display);
+  font-size: 1.18rem;
+  font-weight: 700;
   line-height: 1.3;
-  color: var(--colour-text);
+  color: var(--cmnh-forest-deep);
+}
+
+.results-tile__sub {
+  display: block;
+  font-size: 0.82rem;
+  color: var(--colour-muted);
 }
 
 .flood-warning {
@@ -2061,9 +2268,9 @@ a.trunc-row:hover {
   font-size: var(--font-size-small);
 }
 
-.flood-warnings__attribution {
-  font-size: var(--font-size-small);
-}
+/* The flood attribution line no longer renders on the
+   results page (parity fix batch, item 25: sources live
+   on the check pages and in the report). */
 
 /* --- Shortlist (plan step M7.5) --------------------------------------
    The add control in the results header area, the full
@@ -2359,19 +2566,24 @@ a.trunc-row:hover {
 }
 
 /* The shortlist pill button: white with the soft line; the
-   saved state is the green tint. The design's .shortlistBtn. */
+   saved state is the green tint. The design's .shortlistBtn.
+   Item 40 (parity fix batch, 18 Nov 2026): the Master's
+   measures — min-height 48px, 0.98rem at weight 700,
+   padding .65rem 1.4rem; the saved state is the Master's
+   green tint (#DFF0E2) with its green line (#BFD8C4) and
+   Deep Forest text. */
 .shortlist-btn {
   display: inline-flex;
   align-items: center;
-  min-height: var(--tap-target);
+  min-height: 48px;
   background: var(--cmnh-white);
   color: var(--cmnh-forest);
-  padding: 9px 13px;
+  padding: 0.65rem 1.4rem;
   border: 1px solid var(--colour-card-line);
   border-radius: 999px;
   font: inherit;
-  font-size: 0.85rem;
-  font-weight: 900;
+  font-size: 0.98rem;
+  font-weight: 700;
   cursor: pointer;
   white-space: nowrap;
 }
@@ -2381,13 +2593,13 @@ a.trunc-row:hover {
 }
 
 .shortlist-btn--saved {
-  background: var(--dist-green-bg);
-  color: var(--dist-green);
-  border-color: var(--dist-green-bg);
+  background: #dff0e2;
+  color: var(--cmnh-forest-deep);
+  border-color: #bfd8c4;
 }
 
 .shortlist-btn--saved:hover {
-  background: var(--dist-green-bg);
+  background: #dff0e2;
 }
 
 /* The remove pill: the sample's .btn-remove — a white
@@ -2625,12 +2837,11 @@ a.trunc-row:hover {
 
 /* The empty state's search card (sample view 14;
    shortlist sample-parity fix, 18 Nov 2026): the sample's
-   paper card under the empty card, carrying the product's
-   bare PostcodeBox. The card's dress is the sample's
-   exactly; the box keeps its own form, with the sample's
-   row measures (52px field and button, 10px field radius)
-   applied inside this card only, and the row runs the
-   card's full width rather than the box's own cap. */
+   paper card under the empty card. Parity fix batch
+   (item 41): the card carries the sample's PLAIN form —
+   the form's own rules (.shortlist-search-form, in the
+   parity block above) hold the sample's row measures
+   (52px field and button, 10px radius). */
 .shortlist-search-card {
   margin-top: 1.8rem;
   background: var(--cmnh-white);
@@ -2638,19 +2849,6 @@ a.trunc-row:hover {
   border-radius: 16px;
   padding: 1.6rem 1.7rem;
   max-width: 640px;
-}
-
-.shortlist-search-card .postcode-box--bare {
-  max-width: none;
-}
-
-.shortlist-search-card .postcode-box--bare .field__input {
-  min-height: 52px;
-  border-radius: 10px;
-}
-
-.shortlist-search-card .postcode-box--bare .btn {
-  min-height: 52px;
 }
 
 /* Fold-in build (D73/D75/D76/D77): checking progress,
@@ -2699,23 +2897,10 @@ a.trunc-row:hover {
 .results-subheading {
   margin: var(--space-4) 0 var(--space-2);
 }
-.upsell {
-  border: 1px solid var(--cmnh-brass);
-  background: #fdf6d8;
-  border-radius: var(--radius-card);
-  padding: var(--space-3) var(--space-4);
-  margin: var(--space-3) 0;
-}
-.upsell__lead {
-  font-weight: 600;
-  margin: 0;
-}
-.upsell__detail {
-  margin: var(--space-1) 0 0;
-}
-.upsell__price {
-  margin: var(--space-2) 0 0;
-}
+/* The .upsell panel retired (parity fix batch, item 14):
+   every upsell on the results page renders as the
+   truncRow (.trunc-row above) — one form, never a panel
+   beside a row. */
 .buy-bar__heading {
   flex-basis: 100%;
   margin: 0;

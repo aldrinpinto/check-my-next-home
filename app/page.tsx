@@ -18,7 +18,7 @@ import {
   HOME_MANIFESTO_HEADLINE,
   HOME_MANIFESTO_WHY,
 } from "../lib/home";
-import { HOME_HERO_HEADLINE, SITE_MANIFESTO } from "../lib/site";
+import { HOME_HERO_HEADLINE, SITE_KICKER, SITE_MANIFESTO } from "../lib/site";
 import type { Metadata } from "next";
 
 import { PAGE_SEO, pageMetadata } from "../lib/seo";
@@ -75,7 +75,7 @@ export default function Home() {
   return (
     <main className="main--home">
       <section className="hero">
-        <p className="hero__kicker">{SITE_MANIFESTO}</p>
+        <p className="hero__kicker">{SITE_KICKER}</p>
         <h1>{HOME_HERO_HEADLINE}</h1>
         <p className="type-lead">{HOME_HERO_SUBLINE}</p>
         <PostcodeBox bare />

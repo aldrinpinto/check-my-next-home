@@ -30,8 +30,11 @@ import {
 // beside the report button (plan step M7.6 — the move
 // this component's M7.5 note recorded as owed, discharged
 // there; at rung 3, where there is no buy bar, it stays
-// beside the scope-label heading). One control per page,
-// never duplicated.
+// beside the scope-label heading). Parity fix batch
+// (item 6, 18 Nov 2026): the Final Sample Master carries
+// the control in the results head as well as the buy bar,
+// so a rung-1 results page renders two instances — they
+// stay in step through the change subscription below.
 //
 // When the list already holds 3, tapping add replaces the
 // button in place with the full line and a link to the

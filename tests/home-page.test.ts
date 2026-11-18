@@ -39,6 +39,7 @@ import {
 import {
   DISCLAIMER_SHORT_FORM,
   HOME_HERO_HEADLINE,
+  SITE_KICKER,
   SITE_MANIFESTO,
   SITE_TAGLINE,
 } from "../lib/site";
@@ -245,7 +246,12 @@ describe("the rendered home page", () => {
     .replaceAll("&#x27;", "'");
 
   it("renders the hero in its pinned order: kicker, H1, sub-line, bare box, small line (fidelity pass 2)", () => {
-    const kicker = html.indexOf(SITE_MANIFESTO);
+    // Item 1 (parity fix batch): the hero kicker is the
+    // Master's stop-less form (SITE_KICKER); the stopped
+    // manifesto line renders only in the manifesto block.
+    expect(SITE_KICKER).toBe("For the family who'll live there — not just the buyer");
+    expect(SITE_MANIFESTO).toBe(`${SITE_KICKER}.`);
+    const kicker = html.indexOf(SITE_KICKER);
     const headline = html.indexOf(`<h1>${HOME_HERO_HEADLINE}</h1>`);
     const subline = html.indexOf(HOME_HERO_SUBLINE);
     const box = html.indexOf('id="postcode"');

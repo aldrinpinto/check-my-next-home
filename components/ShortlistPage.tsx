@@ -2,9 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import PostcodeBox from "./PostcodeBox";
-
-import { REPORT_ROUTE, distanceBand, formatMiles, reportRoute } from "../lib/results";
+import { REPORT_ROUTE, formatMiles, reportRoute } from "../lib/results";
 import { REPORT_PRICE_LABEL } from "../lib/site";
 import {
   SHORTLIST_EMPTY_HEADING,
@@ -15,7 +13,6 @@ import {
   SEE_THIS_HOMES_CHECK,
   buildComparison,
   cardLastSaleLine,
-  comparisonSaleLine,
   loadShortlist,
   notifyShortlistChanged,
   removeCardFromRecord,
@@ -38,10 +35,9 @@ import {
 // empty state carries NO lead, and the saved states carry
 // exactly the one stored-on-no-server sentence. The empty
 // state also gains the sample's "Check a home" card under
-// the empty card: the product's own PostcodeBox (bare
-// form, suggestions and all) dressed in the sample's card,
-// so searching from here behaves exactly like the landing
-// search.
+// the empty card — a plain form in the sample's card dress
+// (parity fix batch, item 41: no dropdown, no picker
+// behaviour; the saved states keep their PostcodeBox).
 //
 // The two named lines stay distinct (fold-in 5): storage
 // unavailable renders its own line where the shortlist
@@ -101,14 +97,12 @@ function CompareCell({
   // rather than dropping a saved list for its age.
   if (cell.kind === "pointer") return <span>{SEE_THIS_HOMES_CHECK}</span>;
   if (cell.kind === "line") return <span>{cell.text}</span>;
+  // Item 43 (parity fix batch): the Master's comparison
+  // miles are plain bold Forest text after a "·" — no
+  // tinted distance pill in a comparison cell.
   return (
     <span>
-      {cell.name}{" "}
-      <span
-        className={`place-row__miles${family ? ` place-row__miles--${distanceBand(family, cell.miles)}` : ""}`}
-      >
-        {formatMiles(cell.miles)} mi
-      </span>
+      {cell.name} · <span className="compare-mi">{formatMiles(cell.miles)} mi</span>
     </span>
   );
 }
@@ -168,12 +162,30 @@ export default function ShortlistPage() {
           <p>{SHORTLIST_EMPTY_LINE}</p>
         </section>
         {/* The sample's search card (view 14), under the
-            empty card: the product's bare PostcodeBox in the
-            sample's card dress — submitting behaves exactly
-            like the landing search. Empty state only. */}
+            empty card. Item 41 (parity fix batch): the
+            sample's card is a PLAIN form — a text input and
+            the brass button, no suggestions dropdown and no
+            picker behaviour. It submits to /search like
+            the landing search (a full postcode now lands
+            on that postcode's check). Empty state only; the
+            saved states' PostcodeBox usage is untouched. */}
         <section className="shortlist-search-card">
           <h2>Check a home</h2>
-          <PostcodeBox bare />
+          <form className="shortlist-search-form" action="/search" method="get">
+            <label className="visually-hidden" htmlFor="shortlist-postcode">
+              Postcode
+            </label>
+            <input
+              id="shortlist-postcode"
+              name="postcode"
+              type="text"
+              placeholder="Enter a postcode — e.g. SW1A 1AA"
+              autoComplete="postal-code"
+            />
+            <button type="submit" className="btn btn--brass shortlist-search-form__button">
+              Check this home
+            </button>
+          </form>
         </section>
       </>
     );
@@ -281,7 +293,13 @@ export default function ShortlistPage() {
               </tbody>
               <tfoot>
                 <tr>
-                  <td></td>
+                  {/* Item 45 (parity fix batch): the Master's
+                      foot row opens with a row header
+                      carrying the screen-reader-only
+                      "Reports" label, not an empty cell. */}
+                  <th scope="row">
+                    <span className="visually-hidden">Reports</span>
+                  </th>
                   {comparison.columns.map((card) => (
                     <td key={card.id}>
                       <a className="report-btn" href={cardReportHref(card)}>
@@ -300,11 +318,13 @@ export default function ShortlistPage() {
               style={{ "--compare-columns": comparison.columns.length } as React.CSSProperties}
             >
               {comparison.columns.map((card, columnIndex) => {
-                const saleLine = comparisonSaleLine(card);
+                // Item 44 (parity fix batch): the phone form
+                // carries NO sale line — the Master's stacked
+                // blocks omit it, as the wide table does; the
+                // sale line lives on the card above.
                 return (
                   <div className="shortlist-compare__column" key={card.id} data-rung={card.rung}>
                     <h3 className="shortlist-compare__address">{card.addressLine}</h3>
-                    {saleLine && <p className="shortlist-compare__sale">{saleLine}</p>}
                     <dl className="shortlist-compare__rows">
                       {comparison.rows.map((row) => (
                         <div

@@ -1706,6 +1706,7 @@
               ]
             },
             "potentialBand": "string",
+            "potentialRating": "null",
             "predicted": "boolean",
             "rating": "number",
             "ratingLine": "string",
@@ -5948,6 +5949,7 @@
               ]
             },
             "potentialBand": "string",
+            "potentialRating": "null",
             "predicted": "boolean",
             "rating": "number",
             "ratingLine": "string",
@@ -6763,6 +6765,7 @@
               ]
             },
             "potentialBand": "string",
+            "potentialRating": "null",
             "predicted": "boolean",
             "rating": "number",
             "ratingLine": "string",
@@ -7401,6 +7404,15 @@
           "price": "number"
         },
         "ownLine": "null",
+        "ownSales": [
+          {
+            "date": "string",
+            "newBuild": "boolean",
+            "price": "number",
+            "propertyType": "string",
+            "tenure": "string"
+          }
+        ],
         "sourceLine": "string",
         "state": "string",
         "stateLine": "null"
@@ -8254,6 +8266,15 @@
           "price": "number"
         },
         "ownLine": "null",
+        "ownSales": [
+          {
+            "date": "string",
+            "newBuild": "boolean",
+            "price": "number",
+            "propertyType": "string",
+            "tenure": "string"
+          }
+        ],
         "sourceLine": "string",
         "state": "string",
         "stateLine": "null"

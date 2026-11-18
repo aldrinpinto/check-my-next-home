@@ -796,7 +796,14 @@ describe("the sample-parity forms (views 14–16)", () => {
   it("gives the empty state the sample's search card, and only the empty state", () => {
     expect(island).toContain('className="shortlist-search-card"');
     expect(island).toContain("<h2>Check a home</h2>");
-    expect(island).toContain("<PostcodeBox bare />");
+    // Item 41 (parity fix batch): the card's form is the
+    // sample's PLAIN form — a text input and a brass submit,
+    // no PostcodeBox (no suggestions, no picker behaviour).
+    expect(island).toContain('className="shortlist-search-form"');
+    expect(island).toContain('action="/search"');
+    expect(island).toContain('name="postcode"');
+    expect(island).toContain('placeholder="Enter a postcode — e.g. SW1A 1AA"');
+    expect(island).toContain("Check this home");
     // The card sits in the empty branch: it is written
     // after the empty section opens and before the ready
     // return's head.
@@ -814,15 +821,9 @@ describe("the sample-parity forms (views 14–16)", () => {
     expect(card).toContain("max-width: 640px");
     expect(card).toContain("margin-top: 1.8rem");
     // The sample's row measures, inside this card only.
-    expect(css).toMatch(
-      /\.shortlist-search-card \.postcode-box--bare \.field__input \{[^}]*min-height: 52px/,
-    );
-    expect(css).toMatch(
-      /\.shortlist-search-card \.postcode-box--bare \.field__input \{[^}]*border-radius: 10px/,
-    );
-    expect(css).toMatch(
-      /\.shortlist-search-card \.postcode-box--bare \.btn \{[^}]*min-height: 52px/,
-    );
+    expect(css).toMatch(/\.shortlist-search-form input \{[^}]*min-height: 52px/);
+    expect(css).toMatch(/\.shortlist-search-form input \{[^}]*border-radius: 10px/);
+    expect(css).toMatch(/\.shortlist-search-form__button \{[^}]*min-height: 52px/);
   });
 
   it("runs the three-across cards at the frame's full width", () => {
@@ -837,9 +838,15 @@ describe("the sample-parity forms (views 14–16)", () => {
     expect(island).toContain('<span className="visually-hidden">Check</span>');
     expect(island).not.toContain("compare-table__sale");
     expect(css).not.toContain(".compare-table__sale");
-    // The cards keep their sale line, and the phone form
-    // keeps its own.
+    // Item 45 (parity fix batch): the foot row opens with
+    // a row header carrying the screen-reader-only
+    // "Reports" label, as the sample's table does.
+    expect(island).toContain('<th scope="row">');
+    expect(island).toContain('<span className="visually-hidden">Reports</span>');
+    // The cards keep their sale line; item 44 drops the
+    // phone (stacked) form's extra sale line — the wide
+    // table already omitted it.
     expect(island).toContain("shortlist-card__sale");
-    expect(island).toContain("shortlist-compare__sale");
+    expect(island).not.toContain("shortlist-compare__sale");
   });
 });

@@ -9,12 +9,11 @@ import type { ShortlistCard } from "../lib/shortlist";
 import {
   DISCLAIMER_CLOSING_BLOCK,
   DISCLAIMER_CLOSING_LINK_LABEL,
-  DISCLAIMER_SHORT_FORM,
   HOW_WE_CHECK_PATH,
   REPORT_PRICE_LABEL,
 } from "../lib/site";
 import Calculators from "./Calculators";
-import { Notice, SourceLine, SummaryPill } from "./kit";
+import { Notice, SummaryPill } from "./kit";
 import ShortlistButton from "./ShortlistButton";
 import Tabs from "./Tabs";
 
@@ -47,15 +46,13 @@ function PlaceGroup({ group }: { group: PlaceGroupView }) {
         <ul className="place-list">
           {group.rows.map((row) => (
             // D4 (parity fix stack, 18 Nov 2026): the
-            // sample's .row form — the name and its detail
-            // lines stacked in a left block, the distance
-            // chip at the right.
+            // sample's .row form — the name and its one
+            // composed detail line stacked in a left block,
+            // the distance chip at the right.
             <li className="place-row" key={row.name}>
               <span className="place-row__main">
                 <span className="place-row__name">{row.name}</span>
                 {row.detail && <span className="place-row__detail">{row.detail}</span>}
-                {row.ratingLine && <span className="place-row__rating">{row.ratingLine}</span>}
-                {row.sixthFormLine && <span className="place-row__sixth">{row.sixthFormLine}</span>}
               </span>
               <span className={`place-row__miles place-row__miles--${row.band}`}>
                 {row.milesText}
@@ -64,19 +61,93 @@ function PlaceGroup({ group }: { group: PlaceGroupView }) {
           ))}
         </ul>
       )}
-      {group.selectiveLine && <p className="results-line">{group.selectiveLine}</p>}
+      {group.grammar && (
+        // The grammar row (parity fix batch, item 12): the
+        // sample's row--grammar — the star name form, the
+        // SELECTIVE — TEST ENTRY badge, the distance chip.
+        <ul className="place-list">
+          <li className="place-row place-row--grammar">
+            <span className="place-row__main">
+              <span className="place-row__name">★ Grammar schools — {group.grammar.name}</span>
+            </span>
+            <span className="badge badge--grammar">SELECTIVE — TEST ENTRY</span>
+            <span className={`place-row__miles place-row__miles--${group.grammar.band}`}>
+              {group.grammar.milesText}
+            </span>
+          </li>
+        </ul>
+      )}
       {group.truncation &&
-        // D3: the truncation row in the sample's .truncRow
-        // form. The wording is unchanged — it is the D-ruled
-        // line from lib/results.ts, dressed, not rewritten.
+        // The truncRow (parity fix batch, item 14): lead,
+        // optional detail, the £4.99 chip and the arrow —
+        // the sample's one-row form, merged when a detail
+        // rides, plain when not.
         (group.truncation.href ? (
-          <a className="trunc-row" href={group.truncation.href}>
-            {group.truncation.text}
+          <a
+            className={`trunc-row${group.truncation.detail ? " trunc-row--merged" : ""}`}
+            href={group.truncation.href}
+          >
+            <span className="trunc-row__main">
+              <span className="trunc-row__lead">{group.truncation.lead}</span>
+              {group.truncation.detail && (
+                <span className="trunc-row__detail">{group.truncation.detail}</span>
+              )}
+            </span>
+            <span className="trunc-row__cta">
+              <span className="trunc-row__price">{REPORT_PRICE_LABEL}</span>{" "}
+              <span className="trunc-row__arrow">Get the full report →</span>
+            </span>
           </a>
         ) : (
-          <p className="trunc-row">{group.truncation.text}</p>
+          <p className={`trunc-row${group.truncation.detail ? " trunc-row--merged" : ""}`}>
+            <span className="trunc-row__main">
+              <span className="trunc-row__lead">{group.truncation.lead}</span>
+              {group.truncation.detail && (
+                <span className="trunc-row__detail">{group.truncation.detail}</span>
+              )}
+            </span>
+            <span className="trunc-row__cta">
+              <span className="trunc-row__price">{REPORT_PRICE_LABEL}</span>{" "}
+              <span className="trunc-row__arrow">Get the full report →</span>
+            </span>
+          </p>
         ))}
     </div>
+  );
+}
+
+// A section-level upsell renders as the same truncRow
+// (parity fix batch, item 14): the pre-batch .upsell panel
+// was the duplicate form the audit counted beside the
+// group rows.
+function UpsellRow({
+  lead,
+  detail,
+  reportHref,
+}: {
+  lead: string;
+  detail: string | null;
+  reportHref: string | null;
+}) {
+  const inner = (
+    <>
+      <span className="trunc-row__main">
+        <span className="trunc-row__lead">{lead}</span>
+        {detail && <span className="trunc-row__detail">{detail}</span>}
+      </span>
+      <span className="trunc-row__cta">
+        <span className="trunc-row__price">{REPORT_PRICE_LABEL}</span>{" "}
+        <span className="trunc-row__arrow">Get the full report →</span>
+      </span>
+    </>
+  );
+  const className = `trunc-row${detail ? " trunc-row--merged" : ""}`;
+  return reportHref ? (
+    <a className={className} href={reportHref}>
+      {inner}
+    </a>
+  ) : (
+    <p className={className}>{inner}</p>
   );
 }
 
@@ -87,16 +158,7 @@ function Block({ block, reportHref }: { block: SectionBlock; reportHref: string 
     case "subheading":
       return <h4 className="results-subheading">{block.text}</h4>;
     case "upsell":
-      return (
-        <div className="upsell">
-          <p className="upsell__lead">{block.lead}</p>
-          {block.detail && <p className="upsell__detail">{block.detail}</p>}
-          <p className="upsell__price">
-            {REPORT_PRICE_LABEL}{" "}
-            {reportHref ? <a href={reportHref}>Get the full report →</a> : "Get the full report →"}
-          </p>
-        </div>
-      );
+      return <UpsellRow lead={block.lead} detail={block.detail} reportHref={reportHref} />;
     case "notice":
       return <Notice variant={block.variant}>{block.text}</Notice>;
     case "link":
@@ -112,9 +174,42 @@ function Block({ block, reportHref }: { block: SectionBlock; reportHref: string 
             <li className="results-tile" key={tile.label}>
               <span className="results-tile__label">{tile.label}</span>
               <span className="results-tile__value">{tile.value}</span>
+              {tile.sub && <span className="results-tile__sub">{tile.sub}</span>}
             </li>
           ))}
         </ul>
+      );
+    case "tagged-line":
+      // The Master's .row form: bold lead, small texts,
+      // fineprint, badge at the right.
+      return (
+        <div className="results-row">
+          <div className="results-row__main">
+            {block.lead && <span className="results-row__lead">{block.lead}</span>}
+            {block.texts.map((text) => (
+              <span className="results-row__text" key={text}>
+                {text}
+              </span>
+            ))}
+            {block.fineprint && <span className="results-row__fineprint">{block.fineprint}</span>}
+          </div>
+          {block.tag && (
+            <span className={`badge badge--${block.tagTone ?? "grey"}`}>{block.tag}</span>
+          )}
+        </div>
+      );
+    case "verdict":
+      // The flood verdict row: bold check name, verdict
+      // text, the optional second line, CHECK badge.
+      return (
+        <div className="results-row">
+          <div className="results-row__main">
+            <span className="results-row__lead">{block.name}</span>
+            <span className="results-row__text">{block.text}</span>
+            {block.note && <span className="results-row__text">{block.note}</span>}
+          </div>
+          <span className="badge badge--a">{block.tag}</span>
+        </div>
       );
     case "places":
       return <PlaceGroup group={block.group} />;
@@ -131,7 +226,6 @@ function Block({ block, reportHref }: { block: SectionBlock; reportHref: string 
             </div>
           ))}
           {block.overflowLine && <p className="results-line">{block.overflowLine}</p>}
-          <p className="flood-warnings__attribution">{block.attributionLine}</p>
           <p className="results-line">
             <a href={block.link.url}>{block.link.label}</a>
           </p>
@@ -159,7 +253,11 @@ function Section({
       {section.blocks.map((block, index) => (
         <Block key={index} block={block} reportHref={reportHref} />
       ))}
-      {section.sourceLine && <SourceLine>{section.sourceLine}</SourceLine>}
+      {/* Item 15 (parity fix batch): the per-section source
+          lines no longer render on the results page — the
+          Master carries none; sources live on the check
+          pages and in the report. The view still carries
+          section.sourceLine for those surfaces. */}
     </section>
   );
 }
@@ -206,7 +304,10 @@ export default function ResultsPage({
           {view.warningsStrip.line}
         </p>
       )}
-      <p className="results-disclaimer-short">{DISCLAIMER_SHORT_FORM}</p>
+      {/* Item 16 (parity fix batch): the short disclaimer
+          line under the pills is removed — the Master
+          carries none there; the closing disclaimer block
+          at the foot of the page stands. */}
       <Tabs
         ariaLabel="Your check, in four parts"
         tabs={view.tabs.map((tab) => ({
@@ -235,8 +336,11 @@ export default function ResultsPage({
             {view.buyBar.mysteryLine}
           </p>
           <p className="buy-bar__actions">
+            {/* Item 19 (parity fix batch): the buy-bar
+                button carries no price — the priced form
+                is only the results-head button. */}
             <a className="report-btn" href={view.buyBar.href}>
-              Get the full report — {REPORT_PRICE_LABEL}
+              Get the full report
             </a>
             {shortlistCard && <ShortlistButton card={shortlistCard} />}
           </p>

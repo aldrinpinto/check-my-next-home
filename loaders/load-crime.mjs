@@ -130,11 +130,21 @@ export async function computeBasisResidents(client, point) {
 // from the same filed source as every circle's basis — the
 // sum over lsoa_bases' E01 rows (56,490,108 on the full
 // filing). Null while the bases are unfiled.
+//
+// Coverage guard (parity fix batch, 18 Nov 2026): the sum
+// is England's ONLY when the bases are credibly the whole
+// national filing — England has 33,755 LSOAs. A partial
+// filing (the play server held 3 LSOAs / 5,899 residents)
+// divided the national crime total by a village-sized base
+// and served an England figure of 933,039 per 1,000. Below
+// the floor the denominator does not exist: the figure is
+// withheld, never approximated.
+export const ENGLAND_BASE_MIN_AREAS = 30_000;
 export async function englandResidents(client) {
   const { rows } = await client.query(
     "SELECT COALESCE(SUM(residents), 0)::int AS residents, COUNT(*)::int AS areas FROM lsoa_bases WHERE lsoa_code LIKE 'E01%'",
   );
-  return rows[0].areas > 0 ? rows[0].residents : null;
+  return rows[0].areas >= ENGLAND_BASE_MIN_AREAS ? rows[0].residents : null;
 }
 
 // The window's England figure for embedding, or null while

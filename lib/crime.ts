@@ -372,12 +372,29 @@ function perHeadFor(filed: FiledCrimeAnswer): ServedCrimePerHead | null {
   };
 }
 
+// The credibility floor for a filed national base (parity
+// fix batch, 18 Nov 2026): an artefact embedded by a loader
+// running over a partial lsoa_bases filing carries that
+// partial base in its national.residents — the play server's
+// held 5,899 residents under the whole country's crime
+// total, which served an England figure of 933,039 per
+// 1,000. England's Census 2021 population is 56,490,108;
+// no genuine national filing sits anywhere near this floor,
+// and no 1-mile circle basis (tens of thousands at most)
+// approaches it either — so a base below the floor is not
+// a national base, and the England figure is withheld (the
+// brain's honest form: the local rate serves alone) until
+// the artefact is re-filed over the national bases. The
+// loader guards the same line at filing time
+// (loaders/load-crime.mjs, ENGLAND_BASE_MIN_AREAS).
+export const ENGLAND_BASE_MIN_RESIDENTS = 30_000_000;
+
 function englandFigureFor(
   filed: FiledCrimeAnswer,
   perHead: ServedCrimePerHead,
 ): ServedCrimeEnglandFigure | null {
   const national = filed.national;
-  if (!national || national.residents <= 0) return null;
+  if (!national || national.residents < ENGLAND_BASE_MIN_RESIDENTS) return null;
   const englandExact = (national.total / national.residents) * 1000;
   const englandPer1000 = round1(englandExact);
   // The multiple is computed on the unrounded figures and

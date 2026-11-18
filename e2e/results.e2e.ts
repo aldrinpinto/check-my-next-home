@@ -13,9 +13,9 @@ import { expect, test } from "./fixtures";
 // results. Regression: the rung-3 wider-area page, refresh
 // and Back, the flood-warnings forms, the D39 calibration
 // pair, the noise states, the catchment block and deadlines
-// line, rung 2's label with the picker embedded, and the
-// nations. No Regression spec is promoted to Smoke (D68
-// clause 7).
+// line, rung 2's label with the home list at its head,
+// and the nations. No Regression spec is promoted to
+// Smoke (D68 clause 7).
 //
 // Two authored lines are proven where the environment can
 // prove them honestly (recorded in docs/frontend-m7.4.md):
@@ -44,11 +44,12 @@ async function searchFromHome(page: Page, text: string) {
 }
 
 async function reachResults(page: Page, postcode: string, rowName: string | RegExp) {
-  await page.waitForURL(`**/search?postcode=${postcode.replace(" ", "+")}`);
-  // D70 R6: the picker is select-then-confirm.
-  await page.getByRole("button", { name: rowName }).first().click();
-  await page.getByRole("button", { name: "Check this address" }).click();
-  await page.waitForURL(/\/search\/home\?postcode=/);
+  // Picker removed (18 Nov 2026): the submit lands on the
+  // whole-postcode check; its home list's rows are links
+  // straight to each home's check.
+  await page.waitForURL(`**/search/home?postcode=${postcode.replace(" ", "+")}`);
+  await page.getByRole("link", { name: rowName }).first().click();
+  await page.waitForURL(/\/search\/home\?postcode=.*&home=/);
   await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
 }
 
@@ -186,7 +187,7 @@ test.describe("results page — regression", () => {
   );
 
   test(
-    "refresh restores the same check, and Back returns to the picker",
+    "refresh restores the same check, and Back returns to the postcode check with its home list",
     { tag: "@regression" },
     async ({ page }) => {
       await searchFromHome(page, "CM3 2JT");
@@ -197,10 +198,8 @@ test.describe("results page — regression", () => {
         "330 crimes recorded in the last 12 months",
       );
       await page.goBack();
-      await page.waitForURL(/\/search\?postcode=CM3\+2JT/);
-      await expect(
-        page.getByRole("button", { name: "19 Birkdale Rise", exact: true }),
-      ).toBeVisible();
+      await page.waitForURL(/\/search\/home\?postcode=CM3\+2JT$/);
+      await expect(page.getByRole("link", { name: "19 Birkdale Rise", exact: true })).toBeVisible();
     },
   );
 
@@ -299,38 +298,38 @@ test.describe("results page — regression", () => {
   );
 
   test(
-    "rung 2 at Beaulieu CM1 6ER: the pinned label with the picking index's homes embedded at the head of the page (M7.15B)",
+    "rung 2 at Beaulieu CM1 6ER: the pinned label with the picking index's homes listed at the head of the page (M7.15B)",
     { tag: "@regression" },
     async ({ page }) => {
       await page.goto("/search/home?postcode=CM1+6ER");
-      await expect(page.locator(".results-header h1")).toHaveText(
+      await expect(page.locator(".results-head h1")).toHaveText(
         "Postcode area — CM1 6ER, not one exact home",
       );
       await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
-      // M7.15B: the embedded picker reads the same union
-      // as the rung-1 picker, so Beaulieu's 49 index homes
-      // are listed here too — the empty line this spec
-      // asserted before the preload is gone by design
-      // (CI #215). The empty embedded picker is pinned on
-      // CM0 7AA in the next spec.
+      // M7.15B: the home list on the postcode check reads
+      // the same union the picker read, so Beaulieu's 49
+      // index homes are listed here — the empty line this
+      // spec asserted before the preload is gone by design
+      // (CI #215). The empty list is pinned on CM0 7AA in
+      // the next spec.
       await expect(page.locator(".picker__empty-line")).toHaveCount(0);
       await expect(page.locator(".picker__count")).toHaveText("49 addresses");
       await expect(
-        page.getByRole("button", { name: "49 George Heard Crescent", exact: true }),
+        page.getByRole("link", { name: "49 George Heard Crescent", exact: true }),
       ).toBeVisible();
       await expect(page.getByRole("tab")).toHaveCount(4);
     },
   );
 
   test(
-    "rung 2 at Southminster CM0 7AA: the pinned label with the empty picker embedded at the head of the page",
+    "rung 2 at Southminster CM0 7AA: the pinned label with the empty home list at the head of the page",
     { tag: "@regression" },
     async ({ page }) => {
       // CM0 7AA is the neither-source witness: held in the
       // directory fixture, with no sale, certificate or
       // index row in any seeded fixture — its union is
-      // empty, so the embedded picker serves the named
-      // empty state. Its results derivation settles from
+      // empty, so the home list serves the named empty
+      // state. Its results derivation settles from
       // filed data alone because the seed files its
       // sold-prices load stamp (loaded, none recorded —
       // the state a production postcode reaches after its
@@ -339,7 +338,7 @@ test.describe("results page — regression", () => {
       // live load streams the full Price Paid file, which
       // no assertion window can wait out (CI #216).
       await page.goto("/search/home?postcode=CM0+7AA");
-      await expect(page.locator(".results-header h1")).toHaveText(
+      await expect(page.locator(".results-head h1")).toHaveText(
         "Postcode area — CM0 7AA, not one exact home",
       );
       await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });

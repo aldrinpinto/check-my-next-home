@@ -1,11 +1,10 @@
 import { redirect } from "next/navigation";
 
-import AddressPicker, { type PickerAddress } from "../../components/AddressPicker";
 import PostcodeBox from "../../components/PostcodeBox";
 import ResultsPage from "../../components/ResultsPage";
 import ShortlistButton from "../../components/ShortlistButton";
 import WholeCheckFailure from "../../components/WholeCheckFailure";
-import { createAddressSource, displayText, resolveAddressInput } from "../../lib/address";
+import { createAddressSource, resolveAddressInput } from "../../lib/address";
 import { homeKeyOf } from "../../lib/bundle-cache";
 import {
   UNPLACED_NOTICE_URL,
@@ -13,17 +12,10 @@ import {
   WIDER_AREA_BANNER_LINE,
   homeRoute,
   postcodeNotFoundLine,
-  postcodeRoute,
   widerAreaRoute,
 } from "../../lib/journey";
 import { buildWiderAreaView } from "../../lib/results";
-import {
-  checkResultsWider,
-  pickerRowsFor,
-  resolutionForPostcodeRoute,
-  resolutionNotCovered,
-} from "../../lib/server/serve";
-import { newRequestId } from "../../lib/server/entry-log";
+import { checkResultsWider, resolutionForPostcodeRoute } from "../../lib/server/serve";
 import { buildShortlistCard } from "../../lib/shortlist-card";
 import { getDbPool } from "../../lib/server/db";
 
@@ -46,18 +38,18 @@ export const metadata: Metadata = pageMetadata({
 });
 
 // The postcode form of the journey's route family (plan
-// step M7.3, fold-in 1): /search carrying the normalised
-// postcode renders the picker or the postcode-level state;
-// carrying an outward code it renders the wider-area
-// landing (rung 3); carrying nothing it redirects to the
-// landing page with the unplaced notice — the standalone
-// no-location page was retired by the founder's ruling of
-// 18 Nov 2026 (an input that can't be placed returns to
-// the landing page with a small notice at its search box,
-// never a page of its own). Server-rendered from the
-// frozen ladder — the page never guesses an address: a
-// narrowing rides as the filed street / display building
-// and the brain re-decides the list.
+// step M7.3, fold-in 1): /search carrying an outward code
+// renders the wider-area landing (rung 3); carrying a full
+// postcode it redirects to that postcode's check (the home
+// check at rung 1, the whole-postcode check at rung 2) —
+// the picker page that used to render here was removed by
+// the founder's ruling of 18 Nov 2026, its home list moved
+// onto the whole-postcode check; carrying nothing it
+// redirects to the landing page with the unplaced notice —
+// the standalone no-location page was retired by the same
+// day's earlier ruling (an input that can't be placed
+// returns to the landing page with a small notice at its
+// search box, never a page of its own).
 
 export const dynamic = "force-dynamic";
 
@@ -97,7 +89,9 @@ export default async function SearchPage({
       // unplaced notice (the retired no-location page's
       // replacement, 18 Nov 2026).
       if (resolution.rung === 4) redirect(UNPLACED_NOTICE_URL);
-      redirect(postcodeRoute(resolution.directory.postcode));
+      if (resolution.rung === 1)
+        redirect(homeRoute(resolution.directory.postcode, homeKeyOf(resolution)));
+      redirect(homeRoute(resolution.directory.postcode));
     }
     let view;
     let card;
@@ -156,47 +150,13 @@ export default async function SearchPage({
     redirect(UNPLACED_NOTICE_URL);
   }
 
-  // Rung 2. Scotland / NI never render a picker (ruling 4).
-  if (resolutionNotCovered(resolution)) redirect(homeRoute(postcode));
-
-  const heading =
-    resolution.building ?? (resolution.street ? displayText(resolution.street) : postcode);
-  // The hybrid list (entry-point build, D72): the ladder's
-  // local rows, Postio's supplement merged in when
-  // the local list is short — one list, deduplicated, in
-  // natural address order. A
-  // merge that fails outright degrades to the local rows:
-  // the picker must never dead-end on the backstop.
-  let addresses: PickerAddress[];
-  try {
-    const rows = await pickerRowsFor(
-      postcode,
-      resolution.addresses,
-      { street: resolution.street, building: resolution.building },
-      newRequestId(),
-    );
-    addresses = rows.map((row) => ({
-      key: row.key,
-      label: row.label,
-      source: row.source,
-      udprn: row.udprn,
-    }));
-  } catch {
-    addresses = resolution.addresses.map((address) => ({
-      key: homeKeyOf({ rung: 1, kind: "home", address, directory: resolution.directory }),
-      label: address.label,
-    }));
-  }
-
-  return (
-    <main className="journey-page main--wide">
-      <AddressPicker
-        postcode={postcode}
-        heading={heading}
-        headingLevel={1}
-        addresses={addresses}
-        pickedKey={params.picked ?? null}
-      />
-    </main>
-  );
+  // Rung 2. Founder ruling, 18 Nov 2026 (parity fix
+  // batch): the picker page is REMOVED — this route
+  // redirects to the whole-postcode check, which carries
+  // the postcode's full home list itself (the picker's
+  // list, moved). Old links and bookmarks to
+  // /search?postcode=… land on the check, never a 404.
+  // Scotland / NI take the same redirect (ruling 4's
+  // destination was always the home route).
+  redirect(homeRoute(postcode));
 }

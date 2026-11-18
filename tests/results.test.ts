@@ -480,6 +480,17 @@ function areaBundle(noiseState: "served" | "not-filed" | "not-covered" = "not-fi
               sourceLine: null,
             },
       councilTax: {
+        // The served fields the Costs rows compose from
+        // (parity fix batch): the stub previously carried
+        // only the monthly line, which masked the real
+        // section shape.
+        state: "served",
+        authority: "Braintree",
+        taxYear: "2026/27",
+        bandDAveragePence: 228036,
+        bandDAverageLabel: "£2,280.36",
+        bandDMonthlyPence: 19003,
+        bandDMonthlyLabel: "£190.03",
         monthlyLine: "£190.03 a month if the Band D average is spread evenly over 12 months",
         sourceLine: "Council tax data",
       },
@@ -545,9 +556,14 @@ describe("results — formatters and distance bands", () => {
   });
 
   it("truncationFor: N = served count minus shown; no line at zero; rung 3 unlinked", () => {
+    // Re-pinned (parity fix batch, item 14): the truncRow
+    // carries the lead and the price as separate parts —
+    // the lead no longer embeds "in the detailed report —
+    // £4.99".
     expect(truncationFor(5, 2, "primary schools", true)).toEqual({
       n: 3,
-      text: "Plus 3 more primary schools in the detailed report — £4.99",
+      lead: "Plus 3 more primary schools",
+      detail: null,
       href: REPORT_ROUTE,
     });
     expect(truncationFor(2, 2, "primary schools", true)).toBeNull();
@@ -601,12 +617,10 @@ describe("results — place groups", () => {
     expect(group.rows[0].milesText).toBe("0.4 mi");
     expect(group.rows[0].band).toBe("green");
     expect(group.rows[1].band).toBe("green");
-    expect(group.truncation?.text).toBe(
-      "Plus 3 more primary schools in the detailed report — £4.99",
-    );
+    expect(group.truncation?.lead).toBe("Plus 3 more primary schools");
   });
 
-  it("health rows carry the CQC rating with its publication date, never an inspection date", () => {
+  it("health rows carry the CQC rating in the detail, never an inspection date", () => {
     const gp = (baseNearby as Extract<NearbyBundle, { kind: "distances" }>).categories.find(
       (c) => c.category === "gp",
     );
@@ -616,8 +630,14 @@ describe("results — place groups", () => {
       { heading: "GP surgeries", groupLabel: "GP surgeries", display: 1, family: "everyday" },
       true,
     );
-    expect(group.rows[0].ratingLine).toBe("CQC overall rating: Good (published 19 December 2024)");
-    expect(group.rows[0].ratingLine).not.toContain("inspect");
+    // Re-pinned (parity fix batch, items 29/14): the CQC
+    // part rides inside the row's one detail line in the
+    // Master's form — "CQC overall rating: Good", with no
+    // publication date on the results page (the date stays
+    // at report depth) and never an inspection date.
+    expect(group.rows[0].detail).toContain("CQC overall rating: Good");
+    expect(group.rows[0].detail).not.toContain("published");
+    expect(group.rows[0].detail).not.toContain("inspect");
     expect(group.truncation?.n).toBe(1);
   });
 
@@ -644,11 +664,15 @@ describe("results — place groups", () => {
       },
       true,
     );
-    // O-3 (M7.11): the yes form is the sample's plain line;
-    // the not-recorded form stays as filed.
-    expect(group.rows[0].sixthFormLine).toBe("Sixth form at the school");
-    expect(group.rows[1].sixthFormLine).toBe("sixth form: not recorded");
-    expect(group.selectiveLine).toContain("Grammar School");
+    // O-3 (M7.11): the yes form is the sample's plain
+    // words; the not-recorded form stays as filed — both
+    // now ride inside the row's one detail line (parity
+    // fix batch, item 29). The selective fact renders as
+    // the grammar row (item 12), not a sentence.
+    expect(group.rows[0].detail).toBe("Sixth form at the school");
+    expect(group.rows[1].detail).toBe("sixth form: not recorded");
+    expect(group.grammar?.name).toBe("Grammar School");
+    expect(group.grammar?.milesText).toBe("1.2 mi");
     // Destinations are report depth: the row model carries
     // no destinations field at all.
     expect(JSON.stringify(group)).not.toContain("destinations");
@@ -770,12 +794,91 @@ describe("results — pill logic D75 (fold-in)", () => {
       area: d75Area(),
     });
     expect(pills?.map(pillText)).toEqual([
-      "Schools 0.4 / 1.9 mi",
-      "Flood Very low",
-      "Crime Below England average",
-      "Noise Quiet",
-      "Deprivation 8 of 10",
+      "Schools · 0.4 / 1.9 mi",
+      "Flood · Very low",
+      "Crime · Below England average",
+      "Noise · Quiet",
+      "Deprivation · 8 of 10",
     ]);
+  });
+
+  it("item 8/9 (parity fix batch): an Exeter-shaped crime pair — local rate above the true England figure — makes Crime a concerning pill in D75 priority order", () => {
+    // Exeter's real pair: 122.5 per 1,000 here against
+    // England's 94.5. Crime is concerning, and D75 priority
+    // (Flood, Crime, Schools…) puts it ahead of the
+    // concerning Schools pill.
+    const pills = summaryPills({
+      nearby: nearbyWith({
+        "schools-primary": primaryNear,
+        "schools-secondary": category({
+          category: "schools-secondary",
+          state: "within",
+          places: [{ name: "Maltings Academy", miles: 1.87, detail: null, sixthForm: true }],
+          countWithin: 1,
+        }),
+      }) as Extract<NearbyBundle, { kind: "distances" }>,
+      flood: floodBundle(noWarnings),
+      crime: crimeBundle(1.3, null, 122.5),
+      sections: shortSections(),
+      area: d75Area(),
+    });
+    expect(pills?.map(pillText)).toEqual([
+      "Crime · Above England average",
+      "Schools · 0.4 / 1.9 mi",
+      "Flood · Very low",
+      "Noise · Quiet",
+      "Deprivation · 8 of 10",
+    ]);
+  });
+
+  it("item 8/9 (parity fix batch): with no England figure (the thin-base guard's form), no Crime pill serves at all", () => {
+    const pills = summaryPills({
+      nearby: nearbyWith({
+        "schools-primary": primaryNear,
+        "schools-secondary": category({
+          category: "schools-secondary",
+          state: "within",
+          places: [{ name: "Maltings Academy", miles: 1.87, detail: null, sixthForm: true }],
+          countWithin: 1,
+        }),
+      }) as Extract<NearbyBundle, { kind: "distances" }>,
+      flood: floodBundle(noWarnings),
+      crime: crimeBundle(null, null, 122.5),
+      sections: shortSections(),
+      area: d75Area(),
+    });
+    expect(pills?.some((pill) => pill.label === "Crime")).toBe(false);
+  });
+
+  it("item 8 (parity fix batch): the corrupted England figure reproduces the live Exeter departure — the diagnosis pin", () => {
+    // The play server's thin LSOA base divided the national
+    // total by 5,899 residents, serving an "England figure"
+    // of 933039: Exeter's 122.5 read as BELOW it, flipping
+    // Crime to a good pill and producing the departed strip
+    // (Deprivation promoted, Noise dropped). The pill
+    // algorithm itself never departed from D75 — its input
+    // did. This pin keeps the diagnosis executable.
+    const corrupted = crimeBundle(0.5, null, 122.5) as unknown as {
+      crime: { englandFigure: { englandPer1000: number; multiple: number; line: string } | null };
+    };
+    corrupted.crime.englandFigure = { englandPer1000: 933039, multiple: 0, line: "corrupted" };
+    const pills = summaryPills({
+      nearby: nearbyWith({
+        "schools-primary": primaryNear,
+        "schools-secondary": category({
+          category: "schools-secondary",
+          state: "within",
+          places: [{ name: "Maltings Academy", miles: 1.87, detail: null, sixthForm: true }],
+          countWithin: 1,
+        }),
+      }) as Extract<NearbyBundle, { kind: "distances" }>,
+      flood: floodBundle(noWarnings),
+      crime: corrupted as unknown as CrimeBundle,
+      sections: shortSections(),
+      area: d75Area(),
+    });
+    const crimePill = pills?.find((pill) => pill.label === "Crime");
+    expect(crimePill?.figure).toBe("Below England average");
   });
 
   it("the golden flood shape: rofsw below-lowest-band still earns the Flood pill as a good pill", () => {
@@ -851,11 +954,11 @@ describe("results — pill logic D75 (fold-in)", () => {
     const floodPill = pills?.find((pill) => pill.label === "Flood");
     expect(floodPill?.figure).toBe("Very low");
     expect(pills?.map(pillText)).toEqual([
-      "Schools 0.4 / 1.9 mi",
-      "Flood Very low",
-      "Crime Below England average",
-      "Noise Quiet",
-      "Deprivation 8 of 10",
+      "Schools · 0.4 / 1.9 mi",
+      "Flood · Very low",
+      "Crime · Below England average",
+      "Noise · Quiet",
+      "Deprivation · 8 of 10",
     ]);
   });
 
@@ -946,11 +1049,11 @@ describe("results — pill logic D75 (fold-in)", () => {
     const noisePill = pills?.find((pill) => pill.label === "Noise");
     expect(noisePill?.figure).toBe("Quiet");
     expect(pills?.map(pillText)).toEqual([
-      "Schools 0.4 / 1.9 mi",
-      "Flood Very low",
-      "Crime Below England average",
-      "Noise Quiet",
-      "Deprivation 8 of 10",
+      "Schools · 0.4 / 1.9 mi",
+      "Flood · Very low",
+      "Crime · Below England average",
+      "Noise · Quiet",
+      "Deprivation · 8 of 10",
     ]);
   });
 
@@ -1120,7 +1223,7 @@ describe("results — pill logic D75 (fold-in)", () => {
       } as unknown as CrimeBundle,
       sections,
     });
-    expect(pills?.map(pillText)).toEqual(["Flood Very low"]);
+    expect(pills?.map(pillText)).toEqual(["Flood · Very low"]);
   });
 
   it("the schools and nurseries upsells carry the trimmed F1/F3 wording — never the banned promises", () => {
@@ -1277,8 +1380,14 @@ describe("results — the built view", () => {
       "modelled noise bands are not filed yet, so no noise answer can be given yet",
     );
     const served = buildResultsView(input({ area: areaBundle("served") }));
+    // Item 24 (parity fix batch): the noise serves as the
+    // Master's single joined line, not the brain's
+    // per-band lines.
     expect(JSON.stringify(section(served, "neighbourhood", "air-noise").blocks)).toContain(
-      "road noise: Below 55 dB by day, Below 50 dB by night",
+      "Road noise day below 55 dB and night below 50 dB.",
+    );
+    expect(JSON.stringify(section(served, "neighbourhood", "air-noise").blocks)).toContain(
+      "Defra modelled bands.",
     );
     const welsh = buildResultsView(input({ area: areaBundle("not-covered") }));
     expect(JSON.stringify(section(welsh, "neighbourhood", "air-noise").blocks)).toContain(
@@ -1298,6 +1407,60 @@ describe("results — the built view", () => {
     ]);
     const text = JSON.stringify(sold);
     expect(text).not.toMatch(/change since|held for|annual growth|time held/i);
+  });
+
+  it("sold history: the Master's four stat tiles, the property line and human dates (item 20, parity fix batch)", () => {
+    const sections = shortSections({
+      soldPrices: {
+        state: "served",
+        stateLine: null,
+        ownLastSale: { price: 588995, date: "2023-06-15" },
+        ownSales: [
+          { price: 450000, date: "2019-03-01", propertyType: "D", tenure: "F", newBuild: true },
+          { price: 588995, date: "2023-06-15", propertyType: "D", tenure: "F", newBuild: false },
+        ],
+        ownLine: "19 Birkdale Rise last sold for £588,995 on 15 June 2023",
+        median: {
+          state: "served",
+          value: 588995,
+          counted: 29,
+          spanFrom: "2013-09-20",
+          spanTo: "2024-01-31",
+          line: "the middle of 29 category-A sales in CM3 2JT is £588,995",
+        },
+        buildingMedian: null,
+        sourceLine: "HM Land Registry Price Paid Data",
+        explainer: "explainer",
+      } as ShortSections["soldPrices"],
+    });
+    const view = buildResultsView(
+      input({ short: { rung: 1, kind: "short-bundle", postcode: "CM3 2JT", sections } }),
+    );
+    const sold = section(view, "home", "sold-prices");
+    const tiles = sold.blocks.find((b) => b.type === "tiles");
+    if (!tiles || tiles.type !== "tiles") throw new Error("tiles missing");
+    expect(tiles.tiles).toEqual([
+      { label: "Last sale", value: "£588,995", sub: "15 June 2023 • Land Registry" },
+      { label: "Times sold", value: "2", sub: "2 recorded sales found" },
+      {
+        label: "Change since prev.",
+        value: "+£138,995",
+        sub: "Previous sale £450,000 — 1 March 2019",
+      },
+      {
+        label: "Held by last owner",
+        value: "4 years 3 months",
+        sub: "Bought 1 March 2019 — sold 15 June 2023",
+      },
+    ]);
+    const text = JSON.stringify(sold.blocks);
+    expect(text).toContain(
+      "Detached, freehold. These figures describe recorded sales only — they are not a valuation of this home.",
+    );
+    // Human dates everywhere: the median span composes
+    // from the filed ISO span into human form.
+    expect(text).toContain("20 September 2013 to 31 January 2024");
+    expect(text).not.toContain("2013-09-20");
   });
 
   it("report-depth material never reaches the view (D66)", () => {
@@ -1346,8 +1509,14 @@ describe("results — the built view", () => {
     const view = buildResultsView(input());
     const costs = section(view, "home", "costs");
     const text = JSON.stringify(costs.blocks);
-    expect(text).toContain("Band D averages £2,280.36 a year in Braintree");
-    expect(text).toContain("£190.03 a month if the Band D average is spread evenly over 12 months");
+    // Item 22 (parity fix batch): council tax is stated
+    // ONCE, in the Master's single Band D line — the
+    // brain's monthly restatement no longer renders beside
+    // it.
+    expect(text).toContain("Band D — Braintree: £2,280.36 a year, £190.03 a month");
+    expect(text).toContain("this home's own band isn't published");
+    expect(text).not.toContain("spread evenly over 12 months");
+    expect(text.split("£2,280.36 a year").length - 1).toBe(1);
     expect(text).toContain("gigabit");
     expect(text).toContain("Plus every council tax band and the full EPC certificate detail");
   });
@@ -1537,7 +1706,7 @@ describe("results — nation gating (Scotland/NI gap check, fold-in workstream 6
     );
     expect(text).toContain("GP surgeries isn't part of this check in Scotland");
     expect(text).toContain("A&E hospitals isn't part of this check in Scotland");
-    expect(text).toContain("Nurseries & pre-schools isn't part of this check in Scotland");
+    expect(text).toContain("Nurseries isn't part of this check in Scotland");
     expect(text).not.toMatch(/\d{3}\.\d+ mi/);
     // Scotland's stations/bus stops/EV chargers are NOT gated (GB/UK-wide datasets).
     const transport = section(view, "nearby", "transport");
@@ -1676,11 +1845,14 @@ describe("results — the wider-area view (rung 3)", () => {
 });
 
 describe("results — the rendered page", () => {
-  it("renders the D75 pills, the D9 form verbatim, the closing block, the buy bar and the calculators", () => {
+  it("renders the D75 pills, the closing block, the buy bar and the calculators", () => {
     const view = buildResultsView(input());
     const html = renderToStaticMarkup(createElement(ResultsPage, { view }));
     expect(html).toContain("pill pill--summary");
-    expect(html).toContain(DISCLAIMER_SHORT_FORM);
+    // Item 16 (parity fix batch): the D9 short form no
+    // longer sits under the pills — the Master carries no
+    // disclaimer line there; the closing block stands.
+    expect(html).not.toContain(DISCLAIMER_SHORT_FORM);
     expect(html).toContain(DISCLAIMER_CLOSING_BLOCK);
     expect(html).toContain('<a href="/how-we-check">How we check</a>.');
     // Tab order is fixed (D76): Family, Neighbourhood, Home, Nearby.
@@ -1694,21 +1866,24 @@ describe("results — the rendered page", () => {
     expect(nearbyAt).toBeGreaterThan(homeAt);
     // Truncation rows carry the M7.6 link contract:
     // postcode + home key, the identity the door resolves.
-    // D3 (parity fix stack, 18 Nov 2026): the row is the
-    // sample's .truncRow link itself now — the assertion
-    // follows the form.
+    // Item 14 (parity fix batch): the row is the sample's
+    // merged truncRow — lead, detail, the £4.99 chip and
+    // the arrow as separate parts.
     expect(html).toContain(
-      '<a class="trunc-row" href="/report?postcode=CM3+2JT&amp;home=19%7C%7CBIRKDALE+RISE">Plus 3 more primary schools in the detailed report — £4.99</a>',
+      '<a class="trunc-row trunc-row--merged" href="/report?postcode=CM3+2JT&amp;home=19%7C%7CBIRKDALE+RISE"><span class="trunc-row__main"><span class="trunc-row__lead">Plus 3 more primary schools</span><span class="trunc-row__detail">All 5, with their Ofsted ratings and inspection dates.</span></span><span class="trunc-row__cta"><span class="trunc-row__price">£4.99</span> <span class="trunc-row__arrow">Get the full report →</span></span></a>',
     );
     // The buy bar: the mystery tease rides inside it, and
-    // its button is the priced form on the contract href.
+    // its button is the UNPRICED form on the contract href
+    // (item 19: the priced form is only the results-head
+    // button).
     expect(html).toContain("A mystery extra");
     expect(html).toContain(
       "Every report comes with a mystery extra, on us — it arrives in your email with your report.",
     );
     expect(html).toContain(
-      '<a class="report-btn" href="/report?postcode=CM3+2JT&amp;home=19%7C%7CBIRKDALE+RISE">Get the full report — £4.99</a>',
+      '<a class="report-btn" href="/report?postcode=CM3+2JT&amp;home=19%7C%7CBIRKDALE+RISE">Get the full report</a>',
     );
+    expect(html).not.toContain("Get the full report — £4.99");
     // The buy bar and the calculators sit below the tabs.
     expect(html).toContain("Get the full detailed report for this home");
     expect(html).toContain("the flood findings with location maps");
@@ -1775,11 +1950,17 @@ describe("results — M7.11 figures in place (D-1/D-2/O-3)", () => {
     const view = buildResultsView(input());
     const flood = section(view, "home", "flood");
     const text = JSON.stringify(flood.blocks);
-    // The base fixture's rofrs layer serves
-    // "no-band-published" — the explanation rides beside
-    // its served line, which itself does not move.
-    expect(text).toContain("no river or sea flood band is published for this postcode point");
-    expect(text).toContain(FLOOD_ROFRS_ABSENCE_LINE);
+    // Re-pinned (parity fix batch, item 25): the verdict
+    // row carries the definition in the Master's
+    // verdict-led form — "Very low — a chance of flooding
+    // in any given year of less than 1 in 1,000." The D-2
+    // principle stands (the absence state explains itself
+    // in the publisher's words); the dataset-wording line
+    // no longer renders on this page.
+    expect(text).toContain(
+      "Very low — a chance of flooding in any given year of less than 1 in 1,000.",
+    );
+    expect(text).not.toContain("no river or sea flood band is published for this postcode point");
   });
 
   it("D-2: the surface-water below-lowest-band state gains the sample's extreme-picture line", () => {
@@ -1811,8 +1992,15 @@ describe("results — M7.11 figures in place (D-1/D-2/O-3)", () => {
       input({ short: { rung: 1, kind: "short-bundle", postcode: "CM3 2JT", sections } }),
     );
     const text = JSON.stringify(section(view, "home", "flood").blocks);
-    expect(text).toContain(FLOOD_ROFSW_ABSENCE_LINE);
-    expect(text).toContain(FLOOD_ROFRS_ABSENCE_LINE);
+    // Item 25 form: the absence sentence rides inside the
+    // verdict after "Very low — ", lower-cased as the
+    // Master's row writes it.
+    expect(text).toContain(
+      "Very low — this postcode appears only in the extreme 1-in-1,000-year surface-water picture.",
+    );
+    expect(text).toContain(
+      "Very low — a chance of flooding in any given year of less than 1 in 1,000.",
+    );
   });
 
   it("D-2: a layer inside a band gains no absence explanation", () => {
@@ -1841,7 +2029,14 @@ describe("results — M7.11 figures in place (D-1/D-2/O-3)", () => {
     );
     const text = JSON.stringify(section(view, "home", "flood").blocks);
     expect(text).not.toContain(FLOOD_ROFRS_ABSENCE_LINE);
-    expect(text).toContain(FLOOD_ROFSW_ABSENCE_LINE);
+    // The inside layer's verdict is its own band plus the
+    // band's definition — no absence form anywhere in it.
+    expect(text).toContain(
+      "Low — a chance of flooding in any given year between 1 in 1,000 and 1 in 100.",
+    );
+    expect(text).toContain(
+      "Very low — this postcode appears only in the extreme 1-in-1,000-year surface-water picture.",
+    );
   });
 
   it("O-3: the sixth-form no form stays as filed", () => {
@@ -1863,7 +2058,9 @@ describe("results — M7.11 figures in place (D-1/D-2/O-3)", () => {
       },
       true,
     );
-    expect(group.rows[0].sixthFormLine).toBe("sixth form: no, as filed");
+    // The no form rides inside the row's detail line
+    // (parity fix batch, item 29).
+    expect(group.rows[0].detail).toBe("sixth form: no, as filed");
   });
 });
 

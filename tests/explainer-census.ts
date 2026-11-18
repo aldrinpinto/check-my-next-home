@@ -1424,6 +1424,12 @@ export const FIGURE_PATH_PATTERNS: FigurePathPattern[] = [
   ),
   // Short-bundle figures
   p("short\\.sections\\.soldPrices\\.ownLastSale\\.price", "sold.own-sale"),
+  // The own-sales projection (parity fix batch, item 20):
+  // the same recorded-sale facts as the full bundle's
+  // ownHistory, registered under the same explainer.
+  p("short\\.sections\\.soldPrices\\.ownSales\\[\\]\\.price", "sold.own-sale"),
+  p("short\\.sections\\.soldPrices\\.ownSales\\[\\]\\.propertyType", "sold.own-sale"),
+  p("short\\.sections\\.soldPrices\\.ownSales\\[\\]\\.newBuild", "sold.own-sale"),
   p("short\\.sections\\.soldPrices\\.median\\.value", "short.sold-median"),
   p("short\\.sections\\.soldPrices\\.median\\.counted", "sold.counted-count-span"),
   p("short\\.sections\\.soldPrices\\.buildingMedian\\.value", "short.sold-median"),
