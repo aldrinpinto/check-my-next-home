@@ -129,7 +129,7 @@ test.describe("SEO pages — regression", () => {
       );
       await page.goto("/sample-report");
       await expect(page.getByText("This is a sample report")).toBeVisible();
-      await expect(page.getByRole("heading", { level: 1 })).toHaveText("19 Birkdale Rise");
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText("14 Bramblewood Lane");
       await page.goto("/contact");
       await expect(page.getByRole("heading", { level: 1 })).toHaveText("Contact");
       await page.goto("/privacy");

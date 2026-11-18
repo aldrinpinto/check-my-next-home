@@ -2091,10 +2091,23 @@ a.trunc-row:hover {
 /* D8 (parity fix stack, 18 Nov 2026): the shortlist page
    takes the sample's shell — the 1080px frame with the
    sample's page padding, the 820px left-aligned column
-   for the head and cards, the sample's h1 and lead. */
+   for the head and cards, the sample's h1 and lead.
+   Shortlist sample-parity fix (18 Nov 2026): the frame is
+   the sample's own surface — Cream, with its 1px warm
+   border, 18px radius and soft shadow, the paper-white
+   cards sitting on it. Scoped to this route's surface
+   alone; the global body background does not move. The
+   vertical margins let the frame read as a frame against
+   the chrome above and below it. */
 .shortlist-page {
   max-width: 1080px;
   padding: 30px 26px 42px;
+  margin-top: 1.5rem;
+  margin-bottom: 1.5rem;
+  background: var(--cmnh-cream);
+  border: 1px solid var(--colour-line-warm);
+  border-radius: 18px;
+  box-shadow: 0 10px 30px rgb(30 64 44 / 0.08);
 }
 
 @media (max-width: 720px) {
@@ -2148,6 +2161,11 @@ a.trunc-row:hover {
 
 .shortlist-cards--three {
   grid-template-columns: repeat(3, 1fr);
+  /* Sample parity (18 Nov 2026): view 16's three-across
+     cards take the frame's full width (~1028px inside the
+     frame's padding), not the 820px column the one- and
+     two-across forms keep. */
+  max-width: none;
 }
 
 @media (max-width: 720px) {
@@ -2566,14 +2584,6 @@ a.trunc-row:hover {
   color: var(--colour-text);
 }
 
-.compare-table__sale {
-  display: block;
-  font-family: var(--font-family);
-  font-size: var(--font-size-small);
-  font-weight: 600;
-  color: var(--colour-muted);
-}
-
 .compare-table tfoot td,
 .compare-table tfoot th {
   background: var(--colour-wash);
@@ -2602,6 +2612,36 @@ a.trunc-row:hover {
   margin-top: 0.6rem;
   color: #3d4a40;
   max-width: 58ch;
+}
+
+/* The empty state's search card (sample view 14;
+   shortlist sample-parity fix, 18 Nov 2026): the sample's
+   paper card under the empty card, carrying the product's
+   bare PostcodeBox. The card's dress is the sample's
+   exactly; the box keeps its own form, with the sample's
+   row measures (52px field and button, 10px field radius)
+   applied inside this card only, and the row runs the
+   card's full width rather than the box's own cap. */
+.shortlist-search-card {
+  margin-top: 1.8rem;
+  background: var(--cmnh-white);
+  border: 1px solid var(--colour-line-warm);
+  border-radius: 16px;
+  padding: 1.6rem 1.7rem;
+  max-width: 640px;
+}
+
+.shortlist-search-card .postcode-box--bare {
+  max-width: none;
+}
+
+.shortlist-search-card .postcode-box--bare .field__input {
+  min-height: 52px;
+  border-radius: 10px;
+}
+
+.shortlist-search-card .postcode-box--bare .btn {
+  min-height: 52px;
 }
 
 /* Fold-in build (D73/D75/D76/D77): checking progress,

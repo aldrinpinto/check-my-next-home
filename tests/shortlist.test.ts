@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
@@ -14,6 +16,7 @@ import {
   SHORTLIST_EMPTY_HEADING,
   SHORTLIST_EMPTY_LINE,
   SHORTLIST_FULL_LINE,
+  SHORTLIST_LEAD_LINE,
   SHORTLIST_LIMIT,
   SHORTLIST_STORAGE_KEY,
   SHORTLIST_UNAVAILABLE_LINE,
@@ -743,5 +746,100 @@ describe("the header wiring (fold-in 2)", () => {
     expect(markup).toContain("Shortlist this home");
     expect(markup).not.toContain("Your shortlist is full");
     expect(markup).toContain('aria-pressed="false"');
+  });
+});
+
+// ------------------------------------------------------------------
+// The sample-parity pins (shortlist sample-parity fix,
+// 18 Nov 2026): Final Sample Master views 14–16 against the
+// product page. The island's states resolve client-side, so
+// the per-state forms are pinned at the source and the
+// stylesheet, and proven live in e2e/shortlist.e2e.ts.
+// ------------------------------------------------------------------
+
+describe("the sample-parity forms (views 14–16)", () => {
+  const read = (path: string) => readFileSync(join(process.cwd(), path), "utf8");
+  const css = read("app/globals.css");
+  const island = read("components/ShortlistPage.tsx");
+  const shell = read("app/shortlist/page.tsx");
+
+  it("pins the lead as the sample's one sentence, with no first sentence anywhere", () => {
+    expect(SHORTLIST_LEAD_LINE).toBe(
+      "Nothing about which homes you are considering is stored on any server.",
+    );
+    // The lead's old first sentence ("The homes you've
+    // saved, side by side.") is gone from both files — the
+    // shell's metadata line and the compare heading keep
+    // their own "side by side" forms, neither of them the
+    // lead's sentence.
+    expect(island).not.toContain("side by side.");
+    expect(shell).not.toContain("side by side.");
+    expect(shell).not.toContain("Nothing about which homes");
+  });
+
+  it("keeps the lead out of the server shell — the island serves it per state", () => {
+    expect(shell).not.toContain("shortlist-lead");
+    expect(island).toContain("SHORTLIST_LEAD_LINE");
+    expect(island).toContain("<ShortlistHead lead={false} />");
+    expect(island).toContain("<ShortlistHead lead />");
+  });
+
+  it("frames the page on Cream, scoped to the shortlist surface", () => {
+    const frame = css.match(/\.shortlist-page \{[^}]*\}/)?.[0] ?? "";
+    expect(frame).toContain("background: var(--cmnh-cream)");
+    expect(frame).toContain("border: 1px solid var(--colour-line-warm)");
+    expect(frame).toContain("border-radius: 18px");
+    expect(frame).toContain("box-shadow:");
+    expect(frame).toContain("max-width: 1080px");
+  });
+
+  it("gives the empty state the sample's search card, and only the empty state", () => {
+    expect(island).toContain('className="shortlist-search-card"');
+    expect(island).toContain("<h2>Check a home</h2>");
+    expect(island).toContain("<PostcodeBox bare />");
+    // The card sits in the empty branch: it is written
+    // after the empty section opens and before the ready
+    // return's head.
+    const emptyAt = island.indexOf('data-shortlist-state="empty"');
+    const cardAt = island.indexOf("shortlist-search-card");
+    const readyAt = island.indexOf("<ShortlistHead lead />");
+    expect(emptyAt).toBeGreaterThan(-1);
+    expect(cardAt).toBeGreaterThan(emptyAt);
+    expect(readyAt).toBeGreaterThan(cardAt);
+    const card = css.match(/\.shortlist-search-card \{[^}]*\}/)?.[0] ?? "";
+    expect(card).toContain("background: var(--cmnh-white)");
+    expect(card).toContain("border: 1px solid var(--colour-line-warm)");
+    expect(card).toContain("border-radius: 16px");
+    expect(card).toContain("padding: 1.6rem 1.7rem");
+    expect(card).toContain("max-width: 640px");
+    expect(card).toContain("margin-top: 1.8rem");
+    // The sample's row measures, inside this card only.
+    expect(css).toMatch(
+      /\.shortlist-search-card \.postcode-box--bare \.field__input \{[^}]*min-height: 52px/,
+    );
+    expect(css).toMatch(
+      /\.shortlist-search-card \.postcode-box--bare \.field__input \{[^}]*border-radius: 10px/,
+    );
+    expect(css).toMatch(
+      /\.shortlist-search-card \.postcode-box--bare \.btn \{[^}]*min-height: 52px/,
+    );
+  });
+
+  it("runs the three-across cards at the frame's full width", () => {
+    const three = css.match(/\.shortlist-cards--three \{[^}]*\}/)?.[0] ?? "";
+    expect(three).toContain("max-width: none");
+    // The one/two-across column cap stands.
+    const base = css.match(/\.shortlist-cards \{[^}]*\}/)?.[0] ?? "";
+    expect(base).toContain("max-width: 820px");
+  });
+
+  it("blanks the compare table's first header cell and drops the header sale line", () => {
+    expect(island).toContain('<span className="visually-hidden">Check</span>');
+    expect(island).not.toContain("compare-table__sale");
+    expect(css).not.toContain(".compare-table__sale");
+    // The cards keep their sale line, and the phone form
+    // keeps its own.
+    expect(island).toContain("shortlist-card__sale");
+    expect(island).toContain("shortlist-compare__sale");
   });
 });

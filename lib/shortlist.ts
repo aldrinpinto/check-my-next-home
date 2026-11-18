@@ -54,6 +54,8 @@ export const SHORTLIST_UPDATED_EVENT = "cmnh:shortlist-updated";
 // invents its own.
 // ------------------------------------------------------------------
 
+export const SHORTLIST_LEAD_LINE =
+  "Nothing about which homes you are considering is stored on any server.";
 export const SHORTLIST_EMPTY_HEADING = "Your shortlist is empty";
 export const SHORTLIST_EMPTY_LINE =
   "No homes have been saved yet, so there is nothing to compare. Homes you save are kept only in this browser. Next step: check a postcode on the website, or open a listing and tap 'Shortlist this home' — saved homes will appear here.";

@@ -182,6 +182,11 @@ test.describe("shortlist — regression", () => {
       await seedShortlist(page, [BIRKDALE_CARD, EXETER_CARD]);
       await page.goto("/shortlist");
       await expect(page.locator(".shortlist-card")).toHaveCount(2);
+      // Sample parity (18 Nov 2026): a saved state carries
+      // the lead's one sentence, whatever the count.
+      await expect(page.locator(".shortlist-lead")).toHaveText(
+        "Nothing about which homes you are considering is stored on any server.",
+      );
       // A rung-1 card carries no facts line and no report
       // link (17 Nov 2026 ruling) — Remove is its only action.
       const firstCard = page.locator(".shortlist-card").first();
@@ -229,11 +234,29 @@ test.describe("shortlist — regression", () => {
       await page.goto("/shortlist");
 
       const compare = page.locator(".shortlist-compare");
+      // Sample parity (views 15–16; 18 Nov 2026): the saved
+      // state carries the lead as the sample's one sentence,
+      // no search card, and the three-across cards run at
+      // the frame's full width, past the 820px column.
+      await expect(page.locator(".shortlist-lead")).toHaveText(
+        "Nothing about which homes you are considering is stored on any server.",
+      );
+      await expect(page.locator(".shortlist-search-card")).toHaveCount(0);
+      const cardsBox = await page.locator(".shortlist-cards--three").boundingBox();
+      expect(cardsBox?.width ?? 0).toBeGreaterThan(820);
       // D70 D17: on a wide screen the comparison is the
       // design's shared-label table — the first column names
       // each check once, one column per home. (The phone
       // block stacking is unchanged.)
       await expect(compare.locator(".compare-table thead th")).toHaveCount(4);
+      // The first header cell is visually blank (its
+      // "Check" is screen-reader text), and a column header
+      // is the address alone — no sale line under it (the
+      // cards above keep theirs).
+      await expect(
+        compare.locator(".compare-table thead th").first().locator(".visually-hidden"),
+      ).toHaveText("Check");
+      await expect(compare.locator(".compare-table thead")).not.toContainText("£");
       // The row order is the D75 pill priority: Flood leads.
       await expect(compare.locator(".compare-table tbody tr").first()).toHaveAttribute(
         "data-compare-row",
@@ -420,6 +443,15 @@ test.describe("shortlist — regression", () => {
       );
       await expect(empty).toContainText("kept only in this browser");
       await expect(page.locator(".shortlist-count")).toHaveCount(0);
+      // Sample parity (view 14; 18 Nov 2026): the empty
+      // state carries no lead, and the sample's search card
+      // sits under the empty card.
+      await expect(page.locator(".shortlist-lead")).toHaveCount(0);
+      const searchCard = page.locator(".shortlist-search-card");
+      await expect(searchCard).toBeVisible();
+      await expect(searchCard.locator("h2")).toHaveText("Check a home");
+      await expect(searchCard.getByPlaceholder("Enter a postcode — e.g. SW1A 1AA")).toBeVisible();
+      await expect(searchCard.getByRole("button", { name: "Check this home" })).toBeVisible();
     },
   );
 });

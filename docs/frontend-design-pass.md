@@ -2479,3 +2479,81 @@ pin now asserts via=memory explicitly, and a new scenario
 simulates the instance split by re-importing the module
 between the list and the pick. No other hybrid behaviour
 moves.
+
+Shortlist sample-parity fix (founder finding, 18 Nov 2026;
+read-only parity check of Final Sample Master views 14–16
+against the product /shortlist). Six divergences fixed,
+nothing else moved:
+
+1. The page surface is the sample's frame: .shortlist-page
+   now sits on Cream with the sample's 1px warm border,
+   18px radius and a soft shadow at the 1080px measure,
+   scoped to this route alone — the paper-white cards,
+   empty card, search card and compare table sit on the
+   cream. Modest vertical margins let the frame read as a
+   frame against the chrome.
+2. The empty state gains the sample's "Check a home" card
+   under the empty card, in the sample's exact card dress
+   (paper, 1px solid warm line, 16px radius, 1.6rem/1.7rem
+   padding, 640px, 1.8rem above it). Recorded implementation
+   judgement: the card carries the product's own PostcodeBox
+   in its bare form — suggestions dropdown and all — rather
+   than the sample's plain form, so searching from here is
+   the landing search exactly; the sample's row measures
+   (52px field and button, 10px field radius) are applied
+   inside this card only, and the row runs the card's full
+   width. The box's accessible name stays its own label
+   ("Postcode or address", visually hidden) where the
+   sample's plain form used aria-label "Postcode".
+3. The lead is state-shaped, as the sample's is: the empty
+   state carries none; the saved states carry exactly
+   "Nothing about which homes you are considering is stored
+   on any server." (SHORTLIST_LEAD_LINE in lib/shortlist.ts).
+   The old first sentence ("The homes you've saved, side by
+   side.") is removed. Because only the client island knows
+   the state, the page head (h1, lead, brass rule) now
+   renders inside the island per state; the server shell
+   renders the framed main and the island only. (The route's
+   metadata description keeps its own wording — it is not
+   the lead.)
+4. Three-across cards take the frame's full width
+   (.shortlist-cards--three max-width: none, ~1028px inside
+   the frame); one/two-across keep the 820px column.
+5. The compare table's first header cell is visually blank
+   with sr-only "Check" text, as the sample.
+6. Compare-table column headers are the address alone —
+   the muted sale line under the address is removed from
+   the table header (its CSS went with it); the cards keep
+   their sale line, and the phone form keeps its own.
+
+Kept deliberately, per the parity check: the distance
+pills' tinted colours (D75), the 44px remove-button height
+(M7.7), the product-wide Forest heading colour, and every
+form the check verified as matching. Pins:
+tests/shortlist.test.ts ("the sample-parity forms
+(views 14–16)") covers
+the frame, the lead per state at source level, the search
+card's presence in the empty branch only, the three-across
+width rule and the header forms; e2e/shortlist.e2e.ts
+proves the lead and search card live in the empty, two-home
+and three-home states and the header forms in the served
+table.
+
+## Stale sample-report expectation fix (18 Nov 2026)
+
+CI run #213 on main 99f74d8 came back with three jobs green
+and the browser job at 109 passed / 1 failed: the single
+failure was e2e/seo.e2e.ts, "the chrome pages render their
+finalised headings", which still expected the /sample-report
+H1 to read "19 Birkdale Rise" — a leftover from before the
+sample report's anonymisation. The anonymisation is correct
+(the served H1 is the invented home, "14 Bramblewood Lane",
+components/SampleReport.tsx), so the expectation was updated
+to match it exactly. A sweep of e2e/ and tests/ for "19
+Birkdale Rise", "Birkdale" and "CM3 2JT" found no other stale
+expectation: every remaining hit concerns the golden-corpus
+Birkdale home served through the results journey (picker,
+results header, fixtures, replay and loader data), which is
+legitimate and untouched, and tests/sample-report.test.ts
+already pins the served sample page free of the real street
+name and postcode.

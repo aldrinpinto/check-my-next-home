@@ -2,12 +2,15 @@
 
 import { useEffect, useState } from "react";
 
+import PostcodeBox from "./PostcodeBox";
+
 import { REPORT_ROUTE, distanceBand, formatMiles, reportRoute } from "../lib/results";
 import { REPORT_PRICE_LABEL } from "../lib/site";
 import {
   SHORTLIST_EMPTY_HEADING,
   SHORTLIST_EMPTY_LINE,
   SHORTLIST_KEPT_LINE,
+  SHORTLIST_LEAD_LINE,
   SHORTLIST_UNAVAILABLE_LINE,
   SEE_THIS_HOMES_CHECK,
   buildComparison,
@@ -23,11 +26,22 @@ import {
 } from "../lib/shortlist";
 
 // The /shortlist page's client island (plan step M7.5,
-// fold-in 6): the server sends the shell and page furniture
-// only; the cards, the comparison and the named lines
+// fold-in 6): the server sends the framed shell only; the
+// page head, the cards, the comparison and the named lines
 // resolve here, from browser storage — no serve call, so
 // the page is exact under the second-context absence check
 // and works while the play server is down.
+//
+// Shortlist sample-parity fix (18 Nov 2026): the head
+// (h1, lead, brass rule) renders here, not in the server
+// shell, because the sample's head is state-shaped — the
+// empty state carries NO lead, and the saved states carry
+// exactly the one stored-on-no-server sentence. The empty
+// state also gains the sample's "Check a home" card under
+// the empty card: the product's own PostcodeBox (bare
+// form, suggestions and all) dressed in the sample's card,
+// so searching from here behaves exactly like the landing
+// search.
 //
 // The two named lines stay distinct (fold-in 5): storage
 // unavailable renders its own line where the shortlist
@@ -50,6 +64,19 @@ import {
 
 type State =
   { kind: "pending" } | { kind: "unavailable" } | { kind: "ready"; record: ShortlistRecord };
+
+// The page head (sample views 14–16): h1 and the brass
+// rule on every state; the lead only where the sample
+// carries it — the saved states, as the one sentence.
+function ShortlistHead({ lead }: { lead: boolean }) {
+  return (
+    <>
+      <h1>Your shortlist</h1>
+      {lead && <p className="shortlist-lead">{SHORTLIST_LEAD_LINE}</p>}
+      <div className="shortlist-rule" aria-hidden="true" />
+    </>
+  );
+}
 
 // A column's report link (plan step M7.6, link contract):
 // a rung-1 card carries its identity — the saved
@@ -117,24 +144,38 @@ export default function ShortlistPage() {
 
   if (state.kind === "unavailable") {
     return (
-      <p className="shortlist-unavailable" data-shortlist-state="unavailable">
-        {SHORTLIST_UNAVAILABLE_LINE}
-      </p>
+      <>
+        <ShortlistHead lead={false} />
+        <p className="shortlist-unavailable" data-shortlist-state="unavailable">
+          {SHORTLIST_UNAVAILABLE_LINE}
+        </p>
+      </>
     );
   }
 
   const { record } = state;
   if (record.cards.length === 0) {
     return (
-      <section className="shortlist-empty" data-shortlist-state="empty">
-        {/* D8 (parity fix stack, 18 Nov 2026): the sample's
+      <>
+        <ShortlistHead lead={false} />
+        <section className="shortlist-empty" data-shortlist-state="empty">
+          {/* D8 (parity fix stack, 18 Nov 2026): the sample's
             empty state is the dashed-brass paper card alone
             — it carries no illustration, so the dog the D70
             pass dressed this panel with is removed under
             the founder's exact-parity ruling. */}
-        <h2>{SHORTLIST_EMPTY_HEADING}</h2>
-        <p>{SHORTLIST_EMPTY_LINE}</p>
-      </section>
+          <h2>{SHORTLIST_EMPTY_HEADING}</h2>
+          <p>{SHORTLIST_EMPTY_LINE}</p>
+        </section>
+        {/* The sample's search card (view 14), under the
+            empty card: the product's bare PostcodeBox in the
+            sample's card dress — submitting behaves exactly
+            like the landing search. Empty state only. */}
+        <section className="shortlist-search-card">
+          <h2>Check a home</h2>
+          <PostcodeBox bare />
+        </section>
+      </>
     );
   }
 
@@ -153,140 +194,147 @@ export default function ShortlistPage() {
     record.cards.length === 1 ? "The facts for this home" : "Your saved homes, side by side";
 
   return (
-    <div data-shortlist-state="ready">
-      {/* D8: the cards grid is keyed by the count — the
+    <>
+      <ShortlistHead lead />
+      <div data-shortlist-state="ready">
+        {/* D8: the cards grid is keyed by the count — the
           sample's one / two-across / three-across forms. */}
-      <ul
-        className={`shortlist-cards${
-          record.cards.length === 2
-            ? " shortlist-cards--two"
-            : record.cards.length >= 3
-              ? " shortlist-cards--three"
-              : ""
-        }`}
-      >
-        {record.cards.map((card) => {
-          const saleLine = cardLastSaleLine(card);
-          return (
-            <li className="shortlist-card" key={card.id} data-rung={card.rung}>
-              <h2 className="shortlist-card__address">{card.addressLine}</h2>
-              {saleLine && <p className="shortlist-card__sale">{saleLine}</p>}
-              {/* The facts line renders at rung 3 only: its
+        <ul
+          className={`shortlist-cards${
+            record.cards.length === 2
+              ? " shortlist-cards--two"
+              : record.cards.length >= 3
+                ? " shortlist-cards--three"
+                : ""
+          }`}
+        >
+          {record.cards.map((card) => {
+            const saleLine = cardLastSaleLine(card);
+            return (
+              <li className="shortlist-card" key={card.id} data-rung={card.rung}>
+                <h2 className="shortlist-card__address">{card.addressLine}</h2>
+                {saleLine && <p className="shortlist-card__sale">{saleLine}</p>}
+                {/* The facts line renders at rung 3 only: its
                   named states explain what the wider area
                   cannot serve. At rung 1 the table below
                   carries the same facts as rows, so the card
                   line would only duplicate them. */}
-              {card.rung === 3 && card.factsLine && (
-                <p className="shortlist-card__facts">{card.factsLine}</p>
-              )}
-              <p className="shortlist-card__actions">
-                {/* One action on the card: Remove. The home's
+                {card.rung === 3 && card.factsLine && (
+                  <p className="shortlist-card__facts">{card.factsLine}</p>
+                )}
+                <p className="shortlist-card__actions">
+                  {/* One action on the card: Remove. The home's
                     buy button lives once, at its table
                     column's foot (founder's ruling, 17 Nov
                     2026). */}
-                <button
-                  type="button"
-                  className="remove-btn"
-                  aria-label={`Remove ${card.addressLine}`}
-                  onClick={() => onRemove(card.id)}
-                >
-                  Remove
-                </button>
-              </p>
-            </li>
-          );
-        })}
-      </ul>
-      <section className="shortlist-compare" aria-label={compareHeading}>
-        <h2>{compareHeading}</h2>
-        {wide ? (
-          // The desktop form (D70 R5/D17): the design's
-          // shared-label table — the first column names each
-          // check once, one column per home, values aligned,
-          // one report button at each column's foot, in the
-          // results page's own words.
-          <table className="compare-table" data-card-count={comparison.columns.length}>
-            <thead>
-              <tr>
-                <th scope="col">Check</th>
-                {comparison.columns.map((card) => {
-                  const saleLine = comparisonSaleLine(card);
-                  return (
+                  <button
+                    type="button"
+                    className="remove-btn"
+                    aria-label={`Remove ${card.addressLine}`}
+                    onClick={() => onRemove(card.id)}
+                  >
+                    Remove
+                  </button>
+                </p>
+              </li>
+            );
+          })}
+        </ul>
+        <section className="shortlist-compare" aria-label={compareHeading}>
+          <h2>{compareHeading}</h2>
+          {wide ? (
+            // The desktop form (D70 R5/D17): the design's
+            // shared-label table — the first column names each
+            // check once, one column per home, values aligned,
+            // one report button at each column's foot, in the
+            // results page's own words.
+            <table className="compare-table" data-card-count={comparison.columns.length}>
+              <thead>
+                <tr>
+                  {/* Sample parity (18 Nov 2026): the first
+                    header cell is visually blank — "Check"
+                    survives for screen readers only — and a
+                    column header is the address alone; the
+                    sale line lives on the card above, not
+                    repeated here. */}
+                  <th scope="col">
+                    <span className="visually-hidden">Check</span>
+                  </th>
+                  {comparison.columns.map((card) => (
                     <th scope="col" key={card.id} data-rung={card.rung}>
                       {card.addressLine}
-                      {saleLine && <span className="compare-table__sale">{saleLine}</span>}
                     </th>
-                  );
-                })}
-              </tr>
-            </thead>
-            <tbody>
-              {comparison.rows.map((row) => (
-                <tr key={row.key} data-compare-row={row.key}>
-                  <th scope="row">{row.label}</th>
-                  {row.cells.map((cell, columnIndex) => (
-                    <td key={comparison.columns[columnIndex].id}>
-                      <CompareCell cell={cell} family={row.family} />
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {comparison.rows.map((row) => (
+                  <tr key={row.key} data-compare-row={row.key}>
+                    <th scope="row">{row.label}</th>
+                    {row.cells.map((cell, columnIndex) => (
+                      <td key={comparison.columns[columnIndex].id}>
+                        <CompareCell cell={cell} family={row.family} />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td></td>
+                  {comparison.columns.map((card) => (
+                    <td key={card.id}>
+                      <a className="report-btn" href={cardReportHref(card)}>
+                        Get the full report — {REPORT_PRICE_LABEL}
+                      </a>
                     </td>
                   ))}
                 </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr>
-                <td></td>
-                {comparison.columns.map((card) => (
-                  <td key={card.id}>
-                    <a className="report-btn" href={cardReportHref(card)}>
-                      Get the full report — {REPORT_PRICE_LABEL}
-                    </a>
-                  </td>
-                ))}
-              </tr>
-            </tfoot>
-          </table>
-        ) : (
-          // The phone form: the proven block stacking — one
-          // block per home, its rows labelled per block.
-          <div
-            className="shortlist-compare__grid"
-            style={{ "--compare-columns": comparison.columns.length } as React.CSSProperties}
-          >
-            {comparison.columns.map((card, columnIndex) => {
-              const saleLine = comparisonSaleLine(card);
-              return (
-                <div className="shortlist-compare__column" key={card.id} data-rung={card.rung}>
-                  <h3 className="shortlist-compare__address">{card.addressLine}</h3>
-                  {saleLine && <p className="shortlist-compare__sale">{saleLine}</p>}
-                  <dl className="shortlist-compare__rows">
-                    {comparison.rows.map((row) => (
-                      <div
-                        className="shortlist-compare__row"
-                        key={row.key}
-                        data-compare-row={row.key}
-                      >
-                        <dt>{row.label}</dt>
-                        <dd>
-                          <CompareCell cell={row.cells[columnIndex]} family={row.family} />
-                        </dd>
-                      </div>
-                    ))}
-                  </dl>
-                  <p className="shortlist-compare__actions">
-                    <a className="report-btn" href={cardReportHref(card)}>
-                      Get the full report — {REPORT_PRICE_LABEL}
-                    </a>
-                  </p>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
-      {/* The kept line closes the page (founder's ruling,
+              </tfoot>
+            </table>
+          ) : (
+            // The phone form: the proven block stacking — one
+            // block per home, its rows labelled per block.
+            <div
+              className="shortlist-compare__grid"
+              style={{ "--compare-columns": comparison.columns.length } as React.CSSProperties}
+            >
+              {comparison.columns.map((card, columnIndex) => {
+                const saleLine = comparisonSaleLine(card);
+                return (
+                  <div className="shortlist-compare__column" key={card.id} data-rung={card.rung}>
+                    <h3 className="shortlist-compare__address">{card.addressLine}</h3>
+                    {saleLine && <p className="shortlist-compare__sale">{saleLine}</p>}
+                    <dl className="shortlist-compare__rows">
+                      {comparison.rows.map((row) => (
+                        <div
+                          className="shortlist-compare__row"
+                          key={row.key}
+                          data-compare-row={row.key}
+                        >
+                          <dt>{row.label}</dt>
+                          <dd>
+                            <CompareCell cell={row.cells[columnIndex]} family={row.family} />
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+                    <p className="shortlist-compare__actions">
+                      <a className="report-btn" href={cardReportHref(card)}>
+                        Get the full report — {REPORT_PRICE_LABEL}
+                      </a>
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+        {/* The kept line closes the page (founder's ruling,
           17 Nov 2026): small print at the bottom, below the
           table — its class carries the small size. */}
-      <p className="shortlist-kept-line">{SHORTLIST_KEPT_LINE}</p>
-    </div>
+        <p className="shortlist-kept-line">{SHORTLIST_KEPT_LINE}</p>
+      </div>
+    </>
   );
 }
