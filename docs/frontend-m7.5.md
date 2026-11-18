@@ -136,6 +136,15 @@ button per the Final Design (Section 5: "on the website result it
 sits beside the report button in the buy bar") — one control, moved
 deliberately, never duplicated.
 
+**Discharged at M7.6 (17 Nov 2026).** The control renders inside
+the buy bar beside the report button, handed to the results page
+as its card record; the header-area placement is gone (no
+`.results-actions` block remains). The rung-3 control stays beside
+the scope-label heading — rung 3 has no buy bar (it keeps its
+unlock banner). The move preserves the control's behaviour
+exactly, including the full-shortlist message that replaces it in
+place. See the M7.6 build note in docs/frontend-design-pass.md.
+
 ## Founder test list (on the play server, after integration)
 
 1. Check **CM3 2JT**, pick **19 Birkdale Rise**, tap **Shortlist this

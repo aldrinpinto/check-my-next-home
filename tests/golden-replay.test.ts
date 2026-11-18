@@ -1661,7 +1661,7 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
 
   it("short bundle: the universal headlines carry the locked figures", () => {
     const birkdale = get("birkdale1").short;
-    expect(Object.keys(birkdale.sections).sort()).toHaveLength(12);
+    expect(Object.keys(birkdale.sections).sort()).toHaveLength(13);
     expect(birkdale.sections.crime.state).toBe("served");
     if (birkdale.sections.crime.state === "served") {
       expect(birkdale.sections.crime.total).toBe(330);

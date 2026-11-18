@@ -4,7 +4,6 @@ import { redirect } from "next/navigation";
 import AddressPicker, { type PickerAddress } from "../../../components/AddressPicker";
 import CheckingScreen from "../../../components/CheckingScreen";
 import ResultsPage from "../../../components/ResultsPage";
-import ShortlistButton from "../../../components/ShortlistButton";
 import WholeCheckFailure from "../../../components/WholeCheckFailure";
 import { displayText, type AddressResolution } from "../../../lib/address";
 import { homeKeyOf } from "../../../lib/bundle-cache";
@@ -23,6 +22,20 @@ import { buildResultsView, resultsScopeLabel } from "../../../lib/results";
 import { checkResults, resolutionForRoute, resolutionNotCovered } from "../../../lib/server/serve";
 import { SITE_MANIFESTO } from "../../../lib/site";
 import { buildShortlistCard } from "../../../lib/shortlist-card";
+
+import type { Metadata } from "next";
+
+import { pageMetadata } from "../../../lib/seo";
+
+// M7.8: explicit production noindex — see app/search/page.tsx.
+// This is the results page itself: a specific home's facts,
+// never an indexable page, in every environment.
+export const metadata: Metadata = pageMetadata({
+  title: "Your check | Check My Next Home",
+  description: "The facts for the home you checked, from official sources.",
+  path: "/search/home",
+  noindex: true,
+});
 
 // The home form of the journey's route family (plan step
 // M7.3, fold-in 1): /search/home carrying the normalised
@@ -66,18 +79,19 @@ async function Results({
   let results;
   try {
     results = await checkResults(resolution);
-    view = buildResultsView({ resolution, ...results });
+    view = buildResultsView({ resolution, ...results, homeKey });
   } catch {
     return <WholeCheckFailure retryHref={homeRoute(postcode, homeKey)} />;
   }
-  // M7.5: the shortlist add control, rung 1 only (ruling 4
+  // M7.5: the shortlist card record, rung 1 only (ruling 4
   // — rung 2 has no home to shortlist, and the not-covered
-  // branch below never reaches this component). The card
-  // record is assembled from this same derivation and
-  // embedded in the control at render (fold-in 8); it sits
-  // in the results header area, directly under the page
-  // header, because the record exists only once the
-  // derivation has run.
+  // branch below never reaches this component). The record
+  // is assembled from this same derivation (fold-in 8).
+  // M7.6: the add control itself renders inside the
+  // results page's buy bar beside the report button — the
+  // move M7.5 recorded as owed — so the card is handed to
+  // ResultsPage here; there is no second control in the
+  // header area.
   const card =
     resolution.rung === 1
       ? buildShortlistCard({
@@ -92,12 +106,7 @@ async function Results({
       {resolution.rung === 2 && (
         <AddressPicker postcode={postcode} heading={pickerHeading} addresses={pickerAddresses} />
       )}
-      {card && (
-        <div className="results-actions">
-          <ShortlistButton card={card} />
-        </div>
-      )}
-      <ResultsPage view={view} />
+      <ResultsPage view={view} shortlistCard={card} />
     </>
   );
 }
@@ -131,7 +140,7 @@ export default async function HomePage({
     let view;
     try {
       const results = await checkResults(resolution);
-      view = buildResultsView({ resolution, ...results });
+      view = buildResultsView({ resolution, ...results, homeKey });
     } catch {
       return <WholeCheckFailure retryHref={homeRoute(postcode, homeKey)} />;
     }

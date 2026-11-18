@@ -10,6 +10,7 @@ import {
   type AreaDataSource,
   type BroadbandAnswerFacts,
   type CensusFacts,
+  type CompanyOwnershipFacts,
   type CouncilTaxFacts,
   type DesignationFacts,
   type EpcArtefact,
@@ -2081,21 +2082,26 @@ class FakeAreaSource implements AreaDataSource {
     };
   }
 
-  // Company ownership (M6.13) is flag-gated and the short
-  // bundle never carries it; these tests build with the
-  // shipped (off) position, so the builder never calls
-  // this — the stub exists for the port's shape only.
-  async companyOwnershipFacts() {
-    return {
-      ccodFiledCount: 0,
-      ocodFiledCount: 0,
-      editions: {
-        ccod: { sourceName: null, sourceDate: null },
-        ocod: { sourceName: null, sourceDate: null },
-      },
-      titles: [],
-      snapshots: {},
-    };
+  // Company ownership (M6.13) is flag-gated in the area
+  // bundle; the shipped position is off, so by default the
+  // builder never calls this and the short bundle carries
+  // no key. The flag-on tests below set the override to
+  // prove the short bundle's pick (17 Nov 2026 ruling).
+  companyOverride: CompanyOwnershipFacts | null = null;
+
+  async companyOwnershipFacts(): Promise<CompanyOwnershipFacts> {
+    return (
+      this.companyOverride ?? {
+        ccodFiledCount: 0,
+        ocodFiledCount: 0,
+        editions: {
+          ccod: { sourceName: null, sourceDate: null },
+          ocod: { sourceName: null, sourceDate: null },
+        },
+        titles: [],
+        snapshots: {},
+      }
+    );
   }
 }
 
@@ -2170,6 +2176,13 @@ function allNumbers(value: unknown, out: number[] = []): number[] {
   return out;
 }
 
+// The twelve D28 sections, in D28's order. This is also
+// the exact key set of rungs 3–4 (named states keyed by
+// ShortSectionKey). Rung 1–2 bundles append the sibling
+// picks after the twelve: the planning hand-off
+// (M7.9 — always), then company ownership (only while
+// its flag is on) — asserted in that form at the rung
+// 1–2 sites below.
 const SECTION_ORDER = [
   "soldPrices",
   "flood",
@@ -2192,7 +2205,7 @@ describe("short bundle — 19 Birkdale Rise, CM3 2JT (rung 1)", () => {
     const short = servedShort(await shortFor(BIRKDALE));
     expect(short.rung).toBe(1);
     expect(short.postcode).toBe("CM3 2JT");
-    expect(Object.keys(short.sections)).toEqual(SECTION_ORDER);
+    expect(Object.keys(short.sections)).toEqual([...SECTION_ORDER, "planningApplications"]);
   });
 
   it("sold prices: own last sale AND the postcode median, as separate facts", async () => {
@@ -3118,6 +3131,95 @@ describe("short bundle — rung 2 honesty (Birkdale Rise, street + postcode)", (
   });
 });
 
+describe("short bundle — company ownership at headline depth (17 Nov 2026 ruling)", () => {
+  const ON = { companyOwnershipEnabled: true };
+  const EDITIONS = {
+    ccod: {
+      sourceName: "HM Land Registry — UK companies that own property in England and Wales",
+      sourceDate: "2026-11-01",
+    },
+    ocod: {
+      sourceName: "HM Land Registry — Overseas companies that own property in England and Wales",
+      sourceDate: "2026-11-01",
+    },
+  };
+
+  async function shortWithCompany(
+    facts: CompanyOwnershipFacts,
+    options: { companyOwnershipEnabled: boolean },
+  ): Promise<ServedShort> {
+    const src = new FakeAreaSource();
+    src.companyOverride = facts;
+    const [nearby, soldPrices, crime, flood, area] = await Promise.all([
+      buildNearbyBundle(BIRKDALE, nearbySource),
+      buildSoldPricesBundle(BIRKDALE, soldPricesSource),
+      buildCrimeBundle(BIRKDALE, crimeSource, { now: NOW }),
+      buildFloodBundle(BIRKDALE, floodSource),
+      buildAreaBundle(BIRKDALE, src, options),
+    ]);
+    return servedShort(buildShortBundle({ nearby, soldPrices, crime, flood, area }));
+  }
+
+  it("flag off (the shipped position): the key is absent, even with filed facts behind it", async () => {
+    const short = await shortWithCompany(
+      { ccodFiledCount: 120, ocodFiledCount: 45, editions: EDITIONS, titles: [], snapshots: {} },
+      { companyOwnershipEnabled: false },
+    );
+    expect("companyOwnership" in short.sections).toBe(false);
+    expect(Object.keys(short.sections)).toEqual([...SECTION_ORDER, "planningApplications"]);
+  });
+
+  it("flag on, both datasets filed, no title matched: the key carries the No", async () => {
+    const short = await shortWithCompany(
+      { ccodFiledCount: 120, ocodFiledCount: 45, editions: EDITIONS, titles: [], snapshots: {} },
+      ON,
+    );
+    expect(short.sections.companyOwnership).toEqual({
+      state: "not-company-owned",
+      ownedByCompany: false,
+      line: expect.stringContaining(
+        "not in HM Land Registry's company-ownership data as at November 2026",
+      ),
+    });
+  });
+
+  it("flag on, a company is a registered proprietor of this home's title: the key carries the Yes", async () => {
+    const short = await shortWithCompany(
+      {
+        ccodFiledCount: 120,
+        ocodFiledCount: 45,
+        editions: EDITIONS,
+        titles: [
+          {
+            titleNumber: "EX900001",
+            dataset: "ccod",
+            tenure: "Freehold",
+            propertyAddress: "19, 21 Birkdale Rise, Hatfield Peverel, Chelmsford (CM3 2JT)",
+            proprietorName: "EXAMPLE HOMES LIMITED",
+            companyNumber: "11217910",
+            proprietorshipCategory: null,
+            countryIncorporated: null,
+            additionalProprietor: false,
+            sourceName: EDITIONS.ccod.sourceName,
+            sourceDate: "2026-11-01",
+          },
+        ],
+        snapshots: {},
+      },
+      ON,
+    );
+    expect(short.sections.companyOwnership?.state).toBe("served");
+    expect(short.sections.companyOwnership?.ownedByCompany).toBe(true);
+    // Only the state, the boolean and the lead line cross to
+    // headline depth — the title detail stays at report depth.
+    expect(Object.keys(short.sections.companyOwnership ?? {}).sort()).toEqual([
+      "line",
+      "ownedByCompany",
+      "state",
+    ]);
+  });
+});
+
 describe("short bundle — rungs 3 and 4 are named states only", () => {
   const WIDER: AddressResolution = {
     rung: 3,
@@ -3340,7 +3442,7 @@ describe("short bundle — the depth lock (D26/D28)", () => {
 describe("short bundle — broadband & mobile (M6.17, D36)", () => {
   it("broadband is the twelfth section, carrying the gigabit line only", async () => {
     const short = servedShort(await shortFor(BIRKDALE));
-    expect(Object.keys(short.sections)).toHaveLength(12);
+    expect(Object.keys(short.sections)).toHaveLength(13);
     expect(short.sections.broadband).toEqual({
       state: "served",
       gigabitCapablePct: 100,
@@ -3453,6 +3555,13 @@ describe("short bundle — wording (the union of the brains' banned lists)", () 
         expect(text.replace(GIGABIT_FIGURE, "available to premises")).not.toContain("%");
       }
       for (const key of allKeys(short)) {
+        // The planning hand-off's key is exempt by name
+        // (M7.9): "planningApplications" trips the blunt
+        // "gap" substring across its camelCase hump, but
+        // the name is the product's fixed vocabulary —
+        // the area bundle's section name since M6.12 —
+        // not a computed comparison.
+        if (key === "planningApplications") continue;
         expect(key).not.toMatch(
           /gap|percent|difference|trend|direction|score|rate|rank|verdict|compar/i,
         );
@@ -3551,9 +3660,13 @@ describe("short bundle — live flood warnings (M6.22, decision D42)", () => {
     const short = await shortWithWarnings(warnings);
     for (const text of allStrings(short))
       for (const term of BANNED_WORDING) expect(text.toLowerCase()).not.toContain(term);
-    for (const key of allKeys(short))
+    for (const key of allKeys(short)) {
+      // As in the wording scan above: the hand-off's own
+      // key name is fixed vocabulary, exempt by name.
+      if (key === "planningApplications") continue;
       expect(key).not.toMatch(
         /gap|percent|difference|trend|direction|score|rate|rank|verdict|compar/i,
       );
+    }
   });
 });

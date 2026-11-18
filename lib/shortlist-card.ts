@@ -1,8 +1,8 @@
 import type { AddressResolution } from "./address";
 import { homeKeyOf } from "./bundle-cache";
 import type { CategoryAnswer, NearbyBundle } from "./nearby";
-import { formatMiles, resultsScopeLabel } from "./results";
-import type { ShortBundle } from "./short-bundle";
+import { floodBandOf, formatMiles, resultsScopeLabel } from "./results";
+import type { ShortBundle, ShortCrime, ShortFlood } from "./short-bundle";
 import {
   NOT_COVERED_LINE,
   shortlistCardId,
@@ -79,6 +79,43 @@ function distanceCell(category: CategoryAnswer | undefined): ShortlistCell {
   return { kind: "line", text: category?.line ?? NOT_COVERED_LINE };
 }
 
+// The flood cell (founder's ruling, 17 Nov 2026 — real
+// comparable data replaces the pointer): both checks'
+// bands in one line, each derived through the results
+// layer's own mapping (floodBandOf in lib/results.ts), so
+// the absence states — rofrs "no-band-published", rofsw
+// "below-lowest-band" — mean Very low here exactly as they
+// do on the results page (the CI #206 lesson: a second
+// mapping would drift). Where the section is not covered,
+// or a layer serves no band at all (its data not filed),
+// the cell carries that layer's own named-state line —
+// never an invented band.
+function floodCell(flood: ShortFlood): ShortlistCell {
+  if (flood.state === "not-covered") return { kind: "line", text: flood.reason };
+  const riversSea = flood.layers.find((layer) => layer.layer === "rofrs");
+  const surfaceWater = flood.layers.find((layer) => layer.layer === "rofsw");
+  const riversSeaBand = riversSea ? floodBandOf(riversSea) : null;
+  const surfaceWaterBand = surfaceWater ? floodBandOf(surfaceWater) : null;
+  if (riversSeaBand !== null && surfaceWaterBand !== null)
+    return {
+      kind: "line",
+      text: `Rivers & sea: ${riversSeaBand} · Surface water: ${surfaceWaterBand}`,
+    };
+  const bandless = [riversSea, surfaceWater].find(
+    (layer) => layer !== undefined && floodBandOf(layer) === null,
+  );
+  return { kind: "line", text: bandless?.line ?? NOT_COVERED_LINE };
+}
+
+// The crime cell (the same ruling): the 12-month count as
+// served, in the sample's form ("330 crimes"). The named
+// states (not filed, not covered) carry the brain's own
+// reason verbatim.
+function crimeCell(crime: ShortCrime): ShortlistCell {
+  if (crime.state !== "served") return { kind: "line", text: crime.reason };
+  return { kind: "line", text: `${crime.total.toLocaleString("en-GB")} crimes` };
+}
+
 function rung1Card(input: ShortlistCardInput): ShortlistCard | null {
   const { resolution, nearby, sold, short } = input;
   if (resolution.rung !== 1 || short.kind !== "short-bundle" || !nearby || !sold) return null;
@@ -125,8 +162,8 @@ function rung1Card(input: ShortlistCardInput): ShortlistCard | null {
     secondary: distanceCell(secondary),
     grammar: grammarCell,
     nursery: distanceCell(categoryOf(nearby, "nurseries")),
-    flood: { kind: "pointer" },
-    crime: { kind: "pointer" },
+    flood: floodCell(short.sections.flood),
+    crime: crimeCell(short.sections.crime),
     gp: distanceCell(categoryOf(nearby, "gp")),
     ae: distanceCell(categoryOf(nearby, "ae")),
     station: distanceCell(categoryOf(nearby, "station")),

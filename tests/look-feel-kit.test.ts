@@ -153,6 +153,9 @@ describe("brand assets at their fixed destinations", () => {
         "public/fonts/dm-sans-latin-900-normal.woff2",
         "public/fonts/newsreader-latin-600-normal.woff2",
         "public/fonts/newsreader-latin-700-normal.woff2",
+        // The Sample report's location maps (M7.8).
+        "public/sample-report/flood-map-rivers-sea.png",
+        "public/sample-report/flood-map-surface-water.png",
       ].sort(),
     );
     for (const { source } of BINARY_ASSETS) {
@@ -239,9 +242,19 @@ describe("header and footer shells", () => {
   });
 
   it("renders the footer's sample form: middle links and the sources line (fidelity pass 2)", () => {
-    for (const label of ["How we check", "Sample report", "About", "Contact"]) {
-      expect(footer, label).toContain(`>${label}<`);
+    // The footer's set, in order — D77(g) as amended by the
+    // founder's ruling of 18 Nov 2026: Guides joins between
+    // About and Contact, pointing at the /guides hub. The
+    // header's set above carries no Guides (its own pin
+    // stands): the ruling is footer-only.
+    const labels = ["How we check", "Sample report", "About", "Guides", "Contact"];
+    let lastIndex = -1;
+    for (const label of labels) {
+      const index = footer.indexOf(`>${label}<`);
+      expect(index, label).toBeGreaterThan(lastIndex);
+      lastIndex = index;
     }
+    expect(footer).toContain('href="/guides"');
     expect(footer).toContain('href="/contact"');
     expect(footer).toContain("Data from named official sources. Facts, not scores.");
   });
@@ -399,9 +412,14 @@ describe("kitchen-sink page", () => {
     );
   });
 
-  it("is not a public page — PAGE_SEO is unchanged and holds no entry for it", () => {
+  it("is not a public page — PAGE_SEO holds no entry for it", () => {
     expect("/kitchen-sink" in PAGE_SEO).toBe(false);
-    expect(Object.keys(PAGE_SEO)).toHaveLength(21);
+    // 24 since M7.8 (the chrome pairs locked and About
+    // re-locked at /about); 25 since 18 Nov 2026, when the
+    // /guides hub's pair joined under the founder's footer
+    // ruling. The kitchen sink stays outside the set,
+    // declared non-indexable.
+    expect(Object.keys(PAGE_SEO)).toHaveLength(25);
     expect(PAGE_SEO["/"].title).toBe(`Check My Next Home — ${SITE_TAGLINE}`);
   });
 });

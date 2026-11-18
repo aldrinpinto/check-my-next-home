@@ -16,6 +16,13 @@ import {
   HOME_MANIFESTO_WHY,
 } from "../lib/home";
 import { HOME_HERO_HEADLINE, SITE_MANIFESTO } from "../lib/site";
+import type { Metadata } from "next";
+
+import { PAGE_SEO, pageMetadata } from "../lib/seo";
+
+// M7.8: the homepage exports its own locked pair — the
+// layout no longer supplies it (see app/layout.tsx).
+export const metadata: Metadata = pageMetadata({ ...PAGE_SEO["/"], path: "/" });
 
 // M7.2 — the home page. Family-first, as designed (D12) and as
 // ruled at the step's gap check (founder, 16 Nov 2026).

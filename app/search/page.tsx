@@ -25,6 +25,24 @@ import {
 import { buildShortlistCard } from "../../lib/shortlist-card";
 import { getDbPool } from "../../lib/server/db";
 
+import type { Metadata } from "next";
+
+import { pageMetadata } from "../../lib/seo";
+
+// M7.8: explicit production noindex for the journey's
+// routes. A specific search's results are one family's
+// check, never an indexable page — until this step the
+// production build would have indexed them (the old
+// environment rule only locked non-production builds).
+// noindex here is unconditional: it holds in every
+// environment, production included.
+export const metadata: Metadata = pageMetadata({
+  title: "Your check | Check My Next Home",
+  description: "The facts for the home you checked, from official sources.",
+  path: "/search",
+  noindex: true,
+});
+
 // The postcode form of the journey's route family (plan
 // step M7.3, fold-in 1): /search carrying the normalised
 // postcode renders the picker or the postcode-level state;

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import robots from "../app/robots";
 import sitemap from "../app/sitemap";
+import { CHECK_PAGES, GUIDES } from "../lib/check-pages";
 import {
   HOME_PAGE_SEO,
   ORGANIZATION_SCHEMA,
@@ -51,6 +52,29 @@ describe("metadata helper (M2.11)", () => {
     expect(meta.robots).toBeUndefined();
   });
 
+  it("keeps a noindex page out of search even on the real site (M7.8)", () => {
+    // The production-noindex fix: until M7.8 the helper only
+    // locked non-production environments, so a specific
+    // home's results page would have been indexable in
+    // production. noindex is unconditional now.
+    setEnv("production");
+    const meta = pageMetadata({
+      title: "A",
+      description: "a",
+      path: "/search/home",
+      noindex: true,
+    });
+    expect(meta.robots).toMatchObject({ index: false, follow: false });
+    setEnv("play");
+    const playMeta = pageMetadata({
+      title: "A",
+      description: "a",
+      path: "/search/home",
+      noindex: true,
+    });
+    expect(playMeta.robots).toMatchObject({ index: false, follow: false });
+  });
+
   it("derives the Open Graph fields from the same per-page wording (M6.10, D38)", () => {
     const meta = pageMetadata({ title: "T", description: "d", path: "/check/crime" });
     expect(meta.openGraph).toMatchObject({
@@ -87,7 +111,13 @@ describe("sitemap generator (M2.11)", () => {
 
   it("lists indexable pages only on the real site", () => {
     setEnv("production");
-    expect(sitemap().map((entry) => entry.url)).toEqual([`${SITE_URL}/`]);
+    // M7.8: the sitemap is exactly the locked set — every
+    // PAGE_SEO key, in the record's order, homepage first.
+    // The journey routes and /kitchen-sink are never here.
+    expect(sitemap().map((entry) => entry.url)).toEqual(
+      Object.keys(PAGE_SEO).map((path) => `${SITE_URL}${path}`),
+    );
+    expect(sitemap()[0]).toMatchObject({ url: `${SITE_URL}/`, priority: 1 });
   });
 });
 
@@ -102,10 +132,22 @@ describe("robots generator (M2.11)", () => {
   it("allows indexable pages and protects private paths on the real site", () => {
     setEnv("production");
     const result = robots();
+    // M7.8: the disallow list names the journey and utility
+    // route family as it exists (it previously named
+    // /results, /checkout and /account — routes that have
+    // never existed).
     expect(result.rules).toMatchObject({
       userAgent: "*",
       allow: "/",
-      disallow: ["/results", "/checkout", "/account"],
+      disallow: [
+        "/search",
+        "/search/home",
+        "/search/failed",
+        "/report",
+        "/shortlist",
+        "/kitchen-sink",
+        "/api",
+      ],
     });
     expect(result.sitemap).toBe(`${SITE_URL}/sitemap.xml`);
   });
@@ -148,11 +190,18 @@ describe("structured data (M2.11)", () => {
 describe("locked SEO wording set (M6.10, D38)", () => {
   const entries = Object.entries(PAGE_SEO);
 
-  it("covers every public page on the intent map, plus the two trust pages", () => {
+  it("covers every public page on the intent map, plus the trust and chrome pages", () => {
+    // M7.8: About's pair is re-locked at /about (superseding
+    // /about-the-data), and the chrome pages' pairs are
+    // locked at their chrome paths — /sample-report,
+    // /contact, /privacy — under the same D38 process.
+    // 18 Nov 2026: the /guides hub's pair joins the set
+    // (the founder's footer ruling — the hub is the footer's
+    // Guides destination).
     expect(Object.keys(PAGE_SEO).sort()).toEqual(
       [
         "/",
-        "/about-the-data",
+        "/about",
         "/check/air-quality",
         "/check/broadband",
         "/check/council-tax-band",
@@ -168,10 +217,14 @@ describe("locked SEO wording set (M6.10, D38)", () => {
         "/check/schools",
         "/check/solar-potential",
         "/check/sold-prices",
+        "/guides",
         "/guides/buying-a-leasehold-flat",
         "/guides/checks-before-buying-a-house",
         "/guides/is-this-area-good-for-families",
         "/how-we-check",
+        "/contact",
+        "/privacy",
+        "/sample-report",
       ].sort(),
     );
   });
@@ -278,6 +331,57 @@ describe("SEO wording scan (M6.10, D38)", () => {
     for (const [, entry] of Object.entries(PAGE_SEO)) {
       expect(entry.title).not.toContain(SITE_MANIFESTO);
       expect(entry.description).not.toContain(SITE_MANIFESTO);
+    }
+  });
+});
+
+describe("page body copy scan (M7.8)", () => {
+  // The adopted M7.8 gap check made body copy a first-class
+  // build input: the check pages' and guides' prose lives as
+  // locked constants (lib/check-pages.ts), and the
+  // banned-wording scan extends over those strings too.
+  //
+  // The scan's shape differs from the locked-pair scan in
+  // exactly two ruled ways: body copy legitimately carries
+  // figures (the crime window, the EPC bands, the £4.99
+  // report price the guides name) and the word "free" (the
+  // headlines are always free — a product fact, stated in
+  // the open), so the no-figure and no-"free" rules do not
+  // run here. Everything else runs: the union, the valuation
+  // rule (the D23 disclaimer sentence stripped, as in the
+  // pair scan), the portal names, and the gift's other two
+  // unmentionables. A string carrying the searcher's
+  // question (the families guide's H1) is sheltered from the
+  // union exactly as its locked title is — never from the
+  // rest.
+  function everyString(value: unknown, out: string[] = []): string[] {
+    if (typeof value === "string") out.push(value);
+    else if (Array.isArray(value)) for (const item of value) everyString(item, out);
+    else if (value && typeof value === "object")
+      for (const item of Object.values(value)) everyString(item, out);
+    return out;
+  }
+
+  const bodyStrings = [...everyString(CHECK_PAGES), ...everyString(GUIDES)];
+
+  it("scans a real body of copy, not an empty set", () => {
+    expect(bodyStrings.length).toBeGreaterThan(200);
+  });
+
+  it("keeps the union, the portals and the gift out of the body copy", () => {
+    for (const text of bodyStrings) {
+      const lower = text.toLowerCase();
+      for (const portal of ["rightmove", "zoopla", "onthemarket"])
+        expect(lower, `portal named: ${portal} in "${text.slice(0, 60)}"`).not.toContain(portal);
+      for (const gift of ["gift", "check together"])
+        expect(lower, `gift wording: ${gift} in "${text.slice(0, 60)}"`).not.toContain(gift);
+      if (text.includes("?")) continue;
+      const stripped = text.split(VALUATION_DISCLAIMER).join("");
+      expect(stripped.toLowerCase(), `valuation in "${text.slice(0, 60)}"`).not.toContain(
+        "valuation",
+      );
+      for (const term of BANNED_WORDING)
+        expect(lower, `banned term: ${term} in "${text.slice(0, 60)}"`).not.toContain(term);
     }
   });
 });

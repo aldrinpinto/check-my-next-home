@@ -1228,6 +1228,19 @@ body:has(.main--home) .site-footer {
   margin-bottom: 0;
 }
 
+/* M7.8: the wired tiles' link fills the tile (the whole
+   tile is the target); the tile's own look is unchanged. */
+.check-tile__link {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+}
+
+.check-tile__link:hover .check-tile__title,
+.check-tile__link:focus-visible .check-tile__title {
+  text-decoration: underline;
+}
+
 /* "How it works" (founder follow-on to D70, 17 Nov 2026):
    the decided page's numbered steps — the number in its
    Forest circle, then the step's title and line. The steps
@@ -1835,18 +1848,13 @@ body:has(.main--home) .site-footer {
 }
 
 /* --- Shortlist (plan step M7.5) --------------------------------------
-   The add control in the results header area, the add-a-4th
-   panel, the /shortlist cards and the side-by-side
-   comparison. Built from the kit's tokens only; distance
-   colour rides on the results page's miles classes
-   (.place-row__miles--*) so a figure can never take a
-   different colour here than it took on the check. */
-
-.results-actions {
-  display: flex;
-  justify-content: flex-end;
-  margin-bottom: var(--space-4);
-}
+   The add control in the results header area, the full
+   message that replaces it at the limit, the /shortlist
+   cards and the side-by-side comparison. Built from the
+   kit's tokens only; distance colour rides on the results
+   page's miles classes (.place-row__miles--*) so a figure
+   can never take a different colour here than it took on
+   the check. */
 
 .results-header--row {
   display: flex;
@@ -1865,37 +1873,10 @@ body:has(.main--home) .site-footer {
   margin-bottom: var(--space-5);
 }
 
-.shortlist-panel {
-  border: 1px solid var(--cmnh-brass-pale);
-  border-radius: var(--radius-card);
-  background: var(--colour-surface);
-  padding: var(--space-5);
-  margin-top: var(--space-4);
-  text-align: left;
-}
-
-.shortlist-panel__line {
-  margin-bottom: var(--space-4);
-}
-
-.shortlist-panel__list {
-  list-style: none;
-  padding: 0;
-  margin: 0 0 var(--space-4);
-}
-
-.shortlist-panel__item {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-4);
-  padding: var(--space-2) 0;
-  border-bottom: 1px solid var(--cmnh-brass-pale);
-}
-
-.shortlist-panel__address {
-  flex: 1 1 12rem;
-  font-weight: 600;
+/* The full message: a simple line in the button's place
+   (founder's ruling, 17 Nov 2026) — no panel, no card. */
+.shortlist-full-line {
+  margin: 0;
 }
 
 .shortlist-cards {
@@ -1932,9 +1913,12 @@ body:has(.main--home) .site-footer {
   margin: 0;
 }
 
+/* The kept line closes the /shortlist page in small print,
+   below the comparison (founder's ruling, 17 Nov 2026). */
 .shortlist-kept-line {
   font-size: var(--font-size-small);
-  margin-bottom: var(--space-6);
+  margin-top: var(--space-6);
+  margin-bottom: 0;
 }
 
 .shortlist-compare__grid {
@@ -2073,6 +2057,27 @@ body:has(.main--home) .site-footer {
   color: var(--colour-text);
 }
 
+/* The full-shortlist message (M7.5, as ruled 17 Nov 2026):
+   a sentence standing in the buy bar where the add button
+   stood, its "See your shortlist" link the only way
+   forward from that state — an action among the bar's
+   44px pills. The link keeps its text-link form (the
+   finalised sample's simple message) and takes the kit's
+   tap target as invisible height (M7.7, fold-in F2 — the
+   treatment the panel's report link was adopted for,
+   applied to the element that replaced the panel), the
+   same idiom as the nav links: the height is tappable
+   area, not visible form. */
+.shortlist-full-line {
+  margin: 0;
+}
+
+.shortlist-full-line a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-target);
+}
+
 /* The buy bar's panel form (kit block for M7.6): the warm
    band panel carrying the report and shortlist pill
    buttons. */
@@ -2092,6 +2097,61 @@ body:has(.main--home) .site-footer {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
+  align-items: center;
+}
+
+/* The mystery tease inside the buy bar (D21 as amended):
+   the eyebrow in small caps over the band, the line in
+   the serif face — the payment page strip's form, in the
+   bar's warm band. */
+.buy-bar__mystery {
+  flex-basis: 100%;
+  margin: 0;
+  font-family: var(--font-family-display);
+  font-size: var(--font-size-lead);
+}
+
+.buy-bar__mystery-eyebrow {
+  display: block;
+  font-family: var(--font-family);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--colour-heading);
+}
+
+/* The report door's holding page (M7.6): the payment
+   page's card form — a bordered card carrying what the
+   report adds, the one-payment line and the state line. */
+.report-door__card {
+  border: 1px solid var(--cmnh-brass-pale);
+  border-radius: var(--radius-card);
+  background: var(--colour-surface);
+  padding: var(--space-4);
+  margin-top: var(--space-4);
+}
+
+.report-door__card h2 {
+  margin-top: 0;
+}
+
+.report-door__list {
+  margin: 0;
+  padding-left: 1.2em;
+}
+
+.report-door__list li {
+  margin-bottom: var(--space-1);
+}
+
+.report-door__price {
+  font-weight: 700;
+  margin: var(--space-3) 0 0;
+}
+
+.report-door__state {
+  margin: var(--space-2) 0 0;
 }
 
 /* The comparison table (D70 R5/D17): the design's
@@ -2257,4 +2317,1008 @@ body:has(.main--home) .site-footer {
 }
 .calculator-card__result {
   font-weight: 600;
+}
+
+/* =====================================================================
+   M7.8 — the site pages: the chrome pages (How we check,
+   About, Sample report, Contact, Privacy) and the content
+   pages (the /check/ landing pages and the guides), in the
+   finalised Final Sample Master's own design language.
+
+   The rules below are a port of the Master's site-pages
+   stylesheet (its .sitepages-scope rules), with the sample's
+   variables mapped to the same hex values the brand tokens
+   already carry, and the sample's class names carried where
+   the components share them. The sample's browser-chrome,
+   header and footer rules are NOT ported — the product's
+   own chrome serves those. Scoped to .site-pages so no
+   other surface can be altered by them.
+   ===================================================================== */
+.site-pages {
+  --sp-forest: #2f5d3e;
+  --sp-deep: #1e402c;
+  --sp-brass: #c29a3b;
+  --sp-brass-pale: #e4cf9a;
+  --sp-cream: #fdf8e8;
+  --sp-paper: #ffffff;
+  --sp-ink: #26312a;
+  --sp-muted: #5c6b60;
+  --sp-line: #e7dfc6;
+  --sp-line-soft: #efe8d2;
+  --sp-wash: #f7f1dc;
+  --sp-radius: 16px;
+  background: var(--sp-cream);
+  color: var(--sp-ink);
+  font-size: 16.5px;
+  line-height: 1.65;
+}
+.site-pages__inner {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 2rem 1rem 3rem;
+}
+.site-pages h1,
+.site-pages h2,
+.site-pages h3,
+.site-pages h4 {
+  font-family: var(--font-family-display);
+  color: var(--sp-deep);
+  line-height: 1.18;
+  margin: 0;
+  font-weight: 600;
+}
+.site-pages p {
+  margin: 0;
+}
+.site-pages a {
+  color: var(--sp-forest);
+}
+.site-pages ul {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+.site-pages li {
+  margin: 0.3rem 0;
+}
+.site-pages .eyebrow {
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--sp-brass);
+  margin-bottom: 0.6rem;
+}
+.site-pages h1 {
+  font-size: 2.5rem;
+  max-width: 22ch;
+}
+.site-pages .lead {
+  font-size: 1.16rem;
+  color: #3d4a40;
+  max-width: 68ch;
+  margin-top: 1rem;
+}
+.site-pages .lead strong {
+  color: var(--sp-deep);
+}
+.site-pages .lead-second {
+  font-size: 1.02rem;
+  color: #3d4a40;
+  max-width: 68ch;
+  margin-top: 0.7rem;
+}
+.site-pages .rule {
+  height: 3px;
+  width: 64px;
+  background: var(--sp-brass);
+  border-radius: 2px;
+  margin: 1.4rem 0 0;
+}
+.site-pages .card {
+  background: var(--sp-paper);
+  border: 1px solid var(--sp-line);
+  border-radius: var(--sp-radius);
+  padding: 1.5rem 1.6rem;
+}
+.site-pages .stack {
+  display: grid;
+  gap: 1.1rem;
+  margin-top: 1.8rem;
+}
+.site-pages .card h2 {
+  font-size: 1.5rem;
+  margin-bottom: 0.55rem;
+}
+.site-pages .card p {
+  color: #3d4a40;
+  max-width: 75ch;
+}
+.site-pages .card p + p {
+  margin-top: 0.55rem;
+}
+
+/* How we check — the check cards and the never grid. */
+.site-pages .how-card .card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin-bottom: 0.7rem;
+}
+.site-pages .how-card .card-head h2 {
+  font-size: 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin-bottom: 0;
+  margin-right: auto;
+}
+.site-pages .card-icon {
+  width: 38px;
+  height: 38px;
+  flex: none;
+  border-radius: 10px;
+  background: var(--sp-forest);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-family-display);
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+.site-pages .source-tag {
+  display: inline-block;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: var(--sp-wash);
+  color: var(--sp-forest);
+  border: 1px solid var(--sp-line);
+  border-radius: 999px;
+  padding: 0.28rem 0.7rem;
+  white-space: nowrap;
+}
+.site-pages .how-line {
+  border-top: 1px dashed var(--sp-line);
+  padding-top: 0.7rem;
+  margin-top: 0.7rem;
+  font-size: 0.95rem;
+}
+.site-pages .how-line strong {
+  color: var(--sp-deep);
+}
+.site-pages .note-box {
+  background: var(--sp-wash);
+  border: 1px solid var(--sp-line);
+  border-radius: var(--sp-radius);
+  padding: 1.4rem 1.6rem;
+  margin-top: 1.8rem;
+}
+.site-pages .note-box h2 {
+  font-size: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+.site-pages .never-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 0.9rem;
+  margin-top: 1.1rem;
+}
+.site-pages .never-item {
+  background: var(--sp-paper);
+  border: 1px solid var(--sp-line);
+  border-radius: 12px;
+  padding: 1rem 1.1rem;
+}
+.site-pages .never-item h3 {
+  font-size: 1.08rem;
+  margin-bottom: 0.3rem;
+}
+.site-pages .never-item p {
+  font-size: 0.93rem;
+  color: var(--sp-muted);
+}
+
+/* The search block (the checker) that closes the pages. */
+.site-pages .search-block {
+  margin-top: 1.8rem;
+  background: var(--sp-paper);
+  border: 1px solid var(--sp-line);
+  border-radius: var(--sp-radius);
+  padding: 1.6rem 1.7rem;
+}
+.site-pages .search-block h2 {
+  font-size: 1.7rem;
+}
+.site-pages .search-block p {
+  margin-top: 0.45rem;
+  color: #3d4a40;
+  max-width: 62ch;
+}
+.site-pages .search-block .postcode-box {
+  margin-top: 1.1rem;
+}
+.site-pages .search-block .postcode-box__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+}
+.site-pages .search-block .postcode-box__row .field__input {
+  flex: 1 1 260px;
+  min-height: 52px;
+}
+
+/* About — the tagline, the price line, the manifesto block. */
+.site-pages .about-tagline {
+  font-family: var(--font-family-display);
+  font-size: 1.5rem;
+  color: var(--sp-forest);
+  font-weight: 600;
+  margin-top: 1.2rem;
+}
+.site-pages .price-line {
+  font-family: var(--font-family-display);
+  font-size: 2rem;
+  color: var(--sp-deep);
+  font-weight: 700;
+}
+.site-pages .manifesto {
+  margin-top: 1.8rem;
+  background: var(--sp-deep);
+  color: var(--sp-cream);
+  border-radius: var(--sp-radius);
+  padding: 2rem 1.8rem;
+}
+.site-pages .manifesto .manifesto-kicker {
+  font-family: var(--font-family-display);
+  color: var(--sp-cream);
+  font-size: 1.7rem;
+  font-weight: 600;
+  line-height: 1.18;
+  margin-bottom: 0.7rem;
+}
+.site-pages .manifesto p {
+  color: rgba(253, 248, 232, 0.88);
+  max-width: 70ch;
+}
+.site-pages .manifesto .manifesto-close {
+  font-family: var(--font-family-display);
+  font-size: 1.3rem;
+  color: var(--sp-brass-pale);
+  margin-top: 1.1rem;
+  font-weight: 600;
+}
+
+/* Privacy — the date line and the policy cards. */
+.site-pages .privacy-date {
+  font-size: 0.9rem;
+  color: var(--sp-muted);
+  margin-top: 1rem;
+}
+.site-pages .privacy-card h2 {
+  font-size: 1.45rem;
+}
+.site-pages .privacy-card p,
+.site-pages .privacy-card ul {
+  color: #3d4a40;
+  max-width: 72ch;
+}
+.site-pages .privacy-card ul li::marker {
+  color: var(--sp-brass);
+}
+.site-pages .privacy-card a {
+  font-weight: 600;
+}
+
+/* Contact — the form and the email route. */
+.site-pages .contact-card {
+  max-width: 720px;
+  margin-top: 1.8rem;
+}
+.site-pages .contact-card form {
+  display: grid;
+  gap: 1rem;
+  margin-top: 0.4rem;
+}
+.site-pages .contact-card label {
+  font-weight: 600;
+  color: var(--sp-deep);
+  font-size: 0.95rem;
+  display: block;
+  margin-bottom: 0.35rem;
+}
+.site-pages .contact-card input[type="text"],
+.site-pages .contact-card input[type="email"],
+.site-pages .contact-card textarea {
+  width: 100%;
+  min-height: 48px;
+  border: 1px solid var(--sp-line);
+  border-radius: 10px;
+  padding: 0.7rem 0.9rem;
+  font-family: inherit;
+  font-size: 1rem;
+  background: #fff;
+  color: var(--sp-ink);
+}
+.site-pages .contact-card textarea {
+  min-height: 150px;
+  resize: vertical;
+}
+.site-pages .contact-card input:focus,
+.site-pages .contact-card textarea:focus {
+  outline: 2px solid var(--sp-brass);
+  outline-offset: 1px;
+  border-color: var(--sp-brass);
+}
+.site-pages .send-btn {
+  min-height: 52px;
+  background: var(--sp-forest);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 1.02rem;
+  font-weight: 700;
+  padding: 0.8rem 2rem;
+  justify-self: start;
+  cursor: pointer;
+  font-family: inherit;
+}
+.site-pages .send-btn:hover {
+  background: var(--sp-deep);
+}
+.site-pages .thanks {
+  display: none;
+  background: var(--sp-wash);
+  border: 1px solid var(--sp-brass);
+  border-radius: 12px;
+  padding: 1.1rem 1.25rem;
+  color: var(--sp-deep);
+  font-weight: 600;
+}
+.site-pages .thanks.show {
+  display: block;
+}
+.site-pages .email-route {
+  margin-top: 1.8rem;
+  padding-top: 1.2rem;
+  border-top: 1px dashed var(--sp-line);
+  color: #3d4a40;
+}
+.site-pages .email-route a {
+  font-weight: 700;
+}
+
+/* Content pages — the in-section check links, the sources
+   line and the related-links block. */
+.site-pages .content-links {
+  margin-top: 0.7rem;
+}
+.site-pages .content-links a {
+  font-weight: 600;
+}
+.site-pages .sources-line {
+  font-size: 0.9rem;
+  color: var(--sp-muted);
+  margin-top: 1.4rem;
+  max-width: 75ch;
+}
+.site-pages .related-block {
+  margin-top: 1.4rem;
+}
+.site-pages .related-links {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 0.8rem;
+}
+.site-pages .related-links li {
+  margin: 0;
+}
+.site-pages .related-links a {
+  display: inline-block;
+  background: var(--sp-paper);
+  border: 1px solid var(--sp-line);
+  border-radius: 999px;
+  padding: 0.45rem 1rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+.site-pages .related-links a:hover {
+  text-decoration: underline;
+}
+
+/* The Sample report document — the Master's rpt-* rules,
+   ported as they stand in the sample. */
+.site-pages .report-wrap {
+  position: relative;
+}
+.site-pages .watermark {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 5;
+  border-radius: var(--sp-radius);
+}
+.site-pages .watermark span {
+  position: absolute;
+  font-family: var(--font-family-display);
+  font-weight: 700;
+  font-size: 4.6rem;
+  letter-spacing: 0.25em;
+  color: var(--sp-forest);
+  opacity: 0.055;
+  transform: rotate(-28deg);
+  white-space: nowrap;
+}
+.site-pages .sample-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.7rem;
+  background: var(--sp-deep);
+  color: var(--sp-cream);
+  border-radius: 12px;
+  padding: 0.85rem 1.15rem;
+  margin-bottom: 1.4rem;
+}
+.site-pages .sample-pill {
+  background: var(--sp-brass);
+  color: var(--sp-deep);
+  font-weight: 700;
+  font-size: 0.78rem;
+  letter-spacing: 0.14em;
+  padding: 0.35rem 0.8rem;
+  border-radius: 999px;
+}
+.site-pages .sample-banner p {
+  font-size: 0.94rem;
+  color: rgba(253, 248, 232, 0.9);
+}
+.site-pages .rpt-doc {
+  background: var(--sp-paper);
+  color: var(--sp-ink);
+  border: 1px solid var(--sp-line);
+  border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(30, 64, 44, 0.1);
+  overflow: hidden;
+  position: relative;
+  z-index: 1;
+}
+.site-pages .rpt-mast {
+  border-top: 6px solid var(--sp-forest);
+  padding: 26px 28px 20px;
+  border-bottom: 1px solid var(--sp-line);
+}
+.site-pages .rpt-brand {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--sp-forest);
+  margin: 0 0 10px;
+}
+.site-pages .rpt-mast h1 {
+  font-size: 2rem;
+  line-height: 1.15;
+  margin: 0 0 4px;
+  max-width: none;
+}
+.site-pages .rpt-mast .rpt-addr {
+  font-size: 1.02rem;
+  color: #44514c;
+  margin: 0 0 16px;
+}
+.site-pages .rpt-meta {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px 20px;
+  background: var(--sp-wash);
+  border: 1px solid var(--sp-line);
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+.site-pages .rpt-meta .k {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--sp-muted);
+  margin-bottom: 2px;
+}
+.site-pages .rpt-meta .v {
+  font-weight: 700;
+  font-size: 1.05rem;
+  line-height: 1.3;
+  color: var(--sp-deep);
+}
+.site-pages .rpt-section {
+  padding: 24px 28px 6px;
+}
+.site-pages .rpt-section + .rpt-section {
+  border-top: 3px solid var(--sp-forest);
+  margin-top: 22px;
+}
+.site-pages .rpt-secHead {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 6px;
+}
+.site-pages .rpt-secNum {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--sp-forest);
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.92rem;
+  line-height: 1;
+  text-align: center;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.site-pages .rpt-secHead h2 {
+  font-size: 1.45rem;
+  line-height: 1.2;
+}
+.site-pages .rpt-intro {
+  font-size: 0.94rem;
+  color: #33403b;
+  margin: 4px 0 10px;
+}
+.site-pages .rpt-sub {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--sp-forest);
+  margin: 18px 0 6px;
+  font-family: inherit;
+}
+.site-pages .rpt-sub:first-of-type {
+  margin-top: 10px;
+}
+.site-pages .rpt-doc p {
+  font-size: 0.94rem;
+  color: #26312a;
+}
+.site-pages ul.rpt-tight {
+  margin: 6px 0 10px;
+  padding-left: 20px;
+  font-size: 0.94rem;
+}
+.site-pages ul.rpt-tight li {
+  margin: 5px 0;
+}
+.site-pages ul.rpt-tight li::marker {
+  color: var(--sp-brass);
+}
+.site-pages .rpt-tldr {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 28px;
+}
+.site-pages .rpt-tldr .grp h3 {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--sp-forest);
+  margin: 12px 0 2px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--sp-line);
+  font-family: inherit;
+}
+.site-pages .rpt-tldr ul {
+  margin: 4px 0 8px;
+  padding-left: 18px;
+  font-size: 0.93rem;
+}
+.site-pages .rpt-tldr li {
+  margin: 4px 0;
+}
+.site-pages .rpt-tldr li::marker {
+  color: var(--sp-brass);
+}
+.site-pages .rpt-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px dashed var(--sp-line);
+  font-size: 0.94rem;
+}
+.site-pages .rpt-row:last-child {
+  border-bottom: 0;
+}
+.site-pages .rpt-row .rmain {
+  min-width: 0;
+}
+.site-pages .rpt-row .rname {
+  font-weight: 700;
+  color: var(--sp-deep);
+}
+.site-pages .rpt-detail {
+  font-size: 0.89rem;
+  color: #44514c;
+  margin-top: 2px;
+}
+.site-pages .rpt-row.hl {
+  background: var(--sp-wash);
+  border: 1px solid var(--sp-brass);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin: 6px 0;
+}
+.site-pages .dist {
+  white-space: nowrap;
+  font-weight: 700;
+  font-size: 0.82rem;
+  padding: 5px 9px;
+  border-radius: 999px;
+  height: fit-content;
+  background: var(--sp-wash);
+  color: var(--sp-deep);
+  border: 1px solid var(--sp-line);
+}
+.site-pages .badge {
+  white-space: nowrap;
+  font-weight: 700;
+  font-size: 0.78rem;
+  padding: 5px 9px;
+  border-radius: 999px;
+  height: fit-content;
+  background: var(--sp-wash);
+  color: var(--sp-deep);
+  border: 1px solid var(--sp-line);
+}
+.site-pages .badge.g {
+  background: #dff0e2;
+  color: #1e402c;
+  border-color: #bfd8c4;
+}
+.site-pages .tag {
+  display: inline-block;
+  background: var(--sp-wash);
+  border: 1px solid var(--sp-line);
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  margin-left: 4px;
+  vertical-align: 1px;
+  color: var(--sp-deep);
+}
+.site-pages .tag.star {
+  background: var(--sp-brass-pale);
+  border-color: var(--sp-brass);
+}
+.site-pages .rpt-tiles {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin: 10px 0;
+}
+.site-pages .rpt-tile {
+  border: 1px solid var(--sp-line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #fff;
+}
+.site-pages .rpt-tile .stLabel {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--sp-muted);
+}
+.site-pages .rpt-tile .stValue {
+  font-size: 1.18rem;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--sp-deep);
+  font-family: var(--font-family-display);
+}
+.site-pages .rpt-tile .stSub {
+  font-size: 0.74rem;
+  font-style: italic;
+  color: var(--sp-muted);
+  line-height: 1.45;
+  margin-top: 6px;
+}
+.site-pages .rpt-chartCard {
+  border: 1px solid var(--sp-line);
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: #fff;
+  margin: 10px 0;
+}
+.site-pages .rpt-chartCard h4 {
+  margin: 0 0 8px;
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--sp-forest);
+  font-family: inherit;
+  font-weight: 700;
+}
+.site-pages .rpt-chartGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 10px 0;
+}
+.site-pages .rpt-chartNote {
+  font-size: 0.74rem;
+  font-style: italic;
+  color: var(--sp-muted);
+  line-height: 1.5;
+  margin: 14px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--sp-line-soft);
+}
+.site-pages .rpt-barRow {
+  display: grid;
+  grid-template-columns: 150px 1fr 48px;
+  gap: 8px;
+  align-items: center;
+  font-size: 0.82rem;
+  margin: 5px 0;
+}
+.site-pages .rpt-barRow .barLab {
+  color: #33403b;
+}
+.site-pages .rpt-barTrack {
+  height: 10px;
+  border-radius: 999px;
+  background: var(--sp-line-soft);
+  overflow: hidden;
+  display: block;
+}
+.site-pages .rpt-barFill {
+  display: block;
+  height: 100%;
+  background: var(--sp-forest);
+  border-radius: 999px;
+}
+.site-pages .rpt-barFill.light {
+  background: #8fae9b;
+}
+.site-pages .rpt-barFill.brass {
+  background: var(--sp-brass);
+}
+.site-pages .rpt-barVal {
+  font-weight: 700;
+  text-align: right;
+  color: var(--sp-deep);
+}
+.site-pages .rpt-doc table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  margin: 8px 0;
+}
+.site-pages .rpt-doc th,
+.site-pages .rpt-doc td {
+  text-align: left;
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--sp-line-soft);
+  vertical-align: top;
+}
+.site-pages .rpt-doc th {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--sp-muted);
+  font-weight: 700;
+}
+.site-pages .rpt-doc td.num,
+.site-pages .rpt-doc th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.site-pages .rpt-doc tr.hl td {
+  background: var(--sp-wash);
+  font-weight: 700;
+  color: var(--sp-deep);
+}
+.site-pages .epc {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 420px;
+  margin: 8px 0;
+}
+.site-pages .epc div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+  color: #fff;
+  border-radius: 4px;
+  padding: 3px 10px;
+  font-size: 13px;
+}
+.site-pages .epc .here {
+  outline: 3px solid var(--sp-deep);
+  outline-offset: 1px;
+}
+.site-pages .epc span {
+  margin-left: auto;
+  font-weight: 700;
+}
+.site-pages .mapRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 10px 0;
+}
+.site-pages .mapBox {
+  border: 1px solid var(--sp-line);
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 0.85rem;
+  color: #33403b;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.site-pages .mapBox img {
+  width: 100%;
+  height: auto;
+  display: block;
+  border: 1px solid var(--sp-line);
+  border-radius: 6px;
+}
+.site-pages .mapBox .mcap {
+  font-weight: 700;
+  color: var(--sp-forest);
+}
+.site-pages .mapBox p {
+  margin: 0;
+  font-size: 0.85rem;
+}
+.site-pages .mapBox a {
+  font-weight: 700;
+}
+.site-pages .evGroup {
+  border: 1px solid var(--sp-line);
+  background: #fbf7e9;
+  border-radius: 12px;
+  padding: 12px 14px 4px;
+  margin: 10px 0;
+}
+.site-pages .evGroup .evTitle {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--sp-forest);
+  margin: 0 0 2px;
+  font-family: inherit;
+}
+.site-pages .evGroup .evSub {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--sp-forest);
+  margin: 12px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--sp-line);
+  font-family: inherit;
+}
+.site-pages .evGroup .evSub:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+  margin-top: 8px;
+}
+.site-pages ol.rpt-seller {
+  margin: 6px 0;
+  padding-left: 22px;
+  font-size: 0.94rem;
+}
+.site-pages ol.rpt-seller li {
+  margin: 8px 0;
+}
+.site-pages .rpt-final {
+  background: #fbf7e9;
+}
+.site-pages .rpt-final h3 {
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--sp-forest);
+  margin: 16px 0 6px;
+  font-family: inherit;
+}
+.site-pages .rpt-final h3:first-of-type {
+  margin-top: 8px;
+}
+.site-pages .rpt-final p,
+.site-pages .rpt-final li {
+  font-size: 0.88rem;
+  color: #33403b;
+}
+.site-pages .rpt-final ul {
+  margin: 4px 0 10px;
+  padding-left: 20px;
+}
+.site-pages .rpt-final li {
+  margin: 4px 0;
+}
+.site-pages .rpt-doc svg text {
+  font-family: inherit;
+}
+.site-pages .monthChart,
+.site-pages .dotPlot {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.site-pages .rpt-small {
+  font-size: 0.74rem;
+  font-style: italic;
+  color: var(--sp-muted);
+  line-height: 1.5;
+}
+
+/* The sample's own small-screen values for these pages. */
+@media (max-width: 640px) {
+  .site-pages {
+    font-size: 16px;
+  }
+  .site-pages h1 {
+    font-size: 2rem;
+  }
+  .site-pages .card {
+    padding: 1.2rem 1.15rem;
+  }
+  .site-pages .rpt-meta {
+    grid-template-columns: 1fr 1fr;
+  }
+  .site-pages .rpt-tldr {
+    grid-template-columns: 1fr;
+  }
+  .site-pages .rpt-tiles {
+    grid-template-columns: 1fr 1fr;
+  }
+  .site-pages .rpt-chartGrid {
+    grid-template-columns: 1fr;
+  }
+  .site-pages .mapRow {
+    grid-template-columns: 1fr;
+  }
+  .site-pages .rpt-barRow {
+    grid-template-columns: 118px 1fr 42px;
+  }
+  .site-pages .rpt-mast {
+    padding: 20px 16px 16px;
+  }
+  .site-pages .rpt-section {
+    padding: 20px 16px 2px;
+  }
+  .site-pages .rpt-doc td.num,
+  .site-pages .rpt-doc th.num {
+    white-space: normal;
+  }
+  .site-pages .rpt-doc table {
+    font-size: 0.82rem;
+  }
+  .site-pages .rpt-doc th,
+  .site-pages .rpt-doc td {
+    padding: 7px 4px;
+  }
+  .site-pages .watermark span {
+    font-size: 3.2rem;
+  }
 }

@@ -1,5 +1,20 @@
 import ShortlistPage from "../../components/ShortlistPage";
 
+import type { Metadata } from "next";
+
+import { pageMetadata } from "../../lib/seo";
+
+// M7.8: the shortlist is declared non-indexable (the
+// adopted scope ruling): a visitor's own saved homes are
+// never a search page. Explicit noindex metadata, in every
+// environment — and no sitemap entry.
+export const metadata: Metadata = pageMetadata({
+  title: "Your shortlist | Check My Next Home",
+  description: "The homes you have saved, side by side — kept only in this browser.",
+  path: "/shortlist",
+  noindex: true,
+});
+
 // The shortlist page (plan step M7.5): the header's
 // Shortlist item has pointed here since M7.1; this step
 // builds the page. The server renders the shell and page

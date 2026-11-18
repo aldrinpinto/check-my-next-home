@@ -2,10 +2,12 @@ import {
   projectHeadline,
   type AreaBundle,
   type BrownfieldSite,
+  type CompanyOwnershipSection,
   type HeadlineProjection,
   type ListedAtPoint,
   type ListedPlace,
   type NaturePlace,
+  type PlanningApplicationsSection,
   type PlanningLayerKind,
   type PolygonLayerAnswer,
   type PriorityHabitatAnswer,
@@ -61,6 +63,39 @@ import type { MedianAnswer, SoldPricesBundle } from "./sold-prices";
 // modelled figure does not sit beside the home's own
 // facts. No asking price exists here (it is in no input
 // bundle).
+//
+// One flag-gated exception (founder's ruling, 17 Nov
+// 2026): company ownership. The area bundle serves its
+// section only while COMPANY_OWNERSHIP_ENABLED is on
+// (M5.13/D32), at report depth; the free page's one line —
+// "Owned by a company: Yes/No" — needs the boolean at
+// headline depth, so this derivation picks the section
+// across WHENEVER the input bundle carries it. While the
+// flag is off the input never carries it, so the key stays
+// absent from every short bundle, exactly as before — the
+// gating is inherited from the brain's own, never
+// re-decided here. The section's detail (titles, snapshots,
+// the explainer) stays at report depth: only the state,
+// the boolean and the lead line cross.
+//
+// One unconditional sibling pick (M7.9, decision D31):
+// the planning hand-off. The area bundle builds the
+// section from the resolution alone, in every rung 1–2
+// bundle, so this derivation picks it across always —
+// the state, the council, the line and the link; the
+// section's explainer and meta stay at report depth.
+// It is a sibling pick, not a thirteenth D28 section:
+// ShortSectionKey is unchanged, so rungs 3–4 (named
+// states keyed by that union) carry no trace of it.
+// buildResultsView reads the hand-off from here, so the
+// website and the Phase 2 extension consume one
+// derivation and show the same headline unchanged. The
+// pick moved four short-bundle contract pins
+// (short.rung1, short.rung2, short.scotland,
+// short.flood-warnings), re-pinned deliberately on the
+// founder's authorisation (18 Nov 2026 — the M6.34/D65
+// precedent: re-pins are legitimate when the founder
+// authorises them).
 //
 // M6.21 (decision D41) adds no section and no headline
 // claim: the constraints section's two new sub-blocks are
@@ -370,6 +405,35 @@ export interface ShortNearby {
   categories: ShortNearbyCategory[];
 }
 
+// Company ownership at headline depth: the area section's
+// state, the free page's one boolean, and the section's
+// own lead line. The boolean is true only where the
+// section's own title matched this home ("served"), false
+// only where both datasets were filed and no title matched
+// ("not-company-owned"); in the named states (needs the
+// exact home, not covered, not filed) no Yes/No exists to
+// serve and the boolean is null — the line carries the
+// state, as everywhere.
+export interface ShortCompanyOwnership {
+  state: CompanyOwnershipSection["state"];
+  ownedByCompany: boolean | null;
+  line: string | null;
+}
+
+// The D31 planning hand-off at headline depth (M7.9):
+// the area section's state, the council as filed, its
+// line and its link (null where the nation carries no
+// link — Scotland, and Mid Ulster in Northern Ireland).
+// Nothing else of the section crosses: the explainer
+// (which the How we check page carries) and the meta
+// stay at report depth on the area bundle.
+export interface ShortPlanningApplications {
+  state: PlanningApplicationsSection["state"];
+  council: string | null;
+  line: string;
+  link: { label: string; url: string } | null;
+}
+
 export interface ShortSections {
   soldPrices: ShortSoldPrices;
   flood: ShortFlood;
@@ -383,6 +447,19 @@ export interface ShortSections {
   noise: ShortNoise;
   broadband: ShortBroadband;
   nearby: ShortNearby;
+  // Present only while COMPANY_OWNERSHIP_ENABLED is on —
+  // the key is ABSENT (not null) in every other bundle,
+  // exactly as the area bundle's own key is.
+  companyOwnership?: ShortCompanyOwnership;
+  // The planning hand-off pick (M7.9): a sibling key
+  // beside the twelve D28 sections, NOT a thirteenth
+  // section — ShortSectionKey is unchanged. Present in
+  // every rung 1–2 bundle buildShortBundle derives,
+  // because the area bundle builds the section
+  // unconditionally; the key is typed optional on the
+  // company pick's pattern, so hand-built shapes and
+  // partial fixtures need no placeholder for it.
+  planningApplications?: ShortPlanningApplications;
 }
 
 export interface ShortNamedState {
@@ -719,6 +796,41 @@ export function buildShortBundle(input: ShortBundleInput): ShortBundle {
     broadband: headline.broadband,
     nearby: shortNearby(nearby),
   };
+
+  // The planning hand-off pick (M7.9, see the header):
+  // the area bundle builds the section unconditionally,
+  // so the pick is present in every rung 1–2 bundle —
+  // state, council, line and link cross; the explainer
+  // and meta stay at report depth. It precedes the
+  // flag-gated pick below, so the bundle's key order is
+  // the twelve sections, the hand-off, then company
+  // ownership where the flag carries it.
+  const planningApplications = area.sections.planningApplications;
+  sections.planningApplications = {
+    state: planningApplications.state,
+    council: planningApplications.council,
+    line: planningApplications.line,
+    link: planningApplications.link,
+  };
+
+  // The flag-gated pick (see the header): the area bundle
+  // carries its company-ownership section only while the
+  // flag is on, so the key appears here in exactly that
+  // position and is absent otherwise. Report depth is
+  // untouched — the full section stays on the area bundle.
+  const companyOwnership = area.sections.companyOwnership;
+  if (companyOwnership) {
+    sections.companyOwnership = {
+      state: companyOwnership.state,
+      ownedByCompany:
+        companyOwnership.state === "served"
+          ? true
+          : companyOwnership.state === "not-company-owned"
+            ? false
+            : null,
+      line: companyOwnership.line,
+    };
+  }
 
   return { rung, kind: "short-bundle", postcode: postcodes[0], sections };
 }

@@ -984,3 +984,1027 @@ tests/shortlist.test.ts and the four E2E specs above.
 Playwright was attempted locally and the harness still
 refuses (serve-e2e: DATABASE_URL is not set) — CI is
 the proof for the browser job, as with the fold-in.
+
+## CI #206 fix (17 Nov 2026) — the CI #205 fix's browser job: 46 passed, 1 failed
+
+CI #206 (commit ef1e9b1) ran checks, secrets and
+database green; the browser job failed 1 of 47
+Playwright tests: the Birkdale smoke test expected
+the summary strip's second pill to be Flood, and the
+served strip had Crime second — the Flood pill never
+appeared. PRODUCT BUG, not a stale test, and not a
+test-corpus artefact: it reproduces on production
+data.
+
+Diagnosis. summaryPills (lib/results.ts) rates Flood
+good only when both layers' bands come back non-null,
+via floodBandOf: a layer's coveringLabel if present,
+else "Very low" for the absence point-states
+"no-band-published" and "zone-1", else null. The
+flood brain's absence states are per layer (D25):
+flood_zone "zone-1", rofrs "no-band-published", rofsw
+"below-lowest-band" — a surface-water point below the
+lowest mapped band is the brain's own Very-low
+framing. floodBandOf missed "below-lowest-band", so
+the surface-water band came back null and the Flood
+pill was dropped whole — for Birkdale (the golden
+replay pins its real rofsw pointState as
+"below-lowest-band") and for every home whose
+surface-water point sits below the lowest mapped
+band, in production exactly as in CI. The unit suite
+missed it because the hand-built shortSections flood
+fixture gave rofsw the "no-band-published" state,
+which already mapped.
+
+Fix. One line in floodBandOf: "below-lowest-band"
+joins the absence states that map to "Very low",
+with a comment naming the three states per layer.
+No brain file changes — lib/flood.ts is untouched —
+and floodBandOf's only caller is summaryPills (the
+flood factor), so no other surface changes behaviour.
+
+Coverage. A new unit test beside the D75 worked
+example feeds summaryPills the GOLDEN flood shape —
+rofrs "no-band-published", rofsw "below-lowest-band",
+both coveringLabels null — and asserts the Flood
+pill is present with figure "Very low" in the good
+fill, and that the worked-example strip still reads
+Schools · Flood · Crime · Noise · Deprivation under
+those states. The test was proven against the bug:
+with the fix line removed it fails; restored, it
+passes. The existing worked-example test is untouched.
+
+Gate: npm run prepush exits 0 — Prettier clean, ESLint
+0 errors, typecheck clean, Vitest 75 files / 1,722
+tests (1,696 passed, 26 skipped — the pre-existing
+golden-replay local skips, identical to base — 0
+failed), next build succeeds. The 48 contract pins
+and the 26 replay cells are untouched: no brain file,
+no fixture and no replay/golden file was modified;
+the changed files are lib/results.ts,
+tests/results.test.ts and this note. Playwright was
+not attempted locally (the harness refuses:
+DATABASE_URL is not set) — CI is the proof for the
+browser job.
+
+## Shortlist rulings build (17 Nov 2026) — the founder's evening rulings + the company-ownership free-page serve
+
+Built on top of the CI #206 fix, in the same unpushed
+stack, on the founder's rulings of the evening of
+17 Nov 2026 (the four Shortlist samples were finalised
+to these rulings the same evening). Nothing here is
+pushed; the combined stack goes up on the founder's
+morning approval.
+
+1. Full = a simple message. The add-a-fourth panel is
+   deleted — component, panel state, panel CSS and all.
+   Tapping add with 3 saved replaces the button in
+   place with SHORTLIST_FULL_LINE, now exactly "Your
+   shortlist is full — it holds 3 homes.", plus a "See
+   your shortlist" link to /shortlist. The message
+   stands only while the stored list is in fact full:
+   a removal elsewhere re-reads the record through the
+   existing change subscription and the button returns.
+   The old wording ("the free shortlist holds 3 homes")
+   survives nowhere — the constant, the component and
+   every test were moved together.
+
+2. The shortlist page. (a) The facts table renders
+   from ONE saved home: heading "The facts for this
+   home" for one card, "Your saved homes, side by
+   side" for two or more (the section's aria-label
+   follows the heading). (b) Cards no longer render
+   the facts line at rung 1 — the table below carries
+   those facts as rows, so the card line duplicated
+   them. SCOPING, recorded as ruled: a rung-3
+   (wider-area) card KEEPS its facts line, because its
+   named states explain missing data rather than
+   duplicating the table; the card record itself is
+   unchanged at every rung (factsLine is still
+   snapshotted; only the rung-1 render dropped).
+   (c) Cards lose their "Get the full report" link —
+   Remove is the card's only action. (d) The kept line
+   "Homes you save are kept only in this browser."
+   moves to the bottom of the page, after the table,
+   in the small print it already used.
+
+3. Row order. COMPARISON_ROWS now follows the D75
+   pill priority: Flood, Crime, Primary, Secondary,
+   Grammar, A&E (Hospital with A&E), GP, Vet, Station,
+   Nursery, Council tax. Grammar stays grouped with
+   the schools (it is a row here though not a pill
+   factor); council tax, not a pill factor, closes
+   the table as a cost fact.
+
+4. Real flood and crime cells. New rung-1 assembly
+   derives both from the short bundle the card already
+   snapshots. Flood: "Rivers & sea: {band} · Surface
+   water: {band}", each band through floodBandOf —
+   now exported from lib/results.ts for exactly this
+   second consumer, so the absence-state mapping
+   (rofrs "no-band-published", rofsw
+   "below-lowest-band" → Very low; the CI #206 lesson)
+   exists in ONE place and cannot drift. Where the
+   section is not covered, the cell carries its named
+   reason; where a layer serves no band (its data not
+   filed), the cell carries that layer's own line —
+   never an invented band. Crime: "{total} crimes"
+   from the served 12-month count (en-GB grouping);
+   the named states carry the brain's reason verbatim.
+   STORED-CARD COMPATIBILITY: the pointer cell shape
+   is retained in the type, the parser and the
+   renderer, so cards saved before this ruling still
+   render their pointer line ("See this home's
+   check") and no saved list is dropped for its age;
+   new assembly never produces a pointer.
+
+5. Buy buttons. Exactly one report button per table
+   column (the wide table's foot and the phone blocks
+   alike), relabelled "Get the full report — £4.99",
+   still linking to /report as today.
+
+6. Company ownership at headline depth. The short
+   bundle gains an OPTIONAL companyOwnership key,
+   picked across from the area bundle's section
+   whenever the input carries it: { state,
+   ownedByCompany, line } — the boolean true only for
+   the section's own-title match ("served"), false
+   only for the filed-and-no-match state
+   ("not-company-owned"), null in the named states,
+   where no Yes/No exists to serve. The area bundle
+   serves the section only while
+   COMPANY_OWNERSHIP_ENABLED is on, so the gating is
+   inherited, never re-decided: flag off, the key is
+   absent from every short bundle exactly as before
+   (the SECTION_ORDER and length-12 pins stand
+   untouched); flag on, the free page's "Owned by a
+   company: Yes/No" line has its boolean at headline
+   depth. Report-depth serve is unchanged, and the
+   results page's flag-gated row (which reads the
+   area bundle) is untouched. SCOPING: the key is
+   added at rungs 1–2 only — the rung-3/4 named-state
+   shapes are unchanged. One stale comment is left
+   standing deliberately: lib/area-bundle.ts's section
+   header still says the short bundle is untouched by
+   the section in either flag position; that file is a
+   brain file and this build changes no brain file —
+   the sentence is superseded by this note and by
+   lib/short-bundle.ts's own header, and should be
+   corrected the next time that file is legitimately
+   open.
+
+Tests. tests/shortlist.test.ts: the full line pinned
+to the new words; the row-order pin rewritten to the
+pill order; card assembly now expects the real cells
+(Birkdale shape: both absence states → "Rivers & sea:
+Very low · Surface water: Very low", "330 crimes"),
+plus a Minerva-shaped case (surface water Low →
+"Rivers & sea: Very low · Surface water: Low",
+"1,956 crimes") and the named-state cases (not
+covered, not filed, bandless layer); the pointer test
+is reframed as the legacy-shape pin (parse + transpose
+honour it). tests/short-bundle.test.ts: three new
+tests pin the company key — absent with the flag off
+even with filed facts behind it, the No with the flag
+on, the Yes with the flag on (and only state/boolean/
+line cross). DEVIATION from the brief's file list,
+recorded: the company-ownership pins live in
+tests/short-bundle.test.ts, not tests/results.test.ts
+— buildShortBundle's suite and its full-bundle
+machinery live there, and results.test.ts's
+company-row test (the flag-gated render from the area
+bundle, both ways) is unaffected and untouched.
+tests/state-matrix.test.ts: the M6.13-era pin "the
+section never reaches the short bundle, in either flag
+position" is superseded by the same ruling and
+rewritten — flag off keeps the key absent (12
+sections); flag on carries the pick (13 sections, the
+No over the matrix's filed slice). It is a behaviour
+pin the founder's ruling deliberately changed, not
+one of the 48 contract pins or the 26 replay cells,
+which are untouched.
+e2e/shortlist.e2e.ts: the panel regression is
+rewritten as the full-message regression (message in
+place, link followed, slot freed on the shortlist
+page, save then succeeds); a new one-home regression
+pins "The facts for this home", one £4.99 button, and
+the kept line after the table in document order; the
+comparison regression pins Flood as the first row,
+the £4.99 button words, legacy pointer cells beside
+real line cells; the remove regression pins the
+rung-1 card without a facts line and without a report
+link; the wider-area regression pins the rung-3 card
+keeping its facts line.
+
+Gate: npm run prepush exits 0 — Prettier clean, ESLint
+0 errors, typecheck clean, Vitest 75 files / 1,727
+tests (1,701 passed, 26 skipped — the pre-existing
+golden-replay local skips, identical to base — 0
+failed), next build succeeds. The 48 contract pins
+and the 26 replay cells are untouched: no brain file
+was modified (lib/area-bundle.ts included); the
+changed files are lib/results.ts (the floodBandOf
+export only, on top of the CI #206 fix already in
+this tree), lib/shortlist.ts, lib/shortlist-card.ts,
+lib/short-bundle.ts, components/ShortlistButton.tsx,
+components/ShortlistPage.tsx, app/globals.css,
+tests/shortlist.test.ts, tests/short-bundle.test.ts,
+tests/state-matrix.test.ts, e2e/shortlist.e2e.ts and
+this note. Playwright was not run locally
+(DATABASE_URL is not set) — CI is the proof for the
+browser job.
+
+## M7.6 build (17 Nov 2026) — the report door: /report's holding page, the buy bar completed, the link contract
+
+Built on main-at-ef1e9b1 + the CI #206 fix + the shortlist
+rulings build (baseline Vitest 1,701 passed / 26 skipped).
+The adopted M7.6 prep (21 premises, 7 contradictions, 6
+rulings, 8 fold-ins) was premise-checked against this tree
+before building; the tree had moved since the prep, and the
+outcomes are recorded here because they shaped the build.
+
+Premise-check outcomes:
+
+- Premise 1 holds: REPORT_ROUTE = "/report" (lib/results.ts);
+  premise 2 holds: no app/report route existed.
+- Premise 3 is STALE in its inventory (the prep's link-site
+  list predates two builds): the add-a-fourth panel link no
+  longer exists (the panel was removed by the founder's
+  ruling), the /shortlist card report action no longer
+  exists (cards are Remove-only), and the comparison button
+  already carries its priced label. One link site the prep
+  did not list exists: the per-section upsell blocks the
+  fold-in built (a hardcoded bare /report anchor). All sites
+  now carry the contract: the buy bar, the upsell blocks,
+  the truncation lines, and the comparison's per-column
+  buttons (rung-1 cards carry postcode + home key; rung-3
+  cards keep the bare route — their identity is an area).
+- Premise 5 holds: rung 3 serves buyBar: null and keeps its
+  unlock banner; its shortlist control stays beside the
+  scope-label heading (ruling R2).
+- Premise 7 NO LONGER HOLDS, and this is the build's one
+  placement deviation: the fold-in had already built a buy
+  bar to the finalised Results sample — below the four
+  tabs, above the calculators — where the prep's R6 put
+  the (then non-existent) bar above the tabs, a placement
+  the prep itself flagged "could not verify" against the
+  design. The Final Sample Master is the design authority
+  (reconciliation 3), so M7.6 ADOPTS the existing bar and
+  completes it in place: the contract href, the priced
+  button label, the D21 mystery line, and the moved
+  shortlist control. Placement is unchanged from the
+  sample; nothing about the bar moved.
+- Premise 11 holds (pre-build): the rung-1 control sat in
+  .results-actions above the results page; the card is now
+  handed to ResultsPage and the control renders inside the
+  bar. Premise 17 partially stale: the BUY_BAR constants
+  existed; the door-state constant is new.
+
+What was built:
+
+- lib/site.ts: REPORT_PRICE_LABEL ("£4.99", the normal
+  price in every door state — the single source the door,
+  the buy bar, the truncation lines, the upsells and the
+  shortlist buttons now share) and REPORT_DOOR_STATE
+  ("holding"; a checked-in constant in the
+  COMPANY_OWNERSHIP_ENABLED pattern — "window"/"paid"
+  arrive at M9.6, whose commit pins their lines; never a
+  runtime flip, so a state a test does not pin cannot
+  render).
+- lib/results.ts: reportRoute(postcode, homeKey?) — the
+  R3 link contract (postcode always; the home key only
+  when a home is identified). buildResultsView computes
+  the view's reportHref once and threads it to the
+  truncation lines (which keep their default bare route
+  for rung-3/unlinked callers), the upsell blocks and the
+  buy bar; buildWiderAreaView serves reportHref: null.
+  The buy bar gains mysteryLine (BUY_BAR_MYSTERY_LINE —
+  the D21 tease verbatim, content-free; BUY_BAR_MYSTERY_
+  EYEBAR "A mystery extra", uppercased by the kit's CSS)
+  and the priced button. No brain file changed.
+- lib/report-door.ts (new): the door's view derivation —
+  three identity forms (home: "The detailed report for
+  {street}" with the de-duplicated area+postcode subline;
+  postcode: "The detailed report for {postcode}"; generic:
+  "The detailed report"), the contents list ("What the
+  detailed report adds": crime month by month, fuller
+  school detail, fuller sold history, FLOOD_UPSELL_LEAD
+  verbatim — the F4-softened wording, never "flood map
+  pictures" — and the seller-questions/document line), the
+  one-payment price line, the holding state line (names
+  £4.99 as the normal price, the free check stays free in
+  full), the sample-report route, and the route back
+  (homeRoute with the identity; "/" for the generic form).
+  The "window"/"paid" states render this same holding form
+  until M9.6 pins their lines in the commit that flips the
+  constant — a state is never silently unrendered.
+- app/report/page.tsx (new): the route. Resolves the
+  identity from ?postcode=&home= via resolutionForRoute
+  (a stale home key falls back to the postcode form; rung
+  3, an unfiled postcode or a failed derivation renders
+  the generic form — the door never errors and never
+  guesses a home). No email capture, no form, no gift
+  mention; not in the sitemap, no metadata (the M7.2
+  pattern).
+- components/ReportDoorPage.tsx (new): the holding page in
+  the Payment sample's structure and design language
+  (Master view 9 minus the payment form M9 builds): the
+  journey-page shell, the heading + lead subline, one card
+  carrying the contents list, the price line and the state
+  line, then the sample + back links.
+- components/ResultsPage.tsx: the buy bar renders the
+  mystery strip and the moved ShortlistButton (the card
+  arrives as a prop; rung 2 and the not-covered branch
+  pass none, so no control renders there); the upsell
+  blocks link through the view's reportHref at the shared
+  price label.
+- app/search/home/page.tsx: the .results-actions block is
+  gone; the rung-1 card is passed to ResultsPage.
+  components/ShortlistButton.tsx: its M7.5 header note now
+  records the discharged move. components/ShortlistPage
+  .tsx: the comparison buttons (table foot + phone block)
+  carry the contract href per card at the shared label.
+  app/globals.css: .results-actions removed; the mystery
+  strip and the door card styled in the kit's tokens.
+
+Tests: tests/report-door.test.ts (new, 9 tests) pins the
+state constant at "holding", the three identity forms,
+the contents incl. FLOOD_UPSELL_LEAD verbatim, the price
+and state lines, and the negative pins — no free-window
+wording, no "flood map pictures", no form/input/email in
+the rendered page. tests/results.test.ts gains the
+reportRoute contract test, the buy-bar mystery + href
+pins, the rung-2 postcode-only href pins, and the
+rendered-page pin that exactly one shortlist control
+exists and it sits inside .buy-bar (F6). The two pins the
+contract superseded were updated to the contract form
+(the rung-1 truncation anchor; the rung-2 truncation
+href). e2e/report-door.e2e.ts (new, 3 Regression specs):
+the bar's control/tease/contract against the served
+golden corpus, the holding page naming the home with no
+inputs, the postcode-only and generic forms.
+e2e/shortlist.e2e.ts: the comparison href expectations
+are now per-card contract hrefs, the one-home href
+likewise, and the storage-unavailable locator re-pointed
+from .results-actions to .buy-bar (re-pointed, not
+weakened — F6). e2e/results.e2e.ts: the rung-3 no-report-
+link assertion strengthened to a[href^="/report"] so it
+catches the contract form too. No Smoke authored for
+M7.6 (D68).
+
+A2 deferral (recorded for the plan): the authored
+free-window Regression test cannot be authored at M7.6 —
+the window state's lines are pinned at M9.6 by ruling R1,
+and a test written now could only pin a guess. It is
+deferred to M9.6 under R1; the plan-text amendment to
+M9.6 (naming the deferred test) is the parent's to make
+via the artifact tools — flagged in this build's terminal
+report as an open item.
+
+One build catch, recorded because it shaped the shape:
+the first prepush run's production build failed on
+/shortlist — lib/results.ts's new import of homeKeyOf from
+lib/bundle-cache pulled Node modules into the client
+chunk (ShortlistPage imports from lib/results). The view
+builder now never derives the home's identity:
+ResultsInput carries homeKey in from the serve layer (the
+route already holds it), absent which the door links
+degrade to the postcode form. The unit tests were green
+throughout; only the real build could see it — the gate
+earning its keep.
+
+Gate: npm run prepush exits 0 — Prettier clean, ESLint 0
+errors, typecheck clean, Vitest 76 files / 1,739 tests
+(1,713 passed, 26 skipped — the pre-existing
+golden-replay local skips, identical to base — 0 failed),
+next build succeeds (/report serves as a dynamic route).
+The 48 contract pins and the 26 replay cells are
+untouched: no brain file was modified; the changed files
+are lib/site.ts, lib/results.ts, lib/report-door.ts
+(new), components/ReportDoorPage.tsx (new),
+components/ResultsPage.tsx, components/ShortlistButton
+.tsx, components/ShortlistPage.tsx, app/report/page.tsx
+(new), app/search/home/page.tsx, app/globals.css,
+tests/results.test.ts, tests/report-door.test.ts (new),
+e2e/report-door.e2e.ts (new), e2e/shortlist.e2e.ts,
+e2e/results.e2e.ts, docs/frontend-m7.5.md and this note.
+Playwright was not run locally (DATABASE_URL is not
+set) — CI is the proof for the browser job.
+
+## M7.7 build (17 Nov 2026) — phone-first: T-WEB-01's assertions across the enumerated set, the tabs' wrap pinned, one kit-level tap-target fix
+
+Built on the adopted gap check (~/workspace/scratch-m77/FINDINGS-HOLD.md —
+four rulings, six fold-ins, founder adopted 17 Nov 2026) on top of the
+M7.6 build. The step is a proof step: its deliverable is the enumerated
+Playwright set in e2e/phone.e2e.ts (16 specs, all Regression — no Smoke
+authored for M7.7, no promotions, D68 clause 7) plus one kit-level fix
+the new measurements exposed. No brain file was modified; the 48
+contract pins and the 26 golden replay cells are untouched; no unit
+test changed (this step's tests are browser specs, so the Vitest count
+stands at the M7.6 gate's 1,713 passed / 26 skipped).
+
+Premise checks against the current tree (the prep audited the M7.5-era
+tree; what moved, and how the build reads it):
+
+- HOLDS: the breakpoints are pinned in the globals.css header (small
+  30rem, desktop 48rem); --tap-target (2.75rem) rides as min-height on
+  .btn, .field__input, .tabs__tab, .site-nav__link, .report-btn,
+  .shortlist-btn and .remove-btn, and .picker__row carries 2.75rem
+  literally; the kit DataTable's stacked form and its kitchen-sink
+  360px spec stand as the table clause's witness (R1); before this
+  build the suite held exactly that one 360px assertion and no
+  scrollWidth assertion anywhere (grep-verified); no overflow-x exists
+  in the kit and none was added (R3 — grep-verified after the build:
+  still zero occurrences); no viewport override exists in
+  app/layout.tsx; the postcode input computes to 16px by construction
+  (body 1rem, font: inherit), unpinned until this step's F3 specs.
+- MOVED — four tabs, not three. D76 restructured the results page
+  after the prep: Family Checks / The Neighbourhood / Home, Costs &
+  Risks / What's Nearby. R2's wrap ruling is pinned over the four-tab
+  list (the tabs CSS already recorded the wrap as "M7.7's pinned form"
+  at the D70 pass; the specs now prove it: tops spanning more than one
+  row, every tab visible and ≥44px, the list itself not scrolling).
+- MOVED — five nav links, not four. D77(g) added Contact and Guides
+  left the chrome at fidelity pass 2; F2/F6's header set is the five
+  links as built, asserted once on the landing (F6).
+- MOVED — picker rows are buttons. D70 R6 made the picker
+  select-then-confirm after the prep: rows are <button class=
+  "picker__row"> and the confirm is a kit Button. Both are in F2's
+  measured set, on the picker page and in rung 2's embedded picker.
+- MOVED — a product table now exists, at desktop only. The shortlist
+  build put the comparison into a real <table class="compare-table">
+  with a fixed layout for desktop widths; ShortlistPage swaps markup
+  by matchMedia, so below 48rem the DOM holds the block stacking and
+  no table. R1's pin therefore reads exactly as adopted at phone
+  width — no enumerated product surface renders a table at 360px (or
+  480px) — and the comparison's phone form is asserted as P2's stacked
+  blocks: one per home, saved order, shared left edge and full width,
+  one report button per block.
+- MOVED — the add-a-4th panel no longer exists. The founder ruled it
+  out the same evening the prep was adopted; the shortlist build
+  deleted it. F2's adopted exception (an action sitting among buttons
+  takes the tap-target treatment) lands on its successor: the
+  full-shortlist message's "See your shortlist" link, a bare inline
+  link standing in the buy bar where the button stood. It had no kit
+  rule at all — the one genuine defect the new assertions exposed.
+- MOVED — M7.6 landed first, so R4's condition is met: /report and
+  the buy bar are IN the enumerated set as built.
+
+The one fix (kit level only, F5): app/globals.css gains the
+.shortlist-full-line rules — the paragraph's margin zeroed and its
+link given display: inline-flex with min-height: var(--tap-target).
+Deviation from F2's letter, recorded: the fold-in prescribed .btn
+classes for the panel's report link; the element that exists now is a
+text link inside the founder's ruled simple message, whose finalised
+sample form is a small text link (Final Sample Master view 13), so
+the treatment delivers F2's substance — a measured 44px target —
+in the kit's own invisible-height idiom (the nav links' pattern)
+without changing the message's visual form. The full-state spec in
+e2e/phone.e2e.ts is its regression pin. No other CSS changed; the
+desktop rendering is untouched by the rule (the message only ever
+renders in the full state, in the bar, at any width — and there the
+44px is tappable height, not visible form).
+
+The enumerated spec set as built (e2e/phone.e2e.ts, 360×740 unless
+noted; F1's widest states, re-asserted after layout-changing
+interactions): (1) landing — no sideways scroll, no table, the header
+wrap + five tappable links (F6), the input at 16px and 44px, the
+submit at 44px (F2/F3); (2) picker — every row 44px and inside the
+viewport, the confirm at 44px; (3) checking screen — no sideways
+scroll while the check runs (brain calls held, the journey spec's
+device) nor on the results it advances to; (4) rung-1 results — the
+tabs wrap (R2), each of the four panels opened in turn with the
+no-scroll and no-table assertions re-run, the buy bar's report and
+shortlist pills at 44px with the mystery strip present; (5) rung-2
+results — the embedded picker's rows at 44px; (6) rung-3 wider area —
+the heading-side toggle at 44px, the banner input at 16px; (7)
+Scotland not-covered — no sideways scroll with a second tab opened;
+(8) no-location — the retry box at 16px; (9) whole-check failure;
+(10) the /report holding page for a named home; (11) /shortlist
+empty; (12) /shortlist with one home — one full-width block, Remove
+and the block's report button at 44px; (13) /shortlist with three
+homes — the stacking in saved order (P2), all Remove and report
+buttons at 44px; (14) the full-shortlist state in the buy bar — the
+message in place, its link at 44px, no panel anywhere; (15–16) the
+P6 pair at 480px — rung-1 results and the three-home comparison,
+still stacked, nothing sideways. Measurements carry a half-pixel
+tolerance on tap heights and one pixel on scroll widths, for
+Chromium's fractional box rounding; both tolerances are named in the
+spec file's header.
+
+The Check's two halves (F4, recorded so neither is quietly dropped):
+the automated half is this spec set, gating in CI from the morning
+run. The manual half is the step's Check verbatim — the founder
+completes a full check on his own phone without pinching or zooming —
+and it discharges at the founder's end-of-programme UAT (M7.16),
+where the play-server test round now lives under the 17 Nov strategy
+ruling. This step's code gates on the automated half, per D68 as
+adapted.
+
+Gate: npm run prepush exits 0 — Prettier clean, ESLint 0 errors,
+typecheck clean, Vitest 1,713 passed / 26 skipped / 0 failed
+(identical to the M7.6 baseline; this step adds no unit tests), next
+build succeeds. Playwright was not executed locally — DATABASE_URL
+is not set, so the served app cannot stand up in this sandbox; the
+16 specs were verified collected and wired into the suite with
+`npx playwright test --list` (16 tests in e2e/phone.e2e.ts), and
+their first execution is the morning CI run, where a failure in any
+one of them is attributable to this step by this note. Changed files:
+e2e/phone.e2e.ts (new), app/globals.css (the full-line rules only),
+and this note.
+
+## M7.8 build (17 Nov 2026) — SEO for every public page: the check landers, the guides, the chrome pages built, production noindex created
+
+Built on the founder-adopted gap check for this step (17 Nov 2026,
+adopted in full with its two follow-up rulings: the chrome pairs
+locked at their chrome paths with About re-locked at /about, and the
+guides as landers only). Premise outcomes, checked against the tree
+before building: PAGE_SEO already held pairs for the homepage, the
+/check/ pages and the 3 guides — FIFTEEN check pairs, not the
+fourteen the gap check's count said (flood, crime, sold-prices,
+schools, epc, council-tax, planning, ev, broadband, transport,
+family-essentials, noise, air, solar, mobile); all fifteen are
+built. The production-noindex defect was real: pageMetadata
+returned no robots lock on the production name, so /search and
+/search/home would have been indexable in production. The chrome
+routes did not exist while the header and footer linked them. No
+/check/, /guides/ or chrome route existed; the layout applied the
+homepage pair to every route; the sitemap listed only "/"; robots
+disallowed three routes that have never existed (/results,
+/checkout, /account).
+
+What was built:
+
+1. Production noindex, created and pinned. pageMetadata gained the
+   unconditional lock for pages that pass noindex (the helper's
+   object form already carried the flag; the journey pages now pass
+   it): /search, /search/home, /search/failed, /report and
+   /shortlist each export explicit metadata with robots
+   {index:false, follow:false}, independent of environment.
+   app/robots.ts's production disallow list is aligned to the real
+   route family (/search, /search/home, /search/failed, /report,
+   /shortlist, /kitchen-sink, /api), sitemap still declared.
+   /kitchen-sink is declared non-indexable/outside the checklist,
+   as ruled.
+2. The chrome pairs locked under D38: /sample-report, /contact and
+   /privacy are newly locked in PAGE_SEO (descriptive metas in the
+   set's own frame — no figures, no questions, no banned wording;
+   they pass the existing pair scan unchanged), and About's pair is
+   re-locked at /about, superseding /about-the-data, which is
+   removed from the set. PAGE_SEO is now 24 pairs.
+3. The chrome pages built from the finalised Final Sample Master
+   views 4–8, transcribed, not redesigned: /how-we-check (the nine
+   source cards, the "What we never do" grid, the search block),
+   /about (hero, six cards, the manifesto block, the search block),
+   /sample-report (view 7 as the web preview — banner, watermark,
+   masthead, short version and all nine sections, the worked
+   example home and its figures exactly as the sample carries
+   them; the sample's two location-map images carried in as binary
+   assets under public/sample-report/, registered in
+   BINARY_ASSETS), /contact (the form, the mailto route, the
+   two-working-day promise) and /privacy (the eight cards, dated
+   17 November 2026). Chrome copy is held as constants in
+   lib/site-pages.ts; the report document is
+   components/SampleReport.tsx. The pages' styles are a scoped
+   port of the Master's own site-pages stylesheet (app/globals.css,
+   .site-pages), variables mapped to the same hex values; the
+   sample's browser/header/footer chrome is not ported — the
+   product's chrome serves.
+4. The check pages and guides: body copy drafted as locked
+   constants in lib/check-pages.ts — all 15 check pages (lead
+   answering the query, "What the check shows" / "What the check
+   cannot tell you", the official source cited) and the 3 guides in
+   full prose. One template (components/ContentPage.tsx) renders
+   both families in the samples' card-and-heading language; the
+   flood-risk page was built first as the template and the rest
+   replicated through it. The banned-wording scan extends over the
+   body strings (tests/seo.test.ts): the union, the valuation rule,
+   the portals and the gift run; the no-figure and no-"free" rules
+   do not (body copy legitimately carries bases and the
+   free-headlines fact). The families guide never answers its
+   title question — it sets out what the checks show and leaves
+   the judgement to the reader.
+5. The related-links mapping, hand-picked on brain affinities and
+   held in lib/check-pages.ts (each check page: exactly 2 related
+   checks + 1 guide; the checker is the search block closing every
+   page): flood-risk → noise, air-quality (guide: checks);
+   crime → family-essentials, public-transport (families);
+   sold-prices → council-tax-band, planning-constraints (checks);
+   schools → family-essentials, public-transport (families);
+   epc → solar-potential, council-tax-band (checks);
+   council-tax-band → sold-prices, epc (checks);
+   planning-constraints → sold-prices, flood-risk (checks);
+   ev-charging → public-transport, broadband (checks);
+   broadband → mobile-coverage, ev-charging (checks);
+   public-transport → ev-charging, family-essentials (families);
+   family-essentials → schools, crime (families);
+   noise → flood-risk, air-quality (checks);
+   air-quality → noise, flood-risk (families);
+   solar-potential → epc, air-quality (checks);
+   mobile-coverage → broadband, ev-charging (checks).
+   Completeness is pinned in tests/seo-pages.test.ts (2–3 related,
+   all valid, never self; exactly one valid guide; every guide's
+   checks real).
+6. The homepage CheckTiles are wired to their /check/ pages —
+   seven of the nine tiles own one (Schools → /check/schools;
+   Doctors, dentists & vets → /check/family-essentials; Safety
+   around the home → /check/crime; Plans that could change the
+   street → /check/planning-constraints; Flood risk →
+   /check/flood-risk; The cost of living → /check/council-tax-band;
+   What homes here actually sold for → /check/sold-prices).
+   "Food, leisure & everyday life" and "Your neighbours & the area"
+   name families no single page owns and stay unlinked. This
+   discharges M7.11's wiring premise, as the gap check ruled (the
+   fold-in removed the landing section that step was written
+   against).
+7. BreadcrumbList structured data in the Home → page form
+   (lib/seo.ts breadcrumbSchema; item only where a page exists —
+   there is no /check or /guides index to name); no visible
+   breadcrumb UI anywhere.
+8. The sitemap lists every PAGE_SEO key on the production name
+   (homepage first, priority 1), empty elsewhere, as before.
+9. Per-page metadata moved into the pages: the layout exports no
+   metadata at all now; every route exports its own through
+   pageMetadata. The indexing assertions run at metadata level
+   under a production environment name (tests/seo-pages.test.ts
+   imports each route module with NEXT_PUBLIC_SITE_ENV=production
+   set first); the browser spec (e2e/seo.e2e.ts, Regression only)
+   asserts title/description presence per route, the journey
+   robots lock in the served head, the related links on the flood
+   page, no Guides item in header or footer, the tile wiring, and
+   the chrome pages' headings. No Smoke authored, no promotions
+   (D68).
+
+Deviations and judgement calls, recorded: (a) the privacy route is
+/privacy per the adopted scope ruling, although the sample's mock
+URL bar shows /privacy-policy — pair, route and sitemap all use
+/privacy. (b) The contact form has no delivery endpoint anywhere in
+the product; it mirrors the sample's behaviour (the thank-you state
+on submit) and sends nothing — the mailto route beside it is the
+working route today, and wiring real delivery is a later step's
+work, recorded here rather than hidden. (c) /search/failed,
+/shortlist and /report also received noindex metadata (the brief
+named /search and /search/home): with the layout's default gone,
+leaving them title-less or accidentally indexable would have been
+worse; this supersedes the M7.6 note's no-metadata convention for
+/report, and the change is recorded in that file. (d) The
+banned-wording scan's body extension covers the newly drafted
+constants (lib/check-pages.ts); copy transcribed verbatim from the
+finalised samples (the chrome pages, the sample report) is not
+re-scanned — it carries ruled negations ("No scores. No
+valuations.") under the same standing the D9 short form has in the
+existing scans. (e) SampleReport.tsx carries two scoped
+eslint-disables (img elements, as elsewhere in the kit; and
+react/no-unescaped-entities, because the transcription keeps the
+sample's own straight apostrophes rather than re-typing them as
+entities). (f) The sample report's EPC scale and a handful of
+report classes ride on the Master's own .rpt-*/.epc rules as
+ported; the Master's stylesheet defines no rules for a few
+classes its markup uses (they fall back to the document's base
+rules there, and do here too).
+
+Gate: npm run prepush exits 0 — Prettier clean, ESLint 0 errors,
+typecheck clean, Vitest 1,727 passed / 26 skipped / 0 failed
+(baseline 1,713 + 14 new: 3 in tests/seo.test.ts, 11 in
+tests/seo-pages.test.ts), next build succeeds with all 24
+indexable routes in the route table. The 48 contract pins and 26
+golden replay cells are untouched; no brain files changed
+(lib/seo.ts and the new content constants are the wording layer).
+Playwright was not executed locally (DATABASE_URL unset); the new
+spec was verified collected with `npx playwright test --list`
+(29 tests in e2e/seo.e2e.ts) and its first execution is the
+morning CI run.
+
+Changed files: lib/seo.ts (chrome pairs, About re-lock,
+breadcrumbSchema), lib/check-pages.ts (new), lib/site-pages.ts
+(new), lib/home.ts (tile hrefs), components/ContentPage.tsx (new),
+components/SearchBlock.tsx (new), components/BreadcrumbLd.tsx
+(new), components/ContactForm.tsx (new), components/SampleReport.tsx
+(new), components/CheckTiles.tsx (tile links), app/layout.tsx
+(metadata removed), app/page.tsx (own pair), app/sitemap.ts,
+app/robots.ts, app/how-we-check/page.tsx (new), app/about/page.tsx
+(new), app/sample-report/page.tsx (new), app/contact/page.tsx
+(new), app/privacy/page.tsx (new), app/check/_/page.tsx (15 new),
+app/guides/_/page.tsx (3 new), app/search/page.tsx,
+app/search/home/page.tsx, app/search/failed/page.tsx,
+app/shortlist/page.tsx, app/report/page.tsx (noindex metadata),
+app/globals.css (the .site-pages port + the tile-link rule),
+public/sample-report/*.png.b64 (2 new), scripts/
+materialise-binary-assets.mjs, .gitignore, tests/seo.test.ts,
+tests/seo-pages.test.ts (new), tests/look-feel-kit.test.ts,
+e2e/seo.e2e.ts (new), and this note.
+
+## M7.9 build (18 Nov 2026) — the free headlines on the Home, Costs & Risks tab: items (b) and (c) built; item (a) built last, on the founder's re-pin authorisation
+
+Built on the founder-adopted gap check for this step (17 Nov 2026,
+adopted in full with its follow-up rulings: D41 stands for the
+heritage layers, parks & gardens struck, the composed Costs lead
+is the settled D33 form, and the company line takes the sample's
+single-line form). A first builder verified the premises for all
+three build items and stopped on item (a); the (b)+(c) build
+completed those two items, and item (a) was built last, once the
+founder had authorised the re-pin — the full stop-and-authorise
+trail is recorded in the item (a) section below.
+
+Coverage audit outcome — what the step named vs what already
+stood when the gap check ran:
+
+- The D31 planning hand-off (council named, register named, the
+  GOV.UK register search link, never a count, never a named
+  list) — already rendered on the built page by M7.4, from the
+  M6.12 area-bundle section. Discharged before this build.
+- The brownfield headline in its served short form and the
+  built-up-area line — already rendered by M7.4, from the
+  M6.21/D41 serves. Discharged before this build.
+- Heritage on the free page — listed buildings + the at-point
+  line already rendered by M7.4; scheduled monuments, World
+  Heritage Sites, registered battlefields, protected wrecks
+  and buffer zones stay at report depth under D41, and the
+  step's text was amended to that settlement. Registered
+  parks & gardens was struck from the step: no loader, filing
+  or serve for it exists anywhere in the project.
+- The company-ownership row — already rendered behind
+  COMPANY_OWNERSHIP_ENABLED by the fold-in (F2), reading the
+  area bundle; the 17 Nov shortlist build added the same
+  headline to the short bundle for short-bundle consumers.
+  What remained was the line's FORM — item (c) below.
+- The composed Costs lead — already the settled form on the
+  built page (the fold-in): the two D33 monthly figures in
+  one line, each half restated inside its own section. The
+  step's never-summed clause was amended to match; no
+  standalone cost-of-ownership headline exists.
+
+Item (b) — the Regression E2E, built. e2e/headlines.e2e.ts
+(new): one Regression spec (D68; no Smoke, no promotions) per
+universal golden home — Birkdale CM3 2JT, Exeter E16 1GN,
+Minerva KT17 1FH — against the seeded corpus, exactly as the
+step's E2E paragraph specifies. Per home, with the Home,
+Costs & Risks tab open: the hand-off line renders as served
+(the council as filed — Braintree / Newham / Epsom and
+Ewell — the register named, the GOV.UK link's label and
+href asserted); the section carries exactly one link (the
+register search — a named list would render there) and no
+application count in its text; the brownfield count line
+(2 / 97 / 30 within 2 miles) and the built-up-area line
+(Hatfield Peverel / Newham / Ewell) render as served; with
+the flag off, neither "Owned by a company" nor "Company
+ownership" appears; the Costs lead matches the composed
+shape and is the section's only "About £… a month:" line;
+and neither section carries the words "cost of ownership".
+The negatives are asserted on the sections that could carry
+them, tab open — the suite's established pattern
+(e2e/results.e2e.ts) — and that scoping is complete by
+construction: lib/results.ts renders the hand-off, the
+company line and any monthly total nowhere else on the
+page. The specs collect under `npx playwright test --list`
+(99 tests in 9 files); they cannot execute locally
+(DATABASE_URL unset) — CI is the proof, as with every step
+in this stack.
+
+Item (c) — the company line form, built. In
+buildResultsView (lib/results.ts), behind the flag, the
+subsection is now headed "Company ownership" and the line
+takes the finalised sample's single-line form from the
+section state: "served" renders "Owned by a company:
+Yes."; "not-company-owned" renders "Owned by a company:
+No.". The named states (needs-exact-home, not-covered,
+not-filed) keep their honest served lines — no Yes/No is
+invented where the boolean is null. The fuller served
+sentence with its as-at date remains the report-depth
+form: the area bundle and the report serve are unchanged,
+and no brain file was touched. tests/results.test.ts pins
+both flag positions (off: neither the heading nor the line
+appears; on: the one-line form renders and the brain's
+sentence does not) and all three state forms — the file's
+earlier company test, which pinned the pre-ruling
+subheading-plus-sentence form, was updated to the ruled
+form (a behaviour pin the founder's ruling changed, not a
+contract pin).
+
+Item (a) — the short-bundle planning pick, built last, on
+the founder's authorisation. The build: lib/short-bundle.ts
+gains ShortPlanningApplications — a sibling pick beside
+the twelve D28 sections, on the company-ownership pick's
+pattern — carrying the area section's state, council,
+line and link (null where the nation carries no link:
+Scotland; Mid Ulster in Northern Ireland). buildShortBundle
+populates it from area.sections.planningApplications,
+which the area bundle builds unconditionally, so the pick
+is present in every rung 1–2 bundle; ShortSectionKey is
+NOT extended, so rungs 3–4 carry no trace of it. The
+section's explainer and meta stay at report depth.
+buildResultsView (lib/results.ts) now reads the hand-off
+from sections.planningApplications, so the website and
+the Phase 2 extension consume one derivation and show the
+same headline unchanged; the rendered page is exactly as
+before (the area section's sourceLine is null in every
+nation branch, so the old `planning.sourceLine ??
+sourceLine` fallback was a no-op, and the section's source
+line remains the constraints one). lib/area-bundle.ts is
+untouched — its buildPlanningApplications output is the
+source, and lib/journey.ts still reads the hand-off from
+the area bundle for the checking screen, outside this
+item's scope.
+
+The authorisation trail (contract pins move only on an
+authorised re-pin — the M6.34/D65 precedent). The gap
+check's adoption (17 Nov 2026) scoped this item but did
+not foresee the pin conflict. A first premise sweep
+stopped the build: the pick would move three of the 48
+contract pins (short.rung1, short.rung2, short.scotland)
+and two behaviour pins. The founder authorised the re-pin
+in chat (18 Nov 2026: "M7.9 Authorised — Build the rest -
+authorized"). A second sweep found five further count
+assertions the first set had not named — among them a
+golden replay cell's section count — and stopped again;
+the founder extended the authorisation the same morning
+("Extend the authorisation — build item (a) with all the
+count updates, then the one push"). A third sweep found
+one more contract pin, short.flood-warnings (filed with
+the M6.22 flood work, a pin over a short bundle all the
+same), and stopped a third time. The founder then gave
+the authorisation as a class (18 Nov 2026: "Authorise the
+full set — all four short-bundle pins plus the counts, no
+more stops on this item"): every contract pin, behaviour
+pin and count assertion that moves SOLELY because the
+short bundle gains planningApplications as a thirteenth
+key. On that authorisation the build proceeded, with the
+stop rule narrowed to anything moving for any other
+reason — a figure, a served line, the area bundle, or
+another bundle's shape. Nothing did.
+
+Every pin and count the build moved, enumerated:
+
+- Contract pins, regenerated deliberately via the suite's
+  PRINT_SHAPES path: short.rung1, short.rung2,
+  short.scotland, short.flood-warnings in
+  tests/fixtures/replay/bundle-shapes.json. Verified
+  mechanically: all 48 shapes were printed and compared —
+  exactly these four differ from their pins; the other 44
+  (short.rung3 and short.rung4 among them) are
+  byte-identical, so no unauthorised shape moved.
+- tests/state-matrix.test.ts: the hand-off pin ("the
+  hand-off never reaches the short bundle…") rewritten —
+  the hand-off DOES reach the short bundle under this
+  ruling, and the test now asserts the picked form in
+  full (state, council, line, link). Counts: the company
+  flag-off count 12 → 13 and flag-on count 13 → 14; the
+  building-safety absence count 12 → 13; the
+  broadband/mobile count 12 → 13.
+- tests/short-bundle.test.ts: SECTION_ORDER itself is
+  unchanged (it remains the twelve, and the exact key set
+  of rungs 3–4, whose assertions stand untouched); the
+  two rung 1–2 order assertions now expect
+  [...SECTION_ORDER, "planningApplications"], and the
+  broadband section count moves 12 → 13.
+- tests/golden-replay.test.ts: the "universal headlines"
+  cell's section count 12 → 13 — the count assertion
+  only; every locked figure in the cell is byte-identical
+  (the replay harness derives the bundle live through
+  buildShortBundle, so the count holds by construction
+  when the suite executes in CI).
+- The banned-key scans (tests/short-bundle.test.ts, two
+  sites): the key name "planningApplications" is exempted
+  by name. It trips the scan's blunt "gap" substring
+  across its camelCase hump ("planning|Applications"),
+  but the name is the product's fixed vocabulary — the
+  area bundle's section name since M6.12 — not a computed
+  comparison; the scan's intent (no key computes a
+  comparison) is preserved. Recorded here as part of the
+  authorised class: the assertions moved solely because
+  the thirteenth key exists.
+- Fixture consequence (not a pin): tests/results.test.ts's
+  hand-built shortSections() gained the pick in the picked
+  form, so the fixture mirrors a real derivation now that
+  buildResultsView reads the hand-off from the short
+  bundle; the fixture's area-bundle section is unchanged.
+
+Gate: for items (b) and (c), npm run prepush exited 0 —
+Prettier clean, ESLint 0 errors, typecheck clean, Vitest
+1,728 passed / 26 skipped / 0 failed (baseline 1,727 + 1
+net new test in tests/results.test.ts), next build
+succeeded. For item (a), npm run prepush again exits 0
+with the same totals — 1,728 passed / 26 skipped / 0
+failed (the build updated assertions in place and added
+no net new tests; the named suites — bundle-contracts,
+state-matrix, short-bundle, results — were also run
+explicitly). The 26 skipped are the golden replay suite
+(DATABASE_URL unset locally; it executes in CI's database
+job, where the one count it carries for this step holds
+by construction, the harness deriving the bundle live).
+Of the 48 contract pins, exactly the four authorised
+short-bundle pins were regenerated and the other 44
+verified byte-identical; the remaining golden replay
+cells are untouched. No brain files changed in any item
+(lib/short-bundle.ts is the derivation layer,
+lib/results.ts the presentation layer). Playwright was
+not executed locally; the (b) specs were verified
+collected with `npx playwright test --list` and their
+first execution is the morning CI run.
+
+Changed files: for items (b) and (c) — lib/results.ts
+(the company line form), tests/results.test.ts (the
+flag/form pins), e2e/headlines.e2e.ts (new). For item
+(a) — lib/short-bundle.ts (the pick), lib/results.ts
+(the hand-off read switched to the short bundle),
+tests/fixtures/replay/bundle-shapes.json (the four
+re-pinned shapes), tests/state-matrix.test.ts (the
+hand-off pin rewritten; four counts),
+tests/short-bundle.test.ts (two order assertions, one
+count, the banned-key name exemption),
+tests/golden-replay.test.ts (the one count),
+tests/results.test.ts (the fixture pick). Plus this
+note.
+
+## Footer Guides build (18 Nov 2026) — the /guides hub and the footer's Guides link, on the founder's ruling
+
+The founder reviewed the three M7.8 guides on the morning of
+18 Nov 2026 and approved them with one change: a Guides link
+in the FOOTER only (the header unchanged), pointing to a
+simple /guides hub page listing all three. The Final Sample
+Master was updated first — every footer's row now reads
+How we check · Sample report · About · Guides · Contact —
+and this build makes the product match it.
+
+What was built:
+
+- The hub (app/guides/page.tsx, rendered by GuidesHubView in
+  components/ContentPage.tsx). No sample exists for this
+  page, so it is built in the samples' own design language
+  through the established content-page template: eyebrow ·
+  H1 · lead · the brass rule · one card per guide · the
+  checker search block at the foot. The cards are read from
+  the GUIDES record in lib/check-pages.ts — each guide's
+  name as the card heading, its own lead as the listing
+  text, its path as the link — so nothing is listed that
+  the record does not hold, and no copy exists beyond the
+  page's own title and lead, written in the established
+  voice. The hub carries the BreadcrumbList (Home → Guides)
+  as structured data only, like every content page; the
+  guides themselves keep the settled two-item breadcrumb
+  form — the hub is a footer destination, not a breadcrumb
+  parent (lib/seo.ts's note updated to say so).
+- The locked pair (lib/seo.ts): "/guides" joins PAGE_SEO
+  (24 → 25 pairs), titled "Guides | Check My Next Home",
+  locked under the same D38 process as every pair. The
+  sitemap derives from PAGE_SEO's keys, so the hub is
+  listed by construction — verified by tests/seo.test.ts's
+  sitemap assertion, which maps the record's keys in order.
+- The footer (components/SiteFooter.tsx): FOOTER_LINKS
+  gains { Guides, /guides } between About and Contact —
+  the footer's own list, changed once. The header is
+  untouched: its set stays How we check · Sample report ·
+  About · Shortlist · Contact, and its existing pin (no
+  /guides href in the header) now stands guard over this
+  ruling's header half.
+
+The ruling's place in the record: it SUPERSEDES the M7.8
+adopted ruling that the guides stay out of the chrome
+("landers only") FOR THE FOOTER ONLY — the header half of
+that ruling stands. D77(g)'s footer set gains Guides and
+is now: How we check · Sample report · About · Guides ·
+Contact. The three guide pages' header comments, which
+recorded the old ruling, were corrected to the new one.
+
+Tests, test-first where a pin existed: tests/seo.test.ts's
+locked key set gains "/guides"; tests/look-feel-kit.test.ts's
+PAGE_SEO count moves 24 → 25 and its footer pin now asserts
+the full five-link set IN ORDER, Guides between About and
+Contact, with the /guides href present;
+tests/seo-pages.test.ts gains the /guides route in its
+metadata harness (the covers-every-pair assertion forced
+it) plus a rendered-hub assertion (every guide in the
+record named and linked, the checker present);
+e2e/seo.e2e.ts's landers-only spec is rewritten to the new
+ruling (header: no guides link at all; footer: exactly one
+link, href="/guides", and no individual guide links), a
+hub spec is added (all three guides listed, the checker
+closing the page), and the PAGE_SEO loop adds the hub's
+locked title/description spec by construction — the file
+now collects 31 specs (was 29), first execution the
+morning CI run, per the house pattern. No brain files
+changed.
+
+Changed files: app/guides/page.tsx (new),
+components/ContentPage.tsx (GuidesHubView),
+components/SiteFooter.tsx (the link), lib/seo.ts (the
+pair; the breadcrumb note), app/guides/
+checks-before-buying-a-house/page.tsx, app/guides/
+buying-a-leasehold-flat/page.tsx, app/guides/
+is-this-area-good-for-families/page.tsx (comment
+corrections only), tests/seo.test.ts,
+tests/seo-pages.test.ts, tests/look-feel-kit.test.ts,
+e2e/seo.e2e.ts. Plus this note.
+
+Gate: npm run prepush exits 0 — Prettier clean (one
+formatting pass on the new hub view, applied in place),
+ESLint 0 errors, typecheck clean, Vitest 1,729 passed /
+26 skipped / 0 failed (baseline 1,728 + 1 net new test —
+the rendered-hub assertion; the remaining test changes
+amended pins in place), next build succeeded with /guides
+prerendered as a static route. The 26 skipped are the
+golden replay suite (DATABASE_URL unset locally; it
+executes in CI's database job). Playwright was not
+executed locally; e2e/seo.e2e.ts was verified collected
+at 31 specs with `npx playwright test --list`, and their
+first execution is the morning CI run.

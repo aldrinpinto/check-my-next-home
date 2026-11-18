@@ -9,6 +9,7 @@ import { homeKeyOf } from "../lib/bundle-cache";
 import type { CategoryAnswer, NearbyBundle, NearbyCategory } from "../lib/nearby";
 import {
   COMPARISON_ROWS,
+  NOT_COVERED_LINE,
   SEE_THIS_HOMES_CHECK,
   SHORTLIST_EMPTY_HEADING,
   SHORTLIST_EMPTY_LINE,
@@ -40,11 +41,12 @@ import type { SoldPricesBundle } from "../lib/sold-prices";
 // M7.5 — the shortlist: the storage contract pinned (key,
 // record shape, the soft limit, order), the named lines
 // verbatim, the comparison's construction from snapshots
-// (per-rung cell states, pointer cells, no winner anywhere
-// in the shape), and card assembly from the results
-// derivation (fold-in 8 — the snapshot is the facts the
-// page rendered). Client behaviour (toggle, panel, badge,
-// persistence across restart) is the E2E suite's proof
+// (per-rung cell states, the pill-priority row order, real
+// flood and crime cells, no winner anywhere in the shape),
+// and card assembly from the results derivation (fold-in
+// 8 — the snapshot is the facts the page rendered). Client
+// behaviour (toggle, the full message, badge, persistence
+// across restart) is the E2E suite's proof
 // (e2e/shortlist.e2e.ts); the storage access functions are
 // driven here through fake Storage objects.
 
@@ -147,12 +149,62 @@ function soldWith(ownHistory: unknown[]): SoldPricesBundle {
   } as unknown as SoldPricesBundle;
 }
 
-function shortWith(councilTax: Record<string, unknown>): ShortBundle {
+function floodLayer(partial: Record<string, unknown>): Record<string, unknown> {
+  return {
+    title: "layer",
+    line: "the layer's own line",
+    coveringLabel: null,
+    coveringDefinition: null,
+    coveringDetail: null,
+    basisLine: "basis",
+    sourceLine: null,
+    ...partial,
+  };
+}
+
+// Birkdale's golden flood shape (the CI #206 states):
+// rivers & sea publishes no band for the point, surface
+// water sits below its lowest mapped band — both are the
+// Very-low case through the results layer's mapping.
+const FLOOD_BIRKDALE = {
+  state: "served",
+  liveWarnings: null,
+  layers: [
+    floodLayer({
+      layer: "rofrs",
+      pointState: "no-band-published",
+      line: "no likelihood band is published for this point on the Environment Agency's map of flooding from rivers and the sea",
+    }),
+    floodLayer({
+      layer: "rofsw",
+      pointState: "below-lowest-band",
+      line: "no surface-water band reaches this point — below the lowest band this product publishes",
+    }),
+  ],
+};
+
+const CRIME_330 = {
+  state: "served",
+  total: 330,
+  totalLine: "330 recorded crimes within 1 mile of this postcode",
+  windowLine: "October 2025 to September 2026",
+  asb: { count: 96 },
+  perHeadLine: null,
+  englandLine: null,
+  staleLine: null,
+  sourceLine: "Police.uk",
+  explainer: "explainer",
+};
+
+function shortWith(
+  councilTax: Record<string, unknown>,
+  extra: Record<string, unknown> = {},
+): ShortBundle {
   return {
     rung: 1,
     kind: "short-bundle",
     postcode: "CM3 2JT",
-    sections: { councilTax },
+    sections: { councilTax, flood: FLOOD_BIRKDALE, crime: CRIME_330, ...extra },
   } as unknown as ShortBundle;
 }
 
@@ -221,7 +273,7 @@ describe("the storage contract (fold-in 1)", () => {
       "No homes have been saved yet, so there is nothing to compare. Homes you save are kept only in this browser. Next step: check a postcode on the website, or open a listing and tap 'Shortlist this home' — saved homes will appear here.",
     );
     expect(SHORTLIST_UNAVAILABLE_LINE).toContain("not allowing storage right now");
-    expect(SHORTLIST_FULL_LINE).toBe("Your shortlist is full — the free shortlist holds 3 homes.");
+    expect(SHORTLIST_FULL_LINE).toBe("Your shortlist is full — it holds 3 homes.");
     expect(SEE_THIS_HOMES_CHECK).toBe("See this home's check");
   });
 
@@ -364,22 +416,25 @@ describe("display composition from a snapshot", () => {
 });
 
 describe("the comparison's construction", () => {
-  it("transposes the snapshots into the pinned row set, in order", () => {
+  it("transposes the snapshots into the pinned row set, in the D75 pill-priority order", () => {
     const view = buildComparison([makeCard("a"), makeCard("b")]);
     expect(view.rows.map((row) => row.label)).toEqual([
+      "Flood",
+      "Crime — 12-month total",
       "Nearest primary",
       "Nearest secondary",
       "Grammar school nearby",
-      "Nursery",
-      "Flood",
-      "Crime — 12-month total",
-      "GP",
       "Hospital with A&E",
-      "Station",
+      "GP",
       "Nearest vet",
+      "Station",
+      "Nursery",
       "Council tax",
     ]);
-    expect(view.rows[0].cells).toEqual([cell("a primary"), cell("b primary")]);
+    expect(view.rows.find((row) => row.key === "primary")?.cells).toEqual([
+      cell("a primary"),
+      cell("b primary"),
+    ]);
     expect(view.columns.map((card) => card.id)).toEqual(["a", "b"]);
   });
 
@@ -390,7 +445,10 @@ describe("the comparison's construction", () => {
       expect(Object.keys(row).sort()).toEqual(["cells", "family", "key", "label"]);
   });
 
-  it("keeps pointer cells as pointers — no figure, no verdict word", () => {
+  it("keeps a legacy pointer cell as a pointer — the stored shape is honoured, never dropped", () => {
+    // Cards saved before the 17 Nov 2026 ruling hold pointer
+    // flood/crime cells; parsing and transposing them must
+    // leave the shape exactly as stored.
     const pointer: ShortlistCell = { kind: "pointer" };
     const card = makeCard("a", {
       comparison: { ...makeCard("a").comparison, flood: pointer, crime: pointer },
@@ -398,6 +456,9 @@ describe("the comparison's construction", () => {
     const view = buildComparison([card]);
     expect(view.rows.find((row) => row.key === "flood")?.cells[0]).toEqual({ kind: "pointer" });
     expect(view.rows.find((row) => row.key === "crime")?.cells[0]).toEqual({ kind: "pointer" });
+    expect(parseShortlistRecord(serializeShortlistRecord({ v: 1, cards: [card] })).cards).toEqual([
+      card,
+    ]);
   });
 });
 
@@ -456,11 +517,93 @@ describe("card assembly", () => {
     expect(card?.comparison.gp).toEqual({ kind: "distance", name: "Birkdale Surgery", miles: 1.9 });
     expect(card?.comparison.grammar).toEqual({ kind: "line", text: "No — none in Braintree" });
     expect(card?.comparison.nursery).toEqual({ kind: "line", text: "no nursery filed near" });
-    expect(card?.comparison.flood).toEqual({ kind: "pointer" });
-    expect(card?.comparison.crime).toEqual({ kind: "pointer" });
+    // The real cells (founder's ruling, 17 Nov 2026): the
+    // flood line derives both bands through the results
+    // layer's mapping — the fabricated absence states
+    // (rofrs "no-band-published", rofsw
+    // "below-lowest-band") are the Very-low case, exactly
+    // as on the results page; the crime line is the served
+    // 12-month count.
+    expect(card?.comparison.flood).toEqual({
+      kind: "line",
+      text: "Rivers & sea: Very low · Surface water: Very low",
+    });
+    expect(card?.comparison.crime).toEqual({ kind: "line", text: "330 crimes" });
     expect(card?.comparison.councilTax).toEqual({
       kind: "line",
       text: "Band D averages £2,280.36 a year",
+    });
+  });
+
+  it("derives a Minerva-shaped flood cell: rivers Very low, surface water Low", () => {
+    const card = buildShortlistCard({
+      resolution: birkdale,
+      nearby: birkdaleNearby(),
+      sold: soldWith([]),
+      short: shortWith(TAX_SERVED, {
+        flood: {
+          state: "served",
+          liveWarnings: null,
+          layers: [
+            floodLayer({ layer: "rofrs", pointState: "no-band-published" }),
+            floodLayer({
+              layer: "rofsw",
+              pointState: "inside",
+              coveringLabel: "Low",
+              line: "this point is covered by the Surface water Low band",
+            }),
+          ],
+        },
+        crime: { ...CRIME_330, total: 1956 },
+      }),
+    });
+    expect(card?.comparison.flood).toEqual({
+      kind: "line",
+      text: "Rivers & sea: Very low · Surface water: Low",
+    });
+    expect(card?.comparison.crime).toEqual({ kind: "line", text: "1,956 crimes" });
+  });
+
+  it("carries the named states for flood and crime, never an invented figure", () => {
+    const notCovered = buildShortlistCard({
+      resolution: birkdale,
+      nearby: birkdaleNearby(),
+      sold: soldWith([]),
+      short: shortWith(TAX_SERVED, {
+        flood: { state: "not-covered", reason: NOT_COVERED_LINE },
+        crime: { state: "not-filed", reason: "the crime data has not been filed yet" },
+      }),
+    });
+    expect(notCovered?.comparison.flood).toEqual({ kind: "line", text: NOT_COVERED_LINE });
+    expect(notCovered?.comparison.crime).toEqual({
+      kind: "line",
+      text: "the crime data has not been filed yet",
+    });
+
+    // A layer whose data is not filed serves no band: the
+    // cell carries that layer's own line, not a band.
+    const notFiledLayer = buildShortlistCard({
+      resolution: birkdale,
+      nearby: birkdaleNearby(),
+      sold: soldWith([]),
+      short: shortWith(TAX_SERVED, {
+        flood: {
+          state: "served",
+          liveWarnings: null,
+          layers: [
+            floodLayer({ layer: "rofrs", pointState: "no-band-published" }),
+            floodLayer({
+              layer: "rofsw",
+              pointState: "not-filed",
+              line: "we have not yet filed the surface-water data for this postcode",
+            }),
+          ],
+        },
+      }),
+    });
+    expect(notFiledLayer?.comparison.flood).toEqual({
+      kind: "line",
+      text: "we have not yet filed the surface-water data for this postcode",
     });
   });
 
@@ -595,7 +738,7 @@ describe("the header wiring (fold-in 2)", () => {
     expect(header).not.toContain("shortlist-count");
   });
 
-  it("the add control's server render is the unsaved state, with no panel", () => {
+  it("the add control's server render is the unsaved state, with no full message", () => {
     const markup = renderToStaticMarkup(createElement(ShortlistButton, { card: makeCard("a") }));
     expect(markup).toContain("Shortlist this home");
     expect(markup).not.toContain("Your shortlist is full");

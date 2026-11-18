@@ -13,10 +13,20 @@ export function pageMetadata({
   title,
   description,
   path,
+  noindex = false,
 }: {
   title: string;
   description: string;
   path: string; // the page's own path, e.g. "/" or "/check/flood-risk"
+  // M7.8: pages that must stay out of search in EVERY
+  // environment — the journey's results pages above all —
+  // pass noindex and get the robots lock unconditionally,
+  // independent of the environment name. A specific home's
+  // results page is never an indexable page (its facts are
+  // one family's check), and until this step the production
+  // build would have indexed it: the environment rule below
+  // only locks non-production environments.
+  noindex?: boolean;
 }): Metadata {
   return {
     metadataBase: new URL(SITE_URL),
@@ -47,8 +57,9 @@ export function pageMetadata({
     },
     // Play/test environments stay out of search engines (M2.7 — also
     // enforced by the X-Robots-Tag header in public/_headers). Only the
-    // real site (environment name "production") is indexable.
-    robots: isProductionEnv() ? undefined : { index: false, follow: false },
+    // real site (environment name "production") is indexable — and
+    // even there, a page that passes noindex stays out (M7.8).
+    robots: noindex || !isProductionEnv() ? { index: false, follow: false } : undefined,
   };
 }
 
@@ -76,14 +87,14 @@ export const LOGO_URL = `${SITE_URL}${LOGO_PATH}`;
 //
 // The per-page rule is locked by construction: this record holds
 // NO default title or description, and every entry carries its
-// own — there is nothing here for a page to inherit. (The root
-// layout's metadata is today's single call site and consumes the
-// homepage entry below; M7 performs the move of metadata into
-// the pages, bound by this rule.) Every path except the two
-// trust pages has a row on the SEO intent map
-// (docs/seo-intent-map.md); the trust pages are not search
-// targets but still carry their own title and meta — every page
-// does.
+// own — there is nothing here for a page to inherit. (Until
+// M7.8 the root layout was the single call site, consuming the
+// homepage entry for every route; M7.8 performed the move of
+// metadata into the pages, bound by this rule — every page now
+// exports its own.) Every path except the trust and chrome
+// pages has a row on the SEO intent map
+// (docs/seo-intent-map.md); those pages are not search targets
+// but still carry their own title and meta — every page does.
 //
 // The wording rules the set is locked under (D38):
 //   - NO figures in any title or meta, ever — titles and metas
@@ -105,6 +116,18 @@ export const PAGE_SEO = {
   "/": {
     title: `${SITE_NAME} — ${SITE_TAGLINE}`,
     description: SITE_DESCRIPTION,
+  },
+  // 18 Nov 2026 — the guides hub's pair, locked under the
+  // same D38 process when the founder's footer ruling made
+  // /guides a real page (the footer's Guides destination).
+  // The hub is a chrome page, not a search target in its own
+  // right, but every page carries its own pair — this one
+  // included. The sitemap derives from this record, so the
+  // hub joins it by construction.
+  "/guides": {
+    title: "Guides | Check My Next Home",
+    description:
+      "The Check My Next Home guides, in plain English: what to check before buying a house, the questions to ask when buying a leasehold flat, and the facts that bear on whether an area suits a family. Each guide links to the checks it draws on.",
   },
   "/guides/checks-before-buying-a-house": {
     title: "Checks before buying a house | Check My Next Home",
@@ -203,17 +226,42 @@ export const PAGE_SEO = {
     description:
       "How each check is worked out — the data behind every figure, where it comes from, and its known limits, in plain English.",
   },
-  "/about-the-data": {
-    title: "About the data | Check My Next Home",
+  // M7.8 — the chrome pages' pairs, locked here under the
+  // same D38 process at the paths the chrome itself uses.
+  // About's pair is re-locked at /about (the path the header,
+  // the footer and the finalised samples all link), superseding
+  // the /about-the-data pair M6.10 locked before the About page
+  // existed: that path was never linked from anywhere and no
+  // page ever stood behind it. The standing wording the old
+  // pair described lives on the How we check page and in the
+  // About page's own copy — the pair's subject did not vanish,
+  // its path was corrected.
+  "/about": {
+    title: "About | Check My Next Home",
     description:
-      "The data the checks present, who publishes it, and the standing wording that travels with it: official data as it is published, with its source and date.",
+      "About Check My Next Home — an independent checker that gathers the facts about a home from official sources onto one page, every fact shown with its source and date, written for the family who'll live there.",
+  },
+  "/sample-report": {
+    title: "Sample report | Check My Next Home",
+    description:
+      "A sample of the detailed report, worked in full on one real home — every section the report carries, so you can see exactly what a report holds before you order one.",
+  },
+  "/contact": {
+    title: "Contact | Check My Next Home",
+    description:
+      "How to contact Check My Next Home — write through the page or by email with a question, a correction, or something that looks off. We reply within two working days.",
+  },
+  "/privacy": {
+    title: "Privacy policy | Check My Next Home",
+    description:
+      "The privacy policy for Check My Next Home, in plain English — what the site collects when you run a check or buy a report, the services that handle it, and what we never do with it.",
   },
 } as const;
 
 export type PageSeoPath = keyof typeof PAGE_SEO;
 
-// The homepage entry, named for its one current consumer (the
-// root layout, until M7 moves metadata into the pages).
+// The homepage entry, named for its consumer — the homepage
+// itself since M7.8 moved metadata into the pages.
 export const HOME_PAGE_SEO = PAGE_SEO["/"];
 
 // Structured data, sitewide (card D: "Structured data only where
@@ -237,3 +285,39 @@ export const WEBSITE_SCHEMA = {
   url: `${SITE_URL}/`,
   inLanguage: "en-GB",
 } as const;
+
+// M7.8 — BreadcrumbList structured data for the content
+// pages (the check pages, the guides and the chrome pages).
+// The trail is the honest two-item form the step settled:
+// Home → this page. There is no /check index page to name
+// as a middle item, and the /guides hub (18 Nov 2026) is a
+// footer destination, not a breadcrumb parent — the guides
+// keep the two-item form, so no middle item is emitted.
+// This is structured data only: no visible breadcrumb trail
+// is rendered anywhere (the finalised samples show none).
+export function breadcrumbSchema({
+  name,
+  path,
+}: {
+  name: string; // the page's own short name, e.g. "Flood risk check"
+  path: string; // the page's own path, e.g. "/check/flood-risk"
+}) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      {
+        "@type": "ListItem",
+        position: 1,
+        name: "Home",
+        item: `${SITE_URL}/`,
+      },
+      {
+        "@type": "ListItem",
+        position: 2,
+        name,
+        item: `${SITE_URL}${path}`,
+      },
+    ],
+  } as const;
+}

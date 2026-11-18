@@ -120,10 +120,12 @@ export const HOME_CHECK_TILES = [
   {
     title: "Schools, nurseries & childminders",
     line: "Find the nearest primaries, secondaries and nurseries — the ones that matter for the school run.",
+    href: "/check/schools",
   },
   {
     title: "Doctors, dentists & vets",
     line: "GPs, hospitals, dentists, maternity care and vets — there for the moments you really need them.",
+    href: "/check/family-essentials",
   },
   {
     title: "Food, leisure & everyday life",
@@ -132,6 +134,7 @@ export const HOME_CHECK_TILES = [
   {
     title: "Safety around the home",
     line: "What crimes were recorded in the area over the past year, and what kind they were — the counts, month by month.",
+    href: "/check/crime",
   },
   {
     title: "Your neighbours & the area",
@@ -140,18 +143,22 @@ export const HOME_CHECK_TILES = [
   {
     title: "Plans that could change the street",
     line: "Planning applications and major schemes nearby.",
+    href: "/check/planning-constraints",
   },
   {
     title: "Flood risk",
     line: "Rivers, sea and surface water — plus any live flood warnings today.",
+    href: "/check/flood-risk",
   },
   {
     title: "The cost of living",
     line: "Council tax, energy rating, broadband and the monthly cost of owning the home.",
+    href: "/check/council-tax-band",
   },
   {
     title: "What homes here actually sold for",
     line: "Recorded sale prices for this home and its street — never a made-up valuation.",
+    href: "/check/sold-prices",
   },
 ] as const;
 

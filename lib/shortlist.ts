@@ -11,11 +11,12 @@ import type { DistanceFamily } from "./results";
 // the home was saved (ruling 3), and /shortlist renders
 // purely from what this module reads back.
 //
-// The full comparison for report-holders (up to 10 homes)
-// is NOT built at this step: it is a named deferral to
-// M9.6, where the entitlement (bought and gifted holders)
-// is pinned — no browser can be a report-holder before M9
-// creates purchases and gift claims (ruling 1).
+// The shortlist is 3 homes for everyone, paid or free
+// (founder's ruling, 17 Nov 2026): the earlier sketch of a
+// fuller comparison for report-holders (up to 10 homes)
+// was dropped the same evening — the £4.99 buys the
+// report's depth, never more shortlist slots, and M9.6
+// builds no entitlement and no wider comparison.
 
 // ------------------------------------------------------------------
 // The storage contract (fold-in 1 — pinned now as the Phase 2
@@ -42,12 +43,15 @@ export const SHORTLIST_UPDATED_EVENT = "cmnh:shortlist-updated";
 
 // ------------------------------------------------------------------
 // Pinned wording. The empty state is the Final Design's
-// Section 4B standard verbatim. The flood and crime pointer
-// is ruling 2's corrected form for the free comparison
-// (the design mock's "in report" wording predates the
-// free/full split and survives only in the future full
-// comparison). The remaining lines are composed at this
-// step and pinned here so no component invents its own.
+// Section 4B standard verbatim. The full line is the
+// founder's simple-message form (17 Nov 2026): tapping add
+// with 3 saved shows this line in place of the button —
+// no panel opens. The pointer wording survives only as
+// the render for cards saved before the same evening's
+// ruling put real flood and crime figures in the cells
+// (see ShortlistCell below). The remaining lines are
+// composed at this step and pinned here so no component
+// invents its own.
 // ------------------------------------------------------------------
 
 export const SHORTLIST_EMPTY_HEADING = "Your shortlist is empty";
@@ -56,7 +60,7 @@ export const SHORTLIST_EMPTY_LINE =
 export const SHORTLIST_KEPT_LINE = "Homes you save are kept only in this browser.";
 export const SHORTLIST_UNAVAILABLE_LINE =
   "Your shortlist is kept in this browser, but this browser is not allowing storage right now — so saved homes can't be kept or shown here.";
-export const SHORTLIST_FULL_LINE = "Your shortlist is full — the free shortlist holds 3 homes.";
+export const SHORTLIST_FULL_LINE = "Your shortlist is full — it holds 3 homes.";
 export const SEE_THIS_HOMES_CHECK = "See this home's check";
 export const NOT_COVERED_LINE = "This check is not covered for this postcode.";
 
@@ -67,12 +71,16 @@ export const NOT_COVERED_LINE = "This check is not covered for this postcode.";
 // One comparison cell. A distance cell carries the nearest
 // place exactly as snapshotted (name + straight-line miles;
 // the miles figure takes its colour from the row's family
-// thresholds at render). A line cell carries a named state
-// verbatim — a fact a rung does not serve renders its named
-// state, never a borrowed figure (fold-in 7). A pointer
-// cell carries nothing: flood and crime in the free
-// comparison point at the home's own check, never a figure
-// and never a single-word verdict (ruling 2).
+// thresholds at render). A line cell carries a fact or a
+// named state verbatim — a fact a rung does not serve
+// renders its named state, never a borrowed figure
+// (fold-in 7); flood and crime are line cells carrying the
+// real bands and the real 12-month count (founder's
+// ruling, 17 Nov 2026). A pointer cell carries nothing and
+// is LEGACY: only cards saved before that ruling hold one,
+// and the renderer still honours the shape so a saved list
+// is never dropped for its age — new assembly never
+// produces one.
 export type ShortlistCell =
   | { kind: "distance"; name: string; miles: number }
   | { kind: "line"; text: string }
@@ -91,28 +99,33 @@ export type ComparisonRowKey =
   | "vet"
   | "councilTax";
 
-// The comparison's row set, transcribed from the Final
-// Design's Section 5 mock and pinned in tests. The family
-// is the M7.4 distance-colour family for the row's miles
-// figure (lib/results.ts's thresholds); rows without a
-// family never carry a distance cell in a form that colours
-// (grammar's cell is the brain's own line; flood and crime
-// are pointers; council tax is a line).
+// The comparison's row set, pinned in tests. The ORDER is
+// the D75 summary-pill priority order (founder's ruling,
+// 17 Nov 2026): Flood and Crime lead, then the schools
+// (grammar grouped with them — it is a row here though it
+// is not a pill factor), A&E before GP, then Vet, Station
+// and Nursery in their pill order; Council tax is not a
+// pill factor at all and closes the table as a cost fact.
+// The family is the M7.4 distance-colour family for the
+// row's miles figure (lib/results.ts's thresholds); rows
+// without a family never carry a distance cell in a form
+// that colours (grammar's, flood's and crime's cells are
+// lines; council tax is a line).
 export const COMPARISON_ROWS: {
   key: ComparisonRowKey;
   label: string;
   family: DistanceFamily | null;
 }[] = [
+  { key: "flood", label: "Flood", family: null },
+  { key: "crime", label: "Crime — 12-month total", family: null },
   { key: "primary", label: "Nearest primary", family: "school" },
   { key: "secondary", label: "Nearest secondary", family: "school" },
   { key: "grammar", label: "Grammar school nearby", family: null },
-  { key: "nursery", label: "Nursery", family: "school" },
-  { key: "flood", label: "Flood", family: null },
-  { key: "crime", label: "Crime — 12-month total", family: null },
-  { key: "gp", label: "GP", family: "everyday" },
   { key: "ae", label: "Hospital with A&E", family: "hospital" },
-  { key: "station", label: "Station", family: "everyday" },
+  { key: "gp", label: "GP", family: "everyday" },
   { key: "vet", label: "Nearest vet", family: "everyday" },
+  { key: "station", label: "Station", family: "everyday" },
+  { key: "nursery", label: "Nursery", family: "school" },
   { key: "councilTax", label: "Council tax", family: null },
 ];
 

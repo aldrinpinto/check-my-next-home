@@ -150,3 +150,39 @@ export const COMPANY_OWNERSHIP_ENABLED = false;
 // loader from the runner's schedule, in the same commit
 // (docs/backend-m6.32.md).
 export const INDUSTRIAL_SITES_ENABLED = true;
+
+// The detailed report's price, as a label (plan step M7.6,
+// fold-in F4 of its gap check): the £4.99 is the NORMAL price
+// in every state of the door (launch pricing, decided
+// 14 Nov 2026 — a free launch window first, then straight
+// £4.99 a report, shown as the normal price throughout,
+// never a "was" price). Until this constant existed the
+// price lived as literals in the truncation builder, the
+// section upsells and the shortlist buttons; every surface
+// that names the price now reads it from here, so the door,
+// the buy bar and M9.6's window lines share one source.
+export const REPORT_PRICE_LABEL = "£4.99";
+
+// The report door's state (plan step M7.6, ruling R1 of its
+// gap check): what /report does when a visitor reaches it.
+//   "holding" — reports are not on sale yet: the page says
+//     so plainly, shows the £4.99 as the normal price, what
+//     the report will contain, the sample-report route and
+//     a route back to the free check. No checkout, no email
+//     capture (M7.6's build — the only state that exists).
+//   "window" — the free launch window (D44): the door
+//     offers the report free with £4.99 still shown as the
+//     normal price; the exact surface lines are pinned at
+//     M9.6's build, which fills this state in.
+//   "paid" — the live payment page (M9): the merged payment
+//     page with the Stripe element embedded. M9.6 fills
+//     this state in.
+// Like the flags above, the state is a checked-in constant,
+// not an environment variable: moving the door is a
+// reviewed code change, visible in the commit history,
+// never a runtime flip. It sits at "holding" until M9.6
+// pins the window lines — no surface may render window or
+// paid wording while it does (the negative pin in
+// tests/report-door.test.ts).
+export type ReportDoorState = "holding" | "window" | "paid";
+export const REPORT_DOOR_STATE: ReportDoorState = "holding";

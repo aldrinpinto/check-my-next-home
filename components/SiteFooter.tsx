@@ -12,17 +12,26 @@ import { SITE_NAME, SITE_TAGLINE } from "../lib/site";
 //
 // Fidelity pass 2 (founder, 17 Nov 2026): the footer takes
 // the decided sample page's three-part form — the wordmark
-// block on the left, the middle links as one line
-// (How we check · Sample report · About · Contact), and the
+// block on the left, the middle links as one line, and the
 // sources line on the right: "Data from named official
 // sources. Facts, not scores." The middle set is the
 // sample's own, not the header's (no Shortlist; Contact
 // joins) — so the footer carries its own list now, no longer
 // the header's PRIMARY_NAV.
+//
+// Founder's ruling, 18 Nov 2026: Guides joins the middle
+// line between About and Contact, pointing at the /guides
+// hub — FOOTER ONLY. This supersedes the M7.8 ruling that
+// the guides stay out of the chrome, for the footer only:
+// the header keeps its set with no Guides, exactly as the
+// Final Sample Master now shows in every view. D77(g)'s
+// footer set is therefore: How we check · Sample report ·
+// About · Guides · Contact.
 const FOOTER_LINKS = [
   { label: "How we check", href: "/how-we-check" },
   { label: "Sample report", href: "/sample-report" },
   { label: "About", href: "/about" },
+  { label: "Guides", href: "/guides" },
   { label: "Contact", href: "/contact" },
 ] as const;
 

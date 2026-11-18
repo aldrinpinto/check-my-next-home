@@ -18,18 +18,23 @@ import { expect, test } from "./fixtures";
 // persists); the absence half uses the fixture page, a
 // separate context whose storage is its own.
 //
-// Regression: the five authored behaviours (remove; the
+// Regression: the authored behaviours (remove; the
 // headline comparison side by side with no winner declared;
-// the add-a-4th panel's remove-one or £4.99-report choice;
-// the rung-3 card with wider-area facts under the scope
-// label counting toward the 3; the storage-unavailable
-// named line) plus the gap check's two adopted additions
-// (the header count updating after add/remove without a
-// manual reload; the empty state on a fresh context). Where
-// a spec needs a full list it seeds storage directly with
-// records in the pinned shape (lib/shortlist.ts) rather
-// than clicking through three saves. No promotions to Smoke
-// (D68 clause 7).
+// the full shortlist's simple message in place of the add
+// button — no panel (founder's ruling, 17 Nov 2026); the
+// facts table from one saved home, with the kept line
+// closing the page; the rung-3 card with wider-area facts
+// under the scope label counting toward the 3; the
+// storage-unavailable named line) plus the gap check's two
+// adopted additions (the header count updating after
+// add/remove without a manual reload; the empty state on a
+// fresh context). Where a spec needs a full list it seeds
+// storage directly with records in the pinned shape
+// (lib/shortlist.ts) rather than clicking through three
+// saves. The seeded flood/crime cells use the LEGACY
+// pointer shape — cards saved before the same ruling —
+// except where a spec overrides them with the real lines.
+// No promotions to Smoke (D68 clause 7).
 
 const BASE_URL = "http://127.0.0.1:4173";
 
@@ -177,6 +182,12 @@ test.describe("shortlist — regression", () => {
       await seedShortlist(page, [BIRKDALE_CARD, EXETER_CARD]);
       await page.goto("/shortlist");
       await expect(page.locator(".shortlist-card")).toHaveCount(2);
+      // A rung-1 card carries no facts line and no report
+      // link (17 Nov 2026 ruling) — Remove is its only action.
+      const firstCard = page.locator(".shortlist-card").first();
+      await expect(firstCard.locator(".shortlist-card__facts")).toHaveCount(0);
+      await expect(firstCard.locator(".report-btn")).toHaveCount(0);
+      await expect(firstCard.getByRole("button", { name: /Remove / })).toHaveCount(1);
       await page.getByRole("button", { name: "Remove 19 Birkdale Rise, CM3 2JT" }).click();
       await expect(page.locator(".shortlist-card")).toHaveCount(1);
       await expect(page.locator(".shortlist-card")).toContainText("6 Exeter Road, E16 1GN");
@@ -190,7 +201,7 @@ test.describe("shortlist — regression", () => {
     "the headline comparison renders side by side with no winner declared",
     { tag: "@regression" },
     async ({ page }) => {
-      const minerva = specCard({
+      const minervaSeed = specCard({
         id: "r1:KT17 1FH:seed-minerva",
         postcode: "KT17 1FH",
         homeKey: "seed-minerva",
@@ -203,6 +214,17 @@ test.describe("shortlist — regression", () => {
           tenureLabel: "Leasehold",
         },
       });
+      // Minerva carries the post-ruling real cells (its
+      // surface water is Low, as served); Birkdale and
+      // Exeter keep the legacy pointer shape.
+      const minerva: ShortlistCard = {
+        ...minervaSeed,
+        comparison: {
+          ...minervaSeed.comparison,
+          flood: { kind: "line", text: "Rivers & sea: Very low · Surface water: Low" },
+          crime: { kind: "line", text: "1,956 crimes" },
+        },
+      };
       await seedShortlist(page, [BIRKDALE_CARD, EXETER_CARD, minerva]);
       await page.goto("/shortlist");
 
@@ -212,22 +234,42 @@ test.describe("shortlist — regression", () => {
       // each check once, one column per home. (The phone
       // block stacking is unchanged.)
       await expect(compare.locator(".compare-table thead th")).toHaveCount(4);
-      // The pinned row set leads with the primary row; the
-      // flood and crime cells are pointers in every column.
+      // The row order is the D75 pill priority: Flood leads.
+      await expect(compare.locator(".compare-table tbody tr").first()).toHaveAttribute(
+        "data-compare-row",
+        "flood",
+      );
       const primaryRow = compare.locator('.compare-table [data-compare-row="primary"]');
       await expect(primaryRow.locator("td").first()).toContainText("Birkdale Primary School");
       await expect(primaryRow.locator(".place-row__miles--green").first()).toHaveText("0.4 mi");
+      // Legacy pointer cells still render their pointer;
+      // the real cells render their lines.
       for (const rowKey of ["flood", "crime"]) {
         const cells = compare.locator(`.compare-table [data-compare-row="${rowKey}"] td`);
         await expect(cells).toHaveCount(3);
-        for (const cell of await cells.all()) {
-          await expect(cell).toHaveText("See this home's check");
-        }
+        await expect(cells.nth(0)).toHaveText("See this home's check");
+        await expect(cells.nth(1)).toHaveText("See this home's check");
       }
+      await expect(
+        compare.locator('.compare-table [data-compare-row="flood"] td').nth(2),
+      ).toHaveText("Rivers & sea: Very low · Surface water: Low");
+      await expect(
+        compare.locator('.compare-table [data-compare-row="crime"] td').nth(2),
+      ).toHaveText("1,956 crimes");
+      // Exactly one buy button per column, in the ruled words.
       const reportLinks = compare.locator(".compare-table tfoot .report-btn");
       await expect(reportLinks).toHaveCount(3);
-      for (const link of await reportLinks.all()) {
-        await expect(link).toHaveAttribute("href", "/report");
+      // M7.6 link contract: a rung-1 column's button carries
+      // the card's identity (postcode + home key) so the
+      // report door resolves the home from it.
+      const expectedHrefs = [
+        "/report?postcode=CM3+2JT&home=key",
+        "/report?postcode=E16+1GN&home=seed-exeter",
+        "/report?postcode=KT17+1FH&home=seed-minerva",
+      ];
+      for (const [index, link] of (await reportLinks.all()).entries()) {
+        await expect(link).toHaveAttribute("href", expectedHrefs[index]);
+        await expect(link).toHaveText("Get the full report — £4.99");
       }
       await expect(
         compare.locator('.compare-table [data-compare-row="councilTax"] td').first(),
@@ -244,33 +286,73 @@ test.describe("shortlist — regression", () => {
   );
 
   test(
-    "the add-a-4th panel offers remove-one or the £4.99 report, and freeing a slot lets the save through",
+    "at 3 saved, tapping add shows the full message in place — no panel — and freeing a slot lets the save through",
     { tag: "@regression" },
     async ({ page }) => {
       await seedShortlist(page, [BIRKDALE_CARD, EXETER_CARD, WIDER_AREA_CARD]);
       await reachResults(page, "KT17 1FH", /Flat 4, Minerva House/);
       await page.getByRole("button", { name: "Shortlist this home" }).click();
 
-      const panel = page.locator(".shortlist-panel");
-      await expect(panel).toBeVisible();
-      await expect(panel).toContainText(
-        "Your shortlist is full — the free shortlist holds 3 homes.",
+      // The simple message stands where the button was
+      // (founder's ruling, 17 Nov 2026): the full line, a
+      // link to the shortlist, and no panel anywhere.
+      const full = page.locator(".shortlist-full-line");
+      await expect(full).toBeVisible();
+      await expect(full).toContainText("Your shortlist is full — it holds 3 homes.");
+      await expect(full.getByRole("link", { name: "See your shortlist" })).toHaveAttribute(
+        "href",
+        "/shortlist",
       );
-      await expect(panel.getByRole("button", { name: /Remove / })).toHaveCount(3);
-      await expect(
-        panel.getByRole("link", { name: "Get the detailed report on a saved home — £4.99" }),
-      ).toHaveAttribute("href", "/report");
-      // Nothing was saved by opening the panel.
+      await expect(page.locator(".shortlist-panel")).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "Shortlist this home" })).toHaveCount(0);
+      // Nothing was saved by the tap.
       await expect(page.locator(".shortlist-count")).toHaveText("3");
 
-      await panel.getByRole("button", { name: "Remove 6 Exeter Road, E16 1GN" }).click();
-      await panel.getByRole("button", { name: "Shortlist this home" }).click();
-      await expect(panel).toHaveCount(0);
+      // Free a slot on the shortlist page, via the message's
+      // own link, and the same home then saves.
+      await full.getByRole("link", { name: "See your shortlist" }).click();
+      await page.waitForURL(/\/shortlist$/);
+      await page.getByRole("button", { name: "Remove 6 Exeter Road, E16 1GN" }).click();
+      await expect(page.locator(".shortlist-card")).toHaveCount(2);
+      await reachResults(page, "KT17 1FH", /Flat 4, Minerva House/);
+      await page.getByRole("button", { name: "Shortlist this home" }).click();
       await expect(page.getByRole("button", { name: "Shortlisted — tap to remove" })).toBeVisible();
       await expect(page.locator(".shortlist-count")).toHaveText("3");
       await page.goto("/shortlist");
       await expect(page.locator(".shortlist-card")).toHaveCount(3);
       await expect(page.locator(".shortlist-card").nth(2)).toContainText("Minerva House");
+    },
+  );
+
+  test(
+    "one saved home renders its facts table under its own heading, and the kept line closes the page",
+    { tag: "@regression" },
+    async ({ page }) => {
+      await seedShortlist(page, [BIRKDALE_CARD]);
+      await page.goto("/shortlist");
+      await expect(page.locator(".shortlist-card")).toHaveCount(1);
+
+      const compare = page.locator(".shortlist-compare");
+      await expect(compare.locator("h2")).toHaveText("The facts for this home");
+      await expect(compare.locator(".compare-table thead th")).toHaveCount(2);
+      const reportLink = compare.locator(".compare-table tfoot .report-btn");
+      await expect(reportLink).toHaveCount(1);
+      await expect(reportLink).toHaveText("Get the full report — £4.99");
+      // M7.6 link contract: postcode + the card's home key.
+      await expect(reportLink).toHaveAttribute("href", "/report?postcode=CM3+2JT&home=key");
+
+      // The kept line is the page's last word: small print
+      // below the table, after it in the document order.
+      await expect(page.locator(".shortlist-kept-line")).toHaveText(
+        "Homes you save are kept only in this browser.",
+      );
+      const keptAfterTable = await page.evaluate(() => {
+        const table = document.querySelector(".shortlist-compare");
+        const kept = document.querySelector(".shortlist-kept-line");
+        if (!table || !kept) return false;
+        return Boolean(table.compareDocumentPosition(kept) & Node.DOCUMENT_POSITION_FOLLOWING);
+      });
+      expect(keptAfterTable).toBe(true);
     },
   );
 
@@ -288,7 +370,12 @@ test.describe("shortlist — regression", () => {
       const areaCard = page.locator('.shortlist-card[data-rung="3"]');
       await expect(areaCard).toHaveCount(1);
       await expect(areaCard).toContainText("Wider area — E16, not this exact home");
-      await expect(areaCard).toContainText("sold prices need an exact postcode");
+      // The rung-3 card KEEPS its facts line — its named
+      // states explain missing data rather than duplicating
+      // the table (the rung-1 cards dropped theirs).
+      await expect(areaCard.locator(".shortlist-card__facts")).toContainText(
+        "sold prices need an exact postcode",
+      );
       await expect(areaCard).toContainText("crime counts need an exact postcode");
       await expect(page.locator(".shortlist-card")).toHaveCount(3);
     },
@@ -312,9 +399,10 @@ test.describe("shortlist — regression", () => {
       );
       await expect(page.locator(".shortlist-card")).toHaveCount(0);
 
-      // And in place of the add control on a results page.
+      // And in place of the add control on a results page —
+      // inside the buy bar since M7.6 moved the control.
       await reachResults(page, "CM3 2JT", "19 Birkdale Rise");
-      await expect(page.locator(".results-actions .shortlist-unavailable")).toBeVisible();
+      await expect(page.locator(".buy-bar .shortlist-unavailable")).toBeVisible();
       await expect(page.getByRole("button", { name: "Shortlist this home" })).toHaveCount(0);
     },
   );

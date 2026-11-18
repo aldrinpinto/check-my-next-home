@@ -178,7 +178,9 @@ test.describe("results page — regression", () => {
       expect(body).not.toContain("£270,000");
       expect(body).not.toContain("£310,000");
       expect(body).not.toContain("£4.99");
-      await expect(page.locator('a[href="/report"]')).toHaveCount(0);
+      // No report link in any form — the bare route or the
+      // M7.6 contract form (href^= catches both).
+      await expect(page.locator('a[href^="/report"]')).toHaveCount(0);
       await expect(page.locator(".results-strip")).toHaveCount(0);
     },
   );

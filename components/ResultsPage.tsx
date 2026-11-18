@@ -1,12 +1,21 @@
-import type { PlaceGroupView, ResultsSectionView, ResultsView, SectionBlock } from "../lib/results";
+import {
+  BUY_BAR_MYSTERY_EYEBROW,
+  type PlaceGroupView,
+  type ResultsSectionView,
+  type ResultsView,
+  type SectionBlock,
+} from "../lib/results";
+import type { ShortlistCard } from "../lib/shortlist";
 import {
   DISCLAIMER_CLOSING_BLOCK,
   DISCLAIMER_CLOSING_LINK_LABEL,
   DISCLAIMER_SHORT_FORM,
   HOW_WE_CHECK_PATH,
+  REPORT_PRICE_LABEL,
 } from "../lib/site";
 import Calculators from "./Calculators";
 import { Notice, SourceLine, SummaryPill } from "./kit";
+import ShortlistButton from "./ShortlistButton";
 import Tabs from "./Tabs";
 
 // The free results page (plan step M7.4): a mechanical
@@ -58,7 +67,7 @@ function PlaceGroup({ group }: { group: PlaceGroupView }) {
   );
 }
 
-function Block({ block }: { block: SectionBlock }) {
+function Block({ block, reportHref }: { block: SectionBlock; reportHref: string | null }) {
   switch (block.type) {
     case "line":
       return <p className="results-line">{block.text}</p>;
@@ -70,7 +79,8 @@ function Block({ block }: { block: SectionBlock }) {
           <p className="upsell__lead">{block.lead}</p>
           {block.detail && <p className="upsell__detail">{block.detail}</p>}
           <p className="upsell__price">
-            £4.99 <a href="/report">Get the full report →</a>
+            {REPORT_PRICE_LABEL}{" "}
+            {reportHref ? <a href={reportHref}>Get the full report →</a> : "Get the full report →"}
           </p>
         </div>
       );
@@ -120,9 +130,11 @@ function Block({ block }: { block: SectionBlock }) {
 function Section({
   section,
   warningsState,
+  reportHref,
 }: {
   section: ResultsSectionView;
   warningsState?: string | null;
+  reportHref: string | null;
 }) {
   return (
     <section
@@ -132,14 +144,25 @@ function Section({
     >
       <h3 className="results-section__heading">{section.heading}</h3>
       {section.blocks.map((block, index) => (
-        <Block key={index} block={block} />
+        <Block key={index} block={block} reportHref={reportHref} />
       ))}
       {section.sourceLine && <SourceLine>{section.sourceLine}</SourceLine>}
     </section>
   );
 }
 
-export default function ResultsPage({ view }: { view: ResultsView }) {
+export default function ResultsPage({
+  view,
+  shortlistCard,
+}: {
+  view: ResultsView;
+  // The rung-1 shortlist card, when the route assembled
+  // one: its add control renders inside the buy bar
+  // beside the report button (plan step M7.6 — the move
+  // M7.5 recorded as owed; one control, never duplicated).
+  // Rung 2 and the not-covered branch pass none.
+  shortlistCard?: ShortlistCard | null;
+}) {
   return (
     <div className="results">
       {view.pills && (
@@ -183,6 +206,7 @@ export default function ResultsPage({ view }: { view: ResultsView }) {
                   key={section.key}
                   section={section}
                   warningsState={view.floodWarningsState}
+                  reportHref={view.reportHref}
                 />
               ))}
             </div>
@@ -193,8 +217,15 @@ export default function ResultsPage({ view }: { view: ResultsView }) {
         <div className="buy-bar">
           <h2 className="buy-bar__heading">{view.buyBar.heading}</h2>
           <p className="buy-bar__line">{view.buyBar.line}</p>
+          <p className="buy-bar__mystery">
+            <span className="buy-bar__mystery-eyebrow">{BUY_BAR_MYSTERY_EYEBROW}</span>{" "}
+            {view.buyBar.mysteryLine}
+          </p>
           <p className="buy-bar__actions">
-            <a href="/report">Get the full report</a>
+            <a className="report-btn" href={view.buyBar.href}>
+              Get the full report — {REPORT_PRICE_LABEL}
+            </a>
+            {shortlistCard && <ShortlistButton card={shortlistCard} />}
           </p>
         </div>
       )}

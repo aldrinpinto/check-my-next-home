@@ -7376,6 +7376,15 @@
         "line": "string",
         "state": "string"
       },
+      "planningApplications": {
+        "council": "string",
+        "line": "string",
+        "link": {
+          "label": "string",
+          "url": "string"
+        },
+        "state": "string"
+      },
       "soldPrices": {
         "buildingMedian": "null",
         "explainer": "string",
@@ -7627,6 +7636,15 @@
           "sourceKind": "string"
         },
         "line": "string",
+        "state": "string"
+      },
+      "planningApplications": {
+        "council": "string",
+        "line": "string",
+        "link": {
+          "label": "string",
+          "url": "string"
+        },
         "state": "string"
       },
       "soldPrices": {
@@ -7940,6 +7958,12 @@
         "line": "string",
         "state": "string"
       },
+      "planningApplications": {
+        "council": "string",
+        "line": "string",
+        "link": "null",
+        "state": "string"
+      },
       "soldPrices": {
         "reason": "string",
         "state": "string"
@@ -8203,6 +8227,15 @@
           "sourceKind": "string"
         },
         "line": "string",
+        "state": "string"
+      },
+      "planningApplications": {
+        "council": "string",
+        "line": "string",
+        "link": {
+          "label": "string",
+          "url": "string"
+        },
         "state": "string"
       },
       "soldPrices": {

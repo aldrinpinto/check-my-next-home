@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from "react";
 
-import { REPORT_ROUTE } from "../lib/results";
 import {
   SHORTLIST_FULL_LINE,
+  SHORTLIST_LIMIT,
   SHORTLIST_UNAVAILABLE_LINE,
   addCardToRecord,
   isCardSaved,
@@ -16,7 +16,6 @@ import {
   type ShortlistCard,
   type ShortlistRecord,
 } from "../lib/shortlist";
-import { Button } from "./kit";
 
 // The add control (plan step M7.5, fold-ins 3, 4 and 8):
 // "Shortlist this home" in two unmistakable states — one
@@ -27,24 +26,28 @@ import { Button } from "./kit";
 // moment and writes through lib/shortlist.ts's storage
 // contract, nothing else.
 //
-// At this step the control sits in the results header area;
-// when M7.6 builds the buy bar it moves beside the report
-// button there — M7.6 adopts that move deliberately (the
-// deferral is recorded in docs/frontend-m7.5.md).
+// The control sits inside the results page's buy bar,
+// beside the report button (plan step M7.6 — the move
+// this component's M7.5 note recorded as owed, discharged
+// there; at rung 3, where there is no buy bar, it stays
+// beside the scope-label heading). One control per page,
+// never duplicated.
 //
-// When the list already holds 3, tapping add opens the
-// add-a-4th panel in place: it states the free shortlist
-// holds 3 and offers remove-one (freeing the slot in place)
-// or the detailed report on a saved home via /report. When
-// storage itself is unavailable, the named line renders in
-// place of the control — never a silent failure (fold-in 5).
+// When the list already holds 3, tapping add replaces the
+// button in place with the full line and a link to the
+// shortlist (founder's ruling, 17 Nov 2026 — a simple
+// message, no panel): nothing opens, nothing is saved, and
+// removing a home on the shortlist page brings the button
+// back. When storage itself is unavailable, the named line
+// renders in place of the control — never a silent failure
+// (fold-in 5).
 
 type State =
   { kind: "pending" } | { kind: "unavailable" } | { kind: "ready"; record: ShortlistRecord };
 
 export default function ShortlistButton({ card }: { card: ShortlistCard }) {
   const [state, setState] = useState<State>({ kind: "pending" });
-  const [panelOpen, setPanelOpen] = useState(false);
+  const [fullNotice, setFullNotice] = useState(false);
 
   useEffect(() => {
     const read = () => {
@@ -85,25 +88,24 @@ export default function ShortlistButton({ card }: { card: ShortlistCard }) {
     }
     const attempt = addCardToRecord(record, { ...card, savedAt: new Date().toISOString() });
     if (attempt.outcome === "full") {
-      setPanelOpen(true);
+      setFullNotice(true);
       return;
     }
+    setFullNotice(false);
     write(attempt.record);
   };
 
-  const onPanelRemove = (id: string) => {
-    if (!record) return;
-    write(removeCardFromRecord(record, id));
-  };
-
-  const onPanelAdd = () => {
-    if (!record) return;
-    const attempt = addCardToRecord(record, { ...card, savedAt: new Date().toISOString() });
-    if (attempt.outcome !== "full") {
-      write(attempt.record);
-      setPanelOpen(false);
-    }
-  };
+  // The full message stands in the button's place only
+  // while the list is in fact full: a removal elsewhere
+  // (the shortlist page, another tab) re-reads the record
+  // through the subscription and the button returns.
+  if (fullNotice && record && !saved && record.cards.length >= SHORTLIST_LIMIT) {
+    return (
+      <p className="shortlist-full-line" data-shortlist-state="full">
+        {SHORTLIST_FULL_LINE} <a href="/shortlist">See your shortlist</a>
+      </p>
+    );
+  }
 
   return (
     <div className="shortlist-control">
@@ -119,37 +121,6 @@ export default function ShortlistButton({ card }: { card: ShortlistCard }) {
       >
         {saved ? "Shortlisted — tap to remove" : "Shortlist this home"}
       </button>
-      {panelOpen && record && (
-        <div className="shortlist-panel" role="group" aria-label="Your shortlist is full">
-          <p className="shortlist-panel__line">{SHORTLIST_FULL_LINE}</p>
-          <ul className="shortlist-panel__list">
-            {record.cards.map((savedCard) => (
-              <li className="shortlist-panel__item" key={savedCard.id}>
-                <span className="shortlist-panel__address">{savedCard.addressLine}</span>
-                <Button
-                  type="button"
-                  variant="quiet"
-                  aria-label={`Remove ${savedCard.addressLine}`}
-                  onClick={() => onPanelRemove(savedCard.id)}
-                >
-                  Remove
-                </Button>
-              </li>
-            ))}
-          </ul>
-          <p className="shortlist-panel__line">
-            <a href={REPORT_ROUTE}>Get the detailed report on a saved home — £4.99</a>
-          </p>
-          {record.cards.length < 3 && (
-            <Button type="button" onClick={onPanelAdd}>
-              Shortlist this home
-            </Button>
-          )}
-          <Button type="button" variant="quiet" onClick={() => setPanelOpen(false)}>
-            Close
-          </Button>
-        </div>
-      )}
     </div>
   );
 }

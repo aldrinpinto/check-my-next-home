@@ -4,6 +4,7 @@ import type { CrimeBundle } from "./crime";
 import type { FloodBundle, FloodLiveWarnings } from "./flood";
 import { nationName, nationOfLsoa, type Nation } from "./journey";
 import type { CategoryAnswer, NearbyBundle, NearbyPlace } from "./nearby";
+import { REPORT_PRICE_LABEL } from "./site";
 import type { ShortBundle, ShortSections } from "./short-bundle";
 import type { SoldPricesBundle } from "./sold-prices";
 
@@ -37,6 +38,22 @@ import type { SoldPricesBundle } from "./sold-prices";
 // route serves; until then it is the same labelled dead end
 // the sample-report route was at M7.2.
 export const REPORT_ROUTE = "/report";
+
+// The link contract for the door (plan step M7.6, ruling R3
+// of its gap check): a link to the report carries the home's
+// identity in the same shape the results URL itself uses
+// (D44 addressability) — the postcode always, and the home
+// key when a home is identified (rung 1). The door resolves
+// the parameters when it can and names the home; with
+// absent or unresolvable parameters it renders its generic
+// form — never an error, never a guessed home. M9 inherits
+// this contract unchanged, so the payment page knows which
+// home the report is for.
+export function reportRoute(postcode: string, homeKey?: string | null): string {
+  const params = new URLSearchParams({ postcode });
+  if (homeKey) params.set("home", homeKey);
+  return `${REPORT_ROUTE}?${params.toString()}`;
+}
 
 // ------------------------------------------------------------------
 // Small formatters
@@ -149,13 +166,14 @@ export function truncationFor(
   shown: number,
   groupLabel: string,
   linkable: boolean,
+  href: string = REPORT_ROUTE,
 ): TruncationView | null {
   const n = countWithin - shown;
   if (n <= 0) return null;
   return {
     n,
-    text: `Plus ${n} more ${groupLabel} in the detailed report — £4.99`,
-    href: linkable ? REPORT_ROUTE : null,
+    text: `Plus ${n} more ${groupLabel} in the detailed report — ${REPORT_PRICE_LABEL}`,
+    href: linkable ? href : null,
   };
 }
 
@@ -326,6 +344,7 @@ export function placeGroupView(
   category: CategoryAnswer,
   presentation: CategoryPresentation,
   linkable: boolean,
+  href: string = REPORT_ROUTE,
 ): PlaceGroupView {
   const base: PlaceGroupView = {
     key: category.category,
@@ -346,6 +365,7 @@ export function placeGroupView(
         shown.length,
         presentation.groupLabel,
         linkable,
+        href,
       ),
     };
   }
@@ -558,9 +578,25 @@ interface PillFactor {
   verdict: PillVerdict;
 }
 
-function floodBandOf(layer: { coveringLabel: string | null; pointState: string }): string | null {
+// Exported for one second consumer: the shortlist card's
+// flood cell (lib/shortlist-card.ts) derives its two bands
+// through this same mapping, so the absence states can
+// never drift between the results page and the comparison.
+export function floodBandOf(layer: {
+  coveringLabel: string | null;
+  pointState: string;
+}): string | null {
   if (layer.coveringLabel) return layer.coveringLabel;
-  if (layer.pointState === "no-band-published" || layer.pointState === "zone-1") return "Very low";
+  // The absence states are all the Very-low case in the
+  // flood brain's own framing: Flood Zone 1 (flood_zone),
+  // no band published (rofrs), and below the lowest
+  // mapped band (rofsw — the surface-water absence state).
+  if (
+    layer.pointState === "no-band-published" ||
+    layer.pointState === "zone-1" ||
+    layer.pointState === "below-lowest-band"
+  )
+    return "Very low";
   return null;
 }
 
@@ -864,6 +900,14 @@ export interface ResultsInput {
   sold: SoldPricesBundle;
   area: AreaBundle;
   short: Extract<ShortBundle, { kind: "short-bundle" }>;
+  // The resolved home's identity (the serve layer's cache
+  // key), carried in so the report-door links can name the
+  // home (M7.6 link contract). The view builder never
+  // derives it — this module stays out of the bundle-cache
+  // graph, which client components importing from here
+  // depend on. Absent, the links degrade to the postcode
+  // form; they never name a wrong home.
+  homeKey?: string | null;
 }
 
 export const BUY_BAR_HEADING = "Get the full detailed report for this home";
@@ -872,6 +916,19 @@ export const BUY_BAR_HEADING = "Get the full detailed report for this home";
 // pictures — location maps only.
 export const BUY_BAR_LINE =
   "Everything behind the headlines — the breakdowns, the flood findings with location maps, the fuller EPC detail and the questions to ask the seller — in one dated, print-ready document. Or save this home and compare it first.";
+// The mystery tease (D21 as amended, founder ruling
+// 17 Nov 2026): a content-free line, permitted before
+// purchase in exactly two places — this buy bar and the
+// payment page. It names nothing about the extra (the
+// Check Together gift stays a surprise until the delivery
+// email), and it exists only in the paid journey: while
+// the door is in its holding state the bar still carries
+// it, because the bar is a paid-journey surface — the
+// free launch window's own surfaces are M9.6's to pin,
+// and gift tokens stay inactive there.
+export const BUY_BAR_MYSTERY_LINE =
+  "Every report comes with a mystery extra, on us — it arrives in your email with your report.";
+export const BUY_BAR_MYSTERY_EYEBROW = "A mystery extra";
 export const FLOOD_UPSELL_LEAD =
   "Plus the flood findings in full, with a location map for each check";
 export const FLOOD_UPSELL_DETAIL =
@@ -918,7 +975,12 @@ export const NATION_GATED_CATEGORIES: Record<string, readonly string[]> = {
 
 export interface ResultsView {
   pills: SummaryPill[] | null;
-  buyBar: { heading: string; line: string } | null;
+  // The door's link for this page, carrying the home's
+  // identity under the M7.6 contract (reportRoute): the
+  // buy bar's button and every section upsell read it.
+  // Null on the wider-area view, which offers no report.
+  reportHref: string | null;
+  buyBar: { heading: string; line: string; mysteryLine: string; href: string } | null;
   calculators: { lastSalePrice: number | null };
   warningsStrip: WarningsStripView;
   // The flood section's live-warnings state as served, so
@@ -989,6 +1051,13 @@ export function buildResultsView(input: ResultsInput): ResultsView {
   const { resolution, flood, crime, area, short } = input;
   const sections = short.sections;
   const linkable = reportLinkable(resolution.rung);
+  // The one door link for this page (M7.6 link contract):
+  // the postcode always, the home key at rung 1 — the same
+  // identity the results URL itself carries.
+  const reportHref = reportRoute(
+    "directory" in resolution ? resolution.directory.postcode : "",
+    resolution.rung === 1 ? (input.homeKey ?? null) : null,
+  );
   const nation = nationOfLsoa("directory" in resolution ? resolution.directory.lsoaCode : null);
   const gated = new Set(NATION_GATED_CATEGORIES[nation] ?? []);
   const nearby = input.nearby.kind === "distances" ? input.nearby : null;
@@ -1021,7 +1090,7 @@ export function buildResultsView(input: ResultsInput): ResultsView {
         { type: "link", label: "Try again", url: "" },
       ]);
     return linesSection(key, presentation.heading, [
-      { type: "places", group: placeGroupView(category, presentation, linkable) },
+      { type: "places", group: placeGroupView(category, presentation, linkable, reportHref) },
     ]);
   };
 
@@ -1391,9 +1460,10 @@ export function buildResultsView(input: ResultsInput): ResultsView {
   }
   // Planning, protection & ownership (D76): constraints,
   // nature, heritage and the D31 planning hand-off in one
-  // section. The "Owned by a company" row renders ONLY
+  // section. The company-ownership line renders ONLY
   // from the served bundle key — absent while
-  // COMPANY_OWNERSHIP_ENABLED is off (D77(d)).
+  // COMPANY_OWNERSHIP_ENABLED is off (D77(d)) — and in
+  // the founder's single-line form (M7.9, below).
   {
     const blocks: SectionBlock[] = [];
     blocks.push({ type: "subheading", text: "Planning constraints" });
@@ -1427,18 +1497,41 @@ export function buildResultsView(input: ResultsInput): ResultsView {
     else if (heritage.atPoint.state === "needs-exact-home")
       blocks.push({ type: "line", text: heritage.atPoint.reason });
     blocks.push({ type: "subheading", text: "Planning applications nearby" });
-    let sourceLine: string | null = constraints.conservationArea.sourceLine;
-    if (areaSections?.planningApplications) {
-      const planning = areaSections.planningApplications;
-      sourceLine = planning.sourceLine ?? sourceLine;
+    const sourceLine: string | null = constraints.conservationArea.sourceLine;
+    // The hand-off is read from the short bundle's pick
+    // (M7.9), not the area bundle: one derivation feeds
+    // this page and the Phase 2 extension, so both show
+    // the same headline unchanged. The rendered page is
+    // exactly as before — the area section's sourceLine
+    // is null in every nation branch, so the source line
+    // was always the constraints one it remains here.
+    const planning = sections.planningApplications;
+    if (planning) {
       blocks.push({ type: "line", text: planning.line });
       if (planning.link)
         blocks.push({ type: "link", label: planning.link.label, url: planning.link.url });
     }
     if (areaSections?.companyOwnership) {
-      const ownership = areaSections.companyOwnership as { line?: string | null };
-      blocks.push({ type: "subheading", text: "Owned by a company" });
-      if (ownership.line) blocks.push({ type: "line", text: ownership.line });
+      const ownership = areaSections.companyOwnership as {
+        state?: string;
+        line?: string | null;
+      };
+      blocks.push({ type: "subheading", text: "Company ownership" });
+      // The founder's form ruling (17 Nov 2026, M7.9):
+      // the free page's company line is the finalised
+      // sample's single line — "Owned by a company: Yes."
+      // / "Owned by a company: No." — wherever the
+      // section serves its boolean answer. The named
+      // states keep their honest served lines (no Yes/No
+      // is invented where the boolean does not exist);
+      // the fuller served sentence with its as-at date
+      // remains the report-depth form and is not rendered
+      // here.
+      if (ownership.state === "served")
+        blocks.push({ type: "line", text: "Owned by a company: Yes." });
+      else if (ownership.state === "not-company-owned")
+        blocks.push({ type: "line", text: "Owned by a company: No." });
+      else if (ownership.line) blocks.push({ type: "line", text: ownership.line });
     }
     homeSections.push(
       linesSection("planning-protection", "Planning, protection & ownership", blocks, sourceLine),
@@ -1514,7 +1607,13 @@ export function buildResultsView(input: ResultsInput): ResultsView {
     pills: effectiveNearby
       ? summaryPills({ nearby: effectiveNearby, flood, crime, sections, area })
       : null,
-    buyBar: { heading: BUY_BAR_HEADING, line: BUY_BAR_LINE },
+    reportHref,
+    buyBar: {
+      heading: BUY_BAR_HEADING,
+      line: BUY_BAR_LINE,
+      mysteryLine: BUY_BAR_MYSTERY_LINE,
+      href: reportHref,
+    },
     calculators: {
       lastSalePrice:
         sections.soldPrices.state === "served"
@@ -1582,6 +1681,7 @@ export function buildWiderAreaView(
   ];
   return {
     pills: null,
+    reportHref: null,
     buyBar: null,
     calculators: { lastSalePrice: null },
     warningsStrip: { kind: "none" },

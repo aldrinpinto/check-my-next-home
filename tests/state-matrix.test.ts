@@ -2598,11 +2598,27 @@ describe("matrix — area: planning applications (the hand-off)", () => {
     expect(rung2.sections.planningApplications).toEqual(rung1.sections.planningApplications);
   });
 
-  it("the hand-off never reaches the short bundle — D28's sections stand, twelve since D36", async () => {
+  it("the hand-off reaches the short bundle as a sibling pick — D28's twelve sections stand, and the hand-off rides beside them (M7.9, on the founder's re-pin authorisation, 18 Nov 2026)", async () => {
     const { short } = await shortFor(ENG_HOME, new MatrixAreaSource(), headlineNearby());
     if (short.kind !== "short-bundle") throw new Error("expected a short bundle");
-    expect(Object.keys(short.sections)).toHaveLength(12);
-    expect("planningApplications" in short.sections).toBe(false);
+    // Thirteen keys: the twelve D28 sections plus the
+    // pick. The pick is not a thirteenth section —
+    // ShortSectionKey is unchanged, so rungs 3–4 carry
+    // no trace of it.
+    expect(Object.keys(short.sections)).toHaveLength(13);
+    expect("planningApplications" in short.sections).toBe(true);
+    // The picked form only: state, council, line and
+    // link — the section's explainer and meta stay at
+    // report depth on the area bundle.
+    expect(short.sections.planningApplications).toEqual({
+      state: "handed-off",
+      council: "Braintree",
+      line: "planning applications for this area are published on the planning register kept by Braintree — we do not hold a copy, so no applications are listed here; the link below takes you to the official search, where you enter the postcode",
+      link: {
+        label: "Search the register of planning decisions (GOV.UK)",
+        url: "https://www.gov.uk/search-register-planning-decisions",
+      },
+    });
   });
 
   it("the section asserts no absence: no line offers our own search or claims none exist", async () => {
@@ -2829,12 +2845,19 @@ describe("matrix — area: company ownership (behind the flag)", () => {
     });
   });
 
-  it("the section never reaches the short bundle, in either flag position", async () => {
+  it("the section reaches the short bundle only behind the flag (founder's ruling, 17 Nov 2026)", async () => {
+    // Flag off (the shipped position): the company key
+    // stays absent — the twelve sections plus the
+    // planning hand-off pick (M7.9), thirteen keys.
     const { short } = await shortFor(ENG_HOME, new MatrixAreaSource(), headlineNearby());
     if (short.kind !== "short-bundle") throw new Error("expected a short bundle");
-    expect(Object.keys(short.sections)).toHaveLength(12);
+    expect(Object.keys(short.sections)).toHaveLength(13);
     expect("companyOwnership" in short.sections).toBe(false);
+    expect(JSON.stringify(short)).not.toContain("companyOwnership");
 
+    // Flag on: the short bundle carries the pick — the
+    // state, the free page's Yes/No boolean and the lead
+    // line; the section's detail stays at report depth.
     const soldSource = new MatrixSoldPricesSource();
     soldSource.rows.set("CM3 2JT", [
       sale({ price: 100000, saleDate: "2001-01-05" }),
@@ -2860,9 +2883,12 @@ describe("matrix — area: company ownership (behind the flag)", () => {
       area: areaOn,
     });
     if (shortOn.kind !== "short-bundle") throw new Error("expected a short bundle");
-    expect(Object.keys(shortOn.sections)).toHaveLength(12);
-    expect("companyOwnership" in shortOn.sections).toBe(false);
-    expect(JSON.stringify(shortOn)).not.toContain("companyOwnership");
+    expect(Object.keys(shortOn.sections)).toHaveLength(14);
+    expect(shortOn.sections.companyOwnership).toEqual({
+      state: "not-company-owned",
+      ownedByCompany: false,
+      line: "this home's title is not in HM Land Registry's company-ownership data as at November 2026",
+    });
   });
 
   it("the register's address text is absent from every served shape", async () => {
@@ -2996,7 +3022,7 @@ describe("matrix — area: building safety (M6.16, D35)", () => {
   it("the section never reaches the short bundle", async () => {
     const { short } = await shortFor(ENG_HOME, new MatrixAreaSource(), headlineNearby());
     if (short.kind !== "short-bundle") throw new Error("expected a short bundle");
-    expect(Object.keys(short.sections)).toHaveLength(12);
+    expect(Object.keys(short.sections)).toHaveLength(13);
     expect("buildingSafety" in short.sections).toBe(false);
     expect(JSON.stringify(short)).not.toContain("buildingSafety");
   });
@@ -3185,7 +3211,7 @@ describe("matrix — area: broadband & mobile (M6.17, D36)", () => {
   it("the short bundle: broadband is the twelfth section with the gigabit pick; mobile has no key in any form", async () => {
     const { short } = await shortFor(ENG_HOME, ofcomSource(), headlineNearby());
     if (short.kind !== "short-bundle") throw new Error("expected a short bundle");
-    expect(Object.keys(short.sections)).toHaveLength(12);
+    expect(Object.keys(short.sections)).toHaveLength(13);
     expect(short.sections.broadband).toEqual({
       state: "served",
       gigabitCapablePct: 100,

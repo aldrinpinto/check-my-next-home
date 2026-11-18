@@ -19,6 +19,7 @@ import {
   formatMiles,
   pillText,
   placeGroupView,
+  reportRoute,
   resultsScopeLabel,
   summaryPills,
   truncationFor,
@@ -26,6 +27,7 @@ import {
   type ResultsInput,
 } from "../lib/results";
 import type { ShortBundle, ShortFloodLayer, ShortSections } from "../lib/short-bundle";
+import type { ShortlistCard } from "../lib/shortlist";
 import { DISCLAIMER_CLOSING_BLOCK, DISCLAIMER_SHORT_FORM } from "../lib/site";
 import type { SoldPricesBundle } from "../lib/sold-prices";
 
@@ -335,6 +337,20 @@ function shortSections(overrides: Partial<ShortSections> = {}): ShortSections {
       line: "98% of homes in this postcode can get gigabit broadband",
     },
     nearby: { basisLabel: "basis", categories: [] },
+    // The hand-off pick (M7.9): buildResultsView reads
+    // the hand-off from the short bundle now, so the
+    // fixture carries the pick in the picked form —
+    // state, council, line and link, matching the area
+    // fixture's section below.
+    planningApplications: {
+      state: "handed-off",
+      council: "Braintree",
+      line: "planning applications for this area are held on the council's register",
+      link: {
+        label: "Search the register of planning decisions (GOV.UK)",
+        url: "https://www.gov.uk/search-register-planning-decisions",
+      },
+    },
     ...overrides,
   };
 }
@@ -488,6 +504,7 @@ function input(overrides: Partial<ResultsInput> = {}): ResultsInput {
     sold: { rung: 1, kind: "sold-prices" } as unknown as SoldPricesBundle,
     area: areaBundle(),
     short: { rung: 1, kind: "short-bundle", postcode: "CM3 2JT", sections },
+    homeKey: "19||BIRKDALE RISE",
     ...overrides,
   };
 }
@@ -532,6 +549,14 @@ describe("results — formatters and distance bands", () => {
     expect(truncationFor(2, 2, "primary schools", true)).toBeNull();
     expect(truncationFor(5, 2, "primary schools", false)?.href).toBeNull();
     expect(REPORT_ROUTE).toBe("/report");
+  });
+
+  it("reportRoute: the M7.6 link contract — postcode always, home key only when a home is identified", () => {
+    expect(reportRoute("CM3 2JT")).toBe("/report?postcode=CM3+2JT");
+    expect(reportRoute("CM3 2JT", null)).toBe("/report?postcode=CM3+2JT");
+    expect(reportRoute("CM3 2JT", "19||BIRKDALE RISE")).toBe(
+      "/report?postcode=CM3+2JT&home=19%7C%7CBIRKDALE+RISE",
+    );
   });
 
   it("resultsScopeLabel: rung 2 is the gap check's pinned form", () => {
@@ -738,6 +763,87 @@ describe("results — pill logic D75 (fold-in)", () => {
       sections: shortSections(),
       area: d75Area(),
     });
+    expect(pills?.map(pillText)).toEqual([
+      "Schools 0.4 / 1.9 mi",
+      "Flood Very low",
+      "Crime Below England average",
+      "Noise Quiet",
+      "Deprivation 8 of 10",
+    ]);
+  });
+
+  it("the golden flood shape: rofsw below-lowest-band still earns the Flood pill as a good pill", () => {
+    // The golden replay pins Birkdale's real flood
+    // states: rofrs at "no-band-published" and rofsw at
+    // "below-lowest-band" (the surface-water absence
+    // state). The worked example above hand-builds rofsw
+    // as "no-band-published", which masked floodBandOf
+    // missing the below-lowest-band state (CI #206).
+    const nearby = nearbyWith({
+      "schools-primary": primaryNear,
+      "schools-secondary": category({
+        category: "schools-secondary",
+        state: "within",
+        places: [{ name: "Maltings Academy", miles: 1.87, detail: null, sixthForm: true }],
+        countWithin: 1,
+        nearestSelective: null,
+        nearestSelectiveLine: null,
+      }),
+      ae: category({
+        category: "ae",
+        state: "none-within",
+        places: [],
+        countWithin: 0,
+        beyondNearest: { name: "Broomfield Hospital", miles: 5.8 },
+        line: "none within 2 miles — nearest is Broomfield Hospital, 5.8 miles away",
+      }),
+      station: category({
+        category: "station",
+        state: "within",
+        places: [{ name: "Hatfield Peverel station", miles: 0.6, detail: null }],
+        countWithin: 1,
+      }),
+      nurseries: category({
+        category: "nurseries",
+        state: "within",
+        places: [{ name: "Nursery", miles: 0.3, detail: null }],
+        countWithin: 1,
+      }),
+    });
+    const sections = shortSections({
+      flood: {
+        state: "served",
+        liveWarnings: null,
+        layers: [
+          floodLayer("flood_zone", "zone-1", null, "this postcode point is in Flood Zone 1"),
+          floodLayer(
+            "rofrs",
+            "no-band-published",
+            null,
+            "no river or sea flood band is published for this postcode point",
+          ),
+          floodLayer(
+            "rofsw",
+            "below-lowest-band",
+            null,
+            "this postcode point is below the lowest mapped surface-water band",
+          ),
+        ],
+      },
+    });
+    const pills = summaryPills({
+      nearby: nearby as Extract<NearbyBundle, { kind: "distances" }>,
+      flood: floodBundle(noWarnings),
+      crime: crimeBundle(0.5),
+      sections,
+      area: d75Area(),
+    });
+    // The Flood pill is present with the Very low figure,
+    // sitting in the good fill behind the one concerning
+    // fact (Schools) — and the worked-example strip is
+    // unchanged under the golden flood states.
+    const floodPill = pills?.find((pill) => pill.label === "Flood");
+    expect(floodPill?.figure).toBe("Very low");
     expect(pills?.map(pillText)).toEqual([
       "Schools 0.4 / 1.9 mi",
       "Flood Very low",
@@ -1115,22 +1221,79 @@ describe("results — the built view", () => {
     expect(view.calculators.lastSalePrice).toBe(588995);
   });
 
-  it("the 'Owned by a company' row does NOT render while the flag is off (the bundle key is absent) — and renders from the key when present (D77(d))", () => {
-    const off = buildResultsView(input());
-    expect(JSON.stringify(section(off, "home", "planning-protection").blocks)).not.toContain(
-      "Owned by a company",
+  it("the buy bar carries the mystery tease and the contract href (M7.6, D21 as amended)", () => {
+    const view = buildResultsView(input());
+    // The tease names nothing about the extra — the gift
+    // stays a surprise until the delivery email.
+    expect(view.buyBar?.mysteryLine).toBe(
+      "Every report comes with a mystery extra, on us — it arrives in your email with your report.",
     );
+    // Rung 1: the door link carries postcode + home key.
+    expect(view.reportHref).toBe(reportRoute("CM3 2JT", "19||BIRKDALE RISE"));
+    expect(view.buyBar?.href).toBe(reportRoute("CM3 2JT", "19||BIRKDALE RISE"));
+  });
+
+  it("the company-ownership line does NOT render while the flag is off (the bundle key is absent) — and renders from the key when present (D77(d))", () => {
+    const off = buildResultsView(input());
+    const offText = JSON.stringify(section(off, "home", "planning-protection").blocks);
+    expect(offText).not.toContain("Owned by a company");
+    expect(offText).not.toContain("Company ownership");
     const area = areaBundle() as unknown as {
       sections: Record<string, unknown>;
     };
     area.sections.companyOwnership = {
       state: "served",
-      line: "This home is owned by a company, as filed.",
+      line: "a registered proprietor of this home's title is a company",
     };
     const on = buildResultsView(input({ area: area as unknown as AreaBundle }));
     const text = JSON.stringify(section(on, "home", "planning-protection").blocks);
+    expect(text).toContain("Company ownership");
     expect(text).toContain("Owned by a company");
-    expect(text).toContain("This home is owned by a company, as filed.");
+  });
+
+  it("the company line takes the sample's single-line form behind the flag (M7.9, founder ruling 17 Nov): Yes / No from the section state, the brain's sentence never rendered on the free page", () => {
+    const withSection = (companyOwnership: Record<string, unknown>) => {
+      const area = areaBundle() as unknown as {
+        sections: Record<string, unknown>;
+      };
+      area.sections.companyOwnership = companyOwnership;
+      return JSON.stringify(
+        section(
+          buildResultsView(input({ area: area as unknown as AreaBundle })),
+          "home",
+          "planning-protection",
+        ).blocks,
+      );
+    };
+    // Served (an own-title company match): the one line
+    // reads Yes; the fuller served sentence with its
+    // as-at date stays at report depth and does not
+    // render here.
+    const yes = withSection({
+      state: "served",
+      line: "a registered proprietor of this home's title is a company",
+    });
+    expect(yes).toContain("Owned by a company: Yes.");
+    expect(yes).not.toContain("a registered proprietor of this home's title is a company");
+    // Not company-owned (both datasets filed, no match):
+    // the one line reads No.
+    const no = withSection({
+      state: "not-company-owned",
+      line: "this home's title is not in HM Land Registry's company-ownership data",
+    });
+    expect(no).toContain("Owned by a company: No.");
+    expect(no).not.toContain("this home's title is not in HM Land Registry");
+    // The named states keep their honest served lines —
+    // no Yes/No is invented where the boolean is null.
+    const named = withSection({
+      state: "needs-exact-home",
+      line: "choose the exact home to see whether a company is a registered proprietor of its title",
+    });
+    expect(named).toContain(
+      "choose the exact home to see whether a company is a registered proprietor of its title",
+    );
+    expect(named).not.toContain("Owned by a company: Yes.");
+    expect(named).not.toContain("Owned by a company: No.");
   });
 
   it("rung 2: the EPC needs-exact-home line rides inside Costs; truncations still link", () => {
@@ -1162,7 +1325,11 @@ describe("results — the built view", () => {
     const primary = section(view, "family", "schools-primary");
     const places = primary.blocks.find((b) => b.type === "places");
     if (!places || places.type !== "places") throw new Error("places missing");
-    expect(places.group.truncation?.href).toBe(REPORT_ROUTE);
+    // M7.6 link contract at rung 2: the postcode travels,
+    // no home key — no home is identified at this rung.
+    expect(places.group.truncation?.href).toBe(reportRoute("CM3 2JT"));
+    expect(view.reportHref).toBe(reportRoute("CM3 2JT"));
+    expect(view.buyBar?.href).toBe(reportRoute("CM3 2JT"));
   });
 });
 
@@ -1385,15 +1552,57 @@ describe("results — the rendered page", () => {
     expect(neighbourhoodAt).toBeGreaterThan(familyAt);
     expect(homeAt).toBeGreaterThan(neighbourhoodAt);
     expect(nearbyAt).toBeGreaterThan(homeAt);
-    // Truncation lines link to the pinned report route.
+    // Truncation lines carry the M7.6 link contract:
+    // postcode + home key, the identity the door resolves.
     expect(html).toContain(
-      '<a href="/report">Plus 3 more primary schools in the detailed report — £4.99</a>',
+      '<a href="/report?postcode=CM3+2JT&amp;home=19%7C%7CBIRKDALE+RISE">Plus 3 more primary schools in the detailed report — £4.99</a>',
+    );
+    // The buy bar: the mystery tease rides inside it, and
+    // its button is the priced form on the contract href.
+    expect(html).toContain("A mystery extra");
+    expect(html).toContain(
+      "Every report comes with a mystery extra, on us — it arrives in your email with your report.",
+    );
+    expect(html).toContain(
+      '<a class="report-btn" href="/report?postcode=CM3+2JT&amp;home=19%7C%7CBIRKDALE+RISE">Get the full report — £4.99</a>',
     );
     // The buy bar and the calculators sit below the tabs.
     expect(html).toContain("Get the full detailed report for this home");
     expect(html).toContain("the flood findings with location maps");
     expect(html).not.toContain("flood map pictures");
     expect(html).toContain("Could this home fit your life?");
+  });
+
+  it("the shortlist add control renders inside the buy bar, exactly once (M7.6 move, F6 pin)", () => {
+    const view = buildResultsView(input());
+    const card = {
+      id: "r1:CM3 2JT:19||BIRKDALE RISE",
+      postcode: "CM3 2JT",
+      homeKey: "19||BIRKDALE RISE",
+      rung: 1,
+      scopeLabel: "19 Birkdale Rise, CM3 2JT",
+      addressLine: "19 Birkdale Rise, CM3 2JT",
+      lastSale: null,
+      factsLine: null,
+      comparison: {} as ShortlistCard["comparison"],
+      savedAt: "2026-11-17T08:00:00.000Z",
+    } as ShortlistCard;
+    const withCard = renderToStaticMarkup(
+      createElement(ResultsPage, { view, shortlistCard: card }),
+    );
+    // One control on the page, and it sits inside the bar
+    // (after the bar opens, before it closes) — the header
+    // area carries no second control.
+    expect(withCard.match(/data-shortlist-toggle/g)).toHaveLength(1);
+    const barAt = withCard.indexOf('class="buy-bar"');
+    const toggleAt = withCard.indexOf("data-shortlist-toggle");
+    expect(barAt).toBeGreaterThan(-1);
+    expect(toggleAt).toBeGreaterThan(barAt);
+    expect(withCard).not.toContain("results-actions");
+    // Without a card (rung 2, not-covered) no control
+    // renders at all.
+    const withoutCard = renderToStaticMarkup(createElement(ResultsPage, { view }));
+    expect(withoutCard).not.toContain("data-shortlist-toggle");
   });
 
   it("the closing disclaimer block is pinned verbatim (Final Design, website form)", () => {
