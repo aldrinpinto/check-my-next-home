@@ -1,0 +1,70 @@
+-- Migration 0035 — pattern indexes for the suggestion
+-- endpoint's postcode-prefix reads (the /api/suggest
+-- latency fix, 19 Nov 2026; decision D72 item 4's
+-- server-time budget).
+--
+-- THE DEFECT. A partial postcode ("E16", "E161G",
+-- "CM3") took ~5.5–6.3 SECONDS on the play server
+-- while street fragments answered in ~60 ms. Measured
+-- with EXPLAIN (ANALYZE, BUFFERS) against the live
+-- database (19 Nov 2026), the fragment path's two
+-- postcode-prefix reads were both sequential scans:
+--
+--   * the properties read over picking_index
+--     (lib/server/suggestions.ts, propertiesMatching):
+--     Parallel Seq Scan over 25.1M rows / 9,047 MB —
+--     6,088 ms for 'E16 1G%', 6,485 ms for 'E16%';
+--   * the directory read over postcode_cache
+--     (postcodesByPrefix): Parallel Seq Scan over
+--     1.81M rows — 269 ms / 183 ms for the same shapes.
+--
+-- THE CAUSE is the one migration 0031 already names
+-- for the street table: this database's collation is
+-- en_US.utf8, and a LIKE prefix pattern rides only a
+-- pattern-operator index — the plain btrees these two
+-- tables carry on postcode (picking_index's primary
+-- key and postcode index; postcode_cache's primary
+-- key) are collation-ordered and cannot serve it.
+-- Streets (0031) and places (0032) got text_pattern_ops
+-- indexes at their builds; the two postcode columns
+-- never did, because their reads were per-postcode
+-- equalities until the fragment shapes arrived.
+--
+-- THE FIX is those two indexes, nothing else: the
+-- queries are unchanged and serve identical results
+-- (same rows, same order — the index changes only how
+-- the matching rows are found). Proven before landing,
+-- inside a rolled-back transaction on the live
+-- database (nothing permanent was created there):
+--
+--   * picking_index 'E16 1G%': 6,088 ms → 2.5 ms warm
+--     (99.7 ms on the first, cold-cache run);
+--   * picking_index 'E16%': 6,485 ms → ~50 ms warm
+--     (the shape matches 26,928 homes; its first-ever
+--     cold run cost ~2.1 s of heap reads and warms
+--     immediately — CM3's 21,533-home shape: 62 ms
+--     warm);
+--   * postcode_cache 'E16 1G%': 269 ms → 0.2 ms;
+--     'E16%': 183 ms → 1.0 ms.
+--
+-- Sizes and build times at the proof (live tables):
+-- picking_index's index 201 MB, built in ~23 s;
+-- postcode_cache's 46 MB, ~1.3 s. Both tables are
+-- maintained in place by their loaders (the picking
+-- rebuild is DELETE + INSERT inside its transaction),
+-- so the indexes persist across filing passes like
+-- any other.
+--
+-- The place reads' separate defect — the served-
+-- district EXISTS whose LIKE pattern is built from
+-- the row's own outward, a non-constant pattern no
+-- index can ever serve — is fixed in the read model
+-- (lib/server/places.ts), not here: it now tests the
+-- outward by split_part equality, riding migration
+-- 0017's postcode_cache_outward_idx. See
+-- docs/entry-point.md for the full record.
+
+CREATE INDEX picking_index_postcode_prefix_idx
+  ON picking_index (postcode text_pattern_ops);
+CREATE INDEX postcode_cache_postcode_prefix_idx
+  ON postcode_cache (postcode text_pattern_ops);

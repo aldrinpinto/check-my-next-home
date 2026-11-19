@@ -893,3 +893,117 @@ share the one filing function, so every refresh
 holds the corrected derivation. Deploy note: the
 play server's table is corrected by migration 0033
 at the next migrate; no loader re-run is needed.
+
+## The suggest latency fix — pattern indexes and the served-district predicate (fix note, 19 Nov 2026)
+
+The founder, testing on his phone, felt the dropdown
+lag; measured on the play server (localhost, quiet
+box), GET /api/suggest for partial postcodes took
+~5.5–6.3 seconds — E16 ≈ 5.8–6.2 s, E161 ≈ 6.2 s,
+E161G ≈ 5.6 s, CM3 ≈ 6.0 s, consistent across runs —
+against D72 item 4's under-100 ms server budget.
+Street fragments were fast (Birkdale ≈ 60 ms warm);
+place fragments were erratic (Chelms 0.04–3.5 s,
+Chlemsford 0.2–3.5 s). Diagnosis by EXPLAIN
+(ANALYZE, BUFFERS) against the live database found
+three slow nodes, all in the fragment path, none in
+the served logic:
+
+1. THE PROPERTIES READ (the dominant cost).
+   propertiesMatching's picking_index side —
+   `postcode LIKE '<prefix>%'` — ran a Parallel Seq
+   Scan over all 25.1M rows (9,047 MB): 6,088 ms
+   for 'E16 1G%', 6,485 ms for 'E16%'. That one node
+   is the endpoint's ~6 s. (E161G's response is
+   2 KB; the cost was never the payload.)
+2. THE DIRECTORY READ. postcodesByPrefix — the
+   same LIKE shape over postcode_cache — seq-
+   scanned 1.81M rows: 269 ms ('E16 1G%'), 183 ms
+   ('E16%').
+3. THE PLACES SERVED-DISTRICT TEST. The EXISTS in
+   lib/server/places.ts tested membership as
+   `postcode LIKE outward || ' %'` — a LIKE pattern
+   built from the row itself. Postgres can bound an
+   index scan only from a CONSTANT pattern prefix,
+   so no index could ever serve it: every candidate
+   district paid a full sequential scan of the
+   directory, and the semi-join stopped wherever in
+   the heap the district's first England-or-Wales
+   postcode happened to sit. The same 'CHELMS%'
+   read measured 2,576 ms and 4,821 ms on two
+   identical runs — the roulette IS the erratic
+   place timings.
+
+The root cause of 1 and 2 is the one migration 0031
+already records for streets: the database collation
+is en_US.utf8, under which a LIKE prefix rides only
+a text_pattern_ops index. Streets (0031) and places
+(0032) received theirs at their builds; the two
+postcode columns never did — their reads were
+per-postcode equalities until the fragment shapes
+arrived, and equality rides any btree, so nothing
+looked missing.
+
+The fix, in the same order:
+
+- Migration 0035 adds the two pattern indexes —
+  picking_index (postcode text_pattern_ops) and
+  postcode_cache (postcode text_pattern_ops). The
+  queries are untouched; the index changes only
+  how matching rows are found, so served results
+  are identical by construction. Sizes/build at
+  the live proof: 201 MB / ~23 s and 46 MB /
+  ~1.3 s. Both tables are maintained in place by
+  their loaders (the picking rebuild is DELETE +
+  INSERT), so the indexes persist across filing
+  passes.
+- The places predicate is rewritten to outward
+  equality — split_part(postcode, ' ', 1) =
+  outward — riding migration 0017's
+  postcode_cache_outward_idx, the expression the
+  resolver's district count already uses
+  (lib/address.ts). Identity with the LIKE form is
+  proved, not assumed: the two can differ only on
+  a postcode carrying no space at all (an outward
+  is spaceless and metachar-free under the
+  canonical grammar); the live directory holds
+  ZERO spaceless postcodes, and the served-outward
+  sets computed under both forms over the whole
+  directory diffed empty in both directions.
+  Chelmsford's served districts are the same six
+  under both forms (CM1, CM11, CM2, CM3, CM4,
+  CM6). db/prove.mjs's restated witness of the
+  predicate was aligned to the new form (its
+  assertion — England offered, Scotland withheld —
+  is unchanged).
+
+Proof (before → after, EXPLAIN ANALYZE totals on
+the live database; the index plans were proven
+inside rolled-back transactions — proof indexes
+verified gone afterwards, nothing permanent
+created on the server):
+
+- picking_index 'E16 1G%': 6,088 ms → 2.5 ms warm
+  (99.7 ms on the first cold run).
+- picking_index 'E16%': 6,485 ms → ~50 ms warm
+  (26,928 matching homes; a first-ever cold run
+  costs ~2.1 s of heap reads, then the district's
+  pages stay warm — CM3's 21,533-home shape:
+  1,248 ms cold → 62 ms warm).
+- postcode_cache 'E16 1G%': 269 ms → 0.2 ms;
+  'E16%': 183 ms → 1.0 ms.
+- places 'CHELMS%': 2,576–4,821 ms → 3.4 ms,
+  deterministically (index scan per candidate);
+  placeDistricts('CHELMSFORD'): → 0.6 ms.
+
+So a partial-postcode keystroke's database work
+lands at single-digit milliseconds for an inward
+fragment and ~50–60 ms warm for a bare outward —
+inside the D72 budget — with groups, caps, the
+complete-postcode-set rule (E161G still serves all
+20), orderings and witnesses exactly as before: no
+query's results changed, and no test was re-pinned.
+End-to-end timings on the play server follow at the
+deploy of migration 0035 (the migration's index
+builds run then; the app picks the new places
+predicate up with the same deploy).

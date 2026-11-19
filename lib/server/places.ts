@@ -120,11 +120,40 @@ export function placeNormOf(value: string): string {
 // district (an outward code bound as a parameter): the
 // district's filed postcodes in the directory carry an
 // England or Wales LSOA code — the district bundle's
-// own test for serving its district form. The postcode
-// prefix rides the directory's primary key.
+// own test for serving its district form. Membership
+// is outward equality on the postcode's first token —
+// migration 0017's expression, the same one the
+// resolver's district count uses (lib/address.ts) —
+// and it rides that migration's index
+// (postcode_cache_outward_idx): each candidate
+// district's test is a short index scan that stops at
+// the first England-or-Wales row.
+//
+// The form this replaces — postcode LIKE outward ||
+// ' %' — could never be served by any index: a LIKE
+// pattern built from the row itself has no constant
+// prefix for a planner to bound a scan with, so every
+// candidate district paid a full sequential scan of
+// the directory, its cost set by where in the heap
+// the district's postcodes happen to sit (measured
+// 19 Nov 2026: the same 'CHELMS%' read at 2,576 ms
+// and 4,821 ms on two runs — the erratic place
+// timings in the dropdown). The two forms agree on
+// every row the directory can hold: an outward is
+// spaceless and free of LIKE metacharacters (the
+// canonical grammar, migration 0033), so first-token
+// equality and the spaced-prefix LIKE can differ
+// only on a postcode carrying no space at all — and
+// the directory files none (census 19 Nov 2026: zero
+// spaceless rows in postcode_cache; the served-
+// outward sets under both forms diffed empty in both
+// directions over the live directory). Measured with
+// the equality form: the 'CHELMS%' read runs at
+// 3.4 ms, a named place's districts at 0.6 ms,
+// deterministically.
 const SERVED_DISTRICT_SQL = `EXISTS (
   SELECT 1 FROM postcode_cache
-   WHERE postcode LIKE picking_places.outward || ' %'
+   WHERE split_part(postcode, ' ', 1) = picking_places.outward
      AND (lsoa_code LIKE 'E%' OR lsoa_code LIKE 'W%')
 )`;
 

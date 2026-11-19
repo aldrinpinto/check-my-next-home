@@ -262,13 +262,20 @@ try {
      VALUES ('CM3 9ZZ', 51.75, 0.58, 'E01021395'),
             ('EH9 9ZZ', 55.95, -3.19, 'S01014710')`,
   );
+  // The served-district predicate in the read model's
+  // own form (lib/server/places.ts): outward equality
+  // on the postcode's first token, riding migration
+  // 0017's index — the spaced-prefix LIKE it replaced
+  // was unindexable by construction (a pattern built
+  // from the row itself) and is not what the product
+  // runs any more.
   const served = await client.query(
     `SELECT
        EXISTS (SELECT 1 FROM postcode_cache
-                WHERE postcode LIKE 'CM3 %'
+                WHERE split_part(postcode, ' ', 1) = 'CM3'
                   AND (lsoa_code LIKE 'E%' OR lsoa_code LIKE 'W%')) AS england,
        EXISTS (SELECT 1 FROM postcode_cache
-                WHERE postcode LIKE 'EH9 %'
+                WHERE split_part(postcode, ' ', 1) = 'EH9'
                   AND (lsoa_code LIKE 'E%' OR lsoa_code LIKE 'W%')) AS scotland`,
   );
   assert(
