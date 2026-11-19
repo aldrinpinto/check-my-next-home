@@ -20,6 +20,24 @@
 // named failure lines and the results still open
 // (D44(5)(ii)).
 //
+// The wire contract (CI #247 fix, 19 Nov 2026): each part
+// answers with the payload object itself, in exactly the
+// shape of lib/journey.ts's payload interfaces — nearby
+// answers the {schools, health} groups object, flood
+// answers the bare segments array, area answers
+// {safety, groups}. The first cut of this route wrapped
+// nearby in {groups: …} and flood in {safety: …}; the
+// client's assembly read the groups as absent (the screen
+// never advanced) and spread the flood object as if it
+// were the array (a render throw) — every journey through
+// the checking screen timed out in the browser suite
+// while every unit test stayed green, because each side
+// had only ever been tested against its own assumption.
+// The client now also validates each part's body against
+// the contract (parseCheckingPartValue) and completes the
+// affected groups with their failure lines on a mismatch,
+// so a future wire break degrades instead of stalling.
+//
 // A fourth part serves the wider-area checking screen
 // (founder ruling, 19 Nov 2026):
 //   district — GET /api/check/district?outward=… answers
@@ -86,11 +104,11 @@ export async function GET(request: Request, { params }: { params: Promise<{ part
     if (!resolution) return NextResponse.json({ error: "no-resolution" }, { status: 404 });
     if (part === "nearby") {
       const bundle = await checkNearby(resolution);
-      return NextResponse.json({ groups: nearbyCheckingGroups(bundle) });
+      return NextResponse.json(nearbyCheckingGroups(bundle));
     }
     if (part === "flood") {
       const bundle = await checkFlood(resolution);
-      return NextResponse.json({ safety: floodCheckingSegments(bundle) });
+      return NextResponse.json(floodCheckingSegments(bundle));
     }
     const { area, sold, crime } = await checkArea(resolution);
     const groups = areaCheckingGroups(area, sold, crime);

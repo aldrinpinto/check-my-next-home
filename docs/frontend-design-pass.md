@@ -5471,6 +5471,39 @@ counted; the partition is unchanged).
   named failure line beside its real crime finding),
   and the phone spec (now also asserting the safety
   line wraps at 360px).
+- CI #247 correction (19 Nov 2026): the browser suite
+  failed 8 of 9 Smoke on the combined stack — every
+  journey through this screen timed out. Root cause: a
+  wire-contract break the unit suite could not see. The
+  check-parts route wrapped the nearby groups in
+  {groups: …} and the flood segments in {safety: …},
+  while the assembly reads the payload objects
+  themselves (the area part matched; the district part
+  was never wrapped). The nearby groups read as absent
+  (no outcome ever existed, so the pacing never
+  advanced) and the flood object was spread as if it
+  were the segments array (a throw mid-render, caught
+  by the error boundary). The old D73 screen ignored
+  the bodies entirely, so the wrapping had been
+  harmless until the rebuild made the screen read them.
+  Fixed at the route (each part now answers with the
+  payload object itself, per lib/journey.ts's payload
+  interfaces) and hardened at the client: every part's
+  body is validated against the contract
+  (parseCheckingPartValue, the district screen's
+  precedent) and a mismatch completes the part's groups
+  with their named failure lines instead of stalling.
+  The wire is now pinned in tests/journey.test.ts
+  ("checking part wire contract") with bodies produced
+  by the real derivations, composed as the route
+  composes them. The same run's landing flake had the
+  same shape: the hero's Suspense fallback was a second
+  live postcode box, and since the landing island
+  stopped suspending (the place-landing reading was
+  retired with the place page), the streamed page
+  carried both boxes until the swap script ran — the
+  boundary and its duplicate fallback are removed; the
+  island renders directly.
 
 ## The wider-area checking screen (19 Nov 2026) — Sample 3, "The Recommendation, Combined"
 

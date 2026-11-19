@@ -44,6 +44,7 @@ import {
   nearbyCheckingGroups,
   notCoveredHeading,
   notCoveredSectionLines,
+  parseCheckingPartValue,
   pickerCountLine,
   postcodeNotFoundLine,
   postcodeRoute,
@@ -871,6 +872,120 @@ describe("checking outcomes assembly", () => {
       state: "unavailable",
       line: "Police.uk — Crime and air quality couldn't be checked just now; Environment Agency — flood risk very low",
     });
+  });
+});
+
+describe("checking part wire contract (the /api/check shapes)", () => {
+  // CI #247 (19 Nov 2026): the check-parts route wrapped
+  // the nearby groups in {groups: …} and the flood
+  // segments in {safety: …} while the client's assembly
+  // reads the payload objects themselves. Each side was
+  // unit-tested against its own assumption — the assembly
+  // cases above hand-build the payloads — the wire itself
+  // was tested by nothing below the browser suite, and
+  // every journey through the checking screen timed out
+  // there. These cases pin the wire at the seam both
+  // sides share: the bodies are the REAL derivations'
+  // outputs, composed exactly as the route composes them
+  // (the payload object itself, JSON-round-tripped as the
+  // client receives it), and the wrapped forms that broke
+  // the run are rejected by the client's validation.
+  const nearbyBody = nearbyCheckingGroups({
+    rung: 2,
+    kind: "not-covered",
+    postcode: "EH1 1AD",
+  } as unknown as NearbyBundle);
+  const floodBody = floodCheckingSegments({
+    rung: 1,
+    kind: "not-covered",
+    postcode: "EH1 1AD",
+    flood: { state: "not-covered", reason: "Flood data covers England only." },
+  } as unknown as FloodBundle);
+  const areaGroups = areaCheckingGroups(
+    {
+      rung: 1,
+      kind: "area-bundle",
+      postcode: "CM3 2JT",
+      sections: {
+        councilTax: {
+          state: "served",
+          line: "Braintree District Council's average Band D council tax for 2026/27 is £2,108.55 — an area average, not this home's bill",
+          bandDAverageLabel: "£2,108.55",
+        },
+        broadband: {
+          state: "served",
+          line: "gigabit-capable broadband (at least 1 Gbit/s) is available to 100% of premises in this postcode",
+        },
+        epc: { state: "served", headlineBand: "B" },
+        air: {
+          state: "served",
+          headlineFigure: {
+            pollutant: "NO2",
+            value: 8.15,
+            line: "modelled NO2 8.15 µg/m³ (annual mean, 2024)",
+          },
+        },
+      },
+    } as unknown as AreaBundle,
+    {
+      rung: 2,
+      kind: "sold-prices",
+      postcode: "CM1 6ER",
+      loadState: "loaded-none",
+      recordedCount: 0,
+      stateLine: "No sale recorded for this postcode since 1995",
+    } as unknown as SoldPricesBundle,
+    {
+      rung: 1,
+      kind: "crime",
+      crime: {
+        state: "served",
+        totalLine:
+          "330 recorded crimes within 1 mile of this postcode, October 2025 to September 2026",
+      },
+    } as unknown as CrimeBundle,
+  );
+  const areaBody = {
+    safety: { crime: areaGroups.safetyCrime, air: areaGroups.safetyAir },
+    groups: { costs: areaGroups.costs, history: areaGroups.history },
+  };
+  const overTheWire = (body: unknown): unknown => JSON.parse(JSON.stringify(body));
+
+  it("accepts each part's body in the shape the route serves it", () => {
+    expect(parseCheckingPartValue("nearby", overTheWire(nearbyBody))).toEqual(nearbyBody);
+    expect(parseCheckingPartValue("flood", overTheWire(floodBody))).toEqual(floodBody);
+    expect(parseCheckingPartValue("area", overTheWire(areaBody))).toEqual(areaBody);
+  });
+
+  it("assembles five outcomes, none null, from the parsed wire bodies", () => {
+    const outcomes = assembleCheckingOutcomes({
+      nearby: { ok: true, value: parseCheckingPartValue("nearby", overTheWire(nearbyBody))! },
+      flood: { ok: true, value: parseCheckingPartValue("flood", overTheWire(floodBody))! },
+      area: { ok: true, value: parseCheckingPartValue("area", overTheWire(areaBody))! },
+    });
+    for (const key of ["schools", "health", "safety", "costs", "history"] as const) {
+      expect(outcomes[key], `the ${key} outcome exists`).not.toBeNull();
+    }
+  });
+
+  it("rejects the wrapped nearby body that broke CI #247", () => {
+    expect(parseCheckingPartValue("nearby", overTheWire({ groups: nearbyBody }))).toBeNull();
+  });
+
+  it("rejects the wrapped flood body that broke CI #247", () => {
+    expect(parseCheckingPartValue("flood", overTheWire({ safety: floodBody }))).toBeNull();
+  });
+
+  it("rejects a nearby body missing a group, and an area body missing its crime segment", () => {
+    expect(
+      parseCheckingPartValue("nearby", overTheWire({ schools: nearbyBody.schools })),
+    ).toBeNull();
+    expect(
+      parseCheckingPartValue(
+        "area",
+        overTheWire({ safety: { air: null }, groups: areaBody.groups }),
+      ),
+    ).toBeNull();
   });
 });
 

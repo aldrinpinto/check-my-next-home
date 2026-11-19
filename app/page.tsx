@@ -4,7 +4,6 @@ import AudienceCards from "../components/AudienceCards";
 import CheckTiles from "../components/CheckTiles";
 import HowItWorks from "../components/HowItWorks";
 import LandingSearchBox from "../components/LandingSearchBox";
-import PostcodeBox from "../components/PostcodeBox";
 import ReportBand from "../components/ReportBand";
 import SourceStrip from "../components/SourceStrip";
 import UnplacedNotice from "../components/UnplacedNotice";
@@ -85,11 +84,17 @@ export default function Home() {
         <h1>{HOME_HERO_HEADLINE}</h1>
         <p className="type-lead">{HOME_HERO_SUBLINE}</p>
         {/* The hero box is the landing search box island:
-            the plain bare box — the fallback is that same
-            box, so the hero never waits on the query. */}
-        <Suspense fallback={<PostcodeBox bare />}>
-          <LandingSearchBox />
-        </Suspense>
+            the plain bare box, rendered directly. It used
+            to sit behind a Suspense boundary whose fallback
+            was the same box — the boundary existed for the
+            old island's useSearchParams suspension, and
+            while it stood, the streamed page carried TWO
+            live postcode boxes (the fallback in place and
+            the segment in its hidden div until the swap
+            script ran), which the browser suite caught as a
+            strict-mode duplicate (CI #247). The island no
+            longer suspends, so no boundary stands here. */}
+        <LandingSearchBox />
         <Suspense fallback={null}>
           <UnplacedNotice />
         </Suspense>

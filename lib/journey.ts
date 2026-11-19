@@ -1082,6 +1082,56 @@ export interface CheckingAreaPayload {
   groups: { costs: CheckingGroupResult; history: CheckingGroupResult };
 }
 
+// The wire check (CI #247 fix, 19 Nov 2026): the client
+// validates each part's parsed body against the payload
+// contract above before the assembly reads it, and a body
+// that does not match completes the part's groups with
+// their named failure lines — the district screen's
+// precedent (its payload is checked for its kind before
+// it is read). The first cut of the rebuilt screen cast
+// the bodies blind, so when the route's wrapping drifted
+// from the contract the assembly read the nearby groups
+// as absent (no outcome, no completion — the screen
+// stalled for good) and spread the flood object as if it
+// were the segments array (a throw mid-render). The check
+// is structural and minimal: exactly the fields the
+// assembly and the screen dereference.
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isCheckingSegment(value: unknown): value is CheckingSegment {
+  return isRecord(value) && typeof value.text === "string" && typeof value.named === "boolean";
+}
+
+function isCheckingGroupResult(value: unknown): value is CheckingGroupResult {
+  return isRecord(value) && typeof value.state === "string" && typeof value.line === "string";
+}
+
+export function parseCheckingPartValue(part: "nearby", body: unknown): CheckingNearbyPayload | null;
+export function parseCheckingPartValue(part: "flood", body: unknown): CheckingSegment[] | null;
+export function parseCheckingPartValue(part: "area", body: unknown): CheckingAreaPayload | null;
+export function parseCheckingPartValue(
+  part: "nearby" | "flood" | "area",
+  body: unknown,
+): CheckingNearbyPayload | CheckingSegment[] | CheckingAreaPayload | null {
+  if (part === "nearby") {
+    if (!isRecord(body)) return null;
+    if (!isCheckingGroupResult(body.schools) || !isCheckingGroupResult(body.health)) return null;
+    return body as unknown as CheckingNearbyPayload;
+  }
+  if (part === "flood") {
+    if (!Array.isArray(body) || !body.every(isCheckingSegment)) return null;
+    return body as CheckingSegment[];
+  }
+  if (!isRecord(body) || !isRecord(body.safety) || !isRecord(body.groups)) return null;
+  if (!isCheckingSegment(body.safety.crime)) return null;
+  if (body.safety.air !== null && !isCheckingSegment(body.safety.air)) return null;
+  if (!isCheckingGroupResult(body.groups.costs) || !isCheckingGroupResult(body.groups.history))
+    return null;
+  return body as unknown as CheckingAreaPayload;
+}
+
 export function assembleCheckingOutcomes(parts: {
   nearby?: CheckingPart<CheckingNearbyPayload>;
   flood?: CheckingPart<CheckingSegment[]>;

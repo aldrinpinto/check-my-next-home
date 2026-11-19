@@ -16,6 +16,7 @@ import {
   CHECKING_STEP_RUNNING,
   CHECKING_WAITING_LINE,
   assembleCheckingOutcomes,
+  parseCheckingPartValue,
   type CheckingAreaPayload,
   type CheckingGroupResult,
   type CheckingNearbyPayload,
@@ -113,7 +114,10 @@ export default function CheckingScreen({
     fireJourneyEvent("check_started", { rung: homeKey ? 1 : 2 });
     const params = new URLSearchParams({ postcode });
     if (homeKey) params.set("home", homeKey);
-    const settle = async <T,>(part: string): Promise<CheckingPart<T>> => {
+    const settle = async <T,>(
+      part: string,
+      parse: (body: unknown) => T | null,
+    ): Promise<CheckingPart<T>> => {
       try {
         const response = await fetch(`/api/check/${part}?${params.toString()}`);
         if (!response.ok) {
@@ -123,8 +127,9 @@ export default function CheckingScreen({
           });
           return { ok: false };
         }
+        let body: unknown;
         try {
-          return { ok: true, value: (await response.json()) as T };
+          body = await response.json();
         } catch {
           // The part answered but its body could not be
           // read: the settlement is a failure for its
@@ -133,6 +138,16 @@ export default function CheckingScreen({
           // the D45 sense the HTTP and network cases are.
           return { ok: false };
         }
+        // The body is validated against the payload
+        // contract before the assembly reads it (CI #247:
+        // a blind cast let a drifted wire shape stall the
+        // screen — the groups read as absent — and throw
+        // mid-render). A mismatch settles the part as
+        // failed, the same as an unreadable body: its
+        // groups complete with their named failure lines
+        // and the results still open.
+        const value = parse(body);
+        return value === null ? { ok: false } : { ok: true, value };
       } catch {
         fireJourneyEvent("page_error", {
           error_name: "CheckRequestFailed",
@@ -141,13 +156,13 @@ export default function CheckingScreen({
         return { ok: false };
       }
     };
-    void settle<CheckingNearbyPayload>("nearby").then((part) => {
+    void settle("nearby", (body) => parseCheckingPartValue("nearby", body)).then((part) => {
       if (!cancelled) setParts((prev) => ({ ...prev, nearby: part }));
     });
-    void settle<CheckingSegment[]>("flood").then((part) => {
+    void settle("flood", (body) => parseCheckingPartValue("flood", body)).then((part) => {
       if (!cancelled) setParts((prev) => ({ ...prev, flood: part }));
     });
-    void settle<CheckingAreaPayload>("area").then((part) => {
+    void settle("area", (body) => parseCheckingPartValue("area", body)).then((part) => {
       if (!cancelled) setParts((prev) => ({ ...prev, area: part }));
     });
     return () => {
