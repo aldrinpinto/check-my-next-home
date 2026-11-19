@@ -228,11 +228,13 @@ jobs:
 
       - name: Build the served app (Turnstile test site key inlined)
         run: npm run build
+
       # From M7.15 the push gate runs the Smoke set only; the
       # full suite runs on cadence in the scheduled E2E
       # workflow (nightly Smoke, weekly Regression, D68).
       - name: Run the Playwright suite (the harness seeds the corpus and serves the app)
         run: npx playwright test --grep @smoke
+      
       # Retained from the M7.1 job (not in the prepared v2): keep the
       # failure artefacts. The config reporter is "list", so on failure
       # this uploads test-results/ (traces/screenshots); playwright-report/
