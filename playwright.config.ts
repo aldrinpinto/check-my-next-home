@@ -47,10 +47,14 @@ process.env.E2E_GIFT_MAILER_SEAMS = "1";
 // corpus: e2e/serve-e2e.mjs seeds the database and starts
 // the built app. The caller provides DATABASE_URL and the
 // Turnstile test secret; the build carries the Turnstile
-// test site key (see e2e/serve-e2e.mjs). Until M7.15 the CI
-// browser job runs the full suite; the Smoke set gates each
-// step, the Regression set runs on cadence from M7.15
-// (D68). Every spec carries exactly one D68 tag.
+// test site key (see e2e/serve-e2e.mjs). From M7.15 the CI
+// browser job runs the Smoke set (--grep @smoke) as the
+// push gate; the full suite runs on cadence in the
+// scheduled workflow — Smoke nightly, Regression weekly,
+// in the real-Turnstile form above. Every spec carries
+// exactly one D68 tag, and the tag audit
+// (scripts/audit-e2e-tags.mjs, wired into the prepush
+// gate and the CI checks job) proves the partition.
 
 export default defineConfig({
   testDir: "e2e",
@@ -61,7 +65,13 @@ export default defineConfig({
   // seams above. A test that passes only on retry reports
   // as flaky — visible in the run, never silently green.
   retries: process.env.CI ? 1 : 0,
-  reporter: "list",
+  // The scheduled runs (M7.15) also write a JSON report,
+  // which the emailed run report (scripts/e2e-report.mjs)
+  // reads; the push gate keeps the plain list reporter.
+  reporter:
+    process.env.E2E_JSON_REPORT === "1"
+      ? [["list"], ["json", { outputFile: "test-results/results.json" }]]
+      : "list",
   use: {
     baseURL: "http://127.0.0.1:4173",
   },

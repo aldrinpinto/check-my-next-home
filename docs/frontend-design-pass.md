@@ -4227,3 +4227,95 @@ build: the Final Sample Master's view 8 (Privacy)
 predates these wordings and needs conforming to them —
 the Master's samples are edited only on the founder's
 word, so the conforming edit is the parent's to raise.
+
+## The test split (19 Nov 2026) — M7.15: Smoke at the gate, the suite on cadence
+
+**What stands.** The D68 split is built. The push gate
+narrows to the Smoke set and the full suite gains its
+cadence home in the SAME change — the step does not
+stand on a narrowed gate alone. Tree-side, this build
+lands the machinery the split needs; the two workflow
+files themselves travel by the GitHub web editor (the
+integration token lacks workflow scope — standing rule)
+as a pack delivered with the build, applied in one
+batched approval round and byte-checked by the parent
+against the pack. The tree's own .github/workflows/
+copies are stale read artefacts and were not edited.
+
+**The tag audit.** scripts/audit-e2e-tags.mjs collects
+three `playwright test --list` listings (all, --grep
+@smoke, --grep @regression) and proves the two tag sets
+partition the suite exactly — no test untagged, none
+double-tagged, none in a grep set the full listing does
+not know, the Smoke set non-empty. Its parse and
+partition logic is unit-pinned (tests/audit-e2e-tags
+.test.ts). It is wired into the prepush gate (package
+.json's prepush gains `npm run audit:e2e-tags` between
+the unit tests and the build) and, via the pack, into
+the CI checks job. Run at this build: **133 tests in 13
+files — 8 @smoke, 125 @regression, the partition
+exact.** No tag needed fixing and none was touched: the
+Smoke set stays exactly as authored (the landing; the
+postcode → home list → checking → results journey for
+each of the three golden homes; the results form —
+four tabs, five pills, the bundle's figures — per
+golden home; T-WEB-04 shortlist persistence), per the
+adoption's item (3) and D68 clause (7).
+
+**The emailed report.** scripts/e2e-report.mjs (unit-
+pinned in tests/e2e-report.test.ts) reads the JSON
+report the scheduled runs now write — playwright
+.config.ts adds the JSON reporter alongside list when
+E2E_JSON_REPORT=1 — and emails the D68 short report via
+Resend on the house pattern (the journey digest's send):
+pass and fail counts, every failure named with its
+first error, flaky tests named rather than silently
+green, and the run's URL, whose artefacts hold the
+screenshots and traces. A run that dies before a
+results file exists still gets its email, saying so.
+`npm run report:e2e` is the script's package name.
+
+**The pack (web-editor route, not in this tree).**
+(1) ci.yml, replaced whole: the checks job gains the
+tag audit step after Install dependencies; the browser
+job's run line becomes `npx playwright test --grep
+@smoke` under a comment recording the split; the header
+comment names the browser job. Nothing else moves —
+the pack file was built from the committed ci.yml and
+diffs against it in exactly those places. (2) A new
+.github/workflows/e2e-schedule.yml: two jobs mirroring
+the CI browser job's service and steps — Smoke nightly
+(cron "17 2 * * *", --grep @smoke) and the full suite
+weekly (cron "43 3 * * 0", plain `playwright test`,
+the adopted full-suite form, so an untagged test still
+runs somewhere and surfaces in the report) — both off
+the hour, both also on workflow_dispatch with a suite
+choice, both in the real-Turnstile form
+(E2E_REAL_TURNSTILE=1, per the adoption's item (1):
+the scheduled suite runs the real form) with
+E2E_JSON_REPORT=1, each uploading its artefacts and
+emailing its report with `if: always()`.
+
+**Scope note, recorded plainly.** The plan's adopted
+gap check for this step also names, at its items (4)
+and (5), a missing-spec set and a citation tidy-up.
+This build's brief enumerated the tree-side work as
+the tag audit, tag fixes if the audit found any,
+Playwright/package wiring and docs — so those two
+items are recorded here as NOT built in this pass,
+with their state verified at build time: the
+calculators E2E group exists (calculators.e2e.ts, six
+@regression specs, built under M7.10's adopted G6); the
+Northern Ireland not-covered spec, the D66 no-render
+proofs as one parameterised served-page spec, the
+T-WEB-06 sample-report honesty assertions, the per-row
+checking-failure spec and the consolidated single-
+session chain spec do not exist as authored E2E groups
+(the behaviours are covered in segments or pinned at
+unit/bundle level, per the prep's coverage map). They
+are the parent's to dispatch as a follow-up; nothing
+in the split depends on them. The step's Check also
+asks for a scheduled Regression run that is green or
+names its failures — that clause can only be satisfied
+once the pack is applied and the workflow has fired or
+been dispatched, so the tick waits on that evidence.
