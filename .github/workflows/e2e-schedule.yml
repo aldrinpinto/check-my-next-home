@@ -1,0 +1,174 @@
+name: E2E — scheduled suites
+
+# The scheduled end-to-end suites (plan step M7.15, D68):
+# the Smoke set nightly and the full suite weekly, on
+# GitHub's machinery, each run emailing a short report to
+# the project inbox — pass and fail counts, every failure
+# named, screenshots and traces in the run's artefacts.
+# The push gate (ci.yml) runs the Smoke set only; this
+# workflow is the wider net's cadence home, and the two
+# land together — the gate never narrows without it.
+# Timing is best-effort by GitHub's own documentation, so
+# both schedules sit off the hour. The scheduled suite
+# runs in the real-Turnstile form (E2E_REAL_TURNSTILE=1 —
+# the real widget and the published test keys against the
+# real verify endpoint), which the push gate deliberately
+# does not; both suites are also runnable on demand.
+
+on:
+  schedule:
+    - cron: "17 2 * * *"
+    - cron: "43 3 * * 0"
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: Which suite to run
+        type: choice
+        options:
+          - smoke
+          - regression
+        default: smoke
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Smoke — nightly (served app, real Turnstile)
+    if: github.event.schedule == '17 2 * * *' || (github.event_name == 'workflow_dispatch' && inputs.suite == 'smoke')
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:17-3.5
+        env:
+          POSTGRES_USER: cmnh
+          POSTGRES_PASSWORD: cmnh
+          POSTGRES_DB: check_my_next_home
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cmnh -d check_my_next_home"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgresql://cmnh:cmnh@127.0.0.1:5432/check_my_next_home
+      TURNSTILE_SECRET_KEY: "1x0000000000000000000000000000000AA"
+      NEXT_PUBLIC_TURNSTILE_SITE_KEY: "1x00000000000000000000AA"
+      E2E_REAL_TURNSTILE: "1"
+      E2E_JSON_REPORT: "1"
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies (exact, from the lockfile)
+        run: npm ci
+
+      - name: Set up the OSM extract cutter (the seed's runner pass, as in the CI browser job)
+        run: pip install osmium==4.3.2
+
+      - name: Install the Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Build the served app (Turnstile test site key inlined)
+        run: npm run build
+
+      - name: Run the Playwright Smoke suite (the harness seeds the corpus and serves the app)
+        run: npx playwright test --grep @smoke
+
+      - name: Keep the Playwright artefacts (traces and screenshots)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-smoke
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+
+      - name: Email the run report (plan step M7.15)
+        if: always()
+        env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          E2E_SUITE: Smoke (nightly)
+          E2E_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: npm run report:e2e
+
+  regression:
+    name: Regression — weekly, full suite (served app, real Turnstile)
+    if: github.event.schedule == '43 3 * * 0' || (github.event_name == 'workflow_dispatch' && inputs.suite == 'regression')
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:17-3.5
+        env:
+          POSTGRES_USER: cmnh
+          POSTGRES_PASSWORD: cmnh
+          POSTGRES_DB: check_my_next_home
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cmnh -d check_my_next_home"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgresql://cmnh:cmnh@127.0.0.1:5432/check_my_next_home
+      TURNSTILE_SECRET_KEY: "1x0000000000000000000000000000000AA"
+      NEXT_PUBLIC_TURNSTILE_SITE_KEY: "1x00000000000000000000AA"
+      E2E_REAL_TURNSTILE: "1"
+      E2E_JSON_REPORT: "1"
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies (exact, from the lockfile)
+        run: npm ci
+
+      - name: Set up the OSM extract cutter (the seed's runner pass, as in the CI browser job)
+        run: pip install osmium==4.3.2
+
+      - name: Install the Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Build the served app (Turnstile test site key inlined)
+        run: npm run build
+
+      # The full suite, not --grep @regression (plan step
+      # M7.15): a test that lost its tag still runs here and
+      # surfaces in the report, and the tag audit at the
+      # gate is what keeps the partition honest.
+      - name: Run the full Playwright suite (the harness seeds the corpus and serves the app)
+        run: npx playwright test
+
+      - name: Keep the Playwright artefacts (traces and screenshots)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-regression
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+
+      - name: Email the run report (plan step M7.15)
+        if: always()
+        env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          E2E_SUITE: Regression (weekly)
+          E2E_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: npm run report:e2e
+        
