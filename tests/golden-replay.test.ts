@@ -1392,7 +1392,12 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
     expect(birkdale.state).toBe("none-within");
     expect(birkdale.countWithin).toBe(0);
     expect(birkdale.places).toEqual([]);
-    expect(birkdale.beyondNearest).toEqual({ name: "Broomfield Hospital", miles: 5.89 });
+    expect(birkdale.beyondNearest).toEqual({
+      name: "Broomfield Hospital",
+      miles: 5.89,
+      latitude: 51.774662,
+      longitude: 0.466021,
+    });
     expect(birkdale.line).toBe(
       "none within 2 miles — nearest is Broomfield Hospital, 5.89 miles away (straight-line distance from the postcode point)",
     );
