@@ -328,6 +328,12 @@ test.describe("checker journey — regression", () => {
       // The submit redirects to the whole-postcode check,
       // which carries the list (picker removed).
       await page.waitForURL("**/search/home?postcode=CM1+6ER");
+      // CI #233 follow-up: the same results wait as every
+      // other spec here — the list renders inside the
+      // results, behind the checking screen's reveal; this
+      // spec previously rode on the warm-gate's cover for
+      // CM1 6ER alone.
+      await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
       // M7.15B: the harness seed's fixture pass files the
       // EPC half of the picking index, and Beaulieu's 49
       // certificate homes (the odd numbers on George Heard
@@ -379,6 +385,19 @@ test.describe("checker journey — regression", () => {
       // whose list the preload deliberately filled.)
       await searchFromHome(page, "CM0 7AA");
       await page.waitForURL("**/search/home?postcode=CM0+7AA");
+      // CI #233 follow-up: the results wait comes first,
+      // as everywhere else in this file. The empty line
+      // renders inside the results, behind the checking
+      // screen's designed reveal (D73: five rows at 720ms
+      // plus the advance, then the part calls settled) —
+      // and CM0 7AA is the suite's one unwarmed results
+      // postcode, so the default expect budget was too
+      // thin a margin once M7.14's counting posts (every
+      // page of every spec, into the same app server)
+      // lengthened the journey's path in CI. The served
+      // state is unchanged: results.e2e.ts pins this same
+      // page, this same line, green in the same run.
+      await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
       await expect(page.locator(".picker__empty-line")).toHaveText(
         "No addresses we can list for this postcode yet.",
       );
@@ -394,6 +413,10 @@ test.describe("checker journey — regression", () => {
     async ({ page }) => {
       await page.goto("/search/home?postcode=CM3+2JT&home=no-such%7C%7Ckey");
       await page.waitForURL("**/search/home?postcode=CM3+2JT");
+      // CI #233 follow-up: the same results wait as every
+      // other spec here — the home list renders inside
+      // the results, behind the checking screen's reveal.
+      await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
       await expect(page.getByRole("link", { name: "19 Birkdale Rise", exact: true })).toBeVisible();
     },
   );
