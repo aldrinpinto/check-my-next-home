@@ -3735,3 +3735,35 @@ byte-identical. No Master change is needed — view 25
 already depicts this surface; the two row-form
 deviations above are recorded for the founder's eye at
 UAT (M7.16), where the dropdown is judged in use.
+
+CI #228 follow-up (18 Nov 2026): the build's CI run
+was green everywhere except the browser job, where
+the three new place-search specs failed identically —
+`input.fill(...)` timed out after 60s "waiting for
+getByLabel('Enter a postcode')", on attempt and retry
+alike, before any dropdown assertion ran. Diagnosis:
+a spec bug, not a product bug. The specs located the
+field by `getByLabel("Enter a postcode")`, but "Enter
+a postcode — e.g. SW1A 1AA" is the field's placeholder
+(POSTCODE_BOX_PLACEHOLDER_BARE); the field's label —
+the bare box's visually-hidden label and accessible
+name — is "Postcode or address" (POSTCODE_BOX_LABEL,
+independently asserted by the passing e2e/home.e2e.ts).
+`getByLabel` matches label text, never placeholder
+text, so the locator resolved to no element and fill
+waited out the timeout, deterministically. Proven
+locally with Playwright's own engine against the bare
+box's rendered label/input contract: the written
+locator counts 0 elements and its fill times out with
+the CI's exact waiting line; the corrected locator
+counts 1 and fills. The M7.15D PostcodeBox change is
+uninvolved — the failure sits at the specs' first
+interaction, before any pick, and every sibling spec
+reaching the same input by `#postcode` passed. Fix,
+spec-side only: the three specs locate the field by
+its genuine label, `getByLabel("Postcode or
+address")`, with the reason recorded in the specs'
+own comment; no assertion was weakened and no product
+code changed. The suggest contract and behaviour are
+unaffected, so docs/entry-point.md carries no change
+for this fix.

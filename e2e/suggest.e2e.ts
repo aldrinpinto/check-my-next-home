@@ -239,12 +239,23 @@ test.describe("suggestions dropdown — regression", () => {
   // so the offered districts are CM1 and CM3 — the
   // seeded world holds no CM2 Chelmsford row, and the
   // panel must not invent one.
+  //
+  // The field is reached by its label, "Postcode or
+  // address" — the bare box's visually-hidden label and
+  // accessible name (POSTCODE_BOX_LABEL). "Enter a
+  // postcode" is the field's PLACEHOLDER, which
+  // getByLabel never matches: CI #228's first form of
+  // these specs timed out on fill at this locator,
+  // resolving to no element on attempt and retry alike,
+  // while every sibling spec reached the same input by
+  // #postcode. The label genuinely differs from the
+  // placeholder; the specs locate by the label.
   test(
     "typing the town offers the place and its districts; a district lands on the wider-area page",
     { tag: "@regression" },
     async ({ page }) => {
       await page.goto("/");
-      const input = page.getByLabel("Enter a postcode");
+      const input = page.getByLabel("Postcode or address");
       await input.fill("Chelmsford");
       await page.waitForTimeout(400);
       const groups = await page.locator(".suggest__group-label").allTextContents();
@@ -263,7 +274,7 @@ test.describe("suggestions dropdown — regression", () => {
     { tag: "@regression" },
     async ({ page }) => {
       await page.goto("/");
-      const input = page.getByLabel("Enter a postcode");
+      const input = page.getByLabel("Postcode or address");
       await input.fill("Chelms");
       await page.waitForTimeout(400);
       // The place is offered; its districts are not —
@@ -289,7 +300,7 @@ test.describe("suggestions dropdown — regression", () => {
     { tag: "@regression" },
     async ({ page }) => {
       await page.goto("/");
-      const input = page.getByLabel("Enter a postcode");
+      const input = page.getByLabel("Postcode or address");
       await input.fill("Chlemsford");
       await page.waitForTimeout(400);
       await expect(page.getByRole("option", { name: "Chelmsford", exact: true })).toBeVisible();
