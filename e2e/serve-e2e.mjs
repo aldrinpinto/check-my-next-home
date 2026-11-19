@@ -23,6 +23,13 @@
 // published test keys' semantics: success when the test
 // secret arrives with a response token.
 //
+// Gift mailer seam (M7.13; playwright.config.ts sets
+// E2E_GIFT_MAILER_SEAMS=1 on every harness run): this
+// script then runs a local capture server for the claim
+// flow's confirmation emails (127.0.0.1:4182) and points
+// the app at it through GIFT_MAILER_CAPTURE_URL — the
+// specs read the captured link back and follow it.
+//
 // Run locally: npm run build, then npm run test:e2e (which
 // starts this script through playwright.config.ts).
 
@@ -69,6 +76,45 @@ if (process.env.E2E_TURNSTILE_SEAMS === "1") {
   console.log(
     "serve-e2e: Turnstile seams on — verify pointed at the local stand-in (127.0.0.1:4180).",
   );
+}
+
+if (process.env.E2E_GIFT_MAILER_SEAMS === "1") {
+  const { createServer } = await import("node:http");
+  // The gift confirmation capture (M7.13): the app's
+  // mailer posts each "sent" confirmation here; a spec
+  // reads the latest one back by gift token and follows
+  // its link, exactly as a claimant follows the email.
+  const captured = new Map();
+  const capture = createServer((req, res) => {
+    if (req.method === "POST" && req.url === "/send") {
+      let body = "";
+      req.on("data", (chunk) => (body += chunk));
+      req.on("end", () => {
+        try {
+          const payload = JSON.parse(body);
+          if (payload && payload.giftToken) captured.set(payload.giftToken, payload);
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end("{}");
+        } catch {
+          res.writeHead(400, { "content-type": "application/json" });
+          res.end("{}");
+        }
+      });
+      return;
+    }
+    if (req.method === "GET" && req.url.startsWith("/last")) {
+      const token = new URL(req.url, "http://127.0.0.1:4182").searchParams.get("token");
+      const payload = token ? captured.get(token) : undefined;
+      res.writeHead(payload ? 200 : 404, { "content-type": "application/json" });
+      res.end(JSON.stringify(payload ?? {}));
+      return;
+    }
+    res.writeHead(404, { "content-type": "application/json" });
+    res.end("{}");
+  });
+  await new Promise((resolve) => capture.listen(4182, "127.0.0.1", resolve));
+  process.env.GIFT_MAILER_CAPTURE_URL = "http://127.0.0.1:4182/send";
+  console.log("serve-e2e: gift mailer seam on — confirmations captured at 127.0.0.1:4182.");
 }
 
 const child = spawn(

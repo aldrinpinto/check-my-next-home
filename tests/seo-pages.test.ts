@@ -59,6 +59,12 @@ const JOURNEY_ROUTES: Record<string, () => Promise<MetadataModule>> = {
   "/search/failed": () => import("../app/search/failed/page"),
   "/shortlist": () => import("../app/shortlist/page"),
   "/report": () => import("../app/report/page"),
+  // M7.13 — the Check Together claim flow: explicit
+  // noindex in every environment (the routes carry it
+  // inline, not via PAGE_SEO).
+  "/gift": () => import("../app/gift/page"),
+  "/gift/[token]": () => import("../app/gift/[token]/page"),
+  "/gift/[token]/claimed": () => import("../app/gift/[token]/claimed/page"),
 };
 
 const loaded = new Map<string, Metadata>();

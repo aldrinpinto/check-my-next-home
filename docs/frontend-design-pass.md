@@ -3797,3 +3797,198 @@ the dropdown's groups, rows and routes are exactly
 as this section records — the only difference is
 that a false pairing is never derived, so it can
 never be offered.
+
+## Check Together claim flow (19 Nov 2026) — M7.13: the claim shell
+
+**What stands.** The `/gift` claim surface serving all
+seven states of Master views 17–23, wired to a real
+gift-token store and state machine, with the payment
+and issuance boundary stubbed only where M9 takes
+over. Routes: `/gift/<token>` (the claim page — the
+claim form, Text 4 over it after a same-email refusal,
+Text 3's guard over it for a bound gift, and the
+confirmation-pending screen), `/gift/<token>/claimed`
+(the dedicated claimed page), `/gift` bare (the
+not-recognised page), `POST /gift/<token>/claim` (the
+form's one server call) and
+`GET /gift/<token>/confirm/<pending>` (the emailed
+confirmation link — the one act that binds). The
+already-used and expired states serve as their own
+screens in the same card pattern; no gift state
+touches the landing page or any other surface (the
+placement ruling, 18 Nov 2026), and the routes join
+the no-index set both ways the site keeps it: explicit
+noindex metadata in every environment (the M7.8 inline
+pattern, pinned in tests/seo-pages.test.ts's journey
+harness) and `/gift` in the production robots disallow
+list.
+
+**The machinery.** `lib/gift.ts` is the pure module:
+the lifecycle (Issued → Claimed → Redeemed, with
+Expired derived at read from the 30-day `expiresAt` —
+never a stored status), the served-state precedence
+(redemption is final, even past day 30; a
+claimed-but-unused gift dies at day 30), the
+claim-attempt decision (one function; the route only
+executes it), the email rules (comparisons ignore case
+and stray spaces; plus-addressing deliberately not
+policed — the prep's accepted limit), the token form,
+and every word of copy. `lib/server/gifts.ts` is the
+store seam in the resolve-records pattern (interface,
+database implementation over migration 0034's
+`gift_tokens`, in-memory implementation for tests);
+its header names the M9 wiring points — `issue()` for
+M9.6 on paid orders only, `findClaimedByEmail()` for
+the payment flow's auto-apply, `markRedeemed()` for
+the delivery path (only delivery consumes). Tokens
+and confirmation credentials are 24 random bytes (32
+base64url characters); a token failing the form check
+is answered without a database read, and a made-up
+link confirms no state. The claim binds ONLY on the
+confirmation click (adopted gap check item 1): a
+claim attempt (re)writes a single pending
+confirmation and sends the email through
+`lib/server/gift-mailer.ts` (the Postio pattern —
+sending is a value, never a throw; a real Resend send
+when the environment carries the key and from
+address, an honest not-configured otherwise, and the
+harness's capture implementation under
+`GIFT_MAILER_CAPTURE_URL`). A failed send rolls the
+pending back — nothing is left half-claimed. Only the
+latest emailed link can bind (a re-attempt replaces
+the pending wholesale), and the binding write carries
+its own conditions (still Issued, still in date,
+pending token still live). On binding and on resume
+the flow sets the strictly functional gift cookie
+(`cmnh-gift`, httpOnly, session — T-LEG-02's 'gift
+applied' banner cookie, set only during a gift
+visit); the banner itself is M9's surface. The claim
+endpoint is rate-limited per caller (the suggestions
+limiter); Turnstile was NOT added to the claim form —
+nothing pins it there, and the limiter plus the
+one-live-pending rule is the proportionate guard for
+a form whose only side effect is one email to the
+address just entered.
+
+**The samples-deviation walk (Master views 17–23).**
+Copy: verbatim everywhere a sample speaks — all seven
+states' headings, bodies, labels, buttons, fine print
+and helper lines are pinned character-for-character in
+tests/gift.test.ts, and Texts 1–4 match D44(14)'s
+pinned texts in their founder-approved forms (Texts 3
+and 4 the shorter 18 Nov versions). The samples'
+shelf commentary ("In this sample…", "Sample only —
+…") is not product copy and appears nowhere. Layout,
+four ruled or recorded departures: (1) the claim form
+is the kit's standard field block — label, input and
+inline error stacked, the button below — not the
+sample's side-by-side field-row: the plan's own
+fold-in names the standard field block for the claim
+form, and the stacked form is what holds the 44px
+targets at phone width; (2) the search blocks reuse
+the product's bare postcode box (the SearchBlock
+precedent — hidden "Postcode or address" label, live
+suggestions) under each sample's own search heading
+and line, not the sample's plain visible-"Postcode"
+form: one search box serves the whole site, and the
+gift holder's next act is the same search every other
+page offers; (3) heading levels follow the product's
+page discipline (the card's heading is the page's h1,
+the search heading its h2) where the sample's card
+sits under a shelf heading; (4) the badges, the
+claimed card's chip and the card pattern itself are
+the samples' own, in the site's token colours. The
+confirmation-pending screen has NO sample (the
+adopted confirmation step created the state after the
+samples were drawn): it is built in the claim card's
+own furniture and the samples' voice, and its words
+are build-drafted (below).
+
+**Build-drafted copy — for the founder's approval
+before the step ticks at M9.6.** (a) The
+confirmation-pending screen: heading "Check your
+email to finish claiming"; body "We've sent a
+confirmation email to **{email}**. Click the link in
+it and the gift is yours — it stays tied to that
+address. The gift isn't claimed until you click, so
+if the address looks wrong, enter it again below and
+we'll send a fresh link." (b) The send-failure line:
+"We couldn't send the confirmation email just now —
+nothing has been claimed. Check the address and try
+again." (c) The email-format error: "Enter an email
+address, like you@example.co.uk". (d) The confirmation
+email itself (subject "Confirm your free report
+gift"; the intro, fallback and ignore lines in
+lib/gift.ts) — minimal and functional; M8.6's email
+machinery conforms its dress when it builds, and the
+happy-path claim page's final wording pass (adopted
+gap check item 2) is likewise a tick-time item at
+M9.6.
+
+**The Privacy wording gap — reported, not invented.**
+D44(12) and test T-LEG-02 rule the SUBSTANCE: the
+gift cookie is strictly functional, and the Privacy
+page names it (and the shortlist's browser storage)
+when this step builds. No exact founder-approved
+sentence exists in the prep, the plan, or the tree
+(all searched at this build), so — per the build
+brief's own instruction — the Privacy copy is NOT
+amended here. The cookie plumbing is built exactly as
+T-LEG-02 describes. The founder approves the naming
+line before or at the M9.6 tick; the amendment is
+then a one-card change to lib/site-pages.ts's
+"Cookies" card. (M7.14's Privacy amendments — the
+analytics paragraph and the shortlist sentence — DO
+carry approved forms in its prep, and land with that
+step.)
+
+**The M7.14 events reconciliation.** M7.13's gap
+check (5) says the gift claimed/redeemed events are
+"wired with this step's build"; M7.14's gap check (3)
+names the same wiring as M7.14's own named completion,
+and M7.14 builds after M7.13 with the events table in
+its scope. Reconciled: the shell exposes the two
+transitions as single named store operations —
+`bindByConfirm` and `markRedeemed` — which are the
+attachment points (named in the store's header); no
+events table is built here. M7.14 wires its counting
+at those operations.
+
+**The M9 hand-offs, as the prep drew them.** Token
+creation is M9.6's (paid orders only, exactly one per
+paid order, inactive in the free window); the gift
+BLOCK in the delivery email is M8.6's (its tests
+(a)–(c)); the gifted report rides M8's renderer and
+M9.6's machinery; auto-apply fires on M9's payment
+surface via `findClaimedByEmail`, with the
+gift-applied banner; the refund interaction is
+M9.8's — a refund voids the order's gift while it is
+Unclaimed or Claimed-but-unused, and a Redeemed gift
+stands (recorded in the store's header and migration
+0034's; no void transition is built here, and nothing
+in the shell contradicts it). This step TICKS only
+when the wiring lands at M9.6 (the plan's own rule).
+
+**Tests.** Unit: the seven states' copy pinned
+verbatim; the served-state and view-selection
+precedence; the claim decision (named tests (d), (e),
+(f), (g), (h), (j) at decision level); the store
+lifecycle against the in-memory implementation —
+including (e)'s no-burn proof at the write level (a
+refused attempt leaves the record byte-identical, and
+a later different-email claim binds), pending
+replacement (only the latest link binds), bind-after-
+day-30 refused, redemption idempotent; the rendered
+cards per state; the noindex pins in both SEO
+harnesses. The database proof (db/prove.mjs) carries
+the table's own guarantees, including the status
+CHECK refusing a stored 'expired'. Playwright
+(e2e/gift.e2e.ts, all Regression per D68): the seven
+states served from the seeded fixtures; the refusal
+that does not burn, in the browser; the full happy
+path through the captured confirmation link to the
+dedicated claimed page, cookie included; resume and
+refusal on a bound gift; and the phone assertions over
+the claim states in e2e/phone.e2e.ts (the fold-in).
+The specs' first execution is CI's — Playwright
+cannot run on this VM.

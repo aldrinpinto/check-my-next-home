@@ -41,7 +41,10 @@ import { expect, test } from "./fixtures";
 //   /search redirect); the
 //   whole-check failure; /shortlist empty, with one home
 //   and with the three-home comparison; the /report
-//   holding page; and the buy bar's full-shortlist state.
+//   holding page; the buy bar's full-shortlist state; and
+//   the gift claim flow's form, claimed page and a closed
+//   state (M7.13 — its fold-in extends the phone checks
+//   over the claim states).
 //   (/report and the buy bar are in the set because M7.6
 //   landed before this step built — R4's own condition.)
 //
@@ -615,6 +618,47 @@ test.describe("phone-first — 360×740 (T-WEB-01)", () => {
         "the full message's shortlist link",
       );
       await expect(page.locator(".shortlist-panel")).toHaveCount(0);
+      await expectNoSidewaysScroll(page);
+    },
+  );
+
+  test(
+    "the gift claim flow (M7.13): the guard form, the claimed page and a closed state — nothing scrolls sideways, the field and buttons are 44px targets",
+    { tag: "@regression" },
+    async ({ page }) => {
+      // The seeded CLAIMED gift's guard screen carries the
+      // flow's form (read-only here — nothing is
+      // submitted): the email field and the Continue
+      // button at phone width.
+      await page.goto("/gift/seed-gift-claimed-0000000000000003");
+      await expect(
+        page.getByRole("heading", { name: "This gift is already claimed" }),
+      ).toBeVisible();
+      await expectNoSidewaysScroll(page);
+      await expectNoTable(page);
+      await expectTapTarget(page.getByLabel("Your email address"), "the claim email field");
+      await expectTapTarget(
+        page.getByRole("button", { name: "Continue" }),
+        "the claim Continue button",
+      );
+
+      // The dedicated claimed page: the chip, the message
+      // and its own postcode search field.
+      await page.goto("/gift/seed-gift-claimed-0000000000000003/claimed");
+      await expect(
+        page.getByRole("heading", { name: "Your free report is claimed" }),
+      ).toBeVisible();
+      await expect(page.getByText("Gift saved to your email address")).toBeVisible();
+      await expectNoSidewaysScroll(page);
+      await expectTapTarget(
+        page.getByRole("button", { name: "Check this home" }),
+        "the claimed page's search button",
+      );
+
+      // A closed state: the expired screen and its search
+      // block.
+      await page.goto("/gift/seed-gift-expired-0000000000000005");
+      await expect(page.getByRole("heading", { name: "This gift link has expired" })).toBeVisible();
       await expectNoSidewaysScroll(page);
     },
   );

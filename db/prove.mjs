@@ -276,6 +276,81 @@ try {
     "the served-district predicate offers an England district and withholds a Scottish one",
   );
 
+  // M7.13 — the gift_tokens table (migration 0034): the
+  // claim shell's store. The proof covers the table's
+  // own guarantees — the lifecycle's CHECK, the
+  // pending-token uniqueness the binding relies on, and
+  // the round-trip the store performs.
+  const giftColumns = await client.query(
+    `SELECT column_name FROM information_schema.columns
+      WHERE table_name = 'gift_tokens'`,
+  );
+  const giftColumnNames = new Set(giftColumns.rows.map((row) => row.column_name));
+  for (const column of [
+    "token",
+    "buyer_email",
+    "claimant_email",
+    "status",
+    "order_ref",
+    "issued_at",
+    "expires_at",
+    "claimed_at",
+    "redeemed_at",
+    "pending_email",
+    "pending_token",
+    "pending_sent_at",
+  ]) {
+    assert(giftColumnNames.has(column), `gift_tokens carries ${column}`);
+  }
+  await client.query(
+    `INSERT INTO gift_tokens (token, buyer_email, status, issued_at, expires_at)
+     VALUES ('proof-gift-token-000000000000001', 'buyer@example.co.uk', 'issued', now(), now() + interval '30 days')`,
+  );
+  const giftRead = await client.query(
+    `SELECT status, buyer_email FROM gift_tokens WHERE token = 'proof-gift-token-000000000000001'`,
+  );
+  assert(
+    giftRead.rows[0].status === "issued" && giftRead.rows[0].buyer_email === "buyer@example.co.uk",
+    "a gift inserts as Issued and reads back",
+  );
+  // Expected-failure inserts run inside savepoints, so
+  // a refused statement does not abort the proof's one
+  // transaction.
+  let statusCheckHeld = false;
+  await client.query("SAVEPOINT gift_status_check");
+  try {
+    await client.query(
+      `INSERT INTO gift_tokens (token, buyer_email, status, issued_at, expires_at)
+       VALUES ('proof-gift-token-000000000000002', 'buyer@example.co.uk', 'expired', now(), now() + interval '30 days')`,
+    );
+  } catch {
+    statusCheckHeld = true;
+  }
+  await client.query("ROLLBACK TO SAVEPOINT gift_status_check");
+  assert(
+    statusCheckHeld,
+    "the status CHECK refuses a stored 'expired' — expiry is derived, never stored (D21)",
+  );
+  await client.query(
+    `UPDATE gift_tokens SET pending_email = 'friend@example.co.uk', pending_token = 'proof-confirm-token-0000000001'
+      WHERE token = 'proof-gift-token-000000000000001'`,
+  );
+  let pendingUniqueHeld = false;
+  await client.query("SAVEPOINT gift_pending_unique");
+  try {
+    await client.query(
+      `INSERT INTO gift_tokens (token, buyer_email, status, issued_at, expires_at, pending_token)
+       VALUES ('proof-gift-token-000000000000003', 'buyer@example.co.uk', 'issued', now(), now() + interval '30 days', 'proof-confirm-token-0000000001')`,
+    );
+  } catch {
+    pendingUniqueHeld = true;
+  }
+  await client.query("ROLLBACK TO SAVEPOINT gift_pending_unique");
+  assert(
+    pendingUniqueHeld,
+    "the pending-token unique index refuses one confirmation credential on two gifts",
+  );
+
   await client.query("ROLLBACK");
   console.log("All proofs passed; test rows rolled back.");
 } catch (error) {

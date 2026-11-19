@@ -135,7 +135,9 @@ describe("robots generator (M2.11)", () => {
     // M7.8: the disallow list names the journey and utility
     // route family as it exists (it previously named
     // /results, /checkout and /account — routes that have
-    // never existed).
+    // never existed). M7.13 adds /gift — the Check
+    // Together claim flow, reached only via a private
+    // link.
     expect(result.rules).toMatchObject({
       userAgent: "*",
       allow: "/",
@@ -145,6 +147,7 @@ describe("robots generator (M2.11)", () => {
         "/search/failed",
         "/report",
         "/shortlist",
+        "/gift",
         "/kitchen-sink",
         "/api",
       ],

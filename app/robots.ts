@@ -20,6 +20,10 @@ export const dynamic = "force-static";
 // of which also carries explicit noindex metadata. It previously
 // named /results, /checkout and /account, routes that have never
 // existed.
+//
+// M7.13: /gift joins the set — the Check Together claim flow is
+// reached only via the private gift link in a paid report's delivery
+// email, and is never an indexed page.
 export default function robots(): MetadataRoute.Robots {
   if (!isProductionEnv()) {
     return { rules: { userAgent: "*", disallow: "/" } };
@@ -34,6 +38,7 @@ export default function robots(): MetadataRoute.Robots {
         "/search/failed",
         "/report",
         "/shortlist",
+        "/gift",
         "/kitchen-sink",
         "/api",
       ],

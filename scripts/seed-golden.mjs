@@ -296,6 +296,48 @@ try {
     "--file",
     join(REPO, "tests/fixtures/police-uk-national"),
   ]);
+
+  // 4. The Check Together gift fixtures (M7.13) — one
+  // gift per state the claim flow serves, for
+  // e2e/gift.e2e.ts. Times are relative to the seed's
+  // NOW so the states never age out between seeding and
+  // the run; the two Issued gifts are separate so the
+  // happy-path spec and the refusal spec never share
+  // mutable state. The token literals are duplicated in
+  // the spec (the specs are black-box; they import
+  // nothing from here) — change both together.
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const giftBuyer = "gift.buyer@example.co.uk";
+  const giftClaimant = "gift.claimant@example.co.uk";
+  const giftRows = [
+    // token, status, issuedDaysAgo, claimedDaysAgo, redeemedDaysAgo
+    ["seed-gift-issued-one-0000000000001", "issued", 2, null, null],
+    ["seed-gift-issued-two-0000000000002", "issued", 2, null, null],
+    ["seed-gift-claimed-0000000000000003", "claimed", 3, 1, null],
+    ["seed-gift-redeemed-000000000000004", "redeemed", 3, 2, 1],
+    ["seed-gift-expired-0000000000000005", "issued", 31, null, null],
+    ["seed-gift-claimedexp-000000000006", "claimed", 31, 29, null],
+  ];
+  for (const [token, status, issuedAgo, claimedAgo, redeemedAgo] of giftRows) {
+    const issuedAt = new Date(NOW.getTime() - issuedAgo * DAY_MS);
+    await pool.query(
+      `INSERT INTO gift_tokens
+         (token, buyer_email, claimant_email, status, order_ref, issued_at, expires_at, claimed_at, redeemed_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       ON CONFLICT (token) DO NOTHING`,
+      [
+        token,
+        giftBuyer,
+        claimedAgo === null ? null : giftClaimant,
+        status,
+        `seed-${token}`,
+        issuedAt,
+        new Date(issuedAt.getTime() + 30 * DAY_MS),
+        claimedAgo === null ? null : new Date(NOW.getTime() - claimedAgo * DAY_MS),
+        redeemedAgo === null ? null : new Date(NOW.getTime() - redeemedAgo * DAY_MS),
+      ],
+    );
+  }
 } finally {
   await pool.end();
 }

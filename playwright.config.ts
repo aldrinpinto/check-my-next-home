@@ -24,6 +24,18 @@ if (process.env.E2E_REAL_TURNSTILE !== "1") {
   process.env.E2E_TURNSTILE_SEAMS = "1";
 }
 
+// The gift mailer seam (M7.13): the claim flow sends a
+// real confirmation email through the mailer seam
+// (lib/server/gift-mailer.ts), and the harness has no
+// mailbox — so serve-e2e runs a local capture server
+// and points the app at it, on every harness run
+// (independent of the Turnstile seams: even a
+// real-Turnstile scheduled run captures the gift email
+// locally and follows its link). The flow stays whole —
+// pending written, "send" attempted, link followed —
+// with only the delivery replaced.
+process.env.E2E_GIFT_MAILER_SEAMS = "1";
+
 // The Playwright harness (stood up at M7.1 alongside the
 // look & feel kit). Specs live in e2e/ and are named
 // *.e2e.ts so Vitest — whose default patterns match
