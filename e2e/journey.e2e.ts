@@ -201,7 +201,7 @@ test.describe("checker journey — regression", () => {
     async ({ page }) => {
       await searchFromHome(page, "E16");
       await page.waitForURL("**/search?outward=E16");
-      await expect(page.locator("h1")).toHaveText("Wider area — E16, not this exact home");
+      await expect(page.locator("h1")).toHaveText("Wider area — E16");
       // The district page (founder ruling, 18 Nov 2026)
       // supersedes the unlock banner: the results page's
       // four tabs carry the district sections, and the
@@ -292,22 +292,22 @@ test.describe("checker journey — regression", () => {
     async ({ page }) => {
       await searchFromHome(page, "CM3 2JA");
       await page.waitForURL("**/search?outward=CM3&notfound=CM3+2JA");
-      await expect(page.locator("h1")).toHaveText("Wider area — CM3, not this exact home");
+      await expect(page.locator("h1")).toHaveText("Wider area — CM3");
       await expect(page.locator(".journey-notice")).toHaveText(
         "CM3 2JA isn't a postcode we hold — this is the wider area it points to instead.",
       );
-      // The labelled form of the box (M7.3's label and
-      // hint, the hint's example the neutral SW1A 1AA —
-      // the founder's own postcode never appears in
-      // visitor-facing copy) serves in the district
-      // page's bridge box (18 Nov 2026: the bridge
-      // replaced the unlock banner as the forward path).
-      await expect(page.locator(".district-bridge .field__label")).toHaveText(
-        "Postcode or address",
+      // The bridge (founder fix batch, 19 Nov 2026)
+      // carries the Final Sample Master's own dress: a
+      // light section with a postcode-only field and the
+      // sample's button — the labelled full search block
+      // it replaced is gone from this page.
+      await expect(page.locator(".district-bridge__input")).toHaveAttribute(
+        "placeholder",
+        "Enter a postcode, street or town — e.g. SW1A 1AA",
       );
-      await expect(page.locator(".district-bridge .field__hint")).toHaveText(
-        "For example, SW1A 1AA — or the full address, with its postcode.",
-      );
+      await expect(
+        page.locator(".district-bridge").getByRole("button", { name: "Check this home →" }),
+      ).toBeVisible();
 
       await searchFromHome(page, "ZZ1 1ZZ");
       await page.waitForURL(/\/\?notice=unplaced/);
@@ -544,12 +544,19 @@ test.describe("checker journey — regression", () => {
         route.fulfill({ status: 500, contentType: "application/json", body: "{}" }),
       );
       await searchFromHome(page, "CM3 2JT");
-      await page.waitForURL("**/search/failed");
-      await expect(page.locator("h1")).toHaveText("This check couldn't be completed");
-      await expect(page.getByRole("link", { name: "See a SAMPLE report" })).toHaveAttribute(
-        "href",
-        "/sample-report",
-      );
+      await page.waitForURL("**/search/failed**");
+      // The failure landing wears the single error page
+      // (Final Sample Master view 26, error-page build
+      // 19 Nov 2026): the new headline, and the page's
+      // search box still holding what was typed, under
+      // the kept note.
+      await expect(page.locator("h1")).toHaveText("Well — that wasn't supposed to happen");
+      await expect(page.locator("#postcode")).toHaveValue("CM3 2JT");
+      await expect(
+        page.getByText(
+          "We've kept the home you were checking in the box — just press the button to run it again, or type a different home.",
+        ),
+      ).toBeVisible();
     },
   );
 

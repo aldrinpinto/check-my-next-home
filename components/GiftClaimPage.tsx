@@ -13,6 +13,7 @@ import {
   GIFT_DIFFERENT_BUTTON,
   GIFT_DIFFERENT_HEADING,
   GIFT_DIFFERENT_HELPER,
+  GIFT_DIFFERENT_PLACEHOLDER,
   GIFT_EMAIL_ERROR,
   GIFT_EMAIL_LABEL,
   GIFT_EMAIL_PLACEHOLDER,
@@ -23,6 +24,8 @@ import {
   GIFT_NOT_RECOGNISED_HEADING,
   GIFT_NOT_RECOGNISED_SEARCH_HEADING,
   GIFT_PENDING_BODY,
+  GIFT_PENDING_BUTTON,
+  GIFT_PENDING_FINE_PRINT,
   GIFT_PENDING_HEADING,
   GIFT_SAME_EMAIL_BODY,
   GIFT_SAME_EMAIL_HEADING,
@@ -45,11 +48,14 @@ import PostcodeBox from "./PostcodeBox";
 // and none is shown there as a banner.
 //
 // The card furniture is the finalised samples' (Master
-// views 17–23): the icon badge in its gift / ok /
-// neutral / warn forms, the claimed card's chip, and
-// the search block — heading, line, and the site's bare
-// postcode box — that the claimed, used, expired and
-// not-recognised screens carry. Two ruled departures
+// views 17–27): the icon badge in its gift / ok /
+// neutral / warn forms, the claimed card's chip, the
+// two refusal screens' message box (heading and body in
+// the error-tinted box, no badge — the samples' own
+// form, restored by the conform pass of 19 Nov 2026),
+// and the search block — heading, line, and the site's
+// bare postcode box — that the claimed, used, expired
+// and not-recognised screens carry. Two ruled departures
 // from the samples' drawing, both recorded in the
 // step's build note: the claim form is the kit's
 // standard field block (the plan's fold-in — label,
@@ -123,6 +129,27 @@ function TickIcon() {
       aria-hidden="true"
     >
       <path d="m4.5 12.5 5 5 10-11" />
+    </svg>
+  );
+}
+
+// The pending screen's badge glyph (Master view 20):
+// the envelope, in the gift badge's brass-pale disc.
+function MailIcon() {
+  return (
+    <svg
+      width="26"
+      height="26"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="m3 7 9 6 9-6" />
     </svg>
   );
 }
@@ -227,43 +254,62 @@ export function GiftPageShell({ children }: { children: ReactNode }) {
 }
 
 // The claim page's card, in its four served variants:
-//   claim      — the happy path (view 17);
-//   same-email — Text 4 over the claim form (view 19);
+//   claim      — the happy path (view 17); with the
+//                format error over it (view 18) the
+//                field stands pre-filled with the
+//                visitor's own just-typed entry (the
+//                entryEmail prop, from the one-shot
+//                entry cookie — lib/gift.ts);
+//   same-email — Text 4 over the claim form (view 23);
 //   different  — Text 3 over the bound gift's form
-//                (view 20: "Continue", the helper line);
+//                (view 24: "Continue", the helper line,
+//                the holder's placeholder);
 //   pending    — the confirmation step's intermediate
-//                screen (no sample — build-drafted copy,
-//                see lib/gift.ts): the form again, so a
-//                wrong address is corrected in place and
-//                a fresh link sent.
+//                screen (view 20): the form again,
+//                pre-filled with the address the link
+//                went to, so a wrong address is
+//                corrected in place and a fresh link
+//                sent.
 // The variant union itself is lib/gift.ts's — the pure
 // view builder there selects among them.
 
 const CLAIM_VARIANTS: Record<
   GiftClaimVariant,
-  { heading: string; body: string; button: string; finePrint?: string; helper?: string }
+  {
+    heading: string;
+    body: string;
+    button: string;
+    placeholder: string;
+    finePrint?: string;
+    helper?: string;
+  }
 > = {
   claim: {
     heading: GIFT_CLAIM_HEADING,
     body: GIFT_CLAIM_BODY,
     button: GIFT_CLAIM_BUTTON,
+    placeholder: GIFT_EMAIL_PLACEHOLDER,
     finePrint: GIFT_CLAIM_FINE_PRINT,
   },
   "same-email": {
     heading: GIFT_SAME_EMAIL_HEADING,
     body: GIFT_SAME_EMAIL_BODY,
     button: GIFT_CLAIM_BUTTON,
+    placeholder: GIFT_EMAIL_PLACEHOLDER,
   },
   different: {
     heading: GIFT_DIFFERENT_HEADING,
     body: GIFT_DIFFERENT_BODY,
     button: GIFT_DIFFERENT_BUTTON,
+    placeholder: GIFT_DIFFERENT_PLACEHOLDER,
     helper: GIFT_DIFFERENT_HELPER,
   },
   pending: {
     heading: GIFT_PENDING_HEADING,
     body: GIFT_PENDING_BODY,
-    button: GIFT_CLAIM_BUTTON,
+    button: GIFT_PENDING_BUTTON,
+    placeholder: GIFT_EMAIL_PLACEHOLDER,
+    finePrint: GIFT_PENDING_FINE_PRINT,
   },
 };
 
@@ -272,48 +318,64 @@ export function GiftClaimCard({
   variant,
   pendingEmail,
   emailError = false,
+  entryEmail,
   sendFailed = false,
 }: {
   token: string;
   variant: GiftClaimVariant;
   pendingEmail?: string;
   emailError?: boolean;
+  entryEmail?: string;
   sendFailed?: boolean;
 }) {
   const copy = CLAIM_VARIANTS[variant];
   const body =
     variant === "pending" && pendingEmail ? copy.body.replace("{email}", pendingEmail) : copy.body;
-  // The samples' badges: the claim screen carries the
-  // gift badge; the two refusal screens carry the
-  // neutral send badge. The pending screen — the claim
-  // mid-step, no sample — keeps the claim's own badge.
+  // The samples' furniture: the claim screen carries
+  // the gift badge and the pending screen the envelope
+  // badge; the two refusal screens carry NO badge —
+  // their heading and body stand in the error-tinted
+  // message box above the form (the samples' own form
+  // for Texts 3 and 4, restored by the conform pass of
+  // 19 Nov 2026 — the shell as first built gave them
+  // the used screen's send badge, which no sample
+  // draws).
   const refusal = variant === "same-email" || variant === "different";
   return (
     <div className="card gift-card">
       {refusal ? (
-        <Badge form="neutral">
-          <SendIcon />
-        </Badge>
+        <div className="gift-message">
+          <h1>{copy.heading}</h1>
+          <p>{rich(body)}</p>
+        </div>
       ) : (
-        <Badge form="gift">
-          <GiftIcon />
-        </Badge>
+        <>
+          <Badge form="gift">{variant === "pending" ? <MailIcon /> : <GiftIcon />}</Badge>
+          <h1>{copy.heading}</h1>
+          <p>{rich(body)}</p>
+        </>
       )}
-      <h1>{copy.heading}</h1>
-      <p>{rich(body)}</p>
       {sendFailed && (
         <p className="gift-alert" role="alert">
           {GIFT_SEND_FAILED_LINE}
         </p>
       )}
-      <form method="post" action={giftClaimPostPath(token)}>
+      {/* noValidate: the flow's own shape check is the
+          one judge of an address (view 18's inline error
+          is its answer) — the browser's native bubble
+          must not intercept a mistyped entry before the
+          server can refuse it in the designed form. The
+          samples' form carries novalidate for the same
+          reason. */}
+      <form method="post" action={giftClaimPostPath(token)} noValidate>
         <TextField
           id="gift-email"
           name="email"
           type="email"
           autoComplete="email"
           label={GIFT_EMAIL_LABEL}
-          placeholder={GIFT_EMAIL_PLACEHOLDER}
+          placeholder={copy.placeholder}
+          defaultValue={variant === "pending" ? pendingEmail : emailError ? entryEmail : undefined}
           error={emailError ? GIFT_EMAIL_ERROR : undefined}
           required
         />
@@ -326,7 +388,7 @@ export function GiftClaimCard({
 }
 
 // The dedicated claimed page's confirmation card
-// (view 18): the tick badge, the "Gift saved" chip, the
+// (view 22): the tick badge, the "Gift saved" chip, the
 // claimed message, and its own postcode search field.
 export function GiftClaimedCard() {
   return (
@@ -357,8 +419,8 @@ export function GiftClaimedCard() {
   );
 }
 
-// The three closed screens: already used (view 21),
-// expired (view 22) and link not recognised (view 23) —
+// The three closed screens: already used (view 25),
+// expired (view 26) and link not recognised (view 27) —
 // each its own claim-flow screen carrying its pinned
 // text in full and its own search block.
 export function GiftClosedCard({ variant }: { variant: "used" | "expired" | "not-recognised" }) {

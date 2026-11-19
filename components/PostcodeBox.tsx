@@ -7,7 +7,7 @@ import {
   POSTCODE_BOX_BUTTON_BARE,
   POSTCODE_BOX_HINT,
   POSTCODE_BOX_LABEL,
-  POSTCODE_BOX_PLACEHOLDER_BARE,
+  POSTCODE_BOX_PLACEHOLDER,
 } from "../lib/home";
 import { FAILED_ROUTE, TURNSTILE_BLOCK_LINE } from "../lib/journey";
 import { Button, SuggestionShell, type SuggestionGroup, type SuggestionItem } from "./kit";
@@ -53,6 +53,18 @@ import { Button, SuggestionShell, type SuggestionGroup, type SuggestionItem } fr
 // files its filed name into the field, expanding the
 // panel to that place's districts — the town chooser
 // lives inside this dropdown, never on a page.
+// Founder fix batch (19 Nov 2026): the pick now visibly
+// lands — the picked row carries a selected state and
+// the Districts group is scrolled into view within the
+// panel — and pressing the button with the field holding
+// exactly a known place name IS the place pick (the
+// panel stays, the districts reveal, nothing navigates
+// and the failure page is unreachable from a place
+// name). The serve layer routes a bare place name that
+// arrives by URL to the landing with the name filed
+// (lib/server/serve.ts's placeLandingUrl), where this
+// box's own fetch opens the same panel on the same
+// districts.
 // Keyboard: up/down move the active suggestion, Enter
 // chooses it, Escape closes the panel. D71 amendment
 // (18 Nov 2026): for a full postcode the panel carries the
@@ -71,10 +83,16 @@ import { Button, SuggestionShell, type SuggestionGroup, type SuggestionItem } fr
 // and the Brass button in the sample's words. The submit
 // path is identical in both forms; only the furniture
 // differs. The standard form (label, hint, Forest button)
-// serves the journey's retry surfaces — the wider-area
-// banner and the whole-check failure. Both forms carry the
-// neutral SW1A 1AA example: the founder's own postcode never
-// appears in visitor-facing copy.
+// served the journey's retry surfaces for a while — the
+// wider-area banner and the whole-check failure — until
+// the founder ruling of 19 Nov 2026 made the bare form the
+// form of EVERY live search surface: the failure page moved
+// to the single error page (bare), and the wider-area
+// banner, the last standard-form use, followed. The
+// standard form remains in this component, unrendered by
+// any live surface. Both forms carry the neutral SW1A 1AA
+// example: the founder's own postcode never appears in
+// visitor-facing copy.
 
 declare global {
   interface Window {
@@ -88,6 +106,35 @@ declare global {
 }
 
 const TURNSTILE_SCRIPT = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+
+// The failure landing keeps what the visitor typed
+// (error-page build, 19 Nov 2026): the single error
+// page at FAILED_ROUTE reads the postcode back out of
+// its query string and arrives with its search box
+// holding it, under the kept note — the sample's story
+// (Final Sample Master view 26). An empty field
+// carries nothing, and the counting never sees the
+// value: route patterns are derived from the pathname
+// alone (lib/journey-events.ts).
+function failedRouteFor(typed: string): string {
+  const kept = typed.trim();
+  return kept ? `${FAILED_ROUTE}?postcode=${encodeURIComponent(kept)}` : FAILED_ROUTE;
+}
+
+// The place name's normal form for exact-equality checks
+// — the read model's own recipe (placeNormOf in
+// lib/server/places.ts), restated at the presentation
+// edge: upper case, punctuation to spaces, runs
+// collapsed. Exact equality is the only comparison this
+// box ever makes against a place name: a fuzzy near-match
+// is a choice to offer, never a pick to apply silently.
+function placeNormOf(value: string): string {
+  return value
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
 
 let scriptPromise: Promise<boolean> | null = null;
 function loadTurnstileScript(): Promise<boolean> {
@@ -150,6 +197,35 @@ export default function PostcodeBox({
   const placeByIdRef = useRef(new Map<string, string>());
   const suggestSeqRef = useRef(0);
   const choosingRef = useRef(false);
+  // The picked place (founder fix batch, 19 Nov 2026):
+  // the filed name the panel is currently expanded on,
+  // and the pending reveal — set when a place is picked
+  // (or the field arrives holding an exact place name),
+  // consumed when the place's district group lands in
+  // the panel and is scrolled into view. A pick that
+  // changed nothing visibly was the founder's twice-
+  // reported dead click; the picked row's selected state
+  // and the revealed districts are the landing made
+  // visible.
+  const [pickedPlace, setPickedPlace] = useState<string | null>(null);
+  const [pickedId, setPickedId] = useState<string | null>(null);
+  const pickedPlaceRef = useRef<string | null>(null);
+  const revealPendingRef = useRef(false);
+  // A reveal that does not change the field's value (the
+  // name is already filed) re-runs the suggest effect
+  // through this tick — the effect is the one fetch path.
+  const [revealTick, setRevealTick] = useState(0);
+
+  // The pick's bookkeeping in one place: the state the
+  // render reads, and the ref the async fetch reads (a
+  // fetch that lands after the pick changed must mark —
+  // or clear — the row in ITS OWN groups, whose ids it
+  // minted).
+  function markPicked(place: string | null) {
+    pickedPlaceRef.current = place;
+    setPickedPlace(place);
+    if (place === null) setPickedId(null);
+  }
   // Below the 3-character floor the panel is derived shut
   // at render — the effect never clears state synchronously.
   const typedLength = value.trim().length;
@@ -201,6 +277,30 @@ export default function PostcodeBox({
           setLiveGroups(groups);
           setPanelOpen(groups.length > 0);
           setActiveId(null);
+          // The picked row in THESE groups (founder fix
+          // batch): an exact place arrival — the fetched
+          // value IS a filed place's whole name — makes
+          // the pick; a standing pick is re-marked under
+          // its new id (ids are minted per fetch); a pick
+          // these groups no longer carry loses its row.
+          const idByPlace = new Map(
+            [...places.entries()].map(([id, place]) => [place, id] as const),
+          );
+          let marked = false;
+          for (const place of places.values()) {
+            if (placeNormOf(place) === placeNormOf(typed)) {
+              pickedPlaceRef.current = place;
+              setPickedPlace(place);
+              setPickedId(idByPlace.get(place) ?? null);
+              revealPendingRef.current = true;
+              marked = true;
+              break;
+            }
+          }
+          if (!marked) {
+            const standing = pickedPlaceRef.current;
+            setPickedId(standing ? (idByPlace.get(standing) ?? null) : null);
+          }
         } catch {
           if (seq !== suggestSeqRef.current) return;
           setLiveGroups([]);
@@ -210,7 +310,23 @@ export default function PostcodeBox({
       })();
     }, 140);
     return () => clearTimeout(timer);
-  }, [value, suggestions]);
+  }, [value, suggestions, revealTick]);
+
+  // The reveal (founder fix batch): when the picked
+  // place's district group lands in the panel, scroll it
+  // into view within the panel's region — the districts
+  // sat below the dropdown's fold and the pick read as a
+  // dead click. "nearest" leaves an already-visible group
+  // (and the page) untouched.
+  useEffect(() => {
+    if (!revealPendingRef.current || !pickedPlace) return;
+    const group = document.querySelector(
+      '#postcode-suggestions [data-group-label^="Districts in"]',
+    );
+    if (!group) return;
+    revealPendingRef.current = false;
+    group.scrollIntoView({ block: "nearest" });
+  }, [liveGroups, pickedPlace]);
 
   // Keep the keyboard's active row in view (D71
   // amendment): on a full postcode's complete list the
@@ -223,6 +339,25 @@ export default function PostcodeBox({
     document.getElementById(activeId)?.scrollIntoView({ block: "nearest" });
   }, [activeId]);
 
+  // The place pick, one behaviour wherever it starts
+  // (founder fix batch): file the filed name into the
+  // field, mark it picked, keep the panel open on the
+  // place's districts. Where the value is not changing
+  // (the field already holds the name — a submit pressed
+  // on it), the suggest effect is re-run through the
+  // reveal tick: no value change means no effect run, and
+  // the reveal must not depend on one.
+  function revealPlace(place: string) {
+    markPicked(place);
+    revealPendingRef.current = true;
+    setPanelOpen(true);
+    if (value === place) {
+      setRevealTick((tick) => tick + 1);
+    } else {
+      setValue(place);
+    }
+  }
+
   function choose(item: SuggestionItem) {
     if (choosingRef.current) return;
     // A Places pick (M7.15D) expands in place: file the
@@ -233,9 +368,9 @@ export default function PostcodeBox({
     // visitor's next pick (a district) still has to land.
     const place = placeByIdRef.current.get(item.id);
     if (place) {
-      setValue(place);
+      revealPlace(place);
+      setPickedId(item.id);
       setActiveId(null);
-      setPanelOpen(true);
       return;
     }
     const href = hrefByIdRef.current.get(item.id);
@@ -327,13 +462,58 @@ export default function PostcodeBox({
     });
   }
 
+  // The submit's place check (founder fix batch): the
+  // field holding exactly a known place name is a place
+  // pick, never a search — the panel stays, the districts
+  // reveal, and nothing navigates (the founder's
+  // twice-reported landing on the failure page from a
+  // place name ends here, and the serve layer answers the
+  // same input the same way for arrivals that bypass this
+  // box). The current panel's places answer first; a
+  // stale or absent panel is settled with one fresh
+  // suggest fetch. Exact equality only — a near-match is
+  // never silently applied.
+  async function exactPlaceFor(typed: string): Promise<string | null> {
+    const norm = placeNormOf(typed);
+    if (norm.length === 0) return null;
+    for (const place of placeByIdRef.current.values()) {
+      if (placeNormOf(place) === norm) return place;
+    }
+    try {
+      const response = await fetch(`/api/suggest?q=${encodeURIComponent(typed.trim())}`);
+      if (!response.ok) return null;
+      const data = (await response.json()) as {
+        groups?: { items: { place?: string }[] }[];
+      };
+      for (const group of data.groups ?? []) {
+        for (const item of group.items) {
+          if (item.place && placeNormOf(item.place) === norm) return item.place;
+        }
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  }
+
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy) return;
     setBlockMessage(null);
-    setBusy(true);
     const input = new FormData(event.currentTarget).get("postcode");
     const typed = typeof input === "string" ? input : "";
+
+    // A place name in the field is the place pick: it
+    // runs before the robot check (which stays on the
+    // search path only, exactly as ruled for picks) and
+    // never reaches the resolve call at all.
+    const place = await exactPlaceFor(typed);
+    if (place) {
+      revealPlace(place);
+      return;
+    }
+
+    setBusy(true);
 
     let token: string;
     try {
@@ -357,7 +537,7 @@ export default function PostcodeBox({
     } catch {
       // The serve layer itself is unreachable — the
       // whole-check failure state (fold-in 10).
-      window.location.assign(FAILED_ROUTE);
+      window.location.assign(failedRouteFor(typed));
       return;
     }
 
@@ -369,11 +549,11 @@ export default function PostcodeBox({
       return;
     }
     if (!response.ok) {
-      window.location.assign(FAILED_ROUTE);
+      window.location.assign(failedRouteFor(typed));
       return;
     }
     const data = (await response.json()) as { destination?: string };
-    window.location.assign(data.destination ?? FAILED_ROUTE);
+    window.location.assign(data.destination ?? failedRouteFor(typed));
   }
 
   const describedBy = bare
@@ -383,6 +563,17 @@ export default function PostcodeBox({
     : blockMessage
       ? "postcode-hint postcode-message"
       : "postcode-hint";
+
+  function onFieldChange(event: { target: { value: string } }) {
+    const next = event.target.value;
+    setValue(next);
+    // Editing away from the picked name retires the pick:
+    // its selected state belongs to the name in the field.
+    if (pickedPlace && placeNormOf(next) !== placeNormOf(pickedPlace)) {
+      markPicked(null);
+      revealPendingRef.current = false;
+    }
+  }
 
   return (
     <form className={bare ? "postcode-box postcode-box--bare" : "postcode-box"} onSubmit={onSubmit}>
@@ -400,11 +591,11 @@ export default function PostcodeBox({
             className="field__input"
             id="postcode"
             name="postcode"
-            placeholder={bare ? POSTCODE_BOX_PLACEHOLDER_BARE : "SW1A 1AA"}
+            placeholder={POSTCODE_BOX_PLACEHOLDER}
             autoComplete="postal-code"
             autoFocus={autoFocus}
             value={value}
-            onChange={(event) => setValue(event.target.value)}
+            onChange={onFieldChange}
             onKeyDown={onFieldKeyDown}
             onBlur={() => setPanelOpen(false)}
             role="combobox"
@@ -439,6 +630,7 @@ export default function PostcodeBox({
             id="postcode-suggestions"
             groups={visibleGroups}
             activeId={activeId}
+            pickedId={pickedId}
             onSelect={choose}
           />
         )

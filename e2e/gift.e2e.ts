@@ -1,7 +1,7 @@
 import { expect, test } from "./fixtures";
 
 // The Check Together claim flow (plan step M7.13,
-// decision D21; Master views 17–23) against the SERVED
+// decision D21; Master views 17–27) against the SERVED
 // app + the seeded gift fixtures (scripts/seed-golden.mjs
 // section 4 — the token literals below are duplicated
 // there; change both together).
@@ -78,6 +78,29 @@ test.describe("Check Together claim flow — regression", () => {
   );
 
   test(
+    "a mistyped email: the entry stands in the field under the error line — and a corrected submit proceeds as before (view 18)",
+    { tag: "@regression" },
+    async ({ page }) => {
+      await page.goto(`/gift/${ISSUED_TWO}`);
+      await page.getByLabel("Your email address").fill("name@exampl");
+      await page.getByRole("button", { name: "Claim my free report" }).click();
+      await expect(page.getByText("Enter an email address, like you@example.co.uk")).toBeVisible();
+      // The sample's state: the bad entry stands in the
+      // field, ready to correct — it rode the one-shot
+      // entry cookie, never the URL.
+      await expect(page.getByLabel("Your email address")).toHaveValue("name@exampl");
+      expect(page.url()).not.toContain("name@exampl");
+      // Correct the entry and submit: the flow proceeds
+      // exactly as it does from a clean form.
+      await page.getByLabel("Your email address").fill(CLAIMANT);
+      await page.getByRole("button", { name: "Claim my free report" }).click();
+      await expect(
+        page.getByRole("heading", { name: "Check your email to finish claiming" }),
+      ).toBeVisible();
+    },
+  );
+
+  test(
     "the happy path: claim, confirm by email, land on the dedicated claimed page",
     { tag: "@regression" },
     async ({ page }) => {
@@ -88,6 +111,11 @@ test.describe("Check Together claim flow — regression", () => {
         page.getByRole("heading", { name: "Check your email to finish claiming" }),
       ).toBeVisible();
       await expect(page.getByText(CLAIMANT)).toBeVisible();
+      // View 20's own furniture: the form stands
+      // pre-filled with the address the link went to,
+      // under the sample's "Send a fresh link" button.
+      await expect(page.getByLabel("Your email address")).toHaveValue(CLAIMANT);
+      await expect(page.getByRole("button", { name: "Send a fresh link" })).toBeVisible();
 
       // Nothing is claimed yet: the link alone, reopened,
       // still offers the claim (the binding is the click).
@@ -136,7 +164,7 @@ test.describe("Check Together claim flow — regression", () => {
   );
 
   test(
-    "a seeded claimed gift serves the Text 3 guard at once (view 20)",
+    "a seeded claimed gift serves the Text 3 guard at once (view 24)",
     { tag: "@regression" },
     async ({ page }) => {
       await page.goto(`/gift/${CLAIMED}`);
@@ -151,7 +179,7 @@ test.describe("Check Together claim flow — regression", () => {
   );
 
   test(
-    "(d) a redeemed gift serves Text 2 and no claim form (view 21)",
+    "(d) a redeemed gift serves Text 2 and no claim form (view 25)",
     { tag: "@regression" },
     async ({ page }) => {
       await page.goto(`/gift/${REDEEMED}`);
@@ -168,7 +196,7 @@ test.describe("Check Together claim flow — regression", () => {
   );
 
   test(
-    "(j) an expired gift serves Text 1 and no claim form — claimed-but-unused dies at day 30 too (view 22)",
+    "(j) an expired gift serves Text 1 and no claim form — claimed-but-unused dies at day 30 too (view 26)",
     { tag: "@regression" },
     async ({ page }) => {
       await page.goto(`/gift/${EXPIRED}`);
@@ -185,7 +213,7 @@ test.describe("Check Together claim flow — regression", () => {
   );
 
   test(
-    "a made-up link, the sample's mock slug, and bare /gift all serve the plain not-recognised page (view 23)",
+    "a made-up link, the sample's mock slug, and bare /gift all serve the plain not-recognised page (view 27)",
     { tag: "@regression" },
     async ({ page }) => {
       for (const path of [

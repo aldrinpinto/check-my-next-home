@@ -1,7 +1,13 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 
 import { GiftClaimCard, GiftClosedCard, GiftPageShell } from "../../../components/GiftClaimPage";
-import { giftClaimPageView, isGiftTokenForm, type GiftRecord } from "../../../lib/gift";
+import {
+  GIFT_ENTRY_COOKIE_NAME,
+  giftClaimPageView,
+  isGiftTokenForm,
+  type GiftRecord,
+} from "../../../lib/gift";
 import { pageMetadata } from "../../../lib/seo";
 import { getDbPool } from "../../../lib/server/db";
 import { createDbGiftStore } from "../../../lib/server/gifts";
@@ -66,11 +72,21 @@ export default async function GiftClaimRoute({
   const { token } = await params;
   const flags = await searchParams;
   const record = await recordFor(token);
+  // The entry flash is read only for the format-error
+  // presentation: the cookie the claim route set on its
+  // redirect, holding the address just typed, so the
+  // field stands pre-filled under the error line (view
+  // 18). It is read on no other presentation, never
+  // logged, and never counted — counting derives its
+  // route patterns from the pathname alone.
+  const entryEmail =
+    flags.error === "email" ? (await cookies()).get(GIFT_ENTRY_COOKIE_NAME)?.value : undefined;
   const view = giftClaimPageView(record, new Date(), {
     refusedSameEmail: flags.refused === "same-email",
     sent: flags.sent === "1",
     sendFailed: flags.sendfailed === "1",
     emailError: flags.error === "email",
+    entryEmail,
   });
 
   return (
@@ -83,6 +99,7 @@ export default async function GiftClaimRoute({
           variant={view.variant}
           pendingEmail={view.pendingEmail}
           emailError={view.emailError}
+          entryEmail={view.entryEmail}
           sendFailed={view.sendFailed}
         />
       )}

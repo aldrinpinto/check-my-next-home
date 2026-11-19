@@ -99,7 +99,10 @@ test.describe("home page — regression", () => {
       await expect(page.locator(".postcode-box .visually-hidden")).toHaveText(
         "Postcode or address",
       );
-      await expect(box).toHaveAttribute("placeholder", "Enter a postcode — e.g. SW1A 1AA");
+      await expect(box).toHaveAttribute(
+        "placeholder",
+        "Enter a postcode, street or town — e.g. SW1A 1AA",
+      );
       await expect(page.getByRole("button", { name: "Check this home" })).toBeVisible();
 
       // The box itself still does no tidying or validation:

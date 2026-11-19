@@ -1,0 +1,379 @@
+<!doctype html>
+<!--
+  The single error page, Cloudflare form (error-page build, 19 Nov 2026).
+
+  This is the static twin of the site's single error page (Final Sample
+  Master view 26; the product page is components/ErrorPage.tsx). It
+  exists for the one failure the origin cannot serve a page for: when
+  the server itself does not answer, Cloudflare serves THIS file
+  instead of its own default error screen, so the visitor still meets
+  the same headline, the same line and the same chrome.
+
+  Two deliberate differences from the product page:
+    - The search box is a "Try again" button that reloads the page the
+      visitor asked for. When this file is being served the origin is
+      down, so a live search box could not work; reloading the request
+      is the honest way forward, and it lands on the real page (search
+      box included) as soon as the origin answers again.
+    - Everything is in this one file — styles inline, links absolute —
+      because nothing may be fetched from the origin while it is down.
+      Type falls back to Georgia/system stacks for the same reason:
+      the site's self-hosted faces live on the origin.
+
+  FOUNDER INSTALL (not done by the build): Cloudflare dashboard →
+  the checkmynexthome.co.uk zone → Custom Pages (or the plan's error-
+  page setting for 5xx) → use this file's contents as the custom
+  error page. Keep the product page and this file in step: the copy
+  constants live in lib/journey.ts (ERROR_PAGE_*).
+-->
+<html lang="en-GB">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Check My Next Home</title>
+    <style>
+      :root {
+        --forest: #2f5d3e;
+        --deep: #1e402c;
+        --brass: #c29a3b;
+        --brass-dark: #a9852f;
+        --brass-pale: #e4cf9a;
+        --cream: #fdf8e8;
+        --ink: #23281f;
+        --ink-soft: #4a4f45;
+        --serif: "Newsreader", Georgia, "Times New Roman", serif;
+        --sans: "DM Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family: var(--sans);
+        color: var(--ink);
+        background: #fff;
+      }
+      .site-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px 18px;
+        flex-wrap: wrap;
+        padding: 14px 26px;
+        background: #fff;
+        border-bottom: 1px solid var(--brass-pale);
+        box-shadow: 0 1px 5px rgba(30, 64, 44, 0.08);
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 11px;
+        text-decoration: none;
+        color: var(--ink);
+      }
+      .brand svg {
+        flex: none;
+        display: block;
+      }
+      .brand__name {
+        display: block;
+        font-family: var(--serif);
+        font-size: 1.42rem;
+        font-weight: 700;
+        line-height: 1.05;
+        color: var(--deep);
+      }
+      .brand__tag {
+        display: block;
+        font-size: 0.68rem;
+        font-weight: 700;
+        color: var(--brass);
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        margin-top: 3px;
+      }
+      .site-nav {
+        display: flex;
+        gap: 4px 20px;
+        align-items: center;
+        flex-wrap: wrap;
+        font-size: 0.9rem;
+        font-weight: 600;
+        color: var(--forest);
+      }
+      .site-nav a {
+        color: var(--forest);
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        min-height: 44px;
+        padding: 4px 2px;
+      }
+      .site-nav a:hover {
+        text-decoration: underline;
+        text-decoration-thickness: 2px;
+      }
+      .site-main {
+        background: #fff;
+      }
+      .content {
+        max-width: 750px;
+        margin: 0 auto;
+        padding: 64px 28px 76px;
+      }
+      .mark {
+        width: 58px;
+        height: 58px;
+        border-radius: 50%;
+        background: var(--cream);
+        border: 1px solid var(--brass-pale);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0 0 26px;
+      }
+      h1.page-title {
+        font-family: var(--serif);
+        font-weight: 600;
+        font-size: clamp(32px, 4.6vw, 42px);
+        line-height: 1.14;
+        color: var(--deep);
+        margin: 0 0 18px;
+        letter-spacing: -0.01em;
+        max-width: 16em;
+      }
+      .lede {
+        font-size: 17.5px;
+        line-height: 1.65;
+        color: #2e332a;
+        margin: 0 0 34px;
+        max-width: 56ch;
+      }
+      .try-again {
+        appearance: none;
+        border: 0;
+        cursor: pointer;
+        background: var(--brass);
+        color: #fff;
+        font: inherit;
+        font-size: 16.5px;
+        font-weight: 700;
+        padding: 14px 30px;
+        border-radius: 9px;
+        min-height: 52px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 9px;
+        transition: background 0.15s ease;
+      }
+      .try-again:hover {
+        background: var(--brass-dark);
+      }
+      .try-again:focus-visible,
+      a:focus-visible {
+        outline: 3px solid var(--forest);
+        outline-offset: 2px;
+      }
+      .closing-line {
+        font-size: 15px;
+        line-height: 1.6;
+        color: var(--ink-soft);
+        margin: 30px 0 0;
+      }
+      .closing-line a {
+        font-weight: 600;
+        color: var(--forest);
+      }
+      .site-footer {
+        background: var(--deep);
+        color: var(--brass-pale);
+        padding: 26px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        font-size: 0.8rem;
+      }
+      .site-footer__top {
+        display: flex;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 14px 22px;
+        align-items: flex-start;
+        width: 100%;
+      }
+      .site-footer__small {
+        margin: 0;
+        align-self: flex-end;
+        text-align: right;
+        font-size: 0.68rem;
+        color: #b9cdbf;
+      }
+      .site-footer .brand__name {
+        color: var(--cream);
+      }
+      .site-footer .brand__tag {
+        color: var(--brass);
+      }
+      .site-footer__links {
+        display: flex;
+        gap: 6px 10px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      .site-footer__links a {
+        color: var(--brass-pale);
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        min-height: 36px;
+      }
+      .site-footer__links a:hover {
+        color: var(--cream);
+        text-decoration: underline;
+      }
+      @media (max-width: 640px) {
+        .site-header {
+          padding: 12px 16px;
+        }
+        .site-footer {
+          padding: 22px 16px;
+        }
+        .content {
+          padding: 44px 20px 56px;
+        }
+        .try-again {
+          width: 100%;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="https://checkmynexthome.co.uk/" aria-label="Check My Next Home — home">
+        <svg width="52" height="40" viewBox="0 0 49 38" aria-hidden="true">
+          <path
+            d="M5 29 L19 13 L29 22"
+            fill="none"
+            stroke="#2F5D3E"
+            stroke-width="4.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+          <path
+            d="M29 22 L34.5 27.5 L44 9"
+            fill="none"
+            stroke="#C29A3B"
+            stroke-width="4.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+          <path
+            d="M19 24 V31"
+            fill="none"
+            stroke="#2F5D3E"
+            stroke-width="4.5"
+            stroke-linecap="round"
+          />
+        </svg>
+        <span>
+          <span class="brand__name">Check My Next Home</span>
+          <span class="brand__tag">Check the house. Choose the home.</span>
+        </span>
+      </a>
+      <nav class="site-nav" aria-label="Primary">
+        <a href="https://checkmynexthome.co.uk/how-we-check">How we check</a>
+        <a href="https://checkmynexthome.co.uk/sample-report">Sample report</a>
+        <a href="https://checkmynexthome.co.uk/about">About</a>
+        <a href="https://checkmynexthome.co.uk/shortlist">Shortlist</a>
+        <a href="https://checkmynexthome.co.uk/contact">Contact</a>
+      </nav>
+    </header>
+
+    <div class="site-main">
+      <div class="content">
+        <div class="mark" aria-hidden="true">
+          <svg width="30" height="24" viewBox="0 0 34 26" fill="none">
+            <path
+              d="M3 12.5 L17 3 L31 12.5"
+              stroke="#2F5D3E"
+              stroke-width="3"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+            <path d="M12 21.5 h10" stroke="#C29A3B" stroke-width="3" stroke-linecap="round" />
+          </svg>
+        </div>
+        <h1 class="page-title">Well — that wasn't supposed to happen</h1>
+        <p class="lede">
+          Something on our side stumbled. Give it a few seconds, then search below — most hiccups
+          clear on the second try.
+        </p>
+
+        <p>
+          <button type="button" class="try-again" id="try-again">Try again</button>
+        </p>
+
+        <p class="closing-line">
+          If it keeps happening, let us know via the
+          <a href="https://checkmynexthome.co.uk/contact">Contact page</a> and we'll look into it.
+        </p>
+      </div>
+    </div>
+
+    <footer class="site-footer">
+      <div class="site-footer__top">
+        <span class="brand">
+          <svg width="52" height="40" viewBox="0 0 49 38" aria-hidden="true">
+            <path
+              d="M5 29 L19 13 L29 22"
+              fill="none"
+              stroke="#FDF8E8"
+              stroke-width="4.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+            <path
+              d="M29 22 L34.5 27.5 L44 9"
+              fill="none"
+              stroke="#E4CF9A"
+              stroke-width="4.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+            <path
+              d="M19 24 V31"
+              fill="none"
+              stroke="#FDF8E8"
+              stroke-width="4.5"
+              stroke-linecap="round"
+            />
+          </svg>
+          <span>
+            <span class="brand__name">Check My Next Home</span>
+            <span class="brand__tag">Check the house. Choose the home.</span>
+          </span>
+        </span>
+        <nav class="site-footer__links" aria-label="Footer">
+          <a href="https://checkmynexthome.co.uk/how-we-check">How we check</a> ·
+          <a href="https://checkmynexthome.co.uk/sample-report">Sample report</a> ·
+          <a href="https://checkmynexthome.co.uk/about">About</a> ·
+          <a href="https://checkmynexthome.co.uk/guides">Guides</a> ·
+          <a href="https://checkmynexthome.co.uk/contact">Contact</a> ·
+          <a href="https://checkmynexthome.co.uk/privacy">Privacy policy</a>
+        </nav>
+      </div>
+      <p class="site-footer__small">Data from named official sources. Facts, not scores.</p>
+    </footer>
+
+    <script>
+      // Try again re-asks for the very page the visitor wanted: the
+      // browser's current address IS that page, so a reload is the
+      // retry. Bound with addEventListener — no inline handlers.
+      document.getElementById("try-again").addEventListener("click", function () {
+        window.location.reload();
+      });
+    </script>
+  </body>
+</html>

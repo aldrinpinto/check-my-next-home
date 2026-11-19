@@ -12,6 +12,7 @@ import {
 import {
   MEDIAN_EXPLAINER,
   NO_SALE_RECORDED_LINE,
+  SoldPricesLoadPendingError,
   buildSoldPricesBundle,
   createSoldPricesSource,
   type SoldPriceRow,
@@ -763,6 +764,121 @@ describe("sold prices — small samples and the category rules (synthetic rows)"
     expect(serialised).not.toContain("category");
     expect(serialised.toLowerCase()).not.toContain("additional entry");
   });
+});
+
+describe("sold prices — the cold load is bounded (the area-part hang fix, 19 Nov 2026)", () => {
+  // The regression these tests exist for: the loader streams
+  // the whole 5.54 GB Price Paid file per cold postcode
+  // (~8 minutes measured on the play server), and the source
+  // used to await the child to completion — so the first
+  // check of any unfiled postcode held the checking screen's
+  // area part open for the whole stream, and every concurrent
+  // caller spawned its own stream. The stub loaders below
+  // stand in for the stream with a sleep: long enough to
+  // prove the caller's wait no longer depends on it.
+  function stubLoader(dir: string, sleepMs: number) {
+    const stub = join(dir, "load-sold-prices.mjs");
+    writeFileSync(
+      stub,
+      [
+        'import { appendFileSync } from "node:fs";',
+        'appendFileSync(process.env.STUB_COUNT_PATH ?? "", "x");',
+        `await new Promise((resolve) => setTimeout(resolve, ${sleepMs}));`,
+        'console.log("load-sold-prices · edition 2026-10-28 · 0 sales · golden homes OK · 0s");',
+        "",
+      ].join("\n"),
+    );
+    return stub;
+  }
+
+  function stampDb() {
+    let stamp: string | null = null;
+    const db = {
+      async query(text: string, params?: unknown[]) {
+        if (text.includes("UPDATE postcode_cache")) {
+          stamp = params?.[1] as string;
+          return { rows: [{ postcode: params?.[0] as string }] };
+        }
+        if (text.includes("FROM price_paid")) return { rows: [] };
+        if (text.includes("soldPricesLoad"))
+          return {
+            rows: [{ edition: stamp ? (JSON.parse(stamp).edition as string) : null }],
+          };
+        throw new Error(`unexpected query: ${text}`);
+      },
+    };
+    return { db, readStamp: () => stamp };
+  }
+
+  async function waitFor(condition: () => boolean, timeoutMs: number) {
+    const deadline = Date.now() + timeoutMs;
+    while (!condition()) {
+      if (Date.now() > deadline) throw new Error("condition not met in time");
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  }
+
+  it("never holds a caller for the stream: the wait expires, the load files behind it, the next check serves", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "m715-bounded-load-"));
+    const countFile = join(dir, "count.txt");
+    process.env.STUB_COUNT_PATH = countFile;
+    writeFileSync(countFile, "");
+    const stub = stubLoader(dir, 1500);
+    const { db, readStamp } = stampDb();
+    const source = createSoldPricesSource(db, {
+      loaderPath: stub,
+      databaseUrl: "postgresql://stub.invalid/db",
+      loadWaitMs: 200,
+    });
+
+    // The first check of the cold postcode is told the load
+    // is still running — promptly, not after the stream.
+    const startedAt = Date.now();
+    await expect(buildSoldPricesBundle(rung2Resolution("ZZ1 1AA"), source)).rejects.toBeInstanceOf(
+      SoldPricesLoadPendingError,
+    );
+    expect(Date.now() - startedAt).toBeLessThan(1200);
+
+    // The load itself was NOT cancelled: it files behind
+    // the caller and stamps the postcode, exactly as a
+    // completed load always did.
+    await waitFor(() => readStamp() !== null, 10_000);
+    expect(JSON.parse(readStamp() ?? "{}").edition).toBe(FIXTURE_EDITION);
+    expect(readFileSync(countFile, "utf8")).toBe("x");
+
+    // The next check serves from the stamp — the honest
+    // loaded-none state — without spawning the loader again.
+    const bundle = await buildSoldPricesBundle(rung2Resolution("ZZ1 1AA"), source);
+    if (bundle.kind !== "sold-prices") throw new Error("expected sold-prices");
+    expect(bundle.loadState).toBe("loaded-none");
+    expect(bundle.edition).toBe(FIXTURE_EDITION);
+    expect(readFileSync(countFile, "utf8")).toBe("x");
+  }, 20_000);
+
+  it("runs one stream per postcode however many callers arrive together", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "m715-single-flight-"));
+    const countFile = join(dir, "count.txt");
+    process.env.STUB_COUNT_PATH = countFile;
+    writeFileSync(countFile, "");
+    const stub = stubLoader(dir, 1200);
+    const { db, readStamp } = stampDb();
+    // Two source instances, as the serve layer builds per
+    // request: the part call and the results derivation
+    // meeting at one cold postcode must share the one run.
+    const first = createSoldPricesSource(db, {
+      loaderPath: stub,
+      databaseUrl: "postgresql://stub.invalid/db",
+      loadWaitMs: 5_000,
+    });
+    const second = createSoldPricesSource(db, {
+      loaderPath: stub,
+      databaseUrl: "postgresql://stub.invalid/db",
+      loadWaitMs: 5_000,
+    });
+    await Promise.all([first.loadPostcode("ZZ1 1AB"), second.loadPostcode("ZZ1 1AB")]);
+    expect(readFileSync(countFile, "utf8")).toBe("x");
+    expect(JSON.parse(readStamp() ?? "{}").edition).toBe(FIXTURE_EDITION);
+  }, 20_000);
 });
 
 describe("sold prices — wording (D23's banned-wording scan)", () => {

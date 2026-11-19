@@ -23,16 +23,14 @@ import {
 import { buildAreaBundle, createAreaSource } from "../area-bundle";
 import { createCachedBrains, homeKeyOf } from "../bundle-cache";
 import { buildCrimeBundle, createCrimeSource } from "../crime";
-import {
-  buildDistrictBundle,
-  createDistrictSource,
-  createDistrictWarningSource,
-} from "../district";
+import { createDistrictSource, createDistrictWarningSource } from "../district";
+import { buildDistrictBundleCached, createDistrictCache } from "../district-cache";
 import { buildFloodBundle, createFloodSource } from "../flood";
 import { buildNearbyBundle, createNearbySource } from "../nearby";
 import { buildShortBundle } from "../short-bundle";
 import {
   journeyDestination,
+  placeLandingRoute,
   type JourneyDestination,
   nationOfLsoa,
   isNotCoveredNation,
@@ -42,6 +40,7 @@ import { getDbPool } from "./db";
 import { logEntry } from "./entry-log";
 import { pickerList, promotionKeyFor, type PickerRow } from "./hybrid";
 import { createPickingIndexSource } from "./picking-index";
+import { createPlaceSource, placeNormOf } from "./places";
 import { getPostioClient } from "./postio";
 import { createDbResolveRecordStore, isResolveToken } from "./resolve-records";
 
@@ -50,6 +49,33 @@ import { createDbResolveRecordStore, isResolveToken } from "./resolve-records";
 // (rung 3 with a postcode) from "typed an outward code"
 // (rung 3 without one) — fold-in 2's not-found line depends
 // on the distinction.
+// The bare-place-name route (founder fix batch, 19 Nov
+// 2026): where an input the ladder cannot place exactly
+// names a known place — exact normalised equality with a
+// filed place that serves at least one district — the
+// graceful destination is the landing page carrying the
+// place's filed display name, whose search box files the
+// name and opens on the place's districts, exactly as
+// the in-dropdown place pick behaves. Anything else
+// answers null and the caller takes its ordinary
+// unplaced path. Exact matches only: the fuzzy tier is
+// choices-only (the places read model's own rule) and is
+// never applied silently to a submitted input. A place
+// name is never served the bare failure page.
+export async function placeLandingUrl(raw: string): Promise<string | null> {
+  const typed = classifyAddressInput(raw);
+  // Only a bare name can be a place pick: an input
+  // carrying a postcode or an outward code has its own
+  // ladder answer, and a multi-part address string is
+  // not a place name.
+  if (typed.postcode || typed.outward) return null;
+  const norm = placeNormOf(raw);
+  if (norm.length === 0) return null;
+  const place = await createPlaceSource(getDbPool()).placeByNorm(norm);
+  if (!place || place.districts.length === 0) return null;
+  return placeLandingRoute(place.place);
+}
+
 export async function resolveTypedInput(raw: string): Promise<{
   resolution: AddressResolution;
   destination: JourneyDestination;
@@ -59,6 +85,16 @@ export async function resolveTypedInput(raw: string): Promise<{
   const resolution = await resolveAddressInput(raw, source);
   const typed = classifyAddressInput(raw);
   const homeKey = resolution.rung === 1 ? homeKeyOf(resolution) : null;
+  if (resolution.rung === 4) {
+    // A bare place name submitted as a search (founder
+    // fix batch): the place route above, never the
+    // unplaced notice — the input CAN be placed, as a
+    // place.
+    const placeUrl = await placeLandingUrl(raw);
+    if (placeUrl) {
+      return { resolution, destination: { kind: "place", url: placeUrl } };
+    }
+  }
   return {
     resolution,
     destination: journeyDestination(resolution, { postcode: typed.postcode }, homeKey),
@@ -315,14 +351,20 @@ export async function checkResultsWider(resolution: AddressResolution) {
 // 2026): the short bundle (unchanged — it still feeds the
 // rung-3 shortlist card) plus the district bundle built
 // from the district's filed rows, with the live-warnings
-// source wired in for the flood roll-up.
+// source wired in for the flood roll-up. Founder fix
+// batch, 19 Nov 2026: the district bundle now serves
+// through its D29-pattern cache (lib/district-cache.ts)
+// — a repeat view of a district is near-instant, and the
+// live warnings are still composed fresh on every serve.
 export async function checkDistrictWider(resolution: AddressResolution) {
   const { short } = await checkResultsWider(resolution);
   if (resolution.rung !== 3)
     throw new Error(`district derivation: unexpected rung ${resolution.rung}`);
-  const district = await buildDistrictBundle(
+  const db = getDbPool();
+  const district = await buildDistrictBundleCached(
     resolution.outward,
-    createDistrictSource(getDbPool()),
+    createDistrictSource(db),
+    createDistrictCache(db),
     { warningSource: createDistrictWarningSource() },
   );
   return { short, district };

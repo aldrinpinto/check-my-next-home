@@ -108,6 +108,20 @@ export const UNPLACED_NOTICE_PARAM = "notice";
 export const UNPLACED_NOTICE_VALUE = "unplaced";
 export const UNPLACED_NOTICE_URL = `/?${UNPLACED_NOTICE_PARAM}=${UNPLACED_NOTICE_VALUE}`;
 
+// The place landing (founder fix batch, 19 Nov 2026): an
+// input that exactly names a known place is a place pick,
+// wherever it arrives — the landing page with the place
+// name in its query; the landing files the name into its
+// search box, whose panel opens on the place's districts,
+// exactly as the in-dropdown pick behaves. A place name
+// is never an unplaced input and never a failure.
+export const PLACE_LANDING_PARAM = "place";
+
+export function placeLandingRoute(placeDisplay: string): string {
+  const params = new URLSearchParams({ [PLACE_LANDING_PARAM]: placeDisplay });
+  return `/?${params.toString()}`;
+}
+
 export function postcodeRoute(
   postcode: string,
   narrowing?: { street?: string | null; building?: string | null; picked?: string | null },
@@ -173,7 +187,13 @@ export type JourneyDestination =
   | { kind: "postcode-results"; url: string }
   | { kind: "not-covered"; url: string }
   | { kind: "wider-area"; url: string }
-  | { kind: "no-location"; url: string };
+  | { kind: "no-location"; url: string }
+  // A bare input that exactly names a known place
+  // (founder fix batch): the serve layer substitutes
+  // this destination for the rung-4 no-location one when
+  // the place check succeeds — journeyDestination itself
+  // stays resolution-driven and never returns it.
+  | { kind: "place"; url: string };
 
 export function journeyDestination(
   resolution: AddressResolution,
@@ -452,13 +472,26 @@ export function notCoveredSectionLines(bundles: {
   return out;
 }
 
-// The whole-check failure state (D44(7)) — plain wording, a
-// retry, and the sample-report route.
-export const WHOLE_CHECK_FAILURE_HEADING = "This check couldn't be completed";
-export const WHOLE_CHECK_FAILURE_LINE =
-  "Something went wrong at our end. Trying again usually fixes it — or take a look at a finished example instead.";
-export const WHOLE_CHECK_FAILURE_RETRY = "Try again";
-export const WHOLE_CHECK_FAILURE_SAMPLE = "See a SAMPLE report";
+// The single error page (Final Sample Master view 26;
+// founder ruling 19 Nov 2026): ONE face for every
+// visitor-facing failure — a check that could not be
+// completed (the D44(7) whole-check failure state, whose
+// earlier wording this copy retires), an unmatched route,
+// a route error. The failure kinds stay distinct in the
+// counting (D45's page_error classes); only the face is
+// one. No error codes, no technical words. The page's way
+// forward is the search box itself: where the attempted
+// postcode or address is known it arrives kept in the
+// box, under the kept note; the closing line is the
+// Contact fallback.
+export const ERROR_PAGE_HEADING = "Well — that wasn't supposed to happen";
+export const ERROR_PAGE_LINE =
+  "Something on our side stumbled. Give it a few seconds, then search below — most hiccups clear on the second try.";
+export const ERROR_PAGE_KEPT_NOTE =
+  "We've kept the home you were checking in the box — just press the button to run it again, or type a different home.";
+export const ERROR_PAGE_CLOSING_BEFORE = "If it keeps happening, let us know via the";
+export const ERROR_PAGE_CLOSING_LINK = "Contact page";
+export const ERROR_PAGE_CLOSING_AFTER = "and we'll look into it.";
 
 // The robot check (ruling 5): a failed or unavailable
 // Turnstile blocks the search with a friendly retry — never

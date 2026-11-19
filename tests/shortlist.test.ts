@@ -802,7 +802,10 @@ describe("the sample-parity forms (views 14–16)", () => {
     expect(island).toContain('className="shortlist-search-form"');
     expect(island).toContain('action="/search"');
     expect(island).toContain('name="postcode"');
-    expect(island).toContain('placeholder="Enter a postcode — e.g. SW1A 1AA"');
+    // The field carries the one shared placeholder
+    // constant (founder ruling, 19 Nov 2026); its text is
+    // pinned in tests/home-page.test.ts.
+    expect(island).toContain("placeholder={POSTCODE_BOX_PLACEHOLDER}");
     expect(island).toContain("Check this home");
     // The card sits in the empty branch: it is written
     // after the empty section opens and before the ready

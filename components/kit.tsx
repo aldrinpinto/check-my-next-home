@@ -145,18 +145,25 @@ export function SuggestionShell({
   groups,
   id,
   activeId,
+  pickedId,
   onSelect,
 }: {
   groups: SuggestionGroup[];
   id?: string;
   activeId?: string | null;
+  // The picked place's item id (founder fix batch,
+  // 19 Nov 2026): a Places pick does not navigate, so its
+  // row carries a clear selected state of its own —
+  // distinct from the keyboard's active row — while the
+  // panel shows the place's districts beneath it.
+  pickedId?: string | null;
   onSelect?: (item: SuggestionItem) => void;
 }) {
   if (groups.length === 0) return null;
   return (
     <div className="postcode-box__suggestions" id={id}>
       {groups.map((group) => (
-        <div className="suggest__group" key={group.label}>
+        <div className="suggest__group" key={group.label} data-group-label={group.label}>
           <p className="suggest__group-label">{group.label}</p>
           <ul className="suggest__list" role="listbox" aria-label={group.label}>
             {group.items.map((item) => {
@@ -175,14 +182,21 @@ export function SuggestionShell({
                 );
               }
               const active = activeId !== null && activeId !== undefined && item.id === activeId;
+              const picked = pickedId !== null && pickedId !== undefined && item.id === pickedId;
               return (
                 <li key={item.id}>
                   <button
                     type="button"
                     id={item.id}
-                    className={active ? "suggest__item suggest__item--active" : "suggest__item"}
+                    className={[
+                      "suggest__item",
+                      active ? "suggest__item--active" : "",
+                      picked ? "suggest__item--picked" : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
                     role="option"
-                    aria-selected={active}
+                    aria-selected={active || picked}
                     onMouseDown={(event) => {
                       // Choose on mousedown: it lands before
                       // the field's blur closes the panel.

@@ -93,6 +93,40 @@ test.describe("journey counting — regression", () => {
         const countPosts = (event: string, rung?: number) =>
           posts.filter((post) => post.event === event && (rung === undefined || post.rung === rung))
             .length;
+        // Arrival before counting (the scheduled
+        // Regression run 44512835240 follow-up, 19 Nov
+        // 2026): the counts below are a snapshot, and the
+        // journey's last event — comparison_opened, fired
+        // from an effect after the shortlist renders — can
+        // still be in flight at the moment the card
+        // assertion resolves, above all in the scheduled
+        // run's real-Turnstile form, whose runner load
+        // widens the gap (the identical spec and product
+        // code passed the full suite in the stub form,
+        // CI #236). The stored half below already polls
+        // for arrival; the posts half now does the same,
+        // then asserts exactly-once on the settled
+        // snapshot. A genuinely missing event fails this
+        // poll naming itself, not as a bare zero.
+        const expectedOnce: [string, number | undefined][] = [
+          ["check_started", 2],
+          ["check_started", 1],
+          ["check_completed", 2],
+          ["check_completed", 1],
+          ["shortlist_add", undefined],
+          ["report_clicked", undefined],
+          ["comparison_opened", undefined],
+        ];
+        await expect
+          .poll(
+            () =>
+              expectedOnce
+                .filter(([event, rung]) => countPosts(event, rung) < 1)
+                .map(([event, rung]) => (rung === undefined ? event : `${event} rung ${rung}`))
+                .join(", "),
+            { timeout: 20_000, intervals: [250] },
+          )
+          .toBe("");
         expect(countPosts("check_started", 2)).toBe(1);
         expect(countPosts("check_started", 1)).toBe(1);
         expect(countPosts("check_completed", 2)).toBe(1);

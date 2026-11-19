@@ -129,7 +129,7 @@ async function Results({
     results = await checkResults(resolution);
     view = buildResultsView({ resolution, ...results, homeKey });
   } catch {
-    return <WholeCheckFailure retryHref={homeRoute(postcode, homeKey)} />;
+    return <WholeCheckFailure initialValue={postcode} />;
   }
   // M7.5: the shortlist card record, rung 1 only (ruling 4
   // — rung 2 has no home to shortlist, and the not-covered
@@ -225,7 +225,7 @@ export default async function HomePage({
     }
     resolution = await resolutionForRoute(postcode, homeKey, req);
   } catch {
-    return <WholeCheckFailure retryHref={homeRoute(postcode, homeKey)} />;
+    return <WholeCheckFailure initialValue={postcode} />;
   }
   if (!resolution) {
     // A key the directory no longer holds: back to the
@@ -279,7 +279,7 @@ export default async function HomePage({
       results = await checkResults(resolution);
       view = buildResultsView({ resolution, ...results, homeKey });
     } catch {
-      return <WholeCheckFailure retryHref={homeRoute(postcode, homeKey)} />;
+      return <WholeCheckFailure initialValue={postcode} />;
     }
     const nation = nationOfLsoa(resolution.directory.lsoaCode);
     return (

@@ -20,7 +20,11 @@ import {
 } from "../../lib/journey";
 import { sectionsAndStatesOf } from "../../lib/journey-events";
 import { buildDistrictResultsView, buildWiderAreaView } from "../../lib/results";
-import { checkDistrictWider, resolutionForPostcodeRoute } from "../../lib/server/serve";
+import {
+  checkDistrictWider,
+  placeLandingUrl,
+  resolutionForPostcodeRoute,
+} from "../../lib/server/serve";
 import { buildShortlistCard } from "../../lib/shortlist-card";
 import { getDbPool } from "../../lib/server/db";
 import { createStreetSource, streetNormOf } from "../../lib/server/streets";
@@ -91,16 +95,23 @@ export default async function SearchPage({
     try {
       resolution = await resolveAddressInput(params.outward, createAddressSource(getDbPool()));
     } catch {
-      return <WholeCheckFailure />;
+      return <WholeCheckFailure initialValue={params.outward} />;
     }
     if (resolution.rung !== 3) {
       // Not a wider area: a full postcode that arrived in
       // the outward slot re-enters through the postcode
       // form (which re-decides its rung); anything
-      // unplaceable returns to the landing page with the
-      // unplaced notice (the retired no-location page's
-      // replacement, 18 Nov 2026).
-      if (resolution.rung === 4) redirect(UNPLACED_NOTICE_URL);
+      // unplaceable returns to the landing page — with
+      // one exception (founder fix batch, 19 Nov 2026):
+      // an input that exactly names a known place is not
+      // unplaceable, it is a place pick that arrived by
+      // URL, and it lands back on the landing page with
+      // the place filed and its districts revealed —
+      // never the unplaced notice, never a failure page.
+      if (resolution.rung === 4) {
+        const placeUrl = await placeLandingUrl(params.outward);
+        redirect(placeUrl ?? UNPLACED_NOTICE_URL);
+      }
       if (resolution.rung === 1)
         redirect(homeRoute(resolution.directory.postcode, homeKeyOf(resolution)));
       redirect(homeRoute(resolution.directory.postcode));
@@ -109,7 +120,7 @@ export default async function SearchPage({
     try {
       served = await checkDistrictWider(resolution);
     } catch {
-      return <WholeCheckFailure retryHref={widerAreaRoute(resolution.outward, params.notfound)} />;
+      return <WholeCheckFailure initialValue={resolution.outward} />;
     }
     const { short, district } = served;
     // M7.5: a wider-area result is shortlistable (D44) —
@@ -117,7 +128,13 @@ export default async function SearchPage({
     // under the scope label and counts toward the 3. The
     // record is assembled from this same derivation and
     // embedded in the control beside the scope label
-    // (fold-in 8).
+    // (fold-in 8). Founder fix batch, 19 Nov 2026: the
+    // control renders ONLY on the Scotland / NI
+    // not-covered branch below — the district page itself
+    // carries no shortlist control (the sample carries
+    // none, and the founder flagged it; the bridge is the
+    // district page's only forward path). The card still
+    // builds here because the not-covered branch uses it.
     const card = buildShortlistCard({ resolution, short });
     if (district.kind === "district") {
       // The district page (founder ruling, 18 Nov 2026):
@@ -135,27 +152,44 @@ export default async function SearchPage({
           : head.councils.length === 1
             ? head.councils[0]
             : `Straddles ${head.councils.join(" & ")} councils`;
+      // The first chip is the county, in the sample's
+      // form (founder fix batch — audit item 4): the
+      // build used to serve the region here, a recorded
+      // departure; the sample's chip is the county the
+      // district's sales rows file. Several counties
+      // straddle in the councils chip's own form; no
+      // filed county, no chip.
+      const countyChip =
+        head.counties.length === 0
+          ? null
+          : head.counties.length === 1
+            ? head.counties[0]
+            : `Straddles ${head.counties.join(" & ")} counties`;
       return (
         <main className="journey-page main--wide">
           <header className="results-head">
             <div className="head-text">
-              <h1 className="page-title">{resolution.label}</h1>
+              {/* The sample's head (founder fix batch —
+                  audit items 2 and 3): the addr-line above
+                  the H1, and the H1 in the sample's own
+                  form. The not-this-home meaning rides in
+                  the scope line below, verbatim, exactly
+                  as it always has. */}
+              <p className="addr-line">
+                Wider area · <b>Postcode district</b>
+              </p>
+              <h1 className="page-title">Wider area — {resolution.outward}</h1>
               <p className="results-scope-line">
                 Facts about the {resolution.outward} district as a whole — not about one home. For
                 one home, check its full postcode.
               </p>
               <div className="district-chips">
-                {head.region && <span className="chip">{head.region}</span>}
+                {countyChip && <span className="chip">{countyChip}</span>}
                 {head.postTown && <span className="chip">Part of {head.postTown} post town</span>}
                 {councilsChip && <span className="chip">{councilsChip}</span>}
                 <span className="chip">Grain: whole district</span>
               </div>
             </div>
-            {card && (
-              <div className="results-actions">
-                <ShortlistButton card={card} />
-              </div>
-            )}
           </header>
           {params.notfound && (
             <p className="journey-notice">{postcodeNotFoundLine(params.notfound)}</p>
@@ -201,7 +235,7 @@ export default async function SearchPage({
         <section className="unlock-banner">
           <h2>{WIDER_AREA_BANNER_HEADING}</h2>
           <p>{WIDER_AREA_BANNER_LINE}</p>
-          <PostcodeBox autoFocus />
+          <PostcodeBox autoFocus bare />
         </section>
         <ResultsPage view={view} />
         {/* M7.14: a Scotland / NI wider-area serve counts
@@ -242,7 +276,7 @@ export default async function SearchPage({
         streetNormOf(params.town ?? ""),
       );
     } catch {
-      return <WholeCheckFailure />;
+      return <WholeCheckFailure initialValue={displayText(params.street)} />;
     }
     if (rows.length === 0) redirect(UNPLACED_NOTICE_URL);
     if (rows.length === 1) {
@@ -267,7 +301,7 @@ export default async function SearchPage({
       building: params.building ?? null,
     });
   } catch {
-    return <WholeCheckFailure />;
+    return <WholeCheckFailure initialValue={postcode} />;
   }
 
   if (resolution.rung === 1) {
@@ -277,7 +311,12 @@ export default async function SearchPage({
     redirect(widerAreaRoute(resolution.outward, postcode));
   }
   if (resolution.rung === 4) {
-    redirect(UNPLACED_NOTICE_URL);
+    // A bare place name in the postcode slot (founder fix
+    // batch): a known place routes to the landing page
+    // with the place filed and its districts revealed —
+    // the same graceful route as the outward slot's.
+    const placeUrl = await placeLandingUrl(postcode);
+    redirect(placeUrl ?? UNPLACED_NOTICE_URL);
   }
 
   // Rung 2. Founder ruling, 18 Nov 2026 (parity fix

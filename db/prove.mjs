@@ -439,6 +439,91 @@ try {
     "the alert memory holds one row per error fingerprint and counts its sightings",
   );
 
+  // Founder fix batch (19 Nov 2026) — the district flood
+  // defences corridor query, old form against new form.
+  // The district page's watercourse roll-up ran a
+  // geography distance test for every defence against
+  // every district postcode (8–10 s of the district
+  // page's 12–14 s); the shipped query (DEFENCE_
+  // WATERCOURSES_SQL in lib/district.ts, restated here in
+  // the proof's own hand, as the served-district
+  // predicate above is restated) first restricts
+  // candidate defences by the district's expanded
+  // bounding box through the GiST index, and runs the
+  // distance test only for those. The expansion (0.06
+  // degrees) is a strict superset of the 2-mile corridor
+  // at every UK latitude, so the two forms must answer
+  // identically — proven here on a corpus built to
+  // separate them if the prefilter ever cut a true
+  // corridor member: a defence inside the corridor, one
+  // outside the box entirely, one inside the box but
+  // beyond the corridor (the distance leg must still
+  // exclude it), and an unnamed defence inside the
+  // corridor (the name filter must still exclude it).
+  await client.query(
+    `INSERT INTO postcode_cache (postcode, latitude, longitude, lsoa_code)
+     VALUES ('ZZ9 1AA', 51.7000, 0.4600, 'E01000001'),
+            ('ZZ9 1AB', 51.7100, 0.4700, 'E01000001')`,
+  );
+  await client.query(
+    `INSERT INTO flood_defences (asset_id, water_course_name, geom)
+     VALUES
+       ('PROOF-D1', 'River Chelmer',
+        ST_Multi(ST_GeomFromText('LINESTRING(0.4600 51.6950, 0.4610 51.6960)', 4326))),
+       ('PROOF-D2', 'Far River',
+        ST_Multi(ST_GeomFromText('LINESTRING(0.6000 51.8500, 0.6010 51.8510)', 4326))),
+       ('PROOF-D3', 'Edge Brook',
+        ST_Multi(ST_GeomFromText('LINESTRING(0.4650 51.7450, 0.4655 51.7455)', 4326))),
+       ('PROOF-D4', NULL,
+        ST_Multi(ST_GeomFromText('LINESTRING(0.4605 51.7005, 0.4615 51.7015)', 4326)))`,
+  );
+  const proofPostcodes = ["ZZ9 1AA", "ZZ9 1AB"];
+  // The pre-fix form: the distance test over every
+  // district postcode, no prefilter.
+  const defencesOld = await client.query(
+    `SELECT DISTINCT fd.water_course_name AS name
+       FROM flood_defences fd
+      WHERE fd.water_course_name IS NOT NULL
+        AND fd.water_course_name <> ''
+        AND EXISTS (
+              SELECT 1
+                FROM postcode_cache pc
+               WHERE pc.postcode = ANY($1)
+                 AND ST_DWithin(fd.geom::geography, pc.geom::geography, 3218.688)
+            )
+      ORDER BY fd.water_course_name`,
+    [proofPostcodes],
+  );
+  // The shipped form, restated: box prefilter first.
+  const defencesNew = await client.query(
+    `SELECT DISTINCT fd.water_course_name AS name
+       FROM flood_defences fd,
+            (SELECT ST_Expand(ST_Extent(geom), 0.06) AS box
+               FROM postcode_cache
+              WHERE postcode = ANY($1)) AS district
+      WHERE fd.water_course_name IS NOT NULL
+        AND fd.water_course_name <> ''
+        AND fd.geom && district.box
+        AND EXISTS (
+              SELECT 1
+                FROM postcode_cache pc
+               WHERE pc.postcode = ANY($1)
+                 AND ST_DWithin(fd.geom::geography, pc.geom::geography, 3218.688)
+            )
+      ORDER BY fd.water_course_name`,
+    [proofPostcodes],
+  );
+  const oldNames = defencesOld.rows.map((row) => row.name);
+  const newNames = defencesNew.rows.map((row) => row.name);
+  assert(
+    JSON.stringify(oldNames) === JSON.stringify(["River Chelmer"]),
+    "the pre-fix defences form names only the corridor river (box-outside and unnamed defences excluded)",
+  );
+  assert(
+    JSON.stringify(newNames) === JSON.stringify(oldNames),
+    "the box-prefiltered defences form answers identically to the pre-fix form (in-box beyond-corridor defence still excluded by the distance leg)",
+  );
+
   await client.query("ROLLBACK");
   console.log("All proofs passed; test rows rolled back.");
 } catch (error) {

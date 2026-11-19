@@ -9,10 +9,17 @@ import {
   GIFT_CLAIMED_CHIP,
   GIFT_CLAIMED_HEADING,
   GIFT_CLAIMED_SEARCH_HEADING,
+  GIFT_CONFIRM_BUTTON,
+  GIFT_CONFIRM_FALLBACK,
+  GIFT_CONFIRM_IGNORE,
+  GIFT_CONFIRM_INTRO,
+  GIFT_CONFIRM_SUBJECT,
   GIFT_DIFFERENT_BODY,
   GIFT_DIFFERENT_BUTTON,
   GIFT_DIFFERENT_HEADING,
   GIFT_DIFFERENT_HELPER,
+  GIFT_DIFFERENT_PLACEHOLDER,
+  GIFT_EMAIL_ERROR,
   GIFT_EMAIL_LABEL,
   GIFT_EMAIL_PLACEHOLDER,
   GIFT_EXPIRED_BODY,
@@ -21,9 +28,14 @@ import {
   GIFT_NOT_RECOGNISED_BODY,
   GIFT_NOT_RECOGNISED_HEADING,
   GIFT_NOT_RECOGNISED_SEARCH_HEADING,
+  GIFT_PENDING_BODY,
+  GIFT_PENDING_BUTTON,
+  GIFT_PENDING_FINE_PRINT,
+  GIFT_PENDING_HEADING,
   GIFT_SAME_EMAIL_BODY,
   GIFT_SAME_EMAIL_HEADING,
   GIFT_SEARCH_LINE,
+  GIFT_SEND_FAILED_LINE,
   GIFT_USED_BODY,
   GIFT_USED_HEADING,
   GIFT_USED_SEARCH_HEADING,
@@ -54,15 +66,17 @@ import {
 } from "./fixtures/gift";
 
 // M7.13 — the Check Together claim flow's pure rules
-// (decision D21; Master views 17–23). The copy pins are
+// (decision D21; Master views 17–27). The copy pins are
 // the samples' text character-for-character — the four
 // refusal/closed texts are D44(14)'s pinned texts in
-// their founder-approved shorter forms (18 Nov 2026).
-// If a sample's words ever change by the founder's
-// ruling, the pin changes with the sample, in the same
-// change.
+// their founder-approved shorter forms (18 Nov 2026),
+// and the confirmation step's four texts (views 18–21)
+// are the founder-approved forms of 19 Nov 2026, pinned
+// by the conform pass of the same day. If a sample's
+// words ever change by the founder's ruling, the pin
+// changes with the sample, in the same change.
 
-describe("the seven states' copy, verbatim from the samples", () => {
+describe("the eleven states' copy, verbatim from the samples", () => {
   it("pins the claim screen (view 17)", () => {
     expect(GIFT_CLAIM_HEADING).toBe("You've been given a free home check");
     expect(GIFT_CLAIM_BODY).toBe(
@@ -76,7 +90,7 @@ describe("the seven states' copy, verbatim from the samples", () => {
     );
   });
 
-  it("pins the claimed screen (view 18)", () => {
+  it("pins the claimed screen (view 22)", () => {
     expect(GIFT_CLAIMED_CHIP).toBe("Gift saved to your email address");
     expect(GIFT_CLAIMED_HEADING).toBe("Your free report is claimed");
     expect(GIFT_CLAIMED_BODY).toBe(
@@ -85,33 +99,34 @@ describe("the seven states' copy, verbatim from the samples", () => {
     expect(GIFT_CLAIMED_SEARCH_HEADING).toBe("Check a home now");
   });
 
-  it("pins Text 4, the same-email refusal (view 19; D44(14) Text 4)", () => {
+  it("pins Text 4, the same-email refusal (view 23; D44(14) Text 4)", () => {
     expect(GIFT_SAME_EMAIL_HEADING).toBe("This gift is for someone else");
     expect(GIFT_SAME_EMAIL_BODY).toBe(
       "This gift came with a report you bought, so it can't be claimed with the same email address. Nothing is used up — your link is still valid. Send it to the person choosing the home with you, and they can claim a free full report for any home.",
     );
   });
 
-  it("pins Text 3, the claimed-different-email guard (view 20; D44(14) Text 3)", () => {
+  it("pins Text 3, the claimed-different-email guard (view 24; D44(14) Text 3)", () => {
     expect(GIFT_DIFFERENT_HEADING).toBe("This gift is already claimed");
     expect(GIFT_DIFFERENT_BODY).toBe(
       "Someone has claimed this gift with a different email address, and it can only be used with that address. If it was you, enter the same address below — if someone forwarded you this link after claiming it, only they can use it.",
     );
+    expect(GIFT_DIFFERENT_PLACEHOLDER).toBe("The address you claimed it with");
     expect(GIFT_DIFFERENT_BUTTON).toBe("Continue");
     expect(GIFT_DIFFERENT_HELPER).toBe(
       "If you claimed this gift yourself, entering that same address here will take you through to checking a home.",
     );
   });
 
-  it("pins Text 2, already redeemed (view 21; D44(14) Text 2)", () => {
+  it("pins Text 2, already redeemed (view 25; D44(14) Text 2)", () => {
     expect(GIFT_USED_HEADING).toBe("This gift has already been used");
     expect(GIFT_USED_BODY).toBe(
-      "The free report that came with this gift link has already been delivered, so the link can't be used again. If the report was delivered to you, you'll find it in the email we sent when it was ready. If you think something has gone wrong, email us at support@checkmynexthome.co.uk and we'll look into it.",
+      "The free report from this gift link has already been delivered, so the link can't be used again. If the report was delivered to you, you'll find it in the email we sent when it was ready. If you think something has gone wrong, email us at support@checkmynexthome.co.uk and we'll look into it.",
     );
     expect(GIFT_USED_SEARCH_HEADING).toBe("Check another home");
   });
 
-  it("pins Text 1, expired (view 22; D44(14) Text 1)", () => {
+  it("pins Text 1, expired (view 26; D44(14) Text 1)", () => {
     expect(GIFT_EXPIRED_HEADING).toBe("This gift link has expired");
     expect(GIFT_EXPIRED_BODY).toBe(
       "This free report gift was valid for 30 days from the day the report was bought, and that time has run out, so the link no longer works. Gift links can't be extended or replaced. You can still check any home on our website — the headline facts are free — and a full report costs £4.99.",
@@ -119,12 +134,40 @@ describe("the seven states' copy, verbatim from the samples", () => {
     expect(GIFT_EXPIRED_SEARCH_HEADING).toBe("Check a home anyway");
   });
 
-  it("pins the not-recognised screen (view 23)", () => {
+  it("pins the not-recognised screen (view 27)", () => {
     expect(GIFT_NOT_RECOGNISED_HEADING).toBe("This link doesn't work");
     expect(GIFT_NOT_RECOGNISED_BODY).toBe(
       "This gift link may have been copied incompletely, so we can't find the gift it belongs to. You can still check any home on our website — the headline facts are free.",
     );
     expect(GIFT_NOT_RECOGNISED_SEARCH_HEADING).toBe("Check a home");
+  });
+
+  it("pins the confirmation step's four texts (views 18–21; founder-approved 19 Nov 2026)", () => {
+    // View 18 — the inline email error.
+    expect(GIFT_EMAIL_ERROR).toBe("Enter an email address, like you@example.co.uk");
+    // View 19 — the send-failure line.
+    expect(GIFT_SEND_FAILED_LINE).toBe(
+      "We couldn't send the confirmation email just now — nothing has been claimed. Check the address and try again.",
+    );
+    // View 20 — the confirmation-pending screen.
+    expect(GIFT_PENDING_HEADING).toBe("Check your email to finish claiming");
+    expect(GIFT_PENDING_BODY).toBe(
+      "We've sent a confirmation email to **{email}**. Click the link in it and the gift is yours — it stays tied to that address. The gift isn't claimed until you click, so if the address looks wrong, enter it again below and we'll send a fresh link.",
+    );
+    expect(GIFT_PENDING_BUTTON).toBe("Send a fresh link");
+    expect(GIFT_PENDING_FINE_PRINT).toBe(
+      "The gift is valid for 30 days from the day the report was bought, and it can be claimed once.",
+    );
+    // View 21 — the confirmation email.
+    expect(GIFT_CONFIRM_SUBJECT).toBe("Confirm your free report gift");
+    expect(GIFT_CONFIRM_INTRO).toBe(
+      "You asked to claim a free detailed report gift on Check My Next Home. Click the link below to confirm this email address and finish claiming:",
+    );
+    expect(GIFT_CONFIRM_BUTTON).toBe("Confirm and finish claiming");
+    expect(GIFT_CONFIRM_FALLBACK).toBe("Or copy this link into your browser:");
+    expect(GIFT_CONFIRM_IGNORE).toBe(
+      "The gift is then tied to this address. If you didn't ask for this, ignore this email — nothing has been claimed.",
+    );
   });
 
   it("pins the search blocks' shared line and the 30-day validity", () => {
@@ -216,6 +259,37 @@ describe("the claim page's view selection", () => {
     expect(giftClaimPageView(claimedGift(), GIFT_NOW, { sent: true })).toEqual({
       kind: "card",
       variant: "different",
+    });
+  });
+
+  it("the format-error flag carries the typed entry into the field — view 18's standing entry", () => {
+    // The entry arrives from the one-shot entry cookie
+    // (the page reads it only alongside ?error=email);
+    // the view passes it to the card untouched.
+    expect(
+      giftClaimPageView(issuedGift(), GIFT_NOW, { emailError: true, entryEmail: "name@exampl" }),
+    ).toEqual({
+      kind: "card",
+      variant: "claim",
+      emailError: true,
+      entryEmail: "name@exampl",
+    });
+    // Without the cookie the same flag serves the bare
+    // error, entry-less.
+    expect(giftClaimPageView(issuedGift(), GIFT_NOW, { emailError: true })).toEqual({
+      kind: "card",
+      variant: "claim",
+      emailError: true,
+      entryEmail: undefined,
+    });
+    // An entry never presents where the claim form does
+    // not stand: on an expired gift the flag and the
+    // entry alike are ignored, and Text 1 serves.
+    expect(
+      giftClaimPageView(expiredGift(), GIFT_NOW, { emailError: true, entryEmail: "name@exampl" }),
+    ).toEqual({
+      kind: "closed",
+      variant: "expired",
     });
   });
 });

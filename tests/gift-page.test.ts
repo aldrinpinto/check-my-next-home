@@ -6,9 +6,10 @@ import { GiftClaimCard, GiftClaimedCard, GiftClosedCard } from "../components/Gi
 import { GIFT_FRIEND, GIFT_TOKEN } from "./fixtures/gift";
 
 // M7.13 — the claim flow's screens as rendered: each of
-// the seven states serves its sample copy in its ruled
-// placement (Master views 17–23; the placement ruling
-// of 18 Nov 2026). The words themselves are pinned
+// the eleven states serves its sample copy in its ruled
+// placement (Master views 17–27; the placement ruling
+// of 18 Nov 2026, the set completed by the conform pass
+// of 19 Nov 2026). The words themselves are pinned
 // character-for-character in tests/gift.test.ts; here
 // the assertions are that the right words reach the
 // right screen, with the right form furniture — and
@@ -39,6 +40,11 @@ describe("the claim screen (view 17)", () => {
     );
     expect(html).toContain(`action="/gift/${GIFT_TOKEN}/claim"`);
     expect(html).toContain('method="post"');
+    // The flow's own shape check is the one judge of an
+    // address (view 18's inline error is its answer):
+    // the form opts out of native validation so a
+    // mistyped entry reaches it.
+    expect(html).toContain('noValidate=""');
   });
 
   it("carries no other state's words", () => {
@@ -48,7 +54,50 @@ describe("the claim screen (view 17)", () => {
   });
 });
 
-describe("the same-email refusal (view 19 — Text 4 over the form)", () => {
+describe("the mistyped-email state (view 18)", () => {
+  const html = text(
+    renderToStaticMarkup(
+      createElement(GiftClaimCard, {
+        token: GIFT_TOKEN,
+        variant: "claim",
+        emailError: true,
+        entryEmail: "name@exampl",
+      }),
+    ),
+  );
+
+  it("stands the bad entry in the field under the pinned error line", () => {
+    expect(html).toContain('value="name@exampl"');
+    expect(html).toContain("Enter an email address, like you@example.co.uk");
+    expect(html).toContain("Claim my free report");
+  });
+
+  it("without the entry the error stands alone, the field empty", () => {
+    const bare = text(
+      renderToStaticMarkup(
+        createElement(GiftClaimCard, { token: GIFT_TOKEN, variant: "claim", emailError: true }),
+      ),
+    );
+    expect(bare).toContain("Enter an email address, like you@example.co.uk");
+    expect(bare).not.toContain('value="');
+  });
+
+  it("an entry without the error never stands — the two are one presentation", () => {
+    const plain = text(
+      renderToStaticMarkup(
+        createElement(GiftClaimCard, {
+          token: GIFT_TOKEN,
+          variant: "claim",
+          entryEmail: "name@exampl",
+        }),
+      ),
+    );
+    expect(plain).not.toContain('value="');
+    expect(plain).not.toContain("Enter an email address, like you@example.co.uk");
+  });
+});
+
+describe("the same-email refusal (view 23 — Text 4 over the form)", () => {
   const html = text(
     renderToStaticMarkup(
       createElement(GiftClaimCard, { token: GIFT_TOKEN, variant: "same-email" }),
@@ -62,9 +111,14 @@ describe("the same-email refusal (view 19 — Text 4 over the form)", () => {
     expect(html).toContain('name="email"');
     expect(html).toContain("Claim my free report");
   });
+
+  it("stands in the samples' message box, with no badge (conform pass, 19 Nov 2026)", () => {
+    expect(html).toContain('class="gift-message"');
+    expect(html).not.toContain("gift-badge");
+  });
 });
 
-describe("the claimed-different-email guard (view 20 — Text 3)", () => {
+describe("the claimed-different-email guard (view 24 — Text 3)", () => {
   const html = text(
     renderToStaticMarkup(createElement(GiftClaimCard, { token: GIFT_TOKEN, variant: "different" })),
   );
@@ -77,9 +131,15 @@ describe("the claimed-different-email guard (view 20 — Text 3)", () => {
       "If you claimed this gift yourself, entering that same address here will take you through to checking a home.",
     );
   });
+
+  it("stands in the message box and speaks to the holder in its field", () => {
+    expect(html).toContain('class="gift-message"');
+    expect(html).not.toContain("gift-badge");
+    expect(html).toContain('placeholder="The address you claimed it with"');
+  });
 });
 
-describe("the confirmation-pending screen (build-drafted — no sample)", () => {
+describe("the confirmation-pending screen (view 20)", () => {
   const html = text(
     renderToStaticMarkup(
       createElement(GiftClaimCard, {
@@ -96,9 +156,18 @@ describe("the confirmation-pending screen (build-drafted — no sample)", () => 
     expect(html).toContain(`<strong>${GIFT_FRIEND}</strong>`);
     expect(html).toContain('name="email"');
   });
+
+  it("stands pre-filled under the sample's own button and short fine print", () => {
+    expect(html).toContain(`value="${GIFT_FRIEND}"`);
+    expect(html).toContain(">Send a fresh link</button>");
+    expect(html).toContain(
+      "The gift is valid for 30 days from the day the report was bought, and it can be claimed once.",
+    );
+    expect(html).not.toContain("so use the email address you'll order your report with");
+  });
 });
 
-describe("the dedicated claimed page's card (view 18)", () => {
+describe("the dedicated claimed page's card (view 22)", () => {
   const html = text(renderToStaticMarkup(createElement(GiftClaimedCard)));
 
   it("serves the chip, the claimed message and its own search block", () => {
@@ -118,10 +187,11 @@ describe("the dedicated claimed page's card (view 18)", () => {
   });
 });
 
-describe("the closed screens (views 21–23)", () => {
+describe("the closed screens (views 25–27)", () => {
   it("already used serves Text 2 in full, support line included, with its search block", () => {
     const html = text(renderToStaticMarkup(createElement(GiftClosedCard, { variant: "used" })));
     expect(html).toContain("This gift has already been used");
+    expect(html).toContain("The free report from this gift link has already been delivered");
     expect(html).toContain("has already been delivered, so the link can't be used again.");
     expect(html).toContain('href="mailto:support@checkmynexthome.co.uk"');
     expect(html).toContain("and we'll look into it.");

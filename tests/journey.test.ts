@@ -7,6 +7,12 @@ import type { FloodBundle } from "../lib/flood";
 import {
   CHECKING_ROWS,
   EMPTY_PICKER_LINE,
+  ERROR_PAGE_CLOSING_AFTER,
+  ERROR_PAGE_CLOSING_BEFORE,
+  ERROR_PAGE_CLOSING_LINK,
+  ERROR_PAGE_HEADING,
+  ERROR_PAGE_KEPT_NOTE,
+  ERROR_PAGE_LINE,
   FAILED_ROUTE,
   HOLDING_LINE,
   HOME_ROUTE,
@@ -17,7 +23,6 @@ import {
   TURNSTILE_BLOCK_LINE,
   UNPLACED_NOTICE_LINE,
   UNPLACED_NOTICE_URL,
-  WHOLE_CHECK_FAILURE_HEADING,
   floodRowResult,
   historyRowResult,
   STREET_CHOICE_LINE,
@@ -206,7 +211,16 @@ describe("pinned journey copy", () => {
     expect(UNPLACED_NOTICE_LINE).toBe(
       "We couldn't place that. Try a full postcode — for example SW1A 1AA — or start typing a street name and pick it from the list.",
     );
-    expect(WHOLE_CHECK_FAILURE_HEADING).toBe("This check couldn't be completed");
+    expect(ERROR_PAGE_HEADING).toBe("Well — that wasn't supposed to happen");
+    expect(ERROR_PAGE_LINE).toBe(
+      "Something on our side stumbled. Give it a few seconds, then search below — most hiccups clear on the second try.",
+    );
+    expect(ERROR_PAGE_KEPT_NOTE).toBe(
+      "We've kept the home you were checking in the box — just press the button to run it again, or type a different home.",
+    );
+    expect(ERROR_PAGE_CLOSING_BEFORE).toBe("If it keeps happening, let us know via the");
+    expect(ERROR_PAGE_CLOSING_LINK).toBe("Contact page");
+    expect(ERROR_PAGE_CLOSING_AFTER).toBe("and we'll look into it.");
     expect(HOLDING_LINE).toBe("The check is complete. This home's full results open on this page.");
     expect(TURNSTILE_BLOCK_LINE).toBe(
       "The robot check couldn't run, so your search hasn't been sent. Please try again.",

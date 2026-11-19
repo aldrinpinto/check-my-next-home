@@ -225,6 +225,17 @@ export interface DistrictFloodFacts {
   // The layer's filed shape count — the guard. An unfiled
   // layer serves its not-filed state, never a share.
   filedCount: number;
+  // Whether the filed shapes cover THIS district at all
+  // (founder fix batch, 19 Nov 2026 — audit item 14). The
+  // layers file nationally in name but the golden filings
+  // cover one extent; a district outside it read every
+  // assignment null and the old guard — the layer table
+  // is non-empty — printed a computed "No band published
+  // 100%". Coverage is a fact about the district, read
+  // from the filed shapes against the district's own
+  // spread: an uncovered district serves the not-filed
+  // form, exactly as an unfiled layer does.
+  covered: boolean;
   // One entry per counted postcode: the label of the filed
   // shape covering its point, or null where no shape does.
   assignments: { postcode: string; label: string | null }[];
@@ -283,8 +294,17 @@ export interface DistrictDataSource {
   // national preload's distinct homes, M7.15B).
   pickingHomes(outward: string): Promise<number>;
   // The district's filed place names: localities and post
-  // towns from its sales rows and its picking index.
-  places(outward: string): Promise<{ localities: string[]; towns: string[] }>;
+  // towns from its sales rows and its picking index, the
+  // counties its sales rows file (Price Paid's own county
+  // column — the head chip's data, founder fix batch,
+  // audit item 4), and one filed postcode per locality
+  // (the bridge's named-area links land on it).
+  places(outward: string): Promise<{
+    localities: string[];
+    towns: string[];
+    counties: string[];
+    settlementPostcodes: { locality: string; postcode: string }[];
+  }>;
   floodFacts(layer: FloodLayerType, postcodes: string[]): Promise<DistrictFloodFacts>;
   // The distinct watercourses of filed flood defences
   // within the standard serving radius of the given
@@ -420,6 +440,12 @@ export interface DistrictHead {
   lsoaCount: number;
   msoaCount: number;
   councils: string[];
+  // The district's counties as filed in its sales rows
+  // (display form, sorted) — the sample's first head chip
+  // is the county (founder fix batch, audit item 4). The
+  // region below stays: the journey counting collapses
+  // the nation from it.
+  counties: string[];
   postTown: string | null;
   region: string | null;
   sourceName: string | null;
@@ -559,6 +585,14 @@ export interface DistrictFloodSection {
   countedPostcodes: number;
   riversSea: DistrictFloodBlock | null;
   surfaceWater: DistrictFloodBlock | null;
+  // A layer that is filed but does not cover this
+  // district serves its own not-filed line in its block's
+  // place (audit item 14) — present only in that case;
+  // the block above is null then, and where both layers
+  // are uncovered the whole section takes the not-filed
+  // state with the district-scoped line.
+  riversSeaNotCoveredLine: string | null;
+  surfaceWaterNotCoveredLine: string | null;
   // The planning zones inside the rivers & sea block:
   // shares of the counted postcodes in Zone 3 / Zone 2.
   zones: { zone3Pct: number; zone2Pct: number } | null;
@@ -595,7 +629,14 @@ export interface DistrictSections {
   everyday: DistrictEverydaySection;
   flood: DistrictFloodSection;
   air: DistrictAirSection;
-  bridge: { postcodes: string[] };
+  bridge: {
+    postcodes: string[];
+    // One filed postcode per cleaned settlement (the
+    // bridge's named-area links, founder fix batch, audit
+    // item 5): the settlement's display name and a filed
+    // postcode that lands in it.
+    settlementPostcodes: { name: string; postcode: string }[];
+  };
 }
 
 export type DistrictBundle =
@@ -734,9 +775,124 @@ const CENSUS_TABLE_TITLES: Record<string, string> = {
   ts054: "Tenure",
 };
 
+// A filed locality that is not a settlement name (founder
+// fix batch, 19 Nov 2026 — audit item 9). The sales
+// filing's locality column carries fragments beside real
+// settlements: a postcode filed as a locality (the
+// audit's EX2 witness, "Ex2 7ub"), split-address
+// fragments carrying their comma, and council authority
+// names in their full form ("Braintree District
+// Council"). Those are filtered at the derivation, here —
+// the filed rows themselves are untouched. A settlement
+// that merely shares its council's short name (Exeter,
+// Maldon) is honestly a settlement and stays: the filter
+// takes the mechanically identifiable fragments and the
+// full authority forms, never a bare town name.
+const SETTLEMENT_POSTCODE_RE = /^[A-Za-z]{1,2}\d[A-Za-z\d]?(?:\s+\d[A-Za-z]{2})?$/;
+
+export function isSettlementName(name: string): boolean {
+  const trimmed = name.trim();
+  if (trimmed.length < 2) return false;
+  if (!/[A-Za-z]/.test(trimmed)) return false;
+  if (trimmed.includes(",")) return false;
+  if (SETTLEMENT_POSTCODE_RE.test(trimmed)) return false;
+  if (/council$/i.test(trimmed)) return false;
+  return true;
+}
+
+// The district's cleaned settlement set: display form,
+// fragments filtered, deduped, sorted — the one set the
+// district section's pills and the bridge's named links
+// both read, so the two surfaces can never disagree
+// about what the district's settlements are.
+function cleanSettlements(rawNames: string[]): string[] {
+  return [...new Set(rawNames.map((name) => displayText(name)).filter(isSettlementName))].sort();
+}
+
 export interface DistrictBundleOptions {
   warningSource?: DistrictWarningSource;
 }
+
+// The live-warnings composition, lifted out of the
+// builder (founder fix batch, 19 Nov 2026): the district
+// cache stores the filed bundle with NO warnings in it —
+// live warnings are never cached (the flood brain's D42
+// rule) — so the composition has to be callable on its
+// own, over a bundle the cache already holds, from the
+// district's English postcode rows and a warnings source.
+// The builder calls it the same way when it builds
+// fresh. The filter is the district's own spread: the
+// centroid of its English postcode points and the
+// farthest point's distance from it, both computed from
+// the filed rows.
+export async function composeDistrictWarnings(
+  outward: string,
+  englishPostcodes: { latitude: number; longitude: number }[],
+  warningSource: DistrictWarningSource,
+): Promise<DistrictFloodSection["warnings"]> {
+  const unavailable: DistrictFloodSection["warnings"] = {
+    state: "unavailable",
+    areas: [],
+    line: "Live flood warnings could not be checked just now.",
+  };
+  if (englishPostcodes.length === 0) return unavailable;
+  const centroid = {
+    latitude:
+      englishPostcodes.reduce((sum, row) => sum + row.latitude, 0) / englishPostcodes.length,
+    longitude:
+      englishPostcodes.reduce((sum, row) => sum + row.longitude, 0) / englishPostcodes.length,
+  };
+  const spreadKm = Math.max(0, ...englishPostcodes.map((row) => haversineKm(centroid, row)));
+  const distKm = Math.max(5, Math.ceil(spreadKm) + 3);
+  try {
+    const items = await warningSource.warningsNear(centroid.latitude, centroid.longitude, distKm);
+    const live = items
+      .filter((item) => item.severityLevel >= 1 && item.severityLevel <= 3)
+      .filter((item) => {
+        // A warning with no filed point cannot be
+        // distance-checked; it is kept (the EA item
+        // carries no coordinates to exclude it by).
+        if (item.latitude === null || item.longitude === null) return true;
+        return (
+          haversineKm(centroid, { latitude: item.latitude, longitude: item.longitude }) <=
+          spreadKm + 5
+        );
+      })
+      .sort(
+        (a, b) => a.severityLevel - b.severityLevel || a.description.localeCompare(b.description),
+      );
+    const seen = new Set<string>();
+    const areas: { severity: string; description: string }[] = [];
+    for (const item of live) {
+      if (seen.has(item.description)) continue;
+      seen.add(item.description);
+      areas.push({ severity: item.severity, description: item.description });
+    }
+    return areas.length > 0
+      ? {
+          state: "warnings",
+          areas,
+          line: `${areas.length} live flood ${areas.length === 1 ? "warning is" : "warnings are"} in force for areas in or around ${outward} just now.`,
+        }
+      : {
+          state: "none",
+          areas: [],
+          line: `No live flood warnings are in force for areas in or around ${outward} just now.`,
+        };
+  } catch {
+    return unavailable;
+  }
+}
+
+// The warnings form a stored district bundle carries:
+// the filed answer with the live block stripped to its
+// unavailable placeholder (the district cache's stored
+// form — see lib/district-cache.ts).
+export const DISTRICT_WARNINGS_UNAVAILABLE: DistrictFloodSection["warnings"] = {
+  state: "unavailable",
+  areas: [],
+  line: "Live flood warnings could not be checked just now.",
+};
 
 export async function buildDistrictBundle(
   outward: string,
@@ -843,6 +999,7 @@ export async function buildDistrictBundle(
     lsoaCount: lsoaCodes.length,
     msoaCount: msoaCodes.length,
     councils,
+    counties: [...new Set(places.counties.map((name) => displayText(name)))].sort(),
     postTown: places.towns[0] ? displayText(places.towns[0]) : null,
     region: regions[0] ?? null,
     sourceName: stamp?.sourceName ?? null,
@@ -852,7 +1009,16 @@ export async function buildDistrictBundle(
 
   // 1 — The district itself.
   const settlementsRaw = places.localities.length > 0 ? places.localities : places.towns;
-  const settlements = [...new Set(settlementsRaw.map((name) => displayText(name)))].sort();
+  const settlements = cleanSettlements(settlementsRaw);
+  // The bridge's named links ride the same cleaned set:
+  // one filed postcode per settlement, from the sales
+  // rows that filed the locality.
+  const settlementPostcodes = settlements
+    .map((name) => {
+      const filed = places.settlementPostcodes.find((row) => displayText(row.locality) === name);
+      return filed ? { name, postcode: filed.postcode } : null;
+    })
+    .filter((row): row is { name: string; postcode: string } => row !== null);
   const residents = bases.length > 0 ? bases.reduce((sum, row) => sum + row.residents, 0) : null;
   const households = bases.length > 0 ? bases.reduce((sum, row) => sum + row.households, 0) : null;
   const district: DistrictItselfSection = {
@@ -1176,7 +1342,14 @@ export async function buildDistrictBundle(
     title: string,
     facts: DistrictFloodFacts | null,
   ): DistrictFloodBlock | null => {
-    if (!facts || facts.filedCount <= 0 || facts.assignments.length === 0) return null;
+    // The coverage guard (audit item 14): a layer filed
+    // somewhere but covering nothing of this district
+    // serves no block — its assignments would read null
+    // end to end and print a computed "No band published
+    // 100%". The section carries the layer's own
+    // not-filed line in its place (below).
+    if (!facts || facts.filedCount <= 0 || !facts.covered || facts.assignments.length === 0)
+      return null;
     const counted = facts.assignments.length;
     const byLabel = new Map<string, number>();
     let unbanded = 0;
@@ -1221,6 +1394,8 @@ export async function buildDistrictBundle(
       countedPostcodes: 0,
       riversSea: null,
       surfaceWater: null,
+      riversSeaNotCoveredLine: null,
+      surfaceWaterNotCoveredLine: null,
       zones: null,
       watercourses: [],
       warnings: { state: "unavailable", areas: [], line: "" },
@@ -1233,8 +1408,23 @@ export async function buildDistrictBundle(
       "Flooding from surface water (heavy rain)",
       rofswFacts,
     );
+    // A filed layer that does not cover this district
+    // names itself in its block's place (audit item 14).
+    const riversSeaNotCoveredLine =
+      !riversSea && rofrsFacts && rofrsFacts.filedCount > 0 && !rofrsFacts.covered
+        ? "The rivers and sea flood map is not filed for this district yet."
+        : null;
+    const surfaceWaterNotCoveredLine =
+      !surfaceWater && rofswFacts && rofswFacts.filedCount > 0 && !rofswFacts.covered
+        ? "The surface water flood map is not filed for this district yet."
+        : null;
     let zones: DistrictFloodSection["zones"] = null;
-    if (zoneFacts && zoneFacts.filedCount > 0 && zoneFacts.assignments.length > 0) {
+    if (
+      zoneFacts &&
+      zoneFacts.filedCount > 0 &&
+      zoneFacts.covered &&
+      zoneFacts.assignments.length > 0
+    ) {
       const counted = zoneFacts.assignments.length;
       const inZone = (label: string) =>
         zoneFacts.assignments.filter((a) => a.label === label).length;
@@ -1244,85 +1434,33 @@ export async function buildDistrictBundle(
       };
     }
 
-    // Live warnings over the district's own spread: the
-    // centroid of its English postcode points and the
-    // farthest point's distance from it.
-    let warnings: DistrictFloodSection["warnings"] = {
-      state: "unavailable",
-      areas: [],
-      line: "Live flood warnings could not be checked just now.",
-    };
-    if (options.warningSource && englishPostcodes.length > 0) {
-      const centroid = {
-        latitude:
-          englishPostcodes.reduce((sum, row) => sum + row.latitude, 0) / englishPostcodes.length,
-        longitude:
-          englishPostcodes.reduce((sum, row) => sum + row.longitude, 0) / englishPostcodes.length,
-      };
-      const spreadKm = Math.max(0, ...englishPostcodes.map((row) => haversineKm(centroid, row)));
-      const distKm = Math.max(5, Math.ceil(spreadKm) + 3);
-      try {
-        const items = await options.warningSource.warningsNear(
-          centroid.latitude,
-          centroid.longitude,
-          distKm,
-        );
-        const live = items
-          .filter((item) => item.severityLevel >= 1 && item.severityLevel <= 3)
-          .filter((item) => {
-            // A warning with no filed point cannot be
-            // distance-checked; it is kept (the EA item
-            // carries no coordinates to exclude it by).
-            if (item.latitude === null || item.longitude === null) return true;
-            return (
-              haversineKm(centroid, {
-                latitude: item.latitude,
-                longitude: item.longitude,
-              }) <=
-              spreadKm + 5
-            );
-          })
-          .sort(
-            (a, b) =>
-              a.severityLevel - b.severityLevel || a.description.localeCompare(b.description),
-          );
-        const seen = new Set<string>();
-        const areas: { severity: string; description: string }[] = [];
-        for (const item of live) {
-          if (seen.has(item.description)) continue;
-          seen.add(item.description);
-          areas.push({ severity: item.severity, description: item.description });
-        }
-        warnings =
-          areas.length > 0
-            ? {
-                state: "warnings",
-                areas,
-                line: `${areas.length} live flood ${areas.length === 1 ? "warning is" : "warnings are"} in force for areas in or around ${outward} just now.`,
-              }
-            : {
-                state: "none",
-                areas: [],
-                line: `No live flood warnings are in force for areas in or around ${outward} just now.`,
-              };
-      } catch {
-        warnings = {
-          state: "unavailable",
-          areas: [],
-          line: "Live flood warnings could not be checked just now.",
-        };
-      }
-    }
+    // Live warnings over the district's own spread,
+    // composed fresh at serve time — never filed, never
+    // cached (see composeDistrictWarnings).
+    const warnings = options.warningSource
+      ? await composeDistrictWarnings(outward, englishPostcodes, options.warningSource)
+      : DISTRICT_WARNINGS_UNAVAILABLE;
 
+    // The section's own line where nothing serves: the
+    // district-scoped not-filed form where a filed layer
+    // simply does not reach this district, the plain
+    // not-filed form where the maps are not filed at all.
+    const anyUncovered = [rofrsFacts, rofswFacts, zoneFacts].some(
+      (facts) => facts && facts.filedCount > 0 && !facts.covered,
+    );
     flood = {
       state: riversSea || surfaceWater ? "served" : "not-filed",
       line:
         riversSea || surfaceWater
           ? null
-          : "The flood maps are not filed yet, so no district flood answer can be given yet.",
+          : anyUncovered
+            ? "The flood maps are not filed for this district yet, so no district flood answer can be given yet."
+            : "The flood maps are not filed yet, so no district flood answer can be given yet.",
       countedPostcodes: englishPostcodes.length,
       riversSea,
       surfaceWater,
+      riversSeaNotCoveredLine,
+      surfaceWaterNotCoveredLine,
       zones,
       watercourses,
       warnings,
@@ -1380,7 +1518,10 @@ export async function buildDistrictBundle(
       everyday,
       flood,
       air,
-      bridge: { postcodes: postcodes.map((row) => row.postcode) },
+      bridge: {
+        postcodes: postcodes.map((row) => row.postcode),
+        settlementPostcodes,
+      },
     },
   };
 }
@@ -1392,6 +1533,40 @@ export async function buildDistrictBundle(
 // test) or by code lists derived from the district's own
 // filed postcode rows.
 // ------------------------------------------------------------------
+
+// The defences corridor query (founder fix batch,
+// 19 Nov 2026 — audit Part 3). The form this replaces ran
+// the geography ST_DWithin inside an EXISTS over every
+// district postcode for every one of the 834 filed
+// defences — measured at 8–10s of the district page's
+// 12–14s. The corridor is now read in two stages: the
+// candidate defences are first restricted by the
+// district's bounding box, expanded by 0.06 degrees and
+// tested with the && box operator the GiST index
+// (migration 0024) serves; only those candidates pay the
+// exact geography test, which is unchanged. The box is a
+// strict superset of the corridor at every UK latitude:
+// 3,218.688 m is at most 0.029 degrees of latitude, and
+// at most 0.056 degrees of longitude at 58.7°N, the
+// northernmost district latitude — so no defence the old
+// form could return is filtered out, and the EXISTS leg
+// still excludes every candidate the radius does not
+// reach. Proven against real PostGIS in db/prove.mjs
+// (both forms over the same fixtures, the same set out);
+// pinned as a constant so the unit suite can hold the
+// source to the exact form the proof runs.
+export const DEFENCE_WATERCOURSES_SQL = `SELECT DISTINCT fd.water_course_name AS name
+ FROM flood_defences fd,
+      (SELECT ST_Expand(ST_Extent(geom), 0.06) AS box
+       FROM postcode_cache WHERE postcode = ANY($1)) AS district
+ WHERE fd.water_course_name IS NOT NULL AND fd.water_course_name <> ''
+   AND fd.geom && district.box
+   AND EXISTS (
+     SELECT 1 FROM postcode_cache pc
+     WHERE pc.postcode = ANY($1)
+       AND ST_DWithin(fd.geom::geography, pc.geom::geography, 3218.688)
+   )
+ ORDER BY fd.water_course_name`;
 
 export function createDistrictSource(db: AddressQueryable): DistrictDataSource {
   const prefixOf = (outward: string) => `${outward} `;
@@ -1629,6 +1804,20 @@ export function createDistrictSource(db: AddressQueryable): DistrictDataSource {
         `SELECT DISTINCT town FROM picking_index WHERE starts_with(postcode, $1)`,
         [prefixOf(outward)],
       );
+      // The counties the district's sales rows file
+      // (Price Paid's own county column) and one filed
+      // postcode per locality — the head chip's data and
+      // the bridge links' landings (founder fix batch).
+      const { rows: countyRows } = await db.query(
+        `SELECT DISTINCT county FROM price_paid WHERE starts_with(postcode, $1) AND county IS NOT NULL`,
+        [prefixOf(outward)],
+      );
+      const { rows: settlementRows } = await db.query(
+        `SELECT locality, min(postcode) AS postcode FROM price_paid
+         WHERE starts_with(postcode, $1) AND locality IS NOT NULL
+         GROUP BY locality`,
+        [prefixOf(outward)],
+      );
       const localities = new Set<string>();
       const towns = new Set<string>();
       for (const row of rows) {
@@ -1638,7 +1827,15 @@ export function createDistrictSource(db: AddressQueryable): DistrictDataSource {
       for (const row of indexRows) {
         if (row.town) towns.add(row.town as string);
       }
-      return { localities: [...localities], towns: [...towns] };
+      return {
+        localities: [...localities],
+        towns: [...towns],
+        counties: countyRows.map((row) => row.county as string),
+        settlementPostcodes: settlementRows.map((row) => ({
+          locality: row.locality as string,
+          postcode: row.postcode as string,
+        })),
+      };
     },
 
     async floodFacts(layer, postcodes) {
@@ -1654,11 +1851,30 @@ export function createDistrictSource(db: AddressQueryable): DistrictDataSource {
       if (filedCount <= 0 || postcodes.length === 0) {
         return {
           filedCount,
+          covered: false,
           assignments: [],
           sourceName: (stampRows[0]?.source_name as string | null) ?? null,
           sourceDate: (stampRows[0]?.source_date as string | null) ?? null,
         };
       }
+      // Coverage (audit item 14): does any filed shape of
+      // this layer touch the district's own spread — the
+      // hull of its postcode points, buffered by 1 km so
+      // a shape falling between neighbouring points still
+      // counts as covering the district it cuts across.
+      // The GiST index serves the intersects test.
+      const { rows: coverageRows } = await db.query(
+        `WITH hull AS (
+           SELECT ST_Buffer(ST_ConvexHull(ST_Collect(geom))::geography, 1000)::geometry AS g
+           FROM postcode_cache WHERE postcode = ANY($2)
+         )
+         SELECT EXISTS (
+           SELECT 1 FROM flood_layers fl, hull
+           WHERE fl.layer_type = $1 AND hull.g IS NOT NULL AND ST_Intersects(fl.geom, hull.g)
+         ) AS covered`,
+        [layer, postcodes],
+      );
+      const covered = Boolean(coverageRows[0]?.covered);
       // One read per postcode point: the label of the
       // filed shape covering it (the products are dissolved
       // per label and mutually exclusive — the flood
@@ -1673,6 +1889,7 @@ export function createDistrictSource(db: AddressQueryable): DistrictDataSource {
       );
       return {
         filedCount,
+        covered,
         assignments: rows.map((row) => ({
           postcode: row.postcode as string,
           label: (row.label as string | null) ?? null,
@@ -1684,20 +1901,7 @@ export function createDistrictSource(db: AddressQueryable): DistrictDataSource {
 
     async defenceWatercourses(postcodes) {
       if (postcodes.length === 0) return [];
-      // The standard serving radius (2 miles, the nearby
-      // brain's RADIUS_MILES) in metres, measured on the
-      // geography basis every serving distance uses.
-      const { rows } = await db.query(
-        `SELECT DISTINCT fd.water_course_name AS name FROM flood_defences fd
-         WHERE fd.water_course_name IS NOT NULL AND fd.water_course_name <> ''
-           AND EXISTS (
-             SELECT 1 FROM postcode_cache pc
-             WHERE pc.postcode = ANY($1)
-               AND ST_DWithin(fd.geom::geography, pc.geom::geography, 3218.688)
-           )
-         ORDER BY fd.water_course_name`,
-        [postcodes],
-      );
+      const { rows } = await db.query(DEFENCE_WATERCOURSES_SQL, [postcodes]);
       return rows.map((row) => row.name as string);
     },
 

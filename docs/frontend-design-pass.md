@@ -3942,6 +3942,82 @@ analytics paragraph and the shortlist sentence — DO
 carry approved forms in its prep, and land with that
 step.)
 
+**The conform pass (19 Nov 2026) — the eleven-state
+set.** The founder approved the four build-drafted
+texts (confirmation-pending screen, send-failure line,
+email-format error, confirmation email), had them
+drawn as samples, and folded the full set into the
+Master as views 17–27 in journey order, each titled
+"Gift claim — …"; he then directed implementation be
+triggered for every page in the set. This pass walked
+all eleven states against the Master and the plan's
+D44(14) pins. The renumbering: Claim 17, Mistyped
+email 18, Email didn't send 19, Check your email 20,
+Confirmation email 21, Claimed 22, Same email as
+buyer 23, Already claimed 24, Already used 25,
+Expired 26, Link not recognised 27 — the code comments
+and test labels follow it. Fixed, five divergences:
+(1) Text 2's body had drifted in lib/gift.ts ("that
+came with this gift link") from the D44(14) original
+the plan, the Master and the workshop all carry —
+restored to "from this gift link", pin corrected with
+it. (2) The pending screen (view 20) served the claim
+screen's furniture: it now carries the sample's
+envelope badge, its form pre-filled with the address
+the link went to, its own button ("Send a fresh
+link", new pin GIFT_PENDING_BUTTON) and its short
+fine print (GIFT_PENDING_FINE_PRINT). (3) The two
+refusal screens (views 23 and 24) carried the used
+screen's send badge and plain card text; the samples
+draw no badge there — heading and body stand in the
+error-tinted message box (new .gift-message, the
+.gift-alert box dialect) — restored. The M7.13 build
+note above says the badges "are the samples' own";
+for the refusals that was not so, and this note
+corrects it. (4) The already-claimed form's field now
+carries the sample's placeholder, "The address you
+claimed it with" (GIFT_DIFFERENT_PLACEHOLDER). (5)
+The confirmation email's HTML button read "Confirm
+your email and claim your free report"; the sample's
+words are "Confirm and finish claiming"
+(GIFT_CONFIRM_BUTTON) — the mailer's words are now
+pinned by tests/gift-mailer.test.ts (the capture seam
+carries no body, so the pin sits at the Resend
+implementation's injectable fetch). One further
+serving fix: the claim form now carries noValidate —
+the flow's own shape check is the one judge of an
+address, and the browser's native bubble would
+otherwise intercept mistyped entries the designed
+inline error (view 18) exists to answer; the samples'
+form carries novalidate for the same reason. Noted at the
+pass, and closed the same day on the founder's
+ruling: the mistyped-email sample draws the bad entry
+still standing in the field, where the product's
+POST → redirect → GET round trip re-served the form
+empty, the flow's flags carrying presentation only.
+The entry now rides a one-shot flash cookie
+(cmnh-gift-entry — lib/gift.ts's
+GIFT_ENTRY_COOKIE_NAME): the claim route sets it to
+the address just typed on the format-failure
+redirect, the claim page reads it only alongside
+?error=email and stands the entry in the field under
+the error line, and every attempt that passes the
+shape check clears it. The address never rides the
+URL, is never written to the gift store, never
+logged, and never reaches journey counting; state,
+copy and error line were already identical, and the
+field's contents now match the sample too. The entry
+cookie is a second strictly functional cookie on the
+gift path; a Privacy naming sentence for it is a
+founder-copy item, flagged for the M9.6 tick — none
+is invented here. The Privacy gap above
+is closed: the founder approved the cookie's naming
+sentence on 19 Nov 2026 and it stands in the Privacy
+page's Cookies card, pinned in
+tests/privacy-copy.test.ts. The one-live-link
+mechanics (single pending, latest link binds, bound
+gift locked) were re-verified, not rebuilt.
+
 **The M7.14 events reconciliation.** M7.13's gap
 check (5) says the gift claimed/redeemed events are
 "wired with this step's build"; M7.14's gap check (3)
@@ -4194,6 +4270,45 @@ shape: its h1 is in the first server-rendered HTML (no
 checking screen stands in that branch) and its
 `.results` already carries the wait.
 
+**Scheduled Regression run 44512835240 follow-up
+(19 Nov 2026).** The first dispatched Regression run
+(on 9e5e755, the scheduled workflow's real-Turnstile
+form) finished 131 passed / 1 failed / 1 flaky; the
+failure was this step's journey-counting spec — one
+pinned event counted zero posts (Expected 1, Received
+0), on attempt and retry alike. The diagnosis is
+spec-side timing, exposed by the run environment; the
+product is not implicated, on twofold evidence. (1)
+Byte-identity: the spec and the three components that
+fire its events (JourneyBeacon, CheckingScreen,
+ShortlistPage) are identical at de47a53 — where CI
+#236 ran the full suite 133/133 green — and at
+9e5e755; the intervening commits touch workflow files
+only. The one material difference is the scheduled
+form itself: E2E_REAL_TURNSTILE=1 against the real
+verify endpoint, an 11m 12s run under real-Cloudflare
+latency, with a second spec (the whole-check failure
+state) flaky in the same run. (2) Of the seven
+exactly-once post assertions, six fire synchronously
+in click handlers or from screens the spec then waits
+on for seconds; comparison_opened alone fires from an
+effect chained after the shortlist page's load effect,
+and the posts were counted synchronously the moment
+the shortlist-card assertion resolved — Playwright can
+observe the committed card before React flushes the
+effect that dispatches the beacon, so the snapshot can
+precede the post. The stored half of the same spec
+already polls for arrival (20s); the posts half took a
+snapshot. The fix gives the posts half the same
+discipline: it now polls until every expected event
+has been posted (20s; a genuinely missing event fails
+the poll naming itself), then asserts exactly-once on
+the settled snapshot. No assertion was weakened,
+reworded or removed, and no product file changed. The
+proof is a fresh dispatched Regression run on the
+post-batch HEAD — the first Regression run on the
+current tree; the local gate cannot run Playwright.
+
 **Privacy wordings applied (19 Nov 2026) — the gap at
 (1) above is closed.** The founder approved three
 wordings verbatim on 19 Nov 2026 (drafted fresh after
@@ -4391,3 +4506,397 @@ The suite stands at 140 tests in 15 files — 8 @smoke,
 132 @regression — and the tag audit passes with the
 exact partition. Playwright cannot execute on the
 build VM; CI is these specs' first execution.
+
+## Founder fix batch — the district page and the place pick (19 Nov 2026)
+
+Built from the founder's play-server spot-test round and
+the district audit that walked Master view 24 against
+the served CM3/EX2 pages. The batch: district flood
+honesty (audit item 14), district latency (audit
+Part 3), district parity (audit items 1–11), and the
+place pick feedback + place-name submit the founder
+reported twice. Audit item 5 — the short disclaimer
+line above the tabs — is untouched: the CI #222
+principle (a decision record beats a sample omission)
+already governs it.
+
+### A — District flood honesty
+
+The district flood section printed a computed "No band
+published 100%" for districts the filed EA layers do
+not cover at all, because its guard asked only whether
+the layer table was non-empty somewhere. The builder
+now carries per-district coverage: the filed layers'
+shapes are tested against the district's own extent (a
+1 km-buffered convex hull of its filed postcode points,
+lib/district.ts's floodFacts), per layer type. An
+uncovered district serves the not-filed family the page
+already uses elsewhere — the whole section, when
+neither layer covers it, reads "The flood maps are not
+filed for this district yet, so no district flood
+answer can be given yet."; a single uncovered layer
+serves its own line in its block's place ("The rivers
+and sea flood map is not filed for this district yet."
+/ "The surface water flood map is not filed for this
+district yet."). A covered district serves the roll-up
+exactly as before. Unit-proven both ways in
+tests/district.test.ts (the uncovered form, the mixed
+form, and the covered golden form unchanged).
+
+### B — District latency
+
+Measured before: EX2 14.4 s, CM3 ~12 s, repeats no
+faster; everything except one query measured ~2–4 s.
+
+(1) The flood-defences corridor query
+(lib/district.ts's defenceWatercourses) ran a geography
+ST_DWithin inside an EXISTS over every district
+postcode for each of the 834 filed defences — 8–10 s.
+The shipped form first restricts candidate defences by
+the district's expanded bounding box through the GiST
+index (fd.geom && district.box, the box ST_Expand'ed
+0.06° — a strict superset of the 2-mile corridor at
+every UK latitude: the corridor is at most ~0.029° of
+latitude and ~0.056° of longitude at 58.7°N), and runs
+the distance test only for those. Same results, proven
+two ways: tests/district-source.test.ts pins the
+emitted SQL's shape, and db/prove.mjs runs the pre-fix
+form against the shipped form on a corpus built to
+separate them (a corridor defence, a box-outside
+defence, an in-box beyond-corridor defence the distance
+leg must still exclude, an unnamed corridor defence) —
+both forms answer ["River Chelmer"].
+
+(2) The district bundle is cached in the D29 pattern,
+keyed by outward (lib/district-cache.ts): brain
+"district", rung 3, in the same bundle_cache table (its
+brain column is unconstrained — no migration). The
+version is the district's own dependency set — the
+eighteen loader stamps whose filings feed the bundle,
+plus data guards in the bundle-cache discipline
+(postcode / sales / picking / schools / census / LSOA
+counts, the three flood-layer counts, the defences
+count, and md5 fingerprints of the district's broadband
+and mobile answers — the M6.17 operator trap's guard,
+since those answers carry no loader stamp of their
+own). Flood warnings are never stored: the Met Office
+feed moves inside any filing's lifetime, so a cache hit
+recomposes the warnings from the live feed and stores
+the unavailable placeholder in their place. A poisoned
+or pre-batch entry (the shape check requires this
+batch's own flood keys) degrades to a recompute, and a
+missing cache table steps aside entirely — the page
+builds exactly as the plain builder. Proven in
+tests/district-cache.test.ts, including the
+not-covered nations caching under the same key.
+
+(3) District navigation no longer sits on a dead page:
+app/search/loading.tsx serves the D73 checking dress
+for the outward branch (the district's own tab rows,
+"Checking the wider area…"). The nested /search/home
+and /search/failed routes carry null boundaries of
+their own so the district state never wraps them.
+
+### C — District parity, item by item
+
+(1) The "Shortlist this home" button is removed from
+the district page head (app/search/page.tsx). The
+sample carries no shortlist control; the bridge is the
+page's only forward path. The card still builds — the
+Scotland/NI not-covered branch below it keeps its
+control, and cards already filed render on /shortlist
+as before. The shortlist spec now seeds the wider-area
+card and pins the button's ABSENCE on the district
+page; the phone spec pins the same absence in place of
+the old toggle tap-target.
+
+(2) The H1 is the sample's form: "Wider area — EX2".
+The intro line already carried the not-this-home
+meaning and still serves verbatim; the shortlist card's
+own label ("Wider area — E16, not this exact home") is
+a different surface and is unchanged. Eight e2e H1 pins
+moved to the new form.
+
+(3) The sample's addr-line is restored above the H1:
+"Wider area · Postcode district".
+
+(4) The first chip is the county, in the sample's form,
+from directory data: the distinct counties the
+district's filed sales carry (price_paid.county — the
+only county the directory files), title-cased as the
+rest of the page's filed names are served ("Essex").
+Several counties read "Straddles X & Y counties"; none
+filed, no chip. The region the build served before is
+recorded as the departure it was; head.region itself
+stays in the bundle (the completion beacon's nation
+logic reads it) but no longer renders. The sample's
+chip carries a pin glyph the product does not serve —
+the product omits the sample's decorative glyphs
+throughout (the flood sections' emoji likewise), and
+that omission is kept consistently here.
+
+(5) The bridge wears the sample's dress: a light
+section (no forest panel), a postcode-only field with
+the sample's placeholder ("Enter full postcode — e.g.
+CM3 2JT"), the sample's button ("Check this home →"),
+submitting to /search as a plain form — the bridge's
+one job is a full postcode, and the labelled search
+block it replaces belonged to the entry box, not this
+page. The named-area links are the filed settlements'
+representative postcodes (the smallest postcode filed
+under each settlement name), labelled "CM3 2JT ·
+Hatfield Peverel", capped at the sample's four. The
+sample's own links use partial-postcode forms ("CM3 4 ·
+Danbury area"); the product links only full postcodes
+it holds, because the bridge's subject is one home's
+full postcode and a partial form would promise a
+landing this block does not make.
+
+(6) The 'About these checks' expander names THIS
+page's own sections — the sample's eleven, in its
+order: The district itself / The neighbourhood in
+numbers / Crime / Sold prices / Deprivation / Council
+tax / Broadband & mobile / Schools / Counts in {outward}
+/ Flood / Air quality. Three have no check-explainer
+page of their own (the district itself, the
+neighbourhood in numbers, the counts) and link to
+/how-we-check; the rest link to their check pages as
+the home view's set does.
+
+(7) Census, in part. The Religion headline now leads
+with the two largest groups, as the sample's does:
+"Religion — Christian: 45% · No religion: 45% · Other
+religions combined: 6% · Not stated: 5%" — the remaining
+named religions combined, the not-answered share last
+under the name the sample uses. ("The homes themselves"
+is removed — the sample carries no such block. Its
+fixture label is also corrected: the loader files the
+not-answered row as "Not answered", not the "Religion
+not identified" the test fixture invented.) FAMILY
+MAKE-UP IS NOT BUILT, and the reason is recorded
+plainly: the sample's headline (one-person households,
+couples, lone parents) needs a household-composition
+filing, and the census loader files none — its datasets
+are ts007a, ts007, ts021, ts030, ts044, ts052 and ts054
+only. Composing the line from anything else would
+invent it. Family make-up waits on a
+household-composition table (TS010/TS011) joining the
+data programme; the section serves its remaining sample
+lines meanwhile.
+
+(8) The merged Costs section is split back into the
+sample's Council tax and Connectivity sections (keys
+council-tax / connectivity; the Home, Costs & Risks tab
+now carries Sold prices · Council tax · Connectivity ·
+Flood). The check-link derivation follows the split.
+
+(9) Settlements render as the sample's clean pills.
+The derivation (lib/district.ts's isSettlementName)
+filters the filed fragments that are not settlement
+names: postcode-like fragments ("Ex2 7ub"),
+comma-carrying fragments ("DANBURY,"), strings with no
+letters, and full council authority forms (anything
+ending in "Council" — "BRAINTREE DISTRICT COUNCIL").
+One scoping is recorded: a bare council SHORT name
+(Exeter, Maldon) is not filtered — it is honestly a
+settlement name, the filed locality under it is real,
+and no mechanical rule separates it from any other
+one-word town; the sample's own district straddles
+Maldon. Only what is mechanically identifiable as a
+fragment goes.
+
+(10) Flood furniture, where the filed data fills it
+honestly. The rivers-and-sea block gains the sample's
+"Where it touches…" line in the product's honest form —
+the filed defence watercourses within 2 miles of the
+district's postcodes: "Where it touches ZZ9: flood
+defences are recorded along the River Chelmer within 2
+miles of the district's postcodes." The sample's own
+line names settlements along each river; no filing
+carries defence-to-settlement geography, so the
+watercourse form is what serves. The "How the roll-up
+is built" box serves after the counted line, reworded
+to the product's true grain: the sample says each home
+is counted once per map — the product counts POSTCODE
+POINTS, and the box says so. Two sample elements do not
+serve: the surface-water card's "Where it shows up:"
+narrative (it names low-lying settlements per district;
+no filing carries surface-water exposure by settlement,
+so the block keeps its plainer form), and the sample's
+flood intro paragraph, which is sample narration
+explaining the accumulation idea, not product copy.
+
+### D — The place pick lands; a place name is a pick
+
+(1) Picking a place in the dropdown now visibly lands
+(components/PostcodeBox.tsx, components/kit.tsx): the
+picked place's row carries a selected state of its own
+(.suggest__item--picked — a deeper tint than the
+keyboard's active row, the name heavy, a "Districts
+below" marker, aria-selected true), and the Districts
+group is scrolled into view within the panel
+(scrollIntoView "nearest" on the group — the districts
+sat below the dropdown's fold, which is why the pick
+read as a dead click). The picked state survives the
+refetch the pick triggers: ids are minted per fetch, so
+each arriving panel re-marks the standing pick under
+its new id, and an exact place arrival — the fetched
+value IS a filed place's whole name — makes the pick
+itself. Editing the field away from the name retires
+the pick.
+
+(2) Pressing "Check this home" with the field holding
+exactly a known place name IS the place pick: the
+submit checks the typed value against the panel's
+places, and failing that against one fresh suggest
+fetch, by exact normalised equality only — a near-match
+is never silently applied, the standing fuzzy rule. On
+a match the panel stays, the districts reveal, nothing
+navigates, and the robot check is not run (picks carry
+none, as ruled). The failure page is unreachable from a
+place name in this box.
+
+The server-side bare-name arrival is routed the same
+way (lib/server/serve.ts's placeLandingUrl,
+lib/journey.ts's placeLandingRoute): a /search arrival
+— and a typed URL — holding exactly a filed place name
+with at least one served district redirects to the
+landing with the place filed (/?place=Chelmsford), NOT
+to the unplaced notice. The notice is for inputs we
+cannot place; serving it for a place we demonstrably
+hold would be the dishonest form of the same bug. On
+the landing, the search box island
+(components/LandingSearchBox.tsx) mounts with the filed
+display name in the field, and the box's own fetch opens
+the panel on the place's districts with the picked
+state on — the in-dropdown pick and the URL arrival are
+one behaviour. A name with no served district (a
+Scottish place) is not routed: it keeps the unplaced
+notice, which for it is true.
+
+### Tests
+
+Vitest: the district suites carry the batch — flood
+honesty both ways, the cache's eight proofs, the SQL
+pin, the parity forms (county chip data, pills, the
+eleven links, the bridge links and their cap, the
+religion line, the split sections). Playwright: eight
+H1 pins moved; the journey bridge assertions re-pinned
+to the sample dress; the phone district spec pins the
+shortlist control's absence; the shortlist wider-area
+spec seeds its card and pins the same absence; the
+suggest place-pick spec pins the picked state; three
+new suggest specs pin the place-name submit and the two
+place arrivals. The suite stands at 143 tests in 15
+files — 8 @smoke, 135 @regression; the Smoke set is
+untouched. Playwright cannot execute on the build VM;
+CI is these specs' first execution.
+
+## The single error page (19 Nov 2026) — Master view 26 built
+
+The founder's ruling from the spot-test round: three
+error faces were one too many — to the visitor a failed
+check, a page that does not exist and a site that does
+not answer are all the same moment, so there is now ONE
+error page (Final Sample Master view 26), and the
+failure kinds stay distinct only where they belong,
+in the counting (D45's page_error classes are
+untouched). The page: the roof mark in its cream disc,
+the headline "Well — that wasn't supposed to happen",
+the line "Something on our side stumbled. Give it a
+few seconds, then search below — most hiccups clear on
+the second try.", the site's own search box in a cream
+card as the way forward, and the Contact closing line.
+No error codes, no technical words, no variants.
+
+### The surfaces
+
+One component (components/ErrorPage.tsx) renders the
+page; four surfaces serve it. app/error.tsx (the route
+error boundary, inside the unified chrome) reads the
+failed route's own query string on mount — a check's
+postcode, or a district's outward — and the box arrives
+holding it; it deliberately surfaces no reset button,
+because the box is the retry and can aim at a different
+home. app/not-found.tsx serves the same page for
+unmatched routes, empty-boxed: no home was being
+checked. /search/failed keeps its route and its
+failure-landing semantics (existing links, beacons and
+specs reference it) and re-dresses as the same page,
+reading the attempted postcode from its query string.
+And the whole-check failure state (D44(7),
+components/WholeCheckFailure.tsx) renders the same
+component from its seven journey call sites, which now
+hand in the postcode, outward or street the visitor was
+checking in place of the retired retryHref — the old
+"Try again" link and sample-report link are gone, and
+the D44(7) copy constants they carried are retired
+with them.
+
+For the landing's arrival to be real, the search box's
+own failure navigation now carries what the visitor
+typed (components/PostcodeBox.tsx's failedRouteFor):
+/search/failed?postcode=<typed>. The counting never
+sees the value — route patterns derive from the
+pathname alone.
+
+### Copy and the two recorded judgement calls
+
+The copy is locked as the ERROR_PAGE_* constants in
+lib/journey.ts and pinned verbatim in
+tests/journey.test.ts (heading, line, kept note, and
+the closing line in its three parts around the Contact
+link). Apostrophes follow the codebase's standing
+convention for locked copy (straight, as every existing
+pin reads); the em dashes are the sample's own.
+
+(1) The box is the search box's hero form — the label
+"Postcode or address" (carried as the field's
+accessible name, as on the landing) and the Brass
+"Check this home" button — used exactly as the site
+serves it everywhere else, per the build brief. The
+sample draws the label visibly above the field; if the
+founder wants it visible here too, that is a small
+follow-up to the box, not to this page.
+
+(2) The kept note ("We've kept the home you were
+checking in the box — …") renders only when the box
+arrives holding a value. The sample shows the one
+state where a home was being checked; with an empty
+box (an unmatched route) the note would claim a kept
+home that does not exist, so it does not render.
+
+### The Cloudflare twin
+
+errors/cloudflare-error.html is the page's static
+twin, a deliverable for the founder to install in the
+Cloudflare dashboard (installing it is not part of
+this build): the same headline, line and chrome with
+absolute links and inline styles, for the one failure
+the origin cannot serve a page for. Its one designed
+difference: a "Try again" button that reloads the
+requested page stands where the search box stands —
+while the origin is down a live box could not work,
+and the reload lands on the real page the moment it
+answers again. It lives at the repo root in errors/
+(the repo holds no static-HTML convention to follow;
+docs/ is markdown) and its header comment carries the
+install note and the keep-in-step rule.
+
+### Tests
+
+Vitest: the ERROR_PAGE_* pins above replace the
+retired whole-check pin in tests/journey.test.ts.
+Playwright: the journey spec for a resolution failing
+outright (D44(7)) now asserts the new face on the
+failure landing — the headline, the typed postcode
+kept in the box, the kept note — and the phone
+whole-check spec's H1 pin moved to the new headline.
+Three new @regression specs in e2e/error-page.e2e.ts
+prove the unmatched route (the page, an empty box, no
+kept note, and a real check run from its box to the
+home list) and /search/failed read directly, with and
+without the carried postcode. The suite stands at 146
+tests in 16 files — 8 @smoke, 138 @regression; the
+Smoke set is untouched. Playwright cannot execute on
+the build VM; CI is these specs' first execution.

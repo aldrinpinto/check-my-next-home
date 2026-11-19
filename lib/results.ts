@@ -8,7 +8,7 @@ import type { DistrictBundle, DistrictFloodBlock } from "./district";
 type DistrictServed = Extract<DistrictBundle, { kind: "district" }>;
 import { homeRoute, nationName, nationOfLsoa, type Nation } from "./journey";
 import type { CategoryAnswer, NearbyBundle, NearbyPlace } from "./nearby";
-import { REPORT_PRICE_LABEL } from "./site";
+import { HOW_WE_CHECK_PATH, REPORT_PRICE_LABEL } from "./site";
 import type { ShortBundle, ShortPolygonLayer, ShortSections } from "./short-bundle";
 import type { SoldPricesBundle } from "./sold-prices";
 
@@ -713,7 +713,14 @@ export type SectionBlock =
         tone: "high" | "medium" | "low" | "very-low" | "none";
       }[];
     }
-  | { type: "bars"; rows: { label: string; text: string; pctOfMax: number }[] };
+  | { type: "bars"; rows: { label: string; text: string; pctOfMax: number }[] }
+  // The district page's settlement pills and its method
+  // box (founder fix batch, 19 Nov 2026): the sample's
+  // .pills dress for the district's settlements, and the
+  // .infobox dress for the flood roll-up's "How the
+  // roll-up is built" box. District views only.
+  | { type: "pills"; items: string[] }
+  | { type: "infobox"; text: string };
 
 export interface ResultsSectionView {
   key: string;
@@ -753,12 +760,16 @@ export const SECTION_CHECK_LINKS: Record<string, string[]> = {
   "air-noise": ["/check/air-quality", "/check/noise"],
   // District-page sections (18 Nov 2026): the district page's
   // own section keys map to the same check pages. The
-  // district Costs section carries council tax, broadband
-  // and mobile only — never the home page's EPC / EV links.
+  // district page's About expander no longer derives from
+  // this map at all (founder fix batch, 19 Nov 2026: it
+  // carries the sample's eleven links, named for the
+  // page's own sections — see buildDistrictResultsView);
+  // these entries remain for completeness of the map.
   schools: ["/check/schools"],
   air: ["/check/air-quality"],
   everyday: ["/check/family-essentials", "/check/public-transport"],
-  "district-costs": ["/check/council-tax-band", "/check/broadband", "/check/mobile-coverage"],
+  "council-tax": ["/check/council-tax-band"],
+  connectivity: ["/check/broadband", "/check/mobile-coverage"],
   "sold-prices": ["/check/sold-prices"],
   costs: [
     "/check/council-tax-band",
@@ -1438,8 +1449,10 @@ export interface ResultsView {
   bridge?: {
     heading: string;
     line: string;
-    postcodes: { postcode: string; href: string }[];
-    moreCount: number;
+    // The named-area postcode links (founder fix batch,
+    // 19 Nov 2026): "POSTCODE · Settlement" labels landing
+    // on that settlement's filed postcode check.
+    links: { label: string; href: string }[];
     outward: string;
   } | null;
 }
@@ -2545,8 +2558,8 @@ export function buildWiderAreaView(
 //   The Neighbourhood:    The district itself · The
 //                         neighbourhood in numbers · Crime ·
 //                         Deprivation · Air quality
-//   Home, Costs & Risks:  Sold prices · Costs (council tax,
-//                         broadband & mobile) · Flood
+//   Home, Costs & Risks:  Sold prices · Council tax ·
+//                         Connectivity · Flood
 //   What's Nearby:        Everyday counts
 //
 // NO UPSELL anywhere at rung 3: no buy bar, no report link,
@@ -2675,30 +2688,45 @@ function districtCensusSection(bundle: DistrictServed): ResultsSectionView {
         `${districtShortGroup(otherGroups[1].label)} (${Math.round(otherGroups[1].pct)} in 100).`,
     });
   }
-  const religionRows = (tableByCode("ts030")?.rows ?? []).slice(0, 4);
-  if (religionRows.length > 0) {
-    blocks.push({
-      type: "line",
-      text: `Religion — ${religionRows
-        .map((row) => `${row.label}: ${Math.round(row.pct)}%`)
-        .join(" · ")}.`,
-    });
+  // The Religion headline in the sample's form (founder
+  // fix batch, 19 Nov 2026 — audit item 7): the two
+  // largest groups named, the remaining named religions
+  // combined into one share, and the not-answered share
+  // last under the sample's "Not stated" name — never
+  // the first four rows as filed. The filed not-answered
+  // label is the census loader's own ("Not answered",
+  // RELIGION_CATEGORIES in loaders/load-census.mjs).
+  const religionTable = tableByCode("ts030");
+  if (religionTable && religionTable.rows.length > 0) {
+    const notStated = religionTable.rows.find((row) => row.label === "Not answered");
+    const named = religionTable.rows
+      .filter((row) => row.label !== "Not answered")
+      .sort((a, b) => b.count - a.count);
+    const parts: string[] = [];
+    for (const row of named.slice(0, 2)) {
+      parts.push(`${row.label}: ${Math.round(row.pct)}%`);
+    }
+    const rest = named.slice(2).filter((row) => row.count > 0);
+    if (rest.length > 0) {
+      const combined = rest.reduce((sum, row) => sum + row.pct, 0);
+      parts.push(`Other religions combined: ${Math.round(combined)}%`);
+    }
+    if (notStated) parts.push(`Not stated: ${Math.round(notStated.pct)}%`);
+    if (parts.length > 0) {
+      blocks.push({ type: "line", text: `Religion — ${parts.join(" · ")}.` });
+    }
   }
-  const accommodationRows = tableByCode("ts044")?.rows ?? [];
-  const detached = accommodationRows.find((row) => row.label === "Detached");
-  const semi = accommodationRows.find((row) => row.label === "Semi-detached");
-  const flatPct = accommodationRows
-    .filter((row) => row.label.startsWith("A flat"))
-    .reduce((sum, row) => sum + row.pct, 0);
-  if (detached && semi) {
-    blocks.push({
-      type: "line",
-      text:
-        `The homes themselves — About ${Math.round((detached.pct + semi.pct) / 10)} in 10 ` +
-        `homes are detached or semi-detached houses` +
-        (flatPct >= 2 ? `; about 1 in ${Math.max(2, Math.round(100 / flatPct))} is a flat.` : "."),
-    });
-  }
+  // The homes-themselves headline (the ts044 summary) is
+  // retired (audit item 7): the sample carries Family
+  // make-up in its place — one-person households,
+  // couples, lone parents — and no household-composition
+  // table is filed anywhere (the census loader files
+  // ts007a, ts007, ts021, ts030, ts044, ts052, ts054
+  // only), so the replacement line cannot be composed
+  // from filed data and is NOT invented. The headline
+  // simply goes; ts044 stays in the bundle's depth
+  // tables. Recorded in docs/frontend-design-pass.md as
+  // blocked on a household-composition filing.
   blocks.push({
     type: "line",
     text:
@@ -2800,6 +2828,7 @@ function districtFloodBandBlocks(block: DistrictFloodBlock): SectionBlock[] {
 
 function districtFloodSection(bundle: DistrictServed): ResultsSectionView {
   const flood = bundle.sections.flood;
+  const outward = bundle.outward;
   if (flood.state !== "served") {
     return linesSection("flood", "Flood", [
       { type: "line", text: flood.line ?? "Flood answers are not filed for this district yet." },
@@ -2816,6 +2845,28 @@ function districtFloodSection(bundle: DistrictServed): ResultsSectionView {
   }
   if (flood.riversSea) {
     blocks.push(...districtFloodBandBlocks(flood.riversSea));
+  } else if (flood.riversSeaNotCoveredLine) {
+    // The layer is filed but does not cover this district
+    // (audit item 14): its own not-filed line stands in
+    // its block's place — never a computed share.
+    blocks.push({ type: "line", text: flood.riversSeaNotCoveredLine });
+  }
+  if (flood.watercourses.length > 0) {
+    // The sample's per-block narrative (audit item 10),
+    // in the rivers & sea block's position, filled from
+    // the only corridor names the filed data holds: the
+    // watercourses of the filed flood defences within
+    // the standard 2-mile serving radius. The surface
+    // water block carries no such narrative — no filed
+    // data names where surface water pools in a district
+    // (the sample names low-lying settlements from local
+    // knowledge the product does not hold), so that block
+    // keeps its plainer form. Recorded in
+    // docs/frontend-design-pass.md.
+    blocks.push({
+      type: "line",
+      text: `Where it touches ${outward}: flood defences are recorded along the ${districtJoinNames(flood.watercourses)} within 2 miles of the district's postcodes.`,
+    });
   }
   if (flood.zones) {
     blocks.push({
@@ -2826,28 +2877,43 @@ function districtFloodSection(bundle: DistrictServed): ResultsSectionView {
         `and ${flood.zones.zone2Pct}% in Flood Zone 2.`,
     });
   }
-  if (flood.watercourses.length > 0) {
-    blocks.push({
-      type: "line",
-      text: `Flood defences are recorded along the ${districtJoinNames(flood.watercourses)} within 2 miles of the district's postcodes.`,
-    });
-  }
   if (flood.surfaceWater) {
     blocks.push(...districtFloodBandBlocks(flood.surfaceWater));
+  } else if (flood.surfaceWaterNotCoveredLine) {
+    blocks.push({ type: "line", text: flood.surfaceWaterNotCoveredLine });
   }
   blocks.push({
     type: "line",
     text: `Counted over the ${districtCount(flood.countedPostcodes)} English postcodes filed in the district — each postcode's point read against the Environment Agency's published maps.`,
   });
+  // The sample's method box (audit item 10), in the
+  // product's own honest terms: the product counts
+  // postcode points (the sample's dummy text counts
+  // homes), and the no-single-verdict reasoning is the
+  // product's standing rule, not sample colour.
+  blocks.push({
+    type: "infobox",
+    text:
+      `How the roll-up is built: a one-home check looks up that home's own point. ` +
+      `The district roll-up reads every postcode point filed in ${outward} against both ` +
+      `Environment Agency flood maps, counts each postcode once per map, and publishes ` +
+      `the shares above. Same source maps, one extra counting step — and no single ` +
+      `district flood verdict, because the split share informs where a single figure ` +
+      `would mislead.`,
+  });
   blocks.push({ type: "line", text: flood.honestyLine });
   return linesSection("flood", "Flood", blocks);
 }
 
-function districtCostsSection(bundle: DistrictServed): ResultsSectionView {
+// Council tax and Connectivity are their own sections
+// again (founder fix batch, 19 Nov 2026 — audit item 8):
+// the sample never merged them into a Costs section, and
+// the merged form was a build departure. Each section
+// carries its own heading now, so the in-section
+// subheadings the merged form needed go with it.
+function districtCouncilTaxSection(bundle: DistrictServed): ResultsSectionView {
   const tax = bundle.sections.councilTax;
-  const connectivity = bundle.sections.connectivity;
-  const outward = bundle.outward;
-  const blocks: SectionBlock[] = [{ type: "subheading", text: "Council tax" }];
+  const blocks: SectionBlock[] = [];
   if (tax.councils.length === 0 && tax.unfiledCouncils.length === 0) {
     blocks.push({
       type: "line",
@@ -2869,7 +2935,13 @@ function districtCostsSection(bundle: DistrictServed): ResultsSectionView {
       text: `${name} — its council tax charges are not filed yet.`,
     });
   }
-  blocks.push({ type: "subheading", text: "Broadband & mobile" });
+  return linesSection("council-tax", "Council tax", blocks);
+}
+
+function districtConnectivitySection(bundle: DistrictServed): ResultsSectionView {
+  const connectivity = bundle.sections.connectivity;
+  const outward = bundle.outward;
+  const blocks: SectionBlock[] = [];
   if (connectivity.state !== "served" || connectivity.broadband == null) {
     blocks.push({
       type: "line",
@@ -2902,7 +2974,7 @@ function districtCostsSection(bundle: DistrictServed): ResultsSectionView {
       });
     }
   }
-  return linesSection("district-costs", "Costs", blocks, connectivity.sourceLine);
+  return linesSection("connectivity", "Connectivity", blocks, connectivity.sourceLine);
 }
 
 export function buildDistrictResultsView(bundle: DistrictServed): ResultsView {
@@ -2922,12 +2994,21 @@ export function buildDistrictResultsView(bundle: DistrictServed): ResultsView {
   districtTiles.push({ label: "Small areas (LSOAs)", value: districtCount(head.lsoaCount) });
   const districtBlocks: SectionBlock[] = [];
   if (sections.district.settlements.length > 0) {
+    // The settlements as the sample's clean pills
+    // (founder fix batch, audit item 9) — the set is
+    // already cleaned at the derivation in the brain.
+    // The sample shows its settlements whole; the pill
+    // set caps at twelve with a count line for the rest,
+    // as the joined line used to.
     const shown = sections.district.settlements.slice(0, 12);
     const more = sections.district.settlementsCount - shown.length;
-    districtBlocks.push({
-      type: "line",
-      text: `Settlements filed across ${outward}: ${shown.join(" · ")}${more > 0 ? ` · and ${more} more` : ""}.`,
-    });
+    districtBlocks.push({ type: "pills", items: shown });
+    if (more > 0) {
+      districtBlocks.push({
+        type: "line",
+        text: `And ${districtCount(more)} more settlements filed across ${outward}.`,
+      });
+    }
   }
   if (districtTiles.length > 0) {
     districtBlocks.push({ type: "tiles", tiles: districtTiles });
@@ -3154,7 +3235,8 @@ export function buildDistrictResultsView(bundle: DistrictServed): ResultsView {
       label: "Home, Costs & Risks",
       sections: [
         linesSection("sold-prices", "Sold prices", soldBlocks, sections.soldPrices.sourceLine),
-        districtCostsSection(bundle),
+        districtCouncilTaxSection(bundle),
+        districtConnectivitySection(bundle),
         districtFloodSection(bundle),
       ],
     },
@@ -3170,18 +3252,46 @@ export function buildDistrictResultsView(bundle: DistrictServed): ResultsView {
     reportHref: null,
     buyBar: null,
     calculators: null,
-    checkLinks: checkLinksForTabs(tabs),
+    // The About-these-checks expander on THIS page names
+    // the page's own sections — the sample's eleven
+    // (founder fix batch, 19 Nov 2026 — audit item 6),
+    // not the generic check-page list the other views
+    // derive from their sections. Three of the eleven
+    // have no check page of their own (the district
+    // itself, the neighbourhood in numbers, deprivation)
+    // and link to the How-we-check page, where their
+    // methods are documented; the rest link to their
+    // check pages. "Counts in …" names the district, as
+    // the sample's own link does.
+    checkLinks: [
+      { label: "The district itself", href: HOW_WE_CHECK_PATH },
+      { label: "The neighbourhood in numbers", href: HOW_WE_CHECK_PATH },
+      { label: "Crime", href: "/check/crime" },
+      { label: "Sold prices", href: "/check/sold-prices" },
+      { label: "Deprivation", href: HOW_WE_CHECK_PATH },
+      { label: "Council tax", href: "/check/council-tax-band" },
+      { label: "Broadband & mobile", href: "/check/broadband" },
+      { label: "Schools", href: "/check/schools" },
+      { label: `Counts in ${outward}`, href: "/check/family-essentials" },
+      { label: "Flood", href: "/check/flood-risk" },
+      { label: "Air quality", href: "/check/air-quality" },
+    ],
     warningsStrip: { kind: "none" },
     floodWarningsState: sections.flood.state === "served" ? sections.flood.warnings.state : null,
     tabs,
     bridge: {
       heading: `Checking one home in ${outward}?`,
       line: "The district tells you about the area. A full postcode tells you about the home — its flood point, its nearest schools, its street's crime and its sold history.",
-      postcodes: sections.bridge.postcodes.slice(0, 8).map((postcode) => ({
-        postcode,
-        href: homeRoute(postcode),
+      // The sample's named-area links (audit item 5):
+      // the district's cleaned settlements, each landing
+      // on a filed postcode in that settlement, capped at
+      // the sample's four. A settlement no sales row files
+      // a postcode for carries no link — the form above
+      // still reaches every home in the district.
+      links: sections.bridge.settlementPostcodes.slice(0, 4).map((row) => ({
+        label: `${row.postcode} · ${row.name}`,
+        href: homeRoute(row.postcode),
       })),
-      moreCount: Math.max(0, sections.bridge.postcodes.length - 8),
       outward,
     },
   };

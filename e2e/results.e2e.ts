@@ -196,7 +196,7 @@ test.describe("results page — regression", () => {
     async ({ page }) => {
       await searchFromHome(page, "E16");
       await page.waitForURL("**/search?outward=E16");
-      await expect(page.locator("h1")).toHaveText("Wider area — E16, not this exact home");
+      await expect(page.locator("h1")).toHaveText("Wider area — E16");
       await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
       await expect(page.getByRole("tab")).toHaveCount(4);
       await expect(page.locator(".results-scope-line")).toContainText("district as a whole");

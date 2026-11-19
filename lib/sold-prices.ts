@@ -445,9 +445,102 @@ export interface SoldPricesSourceOptions {
   databaseUrl?: string;
   // The loader's path; defaults to this repo's own loader.
   loaderPath?: string;
+  // How long one caller waits for a cold load before it is
+  // told the load is still running (see loadPostcode);
+  // defaults to SOLD_PRICES_LOAD_WAIT_MS. A test seam.
+  loadWaitMs?: number;
 }
 
 const execFileAsync = promisify(execFile);
+
+// ------------------------------------------------------------------
+// The cold load, bounded (the area-part hang fix, 19 Nov 2026)
+// ------------------------------------------------------------------
+//
+// The loader streams the WHOLE Price Paid full file —
+// 5,541,566,049 bytes, ~31.7M lines — and filters it to the
+// one postcode. Measured on the play server through the
+// loader's own fetch + readline pipeline: ~67,000 lines a
+// second, so one cold load runs about eight minutes, flat
+// out on one core, doing no database work until the final
+// filing transaction. Before this fix, loadPostcode awaited
+// the child to completion, so the first check of any
+// unfiled postcode waited the whole stream: the checking
+// screen's area part never settled (the screen advances
+// only when all three parts settle), and every concurrent
+// caller — the part call, the results derivation, a retry —
+// spawned its OWN full stream (three were observed running
+// at once for one postcode, BL2 2NX).
+//
+// The fix bounds the WAITING, never the load, and invents
+// nothing:
+//   - One load per postcode at a time: callers join the
+//     in-flight run instead of spawning another stream.
+//     The registry is anchored to globalThis (the hybrid
+//     list-memory pattern) because the serving runtime does
+//     not share one module instance between routes.
+//   - The run itself always goes to completion in the
+//     background: the loader files the postcode's set and
+//     the run stamps the load exactly as before, so the
+//     next check serves the filed answer.
+//   - A caller waits at most SOLD_PRICES_LOAD_WAIT_MS for
+//     the run. A load that lands inside the wait resolves
+//     exactly as it always did (the fixture loads of the
+//     test suite, and any genuinely fast load). A caller
+//     whose wait expires is told the load is still running
+//     (SoldPricesLoadPendingError) — it propagates exactly
+//     where a failed load propagates today: the part
+//     answers its named failure, the results derivation
+//     renders its whole-check failure with the retry, and
+//     the retry serves the filed data once the run lands.
+//   - No state is faked on the way: the stamp is written
+//     only by a completed run, so "loaded, none recorded"
+//     can never be served for a postcode whose load is
+//     still streaming, and no figure is ever read from a
+//     half-filed set (the loader files in one transaction).
+export const SOLD_PRICES_LOAD_WAIT_MS = 10_000;
+
+export class SoldPricesLoadPendingError extends Error {
+  constructor(postcode: string, waitMs: number) {
+    super(
+      `the sold-prices load for ${postcode} is still running after ${waitMs}ms — it files in the background and the next check serves it`,
+    );
+    this.name = "SoldPricesLoadPendingError";
+  }
+}
+
+const soldPricesGlobal = globalThis as typeof globalThis & {
+  __cmnhSoldPricesLoads?: Map<string, Promise<void>>;
+};
+
+function soldPricesLoadsInFlight(): Map<string, Promise<void>> {
+  soldPricesGlobal.__cmnhSoldPricesLoads ??= new Map();
+  return soldPricesGlobal.__cmnhSoldPricesLoads;
+}
+
+// One caller's bounded wait on the shared run: the run's
+// own outcome (success, or the loader's real failure)
+// reaches every caller still waiting; a caller whose wait
+// expires hears "still running" instead, and the run
+// carries on without it.
+function awaitSoldPricesLoad(run: Promise<void>, postcode: string, waitMs: number): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new SoldPricesLoadPendingError(postcode, waitMs)),
+      waitMs,
+    );
+    run.then(
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      },
+    );
+  });
+}
 
 export function createSoldPricesSource(
   db: AddressQueryable,
@@ -498,35 +591,65 @@ export function createSoldPricesSource(
       const loaderPath =
         options.loaderPath ??
         fileURLToPath(new URL("../loaders/load-sold-prices.mjs", import.meta.url));
-      // The loader takes its postcodes after a "--" separator
-      // (its own usage line: load-sold-prices -- "CM3 2JT"); its
-      // argument filter drops the slot the separator occupies,
-      // so without it the first — here the only — postcode is
-      // silently never loaded. Pinned by a test.
-      const { stdout } = await execFileAsync(process.execPath, [loaderPath, "--", postcode], {
-        env: { ...process.env, DATABASE_URL: databaseUrl },
-        maxBuffer: 16 * 1024 * 1024,
-      });
-      const edition = /edition (\d{4}-\d{2}-\d{2})/.exec(stdout)?.[1] ?? null;
-      if (!edition)
-        throw new Error(`the sold-prices load for ${postcode} did not report its file edition`);
-      // Stamp the load on the postcode's cached answers — the
-      // durable proof that this postcode's set was loaded, which
-      // is what separates "loaded, none recorded" from "never
-      // loaded" when the load filed no rows.
-      const stamp = JSON.stringify({ edition, loadedAt: new Date().toISOString() });
-      const { rows } = await db.query(
-        `UPDATE postcode_cache
-            SET answers = jsonb_set(answers, '{soldPricesLoad}', $2::jsonb, true),
-                updated_at = now()
-          WHERE postcode = $1
-          RETURNING postcode`,
-        [postcode, stamp],
-      );
-      if (rows.length === 0)
-        throw new Error(
-          `cannot stamp the sold-prices load for ${postcode}: the postcode is not in the directory`,
-        );
+
+      // Join the postcode's load if one is already running;
+      // otherwise start it. The run is the load exactly as it
+      // always was — the loader child, the edition read off
+      // its output, the stamp — detached from any one
+      // caller's patience, so a caller who stops waiting
+      // never cancels the filing the next check depends on.
+      // The run is registered before it can settle and
+      // evicts itself when it settles (success or failure
+      // alike: a failed load is retried by the next check,
+      // as before). The settle handler also keeps a run
+      // every caller has stopped waiting on from surfacing
+      // as an unhandled rejection.
+      const inFlight = soldPricesLoadsInFlight();
+      let run = inFlight.get(postcode);
+      if (!run) {
+        run = (async () => {
+          // The loader takes its postcodes after a "--" separator
+          // (its own usage line: load-sold-prices -- "CM3 2JT"); its
+          // argument filter drops the slot the separator occupies,
+          // so without it the first — here the only — postcode is
+          // silently never loaded. Pinned by a test.
+          const { stdout } = await execFileAsync(process.execPath, [loaderPath, "--", postcode], {
+            env: { ...process.env, DATABASE_URL: databaseUrl },
+            maxBuffer: 16 * 1024 * 1024,
+          });
+          const edition = /edition (\d{4}-\d{2}-\d{2})/.exec(stdout)?.[1] ?? null;
+          if (!edition)
+            throw new Error(`the sold-prices load for ${postcode} did not report its file edition`);
+          // Stamp the load on the postcode's cached answers — the
+          // durable proof that this postcode's set was loaded, which
+          // is what separates "loaded, none recorded" from "never
+          // loaded" when the load filed no rows.
+          const stamp = JSON.stringify({ edition, loadedAt: new Date().toISOString() });
+          const { rows } = await db.query(
+            `UPDATE postcode_cache
+                SET answers = jsonb_set(answers, '{soldPricesLoad}', $2::jsonb, true),
+                    updated_at = now()
+              WHERE postcode = $1
+              RETURNING postcode`,
+            [postcode, stamp],
+          );
+          if (rows.length === 0)
+            throw new Error(
+              `cannot stamp the sold-prices load for ${postcode}: the postcode is not in the directory`,
+            );
+        })();
+        inFlight.set(postcode, run);
+        const evict = () => {
+          if (inFlight.get(postcode) === run) inFlight.delete(postcode);
+        };
+        void run.then(evict, evict);
+      }
+
+      // This caller's wait is bounded (see the section
+      // header): a load that lands inside the wait resolves
+      // as it always did; past it, the caller is told the
+      // load is still running and the run carries on.
+      await awaitSoldPricesLoad(run, postcode, options.loadWaitMs ?? SOLD_PRICES_LOAD_WAIT_MS);
     },
   };
 }

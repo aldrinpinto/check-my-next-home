@@ -32,7 +32,7 @@ import {
   POSTCODE_BOX_BUTTON_BARE,
   POSTCODE_BOX_HINT,
   POSTCODE_BOX_LABEL,
-  POSTCODE_BOX_PLACEHOLDER_BARE,
+  POSTCODE_BOX_PLACEHOLDER,
   SAMPLE_REPORT_HEADING,
   SAMPLE_REPORT_LINE,
   SAMPLE_REPORT_LINK_TEXT,
@@ -115,7 +115,9 @@ describe("home page copy (lib/home.ts)", () => {
     expect(POSTCODE_BOX_BUTTON).toBe("Check a home");
     // The hero's bare form (the sample's search row): the
     // placeholder in the field, the Brass button's words.
-    expect(POSTCODE_BOX_PLACEHOLDER_BARE).toBe("Enter a postcode — e.g. SW1A 1AA");
+    // The placeholder is the one ruled text for every
+    // search entry field (founder ruling, 19 Nov 2026).
+    expect(POSTCODE_BOX_PLACEHOLDER).toBe("Enter a postcode, street or town — e.g. SW1A 1AA");
     expect(POSTCODE_BOX_BUTTON_BARE).toBe("Check this home");
   });
 
@@ -426,7 +428,7 @@ describe("the postcode box (inert at M7.2; wired at M7.3)", () => {
     expect(bare).not.toContain("field__label");
     expect(bare).not.toContain("field__hint");
     expect(bare).not.toContain(POSTCODE_BOX_HINT);
-    expect(bare).toContain(`placeholder="${POSTCODE_BOX_PLACEHOLDER_BARE}"`);
+    expect(bare).toContain(`placeholder="${POSTCODE_BOX_PLACEHOLDER}"`);
     expect(bare).toContain(POSTCODE_BOX_BUTTON_BARE);
     expect(bare).toContain("btn--brass");
   });

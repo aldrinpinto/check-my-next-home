@@ -93,7 +93,7 @@ function censusFacts(msoaCode: string, scale: 1 | 2): CensusFacts {
               Christian: 1500,
               "No religion": 1200,
               Muslim: 150,
-              "Religion not identified": 150,
+              "Not answered": 150,
             },
           },
           ts044: {
@@ -137,7 +137,7 @@ function censusFacts(msoaCode: string, scale: 1 | 2): CensusFacts {
               Christian: 1200,
               "No religion": 1500,
               Muslim: 180,
-              "Religion not identified": 120,
+              "Not answered": 120,
             },
           },
           ts044: {
@@ -253,11 +253,17 @@ function fakeSource(overrides: Partial<DistrictDataSource> = {}): DistrictDataSo
     places: async () => ({
       localities: ["HATFIELD PEVEREL", "DANBURY"],
       towns: ["CHELMSFORD"],
+      counties: ["ESSEX"],
+      settlementPostcodes: [
+        { locality: "HATFIELD PEVEREL", postcode: "ZZ9 1AA" },
+        { locality: "DANBURY", postcode: "ZZ9 2AA" },
+      ],
     }),
     floodFacts: async (layer) => {
       if (layer === "rofrs") {
         return {
           filedCount: 500,
+          covered: true,
           assignments: [
             { postcode: "ZZ9 1AA", label: "High" },
             { postcode: "ZZ9 1AB", label: "Medium" },
@@ -271,6 +277,7 @@ function fakeSource(overrides: Partial<DistrictDataSource> = {}): DistrictDataSo
       if (layer === "rofsw") {
         return {
           filedCount: 300,
+          covered: true,
           assignments: [
             { postcode: "ZZ9 1AA", label: "High" },
             { postcode: "ZZ9 1AB", label: "Low" },
@@ -283,6 +290,7 @@ function fakeSource(overrides: Partial<DistrictDataSource> = {}): DistrictDataSo
       }
       return {
         filedCount: 200,
+        covered: true,
         assignments: [
           { postcode: "ZZ9 1AA", label: "FZ3" },
           { postcode: "ZZ9 1AB", label: null },
@@ -391,11 +399,42 @@ describe("district bundle — head and the district itself", () => {
     expect(bundle.head.msoaCount).toBe(2);
     expect(bundle.head.councils).toEqual(["Braintree", "Maldon"]);
     expect(bundle.head.postTown).toBe("Chelmsford");
+    // The county chip's data (founder fix batch, audit
+    // item 4): the district's filed Price Paid counties,
+    // in display form — the sample's first chip is the
+    // county, not the region the page used to serve.
+    expect(bundle.head.counties).toEqual(["Essex"]);
     expect(bundle.sections.district.settlements).toEqual(["Danbury", "Hatfield Peverel"]);
     expect(bundle.sections.district.homes).toBe(12345);
     expect(bundle.sections.district.residents).toBe(6000);
     expect(bundle.sections.district.households).toBe(2400);
     expect(bundle.sections.bridge.postcodes).toEqual(["ZZ9 1AA", "ZZ9 1AB", "ZZ9 2AA", "ZZ9 2AB"]);
+  });
+
+  it("filters filed fragments that are not settlement names at the derivation (audit item 9)", async () => {
+    const bundle = await servedBundle({
+      places: async () => ({
+        localities: [
+          "HATFIELD PEVEREL",
+          // A postcode filed in the locality column (the
+          // audit's EX2 witness, "Ex2 7ub").
+          "EX2 7UB",
+          // A trailing-comma fragment of a split address.
+          "DANBURY,",
+          // A council's full authority name is never a
+          // settlement.
+          "BRAINTREE DISTRICT COUNCIL",
+          "DANBURY",
+          // A settlement that shares its council's short
+          // name is honestly a settlement and stays.
+          "MALDON",
+        ],
+        towns: ["CHELMSFORD"],
+        counties: ["ESSEX"],
+        settlementPostcodes: [],
+      }),
+    });
+    expect(bundle.sections.district.settlements).toEqual(["Danbury", "Hatfield Peverel", "Maldon"]);
   });
 });
 
@@ -422,7 +461,21 @@ describe("district bundle — census sums (audit item 37)", () => {
       "Owning and renting — 7 in 10 households across ZZ9 own their home: 40% outright and 30% with a mortgage. 10% rent from a social landlord, 20% rent privately.",
     );
     expect(censusText).toContain("The people here — 85 in 100 residents are White");
-    expect(censusText).toContain("Religion — Christian: 45%");
+    // The Religion headline in the sample's form (founder
+    // fix batch, audit item 7): the two largest groups
+    // named, the remaining named religions combined, the
+    // not-answered share last as "Not stated" — never the
+    // first four rows as filed.
+    expect(censusText).toContain(
+      "Religion — Christian: 45% · No religion: 45% · Other religions combined: 6% · Not stated: 5%",
+    );
+    // The homes-themselves headline is retired (audit
+    // item 7): the sample carries Family make-up in its
+    // place — a line no filed table can compose today
+    // (no household-composition table is filed), so the
+    // headline simply goes; the ts044 depth stays in the
+    // bundle's tables.
+    expect(censusText).not.toContain("The homes themselves");
     expect(censusText).toContain("summed across the 2 Census areas");
     const wholeView = JSON.stringify(view);
     expect(wholeView).not.toContain("need an exact postcode");
@@ -542,7 +595,10 @@ describe("district bundle — deprivation, council tax, connectivity", () => {
     expect(tax.councils[0].authorityName).toBe("Braintree");
     expect(tax.councils[0].bandDAreaAveragePence).toBe(214500);
     expect(tax.unfiledCouncils).toEqual(["Maldon"]);
-    const viewText = blockTexts(sectionBlocks(bundle, "home", "district-costs"));
+    // Council tax is its own section again (founder fix
+    // batch, audit item 8 — the sample never merged it
+    // into a Costs section).
+    const viewText = blockTexts(sectionBlocks(bundle, "home", "council-tax"));
     expect(viewText).toContain("Band D £2,145.00 a year");
     expect(viewText).toContain("Maldon — its council tax charges are not filed yet.");
   });
@@ -557,7 +613,7 @@ describe("district bundle — deprivation, council tax, connectivity", () => {
       { lauaName: "Braintree", fourGOutdoorAtLeastOnePct: 97 },
       { lauaName: "Maldon", fourGOutdoorAtLeastOnePct: null },
     ]);
-    const viewText = blockTexts(sectionBlocks(bundle, "home", "district-costs"));
+    const viewText = blockTexts(sectionBlocks(bundle, "home", "connectivity"));
     expect(viewText).toContain("Gigabit-capable: 80% of premises on average.");
     expect(viewText).toContain(
       "Braintree — 4G outdoors from at least one network covers 97% of the area.",
@@ -615,12 +671,23 @@ describe("district bundle — the flood roll-up", () => {
     expect(viewText).toContain("Flooding from rivers and the sea");
     expect(viewText).toContain("Flooding from surface water (heavy rain)");
     expect(viewText).toContain("Flood Zone 3");
+    // The sample's flood furniture the filed data can fill
+    // honestly (founder fix batch, audit item 10): the
+    // rivers & sea block carries its "Where it touches…"
+    // narrative from the filed defence watercourses, and
+    // the roll-up carries its method box.
+    expect(viewText).toContain(
+      "Where it touches ZZ9: flood defences are recorded along the River Chelmer within 2 miles of the district's postcodes.",
+    );
+    expect(viewText).toContain("How the roll-up is built");
+    expect(viewText).not.toContain("Flood defences are recorded along");
   });
 
   it("serves the not-filed state where a layer files no shapes", async () => {
     const bundle = await servedBundle({
       floodFacts: async () => ({
         filedCount: 0,
+        covered: false,
         assignments: [],
         sourceName: null,
         sourceDate: null,
@@ -628,6 +695,85 @@ describe("district bundle — the flood roll-up", () => {
     });
     expect(bundle.sections.flood.state).toBe("not-filed");
     expect(bundle.sections.flood.line).toContain("The flood maps are not filed yet");
+  });
+
+  it("serves the honest not-filed line where the filed layers do not cover this district (audit item 14)", async () => {
+    // The one dishonest surface the audit found: the
+    // layers ARE filed (for another part of the country),
+    // every assignment reads null, and the old guard —
+    // the layer table is non-empty — printed a computed
+    // "No band published 100%". Coverage is now a fact
+    // per district: uncovered serves the not-filed form,
+    // never a share.
+    const uncovered = {
+      filedCount: 500,
+      covered: false,
+      assignments: POSTCODES.map((row) => ({ postcode: row.postcode, label: null })),
+      sourceName: "Environment Agency",
+      sourceDate: "2025-06-01",
+    };
+    const bundle = await servedBundle({ floodFacts: async () => uncovered });
+    const flood = bundle.sections.flood;
+    expect(flood.state).toBe("not-filed");
+    expect(flood.line).toBe(
+      "The flood maps are not filed for this district yet, so no district flood answer can be given yet.",
+    );
+    expect(flood.riversSea).toBeNull();
+    expect(flood.surfaceWater).toBeNull();
+    expect(flood.zones).toBeNull();
+    const viewText = blockTexts(sectionBlocks(bundle, "home", "flood"));
+    expect(viewText).toContain("not filed for this district yet");
+    expect(viewText).not.toContain("No band published");
+  });
+
+  it("serves the covered layer's roll-up and the uncovered layer's own line where coverage is mixed", async () => {
+    const bundle = await servedBundle({
+      floodFacts: async (layer) => {
+        if (layer === "rofsw") {
+          return {
+            filedCount: 300,
+            covered: false,
+            assignments: POSTCODES.map((row) => ({ postcode: row.postcode, label: null })),
+            sourceName: "Environment Agency",
+            sourceDate: "2025-06-01",
+          };
+        }
+        if (layer === "rofrs") {
+          return {
+            filedCount: 500,
+            covered: true,
+            assignments: [
+              { postcode: "ZZ9 1AA", label: "High" },
+              { postcode: "ZZ9 1AB", label: "Medium" },
+              { postcode: "ZZ9 2AA", label: null },
+              { postcode: "ZZ9 2AB", label: null },
+            ],
+            sourceName: "Environment Agency",
+            sourceDate: "2025-06-01",
+          };
+        }
+        return {
+          filedCount: 200,
+          covered: true,
+          assignments: [
+            { postcode: "ZZ9 1AA", label: "FZ3" },
+            { postcode: "ZZ9 1AB", label: null },
+            { postcode: "ZZ9 2AA", label: "FZ2" },
+            { postcode: "ZZ9 2AB", label: null },
+          ],
+          sourceName: "Environment Agency",
+          sourceDate: "2025-06-01",
+        };
+      },
+    });
+    const flood = bundle.sections.flood;
+    expect(flood.state).toBe("served");
+    expect(flood.riversSea).not.toBeNull();
+    expect(flood.surfaceWater).toBeNull();
+    const viewText = blockTexts(sectionBlocks(bundle, "home", "flood"));
+    expect(viewText).toContain("Flooding from rivers and the sea");
+    expect(viewText).toContain("The surface water flood map is not filed for this district yet.");
+    expect(viewText).not.toContain("Flooding from surface water (heavy rain)");
   });
 
   it("composes live warnings over the district's spread: severity 1–3 only, deduped, far areas out, point-less warnings kept", async () => {
@@ -725,7 +871,7 @@ describe("district view — the results layout system, no upsell", () => {
     expect(view.tabs.map((tab) => tab.sections.map((section) => section.key))).toEqual([
       ["schools"],
       ["district", "census", "crime", "deprivation", "air"],
-      ["sold-prices", "district-costs", "flood"],
+      ["sold-prices", "council-tax", "connectivity", "flood"],
       ["everyday"],
     ]);
   });
@@ -743,35 +889,73 @@ describe("district view — the results layout system, no upsell", () => {
     expect(JSON.stringify(view)).not.toContain("Get the full report");
   });
 
-  it("offers the bridge as the only forward path, its postcodes capped with a count of the rest", async () => {
-    const many = Array.from({ length: 11 }, (_, i) => ({
-      ...POSTCODES[i % POSTCODES.length],
-      postcode: `ZZ9 1A${String.fromCharCode(65 + i)}`,
-    }));
-    const bundle = await servedBundle({ postcodes: async () => many });
-    const view = buildDistrictResultsView(bundle);
-    expect(view.bridge?.heading).toBe("Checking one home in ZZ9?");
-    expect(view.bridge?.postcodes).toHaveLength(8);
-    expect(view.bridge?.moreCount).toBe(3);
-    expect(view.bridge?.postcodes[0].href).toContain("/search/home?postcode=");
-  });
-
-  it("derives the About-these-checks links from the district sections only", async () => {
+  it("offers the bridge as the only forward path, its links named for the settlements they land in", async () => {
     const bundle = await servedBundle();
     const view = buildDistrictResultsView(bundle);
-    const hrefs = view.checkLinks.map((link) => link.href);
-    expect(hrefs).toContain("/check/schools");
-    expect(hrefs).toContain("/check/crime");
-    expect(hrefs).toContain("/check/air-quality");
-    expect(hrefs).toContain("/check/sold-prices");
-    expect(hrefs).toContain("/check/council-tax-band");
-    expect(hrefs).toContain("/check/broadband");
-    expect(hrefs).toContain("/check/mobile-coverage");
-    expect(hrefs).toContain("/check/flood-risk");
-    expect(hrefs).toContain("/check/family-essentials");
-    expect(hrefs).toContain("/check/public-transport");
-    expect(hrefs).not.toContain("/check/epc");
-    expect(hrefs).not.toContain("/check/ev-charging");
-    expect(hrefs).not.toContain("/check/noise");
+    expect(view.bridge?.heading).toBe("Checking one home in ZZ9?");
+    // The sample's bridge dress (founder fix batch, audit
+    // item 5): named-area postcode links — a filed
+    // postcode that lands in the named settlement — never
+    // the old raw postcode chips with a count of the rest.
+    expect(view.bridge?.links).toEqual([
+      { label: "ZZ9 2AA · Danbury", href: "/search/home?postcode=ZZ9+2AA" },
+      { label: "ZZ9 1AA · Hatfield Peverel", href: "/search/home?postcode=ZZ9+1AA" },
+    ]);
+  });
+
+  it("caps the bridge's named links at the sample's four", async () => {
+    const names = ["ALPHA", "BRAVO", "CHARLIE", "DELTA", "ECHO", "FOXTROT"];
+    const bundle = await servedBundle({
+      places: async () => ({
+        localities: names,
+        towns: ["CHELMSFORD"],
+        counties: ["ESSEX"],
+        settlementPostcodes: names.map((locality, i) => ({
+          locality,
+          postcode: `ZZ9 1A${String.fromCharCode(65 + i)}`,
+        })),
+      }),
+    });
+    const view = buildDistrictResultsView(bundle);
+    expect(view.bridge?.links).toHaveLength(4);
+    expect(view.bridge?.links[0].label).toBe("ZZ9 1AA · Alpha");
+  });
+
+  it("names the About-these-checks links for this page's own sections — the sample's eleven", async () => {
+    const bundle = await servedBundle();
+    const view = buildDistrictResultsView(bundle);
+    expect(view.checkLinks.map((link) => link.label)).toEqual([
+      "The district itself",
+      "The neighbourhood in numbers",
+      "Crime",
+      "Sold prices",
+      "Deprivation",
+      "Council tax",
+      "Broadband & mobile",
+      "Schools",
+      "Counts in ZZ9",
+      "Flood",
+      "Air quality",
+    ]);
+    expect(view.checkLinks.map((link) => link.href)).toEqual([
+      "/how-we-check",
+      "/how-we-check",
+      "/check/crime",
+      "/check/sold-prices",
+      "/how-we-check",
+      "/check/council-tax-band",
+      "/check/broadband",
+      "/check/schools",
+      "/check/family-essentials",
+      "/check/flood-risk",
+      "/check/air-quality",
+    ]);
+  });
+
+  it("renders the settlements as pills, not a joined line (audit item 9)", async () => {
+    const bundle = await servedBundle();
+    const blocks = sectionBlocks(bundle, "neighbourhood", "district");
+    const pills = blocks.find((block) => block.type === "pills");
+    expect(pills?.type === "pills" && pills.items).toEqual(["Danbury", "Hatfield Peverel"]);
   });
 });

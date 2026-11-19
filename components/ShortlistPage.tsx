@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import { POSTCODE_BOX_PLACEHOLDER } from "../lib/home";
 import { REPORT_ROUTE, formatMiles, reportRoute } from "../lib/results";
 import { REPORT_PRICE_LABEL } from "../lib/site";
 import {
@@ -196,7 +197,7 @@ export default function ShortlistPage() {
               id="shortlist-postcode"
               name="postcode"
               type="text"
-              placeholder="Enter a postcode — e.g. SW1A 1AA"
+              placeholder={POSTCODE_BOX_PLACEHOLDER}
               autoComplete="postal-code"
             />
             <button type="submit" className="btn btn--brass shortlist-search-form__button">

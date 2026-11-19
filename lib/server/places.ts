@@ -101,6 +101,14 @@ export interface PlaceSource {
   placesByPrefix(words: string[], limit: number): Promise<PlaceSuggestion[]>;
   placesByFuzzy(words: string[], limit: number): Promise<PlaceSuggestion[]>;
   placeDistricts(placeNorm: string): Promise<string[]>;
+  // The one place an exact normalised name files, with
+  // its served districts — or null where the name files
+  // no place, or the place's districts are all
+  // not-covered. The serve layer's bare-place-name route
+  // (founder fix batch): an exact name is a place pick,
+  // never a fuzzy guess, so this read is exact-norm
+  // equality only.
+  placeByNorm(placeNorm: string): Promise<PlaceSuggestion | null>;
 }
 
 // The home key's normalisation (normKeyPart in the
@@ -253,6 +261,25 @@ export function createPlaceSource(db: PlaceQueryable): PlaceSource {
         [placeNorm],
       );
       return rows.map((row) => row.outward as string);
+    },
+
+    async placeByNorm(placeNorm) {
+      // The exact-name read behind the serve layer's
+      // place route: the same unit columns and the same
+      // served predicate as the tiers, at exact-norm
+      // equality. A place left with no served district
+      // forms no row here either — it is not a place the
+      // product can land a visitor on.
+      const { rows } = await db.query(
+        `SELECT ${UNIT_COLUMNS}
+           FROM picking_places
+          WHERE ${SERVED_DISTRICT_SQL}
+            AND place_norm = $1
+          GROUP BY place_norm`,
+        [placeNorm],
+      );
+      const row = (rows as unknown as PlaceUnitRow[])[0];
+      return row ? toUnit(row) : null;
     },
   };
 }

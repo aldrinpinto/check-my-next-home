@@ -429,19 +429,16 @@ test.describe("phone-first — 360×740 (T-WEB-01)", () => {
   );
 
   test(
-    "the rung-3 district page: nothing scrolls sideways; the toggle beside the heading and the bridge's input hold their phone forms (F2/F3)",
+    "the rung-3 district page: nothing scrolls sideways; no shortlist control in the head and the bridge's input holds its phone form (F2/F3)",
     { tag: "@regression" },
     async ({ page }) => {
       await page.goto("/search?outward=E16");
-      await expect(page.locator("h1")).toHaveText("Wider area — E16, not this exact home");
-      // At rung 3 the shortlist control stays beside the
-      // scope-label heading (M7.6) — a full target there.
-      // The district page's heading block is the results
-      // page's own .results-head (18 Nov 2026).
-      await expectTapTarget(
-        page.locator(".results-head [data-shortlist-toggle]"),
-        "the wider area's shortlist toggle",
-      );
+      await expect(page.locator("h1")).toHaveText("Wider area — E16");
+      // The district page head carries no shortlist
+      // control (founder fix batch, 19 Nov 2026): the
+      // sample carries none and the founder flagged it —
+      // the bridge is the only forward path on this page.
+      await expect(page.locator("[data-shortlist-toggle]")).toHaveCount(0);
       // The bridge replaced the unlock banner as the
       // forward path; its postcode input keeps the 16px
       // phone form. The district page legitimately carries
@@ -449,7 +446,7 @@ test.describe("phone-first — 360×740 (T-WEB-01)", () => {
       // tax), so the no-table check does not apply here —
       // the tables must fit the screen instead, which the
       // sideways-scroll check below covers.
-      const bridgeInput = page.locator(".district-bridge #postcode");
+      const bridgeInput = page.locator(".district-bridge__input");
       const fontSize = await bridgeInput.evaluate((element) => getComputedStyle(element).fontSize);
       expect(fontSize, "the bridge's postcode input computes to 16px").toBe("16px");
       await expectNoSidewaysScroll(page);
@@ -495,7 +492,7 @@ test.describe("phone-first — 360×740 (T-WEB-01)", () => {
     { tag: "@regression" },
     async ({ page }) => {
       await page.goto("/search/failed");
-      await expect(page.locator("h1")).toHaveText("This check couldn't be completed");
+      await expect(page.locator("h1")).toHaveText("Well — that wasn't supposed to happen");
       await expectNoSidewaysScroll(page);
       await expectNoTable(page);
     },

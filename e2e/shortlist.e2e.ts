@@ -415,14 +415,21 @@ test.describe("shortlist — regression", () => {
   );
 
   test(
-    "a shortlisted wider-area card shows its wider-area facts under the scope label and counts toward the 3",
+    "a shortlisted wider-area card shows its wider-area facts under the scope label and counts toward the 3 — and the district page itself offers no shortlist control",
     { tag: "@regression" },
     async ({ page }) => {
-      await seedShortlist(page, [BIRKDALE_CARD, EXETER_CARD]);
+      // The wider-area card is seeded directly (founder
+      // fix batch, 19 Nov 2026): the district page no
+      // longer carries the shortlist button the founder
+      // flagged — the sample carries no shortlist control
+      // and the bridge is the page's only forward path.
+      // Cards filed before the removal (and the Scotland /
+      // not-covered page's own control) still render.
+      await seedShortlist(page, [BIRKDALE_CARD, EXETER_CARD, WIDER_AREA_CARD]);
       await page.goto("/search?outward=E16");
-      await expect(page.locator("h1")).toHaveText("Wider area — E16, not this exact home");
-      await page.getByRole("button", { name: "Shortlist this home" }).click();
-      await expect(page.locator(".shortlist-count")).toHaveText("3");
+      await expect(page.locator("h1")).toHaveText("Wider area — E16");
+      await expect(page.getByRole("button", { name: "Shortlist this home" })).toHaveCount(0);
+      await expect(page.locator("[data-shortlist-toggle]")).toHaveCount(0);
 
       await page.goto("/shortlist");
       const areaCard = page.locator('.shortlist-card[data-rung="3"]');
@@ -485,7 +492,9 @@ test.describe("shortlist — regression", () => {
       const searchCard = page.locator(".shortlist-search-card");
       await expect(searchCard).toBeVisible();
       await expect(searchCard.locator("h2")).toHaveText("Check a home");
-      await expect(searchCard.getByPlaceholder("Enter a postcode — e.g. SW1A 1AA")).toBeVisible();
+      await expect(
+        searchCard.getByPlaceholder("Enter a postcode, street or town — e.g. SW1A 1AA"),
+      ).toBeVisible();
       await expect(searchCard.getByRole("button", { name: "Check this home" })).toBeVisible();
     },
   );

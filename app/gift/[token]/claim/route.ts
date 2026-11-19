@@ -27,7 +27,13 @@
 //                       closed state's own screen).
 //
 // A malformed address is refused before any decision:
-// back with ?error=email, nothing written.
+// back with ?error=email, nothing written to the store.
+// The address just typed rides the one-shot entry
+// cookie instead (lib/gift.ts's GIFT_ENTRY_COOKIE_NAME
+// — never the URL), so the re-served form stands with
+// the entry in the field under the error line (view
+// 18). Any attempt that passes the shape check clears
+// that cookie on its way out, whichever way it lands.
 //
 // Abuse shape: the endpoint sends email, so it is
 // rate-limited per caller (the suggestions endpoint's
@@ -40,6 +46,8 @@ import { NextResponse } from "next/server";
 
 import {
   GIFT_COOKIE_NAME,
+  GIFT_ENTRY_COOKIE_MAX_AGE_S,
+  GIFT_ENTRY_COOKIE_NAME,
   decideClaimAttempt,
   giftClaimedPath,
   giftClaimPath,
@@ -62,6 +70,37 @@ function back(request: Request, token: string, query = ""): NextResponse {
   return NextResponse.redirect(new URL(`${giftClaimPath(token)}${query}`, request.url), 303);
 }
 
+// The entry cookie's shape, shared by its set and its
+// clearing: httpOnly, scoped to the gift's own pages
+// (the claim page and this route sit under the path).
+function entryCookie(token: string) {
+  return { httpOnly: true, sameSite: "lax" as const, path: giftClaimPath(token) };
+}
+
+// The format-failure answer: back with ?error=email,
+// the just-typed address riding the entry cookie so
+// the re-served form stands with the entry in the
+// field (view 18). Only an entry short enough to be an
+// address worth correcting is carried — the shape
+// check's own cap; a longer paste gets the bare error.
+function backWithEntry(request: Request, token: string, entry: string): NextResponse {
+  const response = back(request, token, "?error=email");
+  if (entry.length > 0 && entry.length <= 254) {
+    response.cookies.set(GIFT_ENTRY_COOKIE_NAME, entry, {
+      ...entryCookie(token),
+      maxAge: GIFT_ENTRY_COOKIE_MAX_AGE_S,
+    });
+  }
+  return response;
+}
+
+// An attempt that passed the shape check retires the
+// entry flash on its way out, whichever way it lands.
+function cleared(response: NextResponse, token: string): NextResponse {
+  response.cookies.set(GIFT_ENTRY_COOKIE_NAME, "", { ...entryCookie(token), maxAge: 0 });
+  return response;
+}
+
 export async function POST(request: Request, { params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
   if (!isGiftTokenForm(token)) return back(request, token);
@@ -80,26 +119,28 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
   } catch {
     return back(request, token, "?error=email");
   }
-  if (!isEmailShape(email)) return back(request, token, "?error=email");
+  if (!isEmailShape(email)) return backWithEntry(request, token, email);
 
   const store = createDbGiftStore(getDbPool());
   const record = await store.getByToken(token);
-  if (!record) return back(request, token);
+  if (!record) return cleared(back(request, token), token);
 
   const now = new Date();
   const attempt = decideClaimAttempt(record, email, now);
 
+  let response: NextResponse;
   switch (attempt.kind) {
     case "same-email":
-      return back(request, token, "?refused=same-email");
+      response = back(request, token, "?refused=same-email");
+      break;
     case "resume": {
-      const response = NextResponse.redirect(new URL(giftClaimedPath(token), request.url), 303);
+      response = NextResponse.redirect(new URL(giftClaimedPath(token), request.url), 303);
       response.cookies.set(GIFT_COOKIE_NAME, token, {
         httpOnly: true,
         sameSite: "lax",
         path: "/",
       });
-      return response;
+      break;
     }
     case "send-confirmation": {
       const pendingToken = newConfirmToken();
@@ -112,13 +153,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
       });
       if (!result.sent) {
         await store.clearPending(token);
-        return back(request, token, "?sendfailed=1");
+        response = back(request, token, "?sendfailed=1");
+      } else {
+        response = back(request, token, "?sent=1");
       }
-      return back(request, token, "?sent=1");
+      break;
     }
     default:
       // refused-claimed, closed: the claim page serves
       // the state that stands.
-      return back(request, token);
+      response = back(request, token);
   }
+  return cleared(response, token);
 }

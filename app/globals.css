@@ -1327,6 +1327,29 @@ body:has(.main--home) .site-footer {
   background: var(--colour-selected-bg);
 }
 
+/* The picked place's row (founder fix batch, 19 Nov
+   2026): a Places pick does not navigate, so the row the
+   pick filed carries a clear selected state of its own
+   while the panel shows the place's districts — a deeper
+   tint than the keyboard's active row, the name heavy,
+   and a "Districts below" marker at the right naming
+   what the pick revealed. */
+.suggest__item--picked {
+  background: #dfeadb;
+  font-weight: 800;
+  color: var(--cmnh-forest);
+}
+
+.suggest__item--picked::after {
+  content: "Districts below ↓";
+  float: right;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--colour-muted);
+}
+
 /* The bare form (fidelity pass 2): the decided sample page's
    hero search row — the row at the sample's 500px measure,
    its field at the sample's padding and 14.5px size with the
@@ -1756,6 +1779,95 @@ body:has(.main--home) .site-footer {
 
 .journey-actions {
   margin-top: var(--space-5);
+}
+
+/* The single error page (error-page build, 19 Nov 2026;
+   Final Sample Master view 26): the mark in its cream
+   disc, the headline, the line, the search box in a
+   cream card with the kept note inside it, and the
+   Contact closing line — the sample's dress restated in
+   the kit's tokens. One block for every surface that
+   renders the page (error boundary, not-found,
+   /search/failed, the whole-check failure state). */
+
+.error-page {
+  max-width: 750px;
+  margin: 0 auto;
+  padding: var(--space-8) var(--space-6);
+}
+
+.error-page__mark {
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  background: var(--colour-surface);
+  border: 1px solid var(--cmnh-brass-pale);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: var(--space-6);
+}
+
+.error-page__title {
+  font-family: var(--font-family-display);
+  font-weight: 600;
+  font-size: clamp(2rem, 4.6vw, 2.625rem);
+  line-height: 1.14;
+  letter-spacing: -0.01em;
+  color: var(--cmnh-forest-deep);
+  max-width: 16em;
+  margin: 0 0 var(--space-4);
+}
+
+.error-page__lede {
+  font-size: var(--font-size-lead);
+  line-height: 1.65;
+  max-width: 56ch;
+  margin: 0 0 var(--space-6);
+}
+
+.error-page__card {
+  background: var(--colour-surface);
+  border: 1px solid var(--cmnh-brass-pale);
+  border-radius: var(--radius-card);
+  padding: var(--space-6);
+}
+
+/* The box fills the card, as the sample's row fills its
+   block — the hero form's own measure cap is a landing
+   dress, lifted here in the surface-scoped pattern the
+   content pages' search block already uses. */
+.error-page__card .postcode-box--bare {
+  max-width: none;
+}
+
+.error-page__note {
+  font-size: var(--font-size-small);
+  line-height: 1.55;
+  color: var(--colour-muted);
+  margin: var(--space-3) 0 0;
+}
+
+.error-page__closing {
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  color: var(--colour-muted);
+  margin: var(--space-6) 0 0;
+}
+
+.error-page__closing a {
+  font-weight: 600;
+  color: var(--cmnh-forest);
+}
+
+@media (max-width: 40rem) {
+  .error-page {
+    padding: var(--space-6) var(--space-4);
+  }
+
+  .error-page__card {
+    padding: var(--space-5);
+  }
 }
 
 .unlock-banner {
@@ -3639,6 +3751,29 @@ a.picker__row {
   margin: 1.2rem auto 0;
   text-align: left;
 }
+/* The refusal screens' message box (Master views 23
+   and 24): heading and body inside the error-tinted
+   box, no badge — the samples' own form for Texts 3
+   and 4, restored by the conform pass of 19 Nov 2026.
+   Same box dialect as .gift-alert; the heading keeps
+   the page's h1 at message size. */
+.gift-page .gift-message {
+  background: #fbeae9;
+  border: 1px solid var(--cmnh-error);
+  border-radius: 12px;
+  padding: 1.1rem 1.2rem;
+  max-width: 520px;
+  margin: 0 auto;
+  text-align: left;
+}
+.gift-page .gift-message h1 {
+  font-size: 1.3rem;
+  color: var(--cmnh-error);
+  margin-bottom: 0.4rem;
+}
+.gift-page .gift-message p {
+  margin: 0;
+}
 .gift-page .gift-divider {
   border: none;
   border-top: 1px solid var(--sp-line);
@@ -4472,20 +4607,22 @@ a.picker__row {
   white-space: nowrap;
 }
 
-/* The bridge: a deep-forest panel carrying the postcode
-   box (its label and hint take the on-dark colours) and
-   the district's postcodes as chips into their checks. */
+/* The bridge in the sample's dress (founder fix batch,
+   19 Nov 2026 — audit item 5): a light section, no panel
+   — the heading, the line, a plain postcode-only form
+   (its input at the sample's border, radius and 44px
+   target, 16px against phone zoom) and the district's
+   named-area postcode links as white pills. The
+   deep-forest panel with the full search box and raw
+   postcode chips was a build departure from the sample
+   and is retired whole. */
 .district-bridge {
-  background: var(--cmnh-forest-deep);
-  color: var(--colour-on-dark);
-  border-radius: var(--radius-card);
-  padding: var(--space-5);
   margin-top: var(--space-6);
 }
 
 .district-bridge__heading {
   font-family: var(--font-family-display);
-  color: var(--colour-on-dark);
+  color: var(--cmnh-forest);
   margin-bottom: var(--space-2);
 }
 
@@ -4493,12 +4630,33 @@ a.picker__row {
   margin-bottom: var(--space-4);
 }
 
-.district-bridge .field__label {
-  color: var(--colour-on-dark);
+.district-bridge__form {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
-.district-bridge .field__hint {
-  color: var(--colour-accent-on-dark);
+.district-bridge__input {
+  flex: 1 1 16rem;
+  min-height: 44px;
+  padding: 9px 11px;
+  border: 1px solid #c9cfc9;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 700;
+  background: var(--cmnh-white);
+  color: var(--colour-text);
+}
+
+.district-bridge__input:focus {
+  outline: 3px solid var(--cmnh-forest);
+  outline-offset: 1px;
+}
+
+.district-bridge__form .btn {
+  min-height: 44px;
+  border-radius: 8px;
 }
 
 .district-bridge__links {
@@ -4506,24 +4664,58 @@ a.picker__row {
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
-  margin-top: var(--space-3);
+  margin-top: 14px;
 }
 
 .district-bridge__chip {
-  border: 1px solid var(--cmnh-brass-pale);
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  border: 1px solid var(--colour-card-line);
   border-radius: 999px;
-  padding: 5px 12px;
-  font-weight: 700;
+  padding: 11px 13px;
+  font-weight: 800;
   font-size: 0.88rem;
-  color: var(--colour-on-dark);
+  background: var(--cmnh-white);
+  color: var(--cmnh-forest);
   text-decoration: none;
 }
 
 .district-bridge__chip:hover {
-  background: var(--cmnh-forest);
+  background: var(--colour-selected-bg);
 }
 
-.district-bridge__more {
-  font-size: 0.88rem;
-  color: var(--colour-accent-on-dark);
+/* The district page's settlement pills (founder fix
+   batch — audit item 9): the sample's .pills dress. */
+.results-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  list-style: none;
+  padding: 0;
+  margin: 0 0 var(--space-3);
+}
+
+.results-pill {
+  background: #eef3ec;
+  padding: 9px 12px;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 0.875rem;
+}
+
+/* The sample's .infobox dress: the flood roll-up's
+   method box (founder fix batch — audit item 10). */
+.infobox {
+  margin-top: 12px;
+  padding: 11px 13px;
+  border-radius: var(--radius-tile);
+  background: var(--colour-selected-bg);
+  border: 1px solid #cfe0d8;
+  font-size: 0.92rem;
+  color: #22332e;
+}
+
+.infobox p {
+  margin: 0;
 }

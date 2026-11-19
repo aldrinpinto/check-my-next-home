@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import AudienceCards from "../components/AudienceCards";
 import CheckTiles from "../components/CheckTiles";
 import HowItWorks from "../components/HowItWorks";
+import LandingSearchBox from "../components/LandingSearchBox";
 import PostcodeBox from "../components/PostcodeBox";
 import ReportBand from "../components/ReportBand";
 import SourceStrip from "../components/SourceStrip";
@@ -83,7 +84,14 @@ export default function Home() {
         <p className="hero__kicker">{SITE_KICKER}</p>
         <h1>{HOME_HERO_HEADLINE}</h1>
         <p className="type-lead">{HOME_HERO_SUBLINE}</p>
-        <PostcodeBox bare />
+        {/* The hero box is the landing search box island:
+            it files a place name the URL carries (the
+            place route) and otherwise renders the plain
+            bare box — the fallback is that same box, so
+            the hero never waits on the query. */}
+        <Suspense fallback={<PostcodeBox bare />}>
+          <LandingSearchBox />
+        </Suspense>
         <Suspense fallback={null}>
           <UnplacedNotice />
         </Suspense>

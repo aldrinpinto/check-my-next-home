@@ -29,14 +29,29 @@ export const HOME_HERO_SUBLINE =
 // specimens). (b) The hero's box takes the decided sample
 // page's bare form: no visible label or hint, the field
 // itself carrying the placeholder below, and the Brass
-// button in the sample's words. The labelled form survives
-// on the journey's own pages (the wider-area banner, the
-// whole-check failure), where the box is a retry, not the
-// page's main action.
+// button in the sample's words. The labelled form survived
+// for a while on the journey's own pages (the wider-area
+// banner, the whole-check failure), where the box is a
+// retry, not the page's main action — until the founder
+// ruling of 19 Nov 2026: EVERY search entry field takes
+// the landing form, no visible caption above the box, the
+// one placeholder below, the label retained only as the
+// field's accessible name. The whole-check failure moved
+// to the single error page (bare form) in the founder fix
+// batch, and the wider-area banner — the last live
+// standard-form use — takes the bare form with it. The
+// standard form remains in the component, unrendered by
+// any live surface.
 export const POSTCODE_BOX_LABEL = "Postcode or address";
 export const POSTCODE_BOX_HINT = "For example, SW1A 1AA — or the full address, with its postcode.";
 export const POSTCODE_BOX_BUTTON = "Check a home";
-export const POSTCODE_BOX_PLACEHOLDER_BARE = "Enter a postcode — e.g. SW1A 1AA";
+// One placeholder for every search entry field on the
+// site (founder ruling, 19 Nov 2026): the box now takes a
+// postcode, a street or a town, and the field says so —
+// the same words in the hero's bare form, the box's
+// standard form, and every plain search form (the
+// district bridge, the shortlist's empty-state card).
+export const POSTCODE_BOX_PLACEHOLDER = "Enter a postcode, street or town — e.g. SW1A 1AA";
 export const POSTCODE_BOX_BUTTON_BARE = "Check this home";
 
 // The small line under the hero's search row (the decided

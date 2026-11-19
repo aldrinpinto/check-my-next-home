@@ -32,11 +32,13 @@
 //     outside the harness.
 //
 // The email's words are lib/gift.ts's GIFT_CONFIRM_*
-// constants — build-drafted, minimal and functional,
-// listed in the step's build note for the founder's
-// approval before the step ticks at M9.6.
+// constants — founder-approved on 19 Nov 2026 and pinned
+// by the Master as view 21 (Gift claim — Confirmation
+// email); minimal and functional in dress until M8.6's
+// template machinery conforms it.
 
 import {
+  GIFT_CONFIRM_BUTTON,
   GIFT_CONFIRM_FALLBACK,
   GIFT_CONFIRM_IGNORE,
   GIFT_CONFIRM_INTRO,
@@ -64,7 +66,7 @@ function confirmationBodies(confirmUrl: string): { text: string; html: string } 
   );
   const html = [
     `<p>${GIFT_CONFIRM_INTRO}</p>`,
-    `<p><a href="${confirmUrl}">Confirm your email and claim your free report</a></p>`,
+    `<p><a href="${confirmUrl}">${GIFT_CONFIRM_BUTTON}</a></p>`,
     `<p>${GIFT_CONFIRM_FALLBACK}<br>${confirmUrl}</p>`,
     `<p>${GIFT_CONFIRM_IGNORE}</p>`,
     `<p>${SITE_NAME}</p>`,

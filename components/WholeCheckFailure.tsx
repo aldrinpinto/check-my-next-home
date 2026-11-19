@@ -1,29 +1,21 @@
-import { SAMPLE_REPORT_PATH } from "../lib/home";
-import {
-  WHOLE_CHECK_FAILURE_HEADING,
-  WHOLE_CHECK_FAILURE_LINE,
-  WHOLE_CHECK_FAILURE_RETRY,
-  WHOLE_CHECK_FAILURE_SAMPLE,
-} from "../lib/journey";
+import ErrorPage from "./ErrorPage";
 
-// The whole-check failure state (D44(7)), built once at
-// M7.3 as part of the journey shell and reused by M7.4 on
-// the results route: plain wording, a retry, and the
-// sample-report route — never a generic error page.
-// Per-brain failures never land here; they stay per-row
-// named states on the checking screen (D44(5)(ii)).
+// The whole-check failure state (D44(7)): where the
+// serve layer cannot resolve or build a check at all,
+// the journey lands here. Since the error-page build
+// (19 Nov 2026, founder ruling: one page for every
+// visitor-facing failure) this state wears the site's
+// single error page (Final Sample Master view 26) —
+// the same face as the route error boundary, unmatched
+// routes and /search/failed. The caller hands in the
+// postcode or address the visitor was checking, and
+// the page's search box arrives holding it, under the
+// kept note; the old retry link is retired — pressing
+// the box's button with the kept value IS the retry,
+// and it can aim at a different home instead. Per-brain
+// failures never land here; they stay per-row named
+// states on the results page (D44(5)(ii)).
 
-export default function WholeCheckFailure({ retryHref = "/" }: { retryHref?: string }) {
-  return (
-    <main className="journey-page">
-      <h1>{WHOLE_CHECK_FAILURE_HEADING}</h1>
-      <p className="type-lead">{WHOLE_CHECK_FAILURE_LINE}</p>
-      <p className="journey-actions">
-        <a className="btn btn--primary" href={retryHref}>
-          {WHOLE_CHECK_FAILURE_RETRY}
-        </a>{" "}
-        <a href={SAMPLE_REPORT_PATH}>{WHOLE_CHECK_FAILURE_SAMPLE}</a>
-      </p>
-    </main>
-  );
+export default function WholeCheckFailure({ initialValue = "" }: { initialValue?: string }) {
+  return <ErrorPage initialValue={initialValue} />;
 }

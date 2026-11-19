@@ -14,23 +14,24 @@
 // THE COPY is the finalised samples' verbatim text — the
 // Check Together gift claim flow samples, founder-approved
 // 18 Nov 2026 and folded into the Final Sample Master as
-// views 17–23, are the sample authority for these surfaces,
-// and the four landing texts are the D44(14) pins as
-// replaced at the 18 Nov copy pass (Texts 1 and 2 in their
-// original approved wording, Texts 3 and 4 in their
-// shorter approved versions). Sample shelf commentary (the
-// "In this sample…" and "Sample only — …" notes) is not
-// product copy and appears nowhere here.
+// views 17–27 (the conform pass of 19 Nov 2026 renumbered
+// them: the set grew from seven states to eleven), are the
+// sample authority for these surfaces, and the four landing
+// texts are the D44(14) pins as replaced at the 18 Nov copy
+// pass (Texts 1 and 2 in their original approved wording,
+// Texts 3 and 4 in their shorter approved versions). Sample
+// shelf commentary (the "In this sample…" and "Sample only
+// — …" notes) is not product copy and appears nowhere here.
 //
-// Three pieces of copy in this module are NOT from the
-// samples, because the samples carry no state for them —
-// they are build-drafted in the samples' voice and are
-// listed in the step's build note for the founder's
-// approval before the step ticks at M9.6: the
-// confirmation-pending screen (the adopted
+// Four pieces of copy in this module began as build drafts,
+// because the original samples carried no state for them:
+// the confirmation-pending screen (the adopted
 // email-confirmation step's intermediate state), the
 // send-failure line, the email-format error line, and the
-// confirmation email itself.
+// confirmation email itself. The founder approved all four
+// on 19 Nov 2026; they were drawn as samples (workshop
+// states 8–11) and folded into the Master as views 18–21,
+// so they stand as sample-pinned copy like the rest.
 
 // ----------------------------------------------------------------
 // The lifecycle (D21, as amended 14 Nov 2026)
@@ -173,10 +174,32 @@ export function isGiftTokenForm(candidate: string): boolean {
 // it: state lives server-side against the email and
 // survives sessions and devices; the cookie's value is
 // the gift token, read only by the server. Its naming
-// line joins the Privacy policy when the founder
-// approves the wording (see the build note — the ruling
-// names the substance; no approved sentence exists yet).
+// line stands in the Privacy policy's Cookies card —
+// the founder approved the sentence on 19 Nov 2026 and
+// it is pinned in tests/privacy-copy.test.ts.
 export const GIFT_COOKIE_NAME = "cmnh-gift";
+
+// The claim form's entry cookie — a one-shot flash, not
+// gift state. When a submitted address fails the shape
+// check, the claim route sets this cookie to the address
+// just typed (normalised, as the flow judges it) on its
+// redirect back to the claim page; the page reads it
+// once, only alongside ?error=email, and stands the
+// entry in the field under the error line — Master view
+// 18 draws the bad entry standing, so the visitor
+// corrects it rather than retyping from scratch. The
+// address itself never rides the URL (the
+// /search/failed ?postcode= pattern is for postcodes; an
+// email in a query string would persist in browser
+// history and server logs), is never written to the
+// gift store, never logged, and never reaches journey
+// counting (route patterns derive from the pathname
+// only). httpOnly, scoped to the gift's own path, gone
+// in minutes — and every claim attempt that gets past
+// the shape check clears it, so it cannot outlive the
+// correction it exists for.
+export const GIFT_ENTRY_COOKIE_NAME = "cmnh-gift-entry";
+export const GIFT_ENTRY_COOKIE_MAX_AGE_S = 300;
 
 // ----------------------------------------------------------------
 // Routes — the claim flow's own shapes. The claim page is
@@ -210,7 +233,12 @@ export function giftClaimPostPath(token: string): string {
 // already in, and can never create one. A flag that
 // doesn't fit the state is ignored: ?sent= on a bound
 // gift still serves the guard screen, ?refused= on an
-// expired gift still serves Text 1.
+// expired gift still serves Text 1. The one piece of
+// visitor data a presentation may carry is the just-typed
+// entry on the format-error presentation (view 18), and
+// it arrives by the entry cookie, never the URL — see
+// GIFT_ENTRY_COOKIE_NAME above. It pre-fills a field; it
+// selects nothing.
 
 export type GiftClaimVariant = "claim" | "same-email" | "different" | "pending";
 
@@ -220,6 +248,7 @@ export type GiftClaimPageView =
       variant: GiftClaimVariant;
       pendingEmail?: string;
       emailError?: boolean;
+      entryEmail?: string;
       sendFailed?: boolean;
     }
   | { kind: "closed"; variant: "used" | "expired" | "not-recognised" };
@@ -237,6 +266,11 @@ export interface GiftClaimFlags {
   // ?error=email — the submitted address failed the
   // shape check; the claim form with its inline error.
   emailError?: boolean;
+  // The address just typed, when the shape check has
+  // just refused it — read by the page from the entry
+  // cookie, only alongside ?error=email. Stands in the
+  // field under the error line (view 18).
+  entryEmail?: string;
 }
 
 export function giftClaimPageView(
@@ -255,7 +289,9 @@ export function giftClaimPageView(
     return { kind: "card", variant: "pending", pendingEmail: record.pendingEmail };
   }
   if (flags.sendFailed) return { kind: "card", variant: "claim", sendFailed: true };
-  if (flags.emailError) return { kind: "card", variant: "claim", emailError: true };
+  if (flags.emailError) {
+    return { kind: "card", variant: "claim", emailError: true, entryEmail: flags.entryEmail };
+  }
   return { kind: "card", variant: "claim" };
 }
 
@@ -314,7 +350,7 @@ export function decideClaimAttempt(
 }
 
 // ----------------------------------------------------------------
-// Copy — the samples' verbatim text (Master views 17–23).
+// Copy — the samples' verbatim text (Master views 17–27).
 // **…** marks the samples' bold, rendered by the page
 // (the lib/site-pages.ts convention).
 
@@ -331,25 +367,28 @@ export const GIFT_CLAIM_BUTTON = "Claim my free report";
 export const GIFT_CLAIM_FINE_PRINT =
   "The gift is valid for 30 days from the day the report was bought, and it can be claimed once — so use the email address you'll order your report with.";
 
-// View 19 — Same email as the buyer (Text 4, D44(14), in
+// View 23 — Same email as the buyer (Text 4, D44(14), in
 // its shorter 18 Nov 2026 approved version). Served on
 // the claim page with the claim form below it.
 export const GIFT_SAME_EMAIL_HEADING = "This gift is for someone else";
 export const GIFT_SAME_EMAIL_BODY =
   "This gift came with a report you bought, so it can't be claimed with the same email address. Nothing is used up — your link is still valid. Send it to the person choosing the home with you, and they can claim a free full report for any home.";
 
-// View 20 — Claimed with a different email (Text 3,
+// View 24 — Claimed with a different email (Text 3,
 // D44(14), shorter approved version). The claim page's
-// form for a bound gift: the button is "Continue", and
-// the helper line is the sample's.
+// form for a bound gift: the button is "Continue", the
+// field's placeholder speaks to the holder ("The address
+// you claimed it with", the sample's own), and the
+// helper line is the sample's.
 export const GIFT_DIFFERENT_HEADING = "This gift is already claimed";
 export const GIFT_DIFFERENT_BODY =
   "Someone has claimed this gift with a different email address, and it can only be used with that address. If it was you, enter the same address below — if someone forwarded you this link after claiming it, only they can use it.";
+export const GIFT_DIFFERENT_PLACEHOLDER = "The address you claimed it with";
 export const GIFT_DIFFERENT_BUTTON = "Continue";
 export const GIFT_DIFFERENT_HELPER =
   "If you claimed this gift yourself, entering that same address here will take you through to checking a home.";
 
-// View 18 — Claimed: the dedicated claimed page's
+// View 22 — Claimed: the dedicated claimed page's
 // confirmation card, with its pill and its own postcode
 // search field (placement ruling, 18 Nov 2026).
 export const GIFT_CLAIMED_CHIP = "Gift saved to your email address";
@@ -358,22 +397,22 @@ export const GIFT_CLAIMED_BODY =
   "This gift is now yours, and it stays tied to the email address you claimed it with. When you're ready, find the home below and order its full report using that same email address — **we'll apply your free report for you, so there's nothing to pay.**";
 export const GIFT_CLAIMED_SEARCH_HEADING = "Check a home now";
 
-// View 21 — Already used (Text 2, D44(14), original
+// View 25 — Already used (Text 2, D44(14), original
 // approved wording in full, the support line included).
 export const GIFT_USED_HEADING = "This gift has already been used";
 export const GIFT_USED_BODY =
-  "The free report that came with this gift link has already been delivered, so the link can't be used again. If the report was delivered to you, you'll find it in the email we sent when it was ready. If you think something has gone wrong, email us at support@checkmynexthome.co.uk and we'll look into it.";
+  "The free report from this gift link has already been delivered, so the link can't be used again. If the report was delivered to you, you'll find it in the email we sent when it was ready. If you think something has gone wrong, email us at support@checkmynexthome.co.uk and we'll look into it.";
 export const GIFT_USED_SEARCH_HEADING = "Check another home";
 export const GIFT_SUPPORT_EMAIL = "support@checkmynexthome.co.uk";
 
-// View 22 — Expired (Text 1, D44(14), original approved
+// View 26 — Expired (Text 1, D44(14), original approved
 // wording in full).
 export const GIFT_EXPIRED_HEADING = "This gift link has expired";
 export const GIFT_EXPIRED_BODY =
   "This free report gift was valid for 30 days from the day the report was bought, and that time has run out, so the link no longer works. Gift links can't be extended or replaced. You can still check any home on our website — the headline facts are free — and a full report costs £4.99.";
 export const GIFT_EXPIRED_SEARCH_HEADING = "Check a home anyway";
 
-// View 23 — Link not recognised: its own plain page
+// View 27 — Link not recognised: its own plain page
 // (founder-confirmed, 18 Nov 2026). It confirms no state
 // — a made-up link and a miscopied real one get exactly
 // the same answer.
@@ -388,26 +427,42 @@ export const GIFT_NOT_RECOGNISED_SEARCH_HEADING = "Check a home";
 export const GIFT_SEARCH_LINE = "Enter a postcode to see the headline facts for a home, free.";
 
 // ----------------------------------------------------------------
-// Build-drafted copy — NO sample exists for these (the
-// confirmation step's intermediate state and the form's
-// failure lines). Drafted in the samples' voice for the
-// founder's approval before the step ticks at M9.6, and
-// listed in the build note. The {email} in the pending
+// The confirmation step's copy — views 18–21. These began
+// as build drafts (no sample existed when the shell was
+// built); the founder approved all four texts on 19 Nov
+// 2026, they were drawn as samples and folded into the
+// Master, and the conform pass of the same day pinned
+// them here like the rest. The {email} in the pending
 // body is the address the visitor just entered.
 
+// View 20 — the confirmation-pending screen: the form
+// below the body stands pre-filled with the address the
+// link went to, under the sample's own button and its
+// short fine print (the claim screen's longer fine print
+// stays the claim screen's).
 export const GIFT_PENDING_HEADING = "Check your email to finish claiming";
 export const GIFT_PENDING_BODY =
   "We've sent a confirmation email to **{email}**. Click the link in it and the gift is yours — it stays tied to that address. The gift isn't claimed until you click, so if the address looks wrong, enter it again below and we'll send a fresh link.";
+export const GIFT_PENDING_BUTTON = "Send a fresh link";
+export const GIFT_PENDING_FINE_PRINT =
+  "The gift is valid for 30 days from the day the report was bought, and it can be claimed once.";
+
+// View 19 — the send-failure line over the claim form.
 export const GIFT_SEND_FAILED_LINE =
   "We couldn't send the confirmation email just now — nothing has been claimed. Check the address and try again.";
+
+// View 18 — the email-format error, inline under the
+// claim form's field.
 export const GIFT_EMAIL_ERROR = "Enter an email address, like you@example.co.uk";
 
-// The confirmation email (build-drafted, minimal and
-// functional; the email template machinery is M8.6's,
-// which conforms this email's dress when it builds).
+// View 21 — the confirmation email (minimal and
+// functional in dress; the email template machinery is
+// M8.6's, which conforms this email's dress when it
+// builds — the words stand).
 export const GIFT_CONFIRM_SUBJECT = "Confirm your free report gift";
 export const GIFT_CONFIRM_INTRO =
   "You asked to claim a free detailed report gift on Check My Next Home. Click the link below to confirm this email address and finish claiming:";
+export const GIFT_CONFIRM_BUTTON = "Confirm and finish claiming";
 export const GIFT_CONFIRM_FALLBACK = "Or copy this link into your browser:";
 export const GIFT_CONFIRM_IGNORE =
   "The gift is then tied to this address. If you didn't ask for this, ignore this email — nothing has been claimed.";

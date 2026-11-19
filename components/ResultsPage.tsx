@@ -5,6 +5,7 @@ import {
   type ResultsView,
   type SectionBlock,
 } from "../lib/results";
+import { POSTCODE_BOX_PLACEHOLDER } from "../lib/home";
 import type { ShortlistCard } from "../lib/shortlist";
 import {
   DISCLAIMER_CLOSING_BLOCK,
@@ -15,7 +16,6 @@ import {
 } from "../lib/site";
 import Calculators from "./Calculators";
 import { Notice, SummaryPill } from "./kit";
-import PostcodeBox from "./PostcodeBox";
 import ReportLink from "./ReportLink";
 import ShortlistButton from "./ShortlistButton";
 import Tabs from "./Tabs";
@@ -302,6 +302,25 @@ function Block({ block, reportHref }: { block: SectionBlock; reportHref: string 
           ))}
         </div>
       );
+    case "pills":
+      // The sample's settlement pills (founder fix batch).
+      return (
+        <ul className="results-pills">
+          {block.items.map((item) => (
+            <li className="results-pill" key={item}>
+              {item}
+            </li>
+          ))}
+        </ul>
+      );
+    case "infobox":
+      // The sample's .infobox dress: the flood roll-up's
+      // method box.
+      return (
+        <div className="infobox">
+          <p>{block.text}</p>
+        </div>
+      );
   }
 }
 
@@ -408,19 +427,37 @@ export default function ResultsPage({
         <div className="district-bridge">
           <h2 className="district-bridge__heading">{view.bridge.heading}</h2>
           <p className="district-bridge__line">{view.bridge.line}</p>
-          <PostcodeBox />
-          <div className="district-bridge__links">
-            {view.bridge.postcodes.map((link) => (
-              <a className="district-bridge__chip" key={link.postcode} href={link.href}>
-                {link.postcode}
-              </a>
-            ))}
-            {view.bridge.moreCount > 0 && (
-              <span className="district-bridge__more">
-                and {view.bridge.moreCount} more postcodes in {view.bridge.outward} — type one above
-              </span>
-            )}
-          </div>
+          {/* The bridge in the sample's dress (founder fix
+              batch, 19 Nov 2026 — audit item 5): a light
+              section with a plain postcode-only form — no
+              search box machinery, no Turnstile (the GET
+              lands on /search, which resolves server-side
+              exactly as a typed URL does) — and the
+              district's named-area postcode links. */}
+          <form className="district-bridge__form" action="/search" method="get">
+            <label className="visually-hidden" htmlFor="district-bridge-postcode">
+              Full postcode
+            </label>
+            <input
+              className="district-bridge__input"
+              id="district-bridge-postcode"
+              name="postcode"
+              placeholder={POSTCODE_BOX_PLACEHOLDER}
+              autoComplete="postal-code"
+            />
+            <button className="btn btn--primary" type="submit">
+              Check this home →
+            </button>
+          </form>
+          {view.bridge.links.length > 0 && (
+            <div className="district-bridge__links">
+              {view.bridge.links.map((link) => (
+                <a className="district-bridge__chip" key={link.href} href={link.href}>
+                  {link.label}
+                </a>
+              ))}
+            </div>
+          )}
         </div>
       )}
       {view.buyBar && (
@@ -453,7 +490,11 @@ export default function ResultsPage({
           <summary>About these checks</summary>
           <ul className="about-checks__list">
             {view.checkLinks.map((link) => (
-              <li key={link.href}>
+              // Keyed by href AND label (founder fix batch):
+              // the district view's eleven legitimately
+              // repeat an href (three sections share the
+              // How-we-check page) under different labels.
+              <li key={`${link.href}|${link.label}`}>
                 <a href={link.href}>{link.label}</a>
               </li>
             ))}
