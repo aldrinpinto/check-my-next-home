@@ -546,12 +546,37 @@ export async function suggestionsFor(
       items.length = SUGGEST_FULL_POSTCODE_CEILING;
     }
     if (items.length > 0) groups.push({ label: "Homes", items });
+    // BUG-032 (fix batch, 19 Nov 2026): a full postcode
+    // with NO homes in the picking union served an empty
+    // response — the branch above was the only thing it
+    // could offer, so a real, checkable postcode (E16 1AF:
+    // in the postcode directory, zero picking-index rows)
+    // offered nothing, not even itself, and the panel
+    // never opened. The branch now always serves at least
+    // the postcode itself — its whole-postcode route, the
+    // fragment branch's own Postcodes form — when the
+    // directory files the postcode; the homes list rides
+    // above as before when homes exist. A postcode the
+    // directory does not file still serves nothing here:
+    // the panel never offers a postcode the site cannot
+    // place.
+    let selfServed = 0;
+    if (items.length === 0) {
+      const filed = await source.postcodesByPrefix(input.postcode, 1);
+      if (filed.includes(input.postcode)) {
+        selfServed = 1;
+        groups.push({
+          label: "Postcodes",
+          items: [{ label: input.postcode, href: homeRoute(input.postcode) }],
+        });
+      }
+    }
     logEntry(req, "suggestions.served", {
       layer: "local",
-      reason: items.length > 0 ? "ok" : "empty",
+      reason: groups.length > 0 ? "ok" : "empty",
       ms: entryNow() - started,
       shape: "full-postcode",
-      postcodes: 0,
+      postcodes: selfServed,
       streets: 0,
       homes: items.length,
       places: 0,

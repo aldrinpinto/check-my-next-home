@@ -292,6 +292,34 @@ describe("the claim page's view selection", () => {
       variant: "expired",
     });
   });
+
+  it("the send-failure flag carries the typed entry into the field too — BUG-029", () => {
+    // Fix batch, 19 Nov 2026: after a send failure the
+    // typed address used to be dropped while a format
+    // error retained it. The route now re-arms the entry
+    // cookie on ?sendfailed=1, the page reads it
+    // alongside that flag, and the view passes it to the
+    // card exactly as the format-error path does.
+    expect(
+      giftClaimPageView(issuedGift(), GIFT_NOW, {
+        sendFailed: true,
+        entryEmail: "friend@example.co.uk",
+      }),
+    ).toEqual({
+      kind: "card",
+      variant: "claim",
+      sendFailed: true,
+      entryEmail: "friend@example.co.uk",
+    });
+    // Without the cookie the failure line serves over an
+    // empty field, as before.
+    expect(giftClaimPageView(issuedGift(), GIFT_NOW, { sendFailed: true })).toEqual({
+      kind: "card",
+      variant: "claim",
+      sendFailed: true,
+      entryEmail: undefined,
+    });
+  });
 });
 
 describe("the claim-attempt decision (named tests (d)–(j), decision level)", () => {

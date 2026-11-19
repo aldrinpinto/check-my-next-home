@@ -6,10 +6,10 @@ import DistrictCheckingScreen from "../../components/DistrictCheckingScreen";
 import PlaceChoice from "../../components/PlaceChoice";
 import PostcodeBox from "../../components/PostcodeBox";
 import ResultsPage from "../../components/ResultsPage";
-import ShortlistButton from "../../components/ShortlistButton";
 import StreetChoice from "../../components/StreetChoice";
 import WholeCheckFailure from "../../components/WholeCheckFailure";
 import {
+  classifyAddressInput,
   createAddressSource,
   displayText,
   resolveAddressInput,
@@ -33,7 +33,6 @@ import {
   placeChoiceUrl,
   resolutionForPostcodeRoute,
 } from "../../lib/server/serve";
-import { buildShortlistCard } from "../../lib/shortlist-card";
 import { getDbPool } from "../../lib/server/db";
 import { createPlaceSource, placeNormOf } from "../../lib/server/places";
 import { createStreetSource, streetNormOf } from "../../lib/server/streets";
@@ -211,12 +210,40 @@ export default async function SearchPage({
     }
     if (!place || place.districts.length === 0) redirect(UNPLACED_NOTICE_URL);
     if (place.districts.length === 1) redirect(widerAreaRoute(place.districts[0]));
-    return <PlaceChoice place={displayText(place.place)} districts={place.districts} />;
+    // The rows' area descriptions and the bridge's
+    // example postcode (fix batch, 19 Nov 2026 —
+    // BUG-026/BUG-027): one set read over the place's
+    // districts. The read is furniture, not the page's
+    // substance — a failure degrades to bare rows and a
+    // form-only bridge, never to the failure page.
+    const areas = await createPlaceSource(getDbPool())
+      .districtAreas(place.districts)
+      .catch(() =>
+        place.districts.map((outward) => ({
+          outward,
+          settlements: [] as string[],
+          examplePostcode: null,
+        })),
+      );
+    return <PlaceChoice place={displayText(place.place)} districts={areas} />;
   }
 
   if (!params.postcode) redirect(UNPLACED_NOTICE_URL);
 
-  const postcode = params.postcode;
+  // The postcode parameter is normalised before ANY use
+  // (fix batch, 19 Nov 2026 — BUG-031): the resolver
+  // uppercases internally for its own decision, but the
+  // raw parameter used to leak into this route's
+  // redirects — /search/home's directory lookup is
+  // case-sensitive, so a lowercase ?postcode=cm3+2jt
+  // resolved here and then failed there, landing the
+  // visitor on the couldn't-place notice. The outward
+  // route never had the defect because it carries no
+  // postcode onward. An input that does not parse as a
+  // full postcode keeps its raw form — the branches
+  // below decide its rung (a bare place name routes to
+  // the place page, anything else to the notice).
+  const postcode = classifyAddressInput(params.postcode).postcode ?? params.postcode;
   let resolution;
   try {
     resolution = await resolutionForPostcodeRoute(postcode, {
@@ -288,19 +315,16 @@ async function DistrictResults({
     return <WholeCheckFailure initialValue={resolution.outward} />;
   }
   const { short, district } = served;
-  // M7.5: a wider-area result is shortlistable (D44) —
-  // its card carries the wider-area headline facts
-  // under the scope label and counts toward the 3. The
-  // record is assembled from this same derivation and
-  // embedded in the control beside the scope label
-  // (fold-in 8). Founder fix batch, 19 Nov 2026: the
-  // control renders ONLY on the Scotland / NI
-  // not-covered branch below — the district page itself
-  // carries no shortlist control (the sample carries
-  // none, and the founder flagged it; the bridge is the
-  // district page's only forward path). The card still
-  // builds here because the not-covered branch uses it.
-  const card = buildShortlistCard({ resolution, short });
+  // District and not-covered surfaces carry NO shortlist
+  // control (D40; fix batch, 19 Nov 2026 — BUG-018): the
+  // earlier batch took the control off the England /
+  // Wales district page, and this batch takes it off the
+  // Scotland / NI not-covered branch below too — a
+  // not-covered page has no home and no facts to save,
+  // and its only forward path is the full-postcode
+  // search in the unlock banner. Wider-area cards filed
+  // before the removal still render on the shortlist
+  // page from storage; nothing here builds a new one.
   if (district.kind === "district") {
     // The district page (founder ruling, 18 Nov 2026):
     // the results page's own layout system — same shell,
@@ -390,7 +414,6 @@ async function DistrictResults({
     <>
       <header className="results-header results-header--row">
         <h1>{resolution.label}</h1>
-        {card && <ShortlistButton card={card} />}
       </header>
       {notfound && <p className="journey-notice">{postcodeNotFoundLine(notfound)}</p>}
       <section className="unlock-banner">

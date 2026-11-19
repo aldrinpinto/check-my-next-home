@@ -170,18 +170,23 @@ function censusFacts(msoaCode: string, scale: 1 | 2): CensusFacts {
   };
 }
 
+// The rows carry their postcodes (BUG-016's coverage
+// count): the ten sales span two of the district's four
+// postcodes, so the section's coverage is partial.
 const SOLD_ROWS = [
   ...[300000, 320000, 340000, 360000, 380000, 400000].map((price, i) => ({
     price,
     saleDate: `2023-0${i + 1}-15`,
     propertyType: "D",
+    postcode: "ZZ9 1AA",
   })),
   ...[200000, 210000, 220000].map((price, i) => ({
     price,
     saleDate: `2024-0${i + 1}-10`,
     propertyType: "T",
+    postcode: "ZZ9 1AB",
   })),
-  { price: 150000, saleDate: "2022-12-01", propertyType: "F" },
+  { price: 150000, saleDate: "2022-12-01", propertyType: "F", postcode: "ZZ9 1AB" },
 ];
 
 function fakeSource(overrides: Partial<DistrictDataSource> = {}): DistrictDataSource {
@@ -559,9 +564,79 @@ describe("district bundle — sold prices (D23)", () => {
     expect(sold.spanLine).toBe("1 December 2022 to 10 March 2024");
     expect(sold.types).toEqual([{ code: "D", label: "Detached", count: 6, median: 350000 }]);
     expect(sold.foldedTypeCount).toBe(4);
+    // Coverage (fix batch, 19 Nov 2026 — BUG-016): the
+    // ten sales span two of the district's four
+    // postcodes, so the section names its coverage and
+    // the district-wide closing form does NOT serve.
+    expect(sold.postcodesCovered).toBe(2);
     const viewText = blockTexts(sectionBlocks(bundle, "home", "sold-prices"));
     expect(viewText).toContain("£310,000");
-    expect(viewText).toContain("does not value any one home");
+    expect(viewText).toContain(
+      "Sales are filed for 2 of the district's 4 postcodes so far — these figures cover those postcodes only",
+    );
+    expect(viewText).toContain("do not value any one home");
+    expect(viewText).not.toContain("The district median across ZZ9 as a whole");
+  });
+
+  it("at full coverage the sold section keeps its district-wide closing line (BUG-016)", async () => {
+    const bundle = await servedBundle({
+      soldFacts: async () => ({
+        rows: [
+          ...SOLD_ROWS,
+          { price: 500000, saleDate: "2024-05-01", propertyType: "D", postcode: "ZZ9 2AA" },
+          { price: 510000, saleDate: "2024-06-01", propertyType: "D", postcode: "ZZ9 2AB" },
+        ],
+        sourceName: "HM Land Registry",
+        sourceDate: "2025-10-01",
+      }),
+    });
+    expect(bundle.sections.soldPrices.postcodesCovered).toBe(4);
+    const viewText = blockTexts(sectionBlocks(bundle, "home", "sold-prices"));
+    expect(viewText).toContain("The district median across ZZ9 as a whole");
+    expect(viewText).not.toContain("postcodes so far");
+  });
+
+  it("a part-filed census names its coverage in the Households line and the closing line (BUG-016)", async () => {
+    // One of the district's two Census areas filed: the
+    // sums cover that one area, and both lines that
+    // present them say so — the header's whole-district
+    // residents figure (6,000 from the LSOA bases) no
+    // longer stands unexplained beside a part-filed sum.
+    const bundle = await servedBundle({
+      censusRows: async () => [censusFacts("E02000001", 1)],
+    });
+    expect(bundle.sections.census.msoaCount).toBe(1);
+    expect(bundle.head.msoaCount).toBe(2);
+    const viewText = blockTexts(sectionBlocks(bundle, "neighbourhood", "census"));
+    expect(viewText).toContain("the 1 of the district's 2 Census areas filed so far");
+    expect(viewText).toContain("summed across the 1 of the district's 2 Census areas filed so far");
+    expect(viewText).not.toContain("this district's postcodes fall in");
+  });
+
+  it("a fully filed census keeps its district-wide closing line (BUG-016)", async () => {
+    const bundle = await servedBundle();
+    const viewText = blockTexts(sectionBlocks(bundle, "neighbourhood", "census"));
+    expect(viewText).toContain(
+      "summed across the 2 Census areas this district's postcodes fall in",
+    );
+    expect(viewText).not.toContain("filed so far");
+  });
+
+  it("a part-filed deprivation spread names its coverage (BUG-016)", async () => {
+    const bundle = await servedBundle({
+      imdDeciles: async () => ({
+        deciles: [
+          { lsoaCode: "E01000001", decile: 3 },
+          { lsoaCode: "E01000002", decile: 8 },
+        ],
+        sourceName: "Ministry of Housing, Communities and Local Government",
+        sourceDate: "2019-09-26",
+      }),
+    });
+    expect(bundle.sections.deprivation.areasCounted).toBe(2);
+    expect(bundle.head.lsoaCount).toBe(3);
+    const viewText = blockTexts(sectionBlocks(bundle, "neighbourhood", "deprivation"));
+    expect(viewText).toContain("the 2 of ZZ9's 3 small areas filed so far");
   });
 
   it("states no median below five sales", async () => {

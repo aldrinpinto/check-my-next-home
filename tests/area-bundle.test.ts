@@ -4,10 +4,12 @@ import { describe, expect, it } from "vitest";
 import type { AddressResolution, DirectoryPostcode, ResolvedAddress } from "../lib/address";
 import {
   AIR_YARDSTICKS,
+  EpcLoadPendingError,
   buildAreaBundle,
   certificateMatchesHome,
   companyTitleMatch,
   createAreaSource,
+  epcLoadWaitMsFromEnv,
   projectHeadline,
   solarCellRef,
   translateArticle4Codes,
@@ -4807,6 +4809,26 @@ describe("the database source", () => {
     await dbSource.loadEpc("CM3 2JT");
     const { readFileSync } = await import("node:fs");
     expect(JSON.parse(readFileSync(out, "utf8"))).toEqual(["--", "CM3 2JT"]);
+  });
+
+  it("bounds the EPC cold load: a caller whose wait expires is told the load is still running (BUG-003)", async () => {
+    const { writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const script = join(tmpdir(), `fake-epc-loader-slow-${Date.now()}.mjs`);
+    writeFileSync(script, "await new Promise((r) => setTimeout(r, 30_000));\n");
+    const db = { query: async () => ({ rows: [] }) };
+    const dbSource = createAreaSource(db as never, {
+      databaseUrl: "postgres://unused",
+      epcLoaderPath: script,
+      epcLoadWaitMs: 50,
+    });
+    const started = Date.now();
+    await expect(dbSource.loadEpc("ZZ9 9ZZ")).rejects.toBeInstanceOf(EpcLoadPendingError);
+    expect(Date.now() - started).toBeLessThan(5_000);
+    // The wait override reads only a non-negative number.
+    expect(epcLoadWaitMsFromEnv({})).toBe(10_000);
+    expect(epcLoadWaitMsFromEnv({ EPC_LOAD_WAIT_MS: "250" })).toBe(250);
+    expect(epcLoadWaitMsFromEnv({ EPC_LOAD_WAIT_MS: "-5" })).toBe(10_000);
   });
 });
 

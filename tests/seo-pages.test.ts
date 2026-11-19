@@ -244,3 +244,17 @@ describe("the homepage tile wiring (M7.8, discharging M7.11's premise)", () => {
     ]);
   });
 });
+
+describe("the About page's 'What it costs' card (fix batch, BUG-023)", () => {
+  it("leads with the large £4.99 figure — the paragraph follows it", async () => {
+    const AboutPage = (await import("../app/about/page")).default;
+    const html = renderToString(createElement(AboutPage));
+    const cardAt = html.indexOf("What it costs");
+    const priceAt = html.indexOf('class="price-line"');
+    const paragraphAt = html.indexOf("The headlines are free");
+    expect(cardAt).toBeGreaterThan(-1);
+    expect(priceAt).toBeGreaterThan(cardAt);
+    expect(paragraphAt).toBeGreaterThan(priceAt);
+    expect(html).toContain("£4.99");
+  });
+});

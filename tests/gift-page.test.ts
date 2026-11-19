@@ -97,6 +97,35 @@ describe("the mistyped-email state (view 18)", () => {
   });
 });
 
+describe("the send-failure state (view 19) — the typed entry stands too (BUG-029)", () => {
+  it("stands the typed address in the field under the failure line", () => {
+    const html = text(
+      renderToStaticMarkup(
+        createElement(GiftClaimCard, {
+          token: GIFT_TOKEN,
+          variant: "claim",
+          sendFailed: true,
+          entryEmail: "friend@example.co.uk",
+        }),
+      ),
+    );
+    expect(html).toContain('value="friend@example.co.uk"');
+    expect(html).toContain(
+      "We couldn't send the confirmation email just now — nothing has been claimed.",
+    );
+  });
+
+  it("without the entry the failure line stands over an empty field", () => {
+    const bare = text(
+      renderToStaticMarkup(
+        createElement(GiftClaimCard, { token: GIFT_TOKEN, variant: "claim", sendFailed: true }),
+      ),
+    );
+    expect(bare).toContain("We couldn't send the confirmation email just now");
+    expect(bare).not.toContain('value="');
+  });
+});
+
 describe("the same-email refusal (view 23 — Text 4 over the form)", () => {
   const html = text(
     renderToStaticMarkup(

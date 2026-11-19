@@ -5764,12 +5764,91 @@ const execFileAsync = promisify(execFile);
 export interface AreaSourceOptions {
   databaseUrl?: string;
   epcLoaderPath?: string;
+  // How long one caller waits for a cold EPC load before
+  // the section serves its not-filed state (see loadEpc);
+  // defaults to EPC_LOAD_WAIT_MS. A test seam.
+  epcLoadWaitMs?: number;
+}
+
+// ------------------------------------------------------------------
+// The EPC cold load, bounded (fix batch, 19 Nov 2026 —
+// BUG-003)
+// ------------------------------------------------------------------
+//
+// The third cold path the founder's 19 Nov 2026 ruling
+// (bound EVERY checking part at the sold-prices bound)
+// reaches: a postcode whose EPC artefact was never filed
+// loads on first check through load-epc.mjs, which reads
+// the register per certificate — unbounded, it held the
+// whole area part (and with it the costs group and the
+// results behind the screen) for as long as the register
+// took. The mechanism is the sold-prices brain's own
+// (lib/sold-prices.ts), restated: one load per postcode
+// at a time (callers join the in-flight run, registered
+// on globalThis as the sibling registries are), the run
+// always completes in the background and files the
+// artefact, and a caller waits at most EPC_LOAD_WAIT_MS
+// — past it, loadEpc throws EpcLoadPendingError, which
+// loadEpcArtefact already turns into the section's
+// not-filed state (its named state): the part completes,
+// and the next check serves the filed artefact.
+export const EPC_LOAD_WAIT_MS = 10_000;
+
+// The wait's test-rig override, on the sibling brains'
+// pattern: the server-config env EPC_LOAD_WAIT_MS, when
+// it carries a non-negative number, replaces the pinned
+// wait at source creation. TEST-ONLY: production never
+// sets it, and an unset, unparsable or negative value
+// leaves the pinned wait standing.
+export function epcLoadWaitMsFromEnv(env: Record<string, string | undefined>): number {
+  const raw = env.EPC_LOAD_WAIT_MS;
+  if (raw === undefined) return EPC_LOAD_WAIT_MS;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : EPC_LOAD_WAIT_MS;
+}
+
+export class EpcLoadPendingError extends Error {
+  constructor(postcode: string, waitMs: number) {
+    super(
+      `the EPC load for ${postcode} is still running after ${waitMs}ms — it files in the background and the next check serves it`,
+    );
+    this.name = "EpcLoadPendingError";
+  }
+}
+
+const epcGlobal = globalThis as typeof globalThis & {
+  __cmnhEpcLoads?: Map<string, Promise<void>>;
+};
+
+function epcLoadsInFlight(): Map<string, Promise<void>> {
+  epcGlobal.__cmnhEpcLoads ??= new Map();
+  return epcGlobal.__cmnhEpcLoads;
+}
+
+function awaitEpcLoad(run: Promise<void>, postcode: string, waitMs: number): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new EpcLoadPendingError(postcode, waitMs)), waitMs);
+    run.then(
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      },
+    );
+  });
 }
 
 export function createAreaSource(
   db: AddressQueryable,
   options: AreaSourceOptions = {},
 ): AreaDataSource {
+  // The EPC caller's wait, settled once at creation: the
+  // explicit option wins, then the test-rig env override,
+  // then the pinned bound.
+  const epcLoadWaitMs = options.epcLoadWaitMs ?? epcLoadWaitMsFromEnv(process.env);
   const point = "ST_SetSRID(ST_MakePoint($2, $3), 4326)";
   // The same point for queries whose parameters run
   // [lng, lat, radius] (listed buildings, priority habitats,
@@ -6198,16 +6277,34 @@ export function createAreaSource(
         );
       const loaderPath =
         options.epcLoaderPath ?? fileURLToPath(new URL("../loaders/load-epc.mjs", import.meta.url));
-      // The loader takes its postcodes after a "--" separator
-      // (its own usage line: load-epc -- "CM3 2JT"); its
-      // argument filter drops the slot the separator occupies,
-      // so without it the first — here the only — postcode is
-      // silently never loaded. Pinned by a test, as in the
-      // sold-prices brain.
-      await execFileAsync(process.execPath, [loaderPath, "--", postcode], {
-        env: { ...process.env, DATABASE_URL: databaseUrl },
-        maxBuffer: 16 * 1024 * 1024,
-      });
+      // Join the postcode's load if one is already
+      // running; otherwise start it (see the EPC bound's
+      // section header above). The run is the load
+      // exactly as it always was, detached from any one
+      // caller's patience, and it evicts itself from the
+      // registry when it settles.
+      const inFlight = epcLoadsInFlight();
+      let run = inFlight.get(postcode);
+      if (!run) {
+        run = (async () => {
+          // The loader takes its postcodes after a "--" separator
+          // (its own usage line: load-epc -- "CM3 2JT"); its
+          // argument filter drops the slot the separator occupies,
+          // so without it the first — here the only — postcode is
+          // silently never loaded. Pinned by a test, as in the
+          // sold-prices brain.
+          await execFileAsync(process.execPath, [loaderPath, "--", postcode], {
+            env: { ...process.env, DATABASE_URL: databaseUrl },
+            maxBuffer: 16 * 1024 * 1024,
+          });
+        })();
+        inFlight.set(postcode, run);
+        const evict = () => {
+          if (inFlight.get(postcode) === run) inFlight.delete(postcode);
+        };
+        void run.then(evict, evict);
+      }
+      await awaitEpcLoad(run, postcode, epcLoadWaitMs);
     },
 
     async councilTaxRow(council) {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { PlaceQueryable } from "../lib/server/places";
+import { createPlaceSource, type PlaceQueryable } from "../lib/server/places";
 import { placeChoiceUrl } from "../lib/server/serve";
 
 // The bare-place-name route (founder fix batch, 19 Nov
@@ -90,5 +90,63 @@ describe("placeChoiceUrl — the display form reaches the route", () => {
     const db = chelmsfordDb();
     await expect(placeChoiceUrl("CM3 2JT", db as unknown as PlaceQueryable)).resolves.toBe(null);
     expect(db.queries).toHaveLength(0);
+  });
+});
+
+describe("districtAreas — the place page's per-district area facts (BUG-026/BUG-027)", () => {
+  // The read composes, per district, the cleaned
+  // settlements the district page itself would name
+  // (localities first, towns as the fallback — the
+  // district bundle's own rule) and one filed postcode
+  // in the district for the bridge's example link. The
+  // fake answers the read's three set queries by their
+  // shapes.
+  class FakeAreasDb {
+    salesRows: { outward: string; locality: string | null; town: string | null }[] = [];
+    indexRows: { outward: string; town: string | null }[] = [];
+    exampleRows: { outward: string; postcode: string }[] = [];
+
+    async query(text: string) {
+      if (text.includes("min(postcode)")) return { rows: this.exampleRows };
+      if (text.includes("FROM picking_index")) return { rows: this.indexRows };
+      if (text.includes("FROM price_paid")) return { rows: this.salesRows };
+      throw new Error(`FakeAreasDb: unhandled SQL: ${text}`);
+    }
+
+    async connect(): Promise<never> {
+      throw new Error("FakeAreasDb: the areas read never opens a transaction");
+    }
+  }
+
+  it("cleans and sorts each district's settlements, localities before towns", async () => {
+    const db = new FakeAreasDb();
+    db.salesRows = [
+      { outward: "CM3", locality: "HATFIELD PEVEREL", town: "CHELMSFORD" },
+      { outward: "CM3", locality: "DANBURY", town: "CHELMSFORD" },
+      { outward: "CM1", locality: null, town: "CHELMSFORD" },
+    ];
+    db.indexRows = [{ outward: "CM1", town: "CHELMSFORD" }];
+    db.exampleRows = [{ outward: "CM3", postcode: "CM3 2JT" }];
+    const areas = await createPlaceSource(db as unknown as PlaceQueryable).districtAreas([
+      "CM1",
+      "CM3",
+    ]);
+    expect(areas).toEqual([
+      // No localities filed: the towns stand (the
+      // district bundle's fallback), display-cased.
+      { outward: "CM1", settlements: ["Chelmsford"], examplePostcode: null },
+      {
+        outward: "CM3",
+        settlements: ["Danbury", "Hatfield Peverel"],
+        examplePostcode: "CM3 2JT",
+      },
+    ]);
+  });
+
+  it("an empty district set reads nothing and answers nothing", async () => {
+    const db = new FakeAreasDb();
+    await expect(
+      createPlaceSource(db as unknown as PlaceQueryable).districtAreas([]),
+    ).resolves.toEqual([]);
   });
 });

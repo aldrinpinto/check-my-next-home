@@ -269,7 +269,12 @@ export interface GiftClaimFlags {
   // The address just typed, when the shape check has
   // just refused it — read by the page from the entry
   // cookie, only alongside ?error=email. Stands in the
-  // field under the error line (view 18).
+  // field under the error line (view 18). Since the fix
+  // batch of 19 Nov 2026 (BUG-029) the send-failure
+  // presentation carries it the same way: the route
+  // re-arms the cookie on ?sendfailed=1 and the page
+  // reads it alongside that flag too, so a transient
+  // failure never costs the visitor their typed address.
   entryEmail?: string;
 }
 
@@ -288,7 +293,8 @@ export function giftClaimPageView(
   if (flags.sent && record && record.pendingEmail) {
     return { kind: "card", variant: "pending", pendingEmail: record.pendingEmail };
   }
-  if (flags.sendFailed) return { kind: "card", variant: "claim", sendFailed: true };
+  if (flags.sendFailed)
+    return { kind: "card", variant: "claim", sendFailed: true, entryEmail: flags.entryEmail };
   if (flags.emailError) {
     return { kind: "card", variant: "claim", emailError: true, entryEmail: flags.entryEmail };
   }

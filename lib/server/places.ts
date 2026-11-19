@@ -68,6 +68,8 @@
 
 import type { Pool } from "pg";
 
+import { cleanSettlements } from "../district";
+
 // The place source needs a pooled client for the fuzzy
 // tier's transaction (set_limit is session state), so
 // it takes the pool's query + connect — the same shape
@@ -95,6 +97,17 @@ export interface PlaceSuggestion {
   districts: string[];
 }
 
+// One district's area facts for the place page (fix
+// batch, 19 Nov 2026 — BUG-026/BUG-027): its cleaned
+// settlements (the district bundle's own cleaning, so
+// the two pages name the same neighbourhoods) and one
+// filed postcode in it, the bridge block's example.
+export interface PlaceDistrictArea {
+  outward: string;
+  settlements: string[];
+  examplePostcode: string | null;
+}
+
 export interface PlaceSource {
   placesByPrefix(words: string[], limit: number): Promise<PlaceSuggestion[]>;
   placesByFuzzy(words: string[], limit: number): Promise<PlaceSuggestion[]>;
@@ -107,6 +120,14 @@ export interface PlaceSource {
   // never a fuzzy guess, so this read is exact-norm
   // equality only.
   placeByNorm(placeNorm: string): Promise<PlaceSuggestion | null>;
+  // The place page's per-district area facts for a set
+  // of districts, in one pass (three set reads over the
+  // sales register and the picking index — the same
+  // filed names the district bundle's places() read
+  // composes its settlements from, at set grain so a
+  // place spanning twenty districts costs one pass,
+  // not twenty district builds).
+  districtAreas(outwards: string[]): Promise<PlaceDistrictArea[]>;
 }
 
 // The home key's normalisation (normKeyPart in the
@@ -277,6 +298,67 @@ export function createPlaceSource(db: PlaceQueryable): PlaceSource {
       );
       const row = (rows as unknown as PlaceUnitRow[])[0];
       return row ? toUnit(row) : null;
+    },
+
+    async districtAreas(outwards) {
+      if (outwards.length === 0) return [];
+      // The district bundle's places() composition, at
+      // set grain: localities and towns as filed in the
+      // sales register, towns topped up from the picking
+      // index, and one filed postcode per locality (the
+      // smallest, deterministically) for the bridge's
+      // example link.
+      const { rows: salesRows } = await db.query(
+        `SELECT DISTINCT split_part(postcode, ' ', 1) AS outward, locality, town
+           FROM price_paid
+          WHERE split_part(postcode, ' ', 1) = ANY($1)`,
+        [outwards],
+      );
+      const { rows: indexRows } = await db.query(
+        `SELECT DISTINCT split_part(postcode, ' ', 1) AS outward, town
+           FROM picking_index
+          WHERE split_part(postcode, ' ', 1) = ANY($1)`,
+        [outwards],
+      );
+      const { rows: exampleRows } = await db.query(
+        `SELECT split_part(postcode, ' ', 1) AS outward, min(postcode) AS postcode
+           FROM price_paid
+          WHERE split_part(postcode, ' ', 1) = ANY($1) AND locality IS NOT NULL
+          GROUP BY split_part(postcode, ' ', 1)`,
+        [outwards],
+      );
+      const localities = new Map<string, Set<string>>();
+      const towns = new Map<string, Set<string>>();
+      const addTo = (map: Map<string, Set<string>>, outward: string, name: string | null) => {
+        if (!name) return;
+        const set = map.get(outward) ?? new Set<string>();
+        set.add(name);
+        map.set(outward, set);
+      };
+      for (const row of salesRows as unknown as {
+        outward: string;
+        locality: string | null;
+        town: string | null;
+      }[]) {
+        addTo(localities, row.outward, row.locality);
+        addTo(towns, row.outward, row.town);
+      }
+      for (const row of indexRows as unknown as { outward: string; town: string | null }[]) {
+        addTo(towns, row.outward, row.town);
+      }
+      const examples = new Map(
+        (exampleRows as unknown as { outward: string; postcode: string }[]).map((row) => [
+          row.outward,
+          row.postcode,
+        ]),
+      );
+      return outwards.map((outward) => {
+        const local = [...(localities.get(outward) ?? [])];
+        const settlements = cleanSettlements(
+          local.length > 0 ? local : [...(towns.get(outward) ?? [])],
+        );
+        return { outward, settlements, examplePostcode: examples.get(outward) ?? null };
+      });
     },
   };
 }

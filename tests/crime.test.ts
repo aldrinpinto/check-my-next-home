@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -12,8 +13,11 @@ import {
   CRIME_CALIBRATION_EXPLAINER,
   CRIME_EXPLAINER,
   CRIME_STALE_AFTER_MONTHS,
+  CRIME_STILL_GATHERING_REASON,
+  CrimeLoadPendingError,
   buildCrimeBundle,
   createCrimeSource,
+  crimeLoadWaitMsFromEnv,
   type CrimeBundle,
   type CrimeDataSource,
   type FiledCrimeAnswer,
@@ -947,5 +951,77 @@ describe("crime — wording (D24's banned-wording scan)", () => {
         expect(key).not.toMatch(/score|rate|rank|percent|trend|compar|verdict/i);
       }
     }
+  });
+});
+
+describe("crime — the bounded cold load (fix batch, BUG-003)", () => {
+  // The founder's ruling of 19 Nov 2026 (21:50): every
+  // checking part is bounded the way sold prices is
+  // bounded (10s). The crime cold load was the proven
+  // unbounded case (~95s on the play server). These
+  // tests pin the bound at the source (a caller's wait
+  // expires with CrimeLoadPendingError while the run
+  // itself carries on) and at the brain (the pending
+  // error serves the still-gathering named state, so
+  // the check completes instead of sticking).
+
+  function stubLoader(script: string): string {
+    const dir = mkdtempSync(join(tmpdir(), "cmnh-crime-stub-"));
+    const stub = join(dir, "load-crime.mjs");
+    writeFileSync(stub, script);
+    return stub;
+  }
+
+  const noRowsDb = {
+    async query() {
+      return { rows: [] };
+    },
+  };
+
+  it("a caller whose wait expires is told the load is still running — promptly", async () => {
+    const stub = stubLoader("await new Promise((r) => setTimeout(r, 30_000));\n");
+    const dbSource = createCrimeSource(noRowsDb, {
+      crimeLoaderPath: stub,
+      databaseUrl: "postgresql://stub.invalid/db",
+      loadWaitMs: 50,
+    });
+    const started = Date.now();
+    await expect(dbSource.loadPostcode("ZZ9 9ZZ")).rejects.toBeInstanceOf(CrimeLoadPendingError);
+    expect(Date.now() - started).toBeLessThan(5_000);
+  });
+
+  it("a load that lands inside the wait resolves as it always did", async () => {
+    const stub = stubLoader('console.log("load-crime · done");\n');
+    const dbSource = createCrimeSource(noRowsDb, {
+      crimeLoaderPath: stub,
+      databaseUrl: "postgresql://stub.invalid/db",
+      loadWaitMs: 5_000,
+    });
+    await expect(dbSource.loadPostcode("ZZ9 9ZY")).resolves.toBeUndefined();
+  });
+
+  it("the brain serves the still-gathering named state for a pending load", async () => {
+    const pendingSource: CrimeDataSource = {
+      async crimeAnswer() {
+        return null;
+      },
+      async loadPostcode() {
+        throw new CrimeLoadPendingError("ZZ9 9ZZ", 10_000);
+      },
+    };
+    const bundle = await buildCrimeBundle(rung2Resolution("ZZ9 9ZZ"), pendingSource, { now: NOW });
+    expect(bundle.kind).toBe("crime");
+    if (bundle.kind !== "crime") throw new Error("expected a crime bundle");
+    expect(bundle.crime).toEqual({ state: "not-filed", reason: CRIME_STILL_GATHERING_REASON });
+    expect(CRIME_STILL_GATHERING_REASON).toBe(
+      "crime counts are still being gathered for this postcode — check again shortly",
+    );
+  });
+
+  it("the wait override reads only a non-negative number from the env", () => {
+    expect(crimeLoadWaitMsFromEnv({})).toBe(10_000);
+    expect(crimeLoadWaitMsFromEnv({ CRIME_LOAD_WAIT_MS: "250" })).toBe(250);
+    expect(crimeLoadWaitMsFromEnv({ CRIME_LOAD_WAIT_MS: "-5" })).toBe(10_000);
+    expect(crimeLoadWaitMsFromEnv({ CRIME_LOAD_WAIT_MS: "soon" })).toBe(10_000);
   });
 });

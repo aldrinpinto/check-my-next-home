@@ -325,7 +325,14 @@ function shapeOk(bundle: unknown, outward: string): bundle is DistrictBundle {
   if (typeof sections !== "object" || sections === null) return false;
   const flood = (sections as { flood?: unknown }).flood;
   if (typeof flood !== "object" || flood === null) return false;
-  return "riversSeaNotCoveredLine" in flood && "surfaceWaterNotCoveredLine" in flood;
+  if (!("riversSeaNotCoveredLine" in flood && "surfaceWaterNotCoveredLine" in flood)) return false;
+  // Fix batch, 19 Nov 2026 — BUG-016: the sold section
+  // gained its postcodesCovered count; an entry filed
+  // before the field existed shape-disagrees and must
+  // rebuild rather than serve an undefined coverage.
+  const sold = (sections as { soldPrices?: unknown }).soldPrices;
+  if (typeof sold !== "object" || sold === null) return false;
+  return typeof (sold as { postcodesCovered?: unknown }).postcodesCovered === "number";
 }
 
 // The form stored in the entry: the filed bundle with

@@ -53,6 +53,16 @@ export const POSTCODE_BOX_BUTTON = "Check a home";
 // district bridge, the shortlist's empty-state card).
 export const POSTCODE_BOX_PLACEHOLDER = "Enter a postcode, street or town — e.g. SW1A 1AA";
 export const POSTCODE_BOX_BUTTON_BARE = "Check this home";
+// The suggestions panel's no-results line (fix batch,
+// 19 Nov 2026 — BUG-008): a typed string that matches
+// nothing used to leave the panel shut with no feedback
+// at all, so the visitor could not tell a settled empty
+// answer from a box still loading. When a suggestions
+// response settles empty, the panel opens on this line
+// instead — the search itself stays one button press
+// away, and the line says so.
+export const POSTCODE_BOX_NO_SUGGESTIONS_LINE =
+  "No suggestions for that — check the spelling, or use the button to search anyway.";
 
 // The small line under the hero's search row (the decided
 // sample page's, verbatim — fidelity pass 2). The hero's

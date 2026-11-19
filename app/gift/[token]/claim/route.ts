@@ -33,7 +33,13 @@
 // — never the URL), so the re-served form stands with
 // the entry in the field under the error line (view
 // 18). Any attempt that passes the shape check clears
-// that cookie on its way out, whichever way it lands.
+// that cookie on its way out, whichever way it lands —
+// with one exception (fix batch, 19 Nov 2026 —
+// BUG-029): a send failure re-arms the cookie with the
+// just-typed address, so the form under the failure
+// line (view 19) stands filled exactly as the form
+// under the format error does; a transient failure
+// never costs the visitor their typed address.
 //
 // Abuse shape: the endpoint sends email, so it is
 // rate-limited per caller (the suggestions endpoint's
@@ -110,6 +116,23 @@ function cleared(response: NextResponse, token: string): NextResponse {
   return response;
 }
 
+// The send-failure answer's cookie (BUG-029): the
+// just-typed address re-armed under the same shape and
+// cap as the format-failure answer's, so the page can
+// stand it in the field under the failure line. An
+// entry past the cap is not carried — the bare failure
+// line answers, as a past-the-cap paste does on the
+// format path.
+function withEntry(response: NextResponse, token: string, entry: string): NextResponse {
+  if (entry.length > 0 && entry.length <= 254) {
+    response.cookies.set(GIFT_ENTRY_COOKIE_NAME, entry, {
+      ...entryCookie(token),
+      maxAge: GIFT_ENTRY_COOKIE_MAX_AGE_S,
+    });
+  }
+  return response;
+}
+
 export async function POST(request: Request, { params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
   if (!isGiftTokenForm(token)) return back(token);
@@ -138,6 +161,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
   const attempt = decideClaimAttempt(record, email, now);
 
   let response: NextResponse;
+  // Set only by the send-failure answer: its response
+  // carries the entry cookie (BUG-029), so the shared
+  // clearing at the foot must not retire it.
+  let retainEntry = false;
   switch (attempt.kind) {
     case "same-email":
       response = back(token, "?refused=same-email");
@@ -166,7 +193,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
       });
       if (!result.sent) {
         await store.clearPending(token);
-        response = back(token, "?sendfailed=1");
+        response = withEntry(back(token, "?sendfailed=1"), token, email);
+        retainEntry = true;
       } else {
         response = back(token, "?sent=1");
       }
@@ -177,5 +205,5 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
       // the state that stands.
       response = back(token);
   }
-  return cleared(response, token);
+  return retainEntry ? response : cleared(response, token);
 }

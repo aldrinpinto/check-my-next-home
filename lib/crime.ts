@@ -108,6 +108,15 @@ export const CRIME_CALIBRATION_EXPLAINER =
 const UNAVAILABLE_REASON = "crime counts need an exact postcode";
 const NOT_FILED_REASON =
   "crime counts could not be loaded for this postcode, so no crime answer can be given";
+// The still-gathering reason (fix batch, 19 Nov 2026 —
+// BUG-003): the named state a check serves when the
+// postcode's cold load is still running past the bounded
+// wait below. The sold-prices brain's form, restated for
+// crime (its STILL_GATHERING_REASON): the load files in
+// the background and a later check serves the filed
+// answer.
+export const CRIME_STILL_GATHERING_REASON =
+  "crime counts are still being gathered for this postcode — check again shortly";
 
 // ------------------------------------------------------------------
 // Filed-data shapes
@@ -472,11 +481,24 @@ export async function buildCrimeBundle(
     // files the artefact into the postcode's cached
     // answers, so re-read after the load. A load that
     // throws serves not-filed below — the only path to
-    // that state.
+    // that state. A load still running past the source's
+    // bounded wait (CrimeLoadPendingError — the BUG-003
+    // bound, fix batch 19 Nov 2026) serves the
+    // still-gathering named state instead: the check
+    // completes, the load files in the background, and
+    // the next check serves the filed answer.
     try {
       await source.loadPostcode(postcode);
       filed = await source.crimeAnswer(postcode);
-    } catch {
+    } catch (error) {
+      if (error instanceof CrimeLoadPendingError) {
+        return {
+          rung: resolution.rung,
+          kind: "crime",
+          postcode,
+          crime: { state: "not-filed", reason: CRIME_STILL_GATHERING_REASON },
+        };
+      }
       filed = null;
     }
   }
@@ -539,14 +561,102 @@ export interface CrimeSourceOptions {
   databaseUrl?: string;
   // The loader's path; defaults to this repo's own loader.
   crimeLoaderPath?: string;
+  // How long one caller waits for a cold load before it is
+  // told the load is still running (see loadPostcode);
+  // defaults to CRIME_LOAD_WAIT_MS. A test seam.
+  loadWaitMs?: number;
 }
 
 const execFileAsync = promisify(execFile);
+
+// ------------------------------------------------------------------
+// The cold load, bounded (fix batch, 19 Nov 2026 — BUG-003)
+// ------------------------------------------------------------------
+//
+// The founder's ruling of 19 Nov 2026 (21:50): bound EVERY
+// checking part the way sold prices is bounded, so the
+// screen never sticks. The crime cold load was the proven
+// unbounded case — measured at ~95 seconds on the play
+// server (the loader works through the Police.uk archive
+// months for the postcode's circle) while the checking
+// screen sat at "2 of 5". The mechanism is the sold-
+// prices brain's own (lib/sold-prices.ts), restated:
+//   - One load per postcode at a time: callers join the
+//     in-flight run instead of spawning another pass.
+//     The registry is anchored to globalThis (the hybrid
+//     list-memory pattern) because the serving runtime
+//     does not share one module instance between routes.
+//   - The run itself always goes to completion in the
+//     background: the loader files the artefact exactly
+//     as before, so the next check serves the filed
+//     answer.
+//   - A caller waits at most CRIME_LOAD_WAIT_MS. A load
+//     that lands inside the wait resolves exactly as it
+//     always did. A caller whose wait expires is told
+//     the load is still running (CrimeLoadPendingError)
+//     — buildCrimeBundle serves the still-gathering
+//     named state for it, and the check completes.
+export const CRIME_LOAD_WAIT_MS = 10_000;
+
+// The wait's test-rig override, on the sold-prices
+// pattern: the server-config env CRIME_LOAD_WAIT_MS,
+// when it carries a non-negative number, replaces the
+// pinned wait at source creation. TEST-ONLY: production
+// never sets it, and an unset, unparsable or negative
+// value leaves the pinned wait standing.
+export function crimeLoadWaitMsFromEnv(env: Record<string, string | undefined>): number {
+  const raw = env.CRIME_LOAD_WAIT_MS;
+  if (raw === undefined) return CRIME_LOAD_WAIT_MS;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : CRIME_LOAD_WAIT_MS;
+}
+
+export class CrimeLoadPendingError extends Error {
+  constructor(postcode: string, waitMs: number) {
+    super(
+      `the crime load for ${postcode} is still running after ${waitMs}ms — it files in the background and the next check serves it`,
+    );
+    this.name = "CrimeLoadPendingError";
+  }
+}
+
+const crimeGlobal = globalThis as typeof globalThis & {
+  __cmnhCrimeLoads?: Map<string, Promise<void>>;
+};
+
+function crimeLoadsInFlight(): Map<string, Promise<void>> {
+  crimeGlobal.__cmnhCrimeLoads ??= new Map();
+  return crimeGlobal.__cmnhCrimeLoads;
+}
+
+// One caller's bounded wait on the shared run: the run's
+// own outcome reaches every caller still waiting; a
+// caller whose wait expires hears "still running"
+// instead, and the run carries on without it.
+function awaitCrimeLoad(run: Promise<void>, postcode: string, waitMs: number): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new CrimeLoadPendingError(postcode, waitMs)), waitMs);
+    run.then(
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      },
+    );
+  });
+}
 
 export function createCrimeSource(
   db: AddressQueryable,
   options: CrimeSourceOptions = {},
 ): CrimeDataSource {
+  // The caller's wait, settled once at creation: the
+  // explicit option wins, then the test-rig env
+  // override, then the pinned bound.
+  const loadWaitMs = options.loadWaitMs ?? crimeLoadWaitMsFromEnv(process.env);
   return {
     async crimeAnswer(postcode) {
       const { rows } = await db.query(
@@ -565,16 +675,36 @@ export function createCrimeSource(
       const loaderPath =
         options.crimeLoaderPath ??
         fileURLToPath(new URL("../loaders/load-crime.mjs", import.meta.url));
-      // The loader takes its postcodes after a "--" separator
-      // (its own usage line: load-crime -- "CM3 2JT"); its
-      // argument filter drops the slot the separator occupies,
-      // so without it the first — here the only — postcode is
-      // silently never loaded. Pinned by a test, as in the
-      // sold-prices brain.
-      await execFileAsync(process.execPath, [loaderPath, "--", postcode], {
-        env: { ...process.env, DATABASE_URL: databaseUrl },
-        maxBuffer: 16 * 1024 * 1024,
-      });
+      // Join the postcode's load if one is already
+      // running; otherwise start it (see the section
+      // header). The run is the load exactly as it always
+      // was — the loader child, detached from any one
+      // caller's patience — and it evicts itself from the
+      // registry when it settles, success or failure
+      // alike (a failed load is retried by the next
+      // check, as before).
+      const inFlight = crimeLoadsInFlight();
+      let run = inFlight.get(postcode);
+      if (!run) {
+        run = (async () => {
+          // The loader takes its postcodes after a "--" separator
+          // (its own usage line: load-crime -- "CM3 2JT"); its
+          // argument filter drops the slot the separator occupies,
+          // so without it the first — here the only — postcode is
+          // silently never loaded. Pinned by a test, as in the
+          // sold-prices brain.
+          await execFileAsync(process.execPath, [loaderPath, "--", postcode], {
+            env: { ...process.env, DATABASE_URL: databaseUrl },
+            maxBuffer: 16 * 1024 * 1024,
+          });
+        })();
+        inFlight.set(postcode, run);
+        const evict = () => {
+          if (inFlight.get(postcode) === run) inFlight.delete(postcode);
+        };
+        void run.then(evict, evict);
+      }
+      await awaitCrimeLoad(run, postcode, loadWaitMs);
     },
   };
 }

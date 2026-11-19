@@ -191,11 +191,24 @@ export const FLOOD_WARNING_LINK = {
 // one proximity radius — 2 miles (D22) — in the API's unit.
 export const FLOOD_WARNING_DIST_KM = 3.22;
 
-// D42's budget: one attempt, 2 seconds. Any failure —
-// timeout, non-200, unparseable body — degrades to the
-// filed answer plus the named failure line; the check never
-// blocks and never fails because of the warnings feed.
-export const FLOOD_WARNING_TIMEOUT_MS = 2000;
+// D42's budget: one attempt, inside the checking
+// envelope. The attempt's cap was 2 seconds at build;
+// the fix batch (19 Nov 2026 — BUG-006) measured the
+// EA API's real latency against it: the endpoint
+// answers 200 for every request shape tried, but its
+// first-hit latency runs 1.5–2.3 seconds (0.6–0.8s
+// warm), so the 2-second cap aborted the lookup on
+// effectively every first check of an area — the
+// "could not be checked" line fired every time, a
+// broken feature wearing a degradation's clothes. The
+// cap is now 5 seconds: still one attempt, still well
+// inside the founder's 10-second per-part bound
+// (19 Nov 2026 ruling), and beyond the API's observed
+// latency. Any failure — timeout, non-200, unparseable
+// body — still degrades to the filed answer plus the
+// named failure line; the check never blocks and never
+// fails because of the warnings feed.
+export const FLOOD_WARNING_TIMEOUT_MS = 5000;
 
 // At most this many warnings serve in the block; any beyond
 // it are counted and named in the overflow line, never

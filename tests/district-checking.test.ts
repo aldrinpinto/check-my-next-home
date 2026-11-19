@@ -94,6 +94,7 @@ function servedBundle(): Served {
       soldPrices: {
         state: "served",
         count: 612,
+        postcodesCovered: 612,
         median: 425000,
         fromDate: "1995-01-01",
         toDate: "2026-09-30",

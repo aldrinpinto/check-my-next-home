@@ -46,6 +46,9 @@ import {
   notCoveredSectionLines,
   parseCheckingPartValue,
   pickerCountLine,
+  placeBridgeHeading,
+  placeChoiceCountLine,
+  placeDistrictDescription,
   postcodeNotFoundLine,
   postcodeRoute,
   rowFailureLine,
@@ -444,6 +447,71 @@ describe("checking group derivation — the nearby part (schools & health)", () 
     expect(groups.schools.state).toBe("done");
   });
 
+  it("BUG-002: a beyond-nearest past the 25-mile guard never names its place or distance in the feed", () => {
+    // The TA21 0HG evidence: the seed corpus's nearest
+    // filed primary sat 134.327 miles away and the feed
+    // served the brain's line verbatim. The guard the
+    // results layer applies (suppressFarBeyond) now runs
+    // in the feed derivation too: the group lands on the
+    // category's no-finding line, done.
+    const groups = nearbyCheckingGroups(
+      nearbyBundle([
+        category(
+          "schools-primary",
+          "none-within",
+          "none within 2 miles — nearest is Stamford Green Primary School and Nursery, 134.327 miles away (straight-line distance from the postcode point)",
+          {
+            beyondNearest: { name: "Stamford Green Primary School and Nursery", miles: 134.327 },
+          },
+        ),
+        category("schools-secondary", "none-within"),
+        category("sixth-forms", "none-within"),
+        category("nurseries", "none-within"),
+        category("gp", "none-within", null, { beyondNearest: { name: "GP", miles: 84.832 } }),
+        category("dentist", "none-within", null, {
+          beyondNearest: { name: "Dentist", miles: 129.541 },
+        }),
+        category("pharmacy", "none-within", null, {
+          beyondNearest: { name: "Pharmacy", miles: 100.517 },
+        }),
+      ]),
+    );
+    expect(groups.schools.state).toBe("done");
+    expect(groups.schools.line).toBe("no schools-primary within 2 miles of the postcode point");
+    expect(groups.schools.line).not.toContain("Stamford");
+    expect(groups.schools.line).not.toContain("134");
+    expect(groups.health.state).toBe("done");
+    expect(groups.health.line).toBe("no gp within 2 miles of the postcode point");
+    expect(groups.health.line).not.toContain("84");
+  });
+
+  it("BUG-002: a beyond-nearest inside the guard serves in the uniform one-decimal form", () => {
+    // The brain's composed line carries three decimals;
+    // the feed recomposes the same sentence at the
+    // display precision (the E16 1GN form: Cheam Fields
+    // at a filed 14.671 miles serves as 14.7).
+    const groups = nearbyCheckingGroups(
+      nearbyBundle([
+        category(
+          "schools-primary",
+          "none-within",
+          "none within 2 miles — nearest is Cheam Fields Primary Academy, 14.671 miles away (straight-line distance from the postcode point)",
+          { beyondNearest: { name: "Cheam Fields Primary Academy", miles: 14.671 } },
+        ),
+        category("schools-secondary", "none-within"),
+        category("sixth-forms", "none-within"),
+        category("nurseries", "none-within"),
+        category("gp", "within", null, { places: [{ name: "GP", miles: 0.3 }] }),
+        category("dentist", "within", null, { places: [{ name: "Dentist", miles: 0.8 }] }),
+        category("pharmacy", "within", null, { places: [{ name: "Pharmacy", miles: 0.5 }] }),
+      ]),
+    );
+    expect(groups.schools).toEqual({
+      state: "done",
+      line: "none within 2 miles — nearest is Cheam Fields Primary Academy, 14.7 miles away (straight-line distance from the postcode point)",
+    });
+  });
+
   it("stands both groups on the bundle's reason for a non-distances bundle", () => {
     const bundle = {
       rung: 3,
@@ -693,6 +761,103 @@ describe("checking group derivation — the area part (safety, costs, history)",
     expect(groups.history).toEqual({
       state: "unavailable",
       line: "Sold prices are still being gathered for this postcode.",
+    });
+  });
+
+  it("BUG-012: the history count names the D23 counted set, not the both-categories total", () => {
+    // Birkdale's filed set: 30 recorded sales across both
+    // categories, 29 of them category A — the results
+    // page counts the median over the 29, and the feed
+    // said 30. The feed now counts the median's set.
+    const soldBoth = {
+      rung: 2,
+      kind: "sold-prices",
+      postcode: "CM3 2JT",
+      loadState: "found",
+      recordedCount: 30,
+      stateLine: null,
+      median: {
+        state: "served",
+        value: 588995,
+        counted: 29,
+        spanFrom: "1996-12-20",
+        spanTo: "2026-07-20",
+        line: "counted over 29 recorded sales, 1996-12-20 to 2026-07-20",
+        explainer: "explainer",
+      },
+      ownHistory: [],
+    } as unknown as SoldPricesBundle;
+    const groups = areaCheckingGroups(areaServed, soldBoth, crimeServed);
+    expect(groups.history).toEqual({
+      state: "done",
+      line: "HM Land Registry — 29 recorded sales in this postcode",
+    });
+  });
+
+  it("BUG-012: a category-B-only postcode serves the median's own line, never a zero count", () => {
+    const soldBOnly = {
+      rung: 2,
+      kind: "sold-prices",
+      postcode: "CM3 2JT",
+      loadState: "found",
+      recordedCount: 2,
+      stateLine: null,
+      median: {
+        state: "none-recorded",
+        value: null,
+        counted: 0,
+        spanFrom: null,
+        spanTo: null,
+        line: "no recorded sales in this postcode count toward a median",
+        explainer: "explainer",
+      },
+      ownHistory: [],
+    } as unknown as SoldPricesBundle;
+    const groups = areaCheckingGroups(areaServed, soldBOnly, crimeServed);
+    expect(groups.history).toEqual({
+      state: "done",
+      line: "HM Land Registry — no recorded sales in this postcode count toward a median",
+    });
+  });
+
+  it("BUG-020: the rung-2 costs line takes the sample's form and lands done", () => {
+    // Master view 2's conformed costs row at postcode
+    // scope: the Band D average with its "a year", the
+    // broadband unquantified, and NO energy-certificates
+    // pointer — and the group lands as a plain finding
+    // although the rung-2 EPC section serves a named
+    // state, because that state is not part of the drawn
+    // finding at this scope.
+    const areaRung2 = {
+      rung: 2,
+      kind: "area-bundle",
+      postcode: "CM3 2JT",
+      sections: {
+        councilTax: {
+          state: "served",
+          line: "Braintree District Council's average Band D council tax for 2026/27 is £2,145.00 — an area average, not this home's bill",
+          bandDAverageLabel: "£2,145.00",
+        },
+        broadband: {
+          state: "served",
+          line: "gigabit-capable broadband (at least 1 Gbit/s) is available to 100% of premises in this postcode",
+          gigabitCapablePct: 100,
+        },
+        epc: { state: "not-filed", line: "Energy certificates are not filed for this postcode." },
+        air: {
+          state: "served",
+          headlineFigure: {
+            pollutant: "NO2",
+            value: 8.15,
+            line: "modelled NO2 8.15 µg/m³ (annual mean, 2024)",
+          },
+        },
+      },
+    } as unknown as AreaBundle;
+    const groups = areaCheckingGroups(areaRung2, soldServed, crimeServed);
+    expect(groups.costs).toEqual({
+      state: "done",
+      line: "Council & providers — Council tax Band D average £2,145.00 a year; gigabit-capable broadband is available at this postcode",
     });
   });
 
@@ -1071,5 +1236,26 @@ describe("the robot check's closed failure direction (ruling 5)", () => {
       ok: false,
       reason: "unavailable",
     });
+  });
+});
+
+describe("the place page's lines (fix batch — BUG-025/026/027)", () => {
+  it("counts in full words: postcode districts, never the clipped form (BUG-025)", () => {
+    expect(placeChoiceCountLine(1)).toBe("1 postcode district");
+    expect(placeChoiceCountLine(3)).toBe("3 postcode districts");
+    expect(placeChoiceCountLine(6)).toBe("6 postcode districts");
+  });
+
+  it("composes a district row's area description from its cleaned settlements (BUG-026)", () => {
+    expect(placeDistrictDescription([])).toBeNull();
+    expect(placeDistrictDescription(["Danbury"])).toBe("Danbury");
+    expect(placeDistrictDescription(["Danbury", "Hatfield Peverel"])).toBe(
+      "Danbury, Hatfield Peverel",
+    );
+    expect(placeDistrictDescription(["A", "B", "C", "D", "E", "F"])).toBe("A, B, C, D and 2 more");
+  });
+
+  it("the bridge heading names the place (BUG-027)", () => {
+    expect(placeBridgeHeading("Chelmsford")).toBe("Checking one home in Chelmsford?");
   });
 });

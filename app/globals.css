@@ -250,7 +250,15 @@ body {
   font-size: var(--font-size-body);
   line-height: var(--line-height-body);
   color: var(--colour-text);
-  background: var(--colour-background);
+  /* The site ground is the Master's cream on EVERY page
+     (fix batch, 19 Nov 2026 — BUG-001): the cream used to
+     be painted only by the landing's main element
+     (.main--home below, with its body:has companion), so
+     the checking screen and every results page rendered
+     on the default white. The ground now lives here, at
+     the page level, once — panels and cards still carry
+     their own white surfaces above it. */
+  background: var(--cmnh-cream);
 }
 
 main {
@@ -990,10 +998,6 @@ a:hover {
   background: var(--cmnh-cream);
 }
 
-body:has(.main--home) {
-  background: var(--cmnh-cream);
-}
-
 body:has(.main--home) .site-header__inner,
 body:has(.main--home) .site-footer__inner,
 body:has(.main--home) .site-footer__bottom {
@@ -1280,6 +1284,15 @@ body:has(.main--home) .site-footer {
   font-weight: 800;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+  color: var(--colour-muted);
+}
+
+/* The panel's settled-empty line (fix batch, 19 Nov
+   2026 — BUG-008): the no-suggestions state wears the
+   panel's own dress — a quiet line at the group's
+   padding, in the muted ink. */
+.suggest__empty {
+  padding: var(--space-3);
   color: var(--colour-muted);
 }
 
@@ -1909,6 +1922,23 @@ body:has(.main--home) .site-footer {
 
 .picker__row:hover {
   background: var(--colour-surface);
+}
+
+/* The place page's row description (fix batch, 19 Nov
+   2026 — BUG-026): the district's settlements as a
+   quieter second line under the row's label, in the
+   picker's own dress. */
+.picker__row-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.picker__row-detail {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 400;
+  color: var(--colour-muted);
 }
 
 .picker__row--selected {

@@ -64,22 +64,6 @@ function PlaceGroup({ group }: { group: PlaceGroupView }) {
           ))}
         </ul>
       )}
-      {group.grammar && (
-        // The grammar row (parity fix batch, item 12): the
-        // sample's row--grammar — the star name form, the
-        // SELECTIVE — TEST ENTRY badge, the distance chip.
-        <ul className="place-list">
-          <li className="place-row place-row--grammar">
-            <span className="place-row__main">
-              <span className="place-row__name">★ Grammar schools — {group.grammar.name}</span>
-            </span>
-            <span className="badge badge--grammar">SELECTIVE — TEST ENTRY</span>
-            <span className={`place-row__miles place-row__miles--${group.grammar.band}`}>
-              {group.grammar.milesText}
-            </span>
-          </li>
-        </ul>
-      )}
       {group.truncation &&
         // The truncRow (parity fix batch, item 14): lead,
         // optional detail, the £4.99 chip and the arrow —
@@ -115,6 +99,31 @@ function PlaceGroup({ group }: { group: PlaceGroupView }) {
             </span>
           </p>
         ))}
+      {group.grammar && (
+        // The grammar block (fix batch, 19 Nov 2026 —
+        // BUG-022): the sample draws the nearest selective
+        // school as a STANDALONE block after the Secondary
+        // group's plus row — not as a badged row inside
+        // the group's list, where this render used to put
+        // it (before the truncation row). The block keeps
+        // the Master's starred row form with its SELECTIVE
+        // — TEST ENTRY badge (item 12); only its place in
+        // the section changes: last, after the plus row,
+        // in its own block.
+        <div className="place-group__grammar">
+          <ul className="place-list">
+            <li className="place-row place-row--grammar">
+              <span className="place-row__main">
+                <span className="place-row__name">★ Grammar schools — {group.grammar.name}</span>
+              </span>
+              <span className="badge badge--grammar">SELECTIVE — TEST ENTRY</span>
+              <span className={`place-row__miles place-row__miles--${group.grammar.band}`}>
+                {group.grammar.milesText}
+              </span>
+            </li>
+          </ul>
+        </div>
+      )}
     </div>
   );
 }

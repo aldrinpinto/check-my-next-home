@@ -200,7 +200,11 @@ export interface DistrictBaseRow {
 export interface DistrictSoldFacts {
   // The district's counted sales: category A only (D23),
   // as filed. The median arithmetic is the builder's.
-  rows: { price: number; saleDate: string; propertyType: string | null }[];
+  // Each row carries its postcode so the section can
+  // name its coverage — how many of the district's
+  // postcodes the filed sales actually span (fix batch,
+  // 19 Nov 2026 — BUG-016).
+  rows: { price: number; saleDate: string; propertyType: string | null; postcode: string }[];
   sourceName: string | null;
   sourceDate: string | null;
 }
@@ -373,7 +377,12 @@ export interface DistrictWarningSource {
 // lib/flood.ts reads (FLOOD_WARNINGS_URL there); the two
 // readers are pinned to the same service by the docs.
 const DISTRICT_WARNINGS_URL = "https://environment.data.gov.uk/flood-monitoring/id/floods";
-const DISTRICT_WARNING_TIMEOUT_MS = 2000;
+// The same cap as the flood brain's (FLOOD_WARNING_TIMEOUT_MS
+// in lib/flood.ts), raised from 2s by the same fix batch
+// (19 Nov 2026 — BUG-006): the EA API's first-hit latency
+// runs past 2 seconds, so a 2-second cap aborted the
+// lookup on effectively every first check.
+const DISTRICT_WARNING_TIMEOUT_MS = 5000;
 
 export function parseDistrictWarningItems(body: unknown): DistrictWarningItem[] {
   if (typeof body !== "object" || body === null)
@@ -499,6 +508,12 @@ export interface DistrictCrimeSection {
 export interface DistrictSoldSection {
   state: "served" | "not-filed";
   count: number;
+  // The distinct postcodes the counted sales span, of
+  // the district's postcodeCount in the head: the view
+  // names the coverage whenever it is partial, so one
+  // postcode's sales are never presented as the
+  // district's (fix batch, 19 Nov 2026 — BUG-016).
+  postcodesCovered: number;
   median: number | null;
   fromDate: string | null;
   toDate: string | null;
@@ -805,7 +820,12 @@ export function isSettlementName(name: string): boolean {
 // district section's pills and the bridge's named links
 // both read, so the two surfaces can never disagree
 // about what the district's settlements are.
-function cleanSettlements(rawNames: string[]): string[] {
+// Exported for one second consumer: the place page's
+// per-district area descriptions (lib/server/places.ts)
+// clean the same filed names through the same filter,
+// so a settlement the district page would not name is
+// never named on the place page either.
+export function cleanSettlements(rawNames: string[]): string[] {
   return [...new Set(rawNames.map((name) => displayText(name)).filter(isSettlementName))].sort();
 }
 
@@ -1181,6 +1201,7 @@ export async function buildDistrictBundle(
   const soldPrices: DistrictSoldSection = {
     state: sold.rows.length > 0 ? "served" : "not-filed",
     count: sold.rows.length,
+    postcodesCovered: new Set(sold.rows.map((row) => row.postcode)).size,
     median: sold.rows.length >= 5 ? medianOf(soldPricesAll) : null,
     fromDate: soldDates[0] ?? null,
     toDate: soldDates[soldDates.length - 1] ?? null,
@@ -1663,7 +1684,7 @@ export function createDistrictSource(db: AddressQueryable): DistrictDataSource {
 
     async soldFacts(outward) {
       const { rows } = await db.query(
-        `SELECT price, sale_date::text AS sale_date, property_type, source_name,
+        `SELECT price, sale_date::text AS sale_date, property_type, postcode, source_name,
                 source_date::text AS source_date
          FROM price_paid
          WHERE starts_with(postcode, $1) AND ppd_category = 'A'
@@ -1675,6 +1696,7 @@ export function createDistrictSource(db: AddressQueryable): DistrictDataSource {
           price: Number(row.price),
           saleDate: row.sale_date as string,
           propertyType: (row.property_type as string | null) ?? null,
+          postcode: row.postcode as string,
         })),
         sourceName: (rows[0]?.source_name as string | null) ?? null,
         sourceDate: (rows[0]?.source_date as string | null) ?? null,

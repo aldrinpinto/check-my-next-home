@@ -375,7 +375,9 @@ export function GiftClaimCard({
           autoComplete="email"
           label={GIFT_EMAIL_LABEL}
           placeholder={copy.placeholder}
-          defaultValue={variant === "pending" ? pendingEmail : emailError ? entryEmail : undefined}
+          defaultValue={
+            variant === "pending" ? pendingEmail : emailError || sendFailed ? entryEmail : undefined
+          }
           error={emailError ? GIFT_EMAIL_ERROR : undefined}
           required
         />

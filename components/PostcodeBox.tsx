@@ -7,6 +7,7 @@ import {
   POSTCODE_BOX_BUTTON_BARE,
   POSTCODE_BOX_HINT,
   POSTCODE_BOX_LABEL,
+  POSTCODE_BOX_NO_SUGGESTIONS_LINE,
   POSTCODE_BOX_PLACEHOLDER,
 } from "../lib/home";
 import { FAILED_ROUTE, TURNSTILE_BLOCK_LINE, placeChoiceRoute } from "../lib/journey";
@@ -183,6 +184,14 @@ export default function PostcodeBox({
   // href its pick navigates to.
   const [value, setValue] = useState(defaultValue);
   const [liveGroups, setLiveGroups] = useState<SuggestionGroup[]>([]);
+  // The settled-empty flag (fix batch, 19 Nov 2026 —
+  // BUG-008): a suggestions response that settles with
+  // no groups is an ANSWER, not an absence — the panel
+  // opens on the no-suggestions line so the visitor can
+  // tell a settled empty result from a box still
+  // loading. A failed fetch is not an empty answer and
+  // never sets it.
+  const [emptySettled, setEmptySettled] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
   const hrefByIdRef = useRef(new Map<string, string>());
@@ -200,6 +209,7 @@ export default function PostcodeBox({
   const typedLength = value.trim().length;
   const visibleGroups = typedLength >= 3 ? liveGroups : [];
   const visibleOpen = panelOpen && visibleGroups.length > 0;
+  const emptyShown = panelOpen && emptySettled && typedLength >= 3 && visibleGroups.length === 0;
   const flatItems: SuggestionItem[] = visibleGroups.flatMap((group) =>
     group.items.filter((item): item is SuggestionItem => typeof item !== "string"),
   );
@@ -244,11 +254,13 @@ export default function PostcodeBox({
           hrefByIdRef.current = hrefs;
           placeByIdRef.current = places;
           setLiveGroups(groups);
-          setPanelOpen(groups.length > 0);
+          setEmptySettled(groups.length === 0);
+          setPanelOpen(true);
           setActiveId(null);
         } catch {
           if (seq !== suggestSeqRef.current) return;
           setLiveGroups([]);
+          setEmptySettled(false);
           setPanelOpen(false);
           setActiveId(null);
         }
@@ -281,6 +293,10 @@ export default function PostcodeBox({
   }
 
   function onFieldKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Escape" && emptyShown) {
+      setPanelOpen(false);
+      return;
+    }
     if (!visibleOpen || flatItems.length === 0) return;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
@@ -469,6 +485,10 @@ export default function PostcodeBox({
 
   function onFieldChange(event: { target: { value: string } }) {
     setValue(event.target.value);
+    // A fresh keystroke un-settles the empty answer: the
+    // no-suggestions line belongs to the settled query,
+    // and the next response re-settles it either way.
+    setEmptySettled(false);
   }
 
   return (
@@ -495,7 +515,7 @@ export default function PostcodeBox({
             onKeyDown={onFieldKeyDown}
             onBlur={() => setPanelOpen(false)}
             role="combobox"
-            aria-expanded={visibleOpen}
+            aria-expanded={visibleOpen || emptyShown}
             aria-controls="postcode-suggestions"
             aria-activedescendant={activeId ?? undefined}
             aria-autocomplete="list"
@@ -520,16 +540,20 @@ export default function PostcodeBox({
       </div>
       {suggestions ? (
         <SuggestionShell groups={suggestions} />
-      ) : (
-        visibleOpen && (
-          <SuggestionShell
-            id="postcode-suggestions"
-            groups={visibleGroups}
-            activeId={activeId}
-            onSelect={choose}
-          />
-        )
-      )}
+      ) : visibleOpen ? (
+        <SuggestionShell
+          id="postcode-suggestions"
+          groups={visibleGroups}
+          activeId={activeId}
+          onSelect={choose}
+        />
+      ) : emptyShown ? (
+        <div className="postcode-box__suggestions" id="postcode-suggestions">
+          <p className="suggest__empty" role="status">
+            {POSTCODE_BOX_NO_SUGGESTIONS_LINE}
+          </p>
+        </div>
+      ) : null}
       <div ref={widgetRef} className="turnstile-slot" aria-hidden="true" />
     </form>
   );

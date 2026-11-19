@@ -5,8 +5,7 @@
 //            brain answers both together);
 //   flood  — the safety group's flood segments (the flood
 //            brain, its live warnings composed at serve
-//            inside the 2-second D42 budget by the cached
-//            builder);
+//            inside the D42 budget by the cached builder);
 //   area   — the safety group's crime and air segments,
 //            the costs group and the history group (the
 //            area bundle plus the sold-prices and crime
@@ -65,7 +64,7 @@ import { newRequestId } from "../../../../lib/server/entry-log";
 import { getDbPool } from "../../../../lib/server/db";
 import {
   checkArea,
-  checkDistrictWider,
+  checkDistrictBundleOnly,
   checkFlood,
   checkNearby,
   resolutionForRoute,
@@ -88,7 +87,13 @@ export async function GET(request: Request, { params }: { params: Promise<{ part
       const resolution = await resolveAddressInput(outward, createAddressSource(getDbPool()));
       if (resolution.rung !== 3)
         return NextResponse.json({ error: "no-resolution" }, { status: 404 });
-      const { district } = await checkDistrictWider(resolution);
+      // The payload settles on the district bundle alone
+      // (fix batch, 19 Nov 2026 — BUG-017): a Scotland /
+      // NI outward answers not-covered from one directory
+      // query, and the screen completes on that settlement
+      // without playing — it never waits for the page's
+      // five-bundle short derivation.
+      const district = await checkDistrictBundleOnly(resolution);
       return NextResponse.json(districtCheckingPayload(district));
     } catch {
       return NextResponse.json({ error: "check-failed" }, { status: 500 });

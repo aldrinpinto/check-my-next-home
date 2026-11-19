@@ -7,6 +7,7 @@ import type { DistrictBundle, DistrictFloodBlock } from "./district";
 
 type DistrictServed = Extract<DistrictBundle, { kind: "district" }>;
 import {
+  BEYOND_NEAREST_RADIUS_MILES,
   floodBandOf,
   formatFiledDate,
   formatMiles,
@@ -14,6 +15,7 @@ import {
   homeRoute,
   nationName,
   nationOfLsoa,
+  suppressFarBeyond,
   type Nation,
 } from "./journey";
 
@@ -1001,19 +1003,32 @@ export function summaryPills(input: SummaryPillsInput): SummaryPill[] | null {
 
   // 1 Flood — concerning if either check (rivers & sea,
   // surface water) is Low or worse; good if both Very low.
+  // Fix batch, 19 Nov 2026 — BUG-007: the verdict used to
+  // require BOTH layers filed with bands before it would
+  // speak at all, so a postcode serving a single layer at
+  // Low or worse — one check is enough for "concerning"
+  // under D75's "either check" — got no Flood pill while
+  // a two-layer postcode at the same risk did. The
+  // verdict now reads the served layers: concerning when
+  // any served layer is Low or worse; good only when
+  // both checks serve and both are Very low (one Very
+  // low alone proves nothing about the other check, so
+  // it stays "neither"); the figure is the worst served
+  // band.
   {
     let verdict: PillVerdict = "neither";
     let figure: string | null = null;
     if (sections.flood.state === "served") {
       const bands = sections.flood.layers
         .filter((layer) => layer.layer === "rofrs" || layer.layer === "rofsw")
-        .map((layer) => floodBandOf(layer));
-      if (bands.length === 2 && bands.every((band) => band !== null)) {
+        .map((layer) => floodBandOf(layer))
+        .filter((band): band is string => band !== null);
+      if (bands.length > 0) {
         const rank = (band: string) =>
           band === "High" ? 3 : band === "Medium" ? 2 : band === "Low" ? 1 : 0;
-        const worst = bands.reduce((a, b) => (rank(a as string) >= rank(b as string) ? a : b));
+        const worst = bands.reduce((a, b) => (rank(a) >= rank(b) ? a : b));
         if (bands.some((band) => band !== "Very low")) verdict = "concerning";
-        else verdict = "good";
+        else if (bands.length === 2) verdict = "good";
         figure = worst;
       }
     }
@@ -1427,51 +1442,16 @@ function linesSection(
   return { key, heading, blocks, sourceLine };
 }
 
-// The beyond-nearest radius (CI #205 fix): a beyond row
-// names the nearest essential service when none sits
-// within 2 miles — a local pointer. Beyond this radius
-// the named place is not a local fact in any useful
-// sense, and on an excerpted filing it is exactly the
-// Scotland defect's signature (an England-register
-// nearest hundreds of miles away, served because the
-// GB/UK-wide datasets — NaPTAN, OpenStreetMap, Open
-// Charge Map — are not nation-gated). The results layer
-// therefore serves the category's no-finding line
-// instead of the row, in every nation: the transformation
-// sits beside the nation gating and feeds the same two
-// consumers (sections and pills). 25 miles stands well
-// clear of every golden's legitimate beyond row — the
-// corpus maximum is Cheam Fields Primary Academy at
-// 14.671 miles (tests/nearby.test.ts) — and in
-// production, with the national filing in place, those
-// datasets serve real near rows for Scottish and NI
-// homes, so the rule costs nothing there; it bites only
-// on excerpt artefacts and genuinely remote pointers,
-// where the named no-finding state is the D30-honest
-// answer. Presentation only, like the gating: no brain
-// output changes, so no contract pin or replay cell
-// moves.
-export const BEYOND_NEAREST_RADIUS_MILES = 25;
-
-function farBeyondLine(category: CategoryAnswer): string {
-  // The brain's own no-finding forms (lib/nearby.ts
-  // emptyLine), mirrored from the served label: the
-  // map-held supermarket category carries the map-gap
-  // caveat; the rest carry the plain form.
-  return category.category === "supermarket"
-    ? `no ${category.label} recorded within 2 miles on the map data we hold — a gap in the map is not proof that none exists`
-    : `no ${category.label} within 2 miles of the postcode point`;
-}
-
-function suppressFarBeyond(category: CategoryAnswer): CategoryAnswer {
-  if (
-    category.state !== "none-within" ||
-    !category.beyondNearest ||
-    category.beyondNearest.miles <= BEYOND_NEAREST_RADIUS_MILES
-  )
-    return category;
-  return { ...category, beyondNearest: null, line: farBeyondLine(category) };
-}
+// The beyond-nearest radius guard (BEYOND_NEAREST_RADIUS_MILES,
+// farBeyondLine, suppressFarBeyond) lives in lib/journey.ts
+// since the fix batch of 19 Nov 2026 (BUG-002): the results
+// layer's sections and pills have applied it since CI #205,
+// and the checking screen's feed derivation now applies the
+// SAME transformation — one guard, both consumers, so the
+// feed can never name a "nearest" the results page itself
+// suppresses. It is imported above and re-exported here so
+// this module's existing importers are untouched.
+export { BEYOND_NEAREST_RADIUS_MILES, suppressFarBeyond };
 
 export function buildResultsView(input: ResultsInput): ResultsView {
   const { resolution, flood, crime, area, short } = input;
@@ -1937,7 +1917,17 @@ export function buildResultsView(input: ResultsInput): ResultsView {
           type: "line",
           text: `Postcode median ${formatPounds(sold.median.value)} — counted over ${sold.median.counted} recorded sales, ${formatFiledDate(sold.median.spanFrom)} to ${formatFiledDate(sold.median.spanTo)}.`,
         });
-      else if (sold.median.line) blocks.push({ type: "line", text: sold.median.line });
+      // Fix batch, 19 Nov 2026 — BUG-013: a loaded-none
+      // postcode's median line IS its state line (the
+      // brain composes "No sale recorded for this
+      // postcode since 1995" in both slots — the load
+      // state's line and the median answer's line), and
+      // the section above already pushed the state line,
+      // so the sentence rendered twice on the same tab.
+      // The median line serves only when it says
+      // something the state line has not already said.
+      else if (sold.median.line && sold.median.line !== sold.stateLine)
+        blocks.push({ type: "line", text: sold.median.line });
       if (sold.buildingMedian) {
         const building = sold.buildingMedian;
         if (
@@ -2411,12 +2401,28 @@ export function buildResultsView(input: ResultsInput): ResultsView {
       ? summaryPills({ nearby: effectiveNearby, flood, crime, sections, area })
       : null,
     reportHref,
-    buyBar: {
-      heading: BUY_BAR_HEADING,
-      line: BUY_BAR_LINE,
-      mysteryLine: BUY_BAR_MYSTERY_LINE,
-      href: reportHref,
-    },
+    // The buy bar is a HOME-scope surface (fix batch,
+    // 19 Nov 2026 — BUG-004): the Master draws it only on
+    // the one-home results page — there is no
+    // postcode-scope buy bar at all — and its copy speaks
+    // of "this home" throughout (the report for this
+    // home, save this home, the mystery extra in the
+    // report). At rung 2 the page is about a whole
+    // postcode, not one home, so the bar does not serve:
+    // the postcode page's real actions are picking a home
+    // from its list and shortlisting the postcode beside
+    // the scope heading. Serving the rung-1 bar verbatim
+    // at rung 2 invited a purchase for a home the visitor
+    // had not picked.
+    buyBar:
+      resolution.rung === 1
+        ? {
+            heading: BUY_BAR_HEADING,
+            line: BUY_BAR_LINE,
+            mysteryLine: BUY_BAR_MYSTERY_LINE,
+            href: reportHref,
+          }
+        : null,
     calculators: {
       lastSalePrice:
         sections.soldPrices.state === "served"
@@ -2600,6 +2606,14 @@ function districtCensusSection(bundle: DistrictServed): ResultsSectionView {
       });
     }
   }
+  // Coverage (fix batch, 19 Nov 2026 — BUG-016): the
+  // census roll-up sums the FILED Census areas only.
+  // While filing is partial the section names its
+  // coverage — the filed count of the district's true
+  // Census-area count (the head's) — so a part-filed
+  // sum never reads as the whole district beside the
+  // header's whole-district residents tile.
+  const censusPartial = census.msoaCount < bundle.head.msoaCount;
   if (
     census.householdsTotal != null &&
     census.residentsTotal != null &&
@@ -2609,8 +2623,12 @@ function districtCensusSection(bundle: DistrictServed): ResultsSectionView {
       type: "line",
       text:
         `Households — ${districtCount(census.householdsTotal)} households and ` +
-        `${districtCount(census.residentsTotal)} residents across the district's ` +
-        `Census areas — ${(census.residentsTotal / census.householdsTotal).toFixed(1)} ` +
+        `${districtCount(census.residentsTotal)} residents across ` +
+        (censusPartial
+          ? `the ${districtCount(census.msoaCount)} of the district's ` +
+            `${districtCount(bundle.head.msoaCount)} Census areas filed so far`
+          : `the district's Census areas`) +
+        ` — ${(census.residentsTotal / census.householdsTotal).toFixed(1)} ` +
         `people per household on average.`,
     });
   }
@@ -2690,9 +2708,12 @@ function districtCensusSection(bundle: DistrictServed): ResultsSectionView {
   // blocked on a household-composition filing.
   blocks.push({
     type: "line",
-    text:
-      `Census 2021 figures summed across the ${census.msoaCount} Census areas this ` +
-      `district's postcodes fall in. Facts as published, in the Census's own words — no scores.`,
+    text: censusPartial
+      ? `Census 2021 figures summed across the ${districtCount(census.msoaCount)} of the ` +
+        `district's ${districtCount(bundle.head.msoaCount)} Census areas filed so far. ` +
+        `Facts as published, in the Census's own words — no scores.`
+      : `Census 2021 figures summed across the ${census.msoaCount} Census areas this ` +
+        `district's postcodes fall in. Facts as published, in the Census's own words — no scores.`,
   });
   return linesSection("census", "The neighbourhood in numbers", blocks, census.sourceLine);
 }
@@ -2980,11 +3001,21 @@ export function buildDistrictResultsView(bundle: DistrictServed): ResultsView {
       ? [
           {
             type: "line",
+            // Coverage (fix batch, 19 Nov 2026 —
+            // BUG-016): the spread counts the FILED
+            // small areas; while any of the district's
+            // small areas (the head's LSOA count) are
+            // unfiled, the line names the coverage
+            // instead of presenting the filed subset as
+            // the district's whole spread.
             text:
               `England splits every small area into ten bands (deciles) — 1 is among the ` +
-              `most deprived in England, 10 among the least. Here is where ${outward}'s ` +
-              `${districtCount(sections.deprivation.areasCounted)} small areas fall. Shown as ` +
-              `a spread, never collapsed into one number.`,
+              `most deprived in England, 10 among the least. Here is where ` +
+              (sections.deprivation.areasCounted < head.lsoaCount
+                ? `the ${districtCount(sections.deprivation.areasCounted)} of ${outward}'s ` +
+                  `${districtCount(head.lsoaCount)} small areas filed so far`
+                : `${outward}'s ${districtCount(sections.deprivation.areasCounted)} small areas`) +
+              ` fall. Shown as a spread, never collapsed into one number.`,
           },
           { type: "deciles", counts: sections.deprivation.counts },
         ]
@@ -3040,10 +3071,27 @@ export function buildDistrictResultsView(bundle: DistrictServed): ResultsView {
         text: `Plus ${districtCount(sections.soldPrices.foldedTypeCount)} sales of other types — fewer than five of each type, so no median is stated for them.`,
       });
     }
-    soldBlocks.push({
-      type: "line",
-      text: `The district median across ${outward} as a whole — it does not value any one home.`,
-    });
+    // Coverage (fix batch, 19 Nov 2026 — BUG-016): the
+    // roll-up aggregates the postcodes whose sales are
+    // filed. While that is fewer than the district's
+    // postcodes, the closing line names the coverage —
+    // one postcode's figures are never presented as the
+    // district's. At full coverage the district-wide
+    // form stands.
+    if (sections.soldPrices.postcodesCovered < head.postcodeCount) {
+      soldBlocks.push({
+        type: "line",
+        text:
+          `Sales are filed for ${districtCount(sections.soldPrices.postcodesCovered)} of the ` +
+          `district's ${districtCount(head.postcodeCount)} postcodes so far — these figures ` +
+          `cover those postcodes only, and they do not value any one home.`,
+      });
+    } else {
+      soldBlocks.push({
+        type: "line",
+        text: `The district median across ${outward} as a whole — it does not value any one home.`,
+      });
+    }
   }
 
   const schoolsBlocks: SectionBlock[] = [];

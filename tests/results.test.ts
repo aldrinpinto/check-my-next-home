@@ -1553,6 +1553,67 @@ describe("results — pill logic D75 (fold-in)", () => {
     expect(pills?.map(pillText)).toEqual(["Flood · Very low"]);
   });
 
+  it("BUG-007: one served flood check at Low is enough for the concerning Flood pill — D75's 'either check'", () => {
+    // Only the rivers & sea layer serves a band; the
+    // surface-water layer carries no band at all. Before
+    // the fix the Flood factor stayed silent unless BOTH
+    // layers filed bands, so a one-layer postcode at Low
+    // showed no Flood pill while a two-layer postcode at
+    // the same risk did.
+    const sections = shortSections({
+      flood: {
+        state: "served",
+        liveWarnings: null,
+        layers: [
+          floodLayer("rofrs", "inside", "Low", "this postcode point is in the Low band"),
+          floodLayer("rofsw", "not-filed", null, "surface water is not filed for this point"),
+        ],
+      },
+    });
+    const pills = summaryPills({
+      nearby: nearbyWith({}) as Extract<NearbyBundle, { kind: "distances" }>,
+      flood: floodBundle(noWarnings),
+      crime: {
+        rung: 1,
+        kind: "not-covered",
+        postcode: "CM3 2JT",
+        crime: { state: "not-covered", reason: "x" },
+      } as unknown as CrimeBundle,
+      sections,
+    });
+    // The fixture's broadband fact is good and fills
+    // behind the concerning Flood pill (D75 order).
+    expect(pills?.map(pillText)).toEqual(["Flood · Low", "Broadband · Full fibre available"]);
+  });
+
+  it("BUG-007: one served flood check at Very low alone is NOT a good Flood pill — good needs both checks", () => {
+    const sections = shortSections({
+      flood: {
+        state: "served",
+        liveWarnings: null,
+        layers: [
+          floodLayer("rofrs", "no-band-published", null, "no river or sea band is published"),
+          floodLayer("rofsw", "not-filed", null, "surface water is not filed for this point"),
+        ],
+      },
+    });
+    const pills = summaryPills({
+      nearby: nearbyWith({}) as Extract<NearbyBundle, { kind: "distances" }>,
+      flood: floodBundle(noWarnings),
+      crime: {
+        rung: 1,
+        kind: "not-covered",
+        postcode: "CM3 2JT",
+        crime: { state: "not-covered", reason: "x" },
+      } as unknown as CrimeBundle,
+      sections,
+    });
+    // No Flood pill: the only pill is the fixture's
+    // good broadband fact.
+    expect(pills?.map(pillText)).toEqual(["Broadband · Full fibre available"]);
+    expect(pills?.some((pill) => pill.label === "Flood")).toBe(false);
+  });
+
   it("the schools and nurseries upsells carry the trimmed F1/F3 wording — never the banned promises", () => {
     const view = buildResultsView(
       input({
@@ -1967,7 +2028,47 @@ describe("results — the built view", () => {
     // no home key — no home is identified at this rung.
     expect(places.group.truncation?.href).toBe(reportRoute("CM3 2JT"));
     expect(view.reportHref).toBe(reportRoute("CM3 2JT"));
-    expect(view.buyBar?.href).toBe(reportRoute("CM3 2JT"));
+    // Fix batch, 19 Nov 2026 — BUG-004 (pin move): the
+    // Master has NO postcode-scope buy bar; the bar is a
+    // home-scope surface and serves at rung 1 only. This
+    // assertion used to pin the rung-2 bar's href — the
+    // defect itself.
+    expect(view.buyBar).toBeNull();
+  });
+
+  it("BUG-013: a loaded-none postcode's no-sale line renders once in the sold section, not twice", () => {
+    // The brain composes "No sale recorded for this
+    // postcode since 1995" in two slots of the same
+    // section — the load state's line and the median
+    // answer's line. The section used to push both; the
+    // median line now serves only when it says something
+    // the state line has not already said.
+    const NO_SALE = "No sale recorded for this postcode since 1995";
+    const sections = shortSections({
+      soldPrices: {
+        state: "served",
+        stateLine: NO_SALE,
+        ownLastSale: null,
+        ownLine: null,
+        median: {
+          state: "none-recorded",
+          value: null,
+          counted: 0,
+          spanFrom: null,
+          spanTo: null,
+          line: NO_SALE,
+        },
+        buildingMedian: null,
+        sourceLine: "HM Land Registry Price Paid Data",
+        explainer: "explainer",
+      },
+    });
+    const view = buildResultsView(
+      input({ short: { rung: 1, kind: "short-bundle", postcode: "CM3 2JT", sections } }),
+    );
+    const sold = section(view, "home", "sold-prices");
+    const occurrences = JSON.stringify(sold.blocks).split(NO_SALE).length - 1;
+    expect(occurrences).toBe(1);
   });
 });
 
@@ -2237,6 +2338,45 @@ describe("results — the rendered page", () => {
     expect(html).toContain("the flood findings with location maps");
     expect(html).not.toContain("flood map pictures");
     expect(html).toContain("Could this home fit your life?");
+  });
+
+  it("BUG-022: the grammar block stands after the Secondary group's plus row, in its own block", () => {
+    const view = buildResultsView(
+      input({
+        nearby: nearbyWith({
+          "schools-secondary": category({
+            category: "schools-secondary",
+            state: "within",
+            places: [
+              {
+                latitude: 51.7,
+                longitude: 0.6,
+                name: "Maltings Academy",
+                miles: 1.87,
+                detail: null,
+                sixthForm: true,
+              },
+            ],
+            countWithin: 3,
+            nearestSelective: { name: "King Edward VI Grammar School", miles: 6.1 },
+            nearestSelectiveLine: null,
+          }),
+        }),
+      }),
+    );
+    const html = renderToStaticMarkup(createElement(ResultsPage, { view }));
+    const secondaryAt = html.indexOf("Secondary schools");
+    const grammarAt = html.indexOf("place-group__grammar");
+    expect(secondaryAt).toBeGreaterThan(-1);
+    expect(grammarAt).toBeGreaterThan(secondaryAt);
+    expect(html).toContain("★ Grammar schools — King Edward VI Grammar School");
+    // The group's own rows and its plus (truncation) row
+    // both precede the standalone grammar block.
+    const rowAt = html.indexOf("Maltings Academy", secondaryAt);
+    const plusAt = html.indexOf("trunc-row", secondaryAt);
+    expect(rowAt).toBeGreaterThan(secondaryAt);
+    expect(plusAt).toBeGreaterThan(rowAt);
+    expect(grammarAt).toBeGreaterThan(plusAt);
   });
 
   it("the shortlist add control renders inside the buy bar, exactly once (M7.6 move, F6 pin)", () => {

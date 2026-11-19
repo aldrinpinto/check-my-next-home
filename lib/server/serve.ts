@@ -363,25 +363,40 @@ export async function checkResultsWider(resolution: AddressResolution) {
   return { short };
 }
 
-// The rung-3 route's full serve (district page, 18 Nov
-// 2026): the short bundle (unchanged — it still feeds the
-// rung-3 shortlist card) plus the district bundle built
-// from the district's filed rows, with the live-warnings
-// source wired in for the flood roll-up. Founder fix
-// batch, 19 Nov 2026: the district bundle now serves
-// through its D29-pattern cache (lib/district-cache.ts)
-// — a repeat view of a district is near-instant, and the
-// live warnings are still composed fresh on every serve.
-export async function checkDistrictWider(resolution: AddressResolution) {
-  const { short } = await checkResultsWider(resolution);
+// The district bundle alone, through its D29-pattern
+// cache (lib/district-cache.ts) — a repeat view of a
+// district is near-instant, and the live warnings are
+// still composed fresh on every serve. This is the whole
+// of the checking screen's payload path: the screen's
+// gate must settle on the district bundle alone, never
+// behind the five-bundle short derivation below.
+export async function checkDistrictBundleOnly(resolution: AddressResolution) {
   if (resolution.rung !== 3)
     throw new Error(`district derivation: unexpected rung ${resolution.rung}`);
   const db = getDbPool();
-  const district = await buildDistrictBundleCached(
+  return buildDistrictBundleCached(
     resolution.outward,
     createDistrictSource(db),
     createDistrictCache(db),
-    { warningSource: createDistrictWarningSource() },
+    {
+      warningSource: createDistrictWarningSource(),
+    },
   );
+}
+
+// The rung-3 route's full serve (district page, 18 Nov
+// 2026): the district bundle plus the short bundle the
+// Scotland / NI form renders (named states only). Fix
+// batch, 19 Nov 2026 — BUG-017: the district bundle
+// builds FIRST. For a Scotland / NI outward it answers
+// not-covered from a single directory query, and the
+// checking screen completes on that settlement without
+// playing; building the five-bundle short first put the
+// whole derivation in front of an answer the district
+// bundle already had, so the not-covered page waited out
+// the full staged sequence behind it.
+export async function checkDistrictWider(resolution: AddressResolution) {
+  const district = await checkDistrictBundleOnly(resolution);
+  const { short } = await checkResultsWider(resolution);
   return { short, district };
 }

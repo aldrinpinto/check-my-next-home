@@ -401,4 +401,53 @@ test.describe("suggestions dropdown — regression", () => {
       await expect(page.getByRole("link", { name: "CM3 — Chelmsford" })).toBeVisible();
     },
   );
+
+  test(
+    "BUG-032: a full postcode with no filed homes still offers itself",
+    { tag: "@regression" },
+    async ({ page }) => {
+      // CM0 7AA is the corpus's neither-source witness:
+      // it stands in the postcode directory, and neither
+      // the filed sales nor the picking index hold a
+      // single home for it. Before the fix the
+      // full-postcode branch served an empty response
+      // and the panel never opened (proven live on
+      // E16 1AF); the branch now serves the postcode
+      // itself, and picking it lands on its whole-
+      // postcode check.
+      await page.goto("/");
+      const box = page.locator("#postcode");
+      await box.fill("CM0 7AA");
+
+      const panel = page.locator("#postcode-suggestions");
+      await expect(panel).toBeVisible();
+      await expect(panel.locator(".suggest__group-label")).toHaveText("Postcodes");
+      const self = panel.getByRole("option", { name: "CM0 7AA", exact: true });
+      await expect(self).toBeVisible();
+
+      await self.click();
+      await page.waitForURL(/\/search\/home\?postcode=CM0\+7AA/);
+      await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
+    },
+  );
+
+  test(
+    "BUG-008: a typed string with no matches shows the no-suggestions line",
+    { tag: "@regression" },
+    async ({ page }) => {
+      // Before the fix the panel simply never opened for
+      // a no-match string — the visitor could not tell a
+      // settled empty answer from a box still loading.
+      // The panel now opens on the pinned line.
+      await page.goto("/");
+      const box = page.locator("#postcode");
+      await box.fill("xqzww");
+
+      const panel = page.locator("#postcode-suggestions");
+      await expect(panel).toBeVisible();
+      await expect(panel.locator(".suggest__empty")).toHaveText(
+        "No suggestions for that — check the spelling, or use the button to search anyway.",
+      );
+    },
+  );
 });

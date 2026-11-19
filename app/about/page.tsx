@@ -43,10 +43,16 @@ export default function AboutPage() {
           {ABOUT_CARDS.map((card) => (
             <article className="card" key={card.heading}>
               <h2>{card.heading}</h2>
+              {/* The price line LEADS its card (fix batch,
+                  19 Nov 2026 — BUG-023): the sample's
+                  "What it costs" card opens with the large
+                  £4.99 figure and the paragraph follows;
+                  this render used to put the paragraph
+                  first and the figure after it. */}
+              {card.priceLine && <p className="price-line">{card.priceLine}</p>}
               {card.paragraphs.map((paragraph) => (
                 <p key={paragraph.slice(0, 32)}>{paragraph}</p>
               ))}
-              {card.priceLine && <p className="price-line">{card.priceLine}</p>}
             </article>
           ))}
         </div>

@@ -43,7 +43,12 @@ import type { AddressResolution } from "./address";
 import type { AreaBundle } from "./area-bundle";
 import type { CrimeBundle } from "./crime";
 import type { FloodBundle, ServedFloodLayer } from "./flood";
-import type { CategoryAnswer, NearbyBundle, NearbyCategory } from "./nearby";
+import {
+  DISTANCE_BASIS_LABEL,
+  type CategoryAnswer,
+  type NearbyBundle,
+  type NearbyCategory,
+} from "./nearby";
 import type { SoldPricesBundle } from "./sold-prices";
 
 // ------------------------------------------------------------------
@@ -400,8 +405,38 @@ export function streetChoiceCountLine(count: number): string {
 export const PLACE_CHOICE_LINE =
   "This place covers more than one postcode district — pick yours to see the wider area.";
 export function placeChoiceCountLine(count: number): string {
-  return count === 1 ? "1 district" : `${count} districts`;
+  // The sample's full-words form (fix batch, 19 Nov
+  // 2026 — BUG-025): "3 postcode districts", never the
+  // clipped "3 districts".
+  return count === 1 ? "1 postcode district" : `${count} postcode districts`;
 }
+
+// One district row's area description on the place page
+// (fix batch, 19 Nov 2026 — BUG-026): the district's
+// cleaned settlements — the neighbourhoods and villages
+// it covers — as one line, the first four named and the
+// rest counted, in the district page's own cleaned set
+// (lib/district.ts's cleanSettlements). No filed
+// settlements, no line: the row stands on its code and
+// post town alone rather than inventing a description.
+export function placeDistrictDescription(settlements: string[]): string | null {
+  if (settlements.length === 0) return null;
+  const shown = settlements.slice(0, 4);
+  const rest = settlements.length - shown.length;
+  return rest > 0 ? `${shown.join(", ")} and ${rest} more` : shown.join(", ");
+}
+
+// The place page's one-home bridge (fix batch, 19 Nov
+// 2026 — BUG-027): the district bridge's form (view 28)
+// restated for a place — under the district list, one
+// block inviting a full-postcode check for one home in
+// the place, with one filed postcode in the place as
+// its example link.
+export function placeBridgeHeading(place: string): string {
+  return `Checking one home in ${place}?`;
+}
+export const PLACE_BRIDGE_LINE =
+  "The place tells you about the area. A full postcode tells you about the home — its flood point, its nearest schools, its street's crime and its sold history.";
 
 // The mid-pick fallback notice (entry-point build, 18 Nov
 // 2026; D72 item 3, gap item 5): a visitor who picked an
@@ -725,6 +760,64 @@ export function groupResult(source: string, segments: CheckingSegment[]): Checki
 }
 
 // ------------------------------------------------------------------
+// The beyond-nearest radius guard — ONE implementation
+// for every presentation consumer (moved here from
+// lib/results.ts by the fix batch, 19 Nov 2026 — BUG-002).
+// ------------------------------------------------------------------
+//
+// A beyond row names the nearest essential service when
+// none sits within 2 miles — a local pointer. Beyond
+// this radius the named place is not a local fact in any
+// useful sense, and on an excerpted filing it is exactly
+// the Scotland defect's signature (an England-register
+// nearest hundreds of miles away, served because the
+// GB/UK-wide datasets — NaPTAN, OpenStreetMap, Open
+// Charge Map — are not nation-gated). The presentation
+// layers therefore serve the category's no-finding line
+// instead of the row, in every nation. 25 miles stands
+// well clear of every golden's legitimate beyond row —
+// the corpus maximum is Cheam Fields Primary Academy at
+// 14.671 miles (tests/nearby.test.ts) — and in
+// production, with the national filing in place, those
+// datasets serve real near rows for Scottish and NI
+// homes, so the rule costs nothing there; it bites only
+// on excerpt artefacts and genuinely remote pointers,
+// where the named no-finding state is the D30-honest
+// answer. Presentation only: no brain output changes,
+// so no contract pin or replay cell moves.
+//
+// The results layer has applied the guard since CI #205
+// (its sections and pills read the suppressed bundle).
+// The checking feed did NOT — BUG-002: at TA21 0HG the
+// feed named a primary school 134.327 miles away (in
+// the brain's own three-decimal form) and health
+// distances of 84–130 miles as findings, while the
+// results page behind the same check degraded honestly.
+// nearbyCheckingGroups now suppresses through this same
+// function before deriving either group.
+export const BEYOND_NEAREST_RADIUS_MILES = 25;
+
+export function farBeyondLine(category: CategoryAnswer): string {
+  // The brain's own no-finding forms (lib/nearby.ts
+  // emptyLine), mirrored from the served label: the
+  // map-held supermarket category carries the map-gap
+  // caveat; the rest carry the plain form.
+  return category.category === "supermarket"
+    ? `no ${category.label} recorded within 2 miles on the map data we hold — a gap in the map is not proof that none exists`
+    : `no ${category.label} within 2 miles of the postcode point`;
+}
+
+export function suppressFarBeyond(category: CategoryAnswer): CategoryAnswer {
+  if (
+    category.state !== "none-within" ||
+    !category.beyondNearest ||
+    category.beyondNearest.miles <= BEYOND_NEAREST_RADIUS_MILES
+  )
+    return category;
+  return { ...category, beyondNearest: null, line: farBeyondLine(category) };
+}
+
+// ------------------------------------------------------------------
 // The nearby part — the schools and health groups.
 // ------------------------------------------------------------------
 
@@ -776,10 +869,28 @@ function schoolsGroupResult(byCategory: Map<NearbyCategory, CategoryAnswer>): Ch
     // Nothing filed within the radius in any of the four
     // categories: the primary category's own served line
     // speaks for the group — it names the nearest beyond
-    // the radius where one is filed. A recorded zero with
-    // no such line is served as the count line over zero
+    // the radius where one is filed. Where the primary
+    // carries a beyond-nearest inside the guard's radius,
+    // the line is RECOMPOSED from its parts rather than
+    // served verbatim (BUG-002's format half): the brain's
+    // composed line carries its miles at three decimals,
+    // and the feed's display precision is the uniform one
+    // decimal (formatMiles) — the same fact, in the
+    // feed's form. The sentence is the brain's own; only
+    // the number's dress changes. A recorded zero with no
+    // such line is served as the count line over zero
     // categories rather than left wordless.
-    const primaryLine = answers[0]?.line;
+    const primary = answers[0];
+    if (primary?.beyondNearest) {
+      return {
+        state: "done",
+        line:
+          `none within ${CHECKING_NEARBY_RADIUS_MILES} miles — nearest is ` +
+          `${primary.beyondNearest.name}, ${formatMiles(primary.beyondNearest.miles)} ` +
+          `miles away (${DISTANCE_BASIS_LABEL})`,
+      };
+    }
+    const primaryLine = primary?.line;
     if (primaryLine) return { state: "done", line: primaryLine };
     return groupResult(rowSource("schools"), [
       {
@@ -808,13 +919,20 @@ function healthGroupResult(byCategory: Map<NearbyCategory, CategoryAnswer>): Che
   const nearest = answers.map((answer) => answer?.places[0] ?? answer?.beyondNearest ?? null);
   const missingIndex = nearest.findIndex((place) => place === null);
   if (missingIndex >= 0) {
-    // A core service with nothing filed at any distance:
-    // its own served line names the position. (Every
-    // non-"within" category state serves its line; the
-    // failure line is the unreachable defensive form.)
+    // A core service with nothing filed at any distance —
+    // or nothing inside the beyond-nearest radius, the
+    // guard above having replaced a far pointer with the
+    // no-finding line (BUG-002): its own served line
+    // names the position, and the group lands DONE on it,
+    // exactly as the schools group lands on the primary
+    // category's no-finding line — the category answered;
+    // its answer is "none near", a finding, not a named
+    // state. (Every non-"within" category state serves
+    // its line; the failure line is the unreachable
+    // defensive form.)
     const line = answers[missingIndex]?.line;
     return line
-      ? { state: "unavailable", line }
+      ? { state: "done", line }
       : { state: "failed", line: rowFailureLine("Health & the everyday") };
   }
   const miles = nearest.map((place) => place!.miles);
@@ -844,7 +962,12 @@ export function nearbyCheckingGroups(
       health: { state: "unavailable", line: reason },
     };
   }
-  const byCategory = new Map(bundle.categories.map((c) => [c.category, c]));
+  // The beyond-nearest radius guard applies here exactly
+  // as it does in the results layer (BUG-002): a category
+  // whose only pointer sits past 25 miles contributes its
+  // no-finding line, never the far place's name and
+  // distance, to either group.
+  const byCategory = new Map(bundle.categories.map((c) => [c.category, suppressFarBeyond(c)]));
   return {
     schools: schoolsGroupResult(byCategory),
     health: healthGroupResult(byCategory),
@@ -970,7 +1093,12 @@ function costsGroupResult(area: AreaBundle): CheckingGroupResult {
     segments.push({
       text:
         typeof label === "string" && label.length > 0
-          ? `Council tax Band D average ${label}`
+          ? // At postcode scope the sample's drawn line
+            // carries the period the rung-1 form leaves to
+            // its section: "Council tax Band D average
+            // £2,145.00 a year" (fix batch, 19 Nov 2026 —
+            // BUG-020; Master view 2's conformed costs row).
+            `Council tax Band D average ${label}${area.rung === 2 ? " a year" : ""}`
           : (sectionLine(councilTax) ?? "Council tax"),
       named: false,
     });
@@ -981,15 +1109,40 @@ function costsGroupResult(area: AreaBundle): CheckingGroupResult {
   const broadband = area.sections.broadband;
   const broadbandLine = sectionLine(broadband);
   if (sectionState(broadband) === "served") {
-    if (broadbandLine) segments.push({ text: broadbandLine, named: false });
+    // At postcode scope the sample's line is
+    // UNQUANTIFIED (BUG-020): "gigabit-capable broadband
+    // is available at this postcode" — the percentage and
+    // the speed gloss are the results page's depth, not
+    // the feed's. The unquantified form serves only where
+    // the section's own fact supports it (gigabit
+    // available to some premises); a zero or unfiled
+    // percentage falls back to the section's own line,
+    // which states the position exactly.
+    const gigabitPct = (broadband as { gigabitCapablePct?: unknown }).gigabitCapablePct;
+    if (area.rung === 2 && typeof gigabitPct === "number" && gigabitPct > 0) {
+      segments.push({
+        text: "gigabit-capable broadband is available at this postcode",
+        named: false,
+      });
+    } else if (broadbandLine) {
+      segments.push({ text: broadbandLine, named: false });
+    }
   } else if (broadbandLine) {
     segments.push({ text: broadbandLine, named: true });
   }
   // The EPC contributes only a named state (see the
   // section head): a served band is the results page's
   // headline; a not-filed or unmatched state names itself.
+  // AT POSTCODE SCOPE ONLY the pointer is not drawn
+  // (BUG-020): the sample's rung-2 costs row carries the
+  // council-tax and broadband findings alone, and the
+  // rung-2 EPC state — the postcode's certificate spread —
+  // is the results page's to carry. Carrying it here also
+  // branded the whole group "unavailable" on a state the
+  // drawn finding never mentions, although the group's
+  // lead facts had served.
   const epc = area.sections.epc;
-  if (sectionState(epc) !== "served") {
+  if (area.rung === 1 && sectionState(epc) !== "served") {
     const line = sectionLine(epc);
     if (line) segments.push({ text: line, named: true });
   }
@@ -1034,10 +1187,29 @@ function historyGroupResult(sold: SoldPricesBundle): CheckingGroupResult {
       named: false,
     });
   }
-  segments.push({
-    text: `${figures.recordedCount.toLocaleString("en-GB")} recorded sales in this postcode`,
-    named: false,
-  });
+  // The count segment names the D23 counted set — the
+  // category-A sales the median counts — never the
+  // bundle's recordedCount, which counts BOTH categories
+  // (fix batch, 19 Nov 2026 — BUG-012: at Birkdale the
+  // feed said "30 recorded sales" while the results page
+  // counted the median over 29; the one category-B sale
+  // is the difference, and a visitor can see both numbers
+  // in one journey). The results page's own line counts
+  // the same set ("counted over 29 recorded sales"), so
+  // the feed counts it too. Where nothing counts toward
+  // a median but sales are recorded (a category-B-only
+  // postcode), the median's own line speaks instead — a
+  // "0 recorded sales" segment would deny sales the
+  // register does hold.
+  const counted = figures.median?.counted ?? figures.recordedCount;
+  if (counted > 0) {
+    segments.push({
+      text: `${counted.toLocaleString("en-GB")} recorded sales in this postcode`,
+      named: false,
+    });
+  } else if (figures.median?.line) {
+    segments.push({ text: figures.median.line, named: false });
+  }
   return groupResult(rowSource("history"), segments);
 }
 

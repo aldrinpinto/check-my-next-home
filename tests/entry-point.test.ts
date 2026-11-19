@@ -5,7 +5,7 @@ import {
   type LoadedAddressParts,
   type ResolvedAddress,
 } from "../lib/address";
-import { PICK_FALLBACK_FLAG, PICK_FALLBACK_LINE } from "../lib/journey";
+import { homeRoute, PICK_FALLBACK_FLAG, PICK_FALLBACK_LINE } from "../lib/journey";
 import { setEntryLogSink } from "../lib/server/entry-log";
 import {
   pickerList,
@@ -256,6 +256,109 @@ describe("the D71 amendment — complete full-postcode list; fragment cap supers
     const ceilingLog = logsFor("x4").find((l) => l.includes("event=suggestions.ceiling"));
     expect(ceilingLog).toContain(`homes=${over}`);
     expect(ceilingLog).toContain(`ceiling=${SUGGEST_FULL_POSTCODE_CEILING}`);
+  });
+});
+
+// ------------------------------------------------------------------
+// BUG-032 (fix batch, 19 Nov 2026): a full postcode with
+// no picking-index homes served an EMPTY suggestions
+// response. Proven live: E16 1AF is in the postcode
+// directory (postcode_cache) with zero picking_index
+// rows, so the full-postcode branch — which served only
+// the Homes group from the picking union — offered
+// nothing, not even the postcode itself, while its
+// fragment "E16 1A" listed it among the postcodes. The
+// branch now always serves at least the postcode itself
+// (its whole-postcode route) when the directory files
+// it, with the homes list when homes exist.
+// ------------------------------------------------------------------
+
+describe("BUG-032 — a full postcode with no filed homes still serves itself", () => {
+  // The witness world: E16 1AF in the directory with no
+  // homes anywhere; its neighbour E16 1AA holding two.
+  function noHomesSource(): SuggestionSource {
+    const directory = ["E16 1AA", "E16 1AF"];
+    const homes: Record<string, LoadedAddressParts[]> = {
+      "E16 1AA": [
+        {
+          postcode: "E16 1AA",
+          paon: "1",
+          saon: null,
+          street: "EXETER ROAD",
+          locality: null,
+          town: "LONDON",
+        },
+        {
+          postcode: "E16 1AA",
+          paon: "2",
+          saon: null,
+          street: "EXETER ROAD",
+          locality: null,
+          town: "LONDON",
+        },
+      ],
+    };
+    return {
+      async postcodesByPrefix(prefix, limit) {
+        return directory
+          .filter((postcode) => postcode.startsWith(prefix))
+          .sort()
+          .slice(0, limit);
+      },
+      async addressesInPostcode(postcode) {
+        return homes[postcode] ?? [];
+      },
+      async streetsByPrefix() {
+        return [];
+      },
+      async streetsByFuzzy() {
+        return [];
+      },
+      async placesByPrefix() {
+        return [];
+      },
+      async placesByFuzzy() {
+        return [];
+      },
+      async placeDistricts() {
+        return [];
+      },
+      async propertiesMatching() {
+        return [];
+      },
+    };
+  }
+
+  it("a directory postcode with zero picking homes serves itself, whole-postcode route", async () => {
+    const result = await suggestionsFor("E16 1AF", noHomesSource(), "b32a");
+    expect(result.groups).toHaveLength(1);
+    expect(result.groups[0].label).toBe("Postcodes");
+    expect(result.groups[0].items).toEqual([{ label: "E16 1AF", href: homeRoute("E16 1AF") }]);
+    const served = logsFor("b32a").find((l) => l.includes("event=suggestions.served"));
+    expect(served).toContain("reason=ok");
+    expect(served).toContain("postcodes=1");
+    expect(served).toContain("homes=0");
+  });
+
+  it("a postcode the directory does not file serves nothing", async () => {
+    const result = await suggestionsFor("E16 1ZZ", noHomesSource(), "b32b");
+    expect(result.groups).toEqual([]);
+    const served = logsFor("b32b").find((l) => l.includes("event=suggestions.served"));
+    expect(served).toContain("reason=empty");
+  });
+
+  it("a postcode with homes serves its Homes group alone — no self row rides along", async () => {
+    const result = await suggestionsFor("E16 1AA", noHomesSource(), "b32c");
+    expect(result.groups).toHaveLength(1);
+    expect(result.groups[0].label).toBe("Homes");
+    expect(result.groups[0].items).toHaveLength(2);
+  });
+
+  it("address words that match no home still leave the postcode itself on offer", async () => {
+    const result = await suggestionsFor("99 Nowhere E16 1AA", noHomesSource(), "b32d");
+    expect(result.groups).toHaveLength(1);
+    expect(result.groups[0].label).toBe("Postcodes");
+    expect(result.groups[0].items).toEqual([{ label: "E16 1AA", href: homeRoute("E16 1AA") }]);
   });
 });
 

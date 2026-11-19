@@ -72,15 +72,20 @@ export default async function GiftClaimRoute({
   const { token } = await params;
   const flags = await searchParams;
   const record = await recordFor(token);
-  // The entry flash is read only for the format-error
-  // presentation: the cookie the claim route set on its
-  // redirect, holding the address just typed, so the
-  // field stands pre-filled under the error line (view
-  // 18). It is read on no other presentation, never
-  // logged, and never counted — counting derives its
-  // route patterns from the pathname alone.
+  // The entry flash is read for the format-error
+  // presentation and, since the fix batch of 19 Nov
+  // 2026 (BUG-029), the send-failure presentation: the
+  // cookie the claim route set on its redirect, holding
+  // the address just typed, so the field stands
+  // pre-filled under the error line (view 18) or the
+  // failure line (view 19) alike. It is read on no
+  // other presentation, never logged, and never
+  // counted — counting derives its route patterns from
+  // the pathname alone.
   const entryEmail =
-    flags.error === "email" ? (await cookies()).get(GIFT_ENTRY_COOKIE_NAME)?.value : undefined;
+    flags.error === "email" || flags.sendfailed === "1"
+      ? (await cookies()).get(GIFT_ENTRY_COOKIE_NAME)?.value
+      : undefined;
   const view = giftClaimPageView(record, new Date(), {
     refusedSameEmail: flags.refused === "same-email",
     sent: flags.sent === "1",
