@@ -19,8 +19,13 @@
 // holder, the claim form for an unclaimed gift). The
 // link confirms nothing about any state it doesn't
 // bind.
-
-import { NextResponse } from "next/server";
+//
+// Every redirect here is a RELATIVE Location
+// (lib/server/public-url.ts's first rule; Regression
+// run 44535680408 follow-up): request.url's origin is
+// the server's listen host, and an absolute redirect
+// built from it sends the claimant's browser to the
+// server's own loopback.
 
 import {
   GIFT_COOKIE_NAME,
@@ -30,6 +35,7 @@ import {
 } from "../../../../../lib/gift";
 import { getDbPool } from "../../../../../lib/server/db";
 import { createDbGiftStore } from "../../../../../lib/server/gifts";
+import { redirectRelative } from "../../../../../lib/server/public-url";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,9 +45,9 @@ export async function GET(
   { params }: { params: Promise<{ token: string; pending: string }> },
 ) {
   const { token, pending } = await params;
-  const claimUrl = new URL(giftClaimPath(token), request.url);
+  const backToClaim = () => redirectRelative(giftClaimPath(token));
   if (!isGiftTokenForm(token) || !isGiftTokenForm(pending)) {
-    return NextResponse.redirect(claimUrl, 303);
+    return backToClaim();
   }
 
   const store = createDbGiftStore(getDbPool());
@@ -52,13 +58,13 @@ export async function GET(
   // and the write on day 30's edge — the record's own
   // expiresAt is the clock the state machine reads.
   if (!record || now.getTime() > record.expiresAt.getTime()) {
-    return NextResponse.redirect(claimUrl, 303);
+    return backToClaim();
   }
 
   const bound = await store.bindByConfirm(token, pending, now);
-  if (!bound) return NextResponse.redirect(claimUrl, 303);
+  if (!bound) return backToClaim();
 
-  const response = NextResponse.redirect(new URL(giftClaimedPath(token), request.url), 303);
+  const response = redirectRelative(giftClaimedPath(token));
   response.cookies.set(GIFT_COOKIE_NAME, token, {
     httpOnly: true,
     sameSite: "lax",

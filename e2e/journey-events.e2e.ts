@@ -39,6 +39,12 @@ test.describe("journey counting — regression", () => {
     "the golden journey emits each pinned event exactly once, and nothing carries an address, a full postcode or an email",
     { tag: "@regression" },
     async ({ page }) => {
+      // The arrival window below runs to 90s (see the
+      // poll's own note), past the config's 60s test
+      // timeout — the test carries a timeout that lets
+      // the window elapse (Regression run 44535680408
+      // follow-up, 19 Nov 2026).
+      test.setTimeout(240_000);
       const connectionString = process.env.DATABASE_URL;
       if (!connectionString) throw new Error("DATABASE_URL is not set for the harness.");
       const pool = new pg.Pool({ connectionString });
@@ -108,6 +114,18 @@ test.describe("journey counting — regression", () => {
         // then asserts exactly-once on the settled
         // snapshot. A genuinely missing event fails this
         // poll naming itself, not as a bare zero.
+        //
+        // The window is 90s, not the first follow-up's
+        // 20s (Regression run 44535680408 follow-up,
+        // 19 Nov 2026): that run's loaded runner delivered
+        // NONE of the seven expected posts inside 20s —
+        // beacon delivery is best-effort by design
+        // (components/JourneyBeacon.tsx: a lost count is a
+        // gap in a chart, never a visitor-facing failure),
+        // so the arrival window is sized to the delivery
+        // lag the runner demonstrably produces, and the
+        // exactly-once assertions below run unchanged on
+        // the settled snapshot.
         const expectedOnce: [string, number | undefined][] = [
           ["check_started", 2],
           ["check_started", 1],
@@ -124,7 +142,7 @@ test.describe("journey counting — regression", () => {
                 .filter(([event, rung]) => countPosts(event, rung) < 1)
                 .map(([event, rung]) => (rung === undefined ? event : `${event} rung ${rung}`))
                 .join(", "),
-            { timeout: 20_000, intervals: [250] },
+            { timeout: 90_000, intervals: [250] },
           )
           .toBe("");
         expect(countPosts("check_started", 2)).toBe(1);

@@ -196,6 +196,20 @@ export function SuggestionShell({
                       .filter(Boolean)
                       .join(" ")}
                     role="option"
+                    // The row's name is its label, pinned:
+                    // CSS generated content counts towards
+                    // an element's accessible name, and the
+                    // picked row's ::after marker ("Districts
+                    // below ↓", globals.css) renamed the
+                    // picked place's row the moment the pick
+                    // landed — assistive tech and the e2e
+                    // specs alike locate the row by its
+                    // place name, and the name changed under
+                    // them (Regression run 44535680408
+                    // follow-up, 19 Nov 2026; the picked
+                    // state itself is carried by
+                    // aria-selected, as it should be).
+                    aria-label={item.label}
                     aria-selected={active || picked}
                     onMouseDown={(event) => {
                       // Choose on mousedown: it lands before

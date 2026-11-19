@@ -41,6 +41,13 @@
 // blast radius — one live pending per gift, replaced
 // not accumulated, and a send only ever goes to the
 // address just entered on a live, unclaimed gift.
+//
+// URLs minted here follow lib/server/public-url.ts's
+// two rules (Regression run 44535680408 follow-up):
+// every redirect is a RELATIVE Location — request.url's
+// origin is the server's listen host, not the visitor's
+// — and the confirmation email's link takes its origin
+// from the forwarded headers.
 
 import { NextResponse } from "next/server";
 
@@ -51,6 +58,7 @@ import {
   decideClaimAttempt,
   giftClaimedPath,
   giftClaimPath,
+  giftConfirmPath,
   isEmailShape,
   isGiftTokenForm,
   normaliseEmail,
@@ -58,6 +66,7 @@ import {
 import { getDbPool } from "../../../../lib/server/db";
 import { getGiftMailer } from "../../../../lib/server/gift-mailer";
 import { createDbGiftStore, newConfirmToken } from "../../../../lib/server/gifts";
+import { publicOriginOf, redirectRelative } from "../../../../lib/server/public-url";
 import { rateLimitOk } from "../../../../lib/server/rate-limit";
 
 export const runtime = "nodejs";
@@ -66,8 +75,8 @@ export const dynamic = "force-dynamic";
 const RATE_LIMIT = 10;
 const RATE_WINDOW_MS = 60_000;
 
-function back(request: Request, token: string, query = ""): NextResponse {
-  return NextResponse.redirect(new URL(`${giftClaimPath(token)}${query}`, request.url), 303);
+function back(token: string, query = ""): NextResponse {
+  return redirectRelative(`${giftClaimPath(token)}${query}`);
 }
 
 // The entry cookie's shape, shared by its set and its
@@ -83,8 +92,8 @@ function entryCookie(token: string) {
 // field (view 18). Only an entry short enough to be an
 // address worth correcting is carried — the shape
 // check's own cap; a longer paste gets the bare error.
-function backWithEntry(request: Request, token: string, entry: string): NextResponse {
-  const response = back(request, token, "?error=email");
+function backWithEntry(token: string, entry: string): NextResponse {
+  const response = back(token, "?error=email");
   if (entry.length > 0 && entry.length <= 254) {
     response.cookies.set(GIFT_ENTRY_COOKIE_NAME, entry, {
       ...entryCookie(token),
@@ -103,12 +112,12 @@ function cleared(response: NextResponse, token: string): NextResponse {
 
 export async function POST(request: Request, { params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
-  if (!isGiftTokenForm(token)) return back(request, token);
+  if (!isGiftTokenForm(token)) return back(token);
 
   const caller =
     request.headers.get("cf-connecting-ip") ?? request.headers.get("x-forwarded-for") ?? "unknown";
   if (!rateLimitOk(`gift-claim:${caller}`, RATE_LIMIT, RATE_WINDOW_MS)) {
-    return back(request, token);
+    return back(token);
   }
 
   let email = "";
@@ -117,13 +126,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
     const value = form.get("email");
     if (typeof value === "string") email = normaliseEmail(value);
   } catch {
-    return back(request, token, "?error=email");
+    return back(token, "?error=email");
   }
-  if (!isEmailShape(email)) return backWithEntry(request, token, email);
+  if (!isEmailShape(email)) return backWithEntry(token, email);
 
   const store = createDbGiftStore(getDbPool());
   const record = await store.getByToken(token);
-  if (!record) return cleared(back(request, token), token);
+  if (!record) return cleared(back(token), token);
 
   const now = new Date();
   const attempt = decideClaimAttempt(record, email, now);
@@ -131,10 +140,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
   let response: NextResponse;
   switch (attempt.kind) {
     case "same-email":
-      response = back(request, token, "?refused=same-email");
+      response = back(token, "?refused=same-email");
       break;
     case "resume": {
-      response = NextResponse.redirect(new URL(giftClaimedPath(token), request.url), 303);
+      response = redirectRelative(giftClaimedPath(token));
       response.cookies.set(GIFT_COOKIE_NAME, token, {
         httpOnly: true,
         sameSite: "lax",
@@ -145,7 +154,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
     case "send-confirmation": {
       const pendingToken = newConfirmToken();
       await store.setPending(token, email, pendingToken, now);
-      const confirmUrl = new URL(`/gift/${token}/confirm/${pendingToken}`, request.url).toString();
+      // The link leaves the server in an email, so it is
+      // absolute — on the request's PUBLIC origin (the
+      // forwarded headers), never request.url's listen
+      // origin (lib/server/public-url.ts).
+      const confirmUrl = `${publicOriginOf(request)}${giftConfirmPath(token, pendingToken)}`;
       const result = await getGiftMailer().sendClaimConfirmation({
         to: email,
         giftToken: token,
@@ -153,16 +166,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
       });
       if (!result.sent) {
         await store.clearPending(token);
-        response = back(request, token, "?sendfailed=1");
+        response = back(token, "?sendfailed=1");
       } else {
-        response = back(request, token, "?sent=1");
+        response = back(token, "?sent=1");
       }
       break;
     }
     default:
       // refused-claimed, closed: the claim page serves
       // the state that stands.
-      response = back(request, token);
+      response = back(token);
   }
   return cleared(response, token);
 }

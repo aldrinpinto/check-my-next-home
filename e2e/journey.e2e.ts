@@ -291,7 +291,17 @@ test.describe("checker journey — regression", () => {
     { tag: "@regression" },
     async ({ page }) => {
       await searchFromHome(page, "CM3 2JA");
-      await page.waitForURL("**/search?outward=CM3&notfound=CM3+2JA");
+      // The wait commits at the redirect, not at the
+      // destination's full load (Regression run
+      // 44535680408 follow-up, 19 Nov 2026): the
+      // wider-area page is the suite's heaviest render,
+      // and on that run's starved runner its load event
+      // outlasted the 60s test timeout on both attempts —
+      // while the redirect itself is two indexed reads
+      // and lands at once. The content assertions below
+      // (the heading, the notice, the bridge) prove the
+      // destination itself, separately.
+      await page.waitForURL("**/search?outward=CM3&notfound=CM3+2JA", { waitUntil: "commit" });
       await expect(page.locator("h1")).toHaveText("Wider area — CM3");
       await expect(page.locator(".journey-notice")).toHaveText(
         "CM3 2JA isn't a postcode we hold — this is the wider area it points to instead.",

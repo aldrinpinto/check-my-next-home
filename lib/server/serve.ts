@@ -14,6 +14,7 @@
 import {
   classifyAddressInput,
   createAddressSource,
+  displayText,
   labelForAddressParts,
   parsePaon,
   resolveAddressInput,
@@ -40,7 +41,7 @@ import { getDbPool } from "./db";
 import { logEntry } from "./entry-log";
 import { pickerList, promotionKeyFor, type PickerRow } from "./hybrid";
 import { createPickingIndexSource } from "./picking-index";
-import { createPlaceSource, placeNormOf } from "./places";
+import { createPlaceSource, placeNormOf, type PlaceQueryable } from "./places";
 import { getPostioClient } from "./postio";
 import { createDbResolveRecordStore, isResolveToken } from "./resolve-records";
 
@@ -62,7 +63,10 @@ import { createDbResolveRecordStore, isResolveToken } from "./resolve-records";
 // choices-only (the places read model's own rule) and is
 // never applied silently to a submitted input. A place
 // name is never served the bare failure page.
-export async function placeLandingUrl(raw: string): Promise<string | null> {
+export async function placeLandingUrl(
+  raw: string,
+  db: PlaceQueryable = getDbPool(),
+): Promise<string | null> {
   const typed = classifyAddressInput(raw);
   // Only a bare name can be a place pick: an input
   // carrying a postcode or an outward code has its own
@@ -71,9 +75,19 @@ export async function placeLandingUrl(raw: string): Promise<string | null> {
   if (typed.postcode || typed.outward) return null;
   const norm = placeNormOf(raw);
   if (norm.length === 0) return null;
-  const place = await createPlaceSource(getDbPool()).placeByNorm(norm);
+  const place = await createPlaceSource(db).placeByNorm(norm);
   if (!place || place.districts.length === 0) return null;
-  return placeLandingRoute(place.place);
+  // The route is contracted for the DISPLAY form
+  // (placeLandingRoute's placeDisplay): the read model
+  // files the place in its as-filed casing ("CHELMSFORD"),
+  // and every other surface applies displayText at the
+  // presentation edge — placeItemOf in
+  // lib/server/suggestions.ts, whose filed name the
+  // dropdown puts in the field. Passing the filed form
+  // through put "?place=CHELMSFORD" in the URL and the
+  // raw casing in the landing's field (Regression run
+  // 44535680408 follow-up, 19 Nov 2026).
+  return placeLandingRoute(displayText(place.place));
 }
 
 export async function resolveTypedInput(raw: string): Promise<{

@@ -4900,3 +4900,146 @@ without the carried postcode. The suite stands at 146
 tests in 16 files — 8 @smoke, 138 @regression; the
 Smoke set is untouched. Playwright cannot execute on
 the build VM; CI is these specs' first execution.
+
+## Regression run 44535680408 follow-up (19 Nov 2026)
+
+The founder fix batch's first scheduled-form Regression
+run (workflow_dispatch on 6db8848, real Turnstile,
+42m 45s on a starved runner) failed 8 of 147 — 113
+passed, 26 flaky, every flaky test passing on retry.
+The flaky set is the heavy-journey population under
+runner load and carries no fix here. The 8 failures
+fell in five families; each was diagnosed from the
+de47a53 → 6db8848 diff before this round opened, and
+the round's one correction of that diagnosis is
+recorded at Fix 2, where the reproduction settled it.
+
+### Fix 1 — the gift routes' URLs (product)
+
+The claim and confirm route handlers minted every
+absolute URL from request.url, whose origin under
+`next start` is the server's LISTEN host — proven on
+the play server, where a claim POST carrying the
+tunnel's Host and X-Forwarded-Host still answered
+`Location: https://localhost:3000/gift/…`: the entry
+cookie was set correctly but stranded on the
+request's host while the browser navigated to the
+listen host, so the re-served claim form stood empty
+(the mistyped-email spec's failure), and the emailed
+confirmation link was built the same way — a real
+claimant's email would have carried a loopback link.
+lib/server/public-url.ts now holds the two rules:
+every redirect these handlers return is a RELATIVE
+Location (path plus query; the browser resolves it
+against the URL it actually requested — and Next's
+redirect helper refuses relative URLs, so the
+response is built directly), and an absolute URL
+that leaves the server — the confirmation email's
+link — takes its origin from the forwarded headers
+(X-Forwarded-Host, falling back to Host) with the
+forwarded proto, never request.url's origin. Pinned
+in tests/gift-routes.test.ts at the handlers
+themselves (a mistyped email's 303 is the bare claim
+path with the entry cookie riding it; the origin
+composition follows the forwarded host), and proven
+in the browser by the standing gift specs — all nine
+pass locally under the serve-e2e harness, the
+mistyped-email spec and the happy path through the
+emailed link among them.
+
+### Fix 2 — the picked place's row (product)
+
+Diagnosis had the batch's id-keyed marking losing a
+race with its own re-fetch churn (or a 429 wiping the
+panel). The reproduction — spec 294 alone under the
+serve-e2e path, then an instrumented probe of the
+pick flows — disproved both: after one physical
+click exactly one /api/suggest fetch fires (200), the
+panel settles with the picked class and
+aria-selected="true" on the row, and both stand
+unchanged seconds later; the abort-a-fetch variant
+confirms the catch branch does wipe the panel when a
+fetch fails, but no fetch failed in any failing flow.
+What the failure snapshot showed instead: the option
+EXISTS, marked [selected] — under the accessible
+name "Chelmsford Districts below ↓". The batch's
+picked styling draws its marker with a CSS ::after
+(`content: "Districts below ↓"` in globals.css), and
+generated content counts towards an element's
+accessible name, so the row's name changed the
+moment the pick landed — and every failing spec
+locates the row by the name it had before the pick
+(294/347 after picking, 365 from first render, 275
+via the typed-in-full auto-mark). The fix is one
+attribute in components/kit.tsx's SuggestionShell:
+the option's accessible name is pinned to its label
+(`aria-label`), the picked state rides aria-selected
+as it should, and the visual marker is untouched.
+The prescribed companions were NOT built, on the
+evidence: render-derived marking (the stored-id
+marking demonstrably held), single-firing the pick
+(one fetch per physical pick as it stands — and the
+click binding is the assistive-technology activation
+path), and the catch-branch change (its condition —
+proof the wipe contributed — is not met). Pinned in
+tests/look-feel-kit.test.ts; the four place specs
+(275, 294, 347, 365) pass locally under the same
+harness. Full-file local runs of suggest.e2e.ts went
+11 of 12 twice, the single failure each time a
+local-engine timing artefact after the panel's work
+was done (a dual-h1 moment in the streamed district
+swap; a fuzzy panel arriving past its window on the
+single-connection local database) — never the picked
+row.
+
+### Fix 3 — the bare place name's casing (product)
+
+lib/server/serve.ts's placeLandingUrl passed the
+filed place name ("CHELMSFORD") straight to
+placeLandingRoute, whose parameter is contracted
+for the display form — so the redirect carried
+`?place=CHELMSFORD` and the landing's field stood in
+the register's casing. It now applies displayText at
+the composition, the pattern placeItemOf already
+uses; the read takes an injectable source port so
+the composition is unit-pinned in
+tests/place-landing.test.ts (display-form URL, the
+null answers, and no read for a postcode input).
+Spec 380 is the browser proof and passes locally.
+
+### Fix 4 — journey-events arrival window (spec only)
+
+The posts-arrival poll's 20s window caught none of
+the seven expected posts under the run's load —
+beacon delivery is best-effort by design
+(JourneyBeacon's own header: a lost count is a gap
+in a chart, never a visitor-facing failure), and
+the product fires each event exactly once per
+(event, rung) as the spec's own list demands. The
+poll now runs to 90s and the test carries a timeout
+that lets the window elapse (the config's 60s would
+otherwise cut it); the exactly-once assertions on
+the settled snapshot are byte-identical. The spec
+passes locally in the stub form.
+
+### Fix 5 — the mistype redirect's wait (spec only)
+
+e2e/journey.e2e.ts's mistype leg waited for the
+wider-area page's full load event — the suite's
+heaviest render — on a starved runner. The wait now
+commits at the redirect (`waitUntil: "commit"`);
+the destination's content was already asserted
+separately immediately after (heading, notice,
+bridge) and still is. The spec passes locally in
+the stub form.
+
+### Gate
+
+`npm run prepush` exits 0: Prettier clean, lint 0
+errors / 8 warnings, typecheck clean, Vitest 2,116
+passed + 26 skipped (2,142 — the batch's 2,103 plus
+this round's 13 new unit tests), the tag audit exact
+at 147 (8 @smoke / 139 @regression — no e2e test
+added or removed), build green. The scheduled
+Regression run on the new HEAD is this round's
+proof, as it was the failure's.

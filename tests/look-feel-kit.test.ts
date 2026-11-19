@@ -9,7 +9,14 @@ import SiteChrome from "../components/SiteChrome";
 import SiteFooter, { FOOTER_SOURCES_LINE } from "../components/SiteFooter";
 import SiteHeader from "../components/SiteHeader";
 import Tabs from "../components/Tabs";
-import { Button, DataTable, Notice, SummaryPill, TextField } from "../components/kit";
+import {
+  Button,
+  DataTable,
+  Notice,
+  SuggestionShell,
+  SummaryPill,
+  TextField,
+} from "../components/kit";
 import {
   LOGO_URL,
   OG_IMAGE_HEIGHT,
@@ -558,5 +565,49 @@ describe("kitchen-sink page", () => {
     // declared non-indexable.
     expect(Object.keys(PAGE_SEO)).toHaveLength(25);
     expect(PAGE_SEO["/"].title).toBe(`Check My Next Home — ${SITE_TAGLINE}`);
+  });
+});
+
+describe("suggestion shell — the picked row's name (Regression run 44535680408 follow-up)", () => {
+  // The picked place's row carries its selected state in
+  // its class and aria-selected — but its NAME stays the
+  // place's label. The batch's picked styling draws a
+  // "Districts below ↓" marker with a CSS ::after, and
+  // generated content counts towards the accessible name:
+  // unpinned, the row's name became "Chelmsford Districts
+  // below ↓" the moment the pick landed, and neither
+  // assistive tech nor the e2e specs could find the row
+  // by the name it had a moment before. The shell pins
+  // the name to the label with aria-label.
+  it("a picked option's accessible name is its label alone", () => {
+    const html = renderToStaticMarkup(
+      createElement(SuggestionShell, {
+        groups: [
+          {
+            label: "Places",
+            items: [{ id: "suggest-0", label: "Chelmsford" }],
+          },
+        ],
+        pickedId: "suggest-0",
+      }),
+    );
+    expect(html).toContain('class="suggest__item suggest__item--picked"');
+    expect(html).toContain('aria-label="Chelmsford"');
+    expect(html).toContain('aria-selected="true"');
+  });
+
+  it("an unpicked option's name is pinned the same way", () => {
+    const html = renderToStaticMarkup(
+      createElement(SuggestionShell, {
+        groups: [
+          {
+            label: "Districts in Chelmsford",
+            items: [{ id: "suggest-1", label: "CM1 — Chelmsford" }],
+          },
+        ],
+      }),
+    );
+    expect(html).toContain('aria-label="CM1 — Chelmsford"');
+    expect(html).toContain('aria-selected="false"');
   });
 });
