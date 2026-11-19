@@ -284,8 +284,9 @@ export const PRIVACY_CARDS: PrivacyCard[] = [
       ul([
         "**The postcode or address you check** — we use it to run the check and show you the facts for that home. Without it, there is nothing to check.",
         "**Your email address, only when you buy a report** — so we can deliver the report to you. If you only use the free headlines, we do not ask for an email address.",
-        "**Your shortlist** — this lives in your own browser, on your own device. It never reaches us, and we cannot see it.",
+        "**Your shortlist** — this lives in your own browser, on your own device. We cannot see which homes are on it. Our counting only learns that a home was added or removed — never which home.",
         "**Anything you type into the calculators** — the mortgage and stamp duty calculators work on the page itself. What you type never leaves the page and is never sent to us.",
+        "**Counting, kept at home** — we count how the site is used — which pages are opened, how many checks run, where people stop — with our own counting on our own server, plus Cloudflare Web Analytics for traffic. The counting never records the home or postcode you checked, your email, or anything that identifies you: it counts journeys, not people. No analytics company is involved, and counting sets no cookies.",
       ]),
       p("That is the whole list. There are no accounts on this site, and nothing to sign up for."),
     ],
@@ -331,6 +332,9 @@ export const PRIVACY_CARDS: PrivacyCard[] = [
       p("This site only uses the cookies it needs to work and to stay secure."),
       p(
         "We do not use cookies to follow you around the web, to build a profile of you, or to show you advertising.",
+      ),
+      p(
+        "One more cookie appears if you arrive through a Check Together gift link. It remembers that the gift was claimed on this device, so your free report stays unlocked. It holds no personal details and is never used for counting or advertising.",
       ),
     ],
   },

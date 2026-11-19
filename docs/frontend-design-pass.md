@@ -4152,3 +4152,78 @@ exactly once), the stored rows' completion shape, and the
 payload scan over everything stored in the window. The
 specs' first execution is CI's — Playwright cannot run
 on this VM.
+
+**CI #233 follow-up (19 Nov 2026).** CI #233's browser
+job failed one spec, identically on attempt and retry:
+the journey suite's Southminster CM0 7AA spec, whose
+first assertion — the empty home list's line — did not
+appear inside Playwright's default expect budget. The
+diagnosis is spec-side, on threefold evidence. (1) The
+served behaviour is the adopted one, proven in the same
+run: results.e2e.ts's CM0 7AA spec loads the same page
+and pins the same h1, the same `.results`, the same
+empty line verbatim and the four tabs — green. (2)
+Nothing in the serve path moved: the serve layer, the
+ladder, the hybrid supplement, HomeList and the short
+bundle are byte-identical to CI #232; this step's
+changes on the page are additive beacons that render
+null, and the checking screen's reveal logic is
+untouched. (3) The spec was the file's lone exception
+to its own discipline: every other journey spec waits
+for `.results` at 30 seconds before asserting what
+renders inside it, because the home list stands behind
+the checking screen's designed reveal (D73 — five rows
+at 720ms plus the advance, gated on the part calls
+settling). This spec asserted the picker line on the
+default budget alone, for the suite's one unwarmed
+results postcode (the warm-gate's list does not include
+CM0 7AA). What this step changed is the suite's
+runtime: every page of every spec now posts its
+counting events to /api/events on the same single app
+server and database the specs share, and that traffic
+consumed the margin the default budget had. The fix
+restores the file's own convention — the `.results`
+wait now precedes the picker assertions in this spec —
+and the same wait was added to the two neighbouring
+specs found carrying the same shape: Beaulieu's list
+assertions (which had ridden on the warm-gate's cover
+for CM1 6ER) and the stale-key spec's row assertion. No
+assertion was weakened, reworded or removed. The
+not-covered branch was checked and is not the same
+shape: its h1 is in the first server-rendered HTML (no
+checking screen stands in that branch) and its
+`.results` already carries the wait.
+
+**Privacy wordings applied (19 Nov 2026) — the gap at
+(1) above is closed.** The founder approved three
+wordings verbatim on 19 Nov 2026 (drafted fresh after
+the prep file's truncation made the original approved
+forms unrecoverable, and approved as drafted), and they
+are now in lib/site-pages.ts exactly as approved. In
+"What we collect and why": the shortlist item is
+amended to the count-that-a-home-was-added,
+never-which-home form ("We cannot see which homes are
+on it. Our counting only learns that a home was added
+or removed — never which home."), and a new list item,
+"**Counting, kept at home**", closes the list after
+the calculators item — it names the first-party
+counting and Cloudflare Web Analytics, states that the
+counting never records the home or postcode checked,
+an email, or anything that identifies the visitor, and
+that counting sets no cookies. In "Cookies": a third
+paragraph names the Check Together gift cookie — the
+M7.13 step's T-LEG-02 record (the page names the
+cmnh-gift cookie the claim flow sets; strictly
+functional, holds no personal details, never used for
+counting or advertising). No other Privacy words moved.
+The words are pinned character-for-character in
+tests/privacy-copy.test.ts (the collect card's amended
+and new items with the counting item last in its list;
+the pre-amendment shortlist line absent everywhere; the
+Cookies card's three paragraphs in order). No existing
+test pinned this copy, so no pin was updated — the new
+file is the first. One follow-up stands outside this
+build: the Final Sample Master's view 8 (Privacy)
+predates these wordings and needs conforming to them —
+the Master's samples are edited only on the founder's
+word, so the conforming edit is the parent's to raise.
