@@ -6,7 +6,9 @@ name: CI
 # secret scanning, recorded as the M2.4 deviation (test T-SEC-01);
 # and a database job that applies the migrations to a real
 # PostgreSQL + PostGIS and runs the map-brain proof (plan steps
-# M3.3 / M3.4 / M3.5).
+# M3.3 / M3.4 / M3.5). A browser job runs the Playwright
+# Smoke set as the push gate; the full suite runs on cadence
+# in the scheduled E2E workflow (plan step M7.15, D68).
 
 on:
   push:
@@ -32,6 +34,8 @@ jobs:
 
       - name: Install dependencies (exact, from the lockfile)
         run: npm ci
+      - name: E2E tag audit (plan step M7.15)
+        run: npm run audit:e2e-tags
 
       - name: Tidy check (Prettier)
         run: npm run format:check
@@ -224,10 +228,11 @@ jobs:
 
       - name: Build the served app (Turnstile test site key inlined)
         run: npm run build
-
+      # From M7.15 the push gate runs the Smoke set only; the
+      # full suite runs on cadence in the scheduled E2E
+      # workflow (nightly Smoke, weekly Regression, D68).
       - name: Run the Playwright suite (the harness seeds the corpus and serves the app)
-        run: npx playwright test
-
+        run: npx playwright test --grep @smoke
       # Retained from the M7.1 job (not in the prepared v2): keep the
       # failure artefacts. The config reporter is "list", so on failure
       # this uploads test-results/ (traces/screenshots); playwright-report/
