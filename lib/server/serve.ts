@@ -31,7 +31,7 @@ import { buildNearbyBundle, createNearbySource } from "../nearby";
 import { buildShortBundle } from "../short-bundle";
 import {
   journeyDestination,
-  placeLandingRoute,
+  placeChoiceRoute,
   type JourneyDestination,
   nationOfLsoa,
   isNotCoveredNation,
@@ -51,19 +51,21 @@ import { createDbResolveRecordStore, isResolveToken } from "./resolve-records";
 // (rung 3 without one) — fold-in 2's not-found line depends
 // on the distinction.
 // The bare-place-name route (founder fix batch, 19 Nov
-// 2026): where an input the ladder cannot place exactly
-// names a known place — exact normalised equality with a
-// filed place that serves at least one district — the
-// graceful destination is the landing page carrying the
-// place's filed display name, whose search box files the
-// name and opens on the place's districts, exactly as
-// the in-dropdown place pick behaves. Anything else
-// answers null and the caller takes its ordinary
-// unplaced path. Exact matches only: the fuzzy tier is
-// choices-only (the places read model's own rule) and is
-// never applied silently to a submitted input. A place
-// name is never served the bare failure page.
-export async function placeLandingUrl(
+// 2026; destination ruled again the same day): where an
+// input the ladder cannot place exactly names a known
+// place — exact normalised equality with a filed place
+// that serves at least one district — the graceful
+// destination is the place page carrying the place's
+// filed display name, exactly where the in-dropdown
+// place pick now lands (founder ruling, 19 Nov 2026:
+// places behave like streets — the pick navigates to a
+// page listing the districts). Anything else answers
+// null and the caller takes its ordinary unplaced path.
+// Exact matches only: the fuzzy tier is choices-only
+// (the places read model's own rule) and is never
+// applied silently to a submitted input. A place name
+// is never served the bare failure page.
+export async function placeChoiceUrl(
   raw: string,
   db: PlaceQueryable = getDbPool(),
 ): Promise<string | null> {
@@ -78,16 +80,16 @@ export async function placeLandingUrl(
   const place = await createPlaceSource(db).placeByNorm(norm);
   if (!place || place.districts.length === 0) return null;
   // The route is contracted for the DISPLAY form
-  // (placeLandingRoute's placeDisplay): the read model
+  // (placeChoiceRoute's placeDisplay): the read model
   // files the place in its as-filed casing ("CHELMSFORD"),
   // and every other surface applies displayText at the
   // presentation edge — placeItemOf in
   // lib/server/suggestions.ts, whose filed name the
-  // dropdown puts in the field. Passing the filed form
+  // dropdown names the pick by. Passing the filed form
   // through put "?place=CHELMSFORD" in the URL and the
-  // raw casing in the landing's field (Regression run
+  // raw casing in front of the visitor (Regression run
   // 44535680408 follow-up, 19 Nov 2026).
-  return placeLandingRoute(displayText(place.place));
+  return placeChoiceRoute(displayText(place.place));
 }
 
 export async function resolveTypedInput(raw: string): Promise<{
@@ -104,7 +106,7 @@ export async function resolveTypedInput(raw: string): Promise<{
     // fix batch): the place route above, never the
     // unplaced notice — the input CAN be placed, as a
     // place.
-    const placeUrl = await placeLandingUrl(raw);
+    const placeUrl = await placeChoiceUrl(raw);
     if (placeUrl) {
       return { resolution, destination: { kind: "place", url: placeUrl } };
     }

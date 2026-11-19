@@ -694,6 +694,15 @@
       "state": "string"
     }
   },
+  "sold.unavailable": {
+    "kind": "string",
+    "postcode": "string",
+    "rung": "number",
+    "soldPrices": {
+      "reason": "string",
+      "state": "string"
+    }
+  },
   "crime.served": {
     "crime": {
       "basis": "string",
@@ -8278,6 +8287,258 @@
         "sourceLine": "string",
         "state": "string",
         "stateLine": "null"
+      }
+    }
+  },
+  "short.unavailable": {
+    "kind": "string",
+    "postcode": "string",
+    "rung": "number",
+    "sections": {
+      "air": {
+        "headlineFigure": {
+          "line": "string",
+          "pollutant": "string",
+          "value": "number"
+        },
+        "line": "string",
+        "state": "string"
+      },
+      "broadband": {
+        "gigabitCapablePct": "number",
+        "line": "string",
+        "state": "string"
+      },
+      "constraints": {
+        "article4": {
+          "beyondLine": "null",
+          "insideName": "null",
+          "label": "string",
+          "layer": "string",
+          "line": "string",
+          "nearest": {
+            "miles": "number",
+            "name": "string"
+          },
+          "sourceLine": "string",
+          "state": "string"
+        },
+        "brownfield": {
+          "beyondLine": "null",
+          "countWithin": "number",
+          "line": "string",
+          "nearest": {
+            "dwellingsLine": "string",
+            "hectares": "number",
+            "hectaresLine": "string",
+            "label": "string",
+            "line": "string",
+            "miles": "number",
+            "planningPermissionStatus": "string",
+            "reference": "string",
+            "statusLine": "string"
+          },
+          "sourceLine": "string",
+          "state": "string"
+        },
+        "builtUpArea": {
+          "beyondLine": "null",
+          "insideName": "null",
+          "label": "string",
+          "layer": "string",
+          "line": "string",
+          "nearest": "null",
+          "sourceLine": "string",
+          "state": "string"
+        },
+        "conservationArea": {
+          "beyondLine": "null",
+          "insideName": "string",
+          "label": "string",
+          "layer": "string",
+          "line": "string",
+          "nearest": "null",
+          "sourceLine": "string",
+          "state": "string"
+        },
+        "greenBelt": {
+          "beyondLine": "string",
+          "insideName": "null",
+          "label": "string",
+          "layer": "string",
+          "line": "string",
+          "nearest": "null",
+          "sourceLine": "string",
+          "state": "string"
+        },
+        "state": "string"
+      },
+      "councilTax": {
+        "authority": "string",
+        "bandDAverageLabel": "string",
+        "line": "string",
+        "state": "string",
+        "taxYear": "string"
+      },
+      "crime": {
+        "asb": {
+          "count": "number"
+        },
+        "englandLine": "string",
+        "explainer": "string",
+        "perHeadLine": "string",
+        "sourceLine": "string",
+        "staleLine": "null",
+        "state": "string",
+        "total": "number",
+        "totalLine": "string",
+        "windowLine": "string"
+      },
+      "epc": {
+        "headlineAssessmentLabel": "string",
+        "headlineBand": "string",
+        "line": "null",
+        "state": "string"
+      },
+      "flood": {
+        "layers": [
+          {
+            "basisLine": "string",
+            "coveringDefinition": "null",
+            "coveringDetail": "null",
+            "coveringLabel": "null",
+            "layer": "string",
+            "line": "string",
+            "pointState": "string",
+            "sourceLine": "string",
+            "title": "string"
+          },
+          {
+            "basisLine": "string",
+            "coveringDefinition": "string",
+            "coveringDetail": "string",
+            "coveringLabel": "string",
+            "layer": "string",
+            "line": "string",
+            "pointState": "string",
+            "sourceLine": "string",
+            "title": "string"
+          }
+        ],
+        "liveWarnings": "null",
+        "state": "string"
+      },
+      "heritage": {
+        "atPoint": {
+          "line": "string",
+          "place": {
+            "grade": "string",
+            "listEntryId": "string",
+            "miles": "number",
+            "name": "string"
+          },
+          "state": "string"
+        },
+        "listed": {
+          "beyondLine": "null",
+          "countWithin": "number",
+          "line": "string",
+          "nearest": {
+            "grade": "string",
+            "listEntryId": "string",
+            "miles": "number",
+            "name": "string"
+          },
+          "state": "string"
+        },
+        "sourceLine": "string",
+        "state": "string"
+      },
+      "nature": {
+        "ancientWoodland": {
+          "beyondLine": "null",
+          "insideName": "string",
+          "label": "string",
+          "layer": "string",
+          "line": "string",
+          "nearest": "null",
+          "sourceLine": "string",
+          "state": "string"
+        },
+        "beyondLine": "null",
+        "coverageLine": "null",
+        "designationsLine": "null",
+        "nearestPlace": {
+          "designations": [
+            {
+              "inside": "boolean",
+              "miles": "number",
+              "name": "string",
+              "partOf": "boolean",
+              "type": "string",
+              "typeLabel": "string"
+            }
+          ],
+          "inside": "boolean",
+          "line": "string",
+          "miles": "number",
+          "name": "string"
+        },
+        "placesLine": "string",
+        "placesWithinCount": "number",
+        "priorityHabitat": {
+          "line": "string",
+          "nearest": {
+            "habitat": "string",
+            "miles": "number"
+          },
+          "sourceDate": "string",
+          "sourceLine": "string",
+          "sourceName": "string",
+          "state": "string",
+          "typesWithin": [
+            "string"
+          ]
+        },
+        "sourceLine": "string",
+        "state": "string"
+      },
+      "nearby": {
+        "basisLabel": "string",
+        "categories": [
+          {
+            "category": "string",
+            "countWithin": "number",
+            "label": "string",
+            "line": "null",
+            "nearest": {
+              "miles": "number",
+              "name": "string"
+            },
+            "state": "string"
+          }
+        ]
+      },
+      "noise": {
+        "headlineBand": {
+          "dayBand": "string",
+          "sourceKind": "string"
+        },
+        "line": "string",
+        "state": "string"
+      },
+      "planningApplications": {
+        "council": "string",
+        "line": "string",
+        "link": {
+          "label": "string",
+          "url": "string"
+        },
+        "state": "string"
+      },
+      "soldPrices": {
+        "reason": "string",
+        "state": "string"
       }
     }
   }

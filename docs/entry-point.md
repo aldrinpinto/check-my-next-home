@@ -1007,3 +1007,88 @@ End-to-end timings on the play server follow at the
 deploy of migration 0035 (the migration's index
 builds run then; the app picks the new places
 predicate up with the same deploy).
+
+## The place page (founder ruling, 19 Nov 2026) — the in-dropdown chooser reversed
+
+The M7.15D place pick built yesterday (18 Nov 2026)
+is reversed by the founder's ruling of 19 Nov 2026:
+the in-dropdown district chooser — the picked row's
+"Districts below ↓" state and the "Districts in
+<Place>" dropdown section under it — is REMOVED, and
+places behave like streets. Picking a place in the
+dropdown now NAVIGATES to a dedicated place page,
+/search?place=<Place>, which lists ALL of the place's
+districts with no cap (the retired reveal listed at
+most five); each district row goes to the wider-area
+search (/search?outward=…) exactly as before. A place
+serving exactly one district goes straight to that
+district's wider-area page, mirroring the street
+pick's one-postcode rule — from the dropdown item and
+from the place page's own route alike. A typed bare
+place name submitted through Check this home takes
+the same road.
+
+The page is the street-choice page's seam and dress,
+mirrored: components/PlaceChoice.tsx beside
+StreetChoice, a route branch in app/search/page.tsx
+beside the street branch, the filed place display as
+the heading, the explanatory line ("This place covers
+more than one postcode district — pick yours to see
+the wider area.") and the district count under it,
+and picker rows of "<OUTWARD> — <Place>". A place the
+source does not know falls back to the unplaced
+notice, as an unknown street does.
+
+What changed where:
+
+- lib/journey.ts: placeChoiceRoute / PLACE_CHOICE_PARAM
+  replace placeLandingRoute / PLACE_LANDING_PARAM;
+  PLACE_CHOICE_LINE and placeChoiceCountLine join the
+  copy constants.
+- lib/server/suggestions.ts: the place item's href is
+  the place page (or the single district's wider-area
+  route); the "Districts in <Place>" expansion, its
+  group label and districtItemOf are gone; the served
+  log keeps its districts field at 0 for shape
+  stability. The source's placeDistricts read remains
+  (the place page itself reads placeByNorm).
+- lib/server/serve.ts: placeLandingUrl is renamed
+  placeChoiceUrl and returns the place-page route.
+- components/PostcodeBox.tsx: the whole reveal
+  machinery is removed (the picked-place state, the
+  post-response marking, the scroll-into-view tick);
+  choose() is href-only again, and the submit path's
+  exact-place branch assigns the place-page route.
+- components/kit.tsx + app/globals.css: the picked
+  row's --picked state (and its CSS, including the
+  "Districts below ↓" ::after) is removed. The row's
+  aria-label={item.label} pin STAYS, with its comment
+  rewritten: the accessible name is the label alone,
+  never CSS content (the Regression 44535680408
+  lesson).
+- components/LandingSearchBox.tsx: the retired
+  place-landing parameter handling goes with it; the
+  hero box is the bare entry box again.
+
+Specs: tests/place-landing.test.ts is replaced by
+tests/place-choice.test.ts (same fixture world, the
+route expectation now /search?place=…);
+tests/place-suggestions.test.ts is rewritten (groups
+end at Places; a place item points at its page; a
+one-district place points at its district);
+tests/look-feel-kit.test.ts's picked-row pins are
+replaced by the row-name discipline (no --picked
+class exists; aria-selected follows the active row
+only). In e2e/suggest.e2e.ts the five M7.15D place
+specs are replaced by six asserting the page
+behaviour — the pick lands on the place page, the
+page lists the place's districts (Chelmsford's CM1
+and CM3, and NOT CM2, which the place does not
+serve), a district row reaches the wider area, a
+part-typed pick and a Check-this-home submit take
+the same road, a direct /search?place= arrival
+renders the page, and a bare name sent to /search
+lands on the page rather than the failure page. No
+spec was deleted without its named replacement. The
+Final Sample Master's view 29 is conformed to the
+place page by the parent alongside this build.

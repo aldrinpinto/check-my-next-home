@@ -12,9 +12,12 @@ import {
 import {
   MEDIAN_EXPLAINER,
   NO_SALE_RECORDED_LINE,
+  SOLD_PRICES_LOAD_WAIT_MS,
+  STILL_GATHERING_REASON,
   SoldPricesLoadPendingError,
   buildSoldPricesBundle,
   createSoldPricesSource,
+  soldPricesLoadWaitMsFromEnv,
   type SoldPriceRow,
   type SoldPricesBundle,
   type SoldPricesDataSource,
@@ -238,6 +241,10 @@ class FakeSoldPricesSource implements SoldPricesDataSource {
   filed = new Map<string, SoldPriceRow[]>();
   stamps = new Map<string, string>();
   events: string[] = [];
+  // Part A (19 Nov 2026): when set, the load fails with
+  // this error — the still-running signal
+  // (SoldPricesLoadPendingError) or a plain failure.
+  loadFailure: Error | null = null;
 
   constructor(rows: SoldPriceRow[]) {
     for (const row of rows) {
@@ -259,6 +266,7 @@ class FakeSoldPricesSource implements SoldPricesDataSource {
 
   async loadPostcode(postcode: string) {
     this.events.push(`load:${postcode}`);
+    if (this.loadFailure) throw this.loadFailure;
     this.filed.set(postcode, this.registry.get(postcode) ?? []);
     this.stamps.set(postcode, FIXTURE_EDITION);
   }
@@ -328,7 +336,7 @@ describe("sold prices — 19 Birkdale Rise, CM3 2JT", () => {
   it("loads a cold postcode through the loader path, then serves the locked figures", async () => {
     const source = new FakeSoldPricesSource(REGISTRY_ROWS);
     const bundle = await bundleFor("19 Birkdale Rise, CM3 2JT", source);
-    if (bundle.kind !== "sold-prices" || bundle.rung !== 1)
+    if (bundle.kind !== "sold-prices" || bundle.rung !== 1 || "soldPrices" in bundle)
       throw new Error(`expected a rung-1 sold-prices bundle, got ${bundle.kind}`);
     // The check loaded the postcode first — exactly once — and
     // the first read (which found nothing) was followed by the
@@ -394,7 +402,8 @@ describe("sold prices — 19 Birkdale Rise, CM3 2JT", () => {
     const source = new FakeSoldPricesSource(REGISTRY_ROWS);
     source.prefile("CM3 2JT");
     const bundle = await bundleFor("19 Birkdale Rise, CM3 2JT", source);
-    if (bundle.kind !== "sold-prices") throw new Error("expected sold-prices");
+    if (bundle.kind !== "sold-prices" || "soldPrices" in bundle)
+      throw new Error("expected sold-prices");
     expect(source.loadCalls()).toEqual([]);
     expect(bundle.loadState).toBe("found");
     expect(bundle.median.value).toBe(588995);
@@ -405,7 +414,7 @@ describe("sold prices — 6 Exeter Road, E16 1GN", () => {
   it("serves the home's only sale exactly as filed — flat-type, leasehold, new-build", async () => {
     const source = new FakeSoldPricesSource(REGISTRY_ROWS);
     const bundle = await bundleFor("6 Exeter Road, E16 1GN", source);
-    if (bundle.kind !== "sold-prices" || bundle.rung !== 1)
+    if (bundle.kind !== "sold-prices" || bundle.rung !== 1 || "soldPrices" in bundle)
       throw new Error("expected a rung-1 sold-prices bundle");
     // The golden home is a house; its only filed sale row is
     // type F. The answer serves the row as filed, never
@@ -426,7 +435,8 @@ describe("sold prices — 6 Exeter Road, E16 1GN", () => {
   it("serves the locked postcode median over all 9 sales, and the whole set as the recent list", async () => {
     const source = new FakeSoldPricesSource(REGISTRY_ROWS);
     const bundle = await bundleFor("6 Exeter Road, E16 1GN", source);
-    if (bundle.kind !== "sold-prices") throw new Error("expected sold-prices");
+    if (bundle.kind !== "sold-prices" || "soldPrices" in bundle)
+      throw new Error("expected sold-prices");
     expect(bundle.median.state).toBe("served");
     expect(bundle.median.value).toBe(310000);
     expect(bundle.median.counted).toBe(9);
@@ -448,7 +458,7 @@ describe("sold prices — 6 Exeter Road, E16 1GN", () => {
   it("shows both of No 10's recorded sales in its own history, newest first", async () => {
     const source = new FakeSoldPricesSource(REGISTRY_ROWS);
     const bundle = await bundleFor("10 Exeter Road, E16 1GN", source);
-    if (bundle.kind !== "sold-prices" || bundle.rung !== 1)
+    if (bundle.kind !== "sold-prices" || bundle.rung !== 1 || "soldPrices" in bundle)
       throw new Error("expected a rung-1 sold-prices bundle");
     expect(bundle.ownHistory.map((s) => [s.date, s.price])).toEqual([
       ["2023-02-24", 410000],
@@ -461,7 +471,7 @@ describe("sold prices — Flat 4, Minerva House, KT17 1FH", () => {
   it("keeps the three Flat 4s apart by the PAON + SAON pair, in both directions", async () => {
     const source = new FakeSoldPricesSource(REGISTRY_ROWS);
     const minerva = await bundleFor("Flat 4, Minerva House, KT17 1FH", source);
-    if (minerva.kind !== "sold-prices" || minerva.rung !== 1)
+    if (minerva.kind !== "sold-prices" || minerva.rung !== 1 || "soldPrices" in minerva)
       throw new Error("expected a rung-1 sold-prices bundle");
     expect(minerva.ownHistory).toEqual([
       {
@@ -474,7 +484,7 @@ describe("sold prices — Flat 4, Minerva House, KT17 1FH", () => {
       },
     ]);
     const jupiter = await bundleFor("Flat 4, Jupiter House, KT17 1FH", source);
-    if (jupiter.kind !== "sold-prices" || jupiter.rung !== 1)
+    if (jupiter.kind !== "sold-prices" || jupiter.rung !== 1 || "soldPrices" in jupiter)
       throw new Error("expected a rung-1 sold-prices bundle");
     expect(jupiter.ownHistory.map((s) => [s.date, s.price])).toEqual([["2019-09-10", 341000]]);
   });
@@ -482,7 +492,7 @@ describe("sold prices — Flat 4, Minerva House, KT17 1FH", () => {
   it("adds the building line for a flat — the building's own category-A sales", async () => {
     const source = new FakeSoldPricesSource(REGISTRY_ROWS);
     const bundle = await bundleFor("Flat 4, Minerva House, KT17 1FH", source);
-    if (bundle.kind !== "sold-prices" || bundle.rung !== 1)
+    if (bundle.kind !== "sold-prices" || bundle.rung !== 1 || "soldPrices" in bundle)
       throw new Error("expected a rung-1 sold-prices bundle");
     // The repo fixture files only the Flat 4 rows, so the
     // building's filed set here is the one Minerva sale; the
@@ -511,7 +521,7 @@ describe("sold prices — ladder rungs (M6.3)", () => {
   it("serves postcode figures at rung 2 with NO own-history payload, by construction", async () => {
     const source = new FakeSoldPricesSource(REGISTRY_ROWS);
     const bundle = await bundleFor("Birkdale Rise, CM3 2JT", source);
-    if (bundle.kind !== "sold-prices" || bundle.rung !== 2)
+    if (bundle.kind !== "sold-prices" || bundle.rung !== 2 || "soldPrices" in bundle)
       throw new Error("expected a rung-2 sold-prices bundle");
     expect(bundle.median.value).toBe(588995);
     expect(bundle.recentSales).toHaveLength(10);
@@ -522,7 +532,7 @@ describe("sold prices — ladder rungs (M6.3)", () => {
   it("serves the building's sales at rung 2 when the list is narrowed to a building — still no own history", async () => {
     const source = new FakeSoldPricesSource(REGISTRY_ROWS);
     const bundle = await bundleFor("Minerva House, KT17 1FH", source);
-    if (bundle.kind !== "sold-prices" || bundle.rung !== 2)
+    if (bundle.kind !== "sold-prices" || bundle.rung !== 2 || "soldPrices" in bundle)
       throw new Error("expected a rung-2 sold-prices bundle");
     expect(bundle.building?.building).toBe("Minerva House");
     expect(bundle.building?.sales.map((s) => s.price)).toEqual([420000]);
@@ -567,7 +577,8 @@ describe("sold prices — the three loaded states", () => {
     // synthetic stand-in for a genuinely empty postcode; its
     // real count is fixed at first load in the rehearsal.
     const bundle = await buildSoldPricesBundle(rung2Resolution("E16 1EG"), source);
-    if (bundle.kind !== "sold-prices") throw new Error("expected sold-prices");
+    if (bundle.kind !== "sold-prices" || "soldPrices" in bundle)
+      throw new Error("expected sold-prices");
     expect(source.loadCalls()).toEqual(["E16 1EG"]);
     expect(bundle.loadState).toBe("loaded-none");
     expect(bundle.recordedCount).toBe(0);
@@ -630,7 +641,8 @@ describe("sold prices — the three loaded states", () => {
       databaseUrl: "postgresql://stub.invalid/db",
     });
     const bundle = await buildSoldPricesBundle(rung2Resolution("ZZ9 9ZZ"), source);
-    if (bundle.kind !== "sold-prices") throw new Error("expected sold-prices");
+    if (bundle.kind !== "sold-prices" || "soldPrices" in bundle)
+      throw new Error("expected sold-prices");
     expect(JSON.parse(readFileSync(argvFile, "utf8"))).toEqual(["--", "ZZ9 9ZZ"]);
     expect(bundle.loadState).toBe("loaded-none");
     expect(bundle.edition).toBe(FIXTURE_EDITION);
@@ -692,7 +704,8 @@ describe("sold prices — small samples and the category rules (synthetic rows)"
     ];
     const source = new FakeSoldPricesSource(rows);
     const bundle = await buildSoldPricesBundle(rung2Resolution("XX1 1XX"), source);
-    if (bundle.kind !== "sold-prices") throw new Error("expected sold-prices");
+    if (bundle.kind !== "sold-prices" || "soldPrices" in bundle)
+      throw new Error("expected sold-prices");
     expect(bundle.recordedCount).toBe(4);
     expect(bundle.median.state).toBe("too-few");
     expect(bundle.median.value).toBeNull();
@@ -711,7 +724,8 @@ describe("sold prices — small samples and the category rules (synthetic rows)"
     );
     const source = new FakeSoldPricesSource(rows);
     const bundle = await buildSoldPricesBundle(rung2Resolution("XX1 1XX"), source);
-    if (bundle.kind !== "sold-prices") throw new Error("expected sold-prices");
+    if (bundle.kind !== "sold-prices" || "soldPrices" in bundle)
+      throw new Error("expected sold-prices");
     expect(bundle.median.state).toBe("served");
     expect(bundle.median.value).toBe(275000);
     expect(bundle.median.counted).toBe(6);
@@ -751,7 +765,7 @@ describe("sold prices — small samples and the category rules (synthetic rows)"
       },
     };
     const bundle = await buildSoldPricesBundle(resolution, source);
-    if (bundle.kind !== "sold-prices" || bundle.rung !== 1)
+    if (bundle.kind !== "sold-prices" || bundle.rung !== 1 || "soldPrices" in bundle)
       throw new Error("expected a rung-1 sold-prices bundle");
     // Both of the home's sales — the category-B one included —
     // newest first, and the category appears nowhere in the
@@ -763,6 +777,77 @@ describe("sold prices — small samples and the category rules (synthetic rows)"
     const serialised = JSON.stringify(bundle);
     expect(serialised).not.toContain("category");
     expect(serialised.toLowerCase()).not.toContain("additional entry");
+  });
+});
+
+describe("sold prices — the cold-load degrade (Part A of the cold-check fix, 19 Nov 2026)", () => {
+  // The founder-found defect: a first check on an unfiled
+  // postcode failed WHOLE because the cold load's
+  // rejection escaped the brain into the check assembly
+  // (serve.ts's Promise.all). On the founder's
+  // authorisation the brain now catches load-pending and
+  // load-failure into the rung-1/2 unavailable variant —
+  // no figures, no faked loaded-none — and the filed
+  // answer serves on the next check once the load lands.
+  it("a load still running answers the unavailable variant at rung 1 — never a rejection", async () => {
+    const source = new FakeSoldPricesSource(REGISTRY_ROWS);
+    source.loadFailure = new SoldPricesLoadPendingError("CM3 2JT", 0);
+    const bundle = await bundleFor("19 Birkdale Rise, CM3 2JT", source);
+    expect(bundle).toEqual({
+      rung: 1,
+      kind: "sold-prices",
+      postcode: "CM3 2JT",
+      soldPrices: { state: "unavailable", reason: STILL_GATHERING_REASON },
+    });
+  });
+
+  it("a failed load answers the same variant at rung 2", async () => {
+    const source = new FakeSoldPricesSource([]);
+    source.loadFailure = new Error("the loader died");
+    const bundle = await buildSoldPricesBundle(rung2Resolution("ZZ1 1AA"), source);
+    expect(bundle).toEqual({
+      rung: 2,
+      kind: "sold-prices",
+      postcode: "ZZ1 1AA",
+      soldPrices: { state: "unavailable", reason: STILL_GATHERING_REASON },
+    });
+  });
+
+  it("a failed read answers the variant too — no rejection escapes the brain", async () => {
+    const source: SoldPricesDataSource = {
+      async salesInPostcode() {
+        throw new Error("the read failed");
+      },
+      async loadEdition() {
+        return null;
+      },
+      async loadPostcode() {},
+    };
+    const bundle = await buildSoldPricesBundle(rung2Resolution("ZZ1 1AA"), source);
+    expect(bundle).toEqual({
+      rung: 2,
+      kind: "sold-prices",
+      postcode: "ZZ1 1AA",
+      soldPrices: { state: "unavailable", reason: STILL_GATHERING_REASON },
+    });
+  });
+
+  it("the variant is not sticky: once the load lands, the next check serves the filed answer", async () => {
+    const source = new FakeSoldPricesSource(REGISTRY_ROWS);
+    source.loadFailure = new SoldPricesLoadPendingError("CM3 2JT", 0);
+    const first = await bundleFor("19 Birkdale Rise, CM3 2JT", source);
+    expect(first).toMatchObject({ soldPrices: { state: "unavailable" } });
+    source.loadFailure = null;
+    const second = await bundleFor("19 Birkdale Rise, CM3 2JT", source);
+    if (second.kind !== "sold-prices" || "soldPrices" in second)
+      throw new Error("expected the figures form once the load lands");
+    expect(second.loadState).toBe("found");
+    expect(second.recordedCount).toBe(30);
+  });
+
+  it("the reason names no figure and is not the loaded-none sentence", () => {
+    expect(STILL_GATHERING_REASON).not.toContain("£");
+    expect(STILL_GATHERING_REASON).not.toBe(NO_SALE_RECORDED_LINE);
   });
 });
 
@@ -831,12 +916,20 @@ describe("sold prices — the cold load is bounded (the area-part hang fix, 19 N
       loadWaitMs: 200,
     });
 
-    // The first check of the cold postcode is told the load
-    // is still running — promptly, not after the stream.
+    // The first check of the cold postcode answers the
+    // unavailable variant — promptly, not after the
+    // stream. (Part A, 19 Nov 2026: the source's
+    // still-running signal is caught by the brain; the
+    // source-level rejection itself is pinned by the
+    // next test.)
     const startedAt = Date.now();
-    await expect(buildSoldPricesBundle(rung2Resolution("ZZ1 1AA"), source)).rejects.toBeInstanceOf(
-      SoldPricesLoadPendingError,
-    );
+    const firstBundle = await buildSoldPricesBundle(rung2Resolution("ZZ1 1AA"), source);
+    expect(firstBundle).toEqual({
+      rung: 2,
+      kind: "sold-prices",
+      postcode: "ZZ1 1AA",
+      soldPrices: { state: "unavailable", reason: STILL_GATHERING_REASON },
+    });
     expect(Date.now() - startedAt).toBeLessThan(1200);
 
     // The load itself was NOT cancelled: it files behind
@@ -849,10 +942,26 @@ describe("sold prices — the cold load is bounded (the area-part hang fix, 19 N
     // The next check serves from the stamp — the honest
     // loaded-none state — without spawning the loader again.
     const bundle = await buildSoldPricesBundle(rung2Resolution("ZZ1 1AA"), source);
-    if (bundle.kind !== "sold-prices") throw new Error("expected sold-prices");
+    if (bundle.kind !== "sold-prices" || "soldPrices" in bundle)
+      throw new Error("expected sold-prices");
     expect(bundle.loadState).toBe("loaded-none");
     expect(bundle.edition).toBe(FIXTURE_EDITION);
     expect(readFileSync(countFile, "utf8")).toBe("x");
+  }, 20_000);
+
+  it("the source still tells a direct caller the load is still running — the brain, not the source, does the catching", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "m715-source-signal-"));
+    const countFile = join(dir, "count.txt");
+    process.env.STUB_COUNT_PATH = countFile;
+    writeFileSync(countFile, "");
+    const stub = stubLoader(dir, 1500);
+    const { db } = stampDb();
+    const source = createSoldPricesSource(db, {
+      loaderPath: stub,
+      databaseUrl: "postgresql://stub.invalid/db",
+      loadWaitMs: 200,
+    });
+    await expect(source.loadPostcode("ZZ1 1AD")).rejects.toBeInstanceOf(SoldPricesLoadPendingError);
   }, 20_000);
 
   it("runs one stream per postcode however many callers arrive together", async () => {
@@ -878,6 +987,81 @@ describe("sold prices — the cold load is bounded (the area-part hang fix, 19 N
     await Promise.all([first.loadPostcode("ZZ1 1AB"), second.loadPostcode("ZZ1 1AB")]);
     expect(readFileSync(countFile, "utf8")).toBe("x");
     expect(JSON.parse(readStamp() ?? "{}").edition).toBe(FIXTURE_EDITION);
+  }, 20_000);
+});
+
+describe("sold prices — the test-rig seams (cold-check fix stack, 19 Nov 2026)", () => {
+  // Two server-config seams the E2E harness stands on:
+  // the wait override (its forced-pending instance runs
+  // at 0, so a cold load is always still running when
+  // the caller is told) and the loader's file directory
+  // (its cold loads read the small fixture file and land
+  // fast, instead of downloading the live 5.54 GB file).
+  // Both are inert unless configured — these pins hold
+  // the parsing and the loader's argument shape.
+  it("the wait override parses: unset, junk and negative leave the pinned wait standing", () => {
+    expect(soldPricesLoadWaitMsFromEnv({})).toBe(SOLD_PRICES_LOAD_WAIT_MS);
+    expect(soldPricesLoadWaitMsFromEnv({ SOLD_PRICES_LOAD_WAIT_MS: "0" })).toBe(0);
+    expect(soldPricesLoadWaitMsFromEnv({ SOLD_PRICES_LOAD_WAIT_MS: "250" })).toBe(250);
+    expect(soldPricesLoadWaitMsFromEnv({ SOLD_PRICES_LOAD_WAIT_MS: "soon" })).toBe(
+      SOLD_PRICES_LOAD_WAIT_MS,
+    );
+    expect(soldPricesLoadWaitMsFromEnv({ SOLD_PRICES_LOAD_WAIT_MS: "-5" })).toBe(
+      SOLD_PRICES_LOAD_WAIT_MS,
+    );
+  });
+
+  function argvStubLoader(dir: string) {
+    const stub = join(dir, "load-sold-prices.mjs");
+    writeFileSync(
+      stub,
+      [
+        'import { writeFileSync } from "node:fs";',
+        'writeFileSync(process.env.STUB_ARGV_PATH ?? "", JSON.stringify(process.argv.slice(2)));',
+        'console.log("load-sold-prices · edition 2026-10-28 · 0 sales · golden homes OK · 0s");',
+        "",
+      ].join("\n"),
+    );
+    return stub;
+  }
+
+  function stampDb() {
+    const db = {
+      async query(text: string, params?: unknown[]) {
+        if (text.includes("UPDATE postcode_cache"))
+          return { rows: [{ postcode: params?.[0] as string }] };
+        throw new Error(`unexpected query: ${text}`);
+      },
+    };
+    return db;
+  }
+
+  it("a configured file directory rides the loader's argv before the separator; unconfigured, the argv is unchanged", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "m715-file-dir-"));
+    const argvFile = join(dir, "argv.json");
+    process.env.STUB_ARGV_PATH = argvFile;
+    const stub = argvStubLoader(dir);
+    const db = stampDb();
+
+    const withDir = createSoldPricesSource(db, {
+      loaderPath: stub,
+      databaseUrl: "postgresql://stub.invalid/db",
+      fileDir: "tests/fixtures/land-registry",
+    });
+    await withDir.loadPostcode("ZZ1 1AA");
+    expect(JSON.parse(readFileSync(argvFile, "utf8"))).toEqual([
+      "--file",
+      "tests/fixtures/land-registry",
+      "--",
+      "ZZ1 1AA",
+    ]);
+
+    const without = createSoldPricesSource(db, {
+      loaderPath: stub,
+      databaseUrl: "postgresql://stub.invalid/db",
+    });
+    await without.loadPostcode("ZZ1 1AA");
+    expect(JSON.parse(readFileSync(argvFile, "utf8"))).toEqual(["--", "ZZ1 1AA"]);
   }, 20_000);
 });
 

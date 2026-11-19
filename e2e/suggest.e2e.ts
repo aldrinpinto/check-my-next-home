@@ -21,9 +21,10 @@ import { expect, test } from "./fixtures";
 //     group offers the street", the Bugdale fuzzy-choice
 //     spec, "the Properties group names the street's
 //     homes") and the place legs ("typing the town offers
-//     the place and its districts", "picking the place
-//     from a part-typed name", the misspelt-town spec);
-//     the full-address leg is in e2e/journey.e2e.ts.
+//     the place alone; picking it lands on the place
+//     page", "picking the place from a part-typed name",
+//     the misspelt-town spec); the full-address leg is in
+//     e2e/journey.e2e.ts.
 //   T-WEB-07, in part — "E16: a partial postcode in a
 //     two-digit district suggests its postcodes" is the
 //     dropdown leg; the journey leg (the outward landing
@@ -31,11 +32,13 @@ import { expect, test } from "./fixtures";
 //   No T-WEB row: the full-postcode dropdown specs (the
 //     complete home list, the below-the-fold pick) —
 //     D71/D72 entry-point scope.
-//   No T-WEB row: the founder fix batch specs (19 Nov
-//     2026) — the picked place's selected state in the
-//     place-pick spec, the place-name submit spec, and
-//     the two place-arrival specs (the landing's place
-//     route and the /search bare-name route).
+//   No T-WEB row: the place-page specs (founder ruling,
+//     19 Nov 2026, reversing the 18 Nov in-dropdown
+//     chooser and replacing the same morning's fix-batch
+//     specs) — the place pick's navigation, the place-name
+//     submit spec, and the two place-arrival specs (the
+//     place page's own URL and the /search bare-name
+//     route).
 
 test.describe("suggestions dropdown — regression", () => {
   test(
@@ -255,12 +258,19 @@ test.describe("suggestions dropdown — regression", () => {
     },
   );
 
-  // M7.15D — place search (18 Nov 2026). The seeded
-  // corpus files Chelmsford in two districts (the EPC
-  // fixture's CM1 6ER and the sales fixture's CM3 2JT),
-  // so the offered districts are CM1 and CM3 — the
-  // seeded world holds no CM2 Chelmsford row, and the
-  // panel must not invent one.
+  // M7.15D — place search (18 Nov 2026); the pick's
+  // behaviour ruled again 19 Nov 2026 (the place page,
+  // reversing the in-dropdown chooser these specs
+  // originally pinned — the founder, live-testing
+  // Liverpool, found the reveal confusing and unlike
+  // streets: picking a place now goes straight to a
+  // dedicated page listing ALL its districts, as a
+  // street spanning postcodes goes to the street choice
+  // page). The seeded corpus files Chelmsford in two
+  // districts (the EPC fixture's CM1 6ER and the sales
+  // fixture's CM3 2JT), so the place page lists CM1 and
+  // CM3 — the seeded world holds no CM2 Chelmsford row,
+  // and the page must not invent one.
   //
   // The field is reached by its label, "Postcode or
   // address" — the bare box's visually-hidden label and
@@ -273,58 +283,62 @@ test.describe("suggestions dropdown — regression", () => {
   // #postcode. The label genuinely differs from the
   // placeholder; the specs locate by the label.
   test(
-    "typing the town offers the place and its districts; a district lands on the wider-area page",
+    "typing the town offers the place alone; picking it lands on the place page, whose districts land on the wider-area page",
     { tag: "@regression" },
     async ({ page }) => {
       await page.goto("/");
       const input = page.getByLabel("Postcode or address");
       await input.fill("Chelmsford");
       await page.waitForTimeout(400);
+      // The panel holds the place and nothing beneath
+      // it — no districts group rides the dropdown any
+      // more, typed in full or not.
       const groups = await page.locator(".suggest__group-label").allTextContents();
-      expect(groups).toEqual(["Places", "Districts in Chelmsford"]);
+      expect(groups).toEqual(["Places"]);
       await expect(page.getByRole("option", { name: "Chelmsford", exact: true })).toBeVisible();
-      await expect(page.getByRole("option", { name: "CM1 — Chelmsford" })).toBeVisible();
-      await expect(page.getByRole("option", { name: "CM2 — Chelmsford" })).toHaveCount(0);
-      await page.getByRole("option", { name: "CM3 — Chelmsford" }).click();
+      await expect(page.getByRole("option", { name: "CM1 — Chelmsford" })).toHaveCount(0);
+      await page.getByRole("option", { name: "Chelmsford", exact: true }).click();
+      // The place page: the place as the heading, every
+      // district the seeded world holds as a row — and
+      // no CM2, which it does not hold.
+      await page.waitForURL("**/search?place=Chelmsford");
+      await expect(page.getByRole("heading", { name: "Chelmsford" })).toHaveText("Chelmsford");
+      await expect(page.getByRole("link", { name: "CM1 — Chelmsford" })).toBeVisible();
+      await expect(page.getByRole("link", { name: "CM3 — Chelmsford" })).toBeVisible();
+      await expect(page.getByRole("link", { name: "CM2 — Chelmsford" })).toHaveCount(0);
+      await page.getByRole("link", { name: "CM3 — Chelmsford" }).click();
       await page.waitForURL("**/search?outward=CM3");
+      // Held reveal (the wider-area checking screen,
+      // 19 Nov 2026): the heading arrives with the results.
       await expect(page.getByRole("heading", { name: "Wider area — CM3" })).toHaveText(
         "Wider area — CM3",
+        { timeout: 30_000 },
       );
     },
   );
 
   test(
-    "picking the place from a part-typed name files the name and expands its districts in place",
+    "picking the place from a part-typed name lands on the place page",
     { tag: "@regression" },
     async ({ page }) => {
       await page.goto("/");
       const input = page.getByLabel("Postcode or address");
       await input.fill("Chelms");
       await page.waitForTimeout(400);
-      // The place is offered; its districts are not —
-      // expansion waits for the full name.
+      // The place is offered from the part-word; the
+      // panel carries no districts at any point.
       await expect(page.getByRole("option", { name: "Chelmsford", exact: true })).toBeVisible();
       expect(await page.locator(".suggest__group-label").allTextContents()).toEqual(["Places"]);
       await page.getByRole("option", { name: "Chelmsford", exact: true }).click();
-      // The pick files the filed name into the field —
-      // no navigation — and the districts expand in the
-      // same panel.
-      await expect(input).toHaveValue("Chelmsford");
-      await expect(page.getByRole("option", { name: "CM1 — Chelmsford" })).toBeVisible();
-      const groups = await page.locator(".suggest__group-label").allTextContents();
-      expect(groups).toEqual(["Places", "Districts in Chelmsford"]);
-      // The pick visibly lands (founder fix batch,
-      // 19 Nov 2026): the picked place's row carries the
-      // selected state while its districts sit revealed
-      // beneath it — before this, the pick changed
-      // nothing on screen and read as a dead click.
-      const picked = page.getByRole("option", { name: "Chelmsford", exact: true });
-      await expect(picked).toHaveClass(/suggest__item--picked/);
-      await expect(picked).toHaveAttribute("aria-selected", "true");
-      await page.getByRole("option", { name: "CM1 — Chelmsford" }).click();
+      await page.waitForURL("**/search?place=Chelmsford");
+      await expect(page.getByRole("heading", { name: "Chelmsford" })).toHaveText("Chelmsford");
+      await page.getByRole("link", { name: "CM1 — Chelmsford" }).click();
       await page.waitForURL("**/search?outward=CM1");
+      // Held reveal (the wider-area checking screen,
+      // 19 Nov 2026): the heading arrives with the results.
       await expect(page.getByRole("heading", { name: "Wider area — CM1" })).toHaveText(
         "Wider area — CM1",
+        { timeout: 30_000 },
       );
     },
   );
@@ -342,14 +356,15 @@ test.describe("suggestions dropdown — regression", () => {
     },
   );
 
-  // Founder fix batch (19 Nov 2026): a place name in the
-  // field is the place pick wherever the name arrives
-  // from — typed in full and submitted, carried in the
-  // landing's URL, or sent to /search as a bare name.
-  // The founder's twice-reported failure-page landing
-  // from a place name is the regression these pin.
+  // A place name in the field is the place pick wherever
+  // the name arrives from — typed in full and submitted,
+  // the place page's own URL, or a bare name sent to
+  // /search. The founder's twice-reported failure-page
+  // landing from a place name is the regression these
+  // pin (founder fix batch, 19 Nov 2026; the destination
+  // is the place page since the same day's later ruling).
   test(
-    "pressing Check this home with a place name in the field is the place pick — the panel stays, the districts reveal, nothing navigates",
+    "pressing Check this home with a place name in the field goes to the place page",
     { tag: "@regression" },
     async ({ page }) => {
       await page.goto("/");
@@ -357,39 +372,33 @@ test.describe("suggestions dropdown — regression", () => {
       await input.fill("Chelmsford");
       await page.waitForTimeout(400);
       await page.getByRole("button", { name: "Check this home", exact: true }).click();
-      await expect(page).toHaveURL(/\/$/);
-      const picked = page.getByRole("option", { name: "Chelmsford", exact: true });
-      await expect(picked).toHaveClass(/suggest__item--picked/);
-      await expect(picked).toHaveAttribute("aria-selected", "true");
-      const groups = await page.locator(".suggest__group-label").allTextContents();
-      expect(groups).toEqual(["Places", "Districts in Chelmsford"]);
+      await page.waitForURL("**/search?place=Chelmsford");
+      await expect(page.getByRole("heading", { name: "Chelmsford" })).toHaveText("Chelmsford");
+      await expect(page.getByRole("link", { name: "CM1 — Chelmsford" })).toBeVisible();
+      await expect(page.getByRole("link", { name: "CM3 — Chelmsford" })).toBeVisible();
     },
   );
 
   test(
-    "arriving on the landing with a place in the URL files the name and reveals its districts",
+    "arriving at the place page's URL directly lists the place's districts",
     { tag: "@regression" },
     async ({ page }) => {
-      await page.goto("/?place=Chelmsford");
-      const input = page.getByLabel("Postcode or address");
-      await expect(input).toHaveValue("Chelmsford");
-      const picked = page.getByRole("option", { name: "Chelmsford", exact: true });
-      await expect(picked).toBeVisible();
-      await expect(picked).toHaveClass(/suggest__item--picked/);
-      const groups = await page.locator(".suggest__group-label").allTextContents();
-      expect(groups).toEqual(["Places", "Districts in Chelmsford"]);
+      await page.goto("/search?place=Chelmsford");
+      await expect(page.getByRole("heading", { name: "Chelmsford" })).toHaveText("Chelmsford");
+      await expect(page.getByRole("link", { name: "CM1 — Chelmsford" })).toBeVisible();
+      await expect(page.getByRole("link", { name: "CM3 — Chelmsford" })).toBeVisible();
+      await expect(page.getByRole("link", { name: "CM2 — Chelmsford" })).toHaveCount(0);
     },
   );
 
   test(
-    "a bare place name sent to /search is routed to the landing with the place filed — never the failure page",
+    "a bare place name sent to /search is routed to the place page — never the failure page",
     { tag: "@regression" },
     async ({ page }) => {
       await page.goto("/search?postcode=Chelmsford");
-      await page.waitForURL("**/?place=Chelmsford");
-      const input = page.getByLabel("Postcode or address");
-      await expect(input).toHaveValue("Chelmsford");
-      await expect(page.getByRole("option", { name: "CM3 — Chelmsford" })).toBeVisible();
+      await page.waitForURL("**/search?place=Chelmsford");
+      await expect(page.getByRole("heading", { name: "Chelmsford" })).toHaveText("Chelmsford");
+      await expect(page.getByRole("link", { name: "CM3 — Chelmsford" })).toBeVisible();
     },
   );
 });

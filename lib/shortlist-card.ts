@@ -126,7 +126,15 @@ function rung1Card(input: ShortlistCardInput): ShortlistCard | null {
   const { resolution, nearby, sold, short } = input;
   if (resolution.rung !== 1 || short.kind !== "short-bundle" || !nearby || !sold) return null;
 
-  const own = sold.kind === "sold-prices" && sold.rung === 1 ? sold.ownHistory[0] : undefined;
+  // The cold-load degrade variant (Part A, 19 Nov
+  // 2026) is kind "sold-prices" at rung 1 but carries
+  // no ownHistory — the "ownHistory" guard keeps the
+  // card's last sale empty for it instead of reading a
+  // field that is not there.
+  const own =
+    sold.kind === "sold-prices" && sold.rung === 1 && "ownHistory" in sold
+      ? sold.ownHistory[0]
+      : undefined;
   const lastSale = own
     ? {
         price: own.price,

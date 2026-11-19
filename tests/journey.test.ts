@@ -5,7 +5,17 @@ import type { AreaBundle } from "../lib/area-bundle";
 import type { CrimeBundle } from "../lib/crime";
 import type { FloodBundle } from "../lib/flood";
 import {
+  CHECKING_CRIME_AIR_FAILED_LINE,
+  CHECKING_FINAL_LINE,
+  CHECKING_FLOOD_FAILED_LINE,
+  CHECKING_READY_ANNOUNCEMENT,
+  CHECKING_READY_TICKER,
   CHECKING_ROWS,
+  CHECKING_SEAL_CAPTION,
+  CHECKING_START_LINE,
+  CHECKING_STEP_DONE,
+  CHECKING_STEP_RUNNING,
+  CHECKING_WAITING_LINE,
   EMPTY_PICKER_LINE,
   ERROR_PAGE_CLOSING_AFTER,
   ERROR_PAGE_CLOSING_BEFORE,
@@ -23,14 +33,15 @@ import {
   TURNSTILE_BLOCK_LINE,
   UNPLACED_NOTICE_LINE,
   UNPLACED_NOTICE_URL,
-  floodRowResult,
-  historyRowResult,
   STREET_CHOICE_LINE,
+  areaCheckingGroups,
+  assembleCheckingOutcomes,
+  floodCheckingSegments,
   homeRoute,
   journeyDestination,
   narrowedHomeRoute,
   nationOfLsoa,
-  nearbyRowResults,
+  nearbyCheckingGroups,
   notCoveredHeading,
   notCoveredSectionLines,
   pickerCountLine,
@@ -47,11 +58,12 @@ import { verifyTurnstileToken } from "../lib/server/turnstile";
 import type { SoldPricesBundle } from "../lib/sold-prices";
 
 // M7.3 — the journey's own logic: the single routing table
-// (fold-in 1), the pinned copy, the checking-screen row
-// derivations (fold-in 5), the not-covered section lines
-// (ruling 4) and the robot check's closed failure direction
-// (ruling 5). The ladder itself is pinned by its own suite;
-// the resolutions here are fabricated at its shapes.
+// (fold-in 1), the pinned copy, the checking screen's
+// group derivations (the founder-chosen design, 19 Nov
+// 2026), the not-covered section lines (ruling 4) and the
+// robot check's closed failure direction (ruling 5). The
+// ladder itself is pinned by its own suite; the
+// resolutions here are fabricated at its shapes.
 
 const directory = (postcode: string, lsoaCode: string): DirectoryPostcode => ({
   postcode,
@@ -237,9 +249,11 @@ describe("pinned journey copy", () => {
     expect(rowFailureLine("Flood")).toBe(
       "Flood couldn't be checked just now — the rest of the check still opens.",
     );
-    // D73 (fold-in build): the checking screen is five
-    // grouped rows with pinned qualifiers, under the pinned
-    // heading and facts line.
+    // The checking screen (founder-chosen design, 19 Nov
+    // 2026): five groups with pinned labels, sources, doing
+    // lines and ticker sentences, under the pinned heading
+    // and facts line; the live line's fixed sentences, the
+    // seal caption and the step-line words are pinned too.
     expect(CHECKING_ROWS).toHaveLength(5);
     expect(CHECKING_ROWS.map((row) => row.label)).toEqual([
       "Schools & nurseries",
@@ -248,13 +262,41 @@ describe("pinned journey copy", () => {
       "Costs & connections",
       "Past sales & prices",
     ]);
-    expect(CHECKING_ROWS.map((row) => row.qualifier)).toEqual([
-      "Primaries, secondaries, sixth forms and childcare near here.",
-      "GP, dentist, pharmacy, hospital, shops and stations near here.",
-      "Crime, flood risk and air quality around here.",
-      "Council tax, energy, broadband and mobile for this postcode.",
-      "Recorded sale prices, from the Land Registry.",
+    expect(CHECKING_ROWS.map((row) => row.source)).toEqual([
+      "Ofsted",
+      "NHS & local data",
+      "Police.uk · Environment Agency",
+      "Council & providers",
+      "HM Land Registry",
     ]);
+    expect(CHECKING_ROWS.map((row) => row.doing)).toEqual([
+      "Checking Ofsted ratings near this home…",
+      "Finding GP, dentist, pharmacy, shops and stations…",
+      "Counting recorded crime and checking flood maps…",
+      "Looking up council tax, energy, broadband and mobile…",
+      "Pulling recorded sale prices for this postcode…",
+    ]);
+    expect(CHECKING_ROWS.map((row) => row.ticker)).toEqual([
+      "Now checking schools & nurseries near this home…",
+      "Now finding the GP, dentist, pharmacy and station…",
+      "Now checking crime, flood maps and air quality…",
+      "Now looking up council tax, broadband and mobile…",
+      "Now pulling recorded sale prices from the Land Registry…",
+    ]);
+    expect(CHECKING_START_LINE).toBe("Starting your check…");
+    expect(CHECKING_READY_TICKER).toBe("Your check is ready — five areas, every figure sourced.");
+    expect(CHECKING_FINAL_LINE).toBe(
+      "Your check is ready — five areas, every figure sourced, seal stamped.",
+    );
+    expect(CHECKING_READY_ANNOUNCEMENT).toBe("Your check is ready. Five of five checks complete.");
+    expect(CHECKING_SEAL_CAPTION).toBe("Five checks · one seal");
+    expect(CHECKING_STEP_RUNNING).toBe("Checking…");
+    expect(CHECKING_STEP_DONE).toBe("All five areas checked");
+    expect(CHECKING_WAITING_LINE).toBe("Waiting");
+    expect(CHECKING_FLOOD_FAILED_LINE).toBe("Flood couldn't be checked just now");
+    expect(CHECKING_CRIME_AIR_FAILED_LINE).toBe(
+      "Crime and air quality couldn't be checked just now",
+    );
     expect(PICKER_EXPLAINER).toBe(
       "Schools and flood are address-sensitive, so pick your exact house before anything is checked.",
     );
@@ -267,143 +309,568 @@ describe("pinned journey copy", () => {
   });
 });
 
-const category = (name: string, state: string, line: string | null = null) =>
+type CategoryFixture = NearbyBundle extends { categories: (infer C)[] } ? C : never;
+
+const category = (
+  name: string,
+  state: string,
+  line: string | null = null,
+  extra: {
+    countWithin?: number;
+    places?: { name: string; miles: number }[];
+    beyondNearest?: { name: string; miles: number } | null;
+  } = {},
+) =>
   ({
     category: name,
     label: name,
     basisLabel: "basis",
     state,
-    places: [],
-    countWithin: 0,
-    beyondNearest: null,
+    places: extra.places ?? [],
+    countWithin: extra.countWithin ?? 0,
+    beyondNearest: extra.beyondNearest ?? null,
     line,
-  }) as unknown as NearbyBundle extends { categories: (infer C)[] } ? C : never;
+  }) as unknown as CategoryFixture;
 
-describe("nearby row derivation (fold-in 5)", () => {
-  it("completes rows from their own categories; a not-filed category names its row", () => {
-    const bundle = {
-      rung: 1,
-      kind: "distances",
-      postcode: "CM3 2JT",
-      basisLabel: "basis",
-      categories: [
-        category("schools-primary", "within"),
-        category("schools-secondary", "within"),
+const nearbyBundle = (categories: CategoryFixture[]) =>
+  ({
+    rung: 1,
+    kind: "distances",
+    postcode: "CM3 2JT",
+    basisLabel: "basis",
+    categories,
+    schoolDeadlines: null,
+  }) as unknown as NearbyBundle;
+
+describe("checking group derivation — the nearby part (schools & health)", () => {
+  it("composes the schools line from the per-category filed counts, never a summed total", () => {
+    const groups = nearbyCheckingGroups(
+      nearbyBundle([
+        category("schools-primary", "within", null, { countWithin: 3 }),
+        category("schools-secondary", "within", null, { countWithin: 1 }),
         category("sixth-forms", "none-within"),
+        category("nurseries", "within", null, { countWithin: 2 }),
+        category("gp", "within", null, { places: [{ name: "GP", miles: 0.3 }] }),
+        category("dentist", "within", null, { places: [{ name: "Dentist", miles: 0.8 }] }),
+        category("pharmacy", "within", null, { places: [{ name: "Pharmacy", miles: 0.5 }] }),
+      ]),
+    );
+    expect(groups.schools).toEqual({
+      state: "done",
+      line: "Ofsted — Within 2 miles: 3 primary schools · 1 secondary school · 2 nurseries",
+    });
+    expect(groups.health).toEqual({
+      state: "done",
+      line: "NHS & local data — GP, dentist & pharmacy within a mile",
+    });
+  });
+
+  it("serves a not-filed category's own line as its group's named state", () => {
+    const groups = nearbyCheckingGroups(
+      nearbyBundle([
+        category("schools-primary", "within", null, { countWithin: 3 }),
+        category("schools-secondary", "within"),
+        category("sixth-forms", "within"),
         category("nurseries", "not-filed", "Nurseries are not filed for this area yet."),
-        category("gp", "within"),
-        category("dentist", "within"),
-        category("pharmacy", "within"),
-        category("ae", "within"),
-        category("maternity", "within"),
-        category("parks", "within"),
-        category("vets", "within"),
-        category("pet-shops", "within"),
-        category("pet-boarding", "within"),
-        category("supermarket", "within"),
-        category("station", "within"),
-        category("bus-stop", "within"),
-        category("ev-chargers", "within"),
-        category("food-and-drink", "within"),
-        category("leisure", "within"),
-        category("places-to-visit", "within"),
-        category("places-of-worship", "within"),
-        category("libraries", "within"),
-      ],
-      schoolDeadlines: null,
-    } as unknown as NearbyBundle;
-    const rows = nearbyRowResults(bundle);
-    expect(rows.schools).toEqual({ state: "done", line: null });
-    expect(rows.nurseries).toEqual({
+        category("gp", "within", null, { places: [{ name: "GP", miles: 0.3 }] }),
+        category("dentist", "within", null, { places: [{ name: "Dentist", miles: 0.8 }] }),
+        category("pharmacy", "within", null, { places: [{ name: "Pharmacy", miles: 0.5 }] }),
+      ]),
+    );
+    expect(groups.schools).toEqual({
       state: "unavailable",
       line: "Nurseries are not filed for this area yet.",
     });
-    expect(rows.food.state).toBe("done");
+    expect(groups.health.state).toBe("done");
+  });
+
+  it("lets the primary category's served line speak when nothing files within the radius", () => {
+    const groups = nearbyCheckingGroups(
+      nearbyBundle([
+        category(
+          "schools-primary",
+          "none-within",
+          "no primary schools within 2 miles — nearest is St Andrew's, 6.1 miles away",
+        ),
+        category("schools-secondary", "none-within"),
+        category("sixth-forms", "none-within"),
+        category("nurseries", "none-within"),
+        category("gp", "within", null, { places: [{ name: "GP", miles: 0.3 }] }),
+        category("dentist", "within", null, { places: [{ name: "Dentist", miles: 0.8 }] }),
+        category("pharmacy", "within", null, { places: [{ name: "Pharmacy", miles: 0.5 }] }),
+      ]),
+    );
+    expect(groups.schools).toEqual({
+      state: "done",
+      line: "no primary schools within 2 miles — nearest is St Andrew's, 6.1 miles away",
+    });
+  });
+
+  it("spells out the three health distances when they are not all within a mile", () => {
+    const groups = nearbyCheckingGroups(
+      nearbyBundle([
+        category("schools-primary", "within", null, { countWithin: 1 }),
+        category("schools-secondary", "within"),
+        category("sixth-forms", "within"),
+        category("nurseries", "within"),
+        category("gp", "within", null, { places: [{ name: "GP", miles: 0.3 }] }),
+        category("dentist", "within", null, { places: [{ name: "Dentist", miles: 2.4 }] }),
+        category("pharmacy", "within", null, { places: [{ name: "Pharmacy", miles: 1 }] }),
+      ]),
+    );
+    expect(groups.health).toEqual({
+      state: "done",
+      line: "NHS & local data — GP 0.3 miles · dentist 2.4 miles · pharmacy 1 mile",
+    });
+  });
+
+  it("names the health group from a not-filed core service's own line", () => {
+    const groups = nearbyCheckingGroups(
+      nearbyBundle([
+        category("schools-primary", "within", null, { countWithin: 1 }),
+        category("schools-secondary", "within"),
+        category("sixth-forms", "within"),
+        category("nurseries", "within"),
+        category("gp", "not-filed", "GP data is not filed for this area yet."),
+        category("dentist", "within", null, { places: [{ name: "Dentist", miles: 0.8 }] }),
+        category("pharmacy", "within", null, { places: [{ name: "Pharmacy", miles: 0.5 }] }),
+      ]),
+    );
+    expect(groups.health).toEqual({
+      state: "unavailable",
+      line: "GP data is not filed for this area yet.",
+    });
+    expect(groups.schools.state).toBe("done");
+  });
+
+  it("stands both groups on the bundle's reason for a non-distances bundle", () => {
+    const bundle = {
+      rung: 3,
+      kind: "wider-area",
+      postcode: "CM3",
+      distances: { state: "unavailable", reason: "These checks need an exact postcode." },
+    } as unknown as NearbyBundle;
+    const groups = nearbyCheckingGroups(bundle);
+    expect(groups.schools).toEqual({
+      state: "unavailable",
+      line: "These checks need an exact postcode.",
+    });
+    expect(groups.health).toEqual({
+      state: "unavailable",
+      line: "These checks need an exact postcode.",
+    });
   });
 });
 
-describe("flood row derivation", () => {
-  it("carries the not-covered reason, and the live-warnings line when the feed could not answer", () => {
+const floodLayer = (
+  layer: string,
+  pointState: string,
+  coveringLabel: string | null,
+  line: string,
+) => ({
+  layer,
+  title: layer,
+  basisLine: "basis",
+  explainer: "explainer",
+  pointState,
+  line,
+  covering: coveringLabel === null ? null : { label: coveringLabel, displayLabel: coveringLabel },
+  remainder: null,
+});
+
+const floodBundle = (liveWarnings: unknown, layers: unknown[]) =>
+  ({
+    rung: 1,
+    kind: "flood",
+    postcode: "CM3 2JT",
+    flood: { state: "served", liveWarnings, layers },
+  }) as unknown as FloodBundle;
+
+describe("checking group derivation — the flood part (safety segments)", () => {
+  it("reads one band word where both layers agree, through the shared band mapping", () => {
+    const segments = floodCheckingSegments(
+      floodBundle(
+        {
+          state: "none",
+          checkedAt: "now",
+          line: "No live flood warnings.",
+          warnings: [],
+          overflowLine: null,
+        },
+        [
+          floodLayer("rofrs", "no-band-published", null, "rivers line"),
+          floodLayer("rofsw", "below-lowest-band", null, "surface line"),
+        ],
+      ),
+    );
+    expect(segments).toEqual([
+      { text: "flood risk very low", prefix: "Environment Agency", named: false },
+    ]);
+  });
+
+  it("names both bands where the layers differ — never one band standing for both", () => {
+    const segments = floodCheckingSegments(
+      floodBundle(null, [
+        floodLayer("rofrs", "covered", "Low", "rivers line"),
+        floodLayer("rofsw", "covered", "High", "surface line"),
+      ]),
+    );
+    expect(segments).toEqual([
+      {
+        text: "flood risk: rivers & sea low, surface water high",
+        prefix: "Environment Agency",
+        named: false,
+      },
+    ]);
+  });
+
+  it("lets a bandless layer speak with its own line, named when it is not filed", () => {
+    const segments = floodCheckingSegments(
+      floodBundle(null, [
+        floodLayer(
+          "rofrs",
+          "not-filed",
+          null,
+          "this flood map is not filed yet, so no answer can be given from it",
+        ),
+        floodLayer("rofsw", "below-lowest-band", null, "surface line"),
+      ]),
+    );
+    expect(segments).toEqual([
+      {
+        text: "this flood map is not filed yet, so no answer can be given from it",
+        prefix: "Environment Agency",
+        named: true,
+      },
+    ]);
+  });
+
+  it("serves live warnings first, and the feed's named line after the filed answer", () => {
+    const layers = [
+      floodLayer("rofrs", "no-band-published", null, "rivers line"),
+      floodLayer("rofsw", "below-lowest-band", null, "surface line"),
+    ];
+    const withWarnings = floodCheckingSegments(
+      floodBundle(
+        {
+          state: "warnings",
+          checkedAt: "now",
+          line: null,
+          warnings: [{ line: "A flood warning is in force for this area." }],
+          overflowLine: "And 2 more warnings.",
+        },
+        layers,
+      ),
+    );
+    expect(withWarnings.map((segment) => segment.text)).toEqual([
+      "A flood warning is in force for this area.",
+      "And 2 more warnings.",
+      "flood risk very low",
+    ]);
+    const feedDown = floodCheckingSegments(
+      floodBundle(
+        {
+          state: "unavailable",
+          checkedAt: "now",
+          line: "Live flood warnings could not be loaded.",
+          warnings: [],
+          overflowLine: null,
+        },
+        layers,
+      ),
+    );
+    expect(feedDown).toEqual([
+      { text: "flood risk very low", prefix: "Environment Agency", named: false },
+      { text: "Live flood warnings could not be loaded.", named: false },
+    ]);
+  });
+
+  it("carries the not-covered reason as a named segment", () => {
     const notCovered = {
       rung: 1,
       kind: "not-covered",
       postcode: "EH1 1AD",
       flood: { state: "not-covered", reason: "Flood data covers England only." },
     } as unknown as FloodBundle;
-    expect(floodRowResult(notCovered)).toEqual({
-      state: "unavailable",
-      line: "Flood data covers England only.",
-    });
-
-    const served = {
-      rung: 1,
-      kind: "flood",
-      postcode: "CM3 2JT",
-      flood: {
-        state: "served",
-        liveWarnings: { state: "unavailable", line: "Live flood warnings could not be loaded." },
-        layers: [],
-      },
-    } as unknown as FloodBundle;
-    expect(floodRowResult(served)).toEqual({
-      state: "done",
-      line: "Live flood warnings could not be loaded.",
-    });
+    expect(floodCheckingSegments(notCovered)).toEqual([
+      { text: "Flood data covers England only.", prefix: "Environment Agency", named: true },
+    ]);
   });
 });
 
-describe("history row derivation (row 9)", () => {
+describe("checking group derivation — the area part (safety, costs, history)", () => {
   const areaServed = {
-    rung: 2,
+    rung: 1,
     kind: "area-bundle",
     postcode: "CM3 2JT",
     sections: {
-      councilTax: { state: "served" },
-      epc: { state: "served" },
-      planningApplications: { state: "served" },
-      constraints: { state: "served" },
+      councilTax: {
+        state: "served",
+        line: "Braintree District Council's average Band D council tax for 2026/27 is £2,108.55 — an area average, not this home's bill",
+        bandDAverageLabel: "£2,108.55",
+      },
+      broadband: {
+        state: "served",
+        line: "gigabit-capable broadband (at least 1 Gbit/s) is available to 100% of premises in this postcode",
+      },
+      epc: { state: "served", headlineBand: "B" },
+      air: {
+        state: "served",
+        headlineFigure: {
+          pollutant: "NO2",
+          value: 8.15,
+          line: "modelled NO2 8.15 µg/m³ (annual mean, 2024)",
+        },
+      },
     },
   } as unknown as AreaBundle;
-  const soldServed = { rung: 2, kind: "sold-prices" } as unknown as SoldPricesBundle;
+  const soldServed = {
+    rung: 1,
+    kind: "sold-prices",
+    postcode: "CM3 2JT",
+    loadState: "found",
+    recordedCount: 29,
+    stateLine: null,
+    ownHistory: [
+      {
+        price: 425000,
+        date: "2022-03-22",
+        propertyType: "Detached",
+        tenure: "Freehold",
+        newBuild: false,
+        address: "12 Willow Close",
+      },
+    ],
+  } as unknown as SoldPricesBundle;
   const crimeServed = {
-    rung: 2,
+    rung: 1,
     kind: "crime",
-    crime: { state: "served" },
+    crime: {
+      state: "served",
+      totalLine:
+        "330 recorded crimes within 1 mile of this postcode, October 2025 to September 2026",
+    },
   } as unknown as CrimeBundle;
 
-  it("states the ownership position while the flag is off — the row is never silently shortened", () => {
-    const row = historyRowResult(areaServed, soldServed, crimeServed);
-    const ownership = row.elements?.find((e) => e.label === "Ownership");
-    expect(ownership).toEqual({
-      label: "Ownership",
-      state: "unavailable",
-      line: OWNERSHIP_NOT_PART_LINE,
+  it("composes the drawn findings for the served Birkdale-shaped case", () => {
+    const groups = areaCheckingGroups(areaServed, soldServed, crimeServed);
+    expect(groups.safetyCrime).toEqual({
+      text: "330 recorded crimes in the last 12 months",
+      prefix: "Police.uk",
+      named: false,
     });
-    expect(row.elements?.map((e) => e.label)).toEqual([
-      "Sold history",
-      "Crime",
-      "Council tax",
-      "EPC",
-      "Planning applications",
-      "Constraints",
-      "Ownership",
-    ]);
+    // A served air answer contributes no segment (the
+    // drawn finding carries crime and flood).
+    expect(groups.safetyAir).toBeNull();
+    expect(groups.costs).toEqual({
+      state: "done",
+      line: "Council & providers — Council tax Band D average £2,108.55; gigabit-capable broadband (at least 1 Gbit/s) is available to 100% of premises in this postcode",
+    });
+    expect(groups.history).toEqual({
+      state: "done",
+      line: "HM Land Registry — This home sold for £425,000 on 22 March 2022; 29 recorded sales in this postcode",
+    });
   });
 
-  it("carries a not-covered sold-prices reason as its element's line", () => {
+  it("completes history as unavailable on the cold-load degrade variant — the reason is the line", () => {
+    // Part A of the cold-check fix (19 Nov 2026): the
+    // sold bundle is kind "sold-prices" with no figures —
+    // the group completes unavailable carrying the
+    // bundle's reason verbatim (a fixture sentence here;
+    // the brain's own wording is pinned in the
+    // sold-prices suite).
+    const soldUnavailable = {
+      rung: 1,
+      kind: "sold-prices",
+      postcode: "CM3 2JT",
+      soldPrices: {
+        state: "unavailable",
+        reason: "Sold prices are still being gathered for this postcode.",
+      },
+    } as unknown as SoldPricesBundle;
+    const groups = areaCheckingGroups(areaServed, soldUnavailable, crimeServed);
+    expect(groups.history).toEqual({
+      state: "unavailable",
+      line: "Sold prices are still being gathered for this postcode.",
+    });
+  });
+
+  it("completes history as done on a filed zero — the brain's own no-sale sentence", () => {
+    const soldNone = {
+      rung: 2,
+      kind: "sold-prices",
+      postcode: "CM1 6ER",
+      loadState: "loaded-none",
+      recordedCount: 0,
+      stateLine: "No sale recorded for this postcode since 1995",
+    } as unknown as SoldPricesBundle;
+    const groups = areaCheckingGroups(areaServed, soldNone, crimeServed);
+    expect(groups.history).toEqual({
+      state: "done",
+      line: "No sale recorded for this postcode since 1995",
+    });
+  });
+
+  it("carries not-covered and not-filed states as the groups' named lines", () => {
     const soldNotCovered = {
       rung: 2,
       kind: "not-covered",
       postcode: "EH1 1AD",
       soldPrices: { state: "not-covered", reason: "Sold prices cover England and Wales only." },
     } as unknown as SoldPricesBundle;
-    const row = historyRowResult(areaServed, soldNotCovered, crimeServed);
-    expect(row.elements?.[0]).toEqual({
-      label: "Sold history",
+    const crimeNotFiled = {
+      rung: 1,
+      kind: "crime",
+      crime: { state: "not-filed", reason: "Crime counts are not filed for this postcode yet." },
+    } as unknown as CrimeBundle;
+    const groups = areaCheckingGroups(areaServed, soldNotCovered, crimeNotFiled);
+    expect(groups.history).toEqual({
       state: "unavailable",
       line: "Sold prices cover England and Wales only.",
     });
-    expect(row.state).toBe("unavailable");
+    expect(groups.safetyCrime).toEqual({
+      text: "Crime counts are not filed for this postcode yet.",
+      prefix: "Police.uk",
+      named: true,
+    });
+  });
+
+  it("names the costs group from a not-filed council tax line and a named EPC state", () => {
+    const areaNamed = {
+      rung: 1,
+      kind: "area-bundle",
+      postcode: "CM3 2JT",
+      sections: {
+        councilTax: {
+          state: "not-filed",
+          line: "this council's council tax charges are not filed yet — most councils are filed in the spring pass, and until then no figure can be given",
+        },
+        broadband: {
+          state: "served",
+          line: "gigabit-capable broadband (at least 1 Gbit/s) is available to 100% of premises in this postcode",
+        },
+        epc: {
+          state: "not-filed",
+          line: "the energy register is not filed for this postcode yet, so no energy answer can be given yet",
+        },
+        air: { state: "served", headlineFigure: { pollutant: "NO2", value: 8.15, line: "x" } },
+      },
+    } as unknown as AreaBundle;
+    const groups = areaCheckingGroups(areaNamed, soldServed, crimeServed);
+    expect(groups.costs.state).toBe("unavailable");
+    expect(groups.costs.line).toBe(
+      "Council & providers — this council's council tax charges are not filed yet — most councils are filed in the spring pass, and until then no figure can be given; gigabit-capable broadband (at least 1 Gbit/s) is available to 100% of premises in this postcode; the energy register is not filed for this postcode yet, so no energy answer can be given yet",
+    );
+  });
+
+  it("surfaces a not-filed air answer as a named Defra segment", () => {
+    const areaAirNamed = {
+      rung: 1,
+      kind: "area-bundle",
+      postcode: "CM3 2JT",
+      sections: {
+        councilTax: { state: "served", line: "x", bandDAverageLabel: "£1" },
+        broadband: { state: "served", line: "y" },
+        epc: { state: "served", headlineBand: "B" },
+        air: { state: "not-filed", line: "no modelled air quality square is filed for this point" },
+      },
+    } as unknown as AreaBundle;
+    const groups = areaCheckingGroups(areaAirNamed, soldServed, crimeServed);
+    expect(groups.safetyAir).toEqual({
+      text: "no modelled air quality square is filed for this point",
+      prefix: "Defra",
+      named: true,
+    });
+  });
+});
+
+describe("checking outcomes assembly", () => {
+  const nearbyOk = {
+    ok: true as const,
+    value: {
+      schools: { state: "done" as const, line: "Ofsted — Within 2 miles: 3 primary schools" },
+      health: {
+        state: "done" as const,
+        line: "NHS & local data — GP, dentist & pharmacy within a mile",
+      },
+    },
+  };
+  const floodOk = {
+    ok: true as const,
+    value: [{ text: "flood risk very low", prefix: "Environment Agency", named: false }],
+  };
+  const areaOk = {
+    ok: true as const,
+    value: {
+      safety: {
+        crime: {
+          text: "330 recorded crimes in the last 12 months",
+          prefix: "Police.uk",
+          named: false,
+        },
+        air: null,
+      },
+      groups: {
+        costs: {
+          state: "done" as const,
+          line: "Council & providers — Council tax Band D average £2,108.55",
+        },
+        history: {
+          state: "done" as const,
+          line: "HM Land Registry — 29 recorded sales in this postcode",
+        },
+      },
+    },
+  };
+
+  it("interleaves the safety segments crime, flood, air and passes the groups through", () => {
+    const outcomes = assembleCheckingOutcomes({ nearby: nearbyOk, flood: floodOk, area: areaOk });
+    expect(outcomes.safety).toEqual({
+      state: "done",
+      line: "Police.uk — 330 recorded crimes in the last 12 months; Environment Agency — flood risk very low",
+    });
+    expect(outcomes.schools).toEqual(nearbyOk.value.schools);
+    expect(outcomes.history).toEqual(areaOk.value.groups.history);
+  });
+
+  it("reads null for groups whose parts have not settled", () => {
+    const outcomes = assembleCheckingOutcomes({ nearby: nearbyOk });
+    expect(outcomes.schools).toEqual(nearbyOk.value.schools);
+    expect(outcomes.safety).toBeNull();
+    expect(outcomes.costs).toBeNull();
+    expect(outcomes.history).toBeNull();
+  });
+
+  it("completes a failed part's groups with their named failure lines", () => {
+    const outcomes = assembleCheckingOutcomes({
+      nearby: { ok: false },
+      flood: { ok: false },
+      area: areaOk,
+    });
+    expect(outcomes.schools).toEqual({
+      state: "failed",
+      line: "Schools & nurseries couldn't be checked just now — the rest of the check still opens.",
+    });
+    expect(outcomes.safety).toEqual({
+      state: "unavailable",
+      line: "Police.uk — 330 recorded crimes in the last 12 months; Environment Agency — Flood couldn't be checked just now",
+    });
+  });
+
+  it("marks the whole safety group failed-named when the area part fails", () => {
+    const outcomes = assembleCheckingOutcomes({
+      nearby: nearbyOk,
+      flood: floodOk,
+      area: { ok: false },
+    });
+    expect(outcomes.costs).toEqual({
+      state: "failed",
+      line: "Costs & connections couldn't be checked just now — the rest of the check still opens.",
+    });
+    expect(outcomes.safety).toEqual({
+      state: "unavailable",
+      line: "Police.uk — Crime and air quality couldn't be checked just now; Environment Agency — flood risk very low",
+    });
   });
 });
 

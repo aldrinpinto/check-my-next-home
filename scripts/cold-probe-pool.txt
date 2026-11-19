@@ -1,0 +1,87 @@
+# Cold-probe pool — real UK postcodes for the weekly
+# play-server cold probe (scripts/cold-probe.mjs).
+#
+# Every postcode below is real and evidenced in the
+# repo: they are the directory postcodes of the E2E
+# cold pool (tests/fixtures/cold-pool.json), themselves
+# drawn from the repo's captured OSM address fixtures
+# and ONSPD excerpts — none is invented. They were
+# chosen spread across the pool's districts (London,
+# Surrey, Oxfordshire, Essex, the East, Cardiff and
+# Penarth) and none is a golden postcode, so each is a
+# genuine first check on the play server until probed.
+# One postcode per line; lines starting with # are
+# ignored. Add more as the pool is used up — the probe
+# says so, prominently, when it runs dry.
+
+CB6 2FE
+CB7 4EY
+CF10 1EW
+CF14 3AT
+CF23 9AE
+CF24 1PQ
+CF5 1BE
+CF64 1JH
+CM0 7AB
+E1 0AA
+E11 3HU
+E12 5AD
+E13 8EB
+E14 0NU
+E15 1AZ
+E20 1EH
+E3 2TB
+E6 1AD
+E7 0AQ
+E9 5EG
+IG11 7LZ
+IP27 9DS
+KT18 5DA
+KT19 0BT
+KT20 6AT
+KT4 8HX
+KT9 1EJ
+OX1 1BX
+OX2 0ES
+OX3 9DU
+OX4 1HU
+PE38 9DH
+SE10 0DX
+SE3 7BT
+SE7 7SR
+SM1 1EZ
+SM2 5AJ
+SM7 1PB
+CB7 4LS
+CF10 2EF
+CF14 4EP
+CF24 3DL
+CF5 1GX
+CF64 1TT
+CM0 7AU
+E1 0AB
+E11 4HH
+E13 8EQ
+E14 3HP
+E15 1BN
+E20 1EL
+E3 3DU
+E6 1AE
+E7 0NF
+E9 5EN
+IG11 8TU
+KT19 8AH
+OX1 1HS
+OX2 0HA
+OX3 9ED
+OX4 1JB
+PE38 9DW
+SE10 0DY
+SE3 7SX
+
+# Scotland and Northern Ireland answer on their
+# not-covered page by design (no results markers),
+# so the probe does not draw them; the E2E cold
+# specs cover that behaviour instead:
+# BT45 6EB
+# EH9 9ZZ

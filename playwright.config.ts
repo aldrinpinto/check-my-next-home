@@ -36,6 +36,15 @@ if (process.env.E2E_REAL_TURNSTILE !== "1") {
 // with only the delivery replaced.
 process.env.E2E_GIFT_MAILER_SEAMS = "1";
 
+// The cold pool (cold-check fix stack, 19 Nov 2026):
+// the seed files the cold-pool fixture (directory and
+// picking layers only — postcodes the corpus holds but
+// no brain has ever filed) so e2e/cold.e2e.ts can run
+// first checks against genuinely cold postcodes. The
+// flag rides to the seed through serve-e2e's
+// environment, like the seams above.
+process.env.E2E_COLD_POOL = "1";
+
 // The Playwright harness (stood up at M7.1 alongside the
 // look & feel kit). Specs live in e2e/ and are named
 // *.e2e.ts so Vitest — whose default patterns match
@@ -88,6 +97,26 @@ export default defineConfig({
       reuseExistingServer: true,
       // Seeding the corpus takes minutes on a cold database.
       timeout: 900_000,
+    },
+    {
+      // The forced-pending app (cold-check fix stack,
+      // 19 Nov 2026): a second instance of the same app
+      // on the same seeded database, whose sold-prices
+      // wait is forced to zero — every cold load is
+      // still running when its caller is told. The
+      // forced-pending Smoke spec in e2e/cold.e2e.ts
+      // runs against this instance alone (baseURL
+      // override in that file); every other spec stays
+      // on the warm instance above.
+      command: "node e2e/serve-e2e.mjs",
+      url: "http://127.0.0.1:4175",
+      reuseExistingServer: true,
+      timeout: 900_000,
+      env: {
+        E2E_APP_PORT: "4175",
+        E2E_SKIP_SEED: "1",
+        SOLD_PRICES_LOAD_WAIT_MS: "0",
+      },
     },
     {
       // The warm-up gate: only answers once the journey's

@@ -47,6 +47,15 @@
 // after its first check — its picker empty, and every
 // other section in its not-filed form (CI #216).
 //
+// One gated extra (cold-check fix stack, 19 Nov 2026):
+// with E2E_COLD_POOL=1 — set by playwright.config.ts for
+// every harness run, and by nothing else — step 5 below
+// files the cold pool (tests/fixtures/cold-pool.json):
+// real postcodes in the directory and picking layers
+// only, with NO brain filings, so the cold specs run
+// genuine first checks. A play-server seed never sets
+// the flag and never sees the pool.
+//
 // Usage: DATABASE_URL=… node scripts/seed-golden.mjs
 // Re-running is safe: the loaders file idempotently and
 // the direct inserts below are conflict-guarded.
@@ -340,6 +349,77 @@ try {
         claimedAgo === null ? null : new Date(NOW.getTime() - claimedAgo * DAY_MS),
         redeemedAgo === null ? null : new Date(NOW.getTime() - redeemedAgo * DAY_MS),
       ],
+    );
+  }
+
+  // 5. The cold pool (cold-check fix stack, 19 Nov
+  // 2026) — harness only, behind E2E_COLD_POOL (see the
+  // header). Directory and picking layers ONLY: no
+  // brain table is touched and no load stamp is written,
+  // so every pool postcode's first check is a genuine
+  // cold load. The norms and the home key restate the
+  // filing machinery's recipes (the read side restates
+  // them the same way — lib/server/streets.ts's
+  // streetNormOf, lib/bundle-cache.ts's normKey). Every
+  // insert is conflict-guarded: where a pool row meets
+  // a golden row, the golden row stands.
+  if (process.env.E2E_COLD_POOL === "1") {
+    console.log("\n=== seed: cold pool (directory + picking layers only)");
+    const coldPool = JSON.parse(
+      await readFile(join(REPO, "tests/fixtures/cold-pool.json"), "utf8"),
+    );
+    const normOf = (value) =>
+      value
+        .toUpperCase()
+        .replace(/[^A-Z0-9]+/g, " ")
+        .trim()
+        .replace(/\s+/g, " ");
+    for (const r of coldPool.directory) {
+      await pool.query(
+        `INSERT INTO postcode_cache (postcode, latitude, longitude, council, ward, region, lsoa_code, msoa_code, source_name, source_date, answers)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'{}'::jsonb)
+         ON CONFLICT (postcode) DO NOTHING`,
+        [
+          r.postcode,
+          r.latitude,
+          r.longitude,
+          r.council,
+          r.ward,
+          r.region,
+          r.lsoaCode,
+          r.msoaCode,
+          source_name,
+          source_date,
+        ],
+      );
+    }
+    for (const h of coldPool.homes) {
+      const homeKey = [h.paon ?? "", h.saon ?? "", h.street ?? ""].map(normOf).join("|");
+      await pool.query(
+        `INSERT INTO picking_index (postcode, paon, saon, street, town, home_key, sources, sales_edition, epc_edition)
+         VALUES ($1,$2,$3,$4,$5,$6, ARRAY['sales'], 'cold-pool fixture', NULL)
+         ON CONFLICT (postcode, home_key) DO NOTHING`,
+        [h.postcode, h.paon, h.saon, h.street, h.town, homeKey],
+      );
+    }
+    for (const s of coldPool.streets) {
+      await pool.query(
+        `INSERT INTO picking_streets (street_norm, street_display, town, town_norm, postcode, home_count)
+         VALUES ($1,$2,$3,$4,$5,$6)
+         ON CONFLICT (street_norm, postcode) DO NOTHING`,
+        [normOf(s.street), s.street, s.town, normOf(s.town), s.postcode, s.homeCount],
+      );
+    }
+    for (const p of coldPool.places) {
+      await pool.query(
+        `INSERT INTO picking_places (place_norm, place_display, outward, postcode_count)
+         VALUES ($1,$2,$3,$4)
+         ON CONFLICT (place_norm, outward) DO NOTHING`,
+        [normOf(p.place), p.place, p.outward, p.postcodeCount],
+      );
+    }
+    console.log(
+      `seed-golden: cold pool filed — ${coldPool.directory.length} postcodes, ${coldPool.homes.length} homes, ${coldPool.streets.length} streets, ${coldPool.places.length} place rows.`,
     );
   }
 } finally {

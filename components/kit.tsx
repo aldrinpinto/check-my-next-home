@@ -145,18 +145,11 @@ export function SuggestionShell({
   groups,
   id,
   activeId,
-  pickedId,
   onSelect,
 }: {
   groups: SuggestionGroup[];
   id?: string;
   activeId?: string | null;
-  // The picked place's item id (founder fix batch,
-  // 19 Nov 2026): a Places pick does not navigate, so its
-  // row carries a clear selected state of its own —
-  // distinct from the keyboard's active row — while the
-  // panel shows the place's districts beneath it.
-  pickedId?: string | null;
   onSelect?: (item: SuggestionItem) => void;
 }) {
   if (groups.length === 0) return null;
@@ -182,35 +175,32 @@ export function SuggestionShell({
                 );
               }
               const active = activeId !== null && activeId !== undefined && item.id === activeId;
-              const picked = pickedId !== null && pickedId !== undefined && item.id === pickedId;
               return (
                 <li key={item.id}>
                   <button
                     type="button"
                     id={item.id}
-                    className={[
-                      "suggest__item",
-                      active ? "suggest__item--active" : "",
-                      picked ? "suggest__item--picked" : "",
-                    ]
+                    className={["suggest__item", active ? "suggest__item--active" : ""]
                       .filter(Boolean)
                       .join(" ")}
                     role="option"
                     // The row's name is its label, pinned:
                     // CSS generated content counts towards
-                    // an element's accessible name, and the
-                    // picked row's ::after marker ("Districts
-                    // below ↓", globals.css) renamed the
-                    // picked place's row the moment the pick
-                    // landed — assistive tech and the e2e
-                    // specs alike locate the row by its
-                    // place name, and the name changed under
-                    // them (Regression run 44535680408
-                    // follow-up, 19 Nov 2026; the picked
-                    // state itself is carried by
-                    // aria-selected, as it should be).
+                    // an element's accessible name, so a
+                    // row's name must never be left to
+                    // whatever its styling draws — the
+                    // picked place row's ::after marker
+                    // ("Districts below ↓") renamed the row
+                    // the moment a pick landed, before the
+                    // founder's ruling of 19 Nov 2026 took
+                    // the picked state and its marker away
+                    // (Regression run 44535680408 follow-up,
+                    // 19 Nov 2026). Assistive tech and the
+                    // e2e specs alike locate a row by its
+                    // label; the pin keeps that true whatever
+                    // the dress adds next.
                     aria-label={item.label}
-                    aria-selected={active || picked}
+                    aria-selected={active}
                     onMouseDown={(event) => {
                       // Choose on mousedown: it lands before
                       // the field's blur closes the panel.

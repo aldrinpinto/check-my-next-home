@@ -653,7 +653,8 @@ describe("matrix — sold prices", () => {
       sale({ price: 588995, saleDate: "2023-06-15" }),
     ]);
     const bundle = await buildSoldPricesBundle(ENG_HOME, source);
-    if (bundle.kind !== "sold-prices" || bundle.rung !== 1) throw new Error("expected rung 1");
+    if (bundle.kind !== "sold-prices" || bundle.rung !== 1 || "soldPrices" in bundle)
+      throw new Error("expected rung 1");
     expect(bundle.loadState).toBe("found");
     expect(bundle.ownHistory).toHaveLength(1);
     expect(bundle.ownHistory[0]?.price).toBe(588995);
@@ -674,7 +675,8 @@ describe("matrix — sold prices", () => {
       sale({ price: 500000, saleDate: "2020-05-05", paon: "29" }),
     ]);
     const bundle = await buildSoldPricesBundle(ENG_HOME, source);
-    if (bundle.kind !== "sold-prices" || bundle.rung !== 1) throw new Error("expected rung 1");
+    if (bundle.kind !== "sold-prices" || bundle.rung !== 1 || "soldPrices" in bundle)
+      throw new Error("expected rung 1");
     expect(bundle.ownHistory).toEqual([]);
     expect(bundle.ownLine).toBe("No sale recorded for this home since 1995");
   });
@@ -687,7 +689,8 @@ describe("matrix — sold prices", () => {
       sale({ price: 300000, saleDate: "2010-03-05", paon: "23" }),
     ]);
     const bundle = await buildSoldPricesBundle(ENG_HOME, source);
-    if (bundle.kind !== "sold-prices") throw new Error("expected sold-prices");
+    if (bundle.kind !== "sold-prices" || "soldPrices" in bundle)
+      throw new Error("expected sold-prices");
     expect(bundle.median.state).toBe("too-few");
     expect(bundle.median.value).toBeNull();
     expect(bundle.median.line).toBe(
@@ -702,7 +705,8 @@ describe("matrix — sold prices", () => {
       sale({ price: 1, saleDate: "2022-12-29", paon: "32", category: "B" }),
     ]);
     const bundle = await buildSoldPricesBundle(ENG_HOME, source);
-    if (bundle.kind !== "sold-prices") throw new Error("expected sold-prices");
+    if (bundle.kind !== "sold-prices" || "soldPrices" in bundle)
+      throw new Error("expected sold-prices");
     expect(bundle.recordedCount).toBe(2);
     expect(bundle.median.state).toBe("none-recorded");
     expect(bundle.median.counted).toBe(0);
@@ -733,7 +737,8 @@ describe("matrix — sold prices", () => {
       }),
     ]);
     const bundle = await buildSoldPricesBundle(flat, source);
-    if (bundle.kind !== "sold-prices" || bundle.rung !== 1) throw new Error("expected rung 1");
+    if (bundle.kind !== "sold-prices" || bundle.rung !== 1 || "soldPrices" in bundle)
+      throw new Error("expected rung 1");
     expect(bundle.building?.building).toBe("Minerva House");
     expect(bundle.building?.median.state).toBe("too-few");
     // A building whose ONLY sales are category B: the
@@ -749,7 +754,8 @@ describe("matrix — sold prices", () => {
       }),
     ]);
     const bundle2 = await buildSoldPricesBundle(flat, source2);
-    if (bundle2.kind !== "sold-prices" || bundle2.rung !== 1) throw new Error("expected rung 1");
+    if (bundle2.kind !== "sold-prices" || bundle2.rung !== 1 || "soldPrices" in bundle2)
+      throw new Error("expected rung 1");
     expect(bundle2.building?.median.state).toBe("none-recorded");
     expect(bundle2.building?.median.line).toBe(
       "no recorded sales in this building count toward a median",
@@ -760,7 +766,8 @@ describe("matrix — sold prices", () => {
     const source = new MatrixSoldPricesSource();
     source.editions.set("CM3 2JT", "2026-07-01");
     const bundle = await buildSoldPricesBundle(ENG_HOME, source);
-    if (bundle.kind !== "sold-prices") throw new Error("expected sold-prices");
+    if (bundle.kind !== "sold-prices" || "soldPrices" in bundle)
+      throw new Error("expected sold-prices");
     expect(bundle.loadState).toBe("loaded-none");
     expect(bundle.recordedCount).toBe(0);
     expect(bundle.stateLine).toBe("No sale recorded for this postcode since 1995");
@@ -777,7 +784,8 @@ describe("matrix — sold prices", () => {
     };
     const bundle = await buildSoldPricesBundle(ENG_HOME, source);
     expect(source.loadCalls).toEqual(["CM3 2JT"]);
-    if (bundle.kind !== "sold-prices") throw new Error("expected sold-prices");
+    if (bundle.kind !== "sold-prices" || "soldPrices" in bundle)
+      throw new Error("expected sold-prices");
     expect(bundle.loadState).toBe("found");
   });
 

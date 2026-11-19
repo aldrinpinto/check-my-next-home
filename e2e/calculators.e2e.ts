@@ -210,8 +210,11 @@ test.describe("calculators — regression (M7.10)", () => {
     { tag: "@regression" },
     async ({ page }) => {
       await page.goto("/search?outward=E16");
+      // Held reveal (the wider-area checking screen,
+      // 19 Nov 2026): the heading arrives with the results.
       await expect(page.getByRole("heading", { name: "Wider area — E16" })).toHaveText(
         "Wider area — E16",
+        { timeout: 30_000 },
       );
       await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
       await expect(page.locator(".calculators")).toHaveCount(0);

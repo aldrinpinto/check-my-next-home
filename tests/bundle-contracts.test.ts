@@ -257,6 +257,24 @@
 // here so the change is never mistaken for drift.
 // (Re-verified at integration: the leaf-diff
 // reproduced exactly against main's pre-step shapes.)
+//
+// RE-PIN RECORD: Part A of the cold-check fix (founder's
+// authorisation, 19 Nov 2026) deliberately widened the
+// frozen sold-prices and short shapes by ADDITION — the
+// SoldPricesBundle gains a rung-1/2 variant of kind
+// "sold-prices" carrying the named state alone
+// ({soldPrices:{state:"unavailable", reason}}: a cold
+// load still running past its bounded wait, or failed,
+// degrades to it instead of rejecting into the check
+// assembly), and ShortSoldPrices gains the matching
+// {state:"unavailable"} section state. Two pins are new
+// (sold.unavailable, short.unavailable); NO existing pin
+// moved — the figures, loaded-none, not-covered and
+// rung-3/4 shapes are byte-identical. All 50 pins stand.
+// Authorised by the founder's explicit authorisation of
+// the contract change (19 Nov 2026); recorded here and
+// in docs/frontend-design-pass.md so the change is
+// never mistaken for drift.
 
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -699,13 +717,18 @@ function sale(partial: Partial<SoldPriceRow>): SoldPriceRow {
 class FakeSoldSource implements SoldPricesDataSource {
   rows: SoldPriceRow[] = [];
   edition: string | null = "2026-07-20";
+  // Part A (19 Nov 2026): when set, the load fails with
+  // this error, so the bundle is the unavailable variant.
+  loadError: Error | null = null;
   async salesInPostcode() {
     return this.rows;
   }
   async loadEdition() {
     return this.edition;
   }
-  async loadPostcode() {}
+  async loadPostcode() {
+    if (this.loadError) throw this.loadError;
+  }
 }
 
 describe("contract — sold prices", () => {
@@ -753,6 +776,17 @@ describe("contract — sold prices", () => {
     pin("sold.not-covered", await buildSoldPricesBundle(SCO_HOME, source));
     pin("sold.rung3", await buildSoldPricesBundle(WIDER, source));
     pin("sold.rung4", await buildSoldPricesBundle(NO_LOCATION, source));
+
+    // Part A of the cold-check fix (founder's
+    // authorisation, 19 Nov 2026): a source whose load
+    // never lands — no rows, no stamp, the load itself
+    // failing — answers the unavailable variant, pinned
+    // here in the rung-3/4 form it mirrors.
+    const failing = new FakeSoldSource();
+    failing.rows = [];
+    failing.edition = null;
+    failing.loadError = new Error("the sold-prices load is still running");
+    pin("sold.unavailable", await buildSoldPricesBundle(ENG_HOME, failing));
   });
 });
 
@@ -1529,6 +1563,26 @@ describe("contract — short bundle", () => {
     pin("short.rung3", await build(WIDER));
     pin("short.rung4", await build(NO_LOCATION));
     pin("short.scotland", await build(SCO_HOME));
+
+    // Part A of the cold-check fix (founder's
+    // authorisation, 19 Nov 2026): the failing sold
+    // source at headline depth — the sold-prices section
+    // is the unavailable named state; every other
+    // section serves exactly as short.rung1's does.
+    const failingSoldSource = new FakeSoldSource();
+    failingSoldSource.rows = [];
+    failingSoldSource.edition = null;
+    failingSoldSource.loadError = new Error("the sold-prices load is still running");
+    pin(
+      "short.unavailable",
+      buildShortBundle({
+        nearby: await buildNearbyBundle(ENG_HOME, nearbySource),
+        soldPrices: await buildSoldPricesBundle(ENG_HOME, failingSoldSource),
+        crime: await buildCrimeBundle(ENG_HOME, crimeSource, { now }),
+        flood: await buildFloodBundle(ENG_HOME, floodSource),
+        area: await buildAreaBundle(ENG_HOME, areaSource),
+      }),
+    );
 
     // M6.22: the composed headline form — the same two
     // captured alerts, headline depth (no message field).

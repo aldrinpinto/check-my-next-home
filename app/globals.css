@@ -1327,29 +1327,6 @@ body:has(.main--home) .site-footer {
   background: var(--colour-selected-bg);
 }
 
-/* The picked place's row (founder fix batch, 19 Nov
-   2026): a Places pick does not navigate, so the row the
-   pick filed carries a clear selected state of its own
-   while the panel shows the place's districts — a deeper
-   tint than the keyboard's active row, the name heavy,
-   and a "Districts below" marker at the right naming
-   what the pick revealed. */
-.suggest__item--picked {
-  background: #dfeadb;
-  font-weight: 800;
-  color: var(--cmnh-forest);
-}
-
-.suggest__item--picked::after {
-  content: "Districts below ↓";
-  float: right;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--colour-muted);
-}
-
 /* The bare form (fidelity pass 2): the decided sample page's
    hero search row — the row at the sample's 500px measure,
    its field at the sample's padding and 14.5px size with the
@@ -1979,74 +1956,451 @@ body:has(.main--home) .site-footer {
   margin: 0 0 10px;
 }
 
+/* The checking intro's measure (Master view 2: the facts
+   line runs to 56ch, not the full column). */
+.checking__intro {
+  max-width: 56ch;
+}
+
+/* The checking screen's live line (founder-chosen design,
+   19 Nov 2026; Final Sample Master view 2): the rotating
+   headline sentence above the seal, in the display face,
+   with its brass dot. The sentence swaps with a short fade
+   as the group in flight changes. */
+.checking__ticker {
+  font-family: var(--font-family-display);
+  font-weight: 600;
+  font-size: clamp(1.35rem, 1.15rem + 1vw, 1.6rem);
+  line-height: 1.3;
+  color: var(--cmnh-forest-deep);
+  margin: 22px 0 4px;
+}
+
+.checking__ticker-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--cmnh-brass);
+  margin-right: 10px;
+  vertical-align: 4px;
+}
+
+.checking__ticker-text {
+  display: inline-block;
+  animation: checking-fade 0.45s ease;
+}
+
+@keyframes checking-fade {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* The seal: a five-segment ring around the house mark, one
+   segment per completed group, stamping CHECKED when the
+   last group lands. The badge rests rotated -10 degrees;
+   its stamp is a spring scale from the badge's own centre
+   (transform-box: fill-box), landing on that rotation. */
+.checking__seal-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 10px 0 4px;
+}
+
+.checking__seal {
+  width: 132px;
+  height: 132px;
+  display: block;
+}
+
+.checking__seal-seg {
+  fill: none;
+  stroke: #e9e4d4;
+  stroke-width: 7;
+  transition: stroke 0.5s ease;
+}
+
+.checking__seal-seg[data-on="true"] {
+  stroke: var(--cmnh-forest);
+}
+
+.checking__seal-house {
+  stroke: var(--cmnh-forest);
+  fill: none;
+  stroke-width: 3.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.checking__seal-badge {
+  opacity: 0;
+  transform: scale(0.6) rotate(-10deg);
+  transform-box: fill-box;
+  transform-origin: center;
+  transition:
+    opacity 0.18s ease,
+    transform 0.28s cubic-bezier(0.2, 2.2, 0.4, 1);
+}
+
+.checking__seal-badge[data-on="true"] {
+  opacity: 1;
+  transform: scale(1) rotate(-10deg);
+}
+
+.checking__seal-badge rect {
+  fill: var(--cmnh-brass);
+}
+
+.checking__seal-badge text {
+  font-size: 9.5px;
+  font-weight: 700;
+  fill: var(--cmnh-forest-deep);
+  letter-spacing: 1.5px;
+}
+
+.checking__seal-caption {
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--colour-muted);
+  margin: 4px 0 0;
+}
+
+/* The step line under the progress bar: the running word
+   and the stepped count ("3 of 5") — never a percentage. */
+.checking__stepline {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 0.88rem;
+  color: var(--colour-muted);
+  margin: 0 0 4px;
+}
+
+.checking__stepline b {
+  color: var(--cmnh-forest);
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+/* The evidence feed (Master view 2's row form): icon,
+   name, state line, source line. The state line carries
+   the group's FINDING on completion — never a bare
+   "Done" — or its honest named state; the source line
+   always shows. */
 .checking__rows {
   list-style: none;
   padding: 0;
-  margin: 14px 0 6px;
+  margin: 8px 0 6px;
 }
 
 .checking__row {
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2) var(--space-4);
-  align-items: center;
-  padding: var(--space-3) 0;
+  gap: 11px;
+  align-items: flex-start;
+  padding: 13px 0 12px;
   border-bottom: 1px solid var(--cmnh-brass-pale);
 }
 
-.checking__row:first-child {
-  border-top: 1px solid var(--cmnh-brass-pale);
+.checking__row-icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #e9e4d4;
+  color: var(--colour-muted);
+  display: grid;
+  place-items: center;
+  flex: none;
+  margin-top: 1px;
+}
+
+.checking__row-icon[data-state="done"] {
+  background: var(--cmnh-forest);
+  color: #fff;
+}
+
+.checking__row-icon[data-state="unavailable"],
+.checking__row-icon[data-state="failed"] {
+  background: var(--cmnh-brass);
+  color: #fff;
+}
+
+.checking__pendot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.55;
+}
+
+.checking__row-spinner {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--cmnh-brass-pale);
+  border-top-color: var(--cmnh-brass);
+  animation: checking-spin 0.8s linear infinite;
+}
+
+.checking__row-main {
+  flex: 1;
+  min-width: 0;
 }
 
 .checking__row-label {
-  flex: 1 1 16rem;
-  font-weight: 600;
+  display: block;
+  font-weight: 700;
+  line-height: 1.3;
 }
 
 .checking__row-state {
-  flex: 0 1 auto;
-  font-weight: 600;
+  display: block;
+  font-size: 0.94rem;
+  margin-top: 1px;
   color: var(--colour-muted);
+  overflow-wrap: break-word;
 }
 
-/* The done state (D70, checking-screen ruling): the word
-   carries its tick — never colour alone. D6: the sample's
-   done weight is 800. */
-.checking__row[data-state="done"] .checking__row-state,
-.checking__elements li[data-state="done"] .checking__element-state {
+.checking__row[data-state="active"] .checking__row-state {
   color: var(--cmnh-forest);
-  font-weight: 800;
+  font-weight: 600;
 }
 
-.checking__row-line {
-  flex-basis: 100%;
+.checking__row[data-state="done"] .checking__row-state {
+  color: var(--cmnh-forest);
+  font-weight: 600;
+}
+
+.checking__row[data-state="unavailable"] .checking__row-state,
+.checking__row[data-state="failed"] .checking__row-state {
+  font-weight: 600;
+}
+
+.checking__row-source {
+  display: block;
+  font-size: 0.76rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--colour-muted);
+  margin-top: 2px;
+}
+
+/* The closing line: held invisible until the seal stamps,
+   so the layout never shifts at the reveal. */
+.checking__final {
+  margin-top: 16px;
   font-size: 0.88rem;
   color: var(--colour-muted);
+  visibility: hidden;
 }
 
-.checking__elements {
-  flex-basis: 100%;
-  list-style: none;
-  padding: 0 0 0 var(--space-4);
-  margin: var(--space-2) 0 0;
-  font-size: var(--font-size-small);
+.checking__final[data-visible="true"] {
+  visibility: visible;
 }
 
-.checking__elements li {
-  display: flex;
-  gap: var(--space-4);
-  padding: var(--space-1) 0;
+/* The wider-area sweep (founder-chosen design, 19 Nov
+   2026; Final Sample Master view 31): the schematic
+   district sketch at the checking screen's centre — the
+   cells shade a quarter per completed group, the flood
+   wash and the station marker join their groups, and
+   the district stamp lands at the centre when every
+   group completes. A sketch, never a map: the shapes
+   carry no real geography. Values are the Master's own. */
+.dchecking__sweep-wrap {
+  margin: 16px 0 2px;
 }
 
-.checking__element-label {
-  flex: 1 1 10rem;
+.dchecking__sweep {
+  display: block;
+  width: 100%;
+  max-width: 30rem;
+  margin: 0 auto;
 }
 
-/* .checking__status and .results-header__scope retired
-   (parity fix batch, items 4/5): the checking screen
-   carries no visible status line, and the results H1
-   itself carries the postcode the scope line used to
-   repeat. */
+.dchecking__caption {
+  font-size: 0.82rem;
+  color: var(--colour-muted);
+  text-align: center;
+  margin: 8px 0 0;
+}
+
+.dchecking__sweep-cell {
+  fill: var(--cmnh-forest);
+  opacity: 0;
+  stroke: #fffdf6;
+  stroke-width: 2;
+  transition: opacity 0.7s ease;
+}
+
+.dchecking__sweep-cell[data-alt="true"] {
+  fill: var(--cmnh-brass);
+}
+
+.dchecking__sweep-cell[data-on="true"] {
+  opacity: 0.17;
+}
+
+.dchecking__sweep-cell[data-alt="true"][data-on="true"] {
+  opacity: 0.3;
+}
+
+.dchecking__sweep-park {
+  fill: #dcead6;
+}
+
+.dchecking__sweep-road {
+  fill: none;
+  stroke: #fffdf6;
+  stroke-width: 7;
+  opacity: 0.85;
+}
+
+.dchecking__sweep-road-sm {
+  fill: none;
+  stroke: #fffdf6;
+  stroke-width: 4.7;
+  opacity: 0.85;
+}
+
+.dchecking__sweep-flood {
+  fill: none;
+  stroke: #7fb0c9;
+  stroke-width: 17;
+  stroke-linecap: round;
+  opacity: 0;
+  transition: opacity 1s ease;
+}
+
+.dchecking__sweep-flood[data-on="true"] {
+  opacity: 0.38;
+}
+
+.dchecking__sweep-river {
+  fill: none;
+  stroke: #9db8c4;
+  stroke-width: 5;
+  opacity: 0.75;
+}
+
+.dchecking__sweep-boundary {
+  fill: none;
+  stroke: var(--cmnh-forest);
+  stroke-width: 1.8;
+  stroke-dasharray: 6 4;
+  opacity: 0.65;
+}
+
+.dchecking__sweep-station {
+  opacity: 0;
+  transition: opacity 0.5s ease;
+}
+
+.dchecking__sweep-station[data-on="true"] {
+  opacity: 1;
+}
+
+.dchecking__sweep-station circle {
+  fill: #fffdf6;
+  stroke: var(--cmnh-forest);
+  stroke-width: 2;
+}
+
+.dchecking__sweep-station text {
+  font-family: var(--font-family);
+  font-size: 10px;
+  font-weight: 700;
+  fill: var(--cmnh-forest);
+  text-anchor: middle;
+}
+
+/* The stamp: hidden until every group completes, then
+   it lands with the design's spring — scaled from the
+   stamp's own centre (the transform origin is the
+   stamp's centre in view-box units), settling on its
+   -9 degree rest. The keyframes carry the rotation
+   because a CSS transform replaces the drawn one while
+   it runs. */
+.dchecking__sweep-stamp {
+  opacity: 0;
+  transform-box: view-box;
+  transform-origin: 160px 119px;
+}
+
+.dchecking__sweep-stamp[data-on="true"] {
+  opacity: 1;
+  animation: dchecking-stamp-in 0.38s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+
+@keyframes dchecking-stamp-in {
+  from {
+    transform: scale(1.7) rotate(-9deg);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1) rotate(-9deg);
+    opacity: 1;
+  }
+}
+
+.dchecking__sweep-stamp rect {
+  fill: var(--cmnh-cream);
+  stroke: var(--cmnh-forest);
+  stroke-width: 2.4;
+}
+
+.dchecking__sweep-stamp-big {
+  font-family: var(--font-family-display);
+  font-size: 30px;
+  font-weight: 700;
+  fill: var(--cmnh-forest-deep);
+  text-anchor: middle;
+}
+
+.dchecking__sweep-stamp-sm {
+  font-family: var(--font-family);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 2.6px;
+  fill: var(--cmnh-brass);
+  text-anchor: middle;
+}
+
+/* Reduced motion (the design's accessibility rule): the
+   calm static form — no spin, no fade, no stamp spring;
+   states still change, instantly. The pacing itself is
+   mechanics, not animation, and is untouched. */
+@media (prefers-reduced-motion: reduce) {
+  .checking__row-spinner,
+  .checking__ticker-text {
+    animation: none;
+  }
+  .checking__seal-seg,
+  .checking__seal-badge,
+  .checking__progress-bar {
+    transition: none;
+  }
+  /* The wider-area sweep's calm form: no shading
+     transitions, no flood fade, no stamp spring — the
+     beats still land, instantly. */
+  .dchecking__sweep-cell,
+  .dchecking__sweep-flood,
+  .dchecking__sweep-station {
+    transition: none;
+  }
+  .dchecking__sweep-stamp[data-on="true"] {
+    animation: none;
+  }
+}
 
 .holding {
   border: 1px solid var(--cmnh-brass-pale);
@@ -3141,7 +3495,7 @@ a.picker__row {
   border-radius: 999px;
   background: #e9e4d4;
   overflow: hidden;
-  margin: 20px 0 6px;
+  margin: 16px 0 6px;
 }
 .checking__progress-bar {
   height: 100%;
@@ -3165,11 +3519,6 @@ a.picker__row {
   to {
     transform: rotate(360deg);
   }
-}
-.checking__row-qualifier {
-  flex-basis: 100%;
-  font-size: 0.88rem;
-  color: var(--colour-muted);
 }
 .results-manifesto-line {
   font-size: var(--font-size-lead);

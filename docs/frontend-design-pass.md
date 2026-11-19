@@ -5147,3 +5147,558 @@ each: a spec bug; the product is exonerated on both.
   is preserved exactly; no other locator and no timeout
   changed. The flaky suggest spec (294) was the same
   transient on its first attempt.
+
+## Cold checks (19 Nov 2026) — the degrade fix stopped on its premise check; the cold-test approach built
+
+Found live by the founder, verified the same day: a
+first check on any postcode with no filed data failed
+WHOLE. /api/check/area for HR3 5NT answered 500 after
+exactly 10.03s and the results page served the error
+page; filed postcodes answer 200 in ~0.1s. The
+mechanism: checkArea/checkAll assemble the bundles
+with Promise.all([area, sold, crime]);
+buildSoldPricesBundle's cold load rejects with
+SoldPricesLoadPendingError once the bounded wait
+(SOLD_PRICES_LOAD_WAIT_MS, 10s) expires, and the
+rejection poisons the whole assembly. The batch that
+built the bounded wait intended whole-check failure
+as interim behaviour; the founder has rejected that —
+the approved behaviour is that sold prices degrades
+to its own named failure/still-loading state INSIDE
+the results and the rest of the check renders
+normally.
+
+The fix stack's premise check then stopped the
+degrade fix itself, on the record: the bundle
+vocabulary has NO rung-1/2 sold-prices failure state
+to degrade TO. SoldPricesBundle's rung-1/2 variants
+are the figures form (loadState found / loaded-none)
+and not-covered; the {state:"unavailable"} form
+exists only on the rung-3 wider-area and rung-4
+no-location variants. Serving loaded-none for a
+pending load would print "No sale recorded for this
+postcode since 1995" for a postcode whose load is
+still running — a faked state, which the brain's own
+comments forbid. Substituting not-covered is equally
+illegitimate (its reason is keyed to the Scotland /
+Northern Ireland nations). buildShortBundle throws
+on anything that is not the figures form or
+not-covered, and ShortSoldPrices speaks only
+not-covered / served. A new state is therefore a
+CONTRACT change — a re-pin of
+tests/fixtures/replay/bundle-shapes.json — and
+re-pins are made only on the founder's authorisation
+(the D39/D41/D42/D48 precedent). The fix is stopped
+pending that authorisation; the exact change proposed
+with it: one new rung-1/2 variant,
+{kind:"sold-prices", soldPrices:{state:"unavailable",
+reason}}, mirroring rungs 3/4, with
+buildSoldPricesBundle catching load-pending and
+load-failure into it, the matching short-bundle
+state, the results/journey/shortlist consumers
+reading it, new pins for both shapes, and the
+visitor-facing reason wording pinned by the founder
+at the same time. Crime needs no change: its cold
+path already catches its D30 cold load and serves
+not-filed — the pattern sold prices lacks. The
+source-level rejection test stands either way (the
+brain, not the source, would do the catching).
+
+What the stack built instead, so the defect can never
+again hide behind a warm corpus:
+
+- The cold pool (tests/fixtures/cold-pool.json,
+  provenance in its README): 177 real directory
+  postcodes across 40 districts, 628 picking homes
+  (153 house-name entries with no street number), 191
+  streets — Montfichet Road, London spans nine
+  postcodes — and 22 place rows, all drawn from the
+  repo's evidenced captures, golden postcodes and
+  districts excluded. The seed files it into the
+  directory and picking layers ONLY, behind
+  E2E_COLD_POOL (set by playwright.config.ts, never
+  by a play-server seed), conflict-guarded so a
+  golden row always stands.
+- e2e/cold.e2e.ts: seeded-random behavioural picks
+  per run (seed from E2E_COLD_SEED / the CI run id /
+  the date; seed and picks printed, so any failure
+  reproduces exactly) across the entry types — raw
+  postcode submit, typed street pick, a spanning
+  street's choice page, a typed house-name pick, a
+  home picked from the postcode's own list, place →
+  place page → district — plus fixed Scotland and
+  Northern Ireland pool postcodes asserting the
+  not-covered pages. Assertions are behavioural
+  only: the checking screen completes, the results
+  render with the error page absent, every section
+  carries a named state, and a second visit serves
+  the filed answer. A first visit exercises the
+  genuine cold path because the harness's sold-prices
+  loads read the small fixture file (a new
+  SOLD_PRICES_FILE_DIR seam in the source; without
+  it, the served loader would download the live
+  5.54 GB file and no cold load could ever land in
+  the harness).
+- The permanent regression test for this defect is
+  the forced-pending @smoke spec in the same file,
+  HELD as test.fixme until the contract change above
+  is authorised: it runs against a second harness
+  instance (port 4175) whose SOLD_PRICES_LOAD_WAIT_MS
+  is 0 — a new env override read at source creation,
+  documented as test-only, the 10s production default
+  untouched — so a cold load is always still running,
+  and the spec asserts the results render whole with
+  the sold section in a failure state (neither
+  figures nor the filed loaded-none answer). On the
+  pre-fix code it fails by construction — the whole
+  check fails, which is the bug; the follow-on stack
+  un-fixmes it the moment the degrade lands.
+- scripts/cold-probe.mjs + scripts/cold-probe-pool.txt:
+  the play-server sentinel. Dependency-free; each run
+  takes the next unprobed postcode from the pool (64
+  real postcodes across 38 districts at filing),
+  requests the served whole-postcode check from
+  localhost:3000, requires 200 + results markers +
+  no error page, and appends postcode / verdict /
+  timestamp to its state file, exiting non-zero on
+  failure. The parent wires its weekly schedule.
+
+Tag audit after the stack: 156 tests — 9 @smoke,
+147 @regression (was 147 — 8 / 139).
+
+### Part A landed (19 Nov 2026) — the degrade, on the founder's authorisation
+
+The founder authorised the contract change the same
+day, and it is built. RE-PIN RECORD, in the
+precedents' form (D39/D41/D42/D48): the frozen
+sold-prices and short shapes were deliberately
+widened BY ADDITION — SoldPricesBundle gains a
+rung-1/2 variant of kind "sold-prices" carrying the
+named state alone, {postcode, soldPrices:
+{state:"unavailable", reason}}, mirroring rungs 3/4
+and carrying no PostcodeFigures; ShortSoldPrices
+gains the matching {state:"unavailable", reason}
+section state. Two pins are new (sold.unavailable,
+short.unavailable in
+tests/fixtures/replay/bundle-shapes.json); NO
+existing pin moved — the figures, loaded-none,
+not-covered and rung-3/4 shapes are unchanged. All
+50 pins stand. The same record stands at the head of
+tests/bundle-contracts.test.ts.
+
+The build itself:
+
+- lib/sold-prices.ts: buildSoldPricesBundle's whole
+  read/load sequence runs under one catch — the
+  source's SoldPricesLoadPendingError (the bounded
+  wait expiring), a failed load, or a failed read
+  answers the unavailable variant instead of
+  rejecting. The source is untouched: it still tells
+  a direct caller the load is still running, the run
+  still files and stamps in the background, and the
+  next check serves the filed answer — the variant
+  is never sticky and never cached (sold prices is
+  the one brain the D29 bundle cache deliberately
+  skips). The reason is STILL_GATHERING_REASON, in
+  the brain's reason register (the rung-3/4 "sold
+  prices need an exact postcode" family): "sold
+  prices are still being gathered for this postcode
+  — check again shortly" — honest for both failures
+  the variant covers, since a failed load is retried
+  by the next check.
+- lib/short-bundle.ts: shortSoldPrices carries the
+  state across verbatim, behind the not-covered
+  branch, before the figures path.
+- Consumers: lib/results.ts needed NO change (its
+  sold-history block already pushes sold.reason for
+  every non-served state — verified, not assumed);
+  lib/server/serve.ts needed NO change (the
+  Promise.all assembly is safe once the brain
+  catches); lib/journey.ts's historyGroupResult —
+  historyRowResult's successor in the
+  checking-screen rebuild — takes the variant
+  BEFORE its figures path, completing the Past
+  sales row unavailable with the reason as its
+  line; lib/shortlist-card.ts guards its ownHistory
+  read, so a rung-1 card assembles with no last
+  sale. The shortlist rung-3 facts line needed no
+  guard: the wider-area named states always carry
+  a reason.
+- The forced-pending @smoke spec in e2e/cold.e2e.ts
+  is un-fixmed with this landing — it is the
+  permanent regression test for the defect. The
+  bounded-load unit test's first assertion moved
+  from "the bundle rejects" to "the bundle answers
+  the variant, promptly"; the source-level
+  rejection is pinned by its own test beside it.
+- Test-side narrowing guards in the sold-prices,
+  state-matrix, golden-replay, explainer-census
+  and short-bundle suites were strengthened to
+  exclude the new variant where they assert the
+  figures form — every assertion unchanged.
+
+Tag audit after Part A: 156 tests — 9 @smoke,
+147 @regression (the un-fixmed spec was already
+counted; the partition is unchanged).
+
+## The checking screen rebuilt (19 Nov 2026) — Sample 7, "The Recommendation, Combined"
+
+- Founder ruling, 19 Nov 2026: the D73 checking screen's
+  form is replaced. The design is Sample 7 of the
+  checking-page design samples ("The Recommendation,
+  Combined"), drawn as Final Sample Master view 2: a
+  rotating headline sentence naming the group in flight;
+  an evidence feed whose five rows each complete with a
+  FINDING line derived from the real served data, never
+  a bare "Done"; and a five-segment seal around the
+  house mark that stamps CHECKED when the last group
+  lands, as the final beat before the reveal.
+- D73's mechanics stand, unchanged: the advance still
+  waits for the three /api/check part calls to settle;
+  group completion is driven by those settlements, in
+  feed order, with the 720ms pacing as smoothing (the
+  timer is the floor, the data is the gate); the reveal
+  follows ~600ms after the fifth group; the results
+  derivation is untouched. A group whose part serves a
+  not-filed, not-covered or failure state completes
+  with that honest named state instead of a finding —
+  D44(5)(ii)'s row-marking, restored in the new form.
+- The derivation is server-side (lib/journey.ts:
+  nearbyCheckingGroups, floodCheckingSegments,
+  areaCheckingGroups; the client assembles the three
+  payloads with assembleCheckingOutcomes): the part
+  routes answer with the derived completion lines,
+  because the bundles are server contracts and never
+  ship to the browser. The shared formatters
+  (formatMiles, formatPounds, formatFiledDate) and the
+  flood band mapping (floodBandOf) moved from
+  lib/results.ts into lib/journey.ts so the checking
+  lines and the results page compose with the same
+  forms; results.ts imports and re-exports them, so no
+  other consumer moved.
+- The per-group completion-line mapping — every line is
+  computed from the bundles the parts returned for this
+  check:
+  - Schools & nurseries (nearby part): any of the four
+    categories (primary, secondary, sixth forms,
+    nurseries) not-filed → the group completes
+    unavailable with that category's own served line.
+    Otherwise the line names each category's own filed
+    countWithin inside 2 miles ("Within 2 miles: 3
+    primary schools · 1 secondary school · 2
+    nurseries"). The counts are NEVER summed: the
+    category selections overlap (a primary-phase school
+    with a sixth form files in both the primary and the
+    sixth-form selections — lib/nearby.ts's
+    CATEGORY_SQL), so the drawn combined "schools &
+    nurseries" total would double-count and state a
+    figure no brain serves. Where nothing files within
+    the radius in any category, the primary category's
+    own served line speaks for the group (it names the
+    nearest beyond the radius).
+  - Health & the everyday (nearby part): the three core
+    categories (GP, dentist, pharmacy). Any not-filed →
+    its own line, unavailable. All three nearest within
+    a mile → "GP, dentist & pharmacy within a mile";
+    otherwise the three nearest distances ("GP 0.3
+    miles · dentist 2.4 miles · pharmacy 1 mile"). A
+    core service with nothing filed at any distance
+    completes the group with its own served line.
+  - Safety & surroundings (flood part + area part):
+    segments in the order crime, flood, air, each with
+    its own source prefix. Crime served → the count
+    from the brain's served totalLine in the drawn form
+    ("330 recorded crimes in the last 12 months" — the
+    brain's window is always exactly twelve months);
+    not-filed / not-covered → its reason. Flood served
+    → the band segment through floodBandOf over the two
+    full layers ("flood risk very low" where both
+    agree; both bands named where they differ; a
+    bandless layer speaks with its own line, named when
+    not-filed); live warnings serve first (D42), and a
+    live feed that could not answer appends its line
+    after the filed answer without naming the group
+    unavailable; flood not-covered → its reason. Air
+    contributes a segment only when it serves a named
+    state (its not-filed line, prefixed Defra): the
+    drawn finding carries crime and flood, and a served
+    air answer is the results page's to carry. A failed
+    part completes its half with its named failure
+    segment ("Flood couldn't be checked just now" /
+    "Crime and air quality couldn't be checked just
+    now").
+  - Costs & connections (area part): council tax
+    served → "Council tax Band D average
+    {bandDAverageLabel}"; broadband served → its
+    served line verbatim; not-filed / not-covered
+    states serve their lines as named segments. The
+    EPC contributes only a named state (a served band
+    is the results page's headline); mobile never
+    contributes (D36: mobile never headlines).
+  - Past sales & prices (area part): rung 1 with a
+    recorded own sale → "This home sold for {price} on
+    {date}" (the most recent of ownHistory, newest
+    first) then "{recordedCount} recorded sales in this
+    postcode"; a filed zero (loadState loaded-none)
+    completes DONE with the brain's own no-sale
+    sentence; not-covered → its reason.
+- Accessibility: a role="status" region renders from
+  the first paint and announces milestones only (each
+  group's completion, then "Your check is ready. Five
+  of five checks complete.") — never percentages; the
+  progress bar counts groups (aria-valuemax 5);
+  prefers-reduced-motion removes the spin, the sentence
+  fade and the stamp spring while the states still
+  change; the seal is decorative (aria-hidden) because
+  its information is the feed's and the final beat is
+  the announcement — where the Master draws the seal as
+  role="img" with a completion label, that label would
+  misdescribe the in-progress seal, so the research's
+  live-region pattern governs. Recorded here as a
+  deliberate divergence, for the parity audit.
+- The retired row-9 element list went with the old
+  derivation. It was never rendered by the D73 screen
+  (the graphic showed label and state only), so nothing
+  visitor-facing changes: the checking screen carries
+  the Master's five groups, OWNERSHIP_NOT_PART_LINE
+  stays pinned in lib/journey.ts, and the results
+  page's own company-ownership block is untouched.
+- Specs updated to the new treatment, none deleted: the
+  checking spec (sources in place of qualifiers, the
+  starting sentence, the seal caption, the schools
+  finding line, the group-count progress bar), the
+  per-row failure spec (now asserting the safety row's
+  named failure line beside its real crime finding),
+  and the phone spec (now also asserting the safety
+  line wraps at 360px).
+
+## The wider-area checking screen (19 Nov 2026) — Sample 3, "The Recommendation, Combined"
+
+- Founder ruling, 19 Nov 2026: the wider-area search
+  gets its own checking screen — Sample 3 of the
+  wider-area checking samples, drawn as Final Sample
+  Master view 31. Same system as the home screen (the
+  rotating sentence, the evidence feed, the D73
+  pacing, completion driven by real data), different
+  centrepiece and different groups: the four groups are
+  the D76 tabs (Family Checks, The Neighbourhood, Home,
+  Costs & Risks, What's Nearby), and the seal is
+  replaced by a schematic district sweep that shades a
+  quarter per group and takes a "{outward} · {place}"
+  stamp at completion — a place, not a home, so no seal
+  and no house mark.
+- The mechanics decision, on the premise check's
+  evidence: the district page did NOT stream
+  progressively — the outward branch awaited
+  checkDistrictWider whole (the short bundle, then the
+  district bundle, itself one Promise.all of eighteen
+  source reads), and the only interim was the route's
+  static Suspense fallback. There were no per-group
+  arrivals to observe, so the honest build is the home
+  check's own architecture, which fits the streaming
+  design exactly: the page now streams the district
+  results in behind the client DistrictCheckingScreen
+  (a Suspense child, as the home page streams its
+  results behind CheckingScreen), and the screen holds
+  them until its gate completes. The gate is one
+  payload — GET /api/check/district?outward=… — derived
+  server-side from the district bundle through
+  lib/district-checking.ts; the bundle never ships to
+  the browser. One supporting change keeps the two
+  derivations on one bundle: buildDistrictBundleCached
+  is single-flight per outward (a globalThis-anchored
+  in-flight registry, the sold-prices loads pattern),
+  so the payload call and the streamed results share
+  the cold build and receive the very same bundle
+  instance. The softening is stated in the cache's own
+  comment: the live flood warnings are composed inside
+  the shared build, so two serves joining one build
+  share that composition; the cache-hit path still
+  refreshes warnings on every serve.
+- Honest granularity, recorded plainly: the district
+  bundle assembles as a single build, so the four
+  groups' lines arrive in the single payload settlement
+  and complete in feed order under the D73 pacing
+  (720ms spacing, reveal ~600ms after the fourth) —
+  exactly as home groups do when their parts settle
+  together. No group completes before the payload
+  settles; the timers space out completions the data
+  has already earned, never drive them. A payload that
+  fails completes every group with its named failure
+  line and the results still open. Scotland and
+  Northern Ireland: the payload reports the bundle's
+  not-covered kind and the screen completes on
+  settlement without playing — no groups are drawn
+  complete for a check the product does not run, and
+  the streamed not-covered results reveal as they land
+  (Phase 3 owns those nations' treatment). The screen
+  fires no check_started: the counting catalogue scopes
+  that event to the home checking screen (rungs 1–2),
+  and a district check's completion is already counted
+  by the CheckCompletedBeacon inside the results, which
+  mounts exactly at the reveal.
+- The derivation shares the home derivation's segment
+  machinery (joinSegments and groupResult are exported
+  from lib/journey.ts for both): segments joined "; ",
+  the first carrying the group's lead prefix unless it
+  carries its own, a named segment making its group
+  unavailable, a non-lead dataset contributing only its
+  named state. The named-state sentences the district
+  sections do not carry as fields are the district
+  results view's own words for the same states,
+  repeated in lib/district-checking.ts and marked
+  there. The per-group mapping:
+  - Family Checks (schools): not filed → unavailable
+    on the results view's sentence. Served → "{p}
+    primary school(s) and {s} secondary school(s) found
+    across {outward}", plus the grammar clause
+    ("— and no grammar school filed in the district"
+    where none files — the results page's own "filed"
+    wording for the same fact; "— including {g} grammar
+    school(s)" where some do). Where neither lead phase
+    files, the section's own headline stands for the
+    group ("{counted} schools are filed inside
+    {outward}.", a filed zero included, state done).
+  - The Neighbourhood (district itself, census, crime,
+    deprivation, air — the tab's order): the lead
+    segment is "{residents} residents across {lsoaCount}
+    small areas" on the district section's own residents
+    figure (the census sum as fallback) — the same
+    figure the page's head tiles serve, so the feed
+    cannot contradict the page. Crime carries its own
+    Police.uk prefix: served → "{total} recorded crimes
+    in the last 12 months, {per1000} per 1,000 residents
+    against England's {englandPer1000}" (the brain's
+    served form, ready for the day a district total is
+    filed). TODAY'S PRODUCTION TRUTH: the district
+    source files no district crime total at all — the
+    per-postcode circles would double-count — so the
+    crime section always serves its honest line, and
+    The Neighbourhood completes UNAVAILABLE with that
+    line verbatim as the Police.uk segment. The drawn
+    crime finding in Master view 31 cannot be served
+    until the M12 LSOA-grain crime filing exists; the
+    plan already records that position for the district
+    page itself. Deprivation and air contribute only
+    named states (air's prefixed Defra).
+  - Home, Costs & Risks (sold prices, council tax,
+    connectivity, flood): sold not filed → its named
+    line; served → "median sold price {£} across {n}
+    sales"; too few for a median → the count without a
+    median; none → the recorded zero. Council tax →
+    "council tax Band D {pence} in {council}" per filed
+    council, joined ", " with a final " and ", at the
+    district page's own pence-exact format (£2,148.00 —
+    the filed average is exact to the penny; the
+    Master's drawing rounds it, a named divergence
+    below); an unfiled council names itself as a named
+    segment. Connectivity contributes only its
+    not-filed state. Flood: not covered (Wales) or not
+    filed → the section's own line verbatim, named;
+    served → live warnings lead (D42), then the share
+    of counted postcodes outside the mapped river &
+    sea flood bands, read from the section's planning-
+    zone shares — postcodes, the unit the section
+    counts (the Master's drawing says "homes", a named
+    divergence below); a layer filed but not covering
+    the district names itself; an unanswered live feed
+    appends its line after the filed answer.
+  - What's Nearby (everyday): not filed → unavailable
+    on the results view's sentence. Served → "{gp} GP
+    practice(s), {d} dentist(s) and {p} pharmacies
+    across {outward}"; stations join as "1 rail
+    station, {name}" or "{n} rail stations, from
+    {first} to {last}" in served order.
+- The sweep (components/DistrictSweep.tsx, shared with
+  the loading frame): Master view 31's geometry
+  verbatim — boundary, twelve cells (the Master's own
+  alt set {3,4,5,6}), park, roads, river with its flood
+  wash, one station marker, the stamp. Beats: cells
+  shade three per completed group in feed order; the
+  flood wash joins the third group (Home, Costs &
+  Risks — the group that holds the flood sections; the
+  samples' runner keys it to the same group); the
+  station marker joins the fourth (What's Nearby, by
+  Sample 2's marker precedent — the Master draws the
+  completed beat with the marker present); the stamp
+  lands only at all-complete. The sweep is role="img"
+  with a neutral label true at every beat ("Schematic
+  sketch of the {outward} district — an illustration,
+  not a map.") and the Master's caption under it; the
+  stamp's place is the district head's filed post town,
+  and the intro line's county appears only where the
+  district sits in exactly one county (a straddle
+  carries the head chips' form on the results page, not
+  a guess here). The /search loading frame is redressed
+  as the same screen at rest (no intro line — the
+  fallback knows no district; the live screen adds it
+  on mount).
+- Parity audit against Master view 31 (the founder's
+  standing rule — every divergence named):
+  1. District crime: the Master draws a crime finding;
+     production serves the honest not-filed line and
+     the group completes unavailable (above). A data
+     limit, not a design choice — it lifts with the
+     M12 LSOA-grain crime filing, as the district
+     page's own record already states.
+  2. Council tax precision: the Master draws "£2,148";
+     the product serves "£2,148.00", the district
+     page's own pence-exact form. The feed must not
+     contradict the page behind it.
+  3. The flood share's unit: the Master draws "88% of
+     homes"; the section counts postcodes, so the
+     product serves "88% of postcodes". The honest
+     unit governs.
+  4. The grammar clause's one word: the Master draws
+     "no grammar school in the district"; the product
+     serves "no grammar school filed in the district",
+     the results page's own wording for the fact.
+  5. Reduced motion: the samples collapse all pacing
+     to zero; the product follows its settled checking
+     precedent — CSS stills the shading transitions,
+     the flood fade and the stamp spring, and the D73
+     pacing (mechanics, not animation) is untouched.
+  6. The sweep's accessible label stays neutral at
+     every beat; the Master draws its label for the
+     completed beat ("…four quarters shaded, the CM3
+     stamp landed"), which would misdescribe the
+     in-progress sweep — the home screen's seal
+     precedent governs, with the live region carrying
+     the progress.
+  7. The loading frame carries no intro line (it knows
+     no district); the live screen adds "District
+     {outward} · {place}" on mount — a one-line layout
+     settling at the takeover, in place of the old
+     frame's bare four rows.
+  8. Row sources are the Master's fuller forms
+     ("DfE Get Information About Schools · Ofsted",
+     "ONS · Census 2021 · Police.uk", "HM Land
+     Registry · Councils · Environment Agency", "NHS
+     service finder · OSM places"), not the samples'
+     shorter ones; two doing lines were adjusted where
+     the samples named content the product's groups do
+     not hold (family names schools alone — nurseries
+     are not a district section and crime sits in The
+     Neighbourhood; home names broadband, not "energy"
+     — there is no district EPC section; nearby counts
+     the everyday section's four contents).
+- Specs: tests/district-checking.test.ts pins the
+  screen's copy, the four Master-form lines from a
+  fully served fixture, every named-state path, the
+  served edges (grammar, too-few sales, warnings lead
+  and append, station forms, the stamp payload fields)
+  and the failure outcomes; tests/district-cache.test.ts
+  gains the single-flight pin (two concurrent serves,
+  one build, the same bundle instance). The e2e tag
+  audit moves 156 → 157 (9 @smoke / 148 @regression)
+  for one new @regression spec asserting the screen's
+  frame over a district navigation and the reveal; no
+  test deleted. Nine existing specs that assert the
+  "Wider area — X" heading straight after navigation
+  now carry the 30-second wait the same specs already
+  use for the results (calculators, journey ×2, phone,
+  results, shortlist, suggest ×2, cold) — the heading
+  now arrives with the reveal; assertions unchanged.
+  E2E specs are not run locally (no local Postgres
+  harness — the standing limitation); CI is their
+  first live run.

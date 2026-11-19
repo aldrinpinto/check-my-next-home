@@ -299,8 +299,9 @@ test.describe("phone-first — 360×740 (T-WEB-01)", () => {
     { tag: "@regression" },
     async ({ page }) => {
       // Hold the brain calls so the screen is observable
-      // (the journey spec's own device): the graphic ticks
-      // on its own clock and the advance waits for both.
+      // (the journey spec's own device): group completion
+      // waits for the parts' real settlements, paced, and
+      // the advance waits for all five groups.
       await page.route("**/api/check/**", async (route) => {
         await new Promise((resolve) => setTimeout(resolve, 2_000));
         await route.continue();
@@ -310,6 +311,15 @@ test.describe("phone-first — 360×740 (T-WEB-01)", () => {
       await page.getByRole("link", { name: "19 Birkdale Rise", exact: true }).click();
       await expect(page.locator(".checking .page-title")).toHaveText("Your check is under way");
       await expect(page.locator(".checking__row")).toHaveCount(5);
+      await expectNoSidewaysScroll(page);
+
+      // The longest finding line on the screen — the
+      // safety group's, carrying the seeded corpus's crime
+      // count — wraps inside the phone's width: the row
+      // completes with it and nothing scrolls sideways.
+      await expect(
+        page.locator('.checking__row[data-row="safety"] .checking__row-state'),
+      ).toContainText("recorded crimes in the last 12 months", { timeout: 15_000 });
       await expectNoSidewaysScroll(page);
 
       await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
@@ -433,8 +443,11 @@ test.describe("phone-first — 360×740 (T-WEB-01)", () => {
     { tag: "@regression" },
     async ({ page }) => {
       await page.goto("/search?outward=E16");
+      // Held reveal (the wider-area checking screen,
+      // 19 Nov 2026): the heading arrives with the results.
       await expect(page.getByRole("heading", { name: "Wider area — E16" })).toHaveText(
         "Wider area — E16",
+        { timeout: 30_000 },
       );
       // The district page head carries no shortlist
       // control (founder fix batch, 19 Nov 2026): the

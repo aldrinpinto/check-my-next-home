@@ -9,7 +9,7 @@ import {
   POSTCODE_BOX_LABEL,
   POSTCODE_BOX_PLACEHOLDER,
 } from "../lib/home";
-import { FAILED_ROUTE, TURNSTILE_BLOCK_LINE } from "../lib/journey";
+import { FAILED_ROUTE, TURNSTILE_BLOCK_LINE, placeChoiceRoute } from "../lib/journey";
 import { Button, SuggestionShell, type SuggestionGroup, type SuggestionItem } from "./kit";
 
 // M7.3 — the one postcode box, wired. M7.2 shipped it inert
@@ -49,22 +49,20 @@ import { Button, SuggestionShell, type SuggestionGroup, type SuggestionItem } fr
 // navigate straight to the item's route (the picker for a
 // postcode, the home's check for a home); the robot check
 // stays on the typed-submit path only, exactly as ruled.
-// One pick does not navigate (M7.15D): a Places item
-// files its filed name into the field, expanding the
-// panel to that place's districts — the town chooser
-// lives inside this dropdown, never on a page.
-// Founder fix batch (19 Nov 2026): the pick now visibly
-// lands — the picked row carries a selected state and
-// the Districts group is scrolled into view within the
-// panel — and pressing the button with the field holding
-// exactly a known place name IS the place pick (the
-// panel stays, the districts reveal, nothing navigates
-// and the failure page is unreachable from a place
-// name). The serve layer routes a bare place name that
-// arrives by URL to the landing with the name filed
-// (lib/server/serve.ts's placeLandingUrl), where this
-// box's own fetch opens the same panel on the same
-// districts.
+// Places join the navigating picks (founder ruling,
+// 19 Nov 2026, reversing the 18 Nov in-dropdown chooser
+// and the same morning's fix-batch reveal): a Places
+// item's pick goes to the place page, which lists the
+// place's districts in full, exactly as a street pick
+// goes to the street choice page — no pick expands the
+// panel in place any more. Pressing the button with the
+// field holding exactly a known place name IS the place
+// pick the same way: it navigates to the place page
+// before the robot check (which stays on the search path
+// only), and the failure page is unreachable from a
+// place name. The serve layer routes a bare place name
+// that arrives by URL to the same page
+// (lib/server/serve.ts's placeChoiceUrl).
 // Keyboard: up/down move the active suggestion, Enter
 // chooses it, Escape closes the panel. D71 amendment
 // (18 Nov 2026): for a full postcode the panel carries the
@@ -188,44 +186,15 @@ export default function PostcodeBox({
   const [panelOpen, setPanelOpen] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
   const hrefByIdRef = useRef(new Map<string, string>());
-  // The one non-navigating pick (M7.15D): a Places item
-  // carries the filed place name instead of an href —
-  // choosing it files the name into the field, and the
-  // ordinary suggest fetch then serves that place's
-  // districts in the same panel (the town chooser lives
-  // inside the picker; there is no town page).
+  // A Places item carries the filed place name alongside
+  // its href (M7.15D; the pick navigates since the
+  // founder's ruling of 19 Nov 2026): the name is not
+  // for choosing — every pick follows its href — it is
+  // how the submit path below recognises a field holding
+  // exactly a place name.
   const placeByIdRef = useRef(new Map<string, string>());
   const suggestSeqRef = useRef(0);
   const choosingRef = useRef(false);
-  // The picked place (founder fix batch, 19 Nov 2026):
-  // the filed name the panel is currently expanded on,
-  // and the pending reveal — set when a place is picked
-  // (or the field arrives holding an exact place name),
-  // consumed when the place's district group lands in
-  // the panel and is scrolled into view. A pick that
-  // changed nothing visibly was the founder's twice-
-  // reported dead click; the picked row's selected state
-  // and the revealed districts are the landing made
-  // visible.
-  const [pickedPlace, setPickedPlace] = useState<string | null>(null);
-  const [pickedId, setPickedId] = useState<string | null>(null);
-  const pickedPlaceRef = useRef<string | null>(null);
-  const revealPendingRef = useRef(false);
-  // A reveal that does not change the field's value (the
-  // name is already filed) re-runs the suggest effect
-  // through this tick — the effect is the one fetch path.
-  const [revealTick, setRevealTick] = useState(0);
-
-  // The pick's bookkeeping in one place: the state the
-  // render reads, and the ref the async fetch reads (a
-  // fetch that lands after the pick changed must mark —
-  // or clear — the row in ITS OWN groups, whose ids it
-  // minted).
-  function markPicked(place: string | null) {
-    pickedPlaceRef.current = place;
-    setPickedPlace(place);
-    if (place === null) setPickedId(null);
-  }
   // Below the 3-character floor the panel is derived shut
   // at render — the effect never clears state synchronously.
   const typedLength = value.trim().length;
@@ -277,30 +246,6 @@ export default function PostcodeBox({
           setLiveGroups(groups);
           setPanelOpen(groups.length > 0);
           setActiveId(null);
-          // The picked row in THESE groups (founder fix
-          // batch): an exact place arrival — the fetched
-          // value IS a filed place's whole name — makes
-          // the pick; a standing pick is re-marked under
-          // its new id (ids are minted per fetch); a pick
-          // these groups no longer carry loses its row.
-          const idByPlace = new Map(
-            [...places.entries()].map(([id, place]) => [place, id] as const),
-          );
-          let marked = false;
-          for (const place of places.values()) {
-            if (placeNormOf(place) === placeNormOf(typed)) {
-              pickedPlaceRef.current = place;
-              setPickedPlace(place);
-              setPickedId(idByPlace.get(place) ?? null);
-              revealPendingRef.current = true;
-              marked = true;
-              break;
-            }
-          }
-          if (!marked) {
-            const standing = pickedPlaceRef.current;
-            setPickedId(standing ? (idByPlace.get(standing) ?? null) : null);
-          }
         } catch {
           if (seq !== suggestSeqRef.current) return;
           setLiveGroups([]);
@@ -310,23 +255,7 @@ export default function PostcodeBox({
       })();
     }, 140);
     return () => clearTimeout(timer);
-  }, [value, suggestions, revealTick]);
-
-  // The reveal (founder fix batch): when the picked
-  // place's district group lands in the panel, scroll it
-  // into view within the panel's region — the districts
-  // sat below the dropdown's fold and the pick read as a
-  // dead click. "nearest" leaves an already-visible group
-  // (and the page) untouched.
-  useEffect(() => {
-    if (!revealPendingRef.current || !pickedPlace) return;
-    const group = document.querySelector(
-      '#postcode-suggestions [data-group-label^="Districts in"]',
-    );
-    if (!group) return;
-    revealPendingRef.current = false;
-    group.scrollIntoView({ block: "nearest" });
-  }, [liveGroups, pickedPlace]);
+  }, [value, suggestions]);
 
   // Keep the keyboard's active row in view (D71
   // amendment): on a full postcode's complete list the
@@ -339,40 +268,12 @@ export default function PostcodeBox({
     document.getElementById(activeId)?.scrollIntoView({ block: "nearest" });
   }, [activeId]);
 
-  // The place pick, one behaviour wherever it starts
-  // (founder fix batch): file the filed name into the
-  // field, mark it picked, keep the panel open on the
-  // place's districts. Where the value is not changing
-  // (the field already holds the name — a submit pressed
-  // on it), the suggest effect is re-run through the
-  // reveal tick: no value change means no effect run, and
-  // the reveal must not depend on one.
-  function revealPlace(place: string) {
-    markPicked(place);
-    revealPendingRef.current = true;
-    setPanelOpen(true);
-    if (value === place) {
-      setRevealTick((tick) => tick + 1);
-    } else {
-      setValue(place);
-    }
-  }
-
   function choose(item: SuggestionItem) {
     if (choosingRef.current) return;
-    // A Places pick (M7.15D) expands in place: file the
-    // filed name into the field — the value change
-    // re-runs the suggest fetch, whose answer carries
-    // the place's districts in the same panel. No
-    // navigation, and the choosing latch stays off: the
-    // visitor's next pick (a district) still has to land.
-    const place = placeByIdRef.current.get(item.id);
-    if (place) {
-      revealPlace(place);
-      setPickedId(item.id);
-      setActiveId(null);
-      return;
-    }
+    // Every pick navigates to its item's route — a home
+    // to its check, a street to its choice or its one
+    // postcode, a place to the place page (founder
+    // ruling, 19 Nov 2026: no pick expands in place).
     const href = hrefByIdRef.current.get(item.id);
     if (!href) return;
     choosingRef.current = true;
@@ -462,17 +363,17 @@ export default function PostcodeBox({
     });
   }
 
-  // The submit's place check (founder fix batch): the
-  // field holding exactly a known place name is a place
-  // pick, never a search — the panel stays, the districts
-  // reveal, and nothing navigates (the founder's
-  // twice-reported landing on the failure page from a
-  // place name ends here, and the serve layer answers the
-  // same input the same way for arrivals that bypass this
-  // box). The current panel's places answer first; a
-  // stale or absent panel is settled with one fresh
-  // suggest fetch. Exact equality only — a near-match is
-  // never silently applied.
+  // The submit's place check (founder fix batch; the
+  // destination ruled again 19 Nov 2026): the field
+  // holding exactly a known place name is a place pick,
+  // never a search — it navigates to the place page (the
+  // founder's twice-reported landing on the failure page
+  // from a place name ends here, and the serve layer
+  // answers the same input the same way for arrivals
+  // that bypass this box). The current panel's places
+  // answer first; a stale or absent panel is settled
+  // with one fresh suggest fetch. Exact equality only —
+  // a near-match is never silently applied.
   async function exactPlaceFor(typed: string): Promise<string | null> {
     const norm = placeNormOf(typed);
     if (norm.length === 0) return null;
@@ -506,10 +407,12 @@ export default function PostcodeBox({
     // A place name in the field is the place pick: it
     // runs before the robot check (which stays on the
     // search path only, exactly as ruled for picks) and
-    // never reaches the resolve call at all.
+    // never reaches the resolve call at all — it goes
+    // straight to the place page, as the dropdown's
+    // place pick does.
     const place = await exactPlaceFor(typed);
     if (place) {
-      revealPlace(place);
+      window.location.assign(placeChoiceRoute(place));
       return;
     }
 
@@ -565,14 +468,7 @@ export default function PostcodeBox({
       : "postcode-hint";
 
   function onFieldChange(event: { target: { value: string } }) {
-    const next = event.target.value;
-    setValue(next);
-    // Editing away from the picked name retires the pick:
-    // its selected state belongs to the name in the field.
-    if (pickedPlace && placeNormOf(next) !== placeNormOf(pickedPlace)) {
-      markPicked(null);
-      revealPendingRef.current = false;
-    }
+    setValue(event.target.value);
   }
 
   return (
@@ -630,7 +526,6 @@ export default function PostcodeBox({
             id="postcode-suggestions"
             groups={visibleGroups}
             activeId={activeId}
-            pickedId={pickedId}
             onSelect={choose}
           />
         )

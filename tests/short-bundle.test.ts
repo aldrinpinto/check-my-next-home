@@ -32,6 +32,7 @@ import { buildNearbyBundle, type NearbyDataSource, type NearbyPoint } from "../l
 import { buildResultsView, resultsScopeLabel } from "../lib/results";
 import { buildShortBundle, type ShortBundle } from "../lib/short-bundle";
 import {
+  STILL_GATHERING_REASON,
   buildSoldPricesBundle,
   type SoldPriceRow,
   type SoldPricesDataSource,
@@ -2125,6 +2126,22 @@ async function shortFor(resolution: AddressResolution, now: Date = NOW): Promise
   return buildShortBundle(await fullBundles(resolution, now));
 }
 
+// Part A of the cold-check fix (19 Nov 2026): a sold
+// source whose cold load never lands — the bundle is
+// the unavailable variant, and the short derivation
+// must carry its named state, never figures.
+class FailingSoldPricesSource implements SoldPricesDataSource {
+  async salesInPostcode() {
+    return [];
+  }
+  async loadEdition() {
+    return null;
+  }
+  async loadPostcode(): Promise<void> {
+    throw new Error("the sold-prices load is still running");
+  }
+}
+
 type ServedShort = Extract<ShortBundle, { kind: "short-bundle" }>;
 
 function servedShort(short: ShortBundle): ServedShort {
@@ -2207,6 +2224,24 @@ describe("short bundle — 19 Birkdale Rise, CM3 2JT (rung 1)", () => {
     expect(short.rung).toBe(1);
     expect(short.postcode).toBe("CM3 2JT");
     expect(Object.keys(short.sections)).toEqual([...SECTION_ORDER, "planningApplications"]);
+  });
+
+  it("sold prices unavailable: a cold load that has not landed carries the named state, never figures", async () => {
+    // Part A of the cold-check fix (19 Nov 2026): the
+    // other four bundles serve as ever; the sold-prices
+    // section is the brain's unavailable state verbatim.
+    const [nearby, crime, flood, area] = await Promise.all([
+      buildNearbyBundle(BIRKDALE, nearbySource),
+      buildCrimeBundle(BIRKDALE, crimeSource, { now: NOW }),
+      buildFloodBundle(BIRKDALE, floodSource),
+      buildAreaBundle(BIRKDALE, areaSource),
+    ]);
+    const soldPrices = await buildSoldPricesBundle(BIRKDALE, new FailingSoldPricesSource());
+    const short = servedShort(buildShortBundle({ nearby, soldPrices, crime, flood, area }));
+    expect(short.sections.soldPrices).toEqual({
+      state: "unavailable",
+      reason: STILL_GATHERING_REASON,
+    });
   });
 
   it("sold prices: own last sale AND the postcode median, as separate facts", async () => {
@@ -3717,7 +3752,8 @@ describe("short bundle — a zero-filed postcode settles (CI #216)", () => {
       buildFloodBundle(resolution, floodSource),
       buildAreaBundle(resolution, areaSource),
     ]);
-    if (soldPrices.kind !== "sold-prices") throw new Error("expected a sold-prices bundle");
+    if (soldPrices.kind !== "sold-prices" || "soldPrices" in soldPrices)
+      throw new Error("expected a sold-prices bundle");
     expect(soldPrices.loadState).toBe("loaded-none");
     expect(soldPrices.recordedCount).toBe(0);
     if (crime.kind !== "crime") throw new Error("expected a crime bundle");

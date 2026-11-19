@@ -14,10 +14,7 @@ import { buildEntryFixture } from "./fixtures/entry-point";
 
 // M7.15D — place search (founder ruling, 18 Nov 2026):
 // a town or place name offers the place in the dropdown
-// as a fourth group, Places; picking the place (or
-// typing its full name) offers its postcode districts
-// in the same list, and a district leads to that
-// district's wider-area page. Places derive from held
+// as a fourth group, Places. Places derive from held
 // data only — the picking index's town-as-filed, with
 // each district's standing read from the directory's
 // LSOA letters, exactly the test the district bundle
@@ -25,6 +22,16 @@ import { buildEntryFixture } from "./fixtures/entry-point";
 // ONLY, as with streets: "Chlemsford" offers Chelmsford,
 // never a silent substitution, and submitting without a
 // pick never applies it.
+//
+// The pick's behaviour (founder ruling, 19 Nov 2026,
+// reversing the 18 Nov in-dropdown chooser): a place
+// pick NAVIGATES, like a street pick — to the place
+// page, which lists the place's districts in full; a
+// place serving exactly one district routes straight
+// to that district's wider-area page. No districts
+// group rides the panel any more, typed in full or
+// not: these specs pin the panel holding the place as
+// a choice and nothing beneath it.
 //
 // The world below is a fixture of the widened suggestion
 // port, in the street-suggestions fixtures' style: place
@@ -196,38 +203,28 @@ beforeEach(() => {
   setEntryLogSink((line) => lines.push(line));
 });
 
-describe("place search — the place, then its districts", () => {
-  it("typing the town offers the place and its districts in the same list (view 25's state)", async () => {
+describe("place search — the place pick navigates to the place page", () => {
+  it("typing the town offers the place with the place page's route — and no districts group", async () => {
     const result = await suggestionsFor("Chelmsford", fakeSource(), "pl1");
     // This world's Chelmsford Road is a street too, so
     // the Streets and Properties groups serve ahead of
-    // the place groups — the same shape the live
+    // the Places group — the same shape the live
     // directory produced for "Birkdale" (M7.15C's deploy
-    // round). The place groups land after them, in the
-    // order view 25 shows: the place, then its districts.
-    expect(result.groups.map((group) => group.label)).toEqual([
-      "Streets",
-      "Properties",
-      "Places",
-      "Districts in Chelmsford",
-    ]);
+    // round). Behind them the panel holds the place
+    // alone: the districts are the place page's
+    // business now, not the panel's.
+    expect(result.groups.map((group) => group.label)).toEqual(["Streets", "Properties", "Places"]);
     const places = result.groups.find((group) => group.label === "Places")!;
-    const districts = result.groups.find((group) => group.label === "Districts in Chelmsford")!;
-    // The place row itself: it carries no navigation —
-    // its pick expands the panel (the client sets the
-    // field to the filed name), so href is null and the
-    // filed name rides as the expansion.
-    expect(places.items).toEqual([{ label: "Chelmsford", href: null, place: "Chelmsford" }]);
-    // The districts, in the picker's list style: each is
-    // the wider-area page's route, in district order.
-    expect(districts.items).toEqual([
-      { label: "CM1 — Chelmsford", href: "/search?outward=CM1" },
-      { label: "CM2 — Chelmsford", href: "/search?outward=CM2" },
-      { label: "CM3 — Chelmsford", href: "/search?outward=CM3" },
+    // The place row: it carries the place page's route
+    // (the pick navigates), and the filed name rides in
+    // `place` for the submit path's exact-name check.
+    expect(places.items).toEqual([
+      { label: "Chelmsford", href: "/search?place=Chelmsford", place: "Chelmsford" },
     ]);
+    expect(result.groups.find((group) => group.label.startsWith("Districts"))).toBeUndefined();
   });
 
-  it("a part-typed place offers the place but expands nothing — the districts wait for the full name", async () => {
+  it("a part-typed place offers the place — the panel holds the choice and nothing beneath it", async () => {
     const result = await suggestionsFor("Chelms", fakeSource(), "pl2");
     // (Chelmsford Road's street serves on the part-word
     // too — its homes do not: the properties' whole-token
@@ -238,24 +235,26 @@ describe("place search — the place, then its districts", () => {
     expect(result.groups.find((group) => group.label.startsWith("Districts"))).toBeUndefined();
   });
 
-  it("a place name typed with its district still expands ('Chelmsford CM3')", async () => {
+  it("a place name typed with its district still serves no districts group ('Chelmsford CM3')", async () => {
     const result = await suggestionsFor("Chelmsford CM3", fakeSource(), "pl3");
-    const districts = result.groups.find((group) => group.label === "Districts in Chelmsford");
-    expect(districts).toBeDefined();
-    expect(districts!.items.map((item) => item.label)).toEqual([
-      "CM1 — Chelmsford",
-      "CM2 — Chelmsford",
-      "CM3 — Chelmsford",
+    expect(result.groups.find((group) => group.label.startsWith("Districts"))).toBeUndefined();
+    const places = result.groups.find((group) => group.label === "Places")!;
+    expect(places.items).toEqual([
+      { label: "Chelmsford", href: "/search?place=Chelmsford", place: "Chelmsford" },
     ]);
   });
 
-  it("the named place expands even when a sibling place is served beside it", async () => {
+  it("sibling places ride beside the named one — a one-district place routes straight to its district", async () => {
     const result = await suggestionsFor("Chester", fakeSource(), "pl4");
-    expect(result.groups.map((group) => group.label)).toEqual(["Places", "Districts in Chester"]);
-    expect(result.groups[0].items.map((item) => item.label)).toEqual(["Chester", "Chesterfield"]);
-    expect(result.groups[1].items.map((item) => item.label)).toEqual([
-      "CH1 — Chester",
-      "CH2 — Chester",
+    expect(result.groups.map((group) => group.label)).toEqual(["Places"]);
+    // Chester serves two districts, so its pick goes to
+    // the place page; Chesterfield serves one (S41), so
+    // its pick goes straight to that district's
+    // wider-area page — the street pick's one-postcode
+    // rule, at district grain.
+    expect(result.groups[0].items).toEqual([
+      { label: "Chester", href: "/search?place=Chester", place: "Chester" },
+      { label: "Chesterfield", href: "/search?outward=S41", place: "Chesterfield" },
     ]);
   });
 
@@ -274,25 +273,22 @@ describe("place search — the place, then its districts", () => {
     ]);
   });
 
-  it("a district pick leads to the wider-area page — a place pick never lands on a home", async () => {
+  it("a place pick never lands on a home", async () => {
     const result = await suggestionsFor("Chelmsford", fakeSource(), "pl6");
-    const placeGroups = result.groups.filter(
-      (group) => group.label === "Places" || group.label.startsWith("Districts"),
-    );
-    expect(placeGroups.map((group) => group.label)).toEqual(["Places", "Districts in Chelmsford"]);
-    for (const group of placeGroups) {
-      for (const item of group.items) {
-        expect(item.href ?? "").not.toContain("home=");
-        if (item.href !== null) expect(item.href.startsWith("/search?outward=")).toBe(true);
-      }
+    const places = result.groups.find((group) => group.label === "Places")!;
+    for (const item of places.items) {
+      expect(item.href ?? "").not.toContain("home=");
+      expect(
+        item.href!.startsWith("/search?place=") || item.href!.startsWith("/search?outward="),
+      ).toBe(true);
     }
   });
 
-  it("the served log counts the place groups", async () => {
+  it("the served log counts the place group — and no districts, ever", async () => {
     await suggestionsFor("Chelmsford", fakeSource(), "pl7");
     const served = lines.find((line) => line.includes("event=suggestions.served"));
     expect(served).toContain("places=1");
-    expect(served).toContain("districts=3");
+    expect(served).toContain("districts=0");
     expect(served).toContain("shape=text");
   });
 });
@@ -302,15 +298,16 @@ describe("place search — fuzzy is a choice, never a substitution", () => {
     const result = await suggestionsFor("Chlemsford", fakeSource(), "pf1");
     expect(result.groups.map((group) => group.label)).toEqual(["Places"]);
     expect(result.groups[0].items).toEqual([
-      { label: "Chelmsford", href: null, place: "Chelmsford" },
+      { label: "Chelmsford", href: "/search?place=Chelmsford", place: "Chelmsford" },
     ]);
     for (const group of result.groups) {
       for (const item of group.items) expect(item.label).not.toContain("Chlemsford");
     }
   });
 
-  it("a fuzzy place expands nothing — the districts wait for a pick, which files the real name", async () => {
+  it("a fuzzy place's panel holds the choice alone — nothing rides beneath an unpicked place", async () => {
     const result = await suggestionsFor("Chlemsford", fakeSource(), "pf2");
+    expect(result.groups.map((group) => group.label)).toEqual(["Places"]);
     expect(result.groups.find((group) => group.label.startsWith("Districts"))).toBeUndefined();
   });
 });
@@ -326,29 +323,24 @@ describe("place search — the Scotland / NI honesty rule", () => {
 });
 
 describe("place search — the group order when every group serves", () => {
-  it("Postcodes, Streets, Properties, Places, then the named place's districts", async () => {
+  it("Postcodes, Streets, Properties, Places", async () => {
     const result = await suggestionsFor("Chelmsford CM3", fakeSource(), "po1");
     expect(result.groups.map((group) => group.label)).toEqual([
       "Postcodes",
       "Streets",
       "Properties",
       "Places",
-      "Districts in Chelmsford",
     ]);
   });
 });
 
 describe("place search — against the entry-point fixture's world", () => {
-  it("Chelmsford serves with the districts that world actually holds (CM1 and CM3 — no CM2 is filed there)", async () => {
+  it("Chelmsford serves as a place pick — its districts (CM1 and CM3 in that world) are the place page's, not the panel's", async () => {
     const fixture = buildEntryFixture();
     const result = await suggestionsFor("Chelmsford", fixture.source, "pw1");
-    expect(result.groups.map((group) => group.label)).toEqual([
-      "Places",
-      "Districts in Chelmsford",
-    ]);
-    expect(result.groups[1].items.map((item) => item.label)).toEqual([
-      "CM1 — Chelmsford",
-      "CM3 — Chelmsford",
+    expect(result.groups.map((group) => group.label)).toEqual(["Places"]);
+    expect(result.groups[0].items).toEqual([
+      { label: "Chelmsford", href: "/search?place=Chelmsford", place: "Chelmsford" },
     ]);
   });
 
@@ -357,7 +349,7 @@ describe("place search — against the entry-point fixture's world", () => {
     const result = await suggestionsFor("Chlemsford", fixture.source, "pw2");
     expect(result.groups.map((group) => group.label)).toEqual(["Places"]);
     expect(result.groups[0].items).toEqual([
-      { label: "Chelmsford", href: null, place: "Chelmsford" },
+      { label: "Chelmsford", href: "/search?place=Chelmsford", place: "Chelmsford" },
     ]);
   });
 });

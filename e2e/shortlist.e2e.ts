@@ -427,8 +427,11 @@ test.describe("shortlist — regression", () => {
       // not-covered page's own control) still render.
       await seedShortlist(page, [BIRKDALE_CARD, EXETER_CARD, WIDER_AREA_CARD]);
       await page.goto("/search?outward=E16");
+      // Held reveal (the wider-area checking screen,
+      // 19 Nov 2026): the heading arrives with the results.
       await expect(page.getByRole("heading", { name: "Wider area — E16" })).toHaveText(
         "Wider area — E16",
+        { timeout: 30_000 },
       );
       await expect(page.getByRole("button", { name: "Shortlist this home" })).toHaveCount(0);
       await expect(page.locator("[data-shortlist-toggle]")).toHaveCount(0);

@@ -798,6 +798,7 @@ async function goldenBundles() {
   if (
     nearby.kind !== "distances" ||
     soldPrices.kind !== "sold-prices" ||
+    "soldPrices" in soldPrices ||
     crime.kind !== "crime" ||
     flood.kind !== "flood" ||
     area.kind !== "area-bundle" ||
@@ -857,9 +858,11 @@ const HARD_LINES: Record<string, (b: Golden) => unknown> = {
   "nearby.nearest-selective": (b) =>
     b.nearby.categories.find((c) => c.category === "schools-secondary")?.nearestSelectiveLine,
   "sold.postcode-median": (b) =>
-    b.soldPrices.kind === "sold-prices" ? b.soldPrices.median.explainer : null,
+    b.soldPrices.kind === "sold-prices" && !("soldPrices" in b.soldPrices)
+      ? b.soldPrices.median.explainer
+      : null,
   "sold.building-median": (b) =>
-    b.soldPrices.kind === "sold-prices"
+    b.soldPrices.kind === "sold-prices" && !("soldPrices" in b.soldPrices)
       ? (b.soldPrices.building?.median.explainer ??
         "no building at the golden home — asserted where a building serves")
       : null,
@@ -1090,13 +1093,17 @@ describe("explainer census — direction two (self ⇒ no note field)", () => {
     const selfObjects: [string, unknown][] = [
       [
         "sold.own-sale",
-        b.soldPrices.kind === "sold-prices" && b.soldPrices.rung === 1
+        b.soldPrices.kind === "sold-prices" &&
+        !("soldPrices" in b.soldPrices) &&
+        b.soldPrices.rung === 1
           ? b.soldPrices.ownHistory[0]
           : null,
       ],
       [
         "sold.recent-sales",
-        b.soldPrices.kind === "sold-prices" ? b.soldPrices.recentSales[0] : null,
+        b.soldPrices.kind === "sold-prices" && !("soldPrices" in b.soldPrices)
+          ? b.soldPrices.recentSales[0]
+          : null,
       ],
       [
         "crime.monthly-counts",

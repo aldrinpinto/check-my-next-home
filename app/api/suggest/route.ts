@@ -28,21 +28,23 @@
 // home list (D71 amendment, founder ruling 18 Nov 2026 —
 // the client renders it scrollable). Fragment shapes
 // serve the groups in the ruling's order — "Postcodes",
-// "Streets", "Properties" (M7.15C), then "Places" and
-// the named place's "Districts in <Place>" (M7.15D):
-// Postcodes complete to the defensive ceiling (the
-// E161G fix — the grouped cap of 5 is a render window in
-// the panel's CSS, never a served cut), Streets,
-// Properties and Places capped at 5 each.
+// "Streets", "Properties" (M7.15C), then "Places"
+// (M7.15D): Postcodes complete to the defensive ceiling
+// (the E161G fix — the grouped cap of 5 is a render
+// window in the panel's CSS, never a served cut),
+// Streets, Properties and Places capped at 5 each.
 //
-// M7.15D extends the item contract in one place, by
-// necessity of the founder's ruling that the town
-// chooser lives inside the picker: a Places item
-// carries { label, href: null, place } — its pick does
-// not navigate; the client files the filed place name
-// into the search field, and the next response expands
-// that place's districts in the same panel. Every other
-// item kind keeps { label, href } exactly as before.
+// A Places item carries { label, href, place }: the
+// href is the place page's route (a single-district
+// place's one district's wider-area route instead), and
+// `place` is the filed place name, which the client's
+// submit path uses to recognise a field holding exactly
+// a place name. As built at M7.15D the item carried
+// href: null and its pick expanded the place's
+// districts inside the panel; the founder's ruling of
+// 19 Nov 2026 reversed that — every pick navigates.
+// Every other item kind keeps { label, href } exactly
+// as before.
 
 import { NextResponse } from "next/server";
 

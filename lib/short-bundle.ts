@@ -144,6 +144,16 @@ export interface ShortBuildingMedian extends ShortMedian {
 export type ShortSoldPrices =
   | { state: "not-covered"; reason: string }
   | {
+      // The cold-load degrade (Part A of the cold-check
+      // fix, founder's authorisation, 19 Nov 2026): the
+      // postcode's sold-prices load has not landed, so
+      // the headline carries the brain's named state
+      // alone — no figures, and never the loaded-none
+      // sentence, which only a completed load may say.
+      state: "unavailable";
+      reason: string;
+    }
+  | {
       state: "served";
       // The loaded-none sentence ("No sale recorded for this
       // postcode since 1995") when the postcode was loaded
@@ -529,6 +539,11 @@ function shortPolygonLayer(answer: PolygonLayerAnswer): ShortPolygonLayer {
 function shortSoldPrices(bundle: Extract<SoldPricesBundle, { rung: 1 | 2 }>): ShortSoldPrices {
   if (bundle.kind === "not-covered")
     return { state: "not-covered", reason: bundle.soldPrices.reason };
+  // The cold-load degrade variant (Part A, 19 Nov 2026):
+  // kind "sold-prices" carrying the named state instead
+  // of figures — the state crosses verbatim, as
+  // not-covered's does.
+  if ("soldPrices" in bundle) return { state: "unavailable", reason: bundle.soldPrices.reason };
   const base = {
     state: "served" as const,
     stateLine: bundle.stateLine,

@@ -1,24 +1,53 @@
 // GET /api/check/<part>?postcode=…&home=… — the checking
-// screen's brain calls (plan step M7.3). Three parts:
-//   nearby — rows 1–7 (the nearby brain completes them
-//            together; each row's named state is its own);
-//   flood  — row 8 (the flood brain, its live-warnings
-//            element composed at serve inside the 2-second
-//            D42 budget by the cached builder);
-//   area   — row 9 (the area bundle plus the sold-prices
-//            and crime answers).
+// screen's brain calls (plan step M7.3). Three parts, one
+// per settlement the screen's five groups wait on:
+//   nearby — the schools and health groups (the nearby
+//            brain answers both together);
+//   flood  — the safety group's flood segments (the flood
+//            brain, its live warnings composed at serve
+//            inside the 2-second D42 budget by the cached
+//            builder);
+//   area   — the safety group's crime and air segments,
+//            the costs group and the history group (the
+//            area bundle plus the sold-prices and crime
+//            answers).
 // The handlers call the frozen brains through the serve
-// layer and derive row states through lib/journey.ts. A
-// part that throws answers 500 — the client marks those
-// rows with their named failure state and the results
-// still open (D44(5)(ii)).
+// layer and derive the groups' completion lines through
+// lib/journey.ts — the derivation runs here, server-side,
+// because the bundles are server contracts and are never
+// shipped to the browser. A part that throws answers 500 —
+// the client completes the affected groups with their
+// named failure lines and the results still open
+// (D44(5)(ii)).
+//
+// A fourth part serves the wider-area checking screen
+// (founder ruling, 19 Nov 2026):
+//   district — GET /api/check/district?outward=… answers
+//            the four district groups' completion lines,
+//            derived server-side from the district bundle
+//            through lib/district-checking.ts (plus the
+//            stamp's place and the nation's not-covered
+//            kind). The district serve is the page's own
+//            (checkDistrictWider, through the D29-pattern
+//            district cache), and concurrent calls share
+//            one build with the page's streamed results —
+//            the screen's lines and the results behind it
+//            derive from the same bundle.
 
 import { NextResponse } from "next/server";
 
-import { floodRowResult, historyRowResult, nearbyRowResults } from "../../../../lib/journey";
+import { resolveAddressInput, createAddressSource } from "../../../../lib/address";
+import { districtCheckingPayload } from "../../../../lib/district-checking";
+import {
+  areaCheckingGroups,
+  floodCheckingSegments,
+  nearbyCheckingGroups,
+} from "../../../../lib/journey";
 import { newRequestId } from "../../../../lib/server/entry-log";
+import { getDbPool } from "../../../../lib/server/db";
 import {
   checkArea,
+  checkDistrictWider,
   checkFlood,
   checkNearby,
   resolutionForRoute,
@@ -29,10 +58,25 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: Request, { params }: { params: Promise<{ part: string }> }) {
   const { part } = await params;
-  if (part !== "nearby" && part !== "flood" && part !== "area") {
+  if (part !== "nearby" && part !== "flood" && part !== "area" && part !== "district") {
     return NextResponse.json({ error: "unknown-part" }, { status: 404 });
   }
   const url = new URL(request.url);
+
+  if (part === "district") {
+    const outward = url.searchParams.get("outward");
+    if (!outward) return NextResponse.json({ error: "bad-request" }, { status: 400 });
+    try {
+      const resolution = await resolveAddressInput(outward, createAddressSource(getDbPool()));
+      if (resolution.rung !== 3)
+        return NextResponse.json({ error: "no-resolution" }, { status: 404 });
+      const { district } = await checkDistrictWider(resolution);
+      return NextResponse.json(districtCheckingPayload(district));
+    } catch {
+      return NextResponse.json({ error: "check-failed" }, { status: 500 });
+    }
+  }
+
   const postcode = url.searchParams.get("postcode");
   const home = url.searchParams.get("home");
   if (!postcode) return NextResponse.json({ error: "bad-request" }, { status: 400 });
@@ -42,14 +86,18 @@ export async function GET(request: Request, { params }: { params: Promise<{ part
     if (!resolution) return NextResponse.json({ error: "no-resolution" }, { status: 404 });
     if (part === "nearby") {
       const bundle = await checkNearby(resolution);
-      return NextResponse.json({ rows: nearbyRowResults(bundle) });
+      return NextResponse.json({ groups: nearbyCheckingGroups(bundle) });
     }
     if (part === "flood") {
       const bundle = await checkFlood(resolution);
-      return NextResponse.json({ row: floodRowResult(bundle) });
+      return NextResponse.json({ safety: floodCheckingSegments(bundle) });
     }
     const { area, sold, crime } = await checkArea(resolution);
-    return NextResponse.json({ row: historyRowResult(area, sold, crime) });
+    const groups = areaCheckingGroups(area, sold, crime);
+    return NextResponse.json({
+      safety: { crime: groups.safetyCrime, air: groups.safetyAir },
+      groups: { costs: groups.costs, history: groups.history },
+    });
   } catch {
     return NextResponse.json({ error: "check-failed" }, { status: 500 });
   }

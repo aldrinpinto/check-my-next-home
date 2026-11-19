@@ -56,11 +56,11 @@ import { expect, test } from "./fixtures";
 //     postcode resolves straight to the home"; the
 //     street and place legs are in e2e/suggest.e2e.ts.
 //   No T-WEB row: the three Smoke journeys (D68's
-//   critical journey), the two D73 checking-screen specs,
+//   critical journey), the two checking-screen specs,
 //   the Beaulieu / Southminster / stale-key / refresh
 //   specs (M7.15B and the fold-ins), the whole-check
 //   failure spec (D44(7)) and the per-row failure spec
-//   (the M7.15 follow-up's item 4d, in D73's form).
+//   (the M7.15 follow-up's item 4d).
 
 async function searchFromHome(page: Page, text: string) {
   await page.goto("/");
@@ -123,14 +123,18 @@ test.describe("checker journey — smoke", () => {
 
 test.describe("checker journey — regression", () => {
   test(
-    "the checking screen (D73) shows the five grouped rows ticking on the graphic's own clock, then advances",
+    "the checking screen shows the five groups completing with their finding lines, then advances",
     { tag: "@regression" },
     async ({ page }) => {
-      // Hold the brain calls so the screen is observable:
-      // the graphic ticks on its own clock regardless, and
-      // the advance waits for the data as well as the
-      // graphic (the D73 wiring reconciliation). No failure
-      // state ever appears on this screen.
+      // The founder-chosen checking design (19 Nov 2026;
+      // the D73 mechanics stand): group completion is
+      // driven by the three part calls' real settlements,
+      // paced ~720ms apart, and each row completes with a
+      // FINDING line derived from the served data — never a
+      // bare "Done". Hold the brain calls so the screen is
+      // observable: while they are held, no group can
+      // complete, the live line shows its starting sentence
+      // and the seal stays unfilled.
       await page.route("**/api/check/**", async (route) => {
         await new Promise((resolve) => setTimeout(resolve, 2_000));
         await route.continue();
@@ -149,18 +153,27 @@ test.describe("checker journey — regression", () => {
         "Costs & connections",
         "Past sales & prices",
       ]);
-      await expect(page.locator(".checking__row-qualifier")).toHaveText([
-        "Primaries, secondaries, sixth forms and childcare near here.",
-        "GP, dentist, pharmacy, hospital, shops and stations near here.",
-        "Crime, flood risk and air quality around here.",
-        "Council tax, energy, broadband and mobile for this postcode.",
-        "Recorded sale prices, from the Land Registry.",
+      await expect(page.locator(".checking__row-source")).toHaveText([
+        "Ofsted",
+        "NHS & local data",
+        "Police.uk · Environment Agency",
+        "Council & providers",
+        "HM Land Registry",
       ]);
       await expect(page.locator(".checking__intro")).toHaveText(
         "We present the facts — the decision is yours.",
       );
-      // The progress bar advances 20% per completed row.
-      await expect(page.locator(".checking__progress")).toHaveAttribute("aria-valuenow", "100", {
+      await expect(page.locator(".checking__ticker")).toContainText("Starting your check…");
+      await expect(page.locator(".checking__seal-caption")).toHaveText("Five checks · one seal");
+      // The schools group completes with its finding line —
+      // the per-category filed counts for the seeded corpus.
+      await expect(
+        page.locator('.checking__row[data-row="schools"] .checking__row-state'),
+      ).toContainText("Within 2 miles:", { timeout: 15_000 });
+      // The progress bar counts groups: five of five when
+      // the seal stamps, just before the reveal.
+      await expect(page.locator(".checking__progress")).toHaveAttribute("aria-valuemax", "5");
+      await expect(page.locator(".checking__progress")).toHaveAttribute("aria-valuenow", "5", {
         timeout: 15_000,
       });
       await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
@@ -201,8 +214,11 @@ test.describe("checker journey — regression", () => {
     async ({ page }) => {
       await searchFromHome(page, "E16");
       await page.waitForURL("**/search?outward=E16");
+      // Held reveal (the wider-area checking screen,
+      // 19 Nov 2026): the heading arrives with the results.
       await expect(page.getByRole("heading", { name: "Wider area — E16" })).toHaveText(
         "Wider area — E16",
+        { timeout: 30_000 },
       );
       // The district page (founder ruling, 18 Nov 2026)
       // supersedes the unlock banner: the results page's
@@ -214,6 +230,31 @@ test.describe("checker journey — regression", () => {
       await expect(page.locator(".district-bridge__heading")).toHaveText(
         "Checking one home in E16?",
       );
+    },
+  );
+
+  test(
+    "the wider-area checking screen plays over the district page: four named groups and the sweep, then the results",
+    { tag: "@regression" },
+    async ({ page }) => {
+      await page.goto("/search?outward=E16");
+      // The screen is what the navigation shows first
+      // (the loading frame and the live screen are one
+      // dress): its own heading, the four D76 groups
+      // named as rows, and the schematic sweep — and no
+      // seal: a place is not a home.
+      const screen = page.locator('section[aria-label="Checking the wider area"]');
+      await expect(screen).toBeVisible();
+      await expect(screen.getByRole("heading", { name: "Checking the wider area…" })).toBeVisible();
+      for (const key of ["family", "neighbourhood", "home", "nearby"]) {
+        await expect(screen.locator(`[data-row="${key}"]`)).toHaveCount(1);
+      }
+      await expect(screen.locator(".dchecking__sweep")).toBeVisible();
+      await expect(screen.locator(".checking__seal")).toHaveCount(0);
+      // The reveal: the district results land whole and
+      // the screen is gone.
+      await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
+      await expect(screen).toHaveCount(0);
     },
   );
 
@@ -304,8 +345,11 @@ test.describe("checker journey — regression", () => {
       // (the heading, the notice, the bridge) prove the
       // destination itself, separately.
       await page.waitForURL("**/search?outward=CM3&notfound=CM3+2JA", { waitUntil: "commit" });
+      // Held reveal (the wider-area checking screen,
+      // 19 Nov 2026): the heading arrives with the results.
       await expect(page.getByRole("heading", { name: "Wider area — CM3" })).toHaveText(
         "Wider area — CM3",
+        { timeout: 30_000 },
       );
       await expect(page.locator(".journey-notice")).toHaveText(
         "CM3 2JA isn't a postcode we hold — this is the wider area it points to instead.",
@@ -472,8 +516,9 @@ test.describe("checker journey — regression", () => {
       // CI #233 follow-up: the results wait comes first,
       // as everywhere else in this file. The empty line
       // renders inside the results, behind the checking
-      // screen's designed reveal (D73: five rows at 720ms
-      // plus the advance, then the part calls settled) —
+      // screen's designed reveal (the five groups
+      // completing at the 720ms pacing once the part calls
+      // settle, plus the advance) —
       // and CM0 7AA is the suite's one unwarmed results
       // postcode, so the default expect budget was too
       // thin a margin once M7.14's counting posts (every
@@ -575,37 +620,50 @@ test.describe("checker journey — regression", () => {
   );
 
   test(
-    "one part of the check failing outright still opens the results (D73 form of the per-row failure)",
+    "one part of the check failing outright completes its group with the named failure line, and the results still open",
     { tag: "@regression" },
     async ({ page }) => {
-      // M7.15 follow-up, gap-check item 4d. The adopted
-      // behaviour, in its surviving form: the M7.3-era
-      // D44(5) spoke of naming the failed dataset's row on
-      // the checking screen, but D73 (M7.3's own adopted
-      // rework of that screen, governing since) makes the
-      // checking screen a pure graphic — "there are no
-      // failure or not-completed states on this screen
-      // ever" (components/CheckingScreen.tsx) — whose five
-      // grouped rows tick on the graphic's own clock while
-      // the three real part calls settle, success OR
-      // failure alike. So the honest served-page proof of
-      // a single-dataset failure is: fail one part outright
-      // (the flood part, via the suite's route-injection
-      // pattern, as the resolve spec above fails the whole
-      // check) and the check still completes — the results
-      // open on the home, the journey never lands on the
-      // whole-check failure state, and a section served by
-      // another part (schools, from the nearby part) renders
-      // its real content. No row failure state is asserted:
-      // none exists, by design. (The stale D44(5)(ii)
-      // row-marking sentence in app/api/check/[part]/route.ts's
-      // header is the older language; the component header
-      // and D73 govern.)
+      // M7.15 follow-up, gap-check item 4d — in the form
+      // the founder-chosen checking design (19 Nov 2026)
+      // gives it. The D73-era form of this spec asserted no
+      // row state at all: the old screen was a pure graphic
+      // with no failure states by design. The new design
+      // completes each group with a finding line or its
+      // honest named state, so a part that fails outright
+      // completes its groups with their named failure lines
+      // (D44(5)(ii)'s row-marking, restored): fail the flood
+      // part outright and the safety group completes
+      // unavailable, its line carrying the flood failure
+      // beside the area part's real crime finding — while
+      // the check still completes, the results open on the
+      // home, and the journey never lands on the whole-check
+      // failure state. The nearby and area parts are held
+      // 2.5s so the safety row's completed state is
+      // observable before the reveal (~600ms after the
+      // fifth group).
       await page.route("**/api/check/flood**", (route) =>
         route.fulfill({ status: 500, contentType: "application/json", body: "{}" }),
       );
+      await page.route("**/api/check/nearby**", async (route) => {
+        await new Promise((resolve) => setTimeout(resolve, 2_500));
+        await route.continue();
+      });
+      await page.route("**/api/check/area**", async (route) => {
+        await new Promise((resolve) => setTimeout(resolve, 2_500));
+        await route.continue();
+      });
       await searchFromHome(page, "CM3 2JT");
-      await pickAndReachResults(page, "CM3 2JT", "19 Birkdale Rise");
+      await page.waitForURL("**/search/home?postcode=CM3+2JT");
+      await page.getByRole("link", { name: "19 Birkdale Rise", exact: true }).click();
+      const safetyRow = page.locator('.checking__row[data-row="safety"]');
+      await expect(safetyRow).toHaveAttribute("data-state", "unavailable", { timeout: 15_000 });
+      await expect(safetyRow.locator(".checking__row-state")).toContainText(
+        "Flood couldn't be checked just now",
+      );
+      await expect(safetyRow.locator(".checking__row-state")).toContainText(
+        "recorded crimes in the last 12 months",
+      );
+      await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
       await expect(page.locator(".results-head h1")).toHaveText("19 Birkdale Rise, CM3 2JT");
       expect(page.url()).not.toContain("/search/failed");
       const pills = page.locator(".results-strip .pill--summary");

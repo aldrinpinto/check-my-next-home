@@ -568,18 +568,18 @@ describe("kitchen-sink page", () => {
   });
 });
 
-describe("suggestion shell — the picked row's name (Regression run 44535680408 follow-up)", () => {
-  // The picked place's row carries its selected state in
-  // its class and aria-selected — but its NAME stays the
-  // place's label. The batch's picked styling draws a
-  // "Districts below ↓" marker with a CSS ::after, and
-  // generated content counts towards the accessible name:
-  // unpinned, the row's name became "Chelmsford Districts
-  // below ↓" the moment the pick landed, and neither
-  // assistive tech nor the e2e specs could find the row
-  // by the name it had a moment before. The shell pins
-  // the name to the label with aria-label.
-  it("a picked option's accessible name is its label alone", () => {
+describe("suggestion shell — a row's name is its label (Regression run 44535680408 follow-up)", () => {
+  // A suggestion row's accessible name is its label,
+  // pinned with aria-label: CSS generated content counts
+  // towards the accessible name, and the picked place
+  // row's ::after marker ("Districts below ↓") renamed
+  // the row the moment a pick landed — neither assistive
+  // tech nor the e2e specs could find it by the name it
+  // had a moment before. The founder's ruling of 19 Nov
+  // 2026 took the picked state and its marker away (the
+  // place pick navigates now); the pin stays, so no
+  // future dress can rename a row again.
+  it("an option's accessible name is its label alone — and no picked state exists", () => {
     const html = renderToStaticMarkup(
       createElement(SuggestionShell, {
         groups: [
@@ -588,26 +588,28 @@ describe("suggestion shell — the picked row's name (Regression run 44535680408
             items: [{ id: "suggest-0", label: "Chelmsford" }],
           },
         ],
-        pickedId: "suggest-0",
       }),
     );
-    expect(html).toContain('class="suggest__item suggest__item--picked"');
+    expect(html).toContain('class="suggest__item"');
+    expect(html).not.toContain("suggest__item--picked");
     expect(html).toContain('aria-label="Chelmsford"');
-    expect(html).toContain('aria-selected="true"');
+    expect(html).toContain('aria-selected="false"');
   });
 
-  it("an unpicked option's name is pinned the same way", () => {
+  it("the keyboard's active row is selected — its name still its label alone", () => {
     const html = renderToStaticMarkup(
       createElement(SuggestionShell, {
         groups: [
           {
-            label: "Districts in Chelmsford",
-            items: [{ id: "suggest-1", label: "CM1 — Chelmsford" }],
+            label: "Streets",
+            items: [{ id: "suggest-1", label: "Birkdale Rise, Chelmsford" }],
           },
         ],
+        activeId: "suggest-1",
       }),
     );
-    expect(html).toContain('aria-label="CM1 — Chelmsford"');
-    expect(html).toContain('aria-selected="false"');
+    expect(html).toContain('aria-label="Birkdale Rise, Chelmsford"');
+    expect(html).toContain('aria-selected="true"');
+    expect(html).toContain("suggest__item--active");
   });
 });

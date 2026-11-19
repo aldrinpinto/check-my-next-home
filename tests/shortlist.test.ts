@@ -538,6 +538,31 @@ describe("card assembly", () => {
     });
   });
 
+  it("assembles the rung-1 card while sold prices are still being gathered — no last sale, nothing read off the variant", () => {
+    // Part A of the cold-check fix (19 Nov 2026): the
+    // sold bundle is the unavailable variant — kind
+    // "sold-prices" at rung 1 with no ownHistory. The
+    // card still assembles (the rest of the check
+    // rendered whole); its last sale is simply absent.
+    const unavailable = {
+      rung: 1,
+      kind: "sold-prices",
+      postcode: "CM3 2JT",
+      soldPrices: {
+        state: "unavailable",
+        reason: "sold prices are still being gathered for this postcode — check again shortly",
+      },
+    } as unknown as SoldPricesBundle;
+    const card = buildShortlistCard({
+      resolution: birkdale,
+      nearby: birkdaleNearby(),
+      sold: unavailable,
+      short: shortWith(TAX_SERVED),
+    });
+    expect(card).not.toBeNull();
+    expect(card?.lastSale).toBeNull();
+  });
+
   it("derives a Minerva-shaped flood cell: rivers Very low, surface water Low", () => {
     const card = buildShortlistCard({
       resolution: birkdale,

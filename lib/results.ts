@@ -6,7 +6,25 @@ import { FLOOD_BAND_DEFINITIONS, type FloodBundle, type FloodLiveWarnings } from
 import type { DistrictBundle, DistrictFloodBlock } from "./district";
 
 type DistrictServed = Extract<DistrictBundle, { kind: "district" }>;
-import { homeRoute, nationName, nationOfLsoa, type Nation } from "./journey";
+import {
+  floodBandOf,
+  formatFiledDate,
+  formatMiles,
+  formatPounds,
+  homeRoute,
+  nationName,
+  nationOfLsoa,
+  type Nation,
+} from "./journey";
+
+// The small formatters (formatMiles, formatFiledDate,
+// formatPounds) and the flood band mapping (floodBandOf)
+// live in lib/journey.ts — the checking screen's
+// derivations compose their finding lines with the same
+// forms, and one mapping can never drift from another.
+// They are re-exported here so this module's existing
+// importers are untouched.
+export { floodBandOf, formatFiledDate, formatMiles, formatPounds };
 import type { CategoryAnswer, NearbyBundle, NearbyPlace } from "./nearby";
 import { HOW_WE_CHECK_PATH, REPORT_PRICE_LABEL } from "./site";
 import type { ShortBundle, ShortPolygonLayer, ShortSections } from "./short-bundle";
@@ -57,51 +75,6 @@ export function reportRoute(postcode: string, homeKey?: string | null): string {
   const params = new URLSearchParams({ postcode });
   if (homeKey) params.set("home", homeKey);
   return `${REPORT_ROUTE}?${params.toString()}`;
-}
-
-// ------------------------------------------------------------------
-// Small formatters
-// ------------------------------------------------------------------
-
-// Miles as the design's pills and rows state them: one
-// decimal place, trailing zeros trimmed ("0.4", "5.9",
-// "0.1"). The brains serve miles rounded to three decimals;
-// the page's display precision is one — the finalised
-// sample's form throughout. (CI #205 fix: the two-decimal
-// form rendered the Schools pill's secondary figure as
-// "1.88 mi" against the settled "1.8 mi".)
-export function formatMiles(miles: number): string {
-  return String(Number(miles.toFixed(1)));
-}
-
-const MONTH_NAMES = [
-  "January",
-  "February",
-  "March",
-  "April",
-  "May",
-  "June",
-  "July",
-  "August",
-  "September",
-  "October",
-  "November",
-  "December",
-];
-
-// "2023-06-15" → "15 June 2023". An unparseable value is
-// served raw rather than hidden — the page never invents a
-// date and never drops one.
-export function formatFiledDate(iso: string): string {
-  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
-  if (!match) return iso;
-  const month = MONTH_NAMES[Number(match[2]) - 1];
-  if (!month) return iso;
-  return `${Number(match[3])} ${month} ${match[1]}`;
-}
-
-export function formatPounds(value: number): string {
-  return `£${value.toLocaleString("en-GB")}`;
 }
 
 // ------------------------------------------------------------------
@@ -982,24 +955,6 @@ export function noiseSingleLine(
     clauses.push(clause);
   }
   return clauses.length > 0 ? `${clauses.join("; ")}.` : null;
-}
-
-export function floodBandOf(layer: {
-  coveringLabel: string | null;
-  pointState: string;
-}): string | null {
-  if (layer.coveringLabel) return layer.coveringLabel;
-  // The absence states are all the Very-low case in the
-  // flood brain's own framing: Flood Zone 1 (flood_zone),
-  // no band published (rofrs), and below the lowest
-  // mapped band (rofsw — the surface-water absence state).
-  if (
-    layer.pointState === "no-band-published" ||
-    layer.pointState === "zone-1" ||
-    layer.pointState === "below-lowest-band"
-  )
-    return "Very low";
-  return null;
 }
 
 function noiseBandHigh(band: string | null, day: boolean): boolean {

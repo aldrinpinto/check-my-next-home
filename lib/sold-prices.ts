@@ -56,6 +56,19 @@ import {
 // none recorded" apart from "never loaded". A postcode the
 // check has never loaded is loaded first, through the existing
 // loader path; no answer is ever read from emptiness.
+//
+// The fourth outcome (Part A of the cold-check fix,
+// founder's authorisation, 19 Nov 2026): a load that is
+// still running when the caller's bounded wait expires —
+// or a load, or a read, that fails — answers in the
+// rung-1/2 unavailable variant ({state:"unavailable"}),
+// never as a rejection. Before Part A the rejection
+// escaped into the check assembly (serve.ts's
+// Promise.all), where it failed the WHOLE check for any
+// postcode whose only fault was being checked first.
+// The variant carries no figures and no stamp is written
+// for it: the background run still files and stamps, and
+// the next check serves the filed answer.
 
 export const SOLD_PRICES_SOURCE_NAME = "HM Land Registry Price Paid";
 export const MEDIAN_MIN_COUNT = 5;
@@ -72,6 +85,18 @@ export const NO_HOME_SALE_LINE = "No sale recorded for this home since 1995";
 export const RECENT_SALES_LABEL = "recent recorded sales in this postcode";
 
 const UNAVAILABLE_REASON = "sold prices need an exact postcode";
+
+// The rung-1/2 cold-load degrade's reason (Part A of the
+// cold-check fix, founder's authorisation, 19 Nov 2026),
+// in the brain's reason register — the UNAVAILABLE_REASON
+// family above: lowercase, the section's own words, no
+// trailing period. It is honest for both failures the
+// variant covers: a load still running (it files in the
+// background) and a load that failed (the next check
+// retries it) — in both, the prices are still being
+// gathered and a later check is the remedy it names.
+export const STILL_GATHERING_REASON =
+  "sold prices are still being gathered for this postcode — check again shortly";
 
 // ------------------------------------------------------------------
 // Filed-data shapes
@@ -187,6 +212,22 @@ export type SoldPricesBundle =
   | {
       rung: 4;
       kind: "no-location";
+      soldPrices: { state: "unavailable"; reason: string };
+    }
+  | {
+      rung: 1 | 2;
+      kind: "sold-prices";
+      postcode: string;
+      // The cold-load degrade (Part A of the cold-check
+      // fix, founder's authorisation, 19 Nov 2026): the
+      // postcode's load has not landed — still running
+      // past the bounded wait, or failed — so there are
+      // no figures to serve and the variant carries the
+      // named state alone, mirroring the rung-3/4 form
+      // on the same kind. "loaded-none" would be a faked
+      // state here (it asserts a completed load), and
+      // "not-covered" is keyed to the nations; neither
+      // may stand in for a load in flight.
       soldPrices: { state: "unavailable"; reason: string };
     }
   | {
@@ -369,70 +410,90 @@ export async function buildSoldPricesBundle(
   // load stamp proves a load that filed none; neither means the
   // postcode has never been loaded, so load it now — an answer
   // is never read from emptiness.
-  let rows = await source.salesInPostcode(postcode);
-  let stampEdition = rows.length > 0 ? null : await source.loadEdition(postcode);
-  if (rows.length === 0 && stampEdition === null) {
-    await source.loadPostcode(postcode);
-    rows = await source.salesInPostcode(postcode);
-    stampEdition = rows.length > 0 ? null : await source.loadEdition(postcode);
-  }
-  const loadState = rows.length > 0 ? "found" : "loaded-none";
-  const sourceName = rows[0]?.sourceName ?? SOLD_PRICES_SOURCE_NAME;
-  const edition = rows[0]?.sourceDate ?? stampEdition;
-  const sourceLine = edition
-    ? `${sourceName} — file edition ${edition}`
-    : `${sourceName} — the filed edition for this postcode is not recorded`;
-
-  const counted = rows.filter((r) => r.category === "A").sort(byNewest);
-  const figures: PostcodeFigures = {
-    postcode,
-    loadState,
-    recordedCount: rows.length,
-    sourceName,
-    edition,
-    sourceLine,
-    stateLine: loadState === "loaded-none" ? NO_SALE_RECORDED_LINE : null,
-    median: medianAnswer(counted, "postcode", MEDIAN_EXPLAINER, rows.length),
-    recentSales: counted.slice(0, RECENT_LIST_SIZE).map(toServed),
-    recentLabel: RECENT_SALES_LABEL,
-    building: null,
-  };
-
-  if (resolution.rung === 2) {
-    // A list narrowed to one building may show that building's
-    // sales as list facts — derived from the list's own filed
-    // PAONs. No sale is singled out as any home's: the rung-2
-    // bundle carries no own-history payload by construction.
-    if (resolution.building !== null) {
-      const paons = new Set(
-        resolution.addresses.map((a) => a.paon).filter((p): p is string => p !== null),
-      );
-      figures.building = buildingAnswer(rows, paons);
+  // Part A of the cold-check fix (founder's
+  // authorisation, 19 Nov 2026): the whole read/load
+  // sequence runs under this one catch. A load still
+  // running when the caller's bounded wait expires
+  // (SoldPricesLoadPendingError, raised by the source), a
+  // failed load, or a failed read degrades THIS brain to
+  // its unavailable variant — it never rejects into the
+  // check assembly, where one rejection used to fail the
+  // whole check. The load itself is untouched: the
+  // source's run files and stamps in the background, and
+  // the next check serves the filed answer.
+  try {
+    let rows = await source.salesInPostcode(postcode);
+    let stampEdition = rows.length > 0 ? null : await source.loadEdition(postcode);
+    if (rows.length === 0 && stampEdition === null) {
+      await source.loadPostcode(postcode);
+      rows = await source.salesInPostcode(postcode);
+      stampEdition = rows.length > 0 ? null : await source.loadEdition(postcode);
     }
-    return { rung: 2, kind: "sold-prices", ...figures };
-  }
+    const loadState = rows.length > 0 ? "found" : "loaded-none";
+    const sourceName = rows[0]?.sourceName ?? SOLD_PRICES_SOURCE_NAME;
+    const edition = rows[0]?.sourceDate ?? stampEdition;
+    const sourceLine = edition
+      ? `${sourceName} — file edition ${edition}`
+      : `${sourceName} — the filed edition for this postcode is not recorded`;
 
-  // Rung 1: the home's own sales, matched filed-to-filed on the
-  // parts the resolver handed over — PAON + SAON together for a
-  // flat (the M6.1 flat rule), never the flat number alone.
-  const home = resolution.address;
-  const own = rows
-    .filter(
-      (r) =>
-        r.paon === home.paon &&
-        (r.saon ?? null) === (home.saon ?? null) &&
-        r.street === home.street,
-    )
-    .sort(byNewest);
-  if (home.saon) figures.building = buildingAnswer(rows, new Set([home.paon as string]));
-  return {
-    rung: 1,
-    kind: "sold-prices",
-    ...figures,
-    ownHistory: own.map(toServed),
-    ownLine: own.length === 0 ? NO_HOME_SALE_LINE : null,
-    ownExplainer: HISTORY_EXPLAINER,
-  };
+    const counted = rows.filter((r) => r.category === "A").sort(byNewest);
+    const figures: PostcodeFigures = {
+      postcode,
+      loadState,
+      recordedCount: rows.length,
+      sourceName,
+      edition,
+      sourceLine,
+      stateLine: loadState === "loaded-none" ? NO_SALE_RECORDED_LINE : null,
+      median: medianAnswer(counted, "postcode", MEDIAN_EXPLAINER, rows.length),
+      recentSales: counted.slice(0, RECENT_LIST_SIZE).map(toServed),
+      recentLabel: RECENT_SALES_LABEL,
+      building: null,
+    };
+
+    if (resolution.rung === 2) {
+      // A list narrowed to one building may show that building's
+      // sales as list facts — derived from the list's own filed
+      // PAONs. No sale is singled out as any home's: the rung-2
+      // bundle carries no own-history payload by construction.
+      if (resolution.building !== null) {
+        const paons = new Set(
+          resolution.addresses.map((a) => a.paon).filter((p): p is string => p !== null),
+        );
+        figures.building = buildingAnswer(rows, paons);
+      }
+      return { rung: 2, kind: "sold-prices", ...figures };
+    }
+
+    // Rung 1: the home's own sales, matched filed-to-filed on the
+    // parts the resolver handed over — PAON + SAON together for a
+    // flat (the M6.1 flat rule), never the flat number alone.
+    const home = resolution.address;
+    const own = rows
+      .filter(
+        (r) =>
+          r.paon === home.paon &&
+          (r.saon ?? null) === (home.saon ?? null) &&
+          r.street === home.street,
+      )
+      .sort(byNewest);
+    if (home.saon) figures.building = buildingAnswer(rows, new Set([home.paon as string]));
+    return {
+      rung: 1,
+      kind: "sold-prices",
+      ...figures,
+      ownHistory: own.map(toServed),
+      ownLine: own.length === 0 ? NO_HOME_SALE_LINE : null,
+      ownExplainer: HISTORY_EXPLAINER,
+    };
+  } catch {
+    return {
+      rung: resolution.rung,
+      kind: "sold-prices",
+      postcode,
+      soldPrices: { state: "unavailable", reason: STILL_GATHERING_REASON },
+    };
+  }
 }
 
 // ------------------------------------------------------------------
@@ -449,6 +510,14 @@ export interface SoldPricesSourceOptions {
   // told the load is still running (see loadPostcode);
   // defaults to SOLD_PRICES_LOAD_WAIT_MS. A test seam.
   loadWaitMs?: number;
+  // The directory the loader reads its Price Paid files
+  // from (its --file argument); defaults to the
+  // environment's SOLD_PRICES_FILE_DIR, and to the
+  // loader's own live download when neither is set. A
+  // test-rig seam (the E2E harness points it at the
+  // fixture file so a cold load is small and lands
+  // fast); production never sets it.
+  fileDir?: string;
 }
 
 const execFileAsync = promisify(execFile);
@@ -493,12 +562,35 @@ const execFileAsync = promisify(execFile);
 //     answers its named failure, the results derivation
 //     renders its whole-check failure with the retry, and
 //     the retry serves the filed data once the run lands.
+//     (Part A of the cold-check fix, 19 Nov 2026,
+//     supersedes that propagation: the error still
+//     leaves the SOURCE exactly as described, but the
+//     BRAIN catches it — buildSoldPricesBundle answers
+//     the rung-1/2 unavailable variant, the rest of the
+//     check renders whole, and a later check serves the
+//     filed data once the run lands.)
 //   - No state is faked on the way: the stamp is written
 //     only by a completed run, so "loaded, none recorded"
 //     can never be served for a postcode whose load is
 //     still streaming, and no figure is ever read from a
 //     half-filed set (the loader files in one transaction).
 export const SOLD_PRICES_LOAD_WAIT_MS = 10_000;
+
+// The wait's test-rig override (cold-check fix stack,
+// 19 Nov 2026): the server-config env
+// SOLD_PRICES_LOAD_WAIT_MS, when it carries a
+// non-negative number, replaces the pinned wait at
+// source creation — the E2E harness's forced-pending
+// instance runs with it at 0, so a cold load is always
+// still running when the caller is told. TEST-ONLY:
+// production never sets it, and an unset, unparsable
+// or negative value leaves the pinned wait standing.
+export function soldPricesLoadWaitMsFromEnv(env: Record<string, string | undefined>): number {
+  const raw = env.SOLD_PRICES_LOAD_WAIT_MS;
+  if (raw === undefined) return SOLD_PRICES_LOAD_WAIT_MS;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : SOLD_PRICES_LOAD_WAIT_MS;
+}
 
 export class SoldPricesLoadPendingError extends Error {
   constructor(postcode: string, waitMs: number) {
@@ -546,6 +638,10 @@ export function createSoldPricesSource(
   db: AddressQueryable,
   options: SoldPricesSourceOptions = {},
 ): SoldPricesDataSource {
+  // The caller's wait, settled once at creation: the
+  // explicit option wins, then the test-rig env
+  // override, then the pinned bound.
+  const loadWaitMs = options.loadWaitMs ?? soldPricesLoadWaitMsFromEnv(process.env);
   return {
     async salesInPostcode(postcode) {
       const { rows } = await db.query(
@@ -613,7 +709,19 @@ export function createSoldPricesSource(
           // argument filter drops the slot the separator occupies,
           // so without it the first — here the only — postcode is
           // silently never loaded. Pinned by a test.
-          const { stdout } = await execFileAsync(process.execPath, [loaderPath, "--", postcode], {
+          //
+          // The --file directory, when one is configured
+          // (options.fileDir, or the SOLD_PRICES_FILE_DIR
+          // server-config env — the test rig's seam, see
+          // SoldPricesSourceOptions), rides BEFORE the
+          // separator, in the loader's own argument shape;
+          // unconfigured, the loader downloads the live
+          // file exactly as it always has.
+          const fileDir = options.fileDir ?? process.env.SOLD_PRICES_FILE_DIR;
+          const loaderArgs = fileDir
+            ? [loaderPath, "--file", fileDir, "--", postcode]
+            : [loaderPath, "--", postcode];
+          const { stdout } = await execFileAsync(process.execPath, loaderArgs, {
             env: { ...process.env, DATABASE_URL: databaseUrl },
             maxBuffer: 16 * 1024 * 1024,
           });
@@ -649,7 +757,7 @@ export function createSoldPricesSource(
       // header): a load that lands inside the wait resolves
       // as it always did; past it, the caller is told the
       // load is still running and the run carries on.
-      await awaitSoldPricesLoad(run, postcode, options.loadWaitMs ?? SOLD_PRICES_LOAD_WAIT_MS);
+      await awaitSoldPricesLoad(run, postcode, loadWaitMs);
     },
   };
 }

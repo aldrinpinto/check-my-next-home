@@ -30,6 +30,25 @@
 // the app at it through GIFT_MAILER_CAPTURE_URL — the
 // specs read the captured link back and follow it.
 //
+// Cold-load seams (cold-check fix stack, 19 Nov 2026):
+// the app is pointed at the fixture Price Paid file
+// through SOLD_PRICES_FILE_DIR, so a cold postcode's
+// sold-prices load — which in production downloads and
+// streams the live 5.54 GB file — reads the small
+// fixture file instead, files nothing for a cold
+// postcode, stamps it, and lands fast; the cold specs
+// (e2e/cold.e2e.ts) stand on that. A second instance of
+// this script serves the forced-pending app on
+// E2E_APP_PORT (playwright.config.ts): same database,
+// no re-seed (E2E_SKIP_SEED=1), and
+// SOLD_PRICES_LOAD_WAIT_MS=0 in its environment, so its
+// cold loads are always still running when the caller
+// is told — the permanent regression form of the
+// 19 Nov 2026 cold-check failure. The seam stand-ins
+// below listen tolerantly: the second instance finds
+// the first instance's already listening and reuses
+// them (the URLs it sets are the same).
+//
 // Run locally: npm run build, then npm run test:e2e (which
 // starts this script through playwright.config.ts).
 
@@ -56,6 +75,24 @@ if (process.env.E2E_SKIP_SEED !== "1") {
   console.log("serve-e2e: seeded.");
 }
 
+// Listen, tolerating a sibling harness instance's
+// stand-in already holding the port (the forced-pending
+// instance — see the header): the URLs are identical,
+// so reuse is exact.
+async function listenTolerantly(server, port, label) {
+  await new Promise((resolve) => {
+    server.once("error", (error) => {
+      if (error && error.code === "EADDRINUSE") {
+        console.log(`serve-e2e: ${label} stand-in already listening on ${port} — reusing it.`);
+        resolve();
+        return;
+      }
+      throw error;
+    });
+    server.listen(port, "127.0.0.1", resolve);
+  });
+}
+
 if (process.env.E2E_TURNSTILE_SEAMS === "1") {
   const { createServer } = await import("node:http");
   // Cloudflare's published test secret, assembled from
@@ -71,7 +108,7 @@ if (process.env.E2E_TURNSTILE_SEAMS === "1") {
       res.end(JSON.stringify({ success: ok }));
     });
   });
-  await new Promise((resolve) => standin.listen(4180, "127.0.0.1", resolve));
+  await listenTolerantly(standin, 4180, "Turnstile");
   process.env.TURNSTILE_SITEVERIFY_URL = "http://127.0.0.1:4180";
   console.log(
     "serve-e2e: Turnstile seams on — verify pointed at the local stand-in (127.0.0.1:4180).",
@@ -112,14 +149,21 @@ if (process.env.E2E_GIFT_MAILER_SEAMS === "1") {
     res.writeHead(404, { "content-type": "application/json" });
     res.end("{}");
   });
-  await new Promise((resolve) => capture.listen(4182, "127.0.0.1", resolve));
+  await listenTolerantly(capture, 4182, "gift mailer");
   process.env.GIFT_MAILER_CAPTURE_URL = "http://127.0.0.1:4182/send";
   console.log("serve-e2e: gift mailer seam on — confirmations captured at 127.0.0.1:4182.");
 }
 
+// The cold-load file seam (see the header): every
+// harness instance's app reads its cold sold-prices
+// loads from the fixture file.
+process.env.SOLD_PRICES_FILE_DIR = join(REPO, "tests", "fixtures", "land-registry");
+
+const appPort = process.env.E2E_APP_PORT ?? "4173";
+
 const child = spawn(
   process.execPath,
-  [join(REPO, "node_modules/next/dist/bin/next"), "start", "-p", "4173"],
+  [join(REPO, "node_modules/next/dist/bin/next"), "start", "-p", appPort],
   {
     cwd: REPO,
     env: process.env,

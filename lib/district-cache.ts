@@ -343,7 +343,56 @@ function storable(bundle: DistrictBundle): DistrictBundle {
   };
 }
 
+// Concurrent serves of one district share one build
+// (the wider-area checking build, 19 Nov 2026): the
+// district page's streamed results and the checking
+// screen's payload call arrive together, and on a cold
+// district each would otherwise run the same 12–14s
+// build for the same bundle. The registry is anchored
+// to globalThis (the sold-prices loads pattern in
+// lib/sold-prices.ts) because the serving runtime does
+// not share one module instance between routes. A
+// caller joins the in-flight build and receives the
+// very bundle the first caller computes — so the
+// checking screen's lines and the results behind it
+// are derived from one bundle, never two builds of it.
+// The entry evicts itself when the build settles,
+// success or failure alike: the next serve takes the
+// ordinary cache path, and a failed build is retried
+// by the next serve exactly as before. One softening,
+// stated plainly: the live flood warnings are composed
+// inside the shared build, so two serves that join one
+// build share that composition — the cache-hit path
+// still refreshes the warnings on every serve, and a
+// shared build is by definition one serve moment.
+const districtBuildsGlobal = globalThis as typeof globalThis & {
+  __cmnhDistrictBuilds?: Map<string, Promise<DistrictBundle>>;
+};
+
+function districtBuildsInFlight(): Map<string, Promise<DistrictBundle>> {
+  districtBuildsGlobal.__cmnhDistrictBuilds ??= new Map();
+  return districtBuildsGlobal.__cmnhDistrictBuilds;
+}
+
 export async function buildDistrictBundleCached(
+  outward: string,
+  source: DistrictDataSource,
+  cache: DistrictCache,
+  options: DistrictBundleOptions = {},
+): Promise<DistrictBundle> {
+  const inFlight = districtBuildsInFlight();
+  const existing = inFlight.get(outward);
+  if (existing) return existing;
+  const run = buildDistrictBundleCachedOnce(outward, source, cache, options);
+  inFlight.set(outward, run);
+  const evict = () => {
+    if (inFlight.get(outward) === run) inFlight.delete(outward);
+  };
+  void run.then(evict, evict);
+  return run;
+}
+
+async function buildDistrictBundleCachedOnce(
   outward: string,
   source: DistrictDataSource,
   cache: DistrictCache,

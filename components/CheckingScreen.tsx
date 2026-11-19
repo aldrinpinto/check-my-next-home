@@ -1,36 +1,83 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import {
   CHECKING_ADVANCE_MS,
+  CHECKING_FINAL_LINE,
   CHECKING_INTRO,
+  CHECKING_READY_ANNOUNCEMENT,
+  CHECKING_READY_TICKER,
   CHECKING_ROWS,
   CHECKING_ROW_MS,
+  CHECKING_SEAL_CAPTION,
+  CHECKING_START_LINE,
+  CHECKING_STEP_DONE,
+  CHECKING_STEP_RUNNING,
+  CHECKING_WAITING_LINE,
+  assembleCheckingOutcomes,
+  type CheckingAreaPayload,
+  type CheckingGroupResult,
+  type CheckingNearbyPayload,
+  type CheckingPart,
+  type CheckingSegment,
 } from "../lib/journey";
 import { fireJourneyEvent } from "./JourneyBeacon";
 
-// The checking screen — D73 (fold-in build, 17 Nov 2026).
+// The checking screen — the founder-chosen design (ruling
+// 19 Nov 2026): Sample 7, "The Recommendation, Combined",
+// as drawn in Final Sample Master view 2.
 //
-// A pure graphic with a purposeful delay, NOT synced to the
-// backend: exactly five grouped rows, each showing a
-// spinner that flips to "Done" on the graphic's own clock
-// (~720ms apart), and a progress bar below the title and
-// intro (the sample's order) advancing 20% per completed
-// row. There are no failure or
-// not-completed states on this screen ever — the Results
-// page (its children) carries any "couldn't pull" states.
+// The form: a rotating headline sentence (the live line)
+// naming the group in flight; the evidence feed — five
+// rows, each completing with a FINDING line derived from
+// the real served data for its group, never a bare "Done"
+// (a group whose part serves a not-filed, not-covered or
+// failure state completes with that honest named state
+// instead); and the seal — a five-segment ring around the
+// house mark, one segment per completed group, stamping
+// CHECKED when the last group lands, as the final beat
+// before the reveal.
 //
-// Reconciliation with the real wiring: the graphic ticks on
-// its own clock; the advance happens when the graphic has
-// finished AND the real check calls have settled (the same
-// three /api/check calls as before — they warm the D29
-// cache the server-rendered results behind this screen
-// read), whichever is later, plus ~600ms after the fifth
-// row. A call that fails still counts as settled: the
-// visitor never sees a failure state here, and the results
-// derivation names any gap in place. No button, no replay,
-// no resting state.
+// The mechanics are D73's, unchanged: the same three
+// /api/check part calls fire in parallel; a group completes
+// only once its parts have settled, paced at least
+// CHECKING_ROW_MS after the previous group's completion
+// (smoothing over the real settlements, never a timer
+// chain that can outrun or lag the data); the advance
+// happens once all five groups have completed AND every
+// part has settled, plus CHECKING_ADVANCE_MS. The parts
+// answer with the groups' derived completion lines
+// (lib/journey.ts derives them server-side from the
+// bundles — the bundles themselves never ship here), and
+// they warm the D29 cache the server-rendered results
+// behind this screen read.
+//
+// Accessibility: the role="status" region renders from the
+// first paint and announces milestones only — each group's
+// completion and the final CHECKED beat — never progress
+// percentages. The seal is decorative (aria-hidden): its
+// information is the feed's, and the final beat is the
+// announcement.
+//
+// M7.14 counting: the mount is the check's start
+// (check_started, rung from the journey), and a part call
+// that fails — an error status or a network failure — is
+// a failed check request in the D45 error class
+// (page_error). Neither post carries the postcode or the
+// home: the event names the part and the failure class
+// only.
+
+// The seal's five segment rotations (Master view 2's own
+// geometry: r=66 on a 160 viewBox, each segment spanning
+// a fifth of the ring less a 5-unit gap).
+const SEAL_ROTATIONS = [-90, -18, 54, 126, 198];
+
+type PartSettlements = {
+  nearby?: CheckingPart<CheckingNearbyPayload>;
+  flood?: CheckingPart<CheckingSegment[]>;
+  area?: CheckingPart<CheckingAreaPayload>;
+};
 
 export default function CheckingScreen({
   postcode,
@@ -52,40 +99,21 @@ export default function CheckingScreen({
   eyebrow: { lead: string; town?: string | null };
   children: ReactNode;
 }) {
+  const [parts, setParts] = useState<PartSettlements>({});
   const [doneCount, setDoneCount] = useState(0);
-  const [dataReady, setDataReady] = useState(false);
   const [complete, setComplete] = useState(false);
-  const graphicDoneAt = useRef<number | null>(null);
-
-  // The graphic's own clock: one row completes every
-  // CHECKING_ROW_MS until all five are done.
-  useEffect(() => {
-    if (doneCount >= CHECKING_ROWS.length) {
-      if (graphicDoneAt.current === null) graphicDoneAt.current = Date.now();
-      return;
-    }
-    const timer = setTimeout(() => setDoneCount((count) => count + 1), CHECKING_ROW_MS);
-    return () => clearTimeout(timer);
-  }, [doneCount]);
 
   // The real wiring: fire the three check calls in parallel
-  // and mark the data ready when they have all settled —
-  // success or failure alike (see the header: no failure
-  // state exists on this screen).
-  //
-  // M7.14 counting, in the same breath: the mount is the
-  // check's start (check_started, rung from the journey),
-  // and a part call that fails — an error status or a
-  // network failure — is a failed check request in the
-  // D45 error class (page_error). Neither post carries
-  // the postcode or the home: the event names the part
-  // and the failure class only.
+  // and record each part's settlement as it lands — the
+  // derived group payload on success, the failure mark on
+  // an error status, an unreadable body or a network
+  // failure.
   useEffect(() => {
     let cancelled = false;
     fireJourneyEvent("check_started", { rung: homeKey ? 1 : 2 });
     const params = new URLSearchParams({ postcode });
     if (homeKey) params.set("home", homeKey);
-    const calls = ["nearby", "flood", "area"].map(async (part) => {
+    const settle = async <T,>(part: string): Promise<CheckingPart<T>> => {
       try {
         const response = await fetch(`/api/check/${part}?${params.toString()}`);
         if (!response.ok) {
@@ -93,35 +121,85 @@ export default function CheckingScreen({
             error_name: "CheckRequestFailed",
             error_message: `The ${part} part of the check answered HTTP ${response.status}`,
           });
+          return { ok: false };
+        }
+        try {
+          return { ok: true, value: (await response.json()) as T };
+        } catch {
+          // The part answered but its body could not be
+          // read: the settlement is a failure for its
+          // groups, and no page_error fires — the part did
+          // answer, so it is not a failed check request in
+          // the D45 sense the HTTP and network cases are.
+          return { ok: false };
         }
       } catch {
         fireJourneyEvent("page_error", {
           error_name: "CheckRequestFailed",
           error_message: `The ${part} part of the check could not be reached`,
         });
-        // Settled either way — the results page names any
-        // gap; this screen never does.
+        return { ok: false };
       }
+    };
+    void settle<CheckingNearbyPayload>("nearby").then((part) => {
+      if (!cancelled) setParts((prev) => ({ ...prev, nearby: part }));
     });
-    void Promise.allSettled(calls).then(() => {
-      if (!cancelled) setDataReady(true);
+    void settle<CheckingSegment[]>("flood").then((part) => {
+      if (!cancelled) setParts((prev) => ({ ...prev, flood: part }));
+    });
+    void settle<CheckingAreaPayload>("area").then((part) => {
+      if (!cancelled) setParts((prev) => ({ ...prev, area: part }));
     });
     return () => {
       cancelled = true;
     };
   }, [postcode, homeKey]);
 
-  // The advance: graphic finished AND data ready, whichever
-  // is later, then ~600ms after the fifth row.
+  const outcomes = assembleCheckingOutcomes(parts);
+  const allSettled =
+    parts.nearby !== undefined && parts.flood !== undefined && parts.area !== undefined;
+  const sealed = doneCount >= CHECKING_ROWS.length;
+
+  // The pacing: the next group completes CHECKING_ROW_MS
+  // after the previous one, and only once its own outcome
+  // exists (its parts have settled). The timer is the
+  // floor; the data is the gate.
   useEffect(() => {
-    if (doneCount < CHECKING_ROWS.length || !dataReady || complete) return;
+    if (sealed) return;
+    const key = CHECKING_ROWS[doneCount].key;
+    if (!outcomes[key]) return;
+    const timer = setTimeout(() => setDoneCount((count) => count + 1), CHECKING_ROW_MS);
+    return () => clearTimeout(timer);
+  }, [doneCount, outcomes, sealed]);
+
+  // The advance: all five groups complete AND every part
+  // settled (the completion gate already implies it), then
+  // CHECKING_ADVANCE_MS — the seal's stamp gets its beat.
+  useEffect(() => {
+    if (!sealed || !allSettled || complete) return;
     const timer = setTimeout(() => setComplete(true), CHECKING_ADVANCE_MS);
     return () => clearTimeout(timer);
-  }, [doneCount, dataReady, complete]);
+  }, [sealed, allSettled, complete]);
 
   if (complete) return <>{children}</>;
 
-  const progressPct = (doneCount / CHECKING_ROWS.length) * 100;
+  const currentRow = CHECKING_ROWS[doneCount] as (typeof CHECKING_ROWS)[number] | undefined;
+  const ticker = sealed
+    ? CHECKING_READY_TICKER
+    : doneCount === 0 && parts.nearby === undefined
+      ? CHECKING_START_LINE
+      : (currentRow?.ticker ?? CHECKING_START_LINE);
+  const stepLabel = sealed
+    ? CHECKING_STEP_DONE
+    : doneCount === 0
+      ? CHECKING_START_LINE
+      : CHECKING_STEP_RUNNING;
+  const lastCompleted = doneCount > 0 ? CHECKING_ROWS[doneCount - 1] : undefined;
+  const announcement = sealed
+    ? CHECKING_READY_ANNOUNCEMENT
+    : lastCompleted && outcomes[lastCompleted.key]
+      ? `${lastCompleted.label} — ${outcomes[lastCompleted.key]!.line}`
+      : "";
 
   return (
     <section className="checking" aria-label={heading}>
@@ -136,41 +214,114 @@ export default function CheckingScreen({
       </p>
       <h1 className="page-title">{heading}</h1>
       <p className="checking__intro">{CHECKING_INTRO}</p>
+
+      <p className="checking__ticker">
+        <span className="checking__ticker-dot" aria-hidden="true" />
+        <span key={ticker} className="checking__ticker-text">
+          {ticker}
+        </span>
+      </p>
+
+      <div className="checking__seal-wrap">
+        <svg className="checking__seal" viewBox="0 0 160 160" aria-hidden="true">
+          {SEAL_ROTATIONS.map((rotation, index) => (
+            <circle
+              key={rotation}
+              className="checking__seal-seg"
+              data-on={index < doneCount ? "true" : undefined}
+              cx="80"
+              cy="80"
+              r="66"
+              strokeDasharray="77.94 336.75"
+              transform={`rotate(${rotation} 80 80)`}
+            />
+          ))}
+          <path
+            className="checking__seal-house"
+            d="M52 84 L80 58 L108 84 M60 78 V106 H100 V78 M73 106 V92 H87 V106"
+          />
+          <g className="checking__seal-badge" data-on={sealed ? "true" : undefined}>
+            <rect x="52" y="118" width="56" height="17" rx="8.5" />
+            <text x="80" y="130" textAnchor="middle">
+              CHECKED
+            </text>
+          </g>
+        </svg>
+        <p className="checking__seal-caption">{CHECKING_SEAL_CAPTION}</p>
+      </div>
+
       <div
         className="checking__progress"
         role="progressbar"
         aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={progressPct}
-        aria-label="Check progress"
+        aria-valuemax={CHECKING_ROWS.length}
+        aria-valuenow={doneCount}
+        aria-label="Checks complete"
       >
-        <div className="checking__progress-bar" style={{ width: `${progressPct}%` }} />
+        <div
+          className="checking__progress-bar"
+          style={{ width: `${(doneCount / CHECKING_ROWS.length) * 100}%` }}
+        />
       </div>
+      <p className="checking__stepline">
+        <span>{stepLabel}</span>
+        <b>{doneCount > 0 ? `${doneCount} of ${CHECKING_ROWS.length}` : ""}</b>
+      </p>
+
       <ul className="checking__rows">
         {CHECKING_ROWS.map((row, index) => {
-          const done = index < doneCount;
+          const outcome: CheckingGroupResult | null = outcomes[row.key];
+          const done = index < doneCount && outcome !== null;
+          const active = !done && index === doneCount;
+          const state = done ? outcome!.state : active ? "active" : "waiting";
+          const stateText = done ? outcome!.line : active ? row.doing : CHECKING_WAITING_LINE;
           return (
-            <li
-              key={row.key}
-              className="checking__row"
-              data-row={row.key}
-              data-state={done ? "done" : "checking"}
-            >
-              <span className="checking__row-label">{row.label}</span>
-              <span className="checking__row-qualifier">{row.qualifier}</span>
-              <span className="checking__row-state">
-                {done ? (
-                  "Done"
+            <li key={row.key} className="checking__row" data-row={row.key} data-state={state}>
+              <span className="checking__row-icon" data-state={state} aria-hidden="true">
+                {done && outcome!.state === "done" ? (
+                  <svg viewBox="0 0 24 24" width="12" height="12">
+                    <path
+                      d="M4 12.5 L9.5 18 L20 6.5"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                ) : done ? (
+                  <svg viewBox="0 0 24 24" width="12" height="12">
+                    <path
+                      d="M12 5.5 V13.5 M12 17.5 h.01"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                ) : active ? (
+                  <span className="checking__row-spinner" />
                 ) : (
-                  <>
-                    <span className="checking__spinner" aria-hidden="true" /> Checking…
-                  </>
+                  <span className="checking__pendot" />
                 )}
+              </span>
+              <span className="checking__row-main">
+                <span className="checking__row-label">{row.label}</span>
+                <span className="checking__row-state">{stateText}</span>
+                <span className="checking__row-source">{row.source}</span>
               </span>
             </li>
           );
         })}
       </ul>
+
+      <p className="checking__final" data-visible={sealed ? "true" : undefined}>
+        {CHECKING_FINAL_LINE}
+      </p>
+      <div className="visually-hidden" role="status" aria-live="polite">
+        {announcement}
+      </div>
     </section>
   );
 }

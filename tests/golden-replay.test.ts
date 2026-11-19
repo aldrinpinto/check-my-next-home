@@ -602,7 +602,7 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
 
   it("sold prices: the universal locks reproduce on the fixture corpus", () => {
     const birkdale = get("birkdale1").sold;
-    if (birkdale.kind !== "sold-prices" || birkdale.rung !== 1)
+    if (birkdale.kind !== "sold-prices" || birkdale.rung !== 1 || "soldPrices" in birkdale)
       throw new Error("birkdale sold not served");
     // The fixture corpus files 30 of the register's 31 recorded
     // sales: the monthly update's deletion row removes No 39's
@@ -619,7 +619,7 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
     expect(birkdale.median.spanTo).toBe("2026-07-20");
 
     const exeter = get("exeter1").sold;
-    if (exeter.kind !== "sold-prices" || exeter.rung !== 1)
+    if (exeter.kind !== "sold-prices" || exeter.rung !== 1 || "soldPrices" in exeter)
       throw new Error("exeter sold not served");
     expect(exeter.ownHistory[0]?.price).toBe(270000);
     expect(exeter.ownHistory[0]?.date).toBe("2014-01-17");
@@ -632,7 +632,7 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
     // lock — £399,999 over 27 — is the matrix's, proven at M6.3
     // against the complete file).
     const minerva = get("minerva1").sold;
-    if (minerva.kind !== "sold-prices" || minerva.rung !== 1)
+    if (minerva.kind !== "sold-prices" || minerva.rung !== 1 || "soldPrices" in minerva)
       throw new Error("minerva sold not served");
     expect(minerva.ownHistory[0]?.price).toBe(420000);
     expect(minerva.ownHistory[0]?.date).toBe("2019-12-03");
@@ -642,7 +642,8 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
 
   it("sold prices: the loaded-none state serves for a proven-empty postcode", () => {
     const beaulieu = get("beaulieu2").sold;
-    if (beaulieu.kind !== "sold-prices") throw new Error("beaulieu sold not served");
+    if (beaulieu.kind !== "sold-prices" || "soldPrices" in beaulieu)
+      throw new Error("beaulieu sold not served");
     expect(beaulieu.loadState).toBe("loaded-none");
     expect(beaulieu.recordedCount).toBe(0);
     expect(beaulieu.stateLine).toContain("No sale recorded for this postcode since 1995");

@@ -302,4 +302,27 @@ describe("district cache — serve, invalidate, degrade", () => {
     expect(second).toEqual(first);
     expect(calls.postcodes).toBe(1);
   });
+
+  it("two concurrent serves of one district share one build (the checking screen's single-flight)", async () => {
+    const db = new FakeDb();
+    succeedAll(db);
+    const cache = createDistrictCache(db);
+    const { source, calls } = fakeSource();
+    // The wider-area page's streamed results and the
+    // checking screen's payload call arrive together: one
+    // build serves both, and both callers receive the very
+    // same bundle — the screen's lines and the results
+    // behind it are derived from one build, never two.
+    const [page, payload] = await Promise.all([
+      buildDistrictBundleCached("ZZ9", source, cache),
+      buildDistrictBundleCached("ZZ9", source, cache),
+    ]);
+    expect(calls.postcodes).toBe(1);
+    expect(payload).toBe(page);
+    // Once the build settles the flight is over: the next
+    // serve takes the ordinary path and reads the entry.
+    const third = await buildDistrictBundleCached("ZZ9", source, cache);
+    expect(third).toEqual(page);
+    expect(calls.postcodes).toBe(1);
+  });
 });

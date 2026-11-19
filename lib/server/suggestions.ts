@@ -68,24 +68,25 @@
 //     thing a fragment must never lose.
 //
 // M7.15D (founder ruling, 18 Nov 2026): the fragment
-// shapes gain the fourth group — PLACES — and, behind a
-// fully named place, its DISTRICTS. A town or place
-// name offers the place (lib/server/places.ts: the
-// picking index's town-as-filed, two tiers like the
-// streets — exact word-prefix, then pg_trgm fuzzy AS
-// CHOICES ONLY at the same pinned threshold, witnessed
-// on the plan's pair: CHLEMSFORD ~ CHELMSFORD 0.4667
-// against CHELMSFORD ~ CHELTENHAM 0.2222). When the
-// typed words exactly name one of the exact tier's
-// places, its districts ride the same panel under
-// "Districts in <Place>" — the town chooser lives
-// inside the picker (Final Sample Master view 25);
-// there is no town page. A district item is the
-// wider-area page's route. A place item itself carries
-// NO route: its pick files the filed name into the
-// search field (the client's one non-navigating pick),
-// and the districts then expand from the real name —
-// a fuzzy place is never expanded unpicked, and a
+// shapes gain the fourth group — PLACES. A town or
+// place name offers the place (lib/server/places.ts:
+// the picking index's town-as-filed, two tiers like
+// the streets — exact word-prefix, then pg_trgm fuzzy
+// AS CHOICES ONLY at the same pinned threshold,
+// witnessed on the plan's pair: CHLEMSFORD ~
+// CHELMSFORD 0.4667 against CHELTENHAM 0.2222). As
+// built on 18 Nov the chooser lived inside the
+// picker: a place item carried no route, its pick
+// filed the name into the field, and the place's
+// districts expanded beneath it under "Districts in
+// <Place>". FOUNDER RULING, 19 Nov 2026, reversing
+// that: places behave like streets — a place item
+// carries a route and its pick NAVIGATES to the
+// place page (lib/journey.ts's placeChoiceRoute),
+// which lists ALL the place's districts with no cap;
+// a place serving one district routes straight to
+// that district's wider-area page. No districts
+// group rides the panel any more, picked or not. A
 // place pick never lands on a home. The honesty rule
 // is the district bundle's own: only districts the
 // district page serves in its own form are offered,
@@ -105,7 +106,13 @@ import {
   type LoadedAddressParts,
 } from "../address";
 import { homeKeyOf } from "../bundle-cache";
-import { homeRoute, postcodeRoute, streetChoiceRoute, widerAreaRoute } from "../journey";
+import {
+  homeRoute,
+  placeChoiceRoute,
+  postcodeRoute,
+  streetChoiceRoute,
+  widerAreaRoute,
+} from "../journey";
 import { entryNow, logEntry } from "./entry-log";
 import { createPickingIndexSource } from "./picking-index";
 import { createPlaceSource, placeNormOf, type PlaceSuggestion } from "./places";
@@ -163,22 +170,22 @@ const PROPERTIES_FETCH_LIMIT = 2_000;
 
 export interface SuggestionItem {
   label: string;
-  // The route a pick navigates to — null for exactly
-  // one item kind (M7.15D): a Places item, whose pick
-  // expands the panel in place instead of navigating
-  // (the town chooser lives inside the picker, view
-  // 25). A place item carries the filed place name in
-  // `place`; the client files it into the search field
-  // and the ordinary fetch then serves that place's
-  // districts. Every other item kind always carries a
-  // real href.
+  // The route a pick navigates to. Every item kind
+  // carries a real href since the founder's ruling of
+  // 19 Nov 2026 made the place pick navigate like the
+  // others; the type keeps its nullable form because
+  // the client's panel treats an href-less item as a
+  // non-pick rather than assuming one exists. A place
+  // item additionally carries the filed place name in
+  // `place`, so the client's submit path can recognise
+  // a field holding exactly a place name.
   href: string | null;
   place?: string;
 }
 
 export interface SuggestionGroups {
   groups: {
-    label: "Postcodes" | "Streets" | "Properties" | "Homes" | "Places" | `Districts in ${string}`;
+    label: "Postcodes" | "Streets" | "Properties" | "Homes" | "Places";
     items: SuggestionItem[];
   }[];
 }
@@ -451,25 +458,26 @@ function propertyLabelOf(parts: LoadedAddressParts): string {
   return `${labelForAddressParts(parts)}${town}, ${parts.postcode}`;
 }
 
-// One place suggestion's item (M7.15D): the place in
-// display casing, carrying NO route — the pick files
-// the filed name into the search field (the client's
-// one non-navigating pick), and the districts expand
-// from the real name on the fetch that follows. A
-// place pick never lands on a home, and never leaves
-// the dropdown for a page of its own.
+// One place suggestion's item (M7.15D; the pick's
+// behaviour ruled again 19 Nov 2026): the place in
+// display casing, carrying a route like every other
+// pick — the pick NAVIGATES to the place page, where
+// the place's districts are listed in full (the
+// street pick's pattern: one destination straight
+// there, several to the choice page). A place serving
+// exactly one district goes straight to that
+// district's wider-area search, as a street in one
+// postcode goes straight to its check. The item still
+// carries the filed display name in `place` so the
+// box's submit path can recognise a field holding
+// exactly a place name and take the same route. A
+// place pick never lands on a home.
 function placeItemOf(unit: PlaceSuggestion): SuggestionItem {
   const place = displayText(unit.place);
-  return { label: place, href: null, place };
-}
-
-// One district suggestion's item: the district code
-// leading, the place it belongs to behind it (Master
-// view 25's row form, in held data — the sample's
-// hand-written district descriptions are shelf copy,
-// not filed fact), and the wider-area page's route.
-function districtItemOf(outward: string, placeDisplay: string): SuggestionItem {
-  return { label: `${outward} — ${placeDisplay}`, href: widerAreaRoute(outward) };
+  if (unit.districts.length === 1) {
+    return { label: place, href: widerAreaRoute(unit.districts[0]), place };
+  }
+  return { label: place, href: placeChoiceRoute(place), place };
 }
 
 // The suggestions for one typed input. Pure over the
@@ -706,33 +714,15 @@ export async function suggestionsFor(
     groups.push({ label: "Places", items: placeUnits.map(placeItemOf) });
   }
 
-  // The districts (M7.15D): when the typed words exactly
-  // name one of the EXACT tier's places — typed in full,
-  // or filed there by a place pick — that place's
-  // districts ride the same panel, in the picker's list
-  // style, each leading to its wider-area page. A fuzzy
-  // place never expands unpicked: expansion is the
-  // exact name's alone, so a misspelling's panel holds
-  // the choice and nothing else. The districts are read
-  // from the source at expansion time (not carried on
-  // the unit), under the same served-district rule the
-  // tiers apply.
-  let districtCount = 0;
-  const namedPlace = exactPlaceUnits.find(
-    (unit) => placeNormOf(unit.place) === streetWords.join(" "),
-  );
-  if (namedPlace) {
-    const districts = await source.placeDistricts(placeNormOf(namedPlace.place));
-    districtCount = districts.length;
-    if (districts.length > 0) {
-      const placeDisplay = displayText(namedPlace.place);
-      groups.push({
-        label: `Districts in ${placeDisplay}`,
-        items: districts.map((outward) => districtItemOf(outward, placeDisplay)),
-      });
-    }
-  }
-
+  // The districts no longer ride the panel (founder
+  // ruling, 19 Nov 2026, reversing the M7.15D chooser):
+  // a place pick navigates to the place page, which
+  // lists the districts in full — the in-dropdown
+  // "Districts in <Place>" group and its exact-name
+  // expansion are gone entirely, so a panel holds the
+  // place as a choice and nothing beneath it, picked or
+  // not. The served log keeps its districts field at
+  // zero so the log's shape does not move.
   logEntry(req, "suggestions.served", {
     layer: "local",
     reason: groups.length > 0 ? "ok" : "empty",
@@ -742,7 +732,7 @@ export async function suggestionsFor(
     streets: streetUnits.length,
     homes: propertyCount,
     places: placeUnits.length,
-    districts: districtCount,
+    districts: 0,
   });
   return { groups };
 }

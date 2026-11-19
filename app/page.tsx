@@ -85,10 +85,8 @@ export default function Home() {
         <h1>{HOME_HERO_HEADLINE}</h1>
         <p className="type-lead">{HOME_HERO_SUBLINE}</p>
         {/* The hero box is the landing search box island:
-            it files a place name the URL carries (the
-            place route) and otherwise renders the plain
-            bare box — the fallback is that same box, so
-            the hero never waits on the query. */}
+            the plain bare box — the fallback is that same
+            box, so the hero never waits on the query. */}
         <Suspense fallback={<PostcodeBox bare />}>
           <LandingSearchBox />
         </Suspense>

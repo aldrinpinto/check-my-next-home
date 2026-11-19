@@ -1,12 +1,20 @@
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 
 import { CheckCompletedBeacon } from "../../components/JourneyBeacon";
+import DistrictCheckingScreen from "../../components/DistrictCheckingScreen";
+import PlaceChoice from "../../components/PlaceChoice";
 import PostcodeBox from "../../components/PostcodeBox";
 import ResultsPage from "../../components/ResultsPage";
 import ShortlistButton from "../../components/ShortlistButton";
 import StreetChoice from "../../components/StreetChoice";
 import WholeCheckFailure from "../../components/WholeCheckFailure";
-import { createAddressSource, displayText, resolveAddressInput } from "../../lib/address";
+import {
+  createAddressSource,
+  displayText,
+  resolveAddressInput,
+  type AddressResolution,
+} from "../../lib/address";
 import { homeKeyOf } from "../../lib/bundle-cache";
 import {
   UNPLACED_NOTICE_URL,
@@ -22,11 +30,12 @@ import { sectionsAndStatesOf } from "../../lib/journey-events";
 import { buildDistrictResultsView, buildWiderAreaView } from "../../lib/results";
 import {
   checkDistrictWider,
-  placeLandingUrl,
+  placeChoiceUrl,
   resolutionForPostcodeRoute,
 } from "../../lib/server/serve";
 import { buildShortlistCard } from "../../lib/shortlist-card";
 import { getDbPool } from "../../lib/server/db";
+import { createPlaceSource, placeNormOf } from "../../lib/server/places";
 import { createStreetSource, streetNormOf } from "../../lib/server/streets";
 
 import type { Metadata } from "next";
@@ -64,7 +73,11 @@ export const metadata: Metadata = pageMetadata({
 // dropdown that spans postcodes arrives as (street, town)
 // and renders the short postcode choice (or redirects to
 // the one postcode's narrowed check when the street sits
-// in exactly one).
+// in exactly one). Since the founder's ruling of 19 Nov
+// 2026 it carries the place form the same way: a place
+// picked from the dropdown arrives as (place) and renders
+// the district choice (or redirects to the one district's
+// wider-area search when the place serves exactly one).
 
 export const dynamic = "force-dynamic";
 
@@ -79,6 +92,7 @@ export default async function SearchPage({
     town?: string;
     building?: string;
     picked?: string;
+    place?: string;
   }>;
 }) {
   const params = await searchParams;
@@ -105,152 +119,32 @@ export default async function SearchPage({
       // one exception (founder fix batch, 19 Nov 2026):
       // an input that exactly names a known place is not
       // unplaceable, it is a place pick that arrived by
-      // URL, and it lands back on the landing page with
-      // the place filed and its districts revealed —
-      // never the unplaced notice, never a failure page.
+      // URL, and it lands on the place page — never the
+      // unplaced notice, never a failure page.
       if (resolution.rung === 4) {
-        const placeUrl = await placeLandingUrl(params.outward);
+        const placeUrl = await placeChoiceUrl(params.outward);
         redirect(placeUrl ?? UNPLACED_NOTICE_URL);
       }
       if (resolution.rung === 1)
         redirect(homeRoute(resolution.directory.postcode, homeKeyOf(resolution)));
       redirect(homeRoute(resolution.directory.postcode));
     }
-    let served;
-    try {
-      served = await checkDistrictWider(resolution);
-    } catch {
-      return <WholeCheckFailure initialValue={resolution.outward} />;
-    }
-    const { short, district } = served;
-    // M7.5: a wider-area result is shortlistable (D44) —
-    // its card carries the wider-area headline facts
-    // under the scope label and counts toward the 3. The
-    // record is assembled from this same derivation and
-    // embedded in the control beside the scope label
-    // (fold-in 8). Founder fix batch, 19 Nov 2026: the
-    // control renders ONLY on the Scotland / NI
-    // not-covered branch below — the district page itself
-    // carries no shortlist control (the sample carries
-    // none, and the founder flagged it; the bridge is the
-    // district page's only forward path). The card still
-    // builds here because the not-covered branch uses it.
-    const card = buildShortlistCard({ resolution, short });
-    if (district.kind === "district") {
-      // The district page (founder ruling, 18 Nov 2026):
-      // the results page's own layout system — same shell,
-      // heading block and four D76 tabs — carrying the
-      // district's twelve sections at district grain. No
-      // unlock banner and no upsell anywhere: the only
-      // forward path is the bridge into a full-postcode
-      // check, rendered by the view after the tabs.
-      const view = buildDistrictResultsView(district);
-      const head = district.head;
-      const councilsChip =
-        head.councils.length === 0
-          ? null
-          : head.councils.length === 1
-            ? head.councils[0]
-            : `Straddles ${head.councils.join(" & ")} councils`;
-      // The first chip is the county, in the sample's
-      // form (founder fix batch — audit item 4): the
-      // build used to serve the region here, a recorded
-      // departure; the sample's chip is the county the
-      // district's sales rows file. Several counties
-      // straddle in the councils chip's own form; no
-      // filed county, no chip.
-      const countyChip =
-        head.counties.length === 0
-          ? null
-          : head.counties.length === 1
-            ? head.counties[0]
-            : `Straddles ${head.counties.join(" & ")} counties`;
-      return (
-        <main className="journey-page main--wide">
-          <header className="results-head">
-            <div className="head-text">
-              {/* The sample's head (founder fix batch —
-                  audit items 2 and 3): the addr-line above
-                  the H1, and the H1 in the sample's own
-                  form. The not-this-home meaning rides in
-                  the scope line below, verbatim, exactly
-                  as it always has. */}
-              <p className="addr-line">
-                Wider area · <b>Postcode district</b>
-              </p>
-              <h1 className="page-title">Wider area — {resolution.outward}</h1>
-              <p className="results-scope-line">
-                Facts about the {resolution.outward} district as a whole — not about one home. For
-                one home, check its full postcode.
-              </p>
-              <div className="district-chips">
-                {countyChip && <span className="chip">{countyChip}</span>}
-                {head.postTown && <span className="chip">Part of {head.postTown} post town</span>}
-                {councilsChip && <span className="chip">{councilsChip}</span>}
-                <span className="chip">Grain: whole district</span>
-              </div>
-            </div>
-          </header>
-          {params.notfound && (
-            <p className="journey-notice">{postcodeNotFoundLine(params.notfound)}</p>
-          )}
-          <ResultsPage view={view} />
-          {/* M7.14: the wider-area check's completion —
-              rung 3, the nation from the district head's
-              own region (the collapse the head itself
-              makes: "Wales" is Welsh, any other filed
-              region English, none recorded as unknown),
-              the sections and their named states from the
-              district bundle (the bridge is a hand-off,
-              not a section, and is not counted as one). */}
-          <CheckCompletedBeacon
-            rung={3}
-            nation={head.region === "Wales" ? "wales" : head.region ? "england" : "unknown"}
-            sections={Object.keys(district.sections).filter((key) => key !== "bridge")}
-            states={
-              sectionsAndStatesOf(
-                Object.fromEntries(
-                  Object.entries(district.sections).filter(([key]) => key !== "bridge"),
-                ),
-              ).states
-            }
-          />
-        </main>
-      );
-    }
-    // Scotland / Northern Ireland keep the rung-3 form
-    // whole (Phase 3 owns their district treatment): the
-    // unlock banner above the results page in its rung-3
-    // named-state form.
-    const view = buildWiderAreaView(short);
+    // The wider-area checking screen (founder ruling,
+    // 19 Nov 2026): the district results stream in
+    // behind the screen, which holds them until its
+    // payload settles and its four groups complete —
+    // the home page's held reveal, on the district
+    // page. The screen's payload call and the streamed
+    // results share one bundle build (the district
+    // cache's single-flight), so the lines the screen
+    // lands are the results' own facts.
     return (
       <main className="journey-page main--wide">
-        <header className="results-header results-header--row">
-          <h1>{resolution.label}</h1>
-          {card && <ShortlistButton card={card} />}
-        </header>
-        {params.notfound && (
-          <p className="journey-notice">{postcodeNotFoundLine(params.notfound)}</p>
-        )}
-        <section className="unlock-banner">
-          <h2>{WIDER_AREA_BANNER_HEADING}</h2>
-          <p>{WIDER_AREA_BANNER_LINE}</p>
-          <PostcodeBox autoFocus bare />
-        </section>
-        <ResultsPage view={view} />
-        {/* M7.14: a Scotland / NI wider-area serve counts
-            as a completed rung-3 check too — its nation is
-            the bundle's own, and its sections carry their
-            named not-covered states. This counting is the
-            demand evidence Phase 3 sequences from. */}
-        {district.kind === "not-covered" && (
-          <CheckCompletedBeacon
-            rung={3}
-            nation={district.nation}
-            sections={sectionsAndStatesOf(short.sections as Record<string, unknown>).sections}
-            states={sectionsAndStatesOf(short.sections as Record<string, unknown>).states}
-          />
-        )}
+        <DistrictCheckingScreen outward={resolution.outward}>
+          <Suspense fallback={<p className="results-loading">Opening your results…</p>}>
+            <DistrictResults resolution={resolution} notfound={params.notfound} />
+          </Suspense>
+        </DistrictCheckingScreen>
       </main>
     );
   }
@@ -291,6 +185,35 @@ export default async function SearchPage({
     );
   }
 
+  if (params.place && !params.postcode && !params.outward && !params.street) {
+    // The place page (founder ruling, 19 Nov 2026,
+    // reversing the 18 Nov in-dropdown chooser): a place
+    // picked from the dropdown — or a bare place name the
+    // serve layer routed here — lands on the place's own
+    // page, the street choice's twin. The place table
+    // answers which districts it serves: none — the pick
+    // named a place we hold no served district on now —
+    // the unplaced notice; exactly one — straight to that
+    // district's wider-area search (the street choice's
+    // one-postcode rule); several — the choice, in the
+    // picker's list style, ALL of the districts with no
+    // cap. The parameter carries the display form; the
+    // lookup normalises it against the filed table, so a
+    // hand-typed variant of this URL resolves against
+    // filed fact, never against its own text. The heading
+    // is the FILED place's display form, as the street
+    // page's heading is the filed street's.
+    let place;
+    try {
+      place = await createPlaceSource(getDbPool()).placeByNorm(placeNormOf(params.place));
+    } catch {
+      return <WholeCheckFailure initialValue={displayText(params.place)} />;
+    }
+    if (!place || place.districts.length === 0) redirect(UNPLACED_NOTICE_URL);
+    if (place.districts.length === 1) redirect(widerAreaRoute(place.districts[0]));
+    return <PlaceChoice place={displayText(place.place)} districts={place.districts} />;
+  }
+
   if (!params.postcode) redirect(UNPLACED_NOTICE_URL);
 
   const postcode = params.postcode;
@@ -312,10 +235,9 @@ export default async function SearchPage({
   }
   if (resolution.rung === 4) {
     // A bare place name in the postcode slot (founder fix
-    // batch): a known place routes to the landing page
-    // with the place filed and its districts revealed —
+    // batch): a known place routes to the place page —
     // the same graceful route as the outward slot's.
-    const placeUrl = await placeLandingUrl(postcode);
+    const placeUrl = await placeChoiceUrl(postcode);
     redirect(placeUrl ?? UNPLACED_NOTICE_URL);
   }
 
@@ -342,4 +264,154 @@ export default async function SearchPage({
     );
   }
   redirect(homeRoute(postcode));
+}
+
+// The wider-area results, streamed in behind the
+// checking screen: the district page (England & Wales)
+// and the Scotland / NI not-covered form, exactly as
+// this route served them before the screen — the same
+// serves, the same views, the same completion beacons.
+// A serve that throws renders the whole-check failure
+// in place of the results (the home page's Results
+// pattern).
+async function DistrictResults({
+  resolution,
+  notfound,
+}: {
+  resolution: Extract<AddressResolution, { rung: 3 }>;
+  notfound?: string;
+}) {
+  let served;
+  try {
+    served = await checkDistrictWider(resolution);
+  } catch {
+    return <WholeCheckFailure initialValue={resolution.outward} />;
+  }
+  const { short, district } = served;
+  // M7.5: a wider-area result is shortlistable (D44) —
+  // its card carries the wider-area headline facts
+  // under the scope label and counts toward the 3. The
+  // record is assembled from this same derivation and
+  // embedded in the control beside the scope label
+  // (fold-in 8). Founder fix batch, 19 Nov 2026: the
+  // control renders ONLY on the Scotland / NI
+  // not-covered branch below — the district page itself
+  // carries no shortlist control (the sample carries
+  // none, and the founder flagged it; the bridge is the
+  // district page's only forward path). The card still
+  // builds here because the not-covered branch uses it.
+  const card = buildShortlistCard({ resolution, short });
+  if (district.kind === "district") {
+    // The district page (founder ruling, 18 Nov 2026):
+    // the results page's own layout system — same shell,
+    // heading block and four D76 tabs — carrying the
+    // district's twelve sections at district grain. No
+    // unlock banner and no upsell anywhere: the only
+    // forward path is the bridge into a full-postcode
+    // check, rendered by the view after the tabs.
+    const view = buildDistrictResultsView(district);
+    const head = district.head;
+    const councilsChip =
+      head.councils.length === 0
+        ? null
+        : head.councils.length === 1
+          ? head.councils[0]
+          : `Straddles ${head.councils.join(" & ")} councils`;
+    // The first chip is the county, in the sample's
+    // form (founder fix batch — audit item 4): the
+    // build used to serve the region here, a recorded
+    // departure; the sample's chip is the county the
+    // district's sales rows file. Several counties
+    // straddle in the councils chip's own form; no
+    // filed county, no chip.
+    const countyChip =
+      head.counties.length === 0
+        ? null
+        : head.counties.length === 1
+          ? head.counties[0]
+          : `Straddles ${head.counties.join(" & ")} counties`;
+    return (
+      <>
+        <header className="results-head">
+          <div className="head-text">
+            {/* The sample's head (founder fix batch —
+                audit items 2 and 3): the addr-line above
+                the H1, and the H1 in the sample's own
+                form. The not-this-home meaning rides in
+                the scope line below, verbatim, exactly
+                as it always has. */}
+            <p className="addr-line">
+              Wider area · <b>Postcode district</b>
+            </p>
+            <h1 className="page-title">Wider area — {resolution.outward}</h1>
+            <p className="results-scope-line">
+              Facts about the {resolution.outward} district as a whole — not about one home. For one
+              home, check its full postcode.
+            </p>
+            <div className="district-chips">
+              {countyChip && <span className="chip">{countyChip}</span>}
+              {head.postTown && <span className="chip">Part of {head.postTown} post town</span>}
+              {councilsChip && <span className="chip">{councilsChip}</span>}
+              <span className="chip">Grain: whole district</span>
+            </div>
+          </div>
+        </header>
+        {notfound && <p className="journey-notice">{postcodeNotFoundLine(notfound)}</p>}
+        <ResultsPage view={view} />
+        {/* M7.14: the wider-area check's completion —
+            rung 3, the nation from the district head's
+            own region (the collapse the head itself
+            makes: "Wales" is Welsh, any other filed
+            region English, none recorded as unknown),
+            the sections and their named states from the
+            district bundle (the bridge is a hand-off,
+            not a section, and is not counted as one). */}
+        <CheckCompletedBeacon
+          rung={3}
+          nation={head.region === "Wales" ? "wales" : head.region ? "england" : "unknown"}
+          sections={Object.keys(district.sections).filter((key) => key !== "bridge")}
+          states={
+            sectionsAndStatesOf(
+              Object.fromEntries(
+                Object.entries(district.sections).filter(([key]) => key !== "bridge"),
+              ),
+            ).states
+          }
+        />
+      </>
+    );
+  }
+  // Scotland / Northern Ireland keep the rung-3 form
+  // whole (Phase 3 owns their district treatment): the
+  // unlock banner above the results page in its rung-3
+  // named-state form.
+  const view = buildWiderAreaView(short);
+  return (
+    <>
+      <header className="results-header results-header--row">
+        <h1>{resolution.label}</h1>
+        {card && <ShortlistButton card={card} />}
+      </header>
+      {notfound && <p className="journey-notice">{postcodeNotFoundLine(notfound)}</p>}
+      <section className="unlock-banner">
+        <h2>{WIDER_AREA_BANNER_HEADING}</h2>
+        <p>{WIDER_AREA_BANNER_LINE}</p>
+        <PostcodeBox autoFocus bare />
+      </section>
+      <ResultsPage view={view} />
+      {/* M7.14: a Scotland / NI wider-area serve counts
+          as a completed rung-3 check too — its nation is
+          the bundle's own, and its sections carry their
+          named not-covered states. This counting is the
+          demand evidence Phase 3 sequences from. */}
+      {district.kind === "not-covered" && (
+        <CheckCompletedBeacon
+          rung={3}
+          nation={district.nation}
+          sections={sectionsAndStatesOf(short.sections as Record<string, unknown>).sections}
+          states={sectionsAndStatesOf(short.sections as Record<string, unknown>).states}
+        />
+      )}
+    </>
+  );
 }

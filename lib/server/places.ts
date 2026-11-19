@@ -44,9 +44,8 @@
 //   2. FUZZY — Postgres pg_trgm similarity, offered
 //      ONLY when the exact tier found nothing or nearly
 //      nothing, and only ever AS A CHOICE: the visitor
-//      picks the real place from the list, which files
-//      its name into the field; the districts then
-//      expand from the real name. Submitting a search
+//      picks the real place from the list, which takes
+//      them to that place's page. Submitting a search
 //      never applies a fuzzy match silently, and nothing
 //      anywhere says "did you mean".
 //
@@ -62,11 +61,10 @@
 // on a witnessed case, never on a hunch.
 //
 // A place suggestion is the place itself: its filed
-// name, and (for the expansion test in the suggestions
-// read model) the districts it serves. Picking a place
-// never lands on a home and never leaves the dropdown:
-// the districts ride the same panel (see
-// lib/server/suggestions.ts).
+// name, and the districts it serves. Picking a place
+// never lands on a home: it navigates to the place
+// page, which lists the districts in full (founder
+// ruling, 19 Nov 2026 — see lib/server/suggestions.ts).
 
 import type { Pool } from "pg";
 
@@ -248,10 +246,9 @@ export function createPlaceSource(db: PlaceQueryable): PlaceSource {
 
     async placeDistricts(placeNorm) {
       // The named place's served districts, in district
-      // order — the expansion the dropdown shows under
-      // "Districts in <Place>". The same served test as
-      // the tiers: a district the district page would
-      // answer in its not-covered form is not offered.
+      // order. The same served test as the tiers: a
+      // district the district page would answer in its
+      // not-covered form is not offered.
       const { rows } = await db.query(
         `SELECT outward
            FROM picking_places
