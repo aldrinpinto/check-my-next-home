@@ -7,10 +7,16 @@
 //     the post towns the two registers carry (the Price
 //     Paid town, the EPC register's post town filed as
 //     the town) — derived into the place table
-//     (migration 0032) by the same filing machinery that
-//     derives the street table, at the grain (place,
-//     district): a place is suggestible exactly where we
-//     hold homes filed under its name, as a street is
+//     (migration 0032; the derivation corrected by
+//     migration 0033 — the district is the postcode's
+//     outward under the canonical grammar, and a pair
+//     is filed only where the index holds more than
+//     one home under the name, never on a single
+//     record's say-so) by the same filing machinery
+//     that derives the street table, at the grain
+//     (place, district): a place is suggestible exactly
+//     where we hold homes filed under its name, as a
+//     street is
 //     suggestible exactly where we hold homes on it.
 //     (The postcode directory as filed carries no post
 //     town — ONSPD has none to file; its part below is

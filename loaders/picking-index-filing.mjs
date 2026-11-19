@@ -203,22 +203,54 @@ export async function rebuildPickingStreets(client) {
   );
 }
 
-// Rebuild the derived place table (migration 0032)
-// from the union index as it stands: one row per
-// (place, district) the index holds homes under a
-// filed town in, with the place's display form and its
-// distinct postcode count. The normalisation is the
-// home key's own recipe (normKeyPart above), written
-// out in SQL. The SELECT mirrors migration 0032's
-// initial build.
+// Rebuild the derived place table (migration 0032,
+// derivation corrected by migration 0033) from the
+// union index as it stands: one row per (place,
+// district) the index holds homes under a filed town
+// in, with the place's display form and its distinct
+// postcode count. The normalisation is the home key's
+// own recipe (normKeyPart above), written out in SQL.
+// The SELECT mirrors migration 0033's rebuild.
+//
+// Two guards on the derivation, both from the
+// M7.15D deploy follow-up (19 Nov 2026; the full
+// diagnosis is in docs/entry-point.md):
+//
+//   * The district is the postcode's outward code
+//     under the canonical grammar — the classifier's
+//     own (lib/address.ts, normalisePostcode): the
+//     compact form must parse as outward + inward, and
+//     the outward is its leading group. The original
+//     split_part(postcode, ' ', 1) filed whatever token
+//     preceded the first space, including mis-keyed
+//     tokens ('CRO' for CR0, 'NNR6') and the literal
+//     postcode 'UNKNOWN' one deed carries. A postcode
+//     that does not parse contributes no pair.
+//   * A pair is filed only where the index holds MORE
+//     THAN ONE home under the place's name in the
+//     district — no single-record pairings. One deed
+//     filed 'CM92 1LX' (a postcode the directory places
+//     in Harlow) under the town CHELMSFORD, and the
+//     pair (CHELMSFORD, CM92) was offered as a district
+//     choice: the district has genuine directory
+//     standing and the postcode is grammatically
+//     valid, so neither a standing test nor a grammar
+//     test can see a false pairing — corroboration
+//     can. A genuine pairing in a national index of
+//     this size rests on many homes; a lone home is a
+//     mis-filing (a wrong town or a wrong postcode on
+//     one record) with overwhelming probability. The
+//     home itself stays in the index — only the
+//     pairing is withheld.
 export async function rebuildPickingPlaces(client) {
   await client.query("DELETE FROM picking_places");
   await client.query(
     `WITH per_place_town AS (
        SELECT btrim(regexp_replace(regexp_replace(upper(town), '[^A-Z0-9]+', ' ', 'g'), ' +', ' ', 'g')) AS place_norm,
-              split_part(postcode, ' ', 1) AS outward,
+              substring(regexp_replace(upper(postcode), '[^A-Z0-9]', '', 'g') from '^([A-Z]{1,2}[0-9][A-Z0-9]?)[0-9][A-Z]{2}$') AS outward,
               town,
-              count(DISTINCT postcode)::int AS postcodes
+              count(DISTINCT postcode)::int AS postcodes,
+              count(*)::int AS homes
          FROM picking_index
         WHERE town IS NOT NULL
         GROUP BY 1, 2, 3
@@ -227,14 +259,17 @@ export async function rebuildPickingPlaces(client) {
        SELECT place_norm,
               outward,
               (array_agg(town ORDER BY postcodes DESC, town))[1] AS place_display,
-              sum(postcodes)::int AS postcode_count
+              sum(postcodes)::int AS postcode_count,
+              sum(homes)::int AS home_count
          FROM per_place_town
+        WHERE outward IS NOT NULL
         GROUP BY place_norm, outward
      )
      INSERT INTO picking_places (place_norm, place_display, outward, postcode_count)
      SELECT place_norm, place_display, outward, postcode_count
        FROM per_place
-      WHERE place_norm <> ''`,
+      WHERE place_norm <> ''
+        AND home_count >= 2`,
   );
 }
 

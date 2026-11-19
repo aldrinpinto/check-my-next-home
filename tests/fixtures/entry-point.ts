@@ -142,11 +142,27 @@ function fixturePlaceUnits(
     lettersByOutward.set(outward, letters);
   }
   const districtsByPlace = new Map<string, Set<string>>();
+  const homesByPair = new Map<string, number>();
   for (const row of fixtureUnionRows(filedRows, indexRows)) {
     if (!row.town) continue;
-    const outward = row.postcode.split(" ")[0];
+    // The derived table's outward is the postcode's
+    // leading group under the canonical grammar (the
+    // classifier's normalisePostcode recipe), and a
+    // (place, district) pair is filed only where the
+    // index holds more than one home under the place's
+    // name there — the derivation's own guards
+    // (migration 0033), mirrored here as this fixture
+    // models the derived table.
+    const compact = row.postcode.toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const parsed = /^([A-Z]{1,2}[0-9][A-Z0-9]?)([0-9][A-Z]{2})$/.exec(compact);
+    if (!parsed) continue;
+    const outward = parsed[1];
     const letters = lettersByOutward.get(outward);
     if (!letters || (!letters.has("E") && !letters.has("W"))) continue;
+    const pairKey = `${row.town}\u0001${outward}`;
+    const homes = (homesByPair.get(pairKey) ?? 0) + 1;
+    homesByPair.set(pairKey, homes);
+    if (homes < 2) continue;
     const districts = districtsByPlace.get(row.town) ?? new Set<string>();
     districts.add(outward);
     districtsByPlace.set(row.town, districts);

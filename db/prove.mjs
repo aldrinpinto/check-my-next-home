@@ -194,7 +194,10 @@ try {
   // filed, and the served-district predicate — the
   // district bundle's own test, read off the directory's
   // LSOA letters — separates an England district from a
-  // Scottish one.
+  // Scottish one. The rebuild's derivation is the
+  // corrected one (migration 0033): the section also
+  // files the two deploy phantoms and proves neither
+  // pairing is derived.
   const placeSims = await client.query(
     `SELECT similarity('CHLEMSFORD', 'CHELMSFORD') AS hit,
             similarity('CHELMSFORD', 'CHELTENHAM') AS miss`,
@@ -210,6 +213,21 @@ try {
     `the nearest unrelated real town stays below it (CHELMSFORD ~ CHELTENHAM = ${placeMiss.toFixed(4)})`,
   );
 
+  // The deploy follow-up witnesses (19 Nov 2026), in
+  // their real filed shapes, inserted before the
+  // rebuild so the assertions below run against a
+  // world containing both phantoms: one deed's
+  // CM92 1LX home under CHELMSFORD (the single-record
+  // pairing the corroboration floor withholds) and
+  // two homes under the literal postcode UNKNOWN
+  // (the pairing the grammar withholds).
+  await client.query(
+    `INSERT INTO picking_index (postcode, paon, saon, street, town, home_key, sources, sales_edition, epc_edition)
+     VALUES ('CM92 1LX', 'SANDRINGHAM HOUSE', NULL, 'SANDRINGHAM AVENUE', 'CHELMSFORD', 'SANDRINGHAM HOUSE||SANDRINGHAM AVENUE', ARRAY['sales'], 'proof', NULL),
+            ('UNKNOWN', '1', NULL, 'PROOF STREET', 'WIRRAL', '1||PROOF STREET', ARRAY['sales'], 'proof', NULL),
+            ('UNKNOWN', '2', NULL, 'PROOF STREET', 'WIRRAL', '2||PROOF STREET', ARRAY['sales'], 'proof', NULL)`,
+  );
+
   await rebuildPickingPlaces(client);
   const placeRows = await client.query(
     `SELECT place_norm, place_display, outward, postcode_count
@@ -222,6 +240,14 @@ try {
       placeRows.rows[0].place_display === "CHELMSFORD" &&
       placeRows.rows[0].postcode_count === 2,
     "the place row carries its district and distinct postcode count (Chelmsford in CM3: CM3 2JT + CM3 2JU)",
+  );
+  const phantomPlaces = await client.query(
+    `SELECT place_norm, outward FROM picking_places
+      WHERE outward = 'CM92' OR place_norm = 'WIRRAL'`,
+  );
+  assert(
+    phantomPlaces.rows.length === 0,
+    "no place row is filed on a single record (CM92 1LX under CHELMSFORD) or from an unparseable postcode (UNKNOWN under WIRRAL)",
   );
   const fuzzyPlace = await client.query(
     "SELECT place_norm FROM picking_places WHERE place_norm % 'CHLEMSFORD'",

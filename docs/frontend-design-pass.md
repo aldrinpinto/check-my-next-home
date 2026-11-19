@@ -3767,3 +3767,33 @@ own comment; no assertion was weakened and no product
 code changed. The suggest contract and behaviour are
 unaffected, so docs/entry-point.md carries no change
 for this fix.
+
+**Deploy follow-up (19 Nov 2026) — the CM92 phantom
+district.** The M7.15D deploy's live verification
+found the dropdown offering "CM92 — Chelmsford" as a
+district choice: the place table held one row pairing
+Chelmsford with CM92, from a single Price Paid deed
+that files a Harlow postcode (CM92 1LX — the
+directory's own 18 CM92 postcodes sit in Harlow)
+under the post town Chelmsford. The pairing is
+false; neither the derivation (a faithful split_part
+of the filed postcode) nor the served-district guard
+(the district genuinely has directory standing, and
+the postcode is grammatically valid) was at fault —
+the derivation filed a place/district pairing on one
+record's say-so, and a pairing's truth is the one
+thing neither test can see. The fix sits in the
+derivation (docs/entry-point.md carries the full
+diagnosis and the measured class: 415 no-standing
+pairings the guard already suppresses, 4
+ungrammatical outwards): the district is now the
+outward under the canonical grammar, and a pair is
+filed only where the index holds more than one home
+under the place's name in the district. Migration
+0033 re-derives the table on already-built
+databases; the filing machinery runs the same
+derivation at every refresh. No served form changes:
+the dropdown's groups, rows and routes are exactly
+as this section records — the only difference is
+that a false pairing is never derived, so it can
+never be offered.

@@ -242,6 +242,92 @@ describe("the fixture pass — real rows, SQL dedupe", () => {
     expect(counts).toEqual({ postcodes: 2, homes: 34, streets: 2 });
   });
 
+  it("files no place pairing on a single record, and none from an unparseable postcode (the CM92 follow-up)", async () => {
+    // The M7.15D deploy witness, in its real filed
+    // shape (play server, 19 Nov 2026): one deed files
+    // SANDRINGHAM HOUSE, SANDRINGHAM AVENUE under the
+    // postcode CM92 1LX and the town CHELMSFORD — a
+    // postcode the directory places in Harlow. The
+    // original derivation filed the pair (CHELMSFORD,
+    // CM92) and the dropdown offered CM92 as a
+    // Chelmsford district. The corrected derivation
+    // (migration 0033) withholds it twice over, and
+    // each guard is isolated here:
+    //   - the floor: CM92 1LX is grammatically valid,
+    //     so only the no-single-record-pairings rule
+    //     can withhold the pair (one home);
+    //   - the grammar: the CROYDON pair below rests on
+    //     TWO homes, so only the grammar can withhold
+    //     it — its filed postcodes' first token is the
+    //     mis-keyed 'CRO' (for CR0), one of four
+    //     ungrammatical outwards the national filing
+    //     held ('CRO', 'HRW', 'NNR6' and 'UNKNOWN', the
+    //     last a literal postcode one deed carries,
+    //     also witnessed below at two homes).
+    const lines = [
+      ...fixtureLines,
+      ppdLine({
+        id: "witness-cm92",
+        postcode: "CM92 1LX",
+        paon: "SANDRINGHAM HOUSE",
+        street: "SANDRINGHAM AVENUE",
+        town: "CHELMSFORD",
+      }),
+      ppdLine({
+        id: "witness-cro-1",
+        postcode: "CRO 1AA",
+        paon: "1",
+        street: "WITNESS ROAD",
+        town: "CROYDON",
+      }),
+      ppdLine({
+        id: "witness-cro-2",
+        postcode: "CRO 1AA",
+        paon: "2",
+        street: "WITNESS ROAD",
+        town: "CROYDON",
+      }),
+      ppdLine({
+        id: "witness-unknown-1",
+        postcode: "UNKNOWN",
+        paon: "1",
+        street: "WITNESS STREET",
+        town: "WIRRAL",
+      }),
+      ppdLine({
+        id: "witness-unknown-2",
+        postcode: "UNKNOWN",
+        paon: "2",
+        street: "WITNESS STREET",
+        town: "WIRRAL",
+      }),
+    ];
+    const db = new FakePickingDb();
+    await loadPickingIndexFromLines(db as never, lines, {
+      edition: "fixture",
+      log: () => {},
+    });
+    // The records themselves stand — the index keeps
+    // every home it filed; only the pairings are
+    // withheld.
+    expect(db.index.some((r) => r.postcode === "CM92 1LX")).toBe(true);
+    expect(db.index.some((r) => r.postcode === "UNKNOWN")).toBe(true);
+    // The genuine pairs stand unchanged.
+    expect(db.places).toHaveLength(2);
+    expect(db.places).toContainEqual({
+      place_norm: "CHELMSFORD",
+      place_display: "CHELMSFORD",
+      outward: "CM3",
+      postcode_count: 1,
+    });
+    // And no phantom pairing is filed: not the
+    // single-record CM92, not the ungrammatical CRO,
+    // not the literal UNKNOWN.
+    expect(db.places.some((p) => p.outward === "CM92")).toBe(false);
+    expect(db.places.some((p) => p.outward === "CRO")).toBe(false);
+    expect(db.places.some((p) => p.place_norm === "WIRRAL")).toBe(false);
+  });
+
   it("is idempotent: a second identical pass files the same index", async () => {
     const db = new FakePickingDb();
     await loadPickingIndexFromLines(db as never, fixtureLines, {

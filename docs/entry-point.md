@@ -799,3 +799,97 @@ pins its absence), the place picked from a part-typed
 name expanding in place, and the misspelling offered
 as a choice only. Playwright cannot run locally; CI is
 their first execution.
+
+**Deploy follow-up — the CM92 phantom district
+(19 Nov 2026).** The step's deploy verification found
+one row in the play server's place table that should
+not be offered: (CHELMSFORD, CM92), postcode_count 1,
+serving a "CM92 — Chelmsford" district choice whose
+page aggregates by the CM92 prefix. Diagnosis, from
+the server's own rows:
+
+- The source record is a single Price Paid deed:
+  SANDRINGHAM HOUSE, SANDRINGHAM AVENUE, filed under
+  postcode CM92 1LX and post town CHELMSFORD (sales
+  extract and index agree; the EPC extract holds no
+  CM92 row). It is the only CM92 record in the index.
+- The outward derivation was faithful:
+  split_part(postcode, ' ', 1) on "CM92 1LX" yields
+  CM92, exactly as filed. No other derivation in the
+  codebase shares even that much exposure — the
+  classifier (lib/address.ts) only accepts postcodes
+  matching the canonical grammar and takes the
+  outward from the normalised form; the district
+  bundle never derives an outward from an index
+  postcode at all (membership is the directory's rows
+  under a prefix); crime reads the area letters off a
+  served postcode.
+- The served-district guard did not fail: it tests
+  the district's directory standing, and CM92 has
+  it. The directory as filed from ONSPD's pcds column
+  (verbatim, loaders/load-postcodes.mjs) holds 18
+  live CM92 postcodes (1LA–1LY) in Harlow — council
+  Harlow, ward Great Parndon, LSOA E01021840. The
+  guard passed the pair legitimately; what is false
+  is the PAIRING (Chelmsford does not contain CM92),
+  and no standing test can see that. Nor can a
+  grammar test: "CM92 1LX" satisfies the canonical
+  grammar the classifier itself applies
+  ([A-Z]{1,2}[0-9][A-Z0-9]? + [0-9][A-Z]{2}).
+- The wider class, measured on the server: 415 of
+  the table's 24,603 rows pair a place with an
+  outward the directory does not hold at all
+  (ABERTILLERY under NP3, BANBURY under OC16,
+  BARNSLEY under LS75 — deed mis-keyings; the guard
+  already suppresses every one), and exactly 4 rows
+  carry an outward that fails the grammar outright
+  (CRO, HRW, NNR6, and UNKNOWN — the last from the
+  index's single spaceless postcode, the literal
+  string "UNKNOWN" one deed carries). CM92 is the
+  one witnessed pairing that is both served and
+  false: a single-record pairing whose district
+  happens to have standing.
+
+**The fix — the derivation, at both its homes**
+(loaders/picking-index-filing.mjs
+rebuildPickingPlaces, and migration 0033, which
+re-derives the table on databases 0032 already
+built; 0032's SQL stands as the creation record):
+
+1. The district is the outward code under the
+   canonical grammar — the classifier's own recipe
+   (normalisePostcode): the compact form must parse
+   as outward + inward, and the outward is its
+   leading group. A postcode that does not parse
+   contributes no pair (kills CRO / HRW / NNR6 /
+   UNKNOWN and their whole family).
+2. A pair is filed only where the index holds more
+   than one home under the place's name in the
+   district — no single-record pairings (kills
+   CM92—Chelmsford and every pairing of its shape,
+   including false pairings whose districts have
+   standing, which no guard at the read layer can
+   ever see). The home itself stays in the index;
+   only the pairing is withheld. A genuine pairing
+   in a 25M-home index rests on many homes; the
+   fixture worlds' genuine pairs hold 7–49 homes in
+   a single postcode, so the floor is on HOMES, not
+   on the table's distinct-postcode count.
+
+The read model (lib/server/places.ts) is unchanged —
+the guard remains as the second line of defence.
+Witnesses: tests/load-picking-index.test.ts files
+the real CM92 shape (one home; grammar-valid, so
+only the floor can withhold it) and two-home CRO /
+UNKNOWN pairings (so only the grammar can withhold
+them), and pins that the records themselves stay in
+the index; db/prove.mjs files the same phantoms
+against real Postgres and asserts neither pairing is
+derived; a scoped PGlite rehearsal of migration
+0033's verbatim SQL passes (twelve grammar
+spot-checks, the table deriving exactly the genuine
+pairs). Both loader passes and the EPC kill switch
+share the one filing function, so every refresh
+holds the corrected derivation. Deploy note: the
+play server's table is corrected by migration 0033
+at the next migrate; no loader re-run is needed.

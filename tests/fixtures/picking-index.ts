@@ -388,36 +388,58 @@ export class FakePickingDb {
       return { rows: [] };
     }
     if (sql.startsWith("WITH per_place_town AS")) {
-      // The place rebuild (M7.15D): derive the table
-      // from the index exactly as the SQL does — group
-      // by (place_norm, outward, town) counting distinct
-      // postcodes, then per (place, outward) the display
-      // is the town form with the most postcodes (ties
-      // by name) and the count is the sum.
+      // The place rebuild (M7.15D; derivation corrected
+      // by migration 0033): derive the table from the
+      // index exactly as the SQL does — group by
+      // (place_norm, outward, town) counting distinct
+      // postcodes and homes, then per (place, outward)
+      // the display is the town form with the most
+      // postcodes (ties by name) and the count is the
+      // sum. The outward is the postcode's leading group
+      // under the canonical grammar (the classifier's
+      // normalisePostcode recipe, mirrored here as
+      // normKeyPartJs mirrors the filing machinery): a
+      // postcode that does not parse contributes no
+      // pair, and a pair is filed only where the index
+      // holds more than one home under the place's name
+      // in the district (no single-record pairings —
+      // the CM92 follow-up, 19 Nov 2026).
       interface PerPlaceTown {
         placeNorm: string;
         outward: string;
         town: string;
         postcodes: Set<string>;
+        homes: number;
       }
       const perTown = new Map<string, PerPlaceTown>();
       for (const row of this.index) {
         if (row.town === null) continue;
         const placeNorm = normKeyPartJs(row.town);
-        const outward = row.postcode.split(" ")[0];
+        const compact = row.postcode.toUpperCase().replace(/[^A-Z0-9]/g, "");
+        const parsed = /^([A-Z]{1,2}[0-9][A-Z0-9]?)([0-9][A-Z]{2})$/.exec(compact);
+        if (!parsed) continue;
+        const outward = parsed[1];
         const key = `${placeNorm}\u0001${outward}\u0001${row.town}`;
         const current = perTown.get(key) ?? {
           placeNorm,
           outward,
           town: row.town,
           postcodes: new Set<string>(),
+          homes: 0,
         };
         current.postcodes.add(row.postcode);
+        current.homes += 1;
         perTown.set(key, current);
       }
       const perPlace = new Map<
         string,
-        { placeNorm: string; outward: string; towns: PerPlaceTown[]; postcodes: number }
+        {
+          placeNorm: string;
+          outward: string;
+          towns: PerPlaceTown[];
+          postcodes: number;
+          homes: number;
+        }
       >();
       for (const townRow of perTown.values()) {
         const key = `${townRow.placeNorm}\u0001${townRow.outward}`;
@@ -426,13 +448,15 @@ export class FakePickingDb {
           outward: townRow.outward,
           towns: [],
           postcodes: 0,
+          homes: 0,
         };
         current.towns.push(townRow);
         current.postcodes += townRow.postcodes.size;
+        current.homes += townRow.homes;
         perPlace.set(key, current);
       }
       this.places = [...perPlace.values()]
-        .filter((place) => place.placeNorm !== "")
+        .filter((place) => place.placeNorm !== "" && place.homes >= 2)
         .map((place) => {
           const towns = [...place.towns].sort(
             (a, b) =>
