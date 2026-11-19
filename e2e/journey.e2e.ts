@@ -56,7 +56,9 @@ import { expect, test } from "./fixtures";
 //     postcode resolves straight to the home"; the
 //     street and place legs are in e2e/suggest.e2e.ts.
 //   No T-WEB row: the three Smoke journeys (D68's
-//   critical journey), the two checking-screen specs,
+//   critical journey), the whole-postcode Smoke spec
+//   (the cold probe's page, 19 Nov 2026), the two
+//   checking-screen specs,
 //   the Beaulieu / Southminster / stale-key / refresh
 //   specs (M7.15B and the fold-ins), the whole-check
 //   failure spec (D44(7)) and the per-row failure spec
@@ -117,6 +119,43 @@ test.describe("checker journey — smoke", () => {
       await page.waitForURL(/\/search\/home\?postcode=KT17\+1FH&home=/);
       await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
       await expect(page.locator(".results-head h1")).toContainText("KT17 1FH");
+    },
+  );
+
+  test(
+    "the whole-postcode page itself renders its results (the cold probe's page)",
+    { tag: "@smoke" },
+    async ({ page }) => {
+      // The coverage gap the cold probe's first live run
+      // exposed (19 Nov 2026): the three journeys above
+      // pass THROUGH the whole-postcode page on their way
+      // to a home, but the page's OWN results were
+      // asserted only by Regression specs (the T-WEB-08
+      // spec's direct load) — so the push gate never
+      // loaded the one page the weekly play-server probe
+      // (scripts/cold-probe.mjs) checks. This spec is a
+      // NEW Smoke spec, not a promotion (D68 clause 7
+      // stands: the Regression spec keeps its tag): it
+      // enters the probe's way — /search?postcode=, which
+      // redirects to the whole-postcode check — and
+      // asserts that page's own results render whole:
+      // the rung-2 head, the home list it carries, its
+      // sections standing with content, and no error
+      // page. Filed golden postcode only, per this
+      // file's discipline — cold first checks are the
+      // cold specs' and the probe's business.
+      await page.goto("/search?postcode=CM3+2JT");
+      await page.waitForURL("**/search/home?postcode=CM3+2JT");
+      await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
+      await expect(page.locator(".error-page")).toHaveCount(0);
+      await expect(page.locator(".results-head h1")).toHaveText(
+        "Postcode area — CM3 2JT, not one exact home",
+      );
+      await expect(page.getByRole("link", { name: "19 Birkdale Rise", exact: true })).toBeVisible();
+      const sections = page.locator("[data-section]");
+      expect(await sections.count()).toBeGreaterThan(0);
+      const firstText = (await sections.first().textContent()) ?? "";
+      expect(firstText.trim().length).toBeGreaterThan(0);
     },
   );
 });

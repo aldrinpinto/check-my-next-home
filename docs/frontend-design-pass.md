@@ -5504,6 +5504,44 @@ counted; the partition is unchanged).
   carried both boxes until the swap script ran — the
   boundary and its duplicate fallback are removed; the
   island renders directly.
+- Cold-probe correction (19 Nov 2026): the weekly
+  probe's first live run false-failed its first pool
+  postcode (CB6 2FE, "the error page was served") on a
+  healthy deploy, and the same evening's served-bytes
+  diagnosis proved the whole-postcode page itself
+  healthy for cold postcodes — a genuine first check
+  (CB7 4EY) answered 200 in 11.2s, its full results
+  streamed in flight form, the sold section carrying
+  the still-gathering line. The probe had three
+  defects, all in how it read the response: it judged
+  the /search shell (the route's redirect streams as a
+  meta-refresh instruction once the segment's loading
+  shell has flushed, and fetch does not follow a meta
+  refresh, so the probe never reached the page); its
+  error fingerprint (the heading text, the bare
+  "error-page" substring) matches the serialized copy
+  of the error page's element tree that the route's
+  error boundary ships inside every healthy page's
+  flight chunks; and two of its results markers were
+  written in HTML form (data-section=, class="results)
+  where the streamed results carry JSON props. The
+  probe now follows the refresh hop itself and judges
+  the reached page: the error page counts only as
+  rendered HTML (<main class="error-page">), and the
+  results markers are the flight-form tokens
+  (results-head, results-section, data-section). The
+  verdict is a pure exported function, pinned in
+  tests/cold-probe.test.ts against bodies composed
+  from the live captures, and was verified against the
+  captured bodies themselves (shell → redirect; filed
+  page → pass; cold page → pass). The coverage gap
+  behind the alarm is closed at the gate too: the
+  whole-postcode page's own results were asserted only
+  by Regression specs while the Smoke journeys passed
+  through it to a home, so a NEW Smoke spec in
+  e2e/journey.e2e.ts loads it directly — the tag
+  partition becomes 158 tests (10 @smoke, 148
+  @regression), a deliberate change recorded here.
 
 ## The wider-area checking screen (19 Nov 2026) — Sample 3, "The Recommendation, Combined"
 
