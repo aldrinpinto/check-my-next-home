@@ -171,4 +171,3 @@ jobs:
           E2E_SUITE: Regression (weekly)
           E2E_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: npm run report:e2e
-        
