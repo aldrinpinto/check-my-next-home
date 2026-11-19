@@ -14,6 +14,12 @@ import { expect, test } from "./fixtures";
 // M7.15's audit; D44's smoke half — the happy path —
 // promotes when M9.6 wires issuance and the gifted
 // delivery email exists to assert on).
+//
+// T-WEB map (M7.15 citation tidy):
+//   No T-WEB row — this file discharges the D21 claim
+//   flow's served states (M7.13). The claim leg of D68's
+//   consolidated chain is composed in e2e/chain.e2e.ts,
+//   on the chain's own seeded gift.
 
 const ISSUED_ONE = "seed-gift-issued-one-0000000000001";
 const ISSUED_TWO = "seed-gift-issued-two-0000000000002";

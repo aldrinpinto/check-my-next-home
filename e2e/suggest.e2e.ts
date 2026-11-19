@@ -14,6 +14,23 @@ import { expect, test } from "./fixtures";
 // seeded list is in the panel, the list region scrolls,
 // the keyboard walks to 19 Birkdale Rise (scrolling it
 // into view), and Enter lands in its check.
+//
+// T-WEB map (M7.15 citation tidy):
+//   T-WEB-11 (search accepts more than a postcode), in
+//     part — the street legs ("Birkdale Rise: the Streets
+//     group offers the street", the Bugdale fuzzy-choice
+//     spec, "the Properties group names the street's
+//     homes") and the place legs ("typing the town offers
+//     the place and its districts", "picking the place
+//     from a part-typed name", the misspelt-town spec);
+//     the full-address leg is in e2e/journey.e2e.ts.
+//   T-WEB-07, in part — "E16: a partial postcode in a
+//     two-digit district suggests its postcodes" is the
+//     dropdown leg; the journey leg (the outward landing
+//     on the district page) is in e2e/journey.e2e.ts.
+//   No T-WEB row: the full-postcode dropdown specs (the
+//     complete home list, the below-the-fold pick) —
+//     D71/D72 entry-point scope.
 
 test.describe("suggestions dropdown — regression", () => {
   test(

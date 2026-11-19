@@ -4319,3 +4319,75 @@ asks for a scheduled Regression run that is green or
 names its failures — that clause can only be satisfied
 once the pack is applied and the workflow has fired or
 been dispatched, so the tick waits on that evidence.
+
+**Follow-up build (19 Nov 2026) — gap-check items (4)
+and (5), built.** The missing-spec set and the citation
+tidy now exist, all @regression (the Smoke set is
+untouched at 8):
+
+- (4a) Northern Ireland: "Belfast BT1 1AA goes straight
+  to the not-covered page" in e2e/journey.e2e.ts,
+  mirroring the Edinburgh spec assertion for assertion.
+  No fixture change was needed — the replay directory
+  already holds BT1 1AA (region "N99999999", an
+  N-letter LSOA), a premise the build verified
+  first-hand after an initial probe misread the
+  fixture's key names.
+- (4b) D66 no-render: e2e/no-render.e2e.ts — one
+  parameterised spec over the three golden homes,
+  walking all four tabs, asserting distinctive
+  fragments of the depth blocks' own text never appear
+  in the served page, with a positive control per tab.
+  The markers were each checked against the free page's
+  settled lookalikes (the flood upsell's prose names
+  defences, so the marker is the block's title; the
+  costs upsell names "the certificate's construction",
+  so the marker is the basis-line fragment; the Air
+  pill's figure legitimately reads "Above a UK legal
+  limit", so the yardstick marker is the depth line's
+  "stricter WHO guideline" form; the census upsell
+  names the six depth tables, so census depth is proven
+  structurally — no table inside the census section —
+  beside the benefits and IMD fragments). The spec
+  header states its honest limit: the unit suite's
+  planted-marker pins remain the strong proof.
+- (4c) T-WEB-06: a "sample report honesty" describe in
+  e2e/seo.e2e.ts — the banner paragraph verbatim, the
+  SAMPLE pill, the watermark's eight SAMPLE marks, the
+  settled dummy home (12 Willow Close, Millbrook,
+  Kingsford, Kent MB3 4QX), and the honest panel
+  labelling in both its places ("Location panels — not
+  flood maps." and the schematic chart note).
+- (4d) Per-row checking failure: built in D73's
+  governing form. The premise check found the adopted
+  behaviour's surviving half — D73 made the checking
+  screen a pure graphic with no failure states ever, so
+  the spec (e2e/journey.e2e.ts, closing the regression
+  describe) fails the flood part outright by route
+  injection and proves the results still open on the
+  home, off the failure route, with another part's
+  section (schools) rendering its real content. No row
+  failure state is asserted: none exists, by design.
+  The stale D44(5)(ii) row-marking sentence in
+  app/api/check/[part]/route.ts's header is recorded
+  here as superseded language; the component header
+  and D73 govern.
+- (4e) The consolidated chain: e2e/chain.e2e.ts — one
+  session, landing → search → home list → checking →
+  results → shortlist (add + the shortlist page) →
+  claim (confirm by captured email → the claimed page).
+  The claim leg spends a chain-dedicated seventh seeded
+  gift (seed-golden.mjs section 4,
+  seed-gift-issued-chain-00000000007) under the house
+  rule that specs never share mutable gift state.
+- (5) Citation tidy: every e2e spec file now carries a
+  "T-WEB map (M7.15 citation tidy)" header block naming
+  the T-WEB rows it discharges per spec — or, where a
+  file's specs belong to a step's own adopted scope,
+  saying so plainly. Titles were not renamed (the audit
+  partitions by tag; the map is the citation layer).
+
+The suite stands at 140 tests in 15 files — 8 @smoke,
+132 @regression — and the tag audit passes with the
+exact partition. Playwright cannot execute on the
+build VM; CI is these specs' first execution.

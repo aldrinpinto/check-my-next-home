@@ -79,6 +79,11 @@ import { expect, test } from "./fixtures";
 // never that small. These specs first execute in CI: the
 // local harness has no DATABASE_URL, so the served app
 // cannot stand up here (the M7.3 harness discipline).
+//
+// T-WEB map (M7.15 citation tidy):
+//   T-WEB-01 (the full free journey at phone width) —
+//   every spec in this file; the describes carry the ID
+//   in their names.
 
 const PHONE = { width: 360, height: 740 };
 

@@ -13,6 +13,12 @@ import { expect, test } from "@playwright/test";
 // decided sample page's — the imagery panels and the
 // example-check action are retired, the box is the sample's
 // bare form, and the small line closes the hero.
+//
+// T-WEB map (M7.15 citation tidy):
+//   No T-WEB row directly — the Smoke here is the landing
+//   leg of D68's critical journey; T-WEB-01 walks that
+//   journey at phone width in e2e/phone.e2e.ts, and the
+//   wired legs are e2e/journey.e2e.ts's.
 
 test.describe("home page — smoke", () => {
   test(

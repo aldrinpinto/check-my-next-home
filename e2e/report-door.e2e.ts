@@ -14,6 +14,11 @@ import { expect, test } from "./fixtures";
 // shortlist control and the priced report button level
 // with the H1 in the results head; item 19 makes the
 // bar's button the unpriced form.
+//
+// T-WEB map (M7.15 citation tidy):
+//   No T-WEB row — the three specs discharge M7.6's
+//   report door (the buy bar's contract and the holding
+//   page's identity forms).
 
 const BIRKDALE_DOOR_HREF = "/report?postcode=CM3+2JT&home=19%7C%7CBIRKDALE+RISE";
 

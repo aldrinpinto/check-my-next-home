@@ -35,6 +35,15 @@ import { expect, test } from "./fixtures";
 // pointer shape — cards saved before the same ruling —
 // except where a spec overrides them with the real lines.
 // No promotions to Smoke (D68 clause 7).
+//
+// T-WEB map (M7.15 citation tidy):
+//   T-WEB-04 (shortlist) — the Smoke (cited in its title:
+//     survives a restart, absent in a second context) and
+//     the Regression specs, which discharge the row's
+//     remaining halves: add/remove, the headline
+//     comparison with no winner declared, and the privacy
+//     line's served forms (the full message, the facts
+//     table, the storage-unavailable line).
 
 const BASE_URL = "http://127.0.0.1:4173";
 

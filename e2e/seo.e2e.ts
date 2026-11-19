@@ -17,6 +17,15 @@ import { expect, test } from "./fixtures";
 // production assertions live at metadata level in
 // tests/seo-pages.test.ts, and this spec asserts presence,
 // not the production distinction.
+//
+// T-WEB map (M7.15 citation tidy):
+//   T-WEB-06 (sample report honesty) — the "sample report
+//     honesty" describe at the foot of this file (the
+//     M7.15 follow-up's item 4c); the PAGE_SEO loop above
+//     also serves the row's route metadata.
+//   No T-WEB row: the remaining specs discharge M7.8's
+//   adopted scope (locked metadata, the robots lock,
+//   related checks, the guides hub, the chrome pages).
 
 test.describe("SEO pages — regression", () => {
   for (const [path, pair] of Object.entries(PAGE_SEO)) {
@@ -223,6 +232,51 @@ test.describe("SEO pages — regression", () => {
         expect(geometry.sourcesAtRight).toBe(true);
         expect(geometry.sourcesAboveFooterBottom).toBe(true);
       }
+    },
+  );
+});
+
+test.describe("sample report honesty — regression", () => {
+  test(
+    "T-WEB-06: the sample is watermarked, banners its invented home, and labels its panels 'not flood maps'",
+    { tag: "@regression" },
+    async ({ page }) => {
+      // M7.15 follow-up, gap-check item 4c: T-WEB-06's
+      // served-page assertions. Until now this file proved
+      // only the route's served metadata (the PAGE_SEO loop
+      // above); the honesty behaviours themselves — the
+      // watermark, the invented-example banner, the honest
+      // panel labelling — had no browser-level spec. The
+      // forms asserted are the served ones
+      // (components/SampleReport.tsx, Master view 7 as
+      // transposed in the parity batch): the watermark is
+      // one overlay carrying eight SAMPLE marks over the
+      // document, and the panel labelling appears twice —
+      // the intro's bold lead and the chart note under the
+      // panels.
+      await page.goto("/sample-report");
+
+      // The banner: the SAMPLE pill and the invented-
+      // example paragraph, verbatim.
+      await expect(page.locator(".sample-pill")).toHaveText("SAMPLE");
+      await expect(page.locator(".sample-banner")).toContainText(
+        "This is a sample report, so you can see exactly what a detailed report looks like before you ever pay for one. The home in this sample is an invented example, with invented figures; the document below follows the format every detailed report follows.",
+      );
+
+      // The watermark: eight SAMPLE marks over the page.
+      const marks = page.locator(".watermark span");
+      await expect(marks).toHaveCount(8);
+      for (let i = 0; i < 8; i++) await expect(marks.nth(i)).toHaveText("SAMPLE");
+
+      // The dummy home, in the Master's settled form.
+      await expect(page.locator("h1")).toHaveText("12 Willow Close");
+      await expect(page.locator("main")).toContainText("Millbrook, Kingsford, Kent MB3 4QX");
+
+      // The honest panel labelling, in both its places.
+      await expect(page.locator("main")).toContainText("Location panels — not flood maps.");
+      await expect(page.locator("main")).toContainText(
+        "These are schematic location panels for this invented sample home only — not flood maps, and not maps of a real place.",
+      );
     },
   );
 });

@@ -39,6 +39,12 @@ import { expect, test } from "./fixtures";
 // (which states no applications are listed), exactly one
 // link in the section (the register search), and no
 // application count anywhere in the section's text.
+//
+// T-WEB map (M7.15 citation tidy):
+//   No T-WEB row — the three parameterised specs
+//   discharge M7.9's adopted E2E paragraph (the planning
+//   hand-off, brownfield and built-up headlines on the
+//   golden homes).
 
 const GOV_UK_REGISTER_SEARCH = "https://www.gov.uk/search-register-planning-decisions";
 

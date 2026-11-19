@@ -13,6 +13,11 @@ import pg from "pg";
 // the app cannot blur it); the table assertions prove the
 // events landed, with the completion payload's shape
 // (rung, nation, sections, states) intact.
+//
+// T-WEB map (M7.15 citation tidy):
+//   No T-WEB row — the single spec discharges M7.14's
+//   counting contract (the pinned catalogue emitted
+//   exactly once per journey, no personal data carried).
 
 const FULL_POSTCODE = /\b[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}\b/i;
 const EMAIL = /[^\s@]+@[^\s@]+\.[^\s@]+/;

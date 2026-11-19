@@ -33,6 +33,11 @@ import { expect, test } from "./fixtures";
 // These specs first execute in CI: the local harness has
 // no DATABASE_URL, so the served app cannot stand up here
 // (the M7.3 harness discipline).
+//
+// T-WEB map (M7.15 citation tidy):
+//   T-WEB-12 (calculators website-only) — all six specs;
+//     the row is registered from M7.10's adopted G6, not
+//     re-decided at M7.15.
 
 const EMPTY_PROMPT = "Enter the price you're considering.";
 

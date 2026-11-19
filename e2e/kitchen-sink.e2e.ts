@@ -7,6 +7,11 @@ import { expect, test } from "@playwright/test";
 // the Smoke set starts at M7.2 with the landing page. Run
 // against the static export: npm run build, then
 // npm run test:e2e.
+//
+// T-WEB map (M7.15 citation tidy):
+//   No T-WEB row — the M7.1 kit render proof (every block
+//   renders; the kit stays light; the shell carries the
+//   header, favicon set and og:image).
 
 test.describe("kitchen sink — the M7.1 kit renders", () => {
   test(

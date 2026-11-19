@@ -29,6 +29,38 @@ import { expect, test } from "./fixtures";
 // postcodes; no spec depends on a cold load completing —
 // Beaulieu's crime is a genuine first-check load, so its
 // spec asserts the server-rendered states only.
+//
+// T-WEB map (M7.15 citation tidy) — the T-WEB rows this
+// file discharges, per spec:
+//   T-WEB-02 — "mistypes land on their named states".
+//   T-WEB-03 — "Edinburgh EH1 1AD goes straight to the
+//     not-covered page" and "Belfast BT1 1AA goes
+//     straight to the not-covered page" (the Northern
+//     Ireland spec is the M7.15 follow-up's item 4a).
+//   T-WEB-05 — "a normal search completes end to end
+//     with the robot check active" (cited in its title)
+//     and "a robot check that cannot run blocks the
+//     search with a friendly retry".
+//   T-WEB-07 — "an outward code lands on the district
+//     page" (cited in its title); the dropdown leg is in
+//     e2e/suggest.e2e.ts.
+//   T-WEB-08 — "the postcode check carries the full home
+//     list" (cited in its title; the row's picker form as
+//     amended when the picker was removed, 18 Nov 2026).
+//   T-WEB-09 — "the bare route redirects to the landing
+//     page with the unplaced notice" (the retired
+//     no-location route's served form).
+//   T-WEB-10 — "normalisation: 'e161gn' and ' cm3 2jt '
+//     reach the same home lists as the tidy forms".
+//   T-WEB-11, in part — "a full address carrying its
+//     postcode resolves straight to the home"; the
+//     street and place legs are in e2e/suggest.e2e.ts.
+//   No T-WEB row: the three Smoke journeys (D68's
+//   critical journey), the two D73 checking-screen specs,
+//   the Beaulieu / Southminster / stale-key / refresh
+//   specs (M7.15B and the fold-ins), the whole-check
+//   failure spec (D44(7)) and the per-row failure spec
+//   (the M7.15 follow-up's item 4d, in D73's form).
 
 async function searchFromHome(page: Page, text: string) {
   await page.goto("/");
@@ -321,6 +353,44 @@ test.describe("checker journey — regression", () => {
   );
 
   test(
+    "Belfast BT1 1AA goes straight to the not-covered page (T-WEB-03, Northern Ireland)",
+    { tag: "@regression" },
+    async ({ page }) => {
+      // The Northern Ireland mirror of the Edinburgh spec
+      // above (M7.15 follow-up, gap-check item 4a): T-WEB-03
+      // names Scotland AND Northern Ireland, and until now
+      // only the Scotland half had a served-page spec. The
+      // postcode is held by the replay directory fixture
+      // (tests/fixtures/replay/directory-rows.json — region
+      // "N99999999", an N-letter LSOA), so the journey
+      // resolves it to the not-covered nation exactly as
+      // EH1 1AD resolves to Scotland.
+      await searchFromHome(page, "BT1 1AA");
+      await page.waitForURL("**/search/home?postcode=BT1+1AA");
+      await expect(page.locator("h1")).toHaveText("BT1 1AA is in Northern Ireland");
+      await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByRole("tab")).toHaveCount(4);
+      await expect(page.locator('[data-section="flood"]')).toContainText(/not covered/i);
+      await expect(page.locator(".picker")).toHaveCount(0);
+      await expect(page.locator('[data-section="schools-primary"]')).toContainText(
+        "isn't part of this check in Northern Ireland",
+      );
+      await expect(page.locator('[data-section="nurseries"]')).toContainText(
+        "isn't part of this check in Northern Ireland",
+      );
+      await page.getByRole("tab", { name: "What's Nearby" }).click();
+      await expect(page.locator('[data-section="health"]')).toContainText(
+        "isn't part of this check in Northern Ireland",
+      );
+      await expect(page.locator('[data-section="hospitals"]')).toContainText(
+        "isn't part of this check in Northern Ireland",
+      );
+      const bodyText = await page.locator("main").innerText();
+      expect(bodyText).not.toMatch(/\d{3}\.\d+ mi/);
+    },
+  );
+
+  test(
     "Beaulieu CM1 6ER: the postcode check lists the picking index's homes (M7.15B)",
     { tag: "@regression" },
     async ({ page }) => {
@@ -480,6 +550,46 @@ test.describe("checker journey — regression", () => {
         "href",
         "/sample-report",
       );
+    },
+  );
+
+  test(
+    "one part of the check failing outright still opens the results (D73 form of the per-row failure)",
+    { tag: "@regression" },
+    async ({ page }) => {
+      // M7.15 follow-up, gap-check item 4d. The adopted
+      // behaviour, in its surviving form: the M7.3-era
+      // D44(5) spoke of naming the failed dataset's row on
+      // the checking screen, but D73 (M7.3's own adopted
+      // rework of that screen, governing since) makes the
+      // checking screen a pure graphic — "there are no
+      // failure or not-completed states on this screen
+      // ever" (components/CheckingScreen.tsx) — whose five
+      // grouped rows tick on the graphic's own clock while
+      // the three real part calls settle, success OR
+      // failure alike. So the honest served-page proof of
+      // a single-dataset failure is: fail one part outright
+      // (the flood part, via the suite's route-injection
+      // pattern, as the resolve spec above fails the whole
+      // check) and the check still completes — the results
+      // open on the home, the journey never lands on the
+      // whole-check failure state, and a section served by
+      // another part (schools, from the nearby part) renders
+      // its real content. No row failure state is asserted:
+      // none exists, by design. (The stale D44(5)(ii)
+      // row-marking sentence in app/api/check/[part]/route.ts's
+      // header is the older language; the component header
+      // and D73 govern.)
+      await page.route("**/api/check/flood**", (route) =>
+        route.fulfill({ status: 500, contentType: "application/json", body: "{}" }),
+      );
+      await searchFromHome(page, "CM3 2JT");
+      await pickAndReachResults(page, "CM3 2JT", "19 Birkdale Rise");
+      await expect(page.locator(".results-head h1")).toHaveText("19 Birkdale Rise, CM3 2JT");
+      expect(page.url()).not.toContain("/search/failed");
+      const pills = page.locator(".results-strip .pill--summary");
+      await expect(pills.nth(0)).toContainText("Schools");
+      await expect(pills.nth(0).locator(".pill__figure")).toHaveText("0.3 / 1.9 mi");
     },
   );
 });

@@ -31,6 +31,14 @@ import { expect, test } from "./fixtures";
 // The whole-check failure state with retry and the
 // sample-report route is M7.3's spec in e2e/journey.e2e.ts,
 // reused unchanged (the step authors it by reference).
+//
+// T-WEB map (M7.15 citation tidy):
+//   No T-WEB row directly — the three Smoke specs are the
+//   results leg of D68's critical journey, and the
+//   Regression specs discharge M7.4's own adopted scope
+//   (the district page's form, refresh/Back, flood
+//   warnings, the crime guard, air & noise, catchment
+//   honesty, the rung-2 labels, Cardiff).
 
 const DISCLAIMER_SHORT_FORM =
   "We present official data as it is published, with its source and date. We do not score, rate or recommend homes or areas.";
