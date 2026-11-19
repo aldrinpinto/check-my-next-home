@@ -5043,3 +5043,107 @@ at 147 (8 @smoke / 139 @regression — no e2e test
 added or removed), build green. The scheduled
 Regression run on the new HEAD is this round's
 proof, as it was the failure's.
+
+## Childminder drop, 19 Nov 2026
+
+Founder ruling, 19 Nov 2026: childminders are dropped from
+the product everywhere — not counted, not listed, not
+named. Decision D5's position (childminders count-only at
+report depth, never points) is superseded.
+
+The source check behind the ruling: the M8.1 prep found
+the promised report-depth childminder count had no data
+and no feature behind it, while the free schools check
+page already told visitors childminders "are counted in
+the wider picture". The check of the Ofsted childcare
+register itself settled it: Ofsted redacts the childminder
+rows' name and postcode in the published file, and the
+finest location that survives is Local authority — a whole
+council area. No postcode, no coordinates, no outward
+district: no honest count near a home exists at any grain
+the report could print, and a council-area total printed
+beside the section's within-2-miles figures would mislead.
+
+Surfaces changed (copy only; no behaviour change — the
+childcare loader already never filed childminder rows):
+
+- lib/home.ts: the landing family list now reads
+  "Nurseries and pre-schools nearby", and the schools
+  check's title is "Schools & nurseries" (the title flows
+  from this one constant to every surface that shows it).
+- lib/check-pages.ts: the schools check page's Known
+  limits paragraph no longer says childminders are counted
+  in the wider picture; it ends "Group childcare settings
+  are listed."
+- The pins carrying the old strings were re-pinned in
+  tests/home-page.test.ts, tests/seo-pages.test.ts and
+  e2e/home.e2e.ts. No e2e test was added or removed; the
+  tag audit partition is unchanged.
+- docs/data-loading.md: the nurseries row now reads
+  "Group settings only; childminders not included —
+  Ofsted publishes no location for them".
+- loaders/load-nurseries.mjs (header) and
+  loaders/README.md: the stated reason for the exclusion
+  updated to this ruling. The exclusion itself — the named
+  type set, the counted log line, the tests that pin it —
+  is exactly as built.
+
+M8.1(b), the report's registered-childminder count, is
+dropped with this ruling: the report's schools & nurseries
+section carries no childminder line in any form. The
+count could only ever be revisited if Ofsted's publication
+practice changes.
+
+## Regression run 44563549309 follow-up, 19 Nov 2026
+
+The dispatched Regression run on d90e683 (the
+44535680408 follow-up fixes) finished 144 passed,
+2 failed, 1 flaky. A diagnosis read both failures
+against the code and returned the same verdict on
+each: a spec bug; the product is exonerated on both.
+
+- Journey counting (e2e/journey-events.e2e.ts) — the
+  spec captures journey beacons via page.on("request")
+  and request.postData(). Beacon ("ping") bodies are
+  readable that way only while request interception is
+  active on the page. The stub-Turnstile form registers
+  a page.route for the Cloudflare challenge host, so
+  interception is on and the capture works; the
+  scheduled real-Turnstile form registers no route, so
+  postData() returned null for every beacon and the
+  capture was permanently empty at any window — a
+  capture failure, not a delivery lag. Fix, in this
+  spec only: before the journey navigates, the spec
+  registers a pass-through route for the events
+  endpoint (page.route("**/api/events", continue)), so
+  interception is active in both forms. No assertion,
+  no expected event list and no timeout changed. Note:
+  the d90e683 follow-up had widened this spec's poll
+  from 20s to 90s on the reading that beacon delivery
+  was lagging under runner load; with the capture
+  shape-blind in the real-Turnstile form, no window
+  could ever have filled it — the widening treated a
+  capture failure as delivery lag. The widened poll and
+  the test timeout stand (they cost nothing and keep
+  the arrival window honest); the route registration is
+  the fix.
+- The district heading assertions (e2e/journey.e2e.ts
+  twice, e2e/suggest.e2e.ts twice, and the same bare
+  form in e2e/results.e2e.ts, e2e/phone.e2e.ts,
+  e2e/shortlist.e2e.ts and e2e/calculators.e2e.ts) —
+  during the district page's streaming swap, the
+  Suspense fallback heading "Checking the wider area…"
+  (app/search/loading.tsx) and the page's own heading
+  ("Wider area — E16" / "Wider area — CM1" / "Wider
+  area — CM3") coexist transiently; page.locator("h1")
+  counts both and strict mode fails the assertion
+  before either heading can settle. The settled page
+  holds exactly one h1 — no product change. Fix: the
+  eight bare page.locator("h1") district assertions now
+  use the suite's robust form,
+  page.getByRole("heading", { name: … }), which names
+  the expected heading and so matches only the page's
+  own heading, never the fallback. Every expected text
+  is preserved exactly; no other locator and no timeout
+  changed. The flaky suggest spec (294) was the same
+  transient on its first attempt.

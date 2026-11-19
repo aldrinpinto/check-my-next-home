@@ -51,6 +51,17 @@ test.describe("journey counting — regression", () => {
       const startedAt = new Date();
 
       const posts: { event: string; rung?: number }[] = [];
+      // Beacon bodies are readable via postData() only
+      // while request interception is active on the page.
+      // The stub-Turnstile form registers a route for the
+      // challenge host, so capture works there; the
+      // scheduled real-Turnstile form registers none, and
+      // every beacon body read null — the capture stayed
+      // empty at any window (Regression run 44563549309
+      // follow-up, 19 Nov 2026). This spec therefore
+      // registers its own pass-through for the events
+      // endpoint, so interception is active in both forms.
+      await page.route("**/api/events", (route) => route.continue());
       page.on("request", (request) => {
         if (request.method() === "POST" && request.url().includes("/api/events")) {
           try {

@@ -221,7 +221,7 @@ test.describe("home page — regression", () => {
       // The nine tiles, in the sample's order.
       await expect(page.locator(".check-tile")).toHaveCount(9);
       await expect(page.locator(".check-tile__title")).toHaveText([
-        "Schools, nurseries & childminders",
+        "Schools & nurseries",
         "Doctors, dentists & vets",
         "Food, leisure & everyday life",
         "Safety around the home",

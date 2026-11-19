@@ -219,9 +219,12 @@ nurseries) or "Sessional day care" (pre-schools and
 playgroups). Everything else is counted in the log line,
 never silent: childminder-type rows (Childminder, Home
 childcarer, Childminder without domestic premises) never
-file — decision D5 makes childminders count-only at report
-depth, never points, and Ofsted publishes those rows
-REDACTED in any case; "Childcare on domestic premises" rows
+file — childminders are not included at all, because Ofsted
+publishes no location for them (names and postcodes
+REDACTED), so they can be neither placed nor honestly
+counted near a home; decision D5's count-only position is
+superseded by the founder's 19 Nov 2026 ruling dropping
+childminders from the product; "Childcare on domestic premises" rows
 are published REDACTED too, so the register holds no position
 for them and none is guessed; "Out-of-school day care"
 (breakfast, after-school and holiday clubs) is not nursery

@@ -237,7 +237,7 @@ export const CHECK_PAGES: Record<string, CheckPageContent> = {
       {
         heading: "Known limits",
         paragraphs: [
-          "The registers hold schools and settings as they stand when published: a school that has opened, closed or changed its admissions basis since will show as the register last recorded it. Group childcare settings are listed; childminders are counted in the wider picture, never listed one by one.",
+          "The registers hold schools and settings as they stand when published: a school that has opened, closed or changed its admissions basis since will show as the register last recorded it. Group childcare settings are listed.",
           "Distance is geography only. The check holds no catchment position, no last distance offered and no view on admissions, and a place depends on the council's and the school's own rules for the year of entry.",
         ],
       },

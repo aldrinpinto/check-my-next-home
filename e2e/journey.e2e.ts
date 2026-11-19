@@ -201,7 +201,9 @@ test.describe("checker journey — regression", () => {
     async ({ page }) => {
       await searchFromHome(page, "E16");
       await page.waitForURL("**/search?outward=E16");
-      await expect(page.locator("h1")).toHaveText("Wider area — E16");
+      await expect(page.getByRole("heading", { name: "Wider area — E16" })).toHaveText(
+        "Wider area — E16",
+      );
       // The district page (founder ruling, 18 Nov 2026)
       // supersedes the unlock banner: the results page's
       // four tabs carry the district sections, and the
@@ -302,7 +304,9 @@ test.describe("checker journey — regression", () => {
       // (the heading, the notice, the bridge) prove the
       // destination itself, separately.
       await page.waitForURL("**/search?outward=CM3&notfound=CM3+2JA", { waitUntil: "commit" });
-      await expect(page.locator("h1")).toHaveText("Wider area — CM3");
+      await expect(page.getByRole("heading", { name: "Wider area — CM3" })).toHaveText(
+        "Wider area — CM3",
+      );
       await expect(page.locator(".journey-notice")).toHaveText(
         "CM3 2JA isn't a postcode we hold — this is the wider area it points to instead.",
       );

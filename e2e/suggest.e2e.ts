@@ -287,7 +287,9 @@ test.describe("suggestions dropdown — regression", () => {
       await expect(page.getByRole("option", { name: "CM2 — Chelmsford" })).toHaveCount(0);
       await page.getByRole("option", { name: "CM3 — Chelmsford" }).click();
       await page.waitForURL("**/search?outward=CM3");
-      await expect(page.locator("h1")).toHaveText("Wider area — CM3");
+      await expect(page.getByRole("heading", { name: "Wider area — CM3" })).toHaveText(
+        "Wider area — CM3",
+      );
     },
   );
 
@@ -321,7 +323,9 @@ test.describe("suggestions dropdown — regression", () => {
       await expect(picked).toHaveAttribute("aria-selected", "true");
       await page.getByRole("option", { name: "CM1 — Chelmsford" }).click();
       await page.waitForURL("**/search?outward=CM1");
-      await expect(page.locator("h1")).toHaveText("Wider area — CM1");
+      await expect(page.getByRole("heading", { name: "Wider area — CM1" })).toHaveText(
+        "Wider area — CM1",
+      );
     },
   );
 

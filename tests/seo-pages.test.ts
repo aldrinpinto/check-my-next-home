@@ -228,7 +228,7 @@ describe("the homepage tile wiring (M7.8, discharging M7.11's premise)", () => {
   it("wires the seven tiles that own a check page, and no others", () => {
     const wired = HOME_CHECK_TILES.filter((tile) => "href" in tile);
     expect(wired.map((tile) => tile.title)).toEqual([
-      "Schools, nurseries & childminders",
+      "Schools & nurseries",
       "Doctors, dentists & vets",
       "Safety around the home",
       "Plans that could change the street",

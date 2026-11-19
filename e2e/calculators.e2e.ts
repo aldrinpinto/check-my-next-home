@@ -210,7 +210,9 @@ test.describe("calculators — regression (M7.10)", () => {
     { tag: "@regression" },
     async ({ page }) => {
       await page.goto("/search?outward=E16");
-      await expect(page.locator("h1")).toHaveText("Wider area — E16");
+      await expect(page.getByRole("heading", { name: "Wider area — E16" })).toHaveText(
+        "Wider area — E16",
+      );
       await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
       await expect(page.locator(".calculators")).toHaveCount(0);
       await expect(page.locator("main")).not.toContainText("Could this home fit your life?");

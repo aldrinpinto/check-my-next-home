@@ -114,7 +114,7 @@ export const HOME_AUDIENCE_CARDS = [
     title: "Moving with kids",
     intro: "School runs and childcare shape family life — so these are the first things we check.",
     checks: [
-      "Nurseries, pre-schools and childminders nearby",
+      "Nurseries and pre-schools nearby",
       "Primary, secondary, grammar and independent schools",
       "Parks and places to visit at weekends",
       "Doctors and dentists nearby",
@@ -155,7 +155,7 @@ export const HOME_CHECK_TILES_SUB =
   "The checks that matter for family life — schools, health, safety, home risks and the cost of living — all from named official sources.";
 export const HOME_CHECK_TILES = [
   {
-    title: "Schools, nurseries & childminders",
+    title: "Schools & nurseries",
     line: "Find the nearest primaries, secondaries and nurseries — the ones that matter for the school run.",
     href: "/check/schools",
   },

@@ -38,10 +38,12 @@
 //     register does not state. Both classes are counted in the
 //     log line, never silent.
 //   - "Childminder", "Home childcarer" and "Childminder without
-//     domestic premises" NEVER file (D5: childminders are
-//     count-only at report depth, never points — and no count
-//     feature is built here). Ofsted publishes those rows with
-//     names and addresses REDACTED regardless.
+//     domestic premises" NEVER file: childminders are not
+//     included at all — Ofsted publishes no location for them
+//     (names and postcodes REDACTED), so they can be neither
+//     placed nor honestly counted near a home. Decision D5's
+//     count-only position is superseded by the founder's
+//     19 Nov 2026 ruling dropping childminders from the product.
 //   - "Childcare on domestic premises" (group childminding
 //     from a home) never files either: Ofsted publishes those
 //     rows REDACTED too, so the register itself holds no
@@ -470,7 +472,7 @@ async function main() {
     `load-nurseries · Ofsted childcare register as at ${asAt} · ${settings.length} group settings filed ` +
     `(${settings.filter((s) => s.settingType === "Full day care").length} full day care, ` +
     `${settings.filter((s) => s.settingType === "Sessional day care").length} sessional day care) · ` +
-    `of ${stats.total} register rows: ${stats.childminderTypes} childminder-type never filed (D5), ` +
+    `of ${stats.total} register rows: ${stats.childminderTypes} childminder-type never filed, ` +
     `${stats.domesticPremises} on domestic premises (published redacted, never filed), ` +
     `${stats.outOfSchool} out-of-school day care not filed, ${stats.blankSubtype} blank subtype not filed, ` +
     `${stats.otherSubtype} other subtype not filed, ${stats.notActive} not active, ${stats.otherType} other type, ` +

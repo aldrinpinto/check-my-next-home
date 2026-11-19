@@ -67,7 +67,8 @@ Family:
    the loader runs quarterly in the runner): Provider type
    "Childcare on non-domestic premises" in the Full day care
    and Sessional day care subtypes only — childminders are
-   never points (decision D5), the domestic-premises rows
+   not included — Ofsted publishes no location for them
+   (founder’s ruling, 19 Nov 2026), the domestic-premises rows
    Ofsted publishes REDACTED hold no position to file, and
    out-of-school day care is not nursery provision. Each
    setting sits at its own postcode's position from the

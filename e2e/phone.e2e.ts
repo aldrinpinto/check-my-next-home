@@ -433,7 +433,9 @@ test.describe("phone-first — 360×740 (T-WEB-01)", () => {
     { tag: "@regression" },
     async ({ page }) => {
       await page.goto("/search?outward=E16");
-      await expect(page.locator("h1")).toHaveText("Wider area — E16");
+      await expect(page.getByRole("heading", { name: "Wider area — E16" })).toHaveText(
+        "Wider area — E16",
+      );
       // The district page head carries no shortlist
       // control (founder fix batch, 19 Nov 2026): the
       // sample carries none and the founder flagged it —

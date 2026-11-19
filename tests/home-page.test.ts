@@ -150,7 +150,7 @@ describe("home page copy (lib/home.ts)", () => {
         "The real crime numbers for the streets around the home",
       ],
       [
-        "Nurseries, pre-schools and childminders nearby",
+        "Nurseries and pre-schools nearby",
         "Primary, secondary, grammar and independent schools",
         "Parks and places to visit at weekends",
         "Doctors and dentists nearby",
@@ -176,7 +176,7 @@ describe("home page copy (lib/home.ts)", () => {
       "The checks that matter for family life — schools, health, safety, home risks and the cost of living — all from named official sources.",
     );
     expect(HOME_CHECK_TILES.map((tile) => tile.title)).toEqual([
-      "Schools, nurseries & childminders",
+      "Schools & nurseries",
       "Doctors, dentists & vets",
       "Food, leisure & everyday life",
       "Safety around the home",
