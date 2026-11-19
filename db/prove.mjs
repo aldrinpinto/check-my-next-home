@@ -358,6 +358,87 @@ try {
     "the pending-token unique index refuses one confirmation credential on two gifts",
   );
 
+  // The journey events store (M7.14, migration 0036):
+  // the tables stand, the pinned catalogue is the CHECK's
+  // own list, the dedupe claim leaves exactly one row,
+  // the prune predicate (scripts/prune-journey-events.mjs's
+  // retention line, word for word) removes only what sits
+  // past 13 months, and the alert memory counts a
+  // fingerprint's sightings on one row.
+  const journeyTables = await client.query(
+    `SELECT count(*)::int AS n FROM information_schema.tables
+      WHERE table_name IN ('journey_events', 'journey_event_alerts')`,
+  );
+  assert(journeyTables.rows[0].n === 2, "the journey events tables exist (migration 0036)");
+
+  await client.query(
+    `INSERT INTO journey_events (event, route_pattern, dedupe_key)
+     VALUES ('page_view', '/', 'proof-dedupe-key-0001')
+     ON CONFLICT (dedupe_key) WHERE dedupe_key IS NOT NULL DO NOTHING`,
+  );
+  await client.query(
+    `INSERT INTO journey_events (event, route_pattern, dedupe_key)
+     VALUES ('page_view', '/', 'proof-dedupe-key-0001')
+     ON CONFLICT (dedupe_key) WHERE dedupe_key IS NOT NULL DO NOTHING`,
+  );
+  const dedupeRows = await client.query(
+    `SELECT count(*)::int AS n FROM journey_events WHERE dedupe_key = 'proof-dedupe-key-0001'`,
+  );
+  assert(
+    dedupeRows.rows[0].n === 1,
+    "a retried post with the same dedupe key leaves exactly one event row",
+  );
+
+  let unlistedRefused = false;
+  await client.query("SAVEPOINT journey_unlisted_event");
+  try {
+    await client.query(
+      `INSERT INTO journey_events (event) VALUES ('an_event_the_plan_never_pinned')`,
+    );
+  } catch {
+    unlistedRefused = true;
+  }
+  await client.query("ROLLBACK TO SAVEPOINT journey_unlisted_event");
+  assert(unlistedRefused, "the events table refuses an event name outside the pinned catalogue");
+
+  await client.query(
+    `INSERT INTO journey_events (event, occurred_at)
+     VALUES ('page_view', now() - interval '13 months' - interval '1 day'),
+            ('page_view', now() - interval '13 months' + interval '1 day')`,
+  );
+  const pruned = await client.query(
+    `DELETE FROM journey_events WHERE occurred_at < now() - interval '13 months'`,
+  );
+  assert(
+    pruned.rowCount === 1,
+    "the 13-month prune predicate removes only the event past the line",
+  );
+  const keptRows = await client.query(
+    `SELECT count(*)::int AS n FROM journey_events
+      WHERE occurred_at > now() - interval '13 months'`,
+  );
+  assert(keptRows.rows[0].n >= 1, "the event inside the retention line survives the prune");
+
+  await client.query(
+    `INSERT INTO journey_event_alerts (fingerprint, event, error_name, route_pattern, total_count)
+     VALUES ('page_error|ProofError|/proof', 'page_error', 'ProofError', '/proof', 1)
+     ON CONFLICT (fingerprint) DO UPDATE
+       SET total_count = journey_event_alerts.total_count + 1, last_seen_at = now()`,
+  );
+  await client.query(
+    `INSERT INTO journey_event_alerts (fingerprint, event, error_name, route_pattern, total_count)
+     VALUES ('page_error|ProofError|/proof', 'page_error', 'ProofError', '/proof', 1)
+     ON CONFLICT (fingerprint) DO UPDATE
+       SET total_count = journey_event_alerts.total_count + 1, last_seen_at = now()`,
+  );
+  const alertRows = await client.query(
+    `SELECT total_count FROM journey_event_alerts WHERE fingerprint = 'page_error|ProofError|/proof'`,
+  );
+  assert(
+    alertRows.rows.length === 1 && Number(alertRows.rows[0].total_count) === 2,
+    "the alert memory holds one row per error fingerprint and counts its sightings",
+  );
+
   await client.query("ROLLBACK");
   console.log("All proofs passed; test rows rolled back.");
 } catch (error) {

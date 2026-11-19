@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 
+import { CheckCompletedBeacon } from "../../components/JourneyBeacon";
 import PostcodeBox from "../../components/PostcodeBox";
 import ResultsPage from "../../components/ResultsPage";
 import ShortlistButton from "../../components/ShortlistButton";
@@ -17,6 +18,7 @@ import {
   postcodeRoute,
   widerAreaRoute,
 } from "../../lib/journey";
+import { sectionsAndStatesOf } from "../../lib/journey-events";
 import { buildDistrictResultsView, buildWiderAreaView } from "../../lib/results";
 import { checkDistrictWider, resolutionForPostcodeRoute } from "../../lib/server/serve";
 import { buildShortlistCard } from "../../lib/shortlist-card";
@@ -159,6 +161,26 @@ export default async function SearchPage({
             <p className="journey-notice">{postcodeNotFoundLine(params.notfound)}</p>
           )}
           <ResultsPage view={view} />
+          {/* M7.14: the wider-area check's completion —
+              rung 3, the nation from the district head's
+              own region (the collapse the head itself
+              makes: "Wales" is Welsh, any other filed
+              region English, none recorded as unknown),
+              the sections and their named states from the
+              district bundle (the bridge is a hand-off,
+              not a section, and is not counted as one). */}
+          <CheckCompletedBeacon
+            rung={3}
+            nation={head.region === "Wales" ? "wales" : head.region ? "england" : "unknown"}
+            sections={Object.keys(district.sections).filter((key) => key !== "bridge")}
+            states={
+              sectionsAndStatesOf(
+                Object.fromEntries(
+                  Object.entries(district.sections).filter(([key]) => key !== "bridge"),
+                ),
+              ).states
+            }
+          />
         </main>
       );
     }
@@ -182,6 +204,19 @@ export default async function SearchPage({
           <PostcodeBox autoFocus />
         </section>
         <ResultsPage view={view} />
+        {/* M7.14: a Scotland / NI wider-area serve counts
+            as a completed rung-3 check too — its nation is
+            the bundle's own, and its sections carry their
+            named not-covered states. This counting is the
+            demand evidence Phase 3 sequences from. */}
+        {district.kind === "not-covered" && (
+          <CheckCompletedBeacon
+            rung={3}
+            nation={district.nation}
+            sections={sectionsAndStatesOf(short.sections as Record<string, unknown>).sections}
+            states={sectionsAndStatesOf(short.sections as Record<string, unknown>).states}
+          />
+        )}
       </main>
     );
   }

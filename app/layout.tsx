@@ -1,6 +1,7 @@
 import "./globals.css";
 import { TEST_LABEL_TEXT, showTestLabel } from "../lib/site";
 import JsonLd from "./JsonLd";
+import { JourneyBeacon, JourneyErrorReporter } from "../components/JourneyBeacon";
 import SiteChrome from "../components/SiteChrome";
 
 // M7.8: the layout carries NO metadata of its own. Until
@@ -35,6 +36,13 @@ export default function RootLayout({
             still renders on every non-production page. */}
         <SiteChrome>{children}</SiteChrome>
         <JsonLd />
+        {/* M7.14: the journey counting's two layout-level
+            pieces — the entry event every page type emits,
+            and the error class's ears (D45). First-party
+            only: no vendor, no cookies, no fingerprinting
+            (lib/journey-events.ts). */}
+        <JourneyBeacon />
+        <JourneyErrorReporter />
       </body>
     </html>
   );

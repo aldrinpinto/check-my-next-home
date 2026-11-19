@@ -8,6 +8,7 @@ import {
   CHECKING_ROWS,
   CHECKING_ROW_MS,
 } from "../lib/journey";
+import { fireJourneyEvent } from "./JourneyBeacon";
 
 // The checking screen — D73 (fold-in build, 17 Nov 2026).
 //
@@ -71,14 +72,33 @@ export default function CheckingScreen({
   // and mark the data ready when they have all settled —
   // success or failure alike (see the header: no failure
   // state exists on this screen).
+  //
+  // M7.14 counting, in the same breath: the mount is the
+  // check's start (check_started, rung from the journey),
+  // and a part call that fails — an error status or a
+  // network failure — is a failed check request in the
+  // D45 error class (page_error). Neither post carries
+  // the postcode or the home: the event names the part
+  // and the failure class only.
   useEffect(() => {
     let cancelled = false;
+    fireJourneyEvent("check_started", { rung: homeKey ? 1 : 2 });
     const params = new URLSearchParams({ postcode });
     if (homeKey) params.set("home", homeKey);
     const calls = ["nearby", "flood", "area"].map(async (part) => {
       try {
-        await fetch(`/api/check/${part}?${params.toString()}`);
+        const response = await fetch(`/api/check/${part}?${params.toString()}`);
+        if (!response.ok) {
+          fireJourneyEvent("page_error", {
+            error_name: "CheckRequestFailed",
+            error_message: `The ${part} part of the check answered HTTP ${response.status}`,
+          });
+        }
       } catch {
+        fireJourneyEvent("page_error", {
+          error_name: "CheckRequestFailed",
+          error_message: `The ${part} part of the check could not be reached`,
+        });
         // Settled either way — the results page names any
         // gap; this screen never does.
       }

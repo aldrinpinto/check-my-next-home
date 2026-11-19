@@ -34,14 +34,22 @@
 //
 // The gift claimed/redeemed measurement events (M7.14)
 // attach at bindByConfirm() and markRedeemed() — the two
-// transitions, each a single named operation here —
-// when M7.14 builds its events table; M7.14's adoption
-// names that wiring as its own completion.
+// transitions, each a single named operation here. WIRED
+// at M7.14: each factory takes a journey sink; the
+// database store's default sink records the event into
+// the journey events table (the fact only — never the
+// token, never an email), and the memory store's sink is
+// the tests' capture. A sink fires ONLY on the real
+// transition: a refused or repeated bind/redeem records
+// nothing, so the counts are the transitions themselves.
 
 import { randomBytes } from "node:crypto";
 
 import { GIFT_VALIDITY_MS, normaliseEmail, type GiftRecord } from "../gift";
 import type { AddressQueryable } from "../address";
+import { recordJourneyEvent } from "./journey-events";
+
+export type GiftJourneySink = (event: "gift_claimed" | "gift_redeemed") => void;
 
 // A token is 24 random bytes — 32 base64url characters
 // of randomness: long and un-guessable (the Check
@@ -122,7 +130,12 @@ const COLUMNS = `token, buyer_email, claimant_email, status, order_ref,
   issued_at, expires_at, claimed_at, redeemed_at,
   pending_email, pending_token, pending_sent_at`;
 
-export function createDbGiftStore(db: AddressQueryable): GiftStore {
+export function createDbGiftStore(db: AddressQueryable, sink?: GiftJourneySink): GiftStore {
+  const journeySink: GiftJourneySink =
+    sink ??
+    ((event) => {
+      void recordJourneyEvent(db, { event, routePattern: "/gift" });
+    });
   async function getByToken(token: string): Promise<GiftRecord | null> {
     const { rows } = await db.query(`SELECT ${COLUMNS} FROM gift_tokens WHERE token = $1`, [token]);
     const row = (rows as unknown as GiftRow[])[0];
@@ -204,7 +217,9 @@ export function createDbGiftStore(db: AddressQueryable): GiftStore {
         [token, pendingToken, now],
       );
       const row = (rows as unknown as GiftRow[])[0];
-      return row ? toRecord(row) : null;
+      if (!row) return null;
+      journeySink("gift_claimed");
+      return toRecord(row);
     },
 
     async markRedeemed(token, now) {
@@ -216,7 +231,10 @@ export function createDbGiftStore(db: AddressQueryable): GiftStore {
         [token, now],
       );
       const row = (rows as unknown as GiftRow[])[0];
-      if (row) return toRecord(row);
+      if (row) {
+        journeySink("gift_redeemed");
+        return toRecord(row);
+      }
       // Already redeemed (or unknown): answer what
       // stands, so a duplicate delivery call is a
       // no-op, never an error.
@@ -239,7 +257,10 @@ export function createDbGiftStore(db: AddressQueryable): GiftStore {
 
 // The in-memory implementation the tests run — the
 // resolve-records pattern, with an injectable clock.
-export function createMemoryGiftStore(now: () => Date = () => new Date()): GiftStore {
+export function createMemoryGiftStore(
+  now: () => Date = () => new Date(),
+  sink?: GiftJourneySink,
+): GiftStore {
   const records = new Map<string, GiftRecord>();
   const clone = (record: GiftRecord): GiftRecord => ({ ...record });
 
@@ -296,6 +317,7 @@ export function createMemoryGiftStore(now: () => Date = () => new Date()): GiftS
       record.pendingEmail = null;
       record.pendingToken = null;
       record.pendingSentAt = null;
+      sink?.("gift_claimed");
       return clone(record);
     },
 
@@ -305,6 +327,7 @@ export function createMemoryGiftStore(now: () => Date = () => new Date()): GiftS
       if (record.status !== "claimed") return clone(record);
       record.status = "redeemed";
       record.redeemedAt = at;
+      sink?.("gift_redeemed");
       return clone(record);
     },
 

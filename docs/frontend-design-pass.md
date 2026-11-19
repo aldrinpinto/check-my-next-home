@@ -3992,3 +3992,163 @@ refusal on a bound gift; and the phone assertions over
 the claim states in e2e/phone.e2e.ts (the fold-in).
 The specs' first execution is CI's — Playwright
 cannot run on this VM.
+
+## Measure the journeys (19 Nov 2026) — M7.14: first-party counting, the digest, error alerts
+
+**What stands.** The pinned catalogue of measured moments
+(lib/journey-events.ts — the catalogue is data there, and
+migration 0036's CHECK mirrors it), recorded by our own
+endpoint (POST /api/events, rate-limited like /api/suggest)
+into our own Postgres. No vendor, no cookies for counting,
+no fingerprinting, nothing third-party; Cloudflare Web
+Analytics stays the traffic view at M10.7 and is untouched.
+The recorder (lib/server/journey-events.ts) is fire-and-
+forget: it never throws, and a failed write changes nothing
+the visitor sees.
+
+**The wiring, surface by surface.** page_view from the root
+layout (every page type); check_started from the checking
+screen's mount (rung from the journey — home key present is
+rung 1, else rung 2); check_completed from a beacon rendered
+inside the results with its payload derived server-side from
+the served bundle (rung, nation from the resolution's LSOA,
+the short bundle's section keys and their named states) —
+on the home route for rungs 1–2 including the not-covered
+branch, and on /search for rung 3 (district: nation from the
+district head's region, the collapse the head itself makes;
+Scotland/NI: the bundle's own nation and its named states —
+the Phase 3 demand evidence). shortlist_add/remove at the
+two controls that write the list (ShortlistButton's toggle,
+the shortlist page's remove — after the write succeeds, and
+for an add only on the "added" outcome); comparison_opened
+when the shortlist page first shows the comparison, once per
+mount; report_clicked by ReportLink, a client anchor that
+renders exactly the anchor it replaces (results head, buy
+bar, truncation rows, shortlist columns — attribute order
+included: the rendered-HTML pin in tests/results.test.ts
+holds byte-for-byte) and counts the click. gift_claimed/gift_redeemed at M7.13's named attachment
+points: the gift store's factories take a journey sink, the
+database store's default sink records into the events table,
+and a sink fires ONLY on the real transition (the UPDATE's
+returned row / the memory store's state change), so a
+refused or repeated bind/redeem records nothing.
+checkout_started/checkout_paid are catalogue-only in this
+step — their wiring is deferred into M9.6 as the adoption
+names it, paid to be recorded server-side from the payment
+confirmation, never from a browser beacon.
+
+**The no-address rule, enforced in layers.** Structurally:
+the table has no column that could hold an address, a full
+postcode or an email, and route_pattern is derived server-
+side from the raw path (routePatternOf — the gift token
+segment drops wholesale; unknown slugs collapse to their
+bracket form). By scan: assertJourneyEventSafe walks every
+payload before storage — forbidden keys refused outright,
+every string (error messages included) scanned for a full
+UK postcode or an email shape; an outward code alone is a
+district class and passes. For the error class, a message
+that itself carries one is stored as NULL — the name, the
+pattern and the count still record the error.
+
+**The error class and alerting (D45).** Uncaught page
+errors and unhandled rejections post from the layout's
+JourneyErrorReporter; a failed check part (error status or
+network failure) posts from the checking screen as
+CheckRequestFailed, naming the part and the failure class
+only. recordPageError stores the row (each occurrence a
+row — error counts are true counts), then evaluates the
+alert against journey_event_alerts: first sighting of a
+fingerprint alerts at once; a spike at the pinned threshold
+(ERROR_SPIKE_THRESHOLD = 10 inside a rolling hour) alerts
+again, at most once an hour per fingerprint. The send runs
+on a detached chain through the loaders' Resend path and
+the fingerprint is marked alerted only when the send
+succeeds, so a Resend failure is retried by a later
+occurrence — never one email per error, never silence.
+
+**The founder's reading end, delivered with the step.**
+scripts/journey-digest.mjs (one generator: the weekly
+schedule and this manual run; --days, --from/--to,
+--no-send, --out) composes the digest — headline numbers
+first, entry pages, checks by rung and nation, the funnel
+with consecutive-step ratios and the biggest drop-off,
+shortlist and gift counts, the errors section (top types,
+counts, first/last seen, pages) — aggregate counts and
+ratios only, and renders it with scripts/digest-pdf.mjs, a
+dependency-free PDF writer in the brand's design language
+(the report PDF machinery is M8.4's; the digest does not
+wait for it). The PDF is written to digests/ and emailed
+via Resend with the PDF attached. scripts/
+prune-journey-events.mjs is the named 13-month prune job
+(its predicate is the one db/prove.mjs proves against the
+table). scripts/heartbeat.mjs is the site-down heartbeat
+(homepage + /check/schools over the public origin; two
+consecutive failures alert, recovery confirms; state in
+one JSON file) — built to run from any host, and the
+how-to names the placement honestly: off-server wherever
+one exists, since total box death is the one failure it
+cannot see from the box itself. Package scripts:
+digest:journeys, prune:journeys, heartbeat.
+docs/journey-digest-howto.md is the founder how-to
+delivered with the step (manual week/month/custom runs
+with the exact commands, the cron lines, the heartbeat
+and prune, and the error-record SQL).
+
+**Deviations and gaps, stated plainly.** (1) THE PRIVACY
+AMENDMENTS ARE NOT BUILT. The adoption requires the
+analytics paragraph and the amended shortlist sentence in
+their founder-approved forms; the verbatim forms are not
+recoverable — the M7.14 prep file on disk
+(~/workspace/scratch-m714/FINDINGS-HOLD.md) is truncated
+mid-Gap-1 (it ends with a literal truncation marker), and
+no verbatim text exists anywhere else in the workspace:
+the plan records the substance only ("a founder-approved
+paragraph naming the analytics — the first-party counting
+and Cloudflare Web Analytics — amending the whole-list
+close"; the shortlist sentence "amended to the
+count-that-a-home-was-added, never-which-home form").
+Per the standing rule the wording was NOT invented: the
+Privacy page is untouched by this build, and the two
+amendments stand open for the founder's exact words.
+Everything they describe is true of what is built (the
+counting is first-party and cookieless; shortlist events
+carry the fact only, never which home). (2) check_started
+carries rung only — nation, sections and states ride on
+check_completed, where they are knowable; the catalogue's
+parenthetical is satisfied by the pair. (3) Page-error
+rows carry no dedupe key by design (see above); browser
+journey events dedupe on the client's per-fire key, so
+counts are honestly near-exact as the fold-in rules.
+(4) No visitor-facing surface changes except the report
+anchors' component (identical DOM), so the samples-
+deviation check is: no deviation — the Final Sample
+Master carries no measurement surface, and the one sample
+this step touches (Master view 8, Privacy) is exactly the
+gap at (1).
+
+**Tests.** Unit (tests/journey-events.test.ts): the
+catalogue is exactly the step's list with the money/gift
+facts server-origin only; the payload scan's proofs
+(postcode/email/forbidden keys at any depth, message
+content included, outward-only passes); sanitising
+(truncation, dirty message → null); route patterns (token
+segment dropped, slugs kept or bracketed, query stripped);
+browser classes; fingerprints; the completion derivation.
+Server (tests/journey-events-server.test.ts): recorded /
+duplicate / dropped outcomes; a failing store never
+throws; first-sighting alert (subject, marking, reason),
+no re-alert below threshold, spike alert at the pinned
+10, a failed send left unmarked; a dirty error message
+stored as null; the gift wiring through both stores —
+claimed and redeemed each exactly once, refused and
+repeated transitions silent. Database proof (db/prove.mjs):
+the tables stand, an unlisted event is refused by the
+CHECK, the dedupe claim leaves one row, the prune
+predicate removes only the past-the-line event, the alert
+memory counts a fingerprint on one row. Playwright
+(e2e/journey-events.e2e.ts, Regression): the golden
+journey's posts captured per browser (each pinned event
+exactly once), the stored rows' completion shape, and the
+payload scan over everything stored in the window. The
+specs' first execution is CI's — Playwright cannot run
+on this VM.

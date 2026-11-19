@@ -16,6 +16,7 @@ import {
 import Calculators from "./Calculators";
 import { Notice, SummaryPill } from "./kit";
 import PostcodeBox from "./PostcodeBox";
+import ReportLink from "./ReportLink";
 import ShortlistButton from "./ShortlistButton";
 import Tabs from "./Tabs";
 
@@ -85,7 +86,7 @@ function PlaceGroup({ group }: { group: PlaceGroupView }) {
         // the sample's one-row form, merged when a detail
         // rides, plain when not.
         (group.truncation.href ? (
-          <a
+          <ReportLink
             className={`trunc-row${group.truncation.detail ? " trunc-row--merged" : ""}`}
             href={group.truncation.href}
           >
@@ -99,7 +100,7 @@ function PlaceGroup({ group }: { group: PlaceGroupView }) {
               <span className="trunc-row__price">{REPORT_PRICE_LABEL}</span>{" "}
               <span className="trunc-row__arrow">Get the full report →</span>
             </span>
-          </a>
+          </ReportLink>
         ) : (
           <p className={`trunc-row${group.truncation.detail ? " trunc-row--merged" : ""}`}>
             <span className="trunc-row__main">
@@ -145,9 +146,9 @@ function UpsellRow({
   );
   const className = `trunc-row${detail ? " trunc-row--merged" : ""}`;
   return reportHref ? (
-    <a className={className} href={reportHref}>
+    <ReportLink className={className} href={reportHref}>
       {inner}
-    </a>
+    </ReportLink>
   ) : (
     <p className={className}>{inner}</p>
   );
@@ -434,9 +435,9 @@ export default function ResultsPage({
             {/* Item 19 (parity fix batch): the buy-bar
                 button carries no price — the priced form
                 is only the results-head button. */}
-            <a className="report-btn" href={view.buyBar.href}>
+            <ReportLink className="report-btn" href={view.buyBar.href}>
               Get the full report
-            </a>
+            </ReportLink>
             {shortlistCard && <ShortlistButton card={shortlistCard} />}
           </p>
         </div>

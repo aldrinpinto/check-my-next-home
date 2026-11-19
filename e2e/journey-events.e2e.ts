@@ -1,0 +1,150 @@
+import { expect, test } from "./fixtures";
+import pg from "pg";
+
+// Measure the journeys (plan step M7.14; D68 Regression):
+// a browser-driven golden journey emits each pinned event
+// exactly once into the first-party events table, and a
+// scan over the emitted payloads — the posts this browser
+// made and the rows the table holds — proves no event
+// carries an address, a full postcode or an email.
+//
+// Exactly-once is asserted on THIS browser's own posts
+// (captured from the network, so parallel specs sharing
+// the app cannot blur it); the table assertions prove the
+// events landed, with the completion payload's shape
+// (rung, nation, sections, states) intact.
+
+const FULL_POSTCODE = /\b[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}\b/i;
+const EMAIL = /[^\s@]+@[^\s@]+\.[^\s@]+/;
+
+interface StoredEvent {
+  event: string;
+  route_pattern: string | null;
+  rung: number | null;
+  nation: string | null;
+  sections: string[] | null;
+  states: Record<string, string> | null;
+  error_name: string | null;
+  error_message: string | null;
+  details: Record<string, unknown>;
+}
+
+test.describe("journey counting — regression", () => {
+  test(
+    "the golden journey emits each pinned event exactly once, and nothing carries an address, a full postcode or an email",
+    { tag: "@regression" },
+    async ({ page }) => {
+      const connectionString = process.env.DATABASE_URL;
+      if (!connectionString) throw new Error("DATABASE_URL is not set for the harness.");
+      const pool = new pg.Pool({ connectionString });
+      const startedAt = new Date();
+
+      const posts: { event: string; rung?: number }[] = [];
+      page.on("request", (request) => {
+        if (request.method() === "POST" && request.url().includes("/api/events")) {
+          try {
+            const body = JSON.parse(request.postData() ?? "{}") as {
+              event: string;
+              rung?: number;
+            };
+            posts.push(body);
+          } catch {
+            // An unparseable post is the server's 400 case,
+            // not this spec's concern.
+          }
+        }
+      });
+
+      try {
+        // The golden journey: landing → whole-postcode
+        // check → one home's check → shortlist → report
+        // click → the shortlist comparison.
+        await page.goto("/");
+        await page.locator("#postcode").fill("CM3 2JT");
+        await page.getByRole("button", { name: "Check this home" }).click();
+        await page.waitForURL("**/search/home?postcode=CM3+2JT");
+        await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
+
+        await page.getByRole("link", { name: "19 Birkdale Rise", exact: true }).click();
+        await page.waitForURL(/\/search\/home\?postcode=.*&home=/);
+        await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
+        await expect(page.locator(".results-head h1")).toHaveText("19 Birkdale Rise, CM3 2JT");
+
+        await page.getByRole("button", { name: "Shortlist this home" }).first().click();
+        await expect(
+          page.getByRole("button", { name: "Shortlisted — tap to remove" }).first(),
+        ).toBeVisible();
+
+        await page.getByRole("link", { name: "Get the full report — £4.99" }).first().click();
+        await page.waitForURL("**/report**");
+
+        await page.goto("/shortlist");
+        await expect(page.locator(".shortlist-card")).toHaveCount(1);
+
+        // The posts this browser made: each pinned event
+        // of the journey exactly once (page_view fires per
+        // page entered — landing, both checks, the report
+        // door and the shortlist).
+        const countPosts = (event: string, rung?: number) =>
+          posts.filter((post) => post.event === event && (rung === undefined || post.rung === rung))
+            .length;
+        expect(countPosts("check_started", 2)).toBe(1);
+        expect(countPosts("check_started", 1)).toBe(1);
+        expect(countPosts("check_completed", 2)).toBe(1);
+        expect(countPosts("check_completed", 1)).toBe(1);
+        expect(countPosts("shortlist_add")).toBe(1);
+        expect(countPosts("report_clicked")).toBe(1);
+        expect(countPosts("comparison_opened")).toBe(1);
+        expect(countPosts("page_view")).toBeGreaterThanOrEqual(5);
+
+        // The stored half: poll until this journey's rows
+        // have landed, then read the whole window.
+        let rows: StoredEvent[] = [];
+        await expect
+          .poll(
+            async () => {
+              const result = await pool.query(
+                `SELECT event, route_pattern, rung, nation, sections, states,
+                        error_name, error_message, details
+                   FROM journey_events WHERE occurred_at >= $1`,
+                [startedAt],
+              );
+              rows = result.rows as StoredEvent[];
+              const has = (event: string, rung?: number) =>
+                rows.some(
+                  (row) => row.event === event && (rung === undefined || row.rung === rung),
+                );
+              return (
+                has("check_completed", 1) &&
+                has("shortlist_add") &&
+                has("report_clicked") &&
+                has("comparison_opened")
+              );
+            },
+            { timeout: 20_000, intervals: [500] },
+          )
+          .toBe(true);
+
+        const completed = rows.find((row) => row.event === "check_completed" && row.rung === 1);
+        expect(completed).toBeDefined();
+        expect(completed!.nation).toBe("england");
+        expect(completed!.route_pattern).toBe("/search/home");
+        expect(completed!.sections).toContain("crime");
+        expect(completed!.states).toHaveProperty("crime");
+
+        // The scan, over everything stored in the window
+        // (this journey's rows and any parallel spec's —
+        // the rule binds them all): no field carries an
+        // address-shaped value, a full postcode or an
+        // email.
+        for (const row of rows) {
+          const serialised = JSON.stringify(row);
+          expect(serialised, `stored ${row.event} event`).not.toMatch(FULL_POSTCODE);
+          expect(serialised, `stored ${row.event} event`).not.toMatch(EMAIL);
+        }
+      } finally {
+        await pool.end();
+      }
+    },
+  );
+});

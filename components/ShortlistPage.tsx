@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { REPORT_ROUTE, formatMiles, reportRoute } from "../lib/results";
 import { REPORT_PRICE_LABEL } from "../lib/site";
@@ -21,6 +21,8 @@ import {
   type ShortlistCell,
   type ShortlistRecord,
 } from "../lib/shortlist";
+import { fireJourneyEvent } from "./JourneyBeacon";
+import ReportLink from "./ReportLink";
 
 // The /shortlist page's client island (plan step M7.5,
 // fold-in 6): the server sends the framed shell only; the
@@ -134,6 +136,21 @@ export default function ShortlistPage() {
     return () => query.removeEventListener("change", update);
   }, []);
 
+  // M7.14: the comparison counts as opened when the page
+  // first shows it — the ready state with at least one
+  // saved home (the comparison renders with the cards).
+  // Once per page mount; a removal that empties the list
+  // does not un-open it, and a later add does not re-open
+  // what is already on screen.
+  const comparisonCounted = useRef(false);
+  useEffect(() => {
+    if (comparisonCounted.current) return;
+    if (state.kind === "ready" && state.record.cards.length >= 1) {
+      comparisonCounted.current = true;
+      fireJourneyEvent("comparison_opened");
+    }
+  }, [state]);
+
   if (state.kind === "pending") return null;
 
   if (state.kind === "unavailable") {
@@ -199,6 +216,9 @@ export default function ShortlistPage() {
     }
     setState({ kind: "ready", record: next });
     notifyShortlistChanged();
+    // M7.14: the removal is counted — the fact only,
+    // never which home.
+    fireJourneyEvent("shortlist_remove");
   };
 
   const comparison = buildComparison(record.cards);
@@ -302,9 +322,9 @@ export default function ShortlistPage() {
                   </th>
                   {comparison.columns.map((card) => (
                     <td key={card.id}>
-                      <a className="report-btn" href={cardReportHref(card)}>
+                      <ReportLink className="report-btn" href={cardReportHref(card)}>
                         Get the full report — {REPORT_PRICE_LABEL}
-                      </a>
+                      </ReportLink>
                     </td>
                   ))}
                 </tr>
@@ -340,9 +360,9 @@ export default function ShortlistPage() {
                       ))}
                     </dl>
                     <p className="shortlist-compare__actions">
-                      <a className="report-btn" href={cardReportHref(card)}>
+                      <ReportLink className="report-btn" href={cardReportHref(card)}>
                         Get the full report — {REPORT_PRICE_LABEL}
-                      </a>
+                      </ReportLink>
                     </p>
                   </div>
                 );

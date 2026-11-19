@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 
 import CheckingScreen from "../../../components/CheckingScreen";
 import HomeList, { type PickerAddress } from "../../../components/HomeList";
+import { CheckCompletedBeacon } from "../../../components/JourneyBeacon";
+import ReportLink from "../../../components/ReportLink";
 import ResultsPage from "../../../components/ResultsPage";
 import ShortlistButton from "../../../components/ShortlistButton";
 import WholeCheckFailure from "../../../components/WholeCheckFailure";
@@ -21,6 +23,7 @@ import {
   widerAreaRoute,
 } from "../../../lib/journey";
 import { REPORT_PRICE_LABEL } from "../../../lib/site";
+import { sectionsAndStatesOf } from "../../../lib/journey-events";
 import { buildResultsView, resultsScopeLabel } from "../../../lib/results";
 import {
   checkResults,
@@ -34,6 +37,7 @@ import { logEntry, newRequestId } from "../../../lib/server/entry-log";
 import { isResolveToken } from "../../../lib/server/resolve-records";
 import { SITE_MANIFESTO } from "../../../lib/site";
 import { buildShortlistCard } from "../../../lib/shortlist-card";
+import type { ShortBundle } from "../../../lib/short-bundle";
 
 import type { Metadata } from "next";
 
@@ -67,6 +71,36 @@ export const metadata: Metadata = pageMetadata({
 // place, under the not-covered heading and intro.
 
 export const dynamic = "force-dynamic";
+
+// M7.14: the check's completion, counted from the served
+// bundle itself — rung and nation from the resolution,
+// the sections served and their named states from the
+// short bundle (classes and state names only; the payload
+// scan in lib/journey-events.ts proves the rest). The
+// beacon renders inside the results, so it mounts — and
+// fires — exactly when the results reach the visitor.
+function completionBeacon(resolution: AddressResolution, short: ShortBundle) {
+  const derived =
+    short.kind === "short-bundle"
+      ? sectionsAndStatesOf(short.sections as unknown as Record<string, unknown>)
+      : { sections: Object.keys(short.sections), states: {} as Record<string, string> };
+  // This page serves rungs 1–2 only (rung 3 lives on
+  // /search, rung 4 redirects away); the wider union is
+  // narrowed here so the nation's source — the
+  // directory's LSOA — is only read where it exists.
+  const nation =
+    resolution.rung === 1 || resolution.rung === 2
+      ? nationOfLsoa(resolution.directory.lsoaCode)
+      : "unknown";
+  return (
+    <CheckCompletedBeacon
+      rung={resolution.rung}
+      nation={nation}
+      sections={derived.sections}
+      states={derived.states}
+    />
+  );
+}
 
 // The results half of the page, streamed in behind the
 // checking screen: the derivation awaits the cached brains
@@ -137,9 +171,9 @@ async function Results({
           <div className="results-actions">
             {card && <ShortlistButton card={card} />}
             {view.reportHref && (
-              <a className="report-btn" href={view.reportHref}>
+              <ReportLink className="report-btn" href={view.reportHref}>
                 Get the full report — {REPORT_PRICE_LABEL}
-              </a>
+              </ReportLink>
             )}
           </div>
         )}
@@ -149,6 +183,7 @@ async function Results({
         <HomeList postcode={postcode} heading={pickerHeading} addresses={pickerAddresses} />
       )}
       <ResultsPage view={view} shortlistCard={card} />
+      {completionBeacon(resolution, results.short)}
     </>
   );
 }
@@ -239,8 +274,9 @@ export default async function HomePage({
 
   if (resolutionNotCovered(resolution)) {
     let view;
+    let results;
     try {
-      const results = await checkResults(resolution);
+      results = await checkResults(resolution);
       view = buildResultsView({ resolution, ...results, homeKey });
     } catch {
       return <WholeCheckFailure retryHref={homeRoute(postcode, homeKey)} />;
@@ -252,6 +288,7 @@ export default async function HomePage({
         <p className="results-manifesto-line">{SITE_MANIFESTO}</p>
         <p className="type-lead">{NOT_COVERED_INTRO}</p>
         <ResultsPage view={view} />
+        {completionBeacon(resolution, results.short)}
       </main>
     );
   }

@@ -16,6 +16,7 @@ import {
   type ShortlistCard,
   type ShortlistRecord,
 } from "../lib/shortlist";
+import { fireJourneyEvent } from "./JourneyBeacon";
 
 // The add control (plan step M7.5, fold-ins 3, 4 and 8):
 // "Shortlist this home" in two unmistakable states — one
@@ -74,19 +75,24 @@ export default function ShortlistButton({ card }: { card: ShortlistCard }) {
   const record = state.kind === "ready" ? state.record : null;
   const saved = record !== null && isCardSaved(record, card.id);
 
-  const write = (next: ShortlistRecord) => {
+  const write = (next: ShortlistRecord): boolean => {
     if (!saveShortlist(next)) {
       setState({ kind: "unavailable" });
-      return;
+      return false;
     }
     setState({ kind: "ready", record: next });
     notifyShortlistChanged();
+    return true;
   };
 
   const onToggle = () => {
     if (!record) return;
     if (saved) {
-      write(removeCardFromRecord(record, card.id));
+      // M7.14: the removal is counted — the fact only,
+      // never which home (the event carries no card data).
+      if (write(removeCardFromRecord(record, card.id))) {
+        fireJourneyEvent("shortlist_remove");
+      }
       return;
     }
     const attempt = addCardToRecord(record, { ...card, savedAt: new Date().toISOString() });
@@ -95,7 +101,9 @@ export default function ShortlistButton({ card }: { card: ShortlistCard }) {
       return;
     }
     setFullNotice(false);
-    write(attempt.record);
+    if (write(attempt.record) && attempt.outcome === "added") {
+      fireJourneyEvent("shortlist_add");
+    }
   };
 
   // The full message stands in the button's place only
