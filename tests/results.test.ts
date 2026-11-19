@@ -136,9 +136,21 @@ const primaryNear = category({
   category: "schools-primary",
   state: "within",
   places: [
-    { name: "Birkdale Primary School", miles: 0.442, detail: null },
-    { name: "Hatfield Peverel Infant School", miles: 0.913, detail: null },
-    { name: "St Andrew's Junior School", miles: 1.204, detail: null },
+    { latitude: 51.7, longitude: 0.6, name: "Birkdale Primary School", miles: 0.442, detail: null },
+    {
+      latitude: 51.7,
+      longitude: 0.6,
+      name: "Hatfield Peverel Infant School",
+      miles: 0.913,
+      detail: null,
+    },
+    {
+      latitude: 51.7,
+      longitude: 0.6,
+      name: "St Andrew's Junior School",
+      miles: 1.204,
+      detail: null,
+    },
   ],
   countWithin: 5,
 });
@@ -149,7 +161,15 @@ const baseNearby = nearbyWith({
     category: "schools-secondary",
     state: "within",
     places: [
-      { name: "Maltings Academy", miles: 1.87, detail: null, sixthForm: true, urn: "135653" },
+      {
+        latitude: 51.7,
+        longitude: 0.6,
+        name: "Maltings Academy",
+        miles: 1.87,
+        detail: null,
+        sixthForm: true,
+        urn: "135653",
+      },
     ],
     countWithin: 1,
     nearestSelective: null,
@@ -162,6 +182,8 @@ const baseNearby = nearbyWith({
       {
         name: "Fern House Surgery",
         miles: 0.62,
+        latitude: 51.7,
+        longitude: 0.6,
         detail: null,
         cqcRating: { rating: "Good", date: "2024-12-19" },
       },
@@ -171,7 +193,9 @@ const baseNearby = nearbyWith({
   parks: category({
     category: "parks",
     state: "within",
-    places: [{ name: "Birkdale Rise Green", miles: 0.32, detail: null }],
+    places: [
+      { latitude: 51.7, longitude: 0.6, name: "Birkdale Rise Green", miles: 0.32, detail: null },
+    ],
     countWithin: 1,
   }),
   ae: category({
@@ -179,7 +203,7 @@ const baseNearby = nearbyWith({
     state: "none-within",
     places: [],
     countWithin: 0,
-    beyondNearest: { name: "Broomfield Hospital", miles: 4.213 },
+    beyondNearest: { latitude: 51.7, longitude: 0.6, name: "Broomfield Hospital", miles: 4.213 },
     line: "none within 2 miles — nearest is Broomfield Hospital, 4.213 miles away (straight-line distance from the postcode point)",
   }),
   maternity: category({
@@ -187,7 +211,7 @@ const baseNearby = nearbyWith({
     state: "none-within",
     places: [],
     countWithin: 0,
-    beyondNearest: { name: "Broomfield Hospital", miles: 5.89 },
+    beyondNearest: { latitude: 51.7, longitude: 0.6, name: "Broomfield Hospital", miles: 5.89 },
     line: "none within 2 miles — nearest is Broomfield Hospital, 5.89 miles away (straight-line distance from the postcode point)",
   }),
 });
@@ -646,8 +670,24 @@ describe("results — place groups", () => {
       category: "schools-secondary",
       state: "within",
       places: [
-        { name: "Maltings Academy", miles: 1.87, detail: null, sixthForm: true, urn: "135653" },
-        { name: "Other School", miles: 1.95, detail: null, sixthForm: null, urn: "1" },
+        {
+          latitude: 51.7,
+          longitude: 0.6,
+          name: "Maltings Academy",
+          miles: 1.87,
+          detail: null,
+          sixthForm: true,
+          urn: "135653",
+        },
+        {
+          latitude: 51.7,
+          longitude: 0.6,
+          name: "Other School",
+          miles: 1.95,
+          detail: null,
+          sixthForm: null,
+          urn: "1",
+        },
       ],
       countWithin: 2,
       nearestSelective: { name: "Grammar School", miles: 1.2 },
@@ -760,7 +800,16 @@ describe("results — pill logic D75 (fold-in)", () => {
       "schools-secondary": category({
         category: "schools-secondary",
         state: "within",
-        places: [{ name: "Maltings Academy", miles: 1.87, detail: null, sixthForm: true }],
+        places: [
+          {
+            latitude: 51.7,
+            longitude: 0.6,
+            name: "Maltings Academy",
+            miles: 1.87,
+            detail: null,
+            sixthForm: true,
+          },
+        ],
         countWithin: 1,
         nearestSelective: null,
         nearestSelectiveLine: null,
@@ -770,19 +819,27 @@ describe("results — pill logic D75 (fold-in)", () => {
         state: "none-within",
         places: [],
         countWithin: 0,
-        beyondNearest: { name: "Broomfield Hospital", miles: 5.8 },
+        beyondNearest: { latitude: 51.7, longitude: 0.6, name: "Broomfield Hospital", miles: 5.8 },
         line: "none within 2 miles — nearest is Broomfield Hospital, 5.8 miles away",
       }),
       station: category({
         category: "station",
         state: "within",
-        places: [{ name: "Hatfield Peverel station", miles: 0.6, detail: null }],
+        places: [
+          {
+            latitude: 51.7,
+            longitude: 0.6,
+            name: "Hatfield Peverel station",
+            miles: 0.6,
+            detail: null,
+          },
+        ],
         countWithin: 1,
       }),
       nurseries: category({
         category: "nurseries",
         state: "within",
-        places: [{ name: "Nursery", miles: 0.3, detail: null }],
+        places: [{ latitude: 51.7, longitude: 0.6, name: "Nursery", miles: 0.3, detail: null }],
         countWithin: 1,
       }),
     });
@@ -813,7 +870,16 @@ describe("results — pill logic D75 (fold-in)", () => {
         "schools-secondary": category({
           category: "schools-secondary",
           state: "within",
-          places: [{ name: "Maltings Academy", miles: 1.87, detail: null, sixthForm: true }],
+          places: [
+            {
+              latitude: 51.7,
+              longitude: 0.6,
+              name: "Maltings Academy",
+              miles: 1.87,
+              detail: null,
+              sixthForm: true,
+            },
+          ],
           countWithin: 1,
         }),
       }) as Extract<NearbyBundle, { kind: "distances" }>,
@@ -838,7 +904,16 @@ describe("results — pill logic D75 (fold-in)", () => {
         "schools-secondary": category({
           category: "schools-secondary",
           state: "within",
-          places: [{ name: "Maltings Academy", miles: 1.87, detail: null, sixthForm: true }],
+          places: [
+            {
+              latitude: 51.7,
+              longitude: 0.6,
+              name: "Maltings Academy",
+              miles: 1.87,
+              detail: null,
+              sixthForm: true,
+            },
+          ],
           countWithin: 1,
         }),
       }) as Extract<NearbyBundle, { kind: "distances" }>,
@@ -867,7 +942,16 @@ describe("results — pill logic D75 (fold-in)", () => {
         "schools-secondary": category({
           category: "schools-secondary",
           state: "within",
-          places: [{ name: "Maltings Academy", miles: 1.87, detail: null, sixthForm: true }],
+          places: [
+            {
+              latitude: 51.7,
+              longitude: 0.6,
+              name: "Maltings Academy",
+              miles: 1.87,
+              detail: null,
+              sixthForm: true,
+            },
+          ],
           countWithin: 1,
         }),
       }) as Extract<NearbyBundle, { kind: "distances" }>,
@@ -910,7 +994,16 @@ describe("results — pill logic D75 (fold-in)", () => {
         "schools-secondary": category({
           category: "schools-secondary",
           state: "within",
-          places: [{ name: "Maltings Academy", miles: 1.87, detail: null, sixthForm: true }],
+          places: [
+            {
+              latitude: 51.7,
+              longitude: 0.6,
+              name: "Maltings Academy",
+              miles: 1.87,
+              detail: null,
+              sixthForm: true,
+            },
+          ],
           countWithin: 1,
         }),
       }) as Extract<NearbyBundle, { kind: "distances" }>,
@@ -935,7 +1028,16 @@ describe("results — pill logic D75 (fold-in)", () => {
       "schools-secondary": category({
         category: "schools-secondary",
         state: "within",
-        places: [{ name: "Maltings Academy", miles: 1.87, detail: null, sixthForm: true }],
+        places: [
+          {
+            latitude: 51.7,
+            longitude: 0.6,
+            name: "Maltings Academy",
+            miles: 1.87,
+            detail: null,
+            sixthForm: true,
+          },
+        ],
         countWithin: 1,
         nearestSelective: null,
         nearestSelectiveLine: null,
@@ -945,19 +1047,27 @@ describe("results — pill logic D75 (fold-in)", () => {
         state: "none-within",
         places: [],
         countWithin: 0,
-        beyondNearest: { name: "Broomfield Hospital", miles: 5.8 },
+        beyondNearest: { latitude: 51.7, longitude: 0.6, name: "Broomfield Hospital", miles: 5.8 },
         line: "none within 2 miles — nearest is Broomfield Hospital, 5.8 miles away",
       }),
       station: category({
         category: "station",
         state: "within",
-        places: [{ name: "Hatfield Peverel station", miles: 0.6, detail: null }],
+        places: [
+          {
+            latitude: 51.7,
+            longitude: 0.6,
+            name: "Hatfield Peverel station",
+            miles: 0.6,
+            detail: null,
+          },
+        ],
         countWithin: 1,
       }),
       nurseries: category({
         category: "nurseries",
         state: "within",
-        places: [{ name: "Nursery", miles: 0.3, detail: null }],
+        places: [{ latitude: 51.7, longitude: 0.6, name: "Nursery", miles: 0.3, detail: null }],
         countWithin: 1,
       }),
     });
@@ -1021,7 +1131,16 @@ describe("results — pill logic D75 (fold-in)", () => {
       "schools-secondary": category({
         category: "schools-secondary",
         state: "within",
-        places: [{ name: "Maltings Academy", miles: 1.87, detail: null, sixthForm: true }],
+        places: [
+          {
+            latitude: 51.7,
+            longitude: 0.6,
+            name: "Maltings Academy",
+            miles: 1.87,
+            detail: null,
+            sixthForm: true,
+          },
+        ],
         countWithin: 1,
         nearestSelective: null,
         nearestSelectiveLine: null,
@@ -1031,19 +1150,27 @@ describe("results — pill logic D75 (fold-in)", () => {
         state: "none-within",
         places: [],
         countWithin: 0,
-        beyondNearest: { name: "Broomfield Hospital", miles: 5.8 },
+        beyondNearest: { latitude: 51.7, longitude: 0.6, name: "Broomfield Hospital", miles: 5.8 },
         line: "none within 2 miles — nearest is Broomfield Hospital, 5.8 miles away",
       }),
       station: category({
         category: "station",
         state: "within",
-        places: [{ name: "Hatfield Peverel station", miles: 0.6, detail: null }],
+        places: [
+          {
+            latitude: 51.7,
+            longitude: 0.6,
+            name: "Hatfield Peverel station",
+            miles: 0.6,
+            detail: null,
+          },
+        ],
         countWithin: 1,
       }),
       nurseries: category({
         category: "nurseries",
         state: "within",
-        places: [{ name: "Nursery", miles: 0.3, detail: null }],
+        places: [{ latitude: 51.7, longitude: 0.6, name: "Nursery", miles: 0.3, detail: null }],
         countWithin: 1,
       }),
     });
@@ -1331,7 +1458,7 @@ describe("results — pill logic D75 (fold-in)", () => {
         state: "none-within",
         places: [],
         countWithin: 0,
-        beyondNearest: { name: "Hospital", miles: 6 },
+        beyondNearest: { latitude: 51.7, longitude: 0.6, name: "Hospital", miles: 6 },
         line: "none within 2 miles",
       }),
     });
@@ -1366,13 +1493,22 @@ describe("results — pill logic D75 (fold-in)", () => {
       "schools-primary": category({
         category: "schools-primary",
         state: "within",
-        places: [{ name: "Primary", miles: 0.4, detail: null }],
+        places: [{ latitude: 51.7, longitude: 0.6, name: "Primary", miles: 0.4, detail: null }],
         countWithin: 1,
       }),
       "schools-secondary": category({
         category: "schools-secondary",
         state: "within",
-        places: [{ name: "Grammar School", miles: 0.9, detail: null, selective: true }],
+        places: [
+          {
+            latitude: 51.7,
+            longitude: 0.6,
+            name: "Grammar School",
+            miles: 0.9,
+            detail: null,
+            selective: true,
+          },
+        ],
         countWithin: 1,
         nearestSelective: { name: "Grammar School", miles: 0.9 },
         nearestSelectiveLine: "the nearest selective secondary school is Grammar School",
@@ -1425,7 +1561,7 @@ describe("results — pill logic D75 (fold-in)", () => {
           nurseries: category({
             category: "nurseries",
             state: "within",
-            places: [{ name: "Nursery", miles: 0.3, detail: null }],
+            places: [{ latitude: 51.7, longitude: 0.6, name: "Nursery", miles: 0.3, detail: null }],
             countWithin: 2,
           }),
         }),
@@ -1663,6 +1799,8 @@ describe("results — the built view", () => {
           {
             name: "Maltings Academy",
             miles: 1.87,
+            latitude: 51.7,
+            longitude: 0.6,
             detail: null,
             sixthForm: true,
             urn: "135653",
@@ -1848,7 +1986,7 @@ describe("results — nation gating (Scotland/NI gap check, fold-in workstream 6
       state: "none-within",
       places: [],
       countWithin: 0,
-      beyondNearest: { name: "Far Away Place", miles },
+      beyondNearest: { name: "Far Away Place", miles, latitude: 51.7, longitude: 0.6 },
       line: `none within 2 miles — nearest is Far Away Place, ${miles} miles away`,
     });
   const gatedBundle = () =>
@@ -1864,25 +2002,33 @@ describe("results — nation gating (Scotland/NI gap check, fold-in workstream 6
       station: category({
         category: "station",
         state: "within",
-        places: [{ name: "Far Away Place", miles: 0.5, detail: null }],
+        places: [
+          { latitude: 51.7, longitude: 0.6, name: "Far Away Place", miles: 0.5, detail: null },
+        ],
         countWithin: 1,
       }),
       "bus-stop": category({
         category: "bus-stop",
         state: "within",
-        places: [{ name: "Far Away Place", miles: 0.2, detail: null }],
+        places: [
+          { latitude: 51.7, longitude: 0.6, name: "Far Away Place", miles: 0.2, detail: null },
+        ],
         countWithin: 1,
       }),
       "ev-chargers": category({
         category: "ev-chargers",
         state: "within",
-        places: [{ name: "Far Away Place", miles: 1.1, detail: null }],
+        places: [
+          { latitude: 51.7, longitude: 0.6, name: "Far Away Place", miles: 1.1, detail: null },
+        ],
         countWithin: 1,
       }),
       parks: category({
         category: "parks",
         state: "within",
-        places: [{ name: "Far Away Place", miles: 0.4, detail: null }],
+        places: [
+          { latitude: 51.7, longitude: 0.6, name: "Far Away Place", miles: 0.4, detail: null },
+        ],
         countWithin: 1,
       }),
     });
@@ -1961,7 +2107,7 @@ describe("results — nation gating (Scotland/NI gap check, fold-in workstream 6
         state: "none-within",
         places: [],
         countWithin: 0,
-        beyondNearest: { name: "Far Away Place", miles },
+        beyondNearest: { name: "Far Away Place", miles, latitude: 51.7, longitude: 0.6 },
         line: `none within 2 miles — nearest is Far Away Place, ${miles} miles away`,
       });
     const view = buildResultsView(
@@ -2245,7 +2391,17 @@ describe("results — M7.11 figures in place (D-1/D-2/O-3)", () => {
     const secondary = category({
       category: "schools-secondary",
       state: "within",
-      places: [{ name: "No Sixth School", miles: 1.2, detail: null, sixthForm: false, urn: "2" }],
+      places: [
+        {
+          latitude: 51.7,
+          longitude: 0.6,
+          name: "No Sixth School",
+          miles: 1.2,
+          detail: null,
+          sixthForm: false,
+          urn: "2",
+        },
+      ],
       countWithin: 1,
       nearestSelective: null,
       nearestSelectiveLine: null,

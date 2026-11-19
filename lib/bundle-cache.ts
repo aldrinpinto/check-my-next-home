@@ -876,6 +876,16 @@ export async function buildNearbyBundleCached(
     // every state including not-filed) — an entry written
     // before the step degrades to a recompute rather than
     // serving destinationless secondary rows as current.
+    // The M8.1 contract extends it once more: every place
+    // every category serves must carry its filed
+    // coordinates (latitude and longitude, both numbers),
+    // and a non-null beyondNearest must carry them too —
+    // the report's Section 5 map pins from the bundle, so
+    // an entry written before the step degrades to a
+    // recompute rather than serving coordinateless places
+    // as current. No loader stamp moves when the step
+    // deploys (the filings are unchanged), so only this
+    // presence rule catches it.
     shapeOk: (bundle) => {
       if (typeof bundle !== "object" || bundle === null) return false;
       if ("industrialSites" in bundle !== industrialEnabled) return false;
@@ -912,6 +922,25 @@ export async function buildNearbyBundleCached(
       for (const place of secondaryAnswer.places) {
         if (typeof place !== "object" || place === null || !("sixthForm" in place)) return false;
         if (!("destinations" in place)) return false;
+      }
+      // The M8.1 coordinates clause: every category's
+      // places, and every non-null beyondNearest.
+      for (const entry of categories) {
+        if (typeof entry !== "object" || entry === null) return false;
+        const answer = entry as { places?: unknown; beyondNearest?: unknown };
+        if (!Array.isArray(answer.places)) return false;
+        for (const place of answer.places) {
+          if (typeof place !== "object" || place === null) return false;
+          const coords = place as { latitude?: unknown; longitude?: unknown };
+          if (typeof coords.latitude !== "number" || typeof coords.longitude !== "number")
+            return false;
+        }
+        if (answer.beyondNearest !== null && answer.beyondNearest !== undefined) {
+          if (typeof answer.beyondNearest !== "object") return false;
+          const coords = answer.beyondNearest as { latitude?: unknown; longitude?: unknown };
+          if (typeof coords.latitude !== "number" || typeof coords.longitude !== "number")
+            return false;
+        }
       }
       return true;
     },

@@ -223,12 +223,22 @@ function birkdaleNearby(): NearbyBundle {
   return nearbyWith([
     category({
       category: "schools-primary",
-      places: [{ name: "Birkdale Primary School", miles: 0.42, detail: null }],
+      places: [
+        {
+          latitude: 51.7,
+          longitude: 0.6,
+          name: "Birkdale Primary School",
+          miles: 0.42,
+          detail: null,
+        },
+      ],
       countWithin: 1,
     }),
     category({
       category: "schools-secondary",
-      places: [{ name: "The Boswells School", miles: 1.1, detail: null }],
+      places: [
+        { latitude: 51.7, longitude: 0.6, name: "The Boswells School", miles: 1.1, detail: null },
+      ],
       countWithin: 1,
       nearestSelective: null,
       nearestSelectiveLine: "No — none in Braintree",
@@ -237,23 +247,27 @@ function birkdaleNearby(): NearbyBundle {
     category({
       category: "gp",
       places: [],
-      beyondNearest: { name: "Birkdale Surgery", miles: 1.9 },
+      beyondNearest: { latitude: 51.7, longitude: 0.6, name: "Birkdale Surgery", miles: 1.9 },
       state: "none-within",
       line: "no GP surgery within 1 mile; the nearest is Birkdale Surgery, 1.9 miles away",
     }),
     category({
       category: "ae",
-      places: [{ name: "Broomfield Hospital", miles: 5.89, detail: null }],
+      places: [
+        { latitude: 51.7, longitude: 0.6, name: "Broomfield Hospital", miles: 5.89, detail: null },
+      ],
       countWithin: 1,
     }),
     category({
       category: "station",
-      places: [{ name: "Chelmsford", miles: 2.31, detail: null }],
+      places: [{ latitude: 51.7, longitude: 0.6, name: "Chelmsford", miles: 2.31, detail: null }],
       countWithin: 1,
     }),
     category({
       category: "vets",
-      places: [{ name: "Birkdale Vets", miles: 0.87, detail: null }],
+      places: [
+        { latitude: 51.7, longitude: 0.6, name: "Birkdale Vets", miles: 0.87, detail: null },
+      ],
       countWithin: 1,
     }),
   ]);

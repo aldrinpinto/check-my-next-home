@@ -690,7 +690,7 @@ const CRIME_CATEGORY_LABELS: Record<string, string> = {
   unknown: "Category not published",
 };
 
-function crimeCategoryLabel(slug: string): string {
+export function crimeCategoryLabel(slug: string): string {
   return (
     CRIME_CATEGORY_LABELS[slug] ??
     slug

@@ -589,7 +589,13 @@ export function placeGroupView(
       line: category.line,
       rows: [
         placeRow(
-          { name: category.beyondNearest.name, miles: category.beyondNearest.miles, detail: null },
+          {
+            name: category.beyondNearest.name,
+            miles: category.beyondNearest.miles,
+            detail: null,
+            latitude: category.beyondNearest.latitude,
+            longitude: category.beyondNearest.longitude,
+          },
           presentation.family,
           presentation,
         ),

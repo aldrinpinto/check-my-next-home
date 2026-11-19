@@ -679,6 +679,60 @@ test.describe("phone-first — 360×740 (T-WEB-01)", () => {
       await expectNoSidewaysScroll(page);
     },
   );
+
+  test(
+    "the report document at phone width: the nine-section report reads without sideways scroll (M8.1)",
+    { tag: "@regression" },
+    async ({ page }) => {
+      // The live report page is door-held until M8.7, so
+      // the phone proof stands on the report DOCUMENT:
+      // the sample report page renders the identical
+      // rpt-* document (the format both render from), and
+      // the live renderer is class-parity-pinned to it in
+      // tests/report.test.ts. What is asserted here is the
+      // format at 360px: no sideways scroll anywhere in a
+      // nine-section document with tables, tiles, bar
+      // charts and place rows, and every section heading
+      // reachable in order. The live page's own phone
+      // proof rides with M8.7's unlock, when the door
+      // first opens.
+      await page.goto("/sample-report");
+      await expect(page.locator(".rpt-doc")).toBeVisible();
+      const headings = page.locator(".rpt-section .rpt-secHead h2");
+      await expect(headings).toHaveCount(10);
+      await expect(headings.nth(0)).toHaveText("The short version");
+      const expected = [
+        "Price & this home",
+        "Sold prices nearby",
+        "Schools & nurseries",
+        // The sample page's Section 4 title, as the Master
+        // drew it. The live report carries the format
+        // authority's title ("Health, air, noise & crime",
+        // v12) — pinned in tests/report.test.ts; the
+        // divergence is itemised in the M8.1 record.
+        "Health, air & crime",
+        "What's nearby",
+        "Home, costs & risks",
+        "Flood risk",
+        "Questions to ask the seller",
+        "Sources, notes & disclaimers",
+      ];
+      for (let i = 0; i < expected.length; i++) {
+        await expect(headings.nth(i + 1)).toHaveText(expected[i]);
+      }
+      await expectNoSidewaysScroll(page);
+      // The document's widest furniture at this width:
+      // the stat tiles, a data table and the chart cards
+      // all stay inside the viewport.
+      for (const selector of [".rpt-tiles", ".rpt-doc table", ".rpt-chartCard"]) {
+        const element = page.locator(selector).first();
+        if ((await element.count()) > 0) {
+          await expectInsideViewport(element, PHONE.width, selector);
+        }
+      }
+      await expectNoSidewaysScroll(page);
+    },
+  );
 });
 
 test.describe("phone-first — 480px, the small breakpoint's upper edge (P6)", () => {

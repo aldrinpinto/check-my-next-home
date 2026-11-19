@@ -1041,7 +1041,12 @@ describe("nearby bundle — 19 Birkdale Rise, CM3 2JT", () => {
     const ae = category(bundle, "ae");
     expect(ae.state).toBe("none-within");
     expect(ae.places).toEqual([]);
-    expect(ae.beyondNearest).toEqual({ name: "Broomfield Hospital", miles: 5.89 });
+    expect(ae.beyondNearest).toEqual({
+      name: "Broomfield Hospital",
+      miles: 5.89,
+      latitude: 51.774662,
+      longitude: 0.466021,
+    });
     expect(ae.line).toBe(
       "none within 2 miles — nearest is Broomfield Hospital, 5.89 miles away (straight-line distance from the postcode point)",
     );
@@ -1054,7 +1059,12 @@ describe("nearby bundle — 19 Birkdale Rise, CM3 2JT", () => {
     expect(maternity.state).toBe("none-within");
     expect(maternity.places).toEqual([]);
     expect(maternity.countWithin).toBe(0);
-    expect(maternity.beyondNearest).toEqual({ name: "Broomfield Hospital", miles: 5.89 });
+    expect(maternity.beyondNearest).toEqual({
+      name: "Broomfield Hospital",
+      miles: 5.89,
+      latitude: 51.774662,
+      longitude: 0.466021,
+    });
     expect(maternity.line).toBe(
       "none within 2 miles — nearest is Broomfield Hospital, 5.89 miles away (straight-line distance from the postcode point)",
     );
@@ -1201,7 +1211,12 @@ describe("nearby bundle — 6 Exeter Road, E16 1GN", () => {
     // in the golden matrix from the M6.2 rehearsal.
     const primary = category(bundle, "schools-primary");
     expect(primary.state).toBe("none-within");
-    expect(primary.beyondNearest).toEqual({ name: "Cheam Fields Primary Academy", miles: 14.671 });
+    expect(primary.beyondNearest).toEqual({
+      name: "Cheam Fields Primary Academy",
+      miles: 14.671,
+      latitude: 51.364813450683094,
+      longitude: -0.21960787959021302,
+    });
   });
 
   it("serves EV, supermarkets, groups and parks (centre basis)", async () => {
@@ -1411,7 +1426,12 @@ describe("nearby bundle — Hilgay, CB6 1EH", () => {
     const bundle = await bundleFor("CB6 1EH");
     const station = category(bundle, "station");
     expect(station.state).toBe("none-within");
-    expect(station.beyondNearest).toEqual({ name: "Littleport Rail Station", miles: 3.208 });
+    expect(station.beyondNearest).toEqual({
+      name: "Littleport Rail Station",
+      miles: 3.208,
+      latitude: 52.46238052394,
+      longitude: 0.31655932377,
+    });
     expect(station.line).toContain("nearest is Littleport Rail Station, 3.208 miles away");
   });
 
@@ -1541,6 +1561,8 @@ describe("nearby bundle — sixth forms (M6.33, D51/D64)", () => {
         name: "North East Surrey College of Technology",
         miles: 0.174,
         detail: "Further education",
+        latitude: 51.342566348710996,
+        longitude: -0.2446780801513962,
       },
     ]);
     // No marker, no rating: the category's places serve
@@ -1582,7 +1604,12 @@ describe("nearby bundle — sixth forms (M6.33, D51/D64)", () => {
     expect(cat.state).toBe("none-within");
     expect(cat.places).toEqual([]);
     expect(cat.countWithin).toBe(0);
-    expect(cat.beyondNearest).toEqual({ name: "Bexley Grammar School", miles: 5.484 });
+    expect(cat.beyondNearest).toEqual({
+      name: "Bexley Grammar School",
+      miles: 5.484,
+      latitude: 51.45649902018651,
+      longitude: 0.10705184745984281,
+    });
     expect(cat.line).toBe(
       "none within 2 miles — nearest is Bexley Grammar School, 5.484 miles away (straight-line distance from the postcode point)",
     );
@@ -1595,7 +1622,12 @@ describe("nearby bundle — sixth forms (M6.33, D51/D64)", () => {
     const cat = category(bundle, "sixth-forms");
     expect(cat.state).toBe("none-within");
     expect(cat.countWithin).toBe(0);
-    expect(cat.beyondNearest).toEqual({ name: "Lift New Rickstones", miles: 3.212 });
+    expect(cat.beyondNearest).toEqual({
+      name: "Lift New Rickstones",
+      miles: 3.212,
+      latitude: 51.81838703713575,
+      longitude: 0.6355027735756688,
+    });
     expect(cat.line).toBe(
       "none within 2 miles — nearest is Lift New Rickstones, 3.212 miles away (straight-line distance from the postcode point)",
     );

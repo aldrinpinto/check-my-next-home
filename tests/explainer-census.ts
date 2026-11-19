@@ -1641,6 +1641,13 @@ export const NOT_A_FIGURE_ALLOWLIST: RegExp[] = [
   // figure. The destinations stages' figures are
   // registered (rows 89–94).
   /^nearby\.categories\[\]\.places\[\]\.urn$/,
+  // The nearby places' filed coordinates (M8.1): the
+  // Section 5 map's geometry, added to the nearby answer
+  // by that step's authorised re-pin — positions, not
+  // figures; they are never printed as numbers anywhere
+  // in the product (a place's distance rides the
+  // nearby.distance-miles family, as before).
+  /^nearby\.categories\[\]\.(places\[\]|beyondNearest)\.(latitude|longitude)$/,
   // The resolution's own address parts and counts of
   // addresses (the census row 1 watch: not brain figures).
   /^address\./,

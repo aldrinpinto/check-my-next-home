@@ -73,6 +73,7 @@ import {
   createNearbySource,
   type NearbyBundle,
 } from "../lib/nearby";
+import { buildReportView } from "../lib/report";
 import {
   BURE_ITEM,
   LEADON_ITEM,
@@ -1676,5 +1677,62 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
     if (exeter.sections.crime.state === "served") expect(exeter.sections.crime.total).toBe(10722);
     const minerva = get("minerva1").short;
     if (minerva.sections.crime.state === "served") expect(minerva.sections.crime.total).toBe(1956);
+  });
+
+  it("report view (M8.1): the golden homes' reports carry the locked figures, section by section", () => {
+    // The on-screen report built from the REAL bundles —
+    // the Birkdale and Exeter reports on screen match the
+    // approved samples section by section, with figures
+    // identical to the bundles (the step's own check).
+    const viewOf = (tag: string) => {
+      const b = get(tag);
+      return buildReportView({
+        resolution: b.resolution,
+        nearby: b.nearby,
+        flood: b.flood,
+        area: b.area,
+        sold: b.sold,
+        crime: b.crime,
+        now: NOW,
+      });
+    };
+    const birkdale = viewOf("birkdale1");
+    expect(birkdale.sections).toHaveLength(9);
+    const birkdaleText = JSON.stringify(birkdale);
+    expect(birkdaleText).toContain("£588,995");
+    expect(birkdaleText).toContain("330 recorded crimes within 1 mile");
+    expect(birkdaleText).toContain("51.7 recorded crimes per 1,000 residents");
+    expect(birkdaleText.toLowerCase()).not.toContain("childminder");
+    // The snapshot is plain data end to end.
+    expect(JSON.parse(JSON.stringify(birkdale))).toEqual(birkdale);
+    // Section 5's map pins real named places from the
+    // filed corpus, and never a school.
+    const mapBlock = birkdale.sections[4].blocks.find((b) => b.type === "map");
+    if (!mapBlock || mapBlock.type !== "map") throw new Error("expected a map block");
+    expect(mapBlock.map.pins.length).toBeGreaterThan(0);
+    expect(mapBlock.map.pins.map((p) => p.name)).not.toContain("St Andrew's Junior School");
+
+    const exeter = viewOf("exeter1");
+    const exeterText = JSON.stringify(exeter);
+    expect(exeterText).toContain("£310,000");
+    expect(exeterText).toContain("10,722 recorded crimes");
+
+    const minerva = viewOf("minerva1");
+    const minervaText = JSON.stringify(minerva);
+    expect(minervaText).toContain("£420,000");
+    expect(minervaText).toContain("1,956 recorded crimes");
+
+    // A Northern Ireland postcode report renders the
+    // bundles' not-covered states in the affected
+    // sections — never blanks, never England data.
+    const belfastBrains = get("belfast2");
+    const belfast = viewOf("belfast2");
+    expect(belfast.sections).toHaveLength(9);
+    if (belfastBrains.crime.kind === "not-covered") {
+      expect(JSON.stringify(belfast.sections[3])).toContain(belfastBrains.crime.crime.reason);
+    }
+    if (belfastBrains.flood.kind === "not-covered") {
+      expect(JSON.stringify(belfast.sections[6])).toContain(belfastBrains.flood.flood.reason);
+    }
   });
 });

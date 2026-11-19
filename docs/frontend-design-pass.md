@@ -5773,3 +5773,140 @@ counted; the partition is unchanged).
   E2E specs are not run locally (no local Postgres
   harness — the standing limitation); CI is their
   first live run.
+
+## The on-screen report (19 Nov 2026) — M8.1: the nine-section report behind the door
+
+- Built: `lib/report.ts` (`buildReportView`), `components/ReportPage.tsx`,
+  `app/report/view/page.tsx`. The report renders the full served bundles —
+  masthead, the grouped short version, and the nine sections in the format
+  authority's order (detailed-report v12): Price & this home; Sold prices
+  nearby; Schools & nurseries; Health, air, noise & crime; What's nearby;
+  Home, costs & risks; Flood risk; Questions to ask the seller; Sources,
+  notes & disclaimers. Rendering uses only the sample report's `rpt-*`
+  document classes — no watermark, no SAMPLE banner, no sample furniture.
+- The door holds. `REPORT_DOOR_STATE` is untouched: while it holds, the
+  route redirects to the report door page before any bundle is assembled.
+  The complete pages are built behind it; nobody can open an on-screen
+  report at this step's tick (M8.7's tester unlock opens the door first).
+- Snapshot decision (settled here for M8.4): ONE snapshot source. The
+  report's content is a single plain JSON-serialisable value,
+  `ReportView`, built once by `buildReportView` from the served bundles.
+  The on-screen renderer consumes it and derives nothing; M8.4's PDF
+  renderer consumes the same value and derives nothing. A test pins the
+  JSON round-trip. The `reports` database table stays what it has always
+  been — the M9-era order/delivery record, not a content snapshot store.
+- Buyer-route seam (pinned for M8.6/M8.7/M9): `REPORT_VIEW_ROUTE =
+"/report/view"` and `reportViewRoute(postcode, homeKey?)` in
+  `lib/report.ts`, on `reportRoute`'s pattern (`?postcode=`, `&home=` when
+  a home key is present). `reportViewGate(postcode, homeKey, doorState)`
+  is the single decision point later steps extend: while the door holds it
+  answers the door redirect; at "paid" it serves. The signed-link and
+  payment machinery of M8.6/M9 hangs off this seam, not off a new route.
+- The M7.12 deferral discharges here: every section head carries its
+  "How we check" links from `REPORT_SECTION_CHECK_LINKS`, labelled from
+  `CHECK_PAGES` — the check explanations are named in the report itself.
+- The authorised re-pin (the step's one bundle-shape change): the nearby
+  answer's named places carry their filed coordinates, so the Section 5
+  map can pin them. `NearbyPlace` gains required `latitude`/`longitude`;
+  `CategoryAnswer.beyondNearest` gains the same pair; `buildCategory`
+  sets both from the source points. Exactly two pins moved in
+  `tests/fixtures/replay/bundle-shapes.json` — `nearby.served` and
+  `nearby.beyond-only`; the other 48 stand. The nearby cache shape check
+  in `lib/bundle-cache.ts` is extended in the established pattern (every
+  place and any beyond-nearest must carry numeric coordinates), so a
+  pre-step cache entry degrades to a recompute rather than serving a
+  map-less bundle. The re-pin record also stands in the header of
+  `tests/bundle-contracts.test.ts`, as previous re-pins were recorded.
+  No other bundle shape changed; `nearestSelective` is untouched
+  (Section 3 carries no map; its coordinates would serve nothing).
+  The figure census (tests/explainer-census.ts) registers the two new
+  leaves on its not-a-figure allowlist as what they are — positions,
+  never printed as numbers — and the sixth-forms expectations record
+  that the coordinates ride on every named place, sixth forms included
+  (the D64 three-field rule was about content: no Ofsted element, no
+  marker, no rating).
+- The Section 5 map: a static inline-SVG picture built from the filed
+  coordinates — home pin plus one pin per named place in Section 5's own
+  lists (nearest three per category, plus essential services' single
+  nearest beyond 2 miles), 1- and 2-mile rings, true relative positions,
+  captioned as a diagram of the listed places. No tile service, no
+  external basemap, no image. No street-line geometry is held anywhere
+  in the schema (held spatial data is points and polygons only), so a
+  street-line basemap is not buildable from held data at this step —
+  the question belongs to M8.3's build and its acceptance test, which
+  owns what the report may claim about flood maps.
+- Scope placements worth naming: benefits render at the END of Section 4,
+  where Master view 7 places "Benefits — the wider area" (the step text
+  says "the report's demographics"; the layout authority's placement was
+  followed, and every D5 guardrail is applied — as published, source
+  dated, neutral, never in headlines, pills or the short version).
+  Section 8 renders its heading only: its content is M8.5's step
+  (hand-written, rule-selected) and no placeholder copy was invented.
+  Section 7 carries no pictures: shipping tile pictures is forbidden and
+  genuine flood maps are M8.3's. The EV block's "At home" group carries
+  one standing line (no served home-charging fact exists anywhere in the
+  product; the sample's At-home line is dummy-home editorial). Later
+  steps' content is not pre-built: building safety (M8.11(c)/(d)), the
+  EPC construction block (M8.11(k)), brownfield rows (M8.11(i)), full
+  broadband/mobile shares (M8.11(g)), company ownership (flag off,
+  M8.10(b)), Section 1 Material Information (M8.10). The short version's
+  council-tax bullet carries the section's served line as-is — M8.11(b)
+  settles that line, nothing was decided here. No delivery-email text
+  was touched (M8.6 settles it).
+- Phone-reading check (the step's own requirement): one @regression spec
+  in `e2e/phone.e2e.ts` at 360×740 over `/sample-report` — the page that
+  renders the identical `rpt-*` document — asserting all ten section
+  headings in order (short version + nine), no sideways scroll, and the
+  tiles/tables/chart cards inside the viewport. The live page cannot be
+  its own phone proof while the door holds; its proof rides with M8.7's
+  unlock. The tag audit moves 158 → 159 (10 @smoke / 149 @regression)
+  for this one spec; no test deleted. Unit-side, `tests/report.test.ts`
+  (39 tests) pins the snapshot against fabricated-at-frozen-shapes
+  bundles carrying the golden facts, and a golden-replay case builds the
+  report from the REAL bundles (Birkdale £588,995 / 330 crimes / 51.7 per
+  1,000; Exeter £310,000 / 10,722; Minerva £420,000 / 1,956; Belfast
+  rung-2 not-covered states rendered in their sections) — its first live
+  run is CI's database job, per the replay's standing gate.
+- Parity audit against the format authority (v12) and Master view 7 —
+  divergences and dispositions:
+  1. Section 1 computed tiles (change since previous sale, held by last
+     owner, price change, annual growth) NOT built — carve-out (D23,
+     ruling B7); sold history renders as filed facts only.
+  2. No monthly cost-of-ownership headline, breakdown or total anywhere
+     — carve-out (X6/X7, D33); the two derived lines live inside their
+     own sections (council tax monthly line; EPC modelled costs).
+  3. The sample's "save about £34 a year" line NOT reproduced — EPC
+     improvements render in register sequence with each step's own
+     figures, never summed (D41).
+  4. IMD renders as the decile in words only; score and rank are never
+     printed (X1/X5, D26). Solar carries the served PVGIS location line
+     with its basis in the line (X2). The air table carries the served
+     yardstick lines, no sample comparison wording (D50). Crime carries
+     counts plus the D39 calibration lines (X3). Planning renders the
+     D31 hand-off, not a named list. Flood renders in served form —
+     three layers never merged (D25), live warnings first (D42),
+     defences and climate outlook as served (D49). The samples' DESNZ
+     area energy statistics and groundwater-flooding line are
+     sample-only and NOT built (X11/X12).
+  5. Section 4's title follows the format authority ("Health, air,
+     noise & crime", v12); the Master view 7 sample page still heads it
+     "Health, air & crime". The live report follows v12; the sample
+     page is unchanged by this step — flagged for a future Master fold.
+  6. The catchment honesty block sits after the secondary group, before
+     sixth forms, as the sample places it (moved during this build's
+     own audit; it first stood at the section's end).
+  7. Section 5's group order follows the served category order (the free
+     page's own order); the sample groups transport after essentials.
+     Kept as served for product consistency — noted difference.
+  8. The masthead carries no "Data checked" cell (the sample has one):
+     no such served fact exists, and per-section source dates are
+     printed in Section 9 instead. The prepared date renders as the
+     masthead's small line. Dates use the product's full-month form
+     (`formatFiledDate`), not the sample document's abbreviated months.
+  9. Short-version bullets are plain text; the sample bolds key figures
+     inline. Presentation difference, noted; the snapshot carries lines,
+     and bolding belongs to a renderer pass if the founder wants it.
+  10. Section 9's sources list is the bundles' own served source lines,
+      deduplicated in section order; the sample's narrative source
+      paragraphs are presentation the served lines replace (each served
+      line names its source and date itself).

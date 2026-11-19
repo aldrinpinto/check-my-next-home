@@ -275,6 +275,29 @@
 // the contract change (19 Nov 2026); recorded here and
 // in docs/frontend-design-pass.md so the change is
 // never mistaken for drift.
+//
+// RE-PIN RECORD: M8.1 (the on-screen report pages,
+// founder-authorised inside the step, 19 Nov 2026)
+// deliberately widened the frozen nearby shape — every
+// served place gains its filed coordinates (latitude and
+// longitude, both numbers, present on every category's
+// places), and the essential categories' beyondNearest
+// gains the same pair, so the report's Section 5 map can
+// pin the section's named places from the bundle itself
+// (the step's served-shape prerequisite: home pinned plus
+// one pin per named place, from held data only). Two pins
+// moved (nearby.served, nearby.beyond-only), differing by
+// exactly those keys — verified by leaf-diff against the
+// printed shapes; the none-anywhere and not-filed pins
+// serve no places and did not move, and the rung-3/4 pins
+// did not move (no categories record). No short pin
+// moved: the short bundle's derivation never reads the
+// coordinates. The nearby cache's shape check extends in
+// the same step (the M8.1 clause in lib/bundle-cache.ts):
+// an entry written before the step degrades to a
+// recompute. All 50 pins stand. Recorded here and in
+// docs/frontend-design-pass.md so the change is never
+// mistaken for drift.
 
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";

@@ -332,23 +332,41 @@ describe("sixth forms — the category selection (M6.33, D51/D64)", () => {
     expect(cat.state).toBe("within");
     expect(cat.countWithin).toBe(3);
     expect(cat.places).toEqual([
-      { name: "Phase College", miles: milesOf(PHASE_COLLEGE), detail: "Further education" },
+      {
+        name: "Phase College",
+        miles: milesOf(PHASE_COLLEGE),
+        detail: "Further education",
+        latitude: PHASE_COLLEGE.latitude,
+        longitude: PHASE_COLLEGE.longitude,
+      },
       {
         name: "Flagged All Through",
         miles: milesOf(FLAGGED_ALL_THROUGH),
         detail: "Academy converter",
+        latitude: FLAGGED_ALL_THROUGH.latitude,
+        longitude: FLAGGED_ALL_THROUGH.longitude,
       },
       {
         name: "Sixteen Nineteen Academy",
         miles: milesOf(SIXTEEN_NINETEEN),
         detail: "Academy 16-19 converter",
+        latitude: SIXTEEN_NINETEEN.latitude,
+        longitude: SIXTEEN_NINETEEN.longitude,
       },
     ]);
     // Name, type as filed, distance — no Ofsted element,
-    // no marker, no rating (D64 ruling 5): the place
-    // carries exactly those three fields.
+    // no marker, no rating (D64 ruling 5). The two extra
+    // keys are the filed coordinates every named place in
+    // the nearby answer carries since the M8.1 re-pin
+    // (the Section 5 map's geometry) — not content.
     for (const place of cat.places)
-      expect(Object.keys(place).sort()).toEqual(["detail", "miles", "name"]);
+      expect(Object.keys(place).sort()).toEqual([
+        "detail",
+        "latitude",
+        "longitude",
+        "miles",
+        "name",
+      ]);
   });
 
   it("excludes every D64-out row, however near: special-sector types, 'Special post 16 institution', 'Sixth form centres', independent types, Welsh establishments, British schools overseas", async () => {
@@ -426,6 +444,8 @@ describe("sixth forms — the beyond name (M6.33, D64 ruling 4)", () => {
     expect(cat.beyondNearest).toEqual({
       name: "Distant Flagged Secondary",
       miles: milesOf(DISTANT_FLAGGED_SECONDARY),
+      latitude: DISTANT_FLAGGED_SECONDARY.latitude,
+      longitude: DISTANT_FLAGGED_SECONDARY.longitude,
     });
     expect(cat.line).toBe(
       `none within 2 miles — nearest is Distant Flagged Secondary, ${milesOf(DISTANT_FLAGGED_SECONDARY)} miles away (straight-line distance from the postcode point)`,
@@ -445,6 +465,8 @@ describe("sixth forms — the beyond name (M6.33, D64 ruling 4)", () => {
     expect(cat.beyondNearest).toEqual({
       name: "Distant Flagged Secondary",
       miles: milesOf(DISTANT_FLAGGED_SECONDARY),
+      latitude: DISTANT_FLAGGED_SECONDARY.latitude,
+      longitude: DISTANT_FLAGGED_SECONDARY.longitude,
     });
   });
 
@@ -456,6 +478,8 @@ describe("sixth forms — the beyond name (M6.33, D64 ruling 4)", () => {
     expect(cat.beyondNearest).toEqual({
       name: "Distant College",
       miles: milesOf(DISTANT_COLLEGE),
+      latitude: DISTANT_COLLEGE.latitude,
+      longitude: DISTANT_COLLEGE.longitude,
     });
   });
 

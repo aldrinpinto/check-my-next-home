@@ -411,6 +411,15 @@ export type NearbyPlace = {
   name: string;
   miles: number;
   detail: string | null;
+  // The place's filed coordinates (M8.1): every served
+  // place carries the point it was filed at, so the
+  // report's Section 5 map can pin the named places from
+  // the bundle itself — the served-shape prerequisite the
+  // M8.1 step authorised (the one re-pin inside that
+  // step). Present on every category's places: the source
+  // point always carries them.
+  latitude: number;
+  longitude: number;
   selective?: boolean;
   // GP, A&E and maternity places only (M6.25): the
   // location's overall CQC rating as filed, present on
@@ -453,7 +462,10 @@ export type CategoryAnswer = {
   countWithin: number;
   // Essential services only: when nothing files within the
   // radius, the single nearest beyond it, always named.
-  beyondNearest: { name: string; miles: number } | null;
+  // Carries its filed coordinates on the same M8.1 basis
+  // as the listed places — the map pins the beyond-nearest
+  // essentials too.
+  beyondNearest: { name: string; miles: number; latitude: number; longitude: number } | null;
   // The ruled sentence for the non-"within" states; null when
   // the places speak for themselves.
   line: string | null;
@@ -939,6 +951,8 @@ async function buildCategory(
       name: m.point.name as string,
       miles: round3(m.raw),
       detail: m.point.detail ?? null,
+      latitude: m.point.latitude,
+      longitude: m.point.longitude,
     };
     if (m.point.selective !== undefined) place.selective = m.point.selective;
     // The rating field is the health categories' own
@@ -1014,7 +1028,12 @@ async function buildCategory(
       const miles = round3(
         haversineMiles(latitude, longitude, nearest.latitude, nearest.longitude),
       );
-      answer.beyondNearest = { name: nearest.name, miles };
+      answer.beyondNearest = {
+        name: nearest.name,
+        miles,
+        latitude: nearest.latitude,
+        longitude: nearest.longitude,
+      };
       answer.line = `none within ${RADIUS_MILES} miles — nearest is ${nearest.name}, ${miles} miles away (${DISTANCE_BASIS_LABEL})`;
     } else {
       // No NAMED nearest exists to serve (the table holds
