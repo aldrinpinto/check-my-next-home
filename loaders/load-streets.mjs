@@ -69,6 +69,34 @@
 // Birkdale Rise files by the Birkdale golden home and
 // Exeter Road by the Exeter golden home (the two homes
 // the M8.3 promise test reads its streets from).
+//
+// The read of a cut STREAMS, and the rows never pile up
+// behind the stream: the first golden-area smoke
+// (20 Nov 2026) cut England perfectly — 6,596,554
+// highway ways — then died at a ~1.9 GB heap holding
+// the country's ~4.5M filed rows in one array before
+// filing began. Stage-then-swap made the death
+// harmless (the live table never saw the run); the
+// streamed shape makes it impossible: the loader hands
+// each row to its filing as it is read and holds only
+// working sets — a batch of staged rows, an area's
+// golden candidates, one extract at a time.
+//
+// A completed cut can be reused whole: when the
+// environment names CMNH_STREETS_REUSE_DIR — a
+// directory holding a previous run's cuts
+// (<country>-streets.ndjson, exactly as a run's
+// workdir leaves them) — the run streams from there
+// and skips the download AND the cut for that country,
+// so a filing-phase failure is re-run against the same
+// cut instead of paying hours of cutting again. The
+// sanity a reused cut gets is the download's md5
+// refusal translated (Geofabrik publishes hashes for
+// extracts, not for our cuts, and the published hash
+// moves on daily besides): the file is present,
+// non-empty, and its first line parses as a cut row —
+// and the run's floors and golden checks then judge
+// the stream as they judge any read.
 
 import {
   createReadStream,
@@ -78,6 +106,7 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -251,6 +280,18 @@ function wktOf(points) {
 
 const INSERT_BATCH = 500;
 
+// The streamed filings accumulate this many rows
+// before flushing them through insertRows — the only
+// row array a streamed run ever holds, whatever the
+// extract's size.
+const STREAM_BATCH = 5000;
+
+// The scoped filing's conflict rule: a way already
+// filed (a border way read from both country extracts)
+// is replaced by the later read.
+const SCOPED_ON_CONFLICT =
+  "ON CONFLICT (osm_id) DO UPDATE SET name = EXCLUDED.name, highway = EXCLUDED.highway, geom = EXCLUDED.geom, source_name = EXCLUDED.source_name, source_date = EXCLUDED.source_date, loaded_at = now()";
+
 async function insertRows(client, table, rows, sourceDate, { onConflict }) {
   const values = [];
   const params = [];
@@ -291,9 +332,48 @@ export async function fileStreetsScoped(pool, rows, bbox, sourceDate) {
       [bbox.west, bbox.south, bbox.east, bbox.north],
     );
     await insertRows(client, "street_lines", rows, sourceDate, {
-      onConflict:
-        "ON CONFLICT (osm_id) DO UPDATE SET name = EXCLUDED.name, highway = EXCLUDED.highway, geom = EXCLUDED.geom, source_name = EXCLUDED.source_name, source_date = EXCLUDED.source_date, loaded_at = now()",
+      onConflict: SCOPED_ON_CONFLICT,
     });
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+// The streamed scoped filing (area cuts over country
+// extracts): the same delete-and-insert inside one
+// transaction as fileStreetsScoped, but the rows arrive
+// from a fresh streamed pass over the extracts' cuts,
+// flushed through insertRows a batch at a time — the
+// area's rows are never held, however wide the area.
+async function fileStreetsScopedStream(pool, extracts, bbox, sourceDate) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      `DELETE FROM street_lines
+       WHERE geom && ST_MakeEnvelope($1, $2, $3, $4, 4326)`,
+      [bbox.west, bbox.south, bbox.east, bbox.north],
+    );
+    for (const ex of extracts) {
+      let batch = [];
+      const flush = async () => {
+        if (batch.length === 0) return;
+        await insertRows(client, "street_lines", batch, sourceDate, {
+          onConflict: SCOPED_ON_CONFLICT,
+        });
+        batch = [];
+      };
+      await streamCutRows(ex.ndjsonPath, async (row) => {
+        if (!wayMeetsBbox(row.points, bbox)) return;
+        batch.push(row);
+        if (batch.length >= STREAM_BATCH) await flush();
+      });
+      await flush();
+    }
     await client.query("COMMIT");
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
@@ -375,10 +455,12 @@ async function md5OfFile(path) {
 }
 
 // Cut one extract down to its street lines with the
-// libosmium cutter; returns the ways read and the filed
-// rows (post-vocabulary), stamped with the extract's
-// data date by the caller.
-async function extractAndMap(inputPath, workDir, label) {
+// libosmium cutter; returns the cut's ndjson path. The
+// read of the cut is streamCutRows' job — the two are
+// separate because a completed cut can be reused whole
+// (see reusedCut below) and because the area mode reads
+// one cut once per area without ever re-cutting.
+async function cutExtract(inputPath, workDir, label) {
   const ndjsonPath = join(workDir, `${label}-streets.ndjson`);
   await new Promise((resolve, reject) => {
     const child = spawn("python3", [EXTRACT_SCRIPT, inputPath, ndjsonPath], {
@@ -395,8 +477,20 @@ async function extractAndMap(inputPath, workDir, label) {
         );
     });
   });
+  return ndjsonPath;
+}
+
+// Stream one cut's ndjson, handing every filed row
+// (post-vocabulary) to onRow as it is read, and return
+// the ways read and the rows handed over. No caller
+// receives a country's rows: each says what to do with
+// a row — stage a batch, count it, test it against an
+// area — and holds only its own working set (see the
+// header: the array this function used to return is
+// what died at a ~1.9 GB heap on the first smoke run).
+async function streamCutRows(ndjsonPath, onRow) {
   let waysRead = 0;
-  const rows = [];
+  let rowsFiled = 0;
   const rl = createInterface({ input: createReadStream(ndjsonPath), crlfDelay: Infinity });
   for await (const line of rl) {
     if (line.trim() === "") continue;
@@ -404,9 +498,28 @@ async function extractAndMap(inputPath, workDir, label) {
     const el = JSON.parse(line);
     const highway = classifyHighway(el.tags);
     if (highway === null) continue;
-    rows.push({ osmId: el.id, name: streetName(el.tags), highway, points: el.points });
+    rowsFiled++;
+    await onRow({ osmId: el.id, name: streetName(el.tags), highway, points: el.points });
   }
-  return { waysRead, rows };
+  return { waysRead, rowsFiled };
+}
+
+// The golden checks only ever read rows carrying a
+// golden street's name — goldenChecks skips every other
+// row it is handed — so a streamed run collects just
+// those candidate rows as it passes and runs the same
+// checks over them: identical verdicts, a handful of
+// rows held.
+const GOLDEN_STREET_NAMES = new Set(Object.values(HOMES).map((h) => h.street));
+
+function goldenCandidates() {
+  const rows = [];
+  return {
+    rows,
+    take(row) {
+      if (row.name !== null && GOLDEN_STREET_NAMES.has(row.name)) rows.push(row);
+    },
+  };
 }
 
 async function downloadCountry(country, workDir) {
@@ -459,6 +572,69 @@ async function localCountry(country, pbfDir) {
   return { path: join(pbfDir, file), dataDate: extractDataDate(file) };
 }
 
+// The first non-blank line of a file, read without
+// holding the file — the reused-cut sanity's parse
+// probe.
+async function firstCutLine(path) {
+  const input = createReadStream(path);
+  const rl = createInterface({ input, crlfDelay: Infinity });
+  try {
+    for await (const line of rl) {
+      if (line.trim() !== "") return line;
+    }
+    return null;
+  } finally {
+    rl.close();
+    input.destroy();
+  }
+}
+
+// The reuse hook (see the header): when
+// CMNH_STREETS_REUSE_DIR names a directory holding a
+// country's completed cut, return that cut — the run
+// streams from it and skips the download and the cut
+// for the country. A country with no cut in the
+// directory returns null and follows the ordinary
+// path; a cut that is present but fails the sanity
+// (empty, or its first line does not parse as a cut
+// row) REFUSES the run, the md5 refusal's equivalent.
+// The extract's data date rides on a dated sibling
+// extract file (<country>-YYMMDD.osm.pbf) when the
+// directory holds one; without one the cut's rows
+// stamp the run's retrieval date, the fallback the
+// area mode already uses for an undated read.
+async function reusedCut(country, reuseDir) {
+  if (!reuseDir) return null;
+  const path = join(reuseDir, `${country}-streets.ndjson`);
+  if (!existsSync(path)) return null;
+  const refuse = (why) => {
+    throw new Error(
+      `CMNH_STREETS_REUSE_DIR: the reused ${country} cut at ${path} ${why} — refusing to file from it`,
+    );
+  };
+  const stat = statSync(path);
+  if (!stat.isFile() || stat.size === 0) refuse("is empty");
+  const first = await firstCutLine(path);
+  let parsed = null;
+  try {
+    parsed = first === null ? null : JSON.parse(first);
+  } catch {
+    parsed = null;
+  }
+  if (
+    parsed === null ||
+    typeof parsed.id !== "number" ||
+    typeof parsed.tags !== "object" ||
+    parsed.tags === null ||
+    !Array.isArray(parsed.points)
+  )
+    refuse("does not parse as a street cut");
+  const dated = readdirSync(reuseDir).find((f) =>
+    new RegExp(`^${country}-\\d{6}\\.osm\\.pbf$`).test(f),
+  );
+  return { path, dataDate: dated ? extractDataDate(dated) : null };
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const fileIdx = args.indexOf("--file");
@@ -474,6 +650,7 @@ async function main() {
   for (const c of countries)
     if (!COUNTRIES.includes(c)) throw new Error(`unknown country ${JSON.stringify(c)}`);
   const retrievedOn = todayDate();
+  const reuseDir = process.env.CMNH_STREETS_REUSE_DIR ?? null;
   const workDir = mkdtempSync(join(tmpdir(), "cmnh-streets-"));
   try {
     if (fixtureMode) {
@@ -501,10 +678,17 @@ async function main() {
         .filter((f) => f.endsWith(".osm"))
         .sort();
       if (files.length === 0) throw new Error("streets fixture directory holds no .osm captures");
+      // The captures are committed test files, bounded
+      // by construction, so fixture mode still collects
+      // its rows whole — the streamed country reads are
+      // the ones that must never hold a read (see the
+      // header).
       let rows = [];
       for (const file of files) {
-        const part = await extractAndMap(join(fixtureDir, file), workDir, `fixture-${file}`);
-        for (const row of part.rows) rows.push(row);
+        const ndjsonPath = await cutExtract(join(fixtureDir, file), workDir, `fixture-${file}`);
+        await streamCutRows(ndjsonPath, (row) => {
+          rows.push(row);
+        });
       }
       const golden = goldenChecks(rows, () => true);
       if (golden.length > 0) throw new Error(`golden checks failed: ${golden.join("; ")}`);
@@ -538,32 +722,58 @@ async function main() {
       return;
     }
 
-    // Country extracts, from a local directory or a
-    // verified download.
+    // Country extracts, each resolved to the ndjson cut
+    // the modes stream from: a reused completed cut
+    // where CMNH_STREETS_REUSE_DIR holds one (download
+    // and cut skipped), otherwise a fresh cut of the
+    // local or downloaded extract, made once here —
+    // every mode then reads cuts, never extracts.
     const extracts = [];
     for (const country of countries) {
+      const reused = await reusedCut(country, reuseDir);
+      if (reused) {
+        console.log(
+          `load-streets · ${country}: reusing the completed cut at ${reused.path} — download and cut skipped`,
+        );
+        extracts.push({ country, ndjsonPath: reused.path, dataDate: reused.dataDate });
+        continue;
+      }
       const got = pbfDir
         ? await localCountry(country, pbfDir)
         : await downloadCountry(country, workDir);
       if (!got) continue;
-      extracts.push({ country, ...got });
+      console.log(`load-streets · cutting ${country} (extract dated ${got.dataDate})…`);
+      const ndjsonPath = await cutExtract(got.path, workDir, country);
+      extracts.push({ country, ndjsonPath, dataDate: got.dataDate });
     }
     if (extracts.length === 0) throw new Error("no country extracts were read");
 
     if (bboxes) {
       // Area cuts: each area files in its own
-      // transaction, in argument order.
+      // transaction, in argument order. Each area makes
+      // two streamed passes over the extracts' cuts —
+      // the first counts the area's rows and collects
+      // its golden candidates for the checks, the second
+      // (fileStreetsScopedStream) files them in batches
+      // inside the area's transaction — so an area run
+      // holds a handful of candidate rows and one insert
+      // batch, never a country's read. (The first smoke
+      // run held the whole England read and died before
+      // filing a single area.)
       const pool = verifyOnly ? null : new Pool({ connectionString: process.env.DATABASE_URL });
       try {
         for (const bbox of bboxes) {
-          let rows = [];
+          let rows = 0;
           let waysRead = 0;
           let sourceDate = null;
+          const candidates = goldenCandidates();
           for (const ex of extracts) {
-            const part = await extractAndMap(ex.path, workDir, ex.country);
+            const part = await streamCutRows(ex.ndjsonPath, (row) => {
+              candidates.take(row);
+              if (wayMeetsBbox(row.points, bbox)) rows++;
+            });
             waysRead += part.waysRead;
             sourceDate = ex.dataDate;
-            for (const row of part.rows) if (wayMeetsBbox(row.points, bbox)) rows.push(row);
           }
           const inScope = (key) => {
             const home = HOMES[key];
@@ -574,17 +784,17 @@ async function main() {
               home.lat <= bbox.north
             );
           };
-          const golden = goldenChecks(rows, inScope);
+          const golden = goldenChecks(candidates.rows, inScope);
           if (golden.length > 0) throw new Error(`golden checks failed: ${golden.join("; ")}`);
           if (verifyOnly) {
             console.log(
-              `load-streets · would file ${rows.length} street lines for area ${bbox.west},${bbox.south},${bbox.east},${bbox.north} (${waysRead} highway ways read) — golden homes OK (verify-only: nothing filed)`,
+              `load-streets · would file ${rows} street lines for area ${bbox.west},${bbox.south},${bbox.east},${bbox.north} (${waysRead} highway ways read) — golden homes OK (verify-only: nothing filed)`,
             );
             continue;
           }
-          await fileStreetsScoped(pool, rows, bbox, sourceDate ?? retrievedOn);
+          await fileStreetsScopedStream(pool, extracts, bbox, sourceDate ?? retrievedOn);
           console.log(
-            `load-streets · ${rows.length} street lines filed for area ${bbox.west},${bbox.south},${bbox.east},${bbox.north} (${waysRead} highway ways read) — golden homes OK`,
+            `load-streets · ${rows} street lines filed for area ${bbox.west},${bbox.south},${bbox.east},${bbox.north} (${waysRead} highway ways read) — golden homes OK`,
           );
         }
       } finally {
@@ -594,31 +804,45 @@ async function main() {
     }
 
     // National: stage every country, floor each, then
-    // swap once. Rows are held per country only — the
-    // golden checks run on the country that holds the
-    // golden homes (England) before its rows are staged
-    // and released, so a national run never holds two
-    // countries of geometry in memory at once.
+    // swap once. A country's rows stream from its cut
+    // into the stage a batch at a time — the golden
+    // candidates are the only rows held, and only
+    // England's checks read them. The floor and golden
+    // verdicts are reached as the country's stream ends
+    // and still gate the swap: the stage is scratch by
+    // design (the next run's start resets it), so a
+    // refused country leaves staged rows that never
+    // serve — the live table changes only at the swap.
     const pool = verifyOnly ? null : new Pool({ connectionString: process.env.DATABASE_URL });
     try {
       if (pool) await resetStreetStage(pool);
       let totalStaged = 0;
       for (const ex of extracts) {
-        console.log(`load-streets · cutting ${ex.country} (extract dated ${ex.dataDate})…`);
-        const part = await extractAndMap(ex.path, workDir, ex.country);
-        if (part.rows.length < EXTRACT_FLOORS[ex.country])
+        const candidates = goldenCandidates();
+        let batch = [];
+        const flush = async () => {
+          if (batch.length === 0) return;
+          if (pool) await stageStreets(pool, batch, ex.dataDate ?? retrievedOn);
+          batch = [];
+        };
+        const part = await streamCutRows(ex.ndjsonPath, async (row) => {
+          candidates.take(row);
+          batch.push(row);
+          if (batch.length >= STREAM_BATCH) await flush();
+        });
+        await flush();
+        if (part.rowsFiled < EXTRACT_FLOORS[ex.country])
           throw new Error(
-            `${ex.country}: staged ${part.rows.length} street lines but the floor is ${EXTRACT_FLOORS[ex.country]} — the read does not reconcile`,
+            `${ex.country}: staged ${part.rowsFiled} street lines but the floor is ${EXTRACT_FLOORS[ex.country]} — the read does not reconcile`,
           );
         if (ex.country === "england") {
-          const golden = goldenChecks(part.rows, () => true);
+          const golden = goldenChecks(candidates.rows, () => true);
           if (golden.length > 0) throw new Error(`golden checks failed: ${golden.join("; ")}`);
         }
         console.log(
-          `load-streets · ${ex.country}: ${part.waysRead} highway ways read, ${part.rows.length} street lines staged`,
+          `load-streets · ${ex.country}: ${part.waysRead} highway ways read, ${part.rowsFiled} street lines staged`,
         );
-        totalStaged += part.rows.length;
-        if (pool) await stageStreets(pool, part.rows, ex.dataDate);
+        totalStaged += part.rowsFiled;
       }
       if (verifyOnly) {
         console.log(

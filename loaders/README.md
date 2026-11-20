@@ -536,7 +536,20 @@ download), `--file tests/fixtures/streets`. The Exeter capture is
 stored gzipped + base64 (`exeter.osm.gz.b64` — its
 5 MB of raw XML exceeds the push channel's request
 limit) and the loader materialises it in fixture mode
-on first use.
+on first use. The read of a cut streams — rows are
+staged and filed in batches as they are read, never
+held whole: the first golden-area smoke (20 Nov 2026)
+cut England perfectly, then died at a ~1.9 GB heap
+holding the country's ~4.5M filed rows in one array
+before filing began (stage-then-swap kept the live
+table untouched). A completed cut can be reused whole
+via `CMNH_STREETS_REUSE_DIR`: point it at a directory
+holding a previous run's cuts (`<country>-streets.ndjson`,
+as a run's workdir leaves them) and the run streams
+from there, skipping the download and the cut for that
+country — a present-but-empty or unparseable cut
+refuses the run; a country with no cut in the directory
+follows the ordinary path.
 
 ## Parks loader (plan step M5.6)
 
