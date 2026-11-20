@@ -28,15 +28,16 @@ import { expect, test } from "./fixtures";
 //     cadence (nightly Smoke, weekly Regression). These
 //     are authored tags, not promotions (D68 clause 7
 //     governs promoting specs authored as Regression).
-//   - STAGING (20 Nov 2026): until the CI-captured
-//     baselines land, EVERY spec in this file is tagged
-//     @regression — the push gate must never meet a
-//     screenshot spec with no committed baseline, or it
-//     would fail on the missing photograph rather than
-//     on a look change. The core set's tags flip back
-//     to @smoke in the same commit that lands the
-//     baselines; the describe names below keep the two
-//     sets distinct so the flip is mechanical.
+//   - The baselines landed 20 Nov 2026, captured by
+//     the "Visual baseline capture" workflow's first
+//     run against the verified pages and committed as
+//     .b64 sources under e2e/visual.e2e.ts-snapshots/
+//     (they decode at setup — see
+//     e2e/materialise-snapshots.mjs). Until they landed,
+//     every spec in this file was staged @regression so
+//     the push gate never met a screenshot spec with no
+//     committed baseline; the core set's tags flipped
+//     to @smoke in the commit that completed the set.
 //   - A baseline is re-approved DELIBERATELY, never
 //     automatically: no run updates snapshots; a look
 //     change lands by re-capturing in CI and committing
@@ -243,13 +244,13 @@ async function seedShortlist(page: Page, cards: ShortlistCard[]) {
 }
 
 test.describe("visual guard — core set", () => {
-  test("landing, desktop", { tag: "@regression" }, async ({ page }) => {
+  test("landing, desktop", { tag: "@smoke" }, async ({ page }) => {
     await page.goto("/");
     await expect(page.locator("#postcode")).toBeVisible();
     await shoot(page, "landing.png", true);
   });
 
-  test("landing, phone", { tag: "@regression" }, async ({ page }) => {
+  test("landing, phone", { tag: "@smoke" }, async ({ page }) => {
     await page.setViewportSize(PHONE);
     await page.goto("/");
     await expect(page.locator("#postcode")).toBeVisible();
@@ -258,7 +259,7 @@ test.describe("visual guard — core set", () => {
 
   test(
     "landing with suggestions open: the Districts group under the typed district (BUG-009), desktop",
-    { tag: "@regression" },
+    { tag: "@smoke" },
     async ({ page }) => {
       await page.goto("/");
       const box = page.locator("#postcode");
@@ -271,7 +272,7 @@ test.describe("visual guard — core set", () => {
 
   test(
     "landing with the no-suggestions line settled (BUG-008), desktop",
-    { tag: "@regression" },
+    { tag: "@smoke" },
     async ({ page }) => {
       await page.goto("/");
       const box = page.locator("#postcode");
@@ -284,62 +285,62 @@ test.describe("visual guard — core set", () => {
     },
   );
 
-  test("checking screen at its held beat, desktop", { tag: "@regression" }, async ({ page }) => {
+  test("checking screen at its held beat, desktop", { tag: "@smoke" }, async ({ page }) => {
     await reachHeldCheckingScreen(page);
     await shoot(page, "checking-held.png", true);
   });
 
-  test("whole-postcode results for CM3 2JT, desktop", { tag: "@regression" }, async ({ page }) => {
+  test("whole-postcode results for CM3 2JT, desktop", { tag: "@smoke" }, async ({ page }) => {
     await openAreaResults(page);
     await shoot(page, "results-area.png", true);
   });
 
-  test("whole-postcode results for CM3 2JT, phone", { tag: "@regression" }, async ({ page }) => {
+  test("whole-postcode results for CM3 2JT, phone", { tag: "@smoke" }, async ({ page }) => {
     await page.setViewportSize(PHONE);
     await openAreaResults(page);
     await shoot(page, "results-area-phone.png", false);
   });
 
-  test("19 Birkdale Rise's own results, desktop", { tag: "@regression" }, async ({ page }) => {
+  test("19 Birkdale Rise's own results, desktop", { tag: "@smoke" }, async ({ page }) => {
     await openHomeResults(page);
     await shoot(page, "results-home.png", true);
   });
 
-  test("19 Birkdale Rise's own results, phone", { tag: "@regression" }, async ({ page }) => {
+  test("19 Birkdale Rise's own results, phone", { tag: "@smoke" }, async ({ page }) => {
     await page.setViewportSize(PHONE);
     await openHomeResults(page);
     await shoot(page, "results-home-phone.png", false);
   });
 
-  test("the CM3 district page, desktop", { tag: "@regression" }, async ({ page }) => {
+  test("the CM3 district page, desktop", { tag: "@smoke" }, async ({ page }) => {
     await openDistrict(page);
     await shoot(page, "district.png", true);
   });
 
-  test("the Chelmsford place page, desktop", { tag: "@regression" }, async ({ page }) => {
+  test("the Chelmsford place page, desktop", { tag: "@smoke" }, async ({ page }) => {
     await page.goto("/search?place=Chelmsford");
     await expect(page.locator(".picker__count")).toBeVisible();
     await shoot(page, "place.png", true);
   });
 
-  test("the shortlist with two saved homes, desktop", { tag: "@regression" }, async ({ page }) => {
+  test("the shortlist with two saved homes, desktop", { tag: "@smoke" }, async ({ page }) => {
     await seedShortlist(page, [BIRKDALE_CARD, EXETER_CARD]);
     await shoot(page, "shortlist-populated.png", true);
   });
 
-  test("the error page, desktop", { tag: "@regression" }, async ({ page }) => {
+  test("the error page, desktop", { tag: "@smoke" }, async ({ page }) => {
     await page.goto("/no-such-page-here");
     await expect(page.locator("h1")).toHaveText("Well — that wasn't supposed to happen");
     await shoot(page, "error.png", true);
   });
 
-  test("the sample report's head, desktop", { tag: "@regression" }, async ({ page }) => {
+  test("the sample report's head, desktop", { tag: "@smoke" }, async ({ page }) => {
     await page.goto("/sample-report");
     await expect(page.locator(".rpt-section").first()).toBeVisible();
     await shoot(page, "sample-report.png", false);
   });
 
-  test("How we check, desktop", { tag: "@regression" }, async ({ page }) => {
+  test("How we check, desktop", { tag: "@smoke" }, async ({ page }) => {
     await page.goto("/how-we-check");
     await expect(page.locator("h1")).toBeVisible();
     await shoot(page, "how-we-check.png", true);
