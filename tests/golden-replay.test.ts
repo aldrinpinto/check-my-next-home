@@ -1741,12 +1741,17 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
       value: "133",
       strong: true,
     });
-    expect(catBlock.rows.reduce((sum, row) => sum + Number(row.value), 0)).toBe(330);
+    // Chart values are printed counts ("4,000"), so the
+    // reconciliation reads them as a reader copies them —
+    // separators stripped. (CI #263: Number("4,000") is NaN;
+    // Birkdale's sub-1,000 figures had masked it.)
+    const printedCount = (value: string) => Number(value.replace(/,/g, ""));
+    expect(catBlock.rows.reduce((sum, row) => sum + printedCount(row.value), 0)).toBe(330);
     const monthBlock = birkdale.sections[3].blocks.find((b) => b.type === "monthChart");
     if (!monthBlock || monthBlock.type !== "monthChart")
       throw new Error("expected the month chart");
     expect(monthBlock.chart.bars).toHaveLength(12);
-    expect(monthBlock.chart.bars.reduce((sum, bar) => sum + Number(bar.value), 0)).toBe(330);
+    expect(monthBlock.chart.bars.reduce((sum, bar) => sum + printedCount(bar.value), 0)).toBe(330);
     // The Census grid stands on the real tables: the Age
     // tile opens it, captioned with the calculated basis.
     const gridBlock = birkdale.sections[5].blocks.find((b) => b.type === "chartGrid");
@@ -1774,11 +1779,13 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
     // total, on the adapted axis the high counts need.
     const exeterCat = exeter.sections[3].blocks.find((b) => b.type === "bars");
     if (!exeterCat || exeterCat.type !== "bars") throw new Error("expected the category chart");
-    expect(exeterCat.rows.reduce((sum, row) => sum + Number(row.value), 0)).toBe(10722);
+    expect(exeterCat.rows.reduce((sum, row) => sum + printedCount(row.value), 0)).toBe(10722);
     const exeterMonths = exeter.sections[3].blocks.find((b) => b.type === "monthChart");
     if (!exeterMonths || exeterMonths.type !== "monthChart")
       throw new Error("expected the month chart");
-    expect(exeterMonths.chart.bars.reduce((sum, bar) => sum + Number(bar.value), 0)).toBe(10722);
+    expect(exeterMonths.chart.bars.reduce((sum, bar) => sum + printedCount(bar.value), 0)).toBe(
+      10722,
+    );
 
     const minerva = viewOf("minerva1");
     const minervaText = JSON.stringify(minerva);
