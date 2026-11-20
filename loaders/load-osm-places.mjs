@@ -749,7 +749,10 @@ async function main() {
         );
         if (!file) continue;
         const published = parsePublishedMd5(
-          await fetchText(`${GEOFABRIK_BASE}/${country}-latest.osm.pbf.md5`, `${country} md5`),
+          await fetchText(
+            `${GEOFABRIK_BASE}/${country}/${country}-latest.osm.pbf.md5`,
+            `${country} md5`,
+          ),
         );
         const actual = await md5OfFile(join(pbfDir, file));
         if (!md5Matches(actual, published))
@@ -777,7 +780,7 @@ async function main() {
     } else {
       national = true;
       for (const country of COUNTRIES) {
-        const latestUrl = `${GEOFABRIK_BASE}/${country}-latest.osm.pbf`;
+        const latestUrl = `${GEOFABRIK_BASE}/${country}/${country}-latest.osm.pbf`;
         const head = await fetch(latestUrl, { method: "HEAD" });
         if (!head.ok) throw new Error(`${country}: HEAD ${latestUrl} returned HTTP ${head.status}`);
         const dataDate = extractDataDate(head.url);

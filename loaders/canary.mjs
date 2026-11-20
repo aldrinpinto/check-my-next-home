@@ -1236,7 +1236,9 @@ function probeGeofabrik() {
     const parts = [];
     let newest = "";
     for (const country of ["england", "wales", "scotland"]) {
-      const head = await fetchRetry(`${base}/${country}-latest.osm.pbf`, { method: "HEAD" });
+      const head = await fetchRetry(`${base}/${country}/${country}-latest.osm.pbf`, {
+        method: "HEAD",
+      });
       if (!head.ok) throw new Error(`HTTP ${head.status} for the ${country} extract`);
       const match = /-(\d{2})(\d{2})(\d{2})\.osm\.pbf/.exec(head.url);
       if (!match)
@@ -1246,7 +1248,7 @@ function probeGeofabrik() {
         throw new Error(
           `the ${country} extract is dated ${date} — beyond the 14-day freshness guard (Geofabrik republishes daily)`,
         );
-      const md5Response = await fetchRetry(`${base}/${country}-latest.osm.pbf.md5`);
+      const md5Response = await fetchRetry(`${base}/${country}/${country}-latest.osm.pbf.md5`);
       if (!md5Response.ok)
         throw new Error(`HTTP ${md5Response.status} for the ${country} published md5`);
       const md5Text = await md5Response.text();

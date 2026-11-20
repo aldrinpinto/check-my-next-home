@@ -410,7 +410,7 @@ async function extractAndMap(inputPath, workDir, label) {
 }
 
 async function downloadCountry(country, workDir) {
-  const latestUrl = `${GEOFABRIK_BASE}/${country}-latest.osm.pbf`;
+  const latestUrl = `${GEOFABRIK_BASE}/${country}/${country}-latest.osm.pbf`;
   const head = await fetch(latestUrl, { method: "HEAD" });
   if (!head.ok) throw new Error(`${country}: HEAD ${latestUrl} returned HTTP ${head.status}`);
   const dataDate = extractDataDate(head.url);
@@ -449,7 +449,7 @@ async function localCountry(country, pbfDir) {
   );
   if (!file) return null;
   const published = parsePublishedMd5(
-    await fetchText(`${GEOFABRIK_BASE}/${country}-latest.osm.pbf.md5`, `${country} md5`),
+    await fetchText(`${GEOFABRIK_BASE}/${country}/${country}-latest.osm.pbf.md5`, `${country} md5`),
   );
   const actual = await md5OfFile(join(pbfDir, file));
   if (!md5Matches(actual, published))
