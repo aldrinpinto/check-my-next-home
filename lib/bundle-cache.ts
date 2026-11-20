@@ -179,6 +179,7 @@ export const BRAIN_DEPENDENCIES: Record<CacheBrain, readonly string[]> = {
     "load-flood-defences",
     "load-flood-rivers-sea-climate",
     "load-flood-surface-water-climate",
+    "load-streets",
   ],
   nearby: [
     "load-postcodes",
@@ -361,6 +362,16 @@ const GUARDS: Record<
       // keep their meaning untouched.
       rofrsCc: byClimate.get("rofrs_cc") ?? 0,
       rofswCc: byClimate.get("rofsw_cc") ?? 0,
+      // The street-lines count (M8.3): the flood maps draw
+      // over street_lines, filed by load-streets on its own
+      // cycle, so the count rides the guard the same way —
+      // the national street filing (0 -> N) busts every
+      // cached no-picture bundle, and a street re-filing
+      // busts the pictures drawn over the old lines. The
+      // table exists from migration 0038; a database
+      // predating it reads as zero rather than failing
+      // the guard.
+      streetLines: await countOf(db, "SELECT count(*)::int AS n FROM street_lines").catch(() => 0),
     };
   },
 
@@ -798,14 +809,19 @@ export async function buildFloodBundleCached(
     // whole test. The climate key (M6.28) extends it once
     // more, identically: a pre-M6.28 entry carries no
     // climate block and recomputes; the stored form keeps
-    // the block whole (filed data, serve-time-stable).
+    // the block whole (filed data, serve-time-stable). The
+    // maps key (M8.3) extends it a third time, identically:
+    // a pre-M8.3 entry carries no map geometry and
+    // recomputes; the stored form keeps the geometry whole.
     shapeOk: (bundle) => {
       if (typeof bundle !== "object" || bundle === null) return false;
       const b = bundle as { kind?: unknown; flood?: unknown };
       if (b.kind !== "flood") return true;
       const flood = b.flood as Record<string, unknown> | null | undefined;
       if (!flood || flood.state !== "served") return true;
-      return "liveWarnings" in flood && "defences" in flood && "climate" in flood;
+      return (
+        "liveWarnings" in flood && "defences" in flood && "climate" in flood && "maps" in flood
+      );
     },
   });
 }

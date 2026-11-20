@@ -1657,6 +1657,15 @@ export const NOT_A_FIGURE_ALLOWLIST: RegExp[] = [
   // in the product (a place's distance rides the
   // nearby.distance-miles family, as before).
   /^nearby\.categories\[\]\.(places\[\]|beyondNearest)\.(latitude|longitude)$/,
+  // The flood maps' geometry (M8.3): the picture frame's
+  // bounds and the drawn shapes' and street lines'
+  // coordinates in the flood bundle's maps sibling —
+  // positions, not figures, on the M8.1 coordinates
+  // precedent; they are never printed as numbers anywhere
+  // in the product (the layers' findings ride their own
+  // registered families, as before). The whole subtree is
+  // geometry and filed names only, by construction.
+  /^flood\.flood\.maps\./,
   // The resolution's own address parts and counts of
   // addresses (the census row 1 watch: not brain figures).
   /^address\./,

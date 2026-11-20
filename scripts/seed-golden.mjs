@@ -144,6 +144,7 @@ for (const [label, file, fixture] of [
   ["flood surface water", "load-flood-surface-water.mjs", "flood-surface-water"],
   ["transport", "load-transport.mjs", "transport"],
   ["nearby places", "load-osm-places.mjs", "osm-places"],
+  ["street lines", "load-streets.mjs", "streets"],
 ]) {
   await loader(label, file, ["--file", join(REPO, "tests/fixtures", fixture)]);
 }

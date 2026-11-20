@@ -489,6 +489,51 @@ download), `--verify-only`, `--pbf-dir <dir>` (verify and
 read local extracts instead of downloading), `--file
 tests/fixtures/osm-places`.
 
+## Street lines loader (plan step M8.3)
+
+`load-streets.mjs` files the street lines the genuine
+flood maps are drawn over — one row per OpenStreetMap
+highway way in `street_lines` (migration 0038): the
+way's OSM id, its name as mapped (NULL where unnamed),
+its highway class verbatim and its line geometry. Until
+this step the project held no street geometry anywhere
+(the places loader files points); the national filing
+was an M12 item and the founder preponed it into M8.3 on
+20 Nov 2026 so the maps and the street data land
+together. The filed vocabulary is an allowlist: the road
+classes plus the drawn path classes (footway, path,
+cycleway, bridleway, pedestrian) — construction, proposed
+and abandoned ways never file, because a map must not
+draw a street that is not there. Extracts (England and
+Wales) are downloaded whole and verified against
+Geofabrik's published md5, then cut to the
+highway-carrying ways by `osm-streets-extract.py`, a
+sibling of the places cutter riding libosmium's C++
+KeyFilter on "highway" — so the loader needs python3
+with pyosmium wherever it runs, fixture mode included.
+The national mode stages each country into
+`street_lines_stage` with progress logged and swaps into
+`street_lines` inside one transaction only when every
+country has staged past its floor (England 3,000,000,
+Wales 300,000 staged lines — measured yields on the
+2026-11-12 extracts: England 4,550,399 filed-class ways
+of 4,556,405 highway ways cut in about five minutes,
+Wales about 494,000 in about one), so an interrupted run
+leaves the last good table serving and a re-run resets
+the stage. Area cuts (`--bbox minLon,minLat,maxLon,maxLat`,
+several separated by `;`) file each area in its own
+transaction — the play server's golden areas were filed
+this way — and fixture mode files the committed captures
+scoped to their own extent. Golden checks run on every
+mode that covers them (Birkdale Rise by the Birkdale
+home, Exeter Road by the Exeter home). Data ©
+OpenStreetMap contributors (ODbL): the filed table stays
+private; only drawn facts are served, with the
+attribution line the flood-map pictures carry. Modes:
+default (live download, national), `--verify-only`,
+`--pbf-dir <dir>`, `--bbox <list>` (with `--pbf-dir` or a
+download), `--file tests/fixtures/streets`.
+
 ## Parks loader (plan step M5.6)
 
 `load-os-greenspace.mjs` files OS Open Greenspace into

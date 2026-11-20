@@ -1805,4 +1805,149 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
       expect(JSON.stringify(belfast.sections[6])).toContain(belfastBrains.flood.flood.reason);
     }
   });
+
+  it("report view (M8.3): the flood-map promise — Birkdale's street unshaded, Exeter's shading matches the data", () => {
+    // THE PROMISE TEST, layer 1 (geometry) — the plan
+    // step's own check, run against the DRAWN geometry:
+    // the report models' projected point arrays are what
+    // the pictures actually shade, so the assertions read
+    // the models, never the filed tables. (Layer 2 is the
+    // independent visual audit after the build; layer 3
+    // the visual-guard baselines at M8.7.) The street the
+    // Birkdale assertion runs against is the home's own
+    // street line AS DRAWN (the model's flagged street,
+    // projected from the filed street_lines geometry) —
+    // the stronger of the brief's two forms: not merely
+    // the home point, the street itself.
+    const viewOf = (tag: string) => {
+      const b = get(tag);
+      return buildReportView({
+        resolution: b.resolution,
+        nearby: b.nearby,
+        flood: b.flood,
+        area: b.area,
+        sold: b.sold,
+        crime: b.crime,
+        now: NOW,
+      });
+    };
+    type FloodMap = Extract<
+      ReturnType<typeof buildReportView>["sections"][number]["blocks"][number],
+      { type: "floodMap" }
+    >["map"];
+    const floodMapsOf = (view: ReturnType<typeof buildReportView>): FloodMap[] =>
+      view.sections[6].blocks
+        .filter((b) => b.type === "floodMap")
+        .map((b) => (b as { map: FloodMap }).map);
+    // Even–odd ray casting over one polygon's rings (outer
+    // ring and holes together).
+    const pointInPolygon = (x: number, y: number, rings: { x: number; y: number }[][]): boolean => {
+      let inside = false;
+      for (const ring of rings) {
+        for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+          const a = ring[i];
+          const b = ring[j];
+          if (a.y > y !== b.y > y && x < ((b.x - a.x) * (y - a.y)) / (b.y - a.y) + a.x)
+            inside = !inside;
+        }
+      }
+      return inside;
+    };
+    const shadeAt = (map: FloodMap, x: number, y: number): string | null => {
+      for (const shade of map.shades)
+        for (const polygon of shade.polygons) if (pointInPolygon(x, y, polygon)) return shade.label;
+      return null;
+    };
+    const segIntersects = (
+      p1: { x: number; y: number },
+      p2: { x: number; y: number },
+      p3: { x: number; y: number },
+      p4: { x: number; y: number },
+    ): boolean => {
+      const d = (p2.x - p1.x) * (p4.y - p3.y) - (p2.y - p1.y) * (p4.x - p3.x);
+      if (d === 0) return false;
+      const t = ((p3.x - p1.x) * (p4.y - p3.y) - (p3.y - p1.y) * (p4.x - p3.x)) / d;
+      const u = ((p3.x - p1.x) * (p2.y - p1.y) - (p3.y - p1.y) * (p2.x - p1.x)) / d;
+      return t >= 0 && t <= 1 && u >= 0 && u <= 1;
+    };
+    const pointSegDistance = (
+      p: { x: number; y: number },
+      a: { x: number; y: number },
+      b: { x: number; y: number },
+    ): number => {
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const len2 = dx * dx + dy * dy;
+      const t =
+        len2 === 0 ? 0 : Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2));
+      return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+    };
+    // Does any drawn shading touch the drawn street? A
+    // street point inside a shaded polygon, a street
+    // segment crossing a ring edge, or a ring vertex
+    // within 2px of the street (the drawn line's own
+    // half-width, so a boundary merely kissing the
+    // street's edge does not fail the promise — the
+    // shading must actually reach the street).
+    const streetTouchedByShading = (
+      map: FloodMap,
+      street: { points: { x: number; y: number }[] },
+    ): boolean => {
+      for (const shade of map.shades)
+        for (const polygon of shade.polygons) {
+          for (const point of street.points)
+            if (pointInPolygon(point.x, point.y, polygon)) return true;
+          for (const ring of polygon)
+            for (let i = 0; i < ring.length - 1; i++) {
+              for (let s = 0; s < street.points.length - 1; s++)
+                if (segIntersects(street.points[s], street.points[s + 1], ring[i], ring[i + 1]))
+                  return true;
+              for (let s = 0; s < street.points.length - 1; s++)
+                if (pointSegDistance(ring[i], street.points[s], street.points[s + 1]) < 2)
+                  return true;
+            }
+        }
+      return false;
+    };
+
+    // --- Birkdale: the street is visibly unshaded, the
+    // shaded areas held away from it.
+    const birkdale = viewOf("birkdale1");
+    const birkdaleMaps = floodMapsOf(birkdale);
+    const birkdaleZones = birkdaleMaps.find((m) => m.title.startsWith("Flood zones"));
+    if (!birkdaleZones) throw new Error("expected Birkdale's flood-zones picture to be drawn");
+    const birkdaleShaded = birkdaleZones.shades.reduce((n, s) => n + s.polygons.length, 0);
+    expect(birkdaleShaded).toBeGreaterThanOrEqual(1);
+    expect(shadeAt(birkdaleZones, birkdaleZones.homeX, birkdaleZones.homeY)).toBeNull();
+    const birkdaleStreet = birkdaleZones.streets.find((s) => s.home);
+    if (!birkdaleStreet) throw new Error("expected Birkdale Rise to be drawn as the home street");
+    expect(streetTouchedByShading(birkdaleZones, birkdaleStreet)).toBe(false);
+    expect(birkdaleZones.caption).toContain("sits outside them");
+
+    // --- Exeter: the shading picture matches the data.
+    const exeterBrains = get("exeter1");
+    if (exeterBrains.flood.kind !== "flood" || exeterBrains.flood.flood.state !== "served")
+      throw new Error("expected a served Exeter flood bundle");
+    const exeterLayers = exeterBrains.flood.flood.layers;
+    const exeter = viewOf("exeter1");
+    const exeterMaps = floodMapsOf(exeter);
+    const exeterZones = exeterMaps.find((m) => m.title.startsWith("Flood zones"));
+    if (!exeterZones) throw new Error("expected Exeter's flood-zones picture to be drawn");
+    // The home point sits inside a drawn FZ3 polygon —
+    // the filed answer for this home.
+    expect(shadeAt(exeterZones, exeterZones.homeX, exeterZones.homeY)).toBe("FZ3");
+    expect(exeterZones.caption).toContain("falls inside Flood Zone 3");
+    // Where the bundle serves the defences bridge (the
+    // defended story), the caption carries its point.
+    if (exeterBrains.flood.flood.defences.bridgeLine !== null)
+      expect(exeterZones.caption).toContain("already counts the flood defences in place");
+    // Picture 2's band at the home point matches the
+    // filed RoFSW answer for this home.
+    const exeterSurface = exeterMaps.find((m) => m.title.startsWith("Flooding from surface water"));
+    if (!exeterSurface) throw new Error("expected Exeter's surface-water picture to be drawn");
+    const rofswLayer = exeterLayers.find((l) => l.layer === "rofsw");
+    const filedBand =
+      rofswLayer?.pointState === "inside" ? (rofswLayer.covering?.label ?? null) : null;
+    expect(shadeAt(exeterSurface, exeterSurface.homeX, exeterSurface.homeY)).toBe(filedBand);
+  });
 });

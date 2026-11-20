@@ -1122,6 +1122,10 @@ class MatrixFloodSource implements FloodDataSource {
   async climateFacts() {
     return { filedCount: 0, coveringLabel: null, sourceName: null, sourceDate: null };
   }
+  // M8.3: no map geometry in this fake world.
+  async mapFacts() {
+    return { polygons: [], streets: [], homeStreet: null };
+  }
 }
 
 describe("matrix — flood", () => {

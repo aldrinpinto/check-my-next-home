@@ -10,7 +10,14 @@ import type {
 import { CHECK_PAGES } from "./check-pages";
 import type { CrimeBundle, ServedCrime } from "./crime";
 import { CRIME_CATEGORY_SLUGS, crimeCategoryLabel } from "./district";
-import type { FloodBundle, FloodLiveWarnings, ServedFloodWarning } from "./flood";
+import type {
+  FloodBundle,
+  FloodLiveWarnings,
+  FloodMapPolygonSet,
+  FloodMaps,
+  ServedFloodLayer,
+  ServedFloodWarning,
+} from "./flood";
 import { formatFiledDate, formatMiles, formatPounds } from "./journey";
 import type { CategoryAnswer, NearbyBundle, NearbyCategory, NearbyPlace } from "./nearby";
 import {
@@ -236,6 +243,73 @@ export interface ReportMonthChartModel {
   ariaLabel: string;
 }
 
+// The flood-map model (M8.3): one of Section 7's two map
+// pictures, drawn from the flood bundle's own filed
+// geometry (lib/flood.ts's maps sibling) over the street
+// lines we hold. Every coordinate is decided here, on the
+// Section 5 map pattern: the frame the bundle clipped to
+// (a mile in each direction, the postcode point centred)
+// projects in mile space at ONE uniform scale onto the
+// 760 × 560 viewBox — fitted to the height, centred on
+// the pin — so distances on the picture are true in
+// every direction and M8.4's PDF draws the identical
+// picture from the same numbers. The drawn
+// geometry rides in the model twice over — as SVG path
+// strings for the renderer and as projected point arrays
+// — because the M8.3 promise assertions run against the
+// DRAWN geometry: the point arrays are what the picture
+// actually shades. Flood defences are never drawn (the
+// founder's ruling: they are a list, not a picture), and
+// a picture exists only where its layer's shapes are
+// filed for the frame (see buildFloodMapModels).
+export interface ReportFloodMapModel {
+  title: string;
+  width: 760;
+  height: 560;
+  homeX: 380;
+  homeY: 280;
+  // The drawn street lines: path data, the projected
+  // points, and whether this line is the home's own
+  // street (drawn in the strong tint and named in the
+  // caption's clear case).
+  streets: { d: string; points: { x: number; y: number }[]; home: boolean; name: string | null }[];
+  // The home street's name, labelled on the picture along
+  // its own line near the pin (the founder's ruling of
+  // 20 Nov 2026, on the independent audit's Divergence 2:
+  // the sample's hand-made pictures name their streets;
+  // the product names the home street only). Anchor point
+  // and rotation are decided here; null where the home
+  // street is not resolved or not drawn.
+  homeStreetLabel: { text: string; x: number; y: number; angle: number } | null;
+  // The shaded shapes, weakest first (draw order): each
+  // carries its filed label, its display label, its fill
+  // and its projected polygons (a polygon is an array of
+  // rings; a ring is an array of points).
+  shades: {
+    label: string;
+    displayLabel: string;
+    fill: string;
+    d: string;
+    polygons: { x: number; y: number }[][][];
+  }[];
+  legend: { label: string; fill: string }[];
+  caption: string;
+  attribution: string;
+  ariaLabel: string;
+}
+
+// The attribution line every flood-map picture carries
+// (the ODbL's condition, and the EA shapes' licence).
+export const FLOOD_MAP_ATTRIBUTION =
+  "Street data © OpenStreetMap contributors, available under the Open Database Licence. Flood shapes: Environment Agency, licensed under the Open Government Licence.";
+
+// The flood shading language: one water family, deep for
+// the serious end of each product, pale for the lighter —
+// Flood Zone 3 against Flood Zone 2 on the planning
+// picture; High, Medium, Low on the surface-water one.
+const FLOOD_ZONE_FILLS: Record<string, string> = { FZ3: "#4E7FA8", FZ2: "#A9C6DE" };
+const ROFSW_FILLS: Record<string, string> = { High: "#4E7FA8", Medium: "#86AECD", Low: "#C3D8EA" };
+
 export type ReportBlock =
   | { type: "intro"; text: string }
   | { type: "line"; text: string }
@@ -275,6 +349,7 @@ export type ReportBlock =
   | { type: "note"; text: string }
   | { type: "lineLink"; text: string; label: string; href: string }
   | { type: "map"; map: ReportMapModel }
+  | { type: "floodMap"; map: ReportFloodMapModel }
   | { type: "links"; links: { label: string; href: string }[] };
 
 export interface ReportSectionView {
@@ -1863,6 +1938,274 @@ function section6(input: ReportInput): ReportSectionView {
 // Section 7 — Flood risk
 // ------------------------------------------------------------------
 
+// The two flood-map models (M8.3), built from the served
+// flood bundle's maps sibling. A picture is built only
+// where its layer's entry is non-null — the bundle itself
+// nulls an entry whose shapes are not filed for the frame
+// or whose frame holds no street lines we hold (the
+// founder's ruling), so the report never draws a picture
+// the data cannot stand behind; the section's existing
+// not-filed and absence lines carry those cases in words.
+// Captions compose from the bundle's own served lines:
+// the layer's point line always; on the zones picture,
+// where the point falls inside a zone but the rivers &
+// sea likelihood is the Very low defended story, the
+// rivers & sea line follows with the defences point the
+// served bridge line makes (its full text prints in the
+// defences sub-block below); where the home is clear of
+// the shaded areas, the caption says the areas are
+// mapped and this home sits outside them — the claim the
+// served point state actually makes. (The M8.3 build's
+// caption named the street as sitting outside them; the
+// independent audit's Divergence 3: the served fact is
+// the home POINT's state, not the street's whole
+// geometry. Reworded on the founder's ruling of
+// 20 Nov 2026.)
+export function buildFloodMapModels(served: Extract<FloodBundle, { kind: "flood" }>["flood"]): {
+  zones: ReportFloodMapModel | null;
+  surfaceWater: ReportFloodMapModel | null;
+} {
+  const maps: FloodMaps = served.maps;
+  const layerOf = (type: string) => served.layers.find((layer) => layer.layer === type) ?? null;
+  const displayLabels = new Map<string, string>();
+  for (const layer of served.layers) {
+    if (layer.covering) displayLabels.set(layer.covering.label, layer.covering.displayLabel);
+    for (const edge of layer.proximity) displayLabels.set(edge.label, edge.displayLabel);
+  }
+  const round1 = (n: number) => Math.round(n * 10) / 10;
+  // The projection (the Section 5 pattern): mile space —
+  // eastings scaled by the cosine of the frame centre's
+  // latitude — at ONE scale for both axes, fitted to the
+  // card's height (the frame spans two miles), so a mile
+  // east covers exactly the pixels a mile north does and
+  // the picture's distances are true in every direction.
+  // The frame's content centres on the pin: its east and
+  // west edges land at x = 100 and x = 660. (The M8.3
+  // build projected longitude across the card's full 760
+  // width against latitude's 560, stretching east–west
+  // by about 1.36× — the independent audit's Divergence
+  // 1, corrected on the founder's ruling of 20 Nov 2026.)
+  const centreLon = (maps.frame.west + maps.frame.east) / 2;
+  const centreLat = (maps.frame.south + maps.frame.north) / 2;
+  const milesPerDegLat = 69.0;
+  const milesPerDegLon = 69.0 * Math.cos((centreLat * Math.PI) / 180);
+  const pxPerMile = 560 / 2;
+  const project = (lon: number, lat: number) => ({
+    x: round1(380 + (lon - centreLon) * milesPerDegLon * pxPerMile),
+    y: round1(280 - (lat - centreLat) * milesPerDegLat * pxPerMile),
+  });
+  const pathOf = (points: { x: number; y: number }[]) =>
+    points.map((p, i) => `${i === 0 ? "M" : "L"}${p.x} ${p.y}`).join(" ");
+  const streets = maps.streets.map((street) => {
+    const points = street.points.map(([lon, lat]) => project(lon, lat));
+    const homeStreet = maps.homeStreet;
+    return {
+      d: pathOf(points),
+      points,
+      home:
+        homeStreet !== null &&
+        street.name === homeStreet.name &&
+        street.points.length === homeStreet.points.length &&
+        street.points[0]?.[0] === homeStreet.points[0]?.[0] &&
+        street.points[0]?.[1] === homeStreet.points[0]?.[1],
+      name: street.name,
+    };
+  });
+  const capitalise = (line: string) => line.charAt(0).toUpperCase() + line.slice(1);
+
+  // The home street's label (the founder's ruling of
+  // 20 Nov 2026, on the audit's Divergence 2): the sample
+  // report's hand-made pictures name their streets; the
+  // product names the HOME street only, along its own
+  // line near the pin. The anchor sits on the line at an
+  // arc distance from the point nearest the pin, on the
+  // side where the street runs longer, so the centred
+  // text clears the pin; it turns with the line's
+  // direction there (never upside down) and lifts just
+  // off the line — the sample label's placement.
+  const homeStreetLabel = ((): ReportFloodMapModel["homeStreetLabel"] => {
+    const homeLine = streets.find((s) => s.home);
+    if (!homeLine || !homeLine.name || homeLine.points.length < 2) return null;
+    const pts = homeLine.points;
+    // Arc lengths along the drawn line.
+    const cum = [0];
+    for (let i = 1; i < pts.length; i++)
+      cum.push(cum[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y));
+    const total = cum[cum.length - 1];
+    if (total === 0) return null;
+    // The point on the line nearest the pin, its arc
+    // position, and the line's direction there.
+    let best = { s: 0, x: pts[0].x, y: pts[0].y, ux: 1, uy: 0 };
+    let bestD = Infinity;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i];
+      const b = pts[i + 1];
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const len2 = dx * dx + dy * dy;
+      const t =
+        len2 === 0 ? 0 : Math.max(0, Math.min(1, ((380 - a.x) * dx + (280 - a.y) * dy) / len2));
+      const x = a.x + t * dx;
+      const y = a.y + t * dy;
+      const d = Math.hypot(380 - x, 280 - y);
+      if (d < bestD) {
+        const len = Math.sqrt(len2);
+        bestD = d;
+        best = {
+          s: cum[i] + t * len,
+          x,
+          y,
+          ux: len === 0 ? 1 : dx / len,
+          uy: len === 0 ? 0 : dy / len,
+        };
+      }
+    }
+    // The point and direction at an arc position.
+    const at = (s: number) => {
+      const target = Math.max(0, Math.min(total, s));
+      let i = 0;
+      while (i < pts.length - 2 && cum[i + 1] < target) i++;
+      const segLen = cum[i + 1] - cum[i];
+      const t = segLen === 0 ? 0 : (target - cum[i]) / segLen;
+      const a = pts[i];
+      const b = pts[i + 1];
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const len = Math.hypot(dx, dy);
+      return {
+        x: a.x + t * dx,
+        y: a.y + t * dy,
+        ux: len === 0 ? 1 : dx / len,
+        uy: len === 0 ? 0 : dy / len,
+      };
+    };
+    const forwardRoom = total - best.s;
+    const backwardRoom = best.s;
+    const forward = forwardRoom >= backwardRoom;
+    const room = forward ? forwardRoom : backwardRoom;
+    let anchor: { x: number; y: number; ux: number; uy: number };
+    if (room >= 55) {
+      anchor = at(best.s + (forward ? 1 : -1) * Math.min(110, room));
+    } else {
+      // A stub of a street near the pin on both sides:
+      // the label sits just past its farther end, along
+      // the line — still clear of the pin.
+      const end = at(forward ? total : 0);
+      const push = forward ? 45 : -45;
+      anchor = { x: end.x + end.ux * push, y: end.y + end.uy * push, ux: end.ux, uy: end.uy };
+    }
+    let angle = (Math.atan2(anchor.uy, anchor.ux) * 180) / Math.PI;
+    if (angle > 90) angle -= 180;
+    if (angle < -90) angle += 180;
+    // Lift the baseline just off the line, on the upper
+    // side of the text's direction (the sample's labels
+    // sit above their street).
+    const rad = (angle * Math.PI) / 180;
+    const liftX = Math.sin(rad) * 9;
+    const liftY = -Math.cos(rad) * 9;
+    return {
+      text: homeLine.name,
+      x: round1(Math.max(60, Math.min(700, anchor.x + liftX))),
+      y: round1(Math.max(24, Math.min(536, anchor.y + liftY))),
+      angle: round1(angle),
+    };
+  })();
+
+  const build = (
+    entry: { polygons: FloodMapPolygonSet[] } | null,
+    fills: Record<string, string>,
+    weakestFirst: string[],
+    title: string,
+    layer: ServedFloodLayer | null,
+    clearAreasLine: string,
+  ): ReportFloodMapModel | null => {
+    if (!entry || !layer) return null;
+    const rank = (label: string) => {
+      const idx = weakestFirst.indexOf(label);
+      return idx === -1 ? weakestFirst.length : idx;
+    };
+    const shades = [...entry.polygons]
+      .sort((a, b) => rank(a.label) - rank(b.label))
+      .map((set) => {
+        const polygons = set.polygons.map((polygon) =>
+          polygon.map((ring) => ring.map(([lon, lat]) => project(lon, lat))),
+        );
+        return {
+          label: set.label,
+          displayLabel: displayLabels.get(set.label) ?? set.label,
+          fill: fills[set.label] ?? "#C3D8EA",
+          d: polygons
+            .map((polygon) => polygon.map((ring) => `${pathOf(ring)} Z`).join(" "))
+            .join(" "),
+          polygons,
+        };
+      });
+    const legend = [...shades]
+      .sort((a, b) => rank(b.label) - rank(a.label))
+      .map((shade) => ({ label: shade.displayLabel, fill: shade.fill }));
+    const inside = layer.pointState === "inside" && layer.covering !== null;
+    let caption: string;
+    if (inside) {
+      caption = `${capitalise(layer.line)}.`;
+      if (layer.layer === "flood_zone") {
+        const rofrs = layerOf("rofrs");
+        if (
+          rofrs &&
+          rofrs.pointState === "inside" &&
+          rofrs.covering?.displayLabel === "Very low" &&
+          served.defences.bridgeLine !== null
+        ) {
+          caption += ` ${capitalise(rofrs.line)} — that likelihood already counts the flood defences in place and their condition.`;
+        }
+      }
+    } else {
+      caption = `${clearAreasLine}, and this home sits outside them. ${capitalise(layer.line)}.`;
+    }
+    const shadeSummary = shades
+      .map(
+        (shade) =>
+          `${shade.displayLabel} (${shade.polygons.length} ${shade.polygons.length === 1 ? "area" : "areas"})`,
+      )
+      .join(", ");
+    const homeState = inside
+      ? `sits inside ${layer.covering?.displayLabel ?? "a shaded area"}`
+      : "sits outside every shaded area";
+    return {
+      title,
+      width: 760,
+      height: 560,
+      homeX: 380,
+      homeY: 280,
+      streets,
+      homeStreetLabel,
+      shades,
+      legend,
+      caption,
+      attribution: FLOOD_MAP_ATTRIBUTION,
+      ariaLabel: `Flood map: ${title} around this postcode, drawn from the Environment Agency's filed shapes over OpenStreetMap street lines. ${maps.streets.length} street lines are drawn. Shaded: ${shadeSummary}. The home pin at the centre ${homeState}.${homeStreetLabel ? ` The home street, ${homeStreetLabel.text}, is labelled on the picture.` : ""}`,
+    };
+  };
+
+  return {
+    zones: build(
+      maps.zones,
+      FLOOD_ZONE_FILLS,
+      ["FZ2", "FZ3"],
+      "Flood zones for planning (rivers and the sea)",
+      layerOf("flood_zone"),
+      "The shaded areas in this picture are the mapped Flood Zone 2 and Flood Zone 3 areas around this postcode",
+    ),
+    surfaceWater: build(
+      maps.surfaceWater,
+      ROFSW_FILLS,
+      ["Low", "Medium", "High"],
+      "Flooding from surface water",
+      layerOf("rofsw"),
+      "The shaded areas in this picture are the mapped surface-water flood areas around this postcode",
+    ),
+  };
+}
+
 function warningBlocks(warnings: FloodLiveWarnings): ReportBlock[] {
   const blocks: ReportBlock[] = [];
   if (warnings.state === "warnings") {
@@ -1899,6 +2242,12 @@ function section7(input: ReportInput): ReportSectionView {
   }
   // The live-warnings block opens the section (scope (e)).
   if (served.liveWarnings) blocks.push(...warningBlocks(served.liveWarnings));
+  // The two flood-map pictures (M8.3): each rides directly
+  // under its own layer's words — the zones picture under
+  // the flood-zone layer, the surface-water picture under
+  // the surface-water layer — and exists only where the
+  // bundle filed that layer's shapes for the frame.
+  const floodMaps = buildFloodMapModels(served);
   // The three filed layers, never merged (D25).
   for (const layer of served.layers) {
     blocks.push({ type: "sub", text: layer.title });
@@ -1911,6 +2260,10 @@ function section7(input: ReportInput): ReportSectionView {
     }
     if (layer.beyondLine) blocks.push({ type: "line", text: layer.beyondLine });
     blocks.push({ type: "note", text: layer.basisLine });
+    if (layer.layer === "flood_zone" && floodMaps.zones)
+      blocks.push({ type: "floodMap", map: floodMaps.zones });
+    if (layer.layer === "rofsw" && floodMaps.surfaceWater)
+      blocks.push({ type: "floodMap", map: floodMaps.surfaceWater });
   }
   // The recorded defences sub-block, as served (scope (k)).
   const defences = served.defences;

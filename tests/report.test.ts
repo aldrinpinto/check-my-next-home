@@ -6,11 +6,13 @@ import ReportPage from "../components/ReportPage";
 import type { AddressResolution } from "../lib/address";
 import type { AreaBundle } from "../lib/area-bundle";
 import type { CrimeBundle } from "../lib/crime";
-import type { FloodBundle } from "../lib/flood";
+import type { FloodBundle, FloodMaps } from "../lib/flood";
+import { floodMapFrame } from "../lib/flood";
 import type { CategoryAnswer, NearbyBundle, NearbyCategory } from "../lib/nearby";
 import {
   REPORT_DISCLAIMER_D9,
   REPORT_VIEW_ROUTE,
+  buildFloodMapModels,
   buildReportView,
   reportViewGate,
   reportViewRoute,
@@ -539,6 +541,17 @@ const floodServed: FloodBundle = {
           sourceLine: "Source: EA climate outlook",
         },
       ],
+    },
+    // M8.3: the maps sibling in its empty form — no street
+    // lines filed in this fixture world, so Section 7
+    // builds no flood-map pictures here (the model
+    // builder's own tests carry the drawn cases).
+    maps: {
+      frame: { west: 0.59, south: 51.768, east: 0.618, north: 51.784 },
+      streets: [],
+      homeStreet: null,
+      zones: null,
+      surfaceWater: null,
     },
     howWeCheck: "HOW-WE-CHECK-FLOOD",
   },
@@ -1970,5 +1983,435 @@ describe("report — the rendered page", () => {
     expect(html).not.toContain("<img");
     expect(html).not.toContain("openstreetmap");
     expect(html).not.toContain("basemap");
+  });
+});
+
+// ------------------------------------------------------------------
+// M8.3 — the flood-map models (genuine flood maps)
+// ------------------------------------------------------------------
+//
+// The model builder's own tests, on fabricated geometry:
+// the frame maths, the no-picture states, and the three
+// caption cases (defended / clear / inside). The promise
+// assertions against REAL filed geometry are the golden
+// replay's (tests/golden-replay.test.ts).
+
+type ServedFlood = Extract<FloodBundle, { kind: "flood" }>["flood"];
+
+const MAP_HOME = { lat: 51.776176, lon: 0.60387 };
+const MAP_FRAME = floodMapFrame(MAP_HOME.lat, MAP_HOME.lon);
+
+// A square polygon (as [lon, lat] rings) centred on the
+// home point, half-size d degrees.
+function squareAt(lon: number, lat: number, d: number): [number, number][][][] {
+  return [
+    [
+      [
+        [lon - d, lat - d],
+        [lon + d, lat - d],
+        [lon + d, lat + d],
+        [lon - d, lat + d],
+        [lon - d, lat - d],
+      ],
+    ],
+  ];
+}
+
+function mapsWith(overrides: Partial<FloodMaps> = {}): FloodMaps {
+  const homeStreet = {
+    name: "Birkdale Rise",
+    highway: "residential",
+    points: [
+      [MAP_HOME.lon - 0.004, MAP_HOME.lat],
+      [MAP_HOME.lon + 0.004, MAP_HOME.lat],
+    ] as [number, number][],
+  };
+  return {
+    frame: MAP_FRAME,
+    streets: [
+      homeStreet,
+      {
+        name: null,
+        highway: "service",
+        points: [
+          [MAP_HOME.lon, MAP_HOME.lat - 0.004],
+          [MAP_HOME.lon, MAP_HOME.lat + 0.004],
+        ] as [number, number][],
+      },
+    ],
+    homeStreet,
+    zones: null,
+    surfaceWater: null,
+    ...overrides,
+  };
+}
+
+function servedWithMaps(
+  maps: FloodMaps,
+  layerPatch: Record<string, Partial<ServedFlood["layers"][number]>> = {},
+  bridgeLine: string | null = null,
+): ServedFlood {
+  if (floodServed.kind !== "flood") throw new Error("fixture is not a served flood bundle");
+  const served = structuredClone(floodServed.flood) as ServedFlood;
+  served.maps = maps;
+  for (const layer of served.layers) {
+    const patch = layerPatch[layer.layer];
+    if (patch) Object.assign(layer, patch);
+  }
+  served.defences.bridgeLine = bridgeLine;
+  return served;
+}
+
+describe("report — M8.3 flood maps: frame maths and projection", () => {
+  it("the frame reaches a mile in each direction with the point centred", () => {
+    const frame = floodMapFrame(MAP_HOME.lat, MAP_HOME.lon);
+    expect(frame.east - frame.west).toBeGreaterThan(0.04);
+    expect(frame.east - frame.west).toBeLessThan(0.052);
+    expect(frame.north - frame.south).toBeCloseTo(2 / 69.0, 3);
+    expect((frame.west + frame.east) / 2).toBeCloseTo(MAP_HOME.lon, 9);
+    expect((frame.south + frame.north) / 2).toBeCloseTo(MAP_HOME.lat, 9);
+  });
+
+  it("projects the frame's centre to the pin and its edges to the viewBox edges", () => {
+    const served = servedWithMaps(
+      mapsWith({
+        zones: {
+          polygons: [{ label: "FZ3", polygons: squareAt(MAP_HOME.lon, MAP_HOME.lat, 0.002) }],
+        },
+      }),
+      {
+        flood_zone: {
+          pointState: "inside",
+          covering: { label: "FZ3", displayLabel: "Flood Zone 3", definition: "", detail: null },
+        },
+      },
+    );
+    const { zones } = buildFloodMapModels(served);
+    if (!zones) throw new Error("expected a zones picture");
+    expect(zones.homeX).toBe(380);
+    expect(zones.homeY).toBe(280);
+    const ring = zones.shades[0].polygons[0][0];
+    // The square is centred on the home: its corners sit
+    // symmetric about the pin.
+    expect(ring[0].x + ring[2].x).toBeCloseTo(760, 0);
+    expect(ring[0].y + ring[2].y).toBeCloseTo(560, 0);
+    // The home street runs west–east through the centre.
+    const homeLine = zones.streets.find((s) => s.home);
+    if (!homeLine) throw new Error("expected the home street to be flagged");
+    expect(homeLine.points[0].y).toBe(280);
+    expect(homeLine.points[0].x).toBeLessThan(380);
+    expect(homeLine.points[1].x).toBeGreaterThan(380);
+  });
+
+  it("the projection is isotropic: a mile east lands at the same pixel offset as a mile north", () => {
+    // Known geometry: one street running exactly one mile
+    // east from the home point, one running exactly one
+    // mile north. In mile space (the Section 5 pattern)
+    // both projected end points must sit the same pixel
+    // distance from the pin — the audit's Divergence 1
+    // (the build stretched east–west by about 1.36×).
+    const milesPerDegLon = 69.0 * Math.cos((MAP_HOME.lat * Math.PI) / 180);
+    const eastStreet = {
+      name: "East Street",
+      highway: "residential",
+      points: [
+        [MAP_HOME.lon, MAP_HOME.lat],
+        [MAP_HOME.lon + 1 / milesPerDegLon, MAP_HOME.lat],
+      ] as [number, number][],
+    };
+    const northStreet = {
+      name: "North Street",
+      highway: "residential",
+      points: [
+        [MAP_HOME.lon, MAP_HOME.lat],
+        [MAP_HOME.lon, MAP_HOME.lat + 1 / 69.0],
+      ] as [number, number][],
+    };
+    const served = servedWithMaps(
+      mapsWith({
+        streets: [eastStreet, northStreet],
+        homeStreet: null,
+        zones: {
+          polygons: [
+            { label: "FZ2", polygons: squareAt(MAP_HOME.lon - 0.006, MAP_HOME.lat, 0.0015) },
+          ],
+        },
+      }),
+      { flood_zone: { pointState: "zone-1", covering: null } },
+    );
+    const { zones } = buildFloodMapModels(served);
+    if (!zones) throw new Error("expected a zones picture");
+    const east = zones.streets[0].points[1];
+    const north = zones.streets[1].points[1];
+    const eastOffset = east.x - zones.homeX;
+    const northOffset = zones.homeY - north.y;
+    expect(eastOffset).toBeGreaterThan(0);
+    expect(northOffset).toBeGreaterThan(0);
+    // Equal miles, equal pixels (to the model's 0.1px
+    // rounding), at the fitted scale: the frame's two
+    // miles span the card's 560 height.
+    expect(Math.abs(eastOffset - northOffset)).toBeLessThan(0.2);
+    expect(eastOffset).toBeCloseTo(280, 0);
+    expect(northOffset).toBeCloseTo(280, 0);
+  });
+});
+
+describe("report — M8.3 flood maps: the no-picture states", () => {
+  it("an unfiled layer (null entry) builds no picture, and Section 7 carries none", () => {
+    const served = servedWithMaps(mapsWith());
+    const models = buildFloodMapModels(served);
+    expect(models.zones).toBeNull();
+    expect(models.surfaceWater).toBeNull();
+    const view = buildReportView(input());
+    expect(view.sections[6].blocks.filter((b) => b.type === "floodMap")).toEqual([]);
+  });
+
+  it("shapes without street lines build no picture (the bundle's null stands)", () => {
+    // buildFloodMaps' rule, exercised at the bundle seam in
+    // tests/flood.test.ts; here the served null is honoured.
+    const served = servedWithMaps(mapsWith({ zones: null, surfaceWater: null }));
+    expect(buildFloodMapModels(served).zones).toBeNull();
+  });
+});
+
+describe("report — M8.3 flood maps: captions", () => {
+  it("defended: inside a zone, Very low rivers & sea — the caption carries the defences point", () => {
+    const served = servedWithMaps(
+      mapsWith({
+        zones: {
+          polygons: [{ label: "FZ3", polygons: squareAt(MAP_HOME.lon, MAP_HOME.lat, 0.002) }],
+        },
+      }),
+      {
+        flood_zone: {
+          pointState: "inside",
+          line: "the postcode point falls inside Flood Zone 3 on the Environment Agency's planning map",
+          covering: { label: "FZ3", displayLabel: "Flood Zone 3", definition: "", detail: null },
+        },
+        rofrs: {
+          pointState: "inside",
+          line: "the postcode point falls in the Very low band on the Environment Agency's map of flooding from rivers and the sea",
+          covering: { label: "Very low", displayLabel: "Very low", definition: "", detail: null },
+        },
+      },
+      "BRIDGE",
+    );
+    const { zones } = buildFloodMapModels(served);
+    if (!zones) throw new Error("expected a zones picture");
+    expect(zones.caption).toContain("falls inside Flood Zone 3");
+    expect(zones.caption).toContain("falls in the Very low band");
+    expect(zones.caption).toContain("already counts the flood defences in place");
+    expect(zones.ariaLabel).toContain("sits inside Flood Zone 3");
+  });
+
+  it("clear: shapes in frame, the home outside them — the caption claims the point's state, not the street's", () => {
+    const served = servedWithMaps(
+      mapsWith({
+        zones: {
+          polygons: [
+            {
+              label: "FZ2",
+              polygons: squareAt(MAP_HOME.lon - 0.006, MAP_HOME.lat + 0.004, 0.0015),
+            },
+          ],
+        },
+        surfaceWater: {
+          polygons: [
+            {
+              label: "Low",
+              polygons: squareAt(MAP_HOME.lon + 0.006, MAP_HOME.lat - 0.004, 0.0015),
+            },
+          ],
+        },
+      }),
+      {
+        flood_zone: {
+          pointState: "zone-1",
+          line: "the postcode point is not in Flood Zone 2 or Flood Zone 3 on the Environment Agency's planning map",
+          covering: null,
+        },
+        rofsw: {
+          pointState: "below-lowest-band",
+          line: "no surface-water band reaches this point — below the lowest band this product publishes",
+          covering: null,
+        },
+      },
+    );
+    const models = buildFloodMapModels(served);
+    if (!models.zones || !models.surfaceWater) throw new Error("expected both pictures");
+    expect(models.zones.caption).toContain("this home sits outside them");
+    expect(models.zones.caption).not.toContain("Birkdale Rise sits outside them");
+    expect(models.zones.caption).toContain("not in Flood Zone 2 or Flood Zone 3");
+    expect(models.zones.ariaLabel).toContain("sits outside every shaded area");
+    expect(models.surfaceWater.caption).toContain("this home sits outside them");
+    // Legend strongest first; shades drawn weakest first.
+    expect(models.surfaceWater.legend.map((l) => l.label)).toEqual(["Low"]);
+    expect(models.zones.shades.map((s) => s.label)).toEqual(["FZ2"]);
+  });
+
+  it("inside a surface-water band: the caption is the layer's own line; draw order is weakest first", () => {
+    const served = servedWithMaps(
+      mapsWith({
+        surfaceWater: {
+          polygons: [
+            { label: "High", polygons: squareAt(MAP_HOME.lon, MAP_HOME.lat, 0.002) },
+            { label: "Low", polygons: squareAt(MAP_HOME.lon - 0.005, MAP_HOME.lat, 0.0015) },
+          ],
+        },
+      }),
+      {
+        rofsw: {
+          pointState: "inside",
+          line: "the postcode point falls in the High band on the Environment Agency's surface water map",
+          covering: { label: "High", displayLabel: "High", definition: "", detail: null },
+        },
+      },
+    );
+    const { surfaceWater } = buildFloodMapModels(served);
+    if (!surfaceWater) throw new Error("expected a surface-water picture");
+    expect(surfaceWater.caption).toBe(
+      "The postcode point falls in the High band on the Environment Agency's surface water map.",
+    );
+    expect(surfaceWater.shades.map((s) => s.label)).toEqual(["Low", "High"]);
+    expect(surfaceWater.legend.map((l) => l.label)).toEqual(["High", "Low"]);
+    expect(surfaceWater.attribution).toContain("OpenStreetMap contributors");
+  });
+});
+
+describe("report — M8.3 flood maps: the home-street label", () => {
+  it("Birkdale: the model labels Birkdale Rise along its line, clear of the pin, and the rendered picture carries the name", () => {
+    const maps = mapsWith({
+      zones: {
+        polygons: [
+          { label: "FZ2", polygons: squareAt(MAP_HOME.lon - 0.006, MAP_HOME.lat + 0.004, 0.0015) },
+        ],
+      },
+    });
+    const served = servedWithMaps(maps, {
+      flood_zone: { pointState: "zone-1", covering: null },
+    });
+    const { zones } = buildFloodMapModels(served);
+    if (!zones) throw new Error("expected a zones picture");
+    const label = zones.homeStreetLabel;
+    if (!label) throw new Error("expected the home street to be labelled");
+    expect(label.text).toBe("Birkdale Rise");
+    // The fabricated street runs west–east: no rotation,
+    // and the anchor sits well clear of the pin (r = 11).
+    expect(label.angle).toBe(0);
+    expect(Math.hypot(label.x - zones.homeX, label.y - zones.homeY)).toBeGreaterThan(40);
+    expect(zones.ariaLabel).toContain("The home street, Birkdale Rise, is labelled");
+    // The rendered picture carries the name as an SVG
+    // text element (the label itself, not the aria text).
+    const bundle: FloodBundle = {
+      ...(floodServed as Extract<FloodBundle, { kind: "flood" }>),
+      flood: served,
+    };
+    const rendered = renderToStaticMarkup(
+      createElement(ReportPage, { view: buildReportView(input({ flood: bundle })) }),
+    );
+    expect(rendered).toMatch(/<text[^>]*>Birkdale Rise<\/text>/);
+  });
+
+  it("Exeter: the model labels Exeter Road on a north–south street, and the rendered picture carries the name", () => {
+    const exeterRoad = {
+      name: "Exeter Road",
+      highway: "residential",
+      points: [
+        [MAP_HOME.lon, MAP_HOME.lat - 0.004],
+        [MAP_HOME.lon, MAP_HOME.lat + 0.004],
+      ] as [number, number][],
+    };
+    const maps = mapsWith({
+      streets: [exeterRoad],
+      homeStreet: exeterRoad,
+      zones: {
+        polygons: [{ label: "FZ3", polygons: squareAt(MAP_HOME.lon, MAP_HOME.lat, 0.002) }],
+      },
+    });
+    const served = servedWithMaps(maps, {
+      flood_zone: {
+        pointState: "inside",
+        covering: { label: "FZ3", displayLabel: "Flood Zone 3", definition: "", detail: null },
+      },
+    });
+    const { zones } = buildFloodMapModels(served);
+    if (!zones) throw new Error("expected a zones picture");
+    const label = zones.homeStreetLabel;
+    if (!label) throw new Error("expected the home street to be labelled");
+    expect(label.text).toBe("Exeter Road");
+    // A north–south street: the label turns with the
+    // line (never upside down) and clears the pin.
+    expect(Math.abs(label.angle)).toBe(90);
+    expect(Math.hypot(label.x - zones.homeX, label.y - zones.homeY)).toBeGreaterThan(40);
+    expect(zones.ariaLabel).toContain("The home street, Exeter Road, is labelled");
+    const bundle: FloodBundle = {
+      ...(floodServed as Extract<FloodBundle, { kind: "flood" }>),
+      flood: served,
+    };
+    const rendered = renderToStaticMarkup(
+      createElement(ReportPage, { view: buildReportView(input({ flood: bundle })) }),
+    );
+    expect(rendered).toMatch(/<text[^>]*>Exeter Road<\/text>/);
+  });
+
+  it("no resolved home street: no label is built", () => {
+    const served = servedWithMaps(
+      mapsWith({
+        homeStreet: null,
+        zones: {
+          polygons: [
+            { label: "FZ2", polygons: squareAt(MAP_HOME.lon - 0.006, MAP_HOME.lat, 0.0015) },
+          ],
+        },
+      }),
+      { flood_zone: { pointState: "zone-1", covering: null } },
+    );
+    const { zones } = buildFloodMapModels(served);
+    if (!zones) throw new Error("expected a zones picture");
+    expect(zones.homeStreetLabel).toBeNull();
+    expect(zones.ariaLabel).not.toContain("is labelled");
+  });
+});
+
+describe("report — M8.3 flood maps: Section 7 placement", () => {
+  it("each picture rides directly under its own layer's words", () => {
+    const maps = mapsWith({
+      zones: {
+        polygons: [
+          { label: "FZ2", polygons: squareAt(MAP_HOME.lon - 0.006, MAP_HOME.lat, 0.0015) },
+        ],
+      },
+      surfaceWater: {
+        polygons: [
+          { label: "Low", polygons: squareAt(MAP_HOME.lon + 0.006, MAP_HOME.lat, 0.0015) },
+        ],
+      },
+    });
+    const flood = servedWithMaps(maps, {
+      flood_zone: { pointState: "zone-1", covering: null },
+      rofsw: { pointState: "below-lowest-band", covering: null },
+    });
+    const bundle: FloodBundle = {
+      ...(floodServed as Extract<FloodBundle, { kind: "flood" }>),
+      flood,
+    };
+    const view = buildReportView(input({ flood: bundle }));
+    const blocks = view.sections[6].blocks;
+    const types = blocks.map((b) => b.type);
+    const zonesSub = blocks.findIndex((b) => b.type === "sub" && b.text === "Flood zones");
+    const rofrsSub = blocks.findIndex(
+      (b) => b.type === "sub" && b.text === "Flooding from rivers & sea",
+    );
+    const rofswSub = blocks.findIndex(
+      (b) => b.type === "sub" && b.text === "Flooding from surface water",
+    );
+    const mapIdx = types.map((t, i) => (t === "floodMap" ? i : -1)).filter((i) => i >= 0);
+    expect(mapIdx).toHaveLength(2);
+    expect(mapIdx[0]).toBeGreaterThan(zonesSub);
+    expect(mapIdx[0]).toBeLessThan(rofrsSub);
+    expect(mapIdx[1]).toBeGreaterThan(rofswSub);
+    const rendered = renderToStaticMarkup(createElement(ReportPage, { view }));
+    expect(rendered).toContain("Flood zones for planning (rivers and the sea)");
+    expect(rendered).toContain("OpenStreetMap contributors");
   });
 });

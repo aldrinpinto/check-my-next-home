@@ -21,8 +21,10 @@ import {
   ROFRS_CC_SCENARIO_LINE,
   ROFSW_CC_SCENARIO_LINE,
   buildFloodBundle,
+  buildFloodMaps,
   createFloodSource,
   createFloodWarningSource,
+  floodMapFrame,
   parseFloodWarningItems,
   type FloodBundle,
   type FloodDataSource,
@@ -143,6 +145,12 @@ class FakeFloodSource implements FloodDataSource {
   }
   async climateFacts(layer: FloodClimateLayerType, latitude: number, longitude: number) {
     return CLIMATE.get(`${latitude},${longitude}`)?.[layer] ?? NO_CLIMATE;
+  }
+  // M8.3: no map geometry in this fake world — the maps
+  // sibling serves its empty form (no streets filed, so
+  // no picture is drawn).
+  async mapFacts() {
+    return { polygons: [], streets: [], homeStreet: null };
   }
 }
 
@@ -1070,13 +1078,15 @@ describe("flood — live warnings compose at serve time (M6.22, D42)", () => {
     // The block is the section's first element, structurally.
     // (M6.27: the defences sibling sits between the layers
     // and the closing limits copy; M6.28: the climate
-    // sibling sits after the defences.)
+    // sibling sits after the defences; M8.3: the maps
+    // sibling sits after the climate.)
     expect(Object.keys(bundle.flood)).toEqual([
       "state",
       "liveWarnings",
       "layers",
       "defences",
       "climate",
+      "maps",
       "howWeCheck",
     ]);
     const block = bundle.flood.liveWarnings;
@@ -2091,6 +2101,9 @@ describe("flood — climate outlook (M6.28, D49/D55)", () => {
         if (this.climate) return this.climate[layer];
         return source.climateFacts(layer, latitude, longitude);
       }
+      async mapFacts() {
+        return { polygons: [], streets: [], homeStreet: null };
+      }
     }
     const base = await buildFloodBundle(rung1(EXETER), source);
     if (base.kind !== "flood" || base.flood.state !== "served")
@@ -2204,5 +2217,67 @@ describe("flood — climate outlook (M6.28, D49/D55)", () => {
       sourceDate: null,
     });
     expect(seen).toHaveLength(2);
+  });
+});
+
+// ------------------------------------------------------------------
+// M8.3 — the maps sibling's composition rule
+// ------------------------------------------------------------------
+
+describe("flood — the maps sibling (M8.3)", () => {
+  const frame = floodMapFrame(51.776176, 0.60387);
+  const street = {
+    name: "Birkdale Rise",
+    highway: "residential",
+    points: [
+      [0.6, 51.776],
+      [0.608, 51.776],
+    ] as [number, number][],
+  };
+  const zoneSet = {
+    label: "FZ3",
+    polygons: [
+      [
+        [
+          [0.6, 51.77],
+          [0.61, 51.77],
+          [0.61, 51.78],
+          [0.6, 51.78],
+          [0.6, 51.77],
+        ],
+      ],
+    ] as [number, number][][][],
+  };
+
+  it("a layer with shapes in frame and streets filed serves its entry", () => {
+    const maps = buildFloodMaps(
+      frame,
+      { polygons: [zoneSet], streets: [street], homeStreet: street },
+      { polygons: [], streets: [street], homeStreet: street },
+    );
+    expect(maps.zones?.polygons).toHaveLength(1);
+    expect(maps.surfaceWater).toBeNull();
+    expect(maps.streets).toHaveLength(1);
+    expect(maps.homeStreet?.name).toBe("Birkdale Rise");
+  });
+
+  it("shapes without street lines serve no entry — a picture is never drawn over streets we do not hold", () => {
+    const maps = buildFloodMaps(
+      frame,
+      { polygons: [zoneSet], streets: [], homeStreet: null },
+      { polygons: [zoneSet], streets: [], homeStreet: null },
+    );
+    expect(maps.zones).toBeNull();
+    expect(maps.surfaceWater).toBeNull();
+  });
+
+  it("the builder composes the sibling on a served bundle", async () => {
+    const bundle = await buildFloodBundle(rung1(BIRKDALE), source);
+    if (bundle.kind !== "flood" || bundle.flood.state !== "served")
+      throw new Error("expected a served flood bundle");
+    expect(bundle.flood.maps.frame.west).toBeCloseTo(frame.west, 9);
+    // The fake world files no geometry: both entries null.
+    expect(bundle.flood.maps.zones).toBeNull();
+    expect(bundle.flood.maps.surfaceWater).toBeNull();
   });
 });

@@ -730,6 +730,14 @@ class CensusFloodSource implements FloodDataSource {
       sourceDate: "2026-11-10",
     };
   }
+  // M8.3: no map geometry in the census fake world — the
+  // maps sibling serves its empty form, so the leaf walk
+  // registers the block's paths without coordinates (the
+  // geometry leaves are positions, not figures, and are
+  // registered on the census's not-a-figure list).
+  async mapFacts() {
+    return { polygons: [], streets: [], homeStreet: null };
+  }
   // The M6.27 defences facts: a served block whose first
   // defence carries a design standard (so direction one
   // exercises rows 81–82 and the leaf walk registers the

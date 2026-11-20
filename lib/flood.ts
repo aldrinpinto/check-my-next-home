@@ -605,6 +605,91 @@ export interface FloodClimateFacts {
   sourceDate: string | null;
 }
 
+// ------------------------------------------------------------------
+// Flood-map geometry (M8.3, genuine flood maps)
+// ------------------------------------------------------------------
+
+// The picture frame: the postcode point centred, a mile
+// in each direction (two miles across — the Section 5
+// diagram's outer ring). The founder's ruling (20 Nov
+// 2026) set the frame at about a mile; the step's own
+// promise fixes the reading: on Birkdale the nearest
+// filed flood-zone edge (the Chelmer) sits 0.84 miles
+// from the home point (measured on the filed fixture
+// shapes at this build), so a frame a mile across in
+// total would draw an empty zones picture there and the
+// promise — the shaded areas visible, held away from the
+// street — could not be kept. A mile each way keeps it,
+// with the shading standing clear of the centre.
+export interface FloodMapFrame {
+  west: number;
+  south: number;
+  east: number;
+  north: number;
+}
+
+export function floodMapFrame(latitude: number, longitude: number): FloodMapFrame {
+  const halfMiles = 1.0;
+  const latHalf = halfMiles / 69.0;
+  const cosLat = Math.max(Math.cos((latitude * Math.PI) / 180), 0.2);
+  const lonHalf = halfMiles / (69.0 * cosLat);
+  return {
+    west: longitude - lonHalf,
+    south: latitude - latHalf,
+    east: longitude + lonHalf,
+    north: latitude + latHalf,
+  };
+}
+
+// One filed shape clipped to the frame, as the source
+// reads it: the filed label verbatim ("FZ3", "High") and
+// its polygons — each polygon an array of rings, each
+// ring an array of [longitude, latitude] points. The
+// geometry may be simplified by the source; the report's
+// promise assertions run against exactly this geometry,
+// never against the unsimplified filing.
+export interface FloodMapPolygonSet {
+  label: string;
+  polygons: [number, number][][][];
+}
+
+// One street line clipped to the frame: the filed name
+// (null where the way is unnamed), the highway class
+// verbatim, and its points as [longitude, latitude].
+export interface FloodMapStreetLine {
+  name: string | null;
+  highway: string;
+  points: [number, number][];
+}
+
+// The facts the brain reads for one layer's map: the
+// layer's clipped shapes inside the frame, the street
+// lines inside the same frame (identical whichever layer
+// is asked — the builder reads them once, from the zones
+// call), and the home's own street line where the
+// resolution carries a street name and a filed way
+// carries it.
+export interface FloodMapFacts {
+  polygons: FloodMapPolygonSet[];
+  streets: FloodMapStreetLine[];
+  homeStreet: FloodMapStreetLine | null;
+}
+
+// The served map data: a sibling of the layers on the
+// served flood answer, report depth only. One shared
+// frame and street set; per layer, the clipped shapes —
+// or null where that layer files no shape inside the
+// frame, or no street lines are filed for the frame
+// (a picture is only ever drawn over street data we
+// hold; the section's words stand alone otherwise).
+export interface FloodMaps {
+  frame: FloodMapFrame;
+  streets: FloodMapStreetLine[];
+  homeStreet: FloodMapStreetLine | null;
+  zones: { polygons: FloodMapPolygonSet[] } | null;
+  surfaceWater: { polygons: FloodMapPolygonSet[] } | null;
+}
+
 // The brain's read port over the filed shapes — the same
 // pattern as the sibling brains: tests drive a fake;
 // createFloodSource below is the only database implementation.
@@ -616,6 +701,13 @@ export interface FloodDataSource {
     latitude: number,
     longitude: number,
   ): Promise<FloodClimateFacts>;
+  mapFacts(
+    layer: FloodLayerType,
+    frame: FloodMapFrame,
+    latitude: number,
+    longitude: number,
+    streetName: string | null,
+  ): Promise<FloodMapFacts>;
 }
 
 // ------------------------------------------------------------------
@@ -886,6 +978,14 @@ export type FloodBundle =
         // depth. A stored cache entry keeps it whole (it
         // is filed data, like the defences block).
         climate: ServedClimateOutlook;
+        // The flood-map geometry (M8.3): a sibling of the
+        // layers, report depth only — the filed shapes and
+        // street lines clipped to the picture frame, from
+        // which the report draws its two map pictures. A
+        // stored cache entry keeps it whole (it is filed
+        // data, like the defences block); the headline
+        // derivation never sees it.
+        maps: FloodMaps;
         howWeCheck: string;
       };
     }
@@ -1327,6 +1427,35 @@ function buildClimateOutlook(factsByLayer: Map<FloodClimateLayerType, FloodClima
 // The bundle
 // ------------------------------------------------------------------
 
+// The served map data (M8.3): the two layers' clipped
+// shapes over one shared street set. A layer's entry is
+// null unless the layer files at least one shape inside
+// the frame AND street lines are filed for the frame —
+// the founder's ruling: a picture is emitted only where
+// that layer's shapes are filed, drawn over street data
+// we hold; otherwise the section's existing words stand
+// alone. The street set and the home's street ride from
+// the zones read (the source reads the same streets for
+// either layer).
+export function buildFloodMaps(
+  frame: FloodMapFrame,
+  zoneFacts: FloodMapFacts,
+  surfaceWaterFacts: FloodMapFacts,
+): FloodMaps {
+  const streets = zoneFacts.streets;
+  const drawable = streets.length > 0;
+  return {
+    frame,
+    streets,
+    homeStreet: zoneFacts.homeStreet,
+    zones: drawable && zoneFacts.polygons.length > 0 ? { polygons: zoneFacts.polygons } : null,
+    surfaceWater:
+      drawable && surfaceWaterFacts.polygons.length > 0
+        ? { polygons: surfaceWaterFacts.polygons }
+        : null,
+  };
+}
+
 export async function buildFloodBundle(
   resolution: AddressResolution,
   source: FloodDataSource,
@@ -1383,6 +1512,27 @@ export async function buildFloodBundle(
     climateFactsByLayer.set(spec.layer, await source.climateFacts(spec.layer, latitude, longitude));
   }
   const climate = buildClimateOutlook(climateFactsByLayer);
+  // The flood-map geometry (M8.3): composed here, for the
+  // served England state at rungs 1–2 only, like the
+  // defences and climate siblings — the not-covered
+  // nations and the named rung states carry no map
+  // payload, and the headline derivation never sees it.
+  // The home's street name rides from the resolution
+  // (rung 1's address, rung 2's narrowed street) so the
+  // source can pick the home's own street line out of
+  // the frame's streets.
+  const frame = floodMapFrame(latitude, longitude);
+  const streetName =
+    resolution.rung === 1
+      ? resolution.address.street
+      : resolution.rung === 2
+        ? resolution.street
+        : null;
+  const maps = buildFloodMaps(
+    frame,
+    await source.mapFacts("flood_zone", frame, latitude, longitude, streetName),
+    await source.mapFacts("rofsw", frame, latitude, longitude, streetName),
+  );
   // The live warnings compose only here — a served England
   // answer at rungs 1–2, where a point exists to check
   // against. The not-covered nations and the named rung
@@ -1406,6 +1556,7 @@ export async function buildFloodBundle(
       layers,
       defences,
       climate,
+      maps,
       howWeCheck: FLOOD_HOW_WE_CHECK,
     },
   };
@@ -1621,6 +1772,140 @@ export function createFloodSource(db: AddressQueryable): FloodDataSource {
         sourceName: (edition.rows[0]?.source_name as string | null) ?? null,
         sourceDate: (edition.rows[0]?.source_date as string | null) ?? null,
       };
+    },
+
+    // The flood-map read (M8.3): the layer's shapes and
+    // the frame's street lines, clipped to the frame in
+    // the database and simplified there — the tolerances
+    // (~1 metre for shapes, ~2 for streets) are far below
+    // anything the picture or its promise assertions can
+    // read, and the served geometry IS the asserted
+    // geometry by construction. The shape tolerance is
+    // set with the tightest golden in mind: Exeter's home
+    // point sits 7 metres inside its Flood Zone 3 edge on
+    // the filed shapes, so the drawn edge may move by at
+    // most a seventh of that margin. Caps bound a pathological
+    // frame, ordered so a cap can never drop the centre:
+    // shapes largest first (the covering shape's class is
+    // never the one silently lost), streets nearest the
+    // point first (a two-mile frame in the densest centre
+    // holds on the order of ten thousand lines — measured
+    // 8,392 in the Exeter frame at this build — and any
+    // truncation thins the corners, never the middle). A
+    // missing street_lines table (a database predating
+    // migration 0038) reads as no streets filed, so the
+    // pictures degrade to their no-picture state rather
+    // than failing the whole flood answer.
+    async mapFacts(layer, frame, latitude, longitude, streetName) {
+      const envelope = "ST_MakeEnvelope($2, $3, $4, $5, 4326)";
+      const roundPoint = (p: number[]): [number, number] => [
+        Math.round(Number(p[0]) * 1e6) / 1e6,
+        Math.round(Number(p[1]) * 1e6) / 1e6,
+      ];
+      const toPolygons = (geo: unknown): [number, number][][][] => {
+        const g = geo as { type?: string; coordinates?: unknown } | null;
+        if (!g || !g.coordinates) return [];
+        if (g.type === "Polygon")
+          return [(g.coordinates as number[][][]).map((ring) => ring.map(roundPoint))] as [
+            number,
+            number,
+          ][][][];
+        if (g.type === "MultiPolygon")
+          return (g.coordinates as number[][][][]).map((polygon) =>
+            polygon.map((ring) => ring.map(roundPoint)),
+          ) as [number, number][][][];
+        return [];
+      };
+      const toLines = (geo: unknown): [number, number][][] => {
+        const g = geo as { type?: string; coordinates?: unknown } | null;
+        if (!g || !g.coordinates) return [];
+        if (g.type === "LineString")
+          return [(g.coordinates as number[][]).map(roundPoint)] as [number, number][][];
+        if (g.type === "MultiLineString")
+          return (g.coordinates as number[][][]).map((line) => line.map(roundPoint)) as [
+            number,
+            number,
+          ][][];
+        return [];
+      };
+      // One dissolved shape per label: the surface-water
+      // product files a fine grid of small cells, so a
+      // two-mile frame holds on the order of seventeen
+      // thousand of them at Birkdale (measured at this
+      // build) — served per feature, the picture's model
+      // would carry every cell. ST_Union over the clipped
+      // shapes merges each label's cells into the areas
+      // actually drawn; coverage is preserved exactly, so
+      // the promise assertions (which run against the
+      // drawn geometry) are unaffected.
+      const { rows: shapeRows } = await db.query(
+        `SELECT risk_label,
+                ST_AsGeoJSON(ST_SimplifyPreserveTopology(
+                  ST_Multi(ST_CollectionExtract(
+                    ST_Union(ST_Intersection(geom, ${envelope})), 3)), 0.00001))::json AS geo
+         FROM flood_layers
+         WHERE layer_type = $1 AND geom && ${envelope} AND ST_Intersects(geom, ${envelope})
+         GROUP BY risk_label`,
+        [layer, frame.west, frame.south, frame.east, frame.north],
+      );
+      const polygons: FloodMapPolygonSet[] = [];
+      for (const row of shapeRows) {
+        const label = (row.risk_label as string | null) ?? null;
+        if (label === null) continue;
+        const shapes = toPolygons(row.geo);
+        if (shapes.length === 0) continue;
+        const existing = polygons.find((entry) => entry.label === label);
+        if (existing) existing.polygons.push(...shapes);
+        else polygons.push({ label, polygons: shapes });
+      }
+      let streets: FloodMapStreetLine[] = [];
+      let homeStreet: FloodMapStreetLine | null = null;
+      try {
+        const streetEnvelope = "ST_MakeEnvelope($1, $2, $3, $4, 4326)";
+        const { rows: streetRows } = await db.query(
+          `SELECT name, highway,
+                  ST_AsGeoJSON(ST_Simplify(ST_Intersection(geom, ${streetEnvelope}), 0.00002))::json AS geo
+           FROM street_lines
+           WHERE geom && ${streetEnvelope} AND ST_Intersects(geom, ${streetEnvelope})
+           ORDER BY ST_Distance(geom::geography, ST_SetSRID(ST_MakePoint($5, $6), 4326)::geography), osm_id
+           LIMIT 12000`,
+          [frame.west, frame.south, frame.east, frame.north, longitude, latitude],
+        );
+        for (const row of streetRows) {
+          for (const points of toLines(row.geo)) {
+            if (points.length >= 2)
+              streets.push({
+                name: (row.name as string | null) ?? null,
+                highway: row.highway as string,
+                points,
+              });
+          }
+        }
+        if (streetName !== null) {
+          // The home's own street line: the filed way
+          // carrying the resolution's street name whose
+          // nearest point lies closest to the point.
+          let bestDistance = Infinity;
+          for (const street of streets) {
+            if (street.name === null || street.name.toLowerCase() !== streetName.toLowerCase())
+              continue;
+            for (const [lon, lat] of street.points) {
+              const d = (lon - longitude) ** 2 + (lat - latitude) ** 2;
+              if (d < bestDistance) {
+                bestDistance = d;
+                homeStreet = street;
+              }
+            }
+          }
+        }
+      } catch {
+        // street_lines is absent (pre-0038 database) or the
+        // read failed: no streets filed is the honest
+        // degrade — the pictures simply do not draw.
+        streets = [];
+        homeStreet = null;
+      }
+      return { polygons, streets, homeStreet };
     },
   };
 }

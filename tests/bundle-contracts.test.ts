@@ -331,6 +331,39 @@
 // recentSales' own. All 50 pins stand. Recorded here and
 // in docs/frontend-design-pass.md so the change is never
 // mistaken for drift.
+//
+// RE-PIN RECORD: M8.3 (genuine flood maps,
+// founder-authorised inside the step, 20 Nov 2026)
+// deliberately widened the frozen flood shape — every
+// served flood answer gains a maps sibling: the picture
+// frame (four numbers), the frame's street lines (filed
+// name, highway class and [longitude, latitude] points),
+// the home's own street line or null, and per layer
+// (zones, surfaceWater) the filed shapes clipped to the
+// frame — label plus polygons — or null where that layer
+// files no shape inside the frame or no street lines are
+// filed for it. The report's Section 7 draws its two map
+// pictures from exactly this geometry. Four pins moved
+// (flood.served-mixed, flood.served-warnings,
+// flood.climate-mixed, flood.climate-inside — the climate
+// pins are full flood bundles), each differing by exactly
+// the added maps key, verified by leaf-diff against the
+// printed shapes (PRINT_SHAPES=1): with the key stripped,
+// each moved pin is the old pin. The not-covered and
+// rung-3/4 pins did not move — no served answer exists
+// there. No short pin moved: the headline derivation
+// (D29/D75) reads the layers only and the identity tests
+// prove the maps sibling never reaches headline depth.
+// The flood cache's shape check extends in the same step
+// (the M8.3 clause in lib/bundle-cache.ts): a pre-M8.3
+// entry carries no maps key and degrades to a recompute,
+// and the flood guard gains the street_lines filed count
+// so the first street filing busts cached no-picture
+// bundles. The figure census (tests/explainer-census.ts)
+// allowlists the maps subtree as positions, not figures,
+// on the M8.1 coordinates precedent. All 50 pins stand.
+// Recorded here and in docs/frontend-design-pass.md so
+// the change is never mistaken for drift.
 
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -961,6 +994,14 @@ class FakeFloodSource implements FloodDataSource {
       sourceName: null,
       sourceDate: null,
     }) as never;
+  }
+  // M8.3: no map geometry in this fake world by default —
+  // the maps sibling serves with no street lines filed,
+  // so both layer entries are null and no picture draws;
+  // a pin that needs geometry sets its own facts here.
+  mapsFacts: object = { polygons: [], streets: [], homeStreet: null };
+  async mapFacts() {
+    return this.mapsFacts as never;
   }
 }
 

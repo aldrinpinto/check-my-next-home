@@ -1,6 +1,7 @@
 import type {
   ReportBlock,
   ReportDotPlotModel,
+  ReportFloodMapModel,
   ReportMapModel,
   ReportMonthChartModel,
   ReportView,
@@ -131,6 +132,8 @@ function Block({ block }: { block: ReportBlock }) {
       );
     case "dotPlot":
       return <DotPlot plot={block.plot} />;
+    case "floodMap":
+      return <FloodMap map={block.map} />;
     case "monthChart":
       return <MonthChart chart={block.chart} />;
     case "list":
@@ -246,6 +249,103 @@ function ReportMap({ map }: { map: ReportMapModel }) {
         ))}
       </ul>
       <p className="rpt-small rpt-chartNote">{map.caption}</p>
+    </div>
+  );
+}
+
+// The flood map (M8.3): a static SVG picture drawn
+// entirely from the model's geometry (lib/report.ts
+// decided every coordinate) — the filed flood shapes
+// shaded over the street lines we hold, the home's own
+// street in the strong tint and labelled with its name
+// along its line, the home pin at the centre
+// in the Section 5 map's dress. No tiles, no basemap
+// service, no external fetch: the picture is our own
+// loaded shapes or it is not drawn at all. The caption
+// and the attribution line ride under the picture in the
+// chart-card pattern, the legend names each shade.
+function FloodMap({ map }: { map: ReportFloodMapModel }) {
+  return (
+    <div className="rpt-chartCard">
+      <h4>{map.title}</h4>
+      <svg
+        viewBox={`0 0 ${map.width} ${map.height}`}
+        role="img"
+        aria-label={map.ariaLabel}
+        style={{ width: "100%", height: "auto", display: "block" }}
+      >
+        <rect x="0" y="0" width={map.width} height={map.height} fill="#FDF8E8" />
+        {map.shades.map((shade) => (
+          <path key={shade.label} d={shade.d} fill={shade.fill} fillRule="evenodd" stroke="none" />
+        ))}
+        {map.streets.map((street, index) => (
+          <path
+            key={index}
+            d={street.d}
+            fill="none"
+            stroke={street.home ? "#2F5D3E" : "#CFC7A8"}
+            strokeWidth={street.home ? 5 : 3.5}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        ))}
+        {map.homeStreetLabel && (
+          <text
+            x={map.homeStreetLabel.x}
+            y={map.homeStreetLabel.y}
+            textAnchor="middle"
+            fontSize="13"
+            fontWeight="700"
+            fill="#1E402C"
+            transform={`rotate(${map.homeStreetLabel.angle} ${map.homeStreetLabel.x} ${map.homeStreetLabel.y})`}
+            style={{ textTransform: "uppercase" }}
+          >
+            {map.homeStreetLabel.text}
+          </text>
+        )}
+        <circle
+          cx={map.homeX}
+          cy={map.homeY}
+          r="11"
+          fill="#C29A3B"
+          stroke="#1E402C"
+          strokeWidth="2.5"
+        />
+        <text
+          x={map.homeX}
+          y={map.homeY + 4}
+          textAnchor="middle"
+          fontSize="11"
+          fontWeight="700"
+          fill="#1E402C"
+        >
+          H
+        </text>
+      </svg>
+      <ul className="rpt-tight">
+        <li>
+          <strong>H</strong> — this home (the postcode point, at the centre)
+        </li>
+        {map.legend.map((entry) => (
+          <li key={entry.label}>
+            <span
+              aria-hidden="true"
+              style={{
+                display: "inline-block",
+                width: "12px",
+                height: "12px",
+                background: entry.fill,
+                marginRight: "6px",
+              }}
+            />
+            {entry.label}
+          </li>
+        ))}
+      </ul>
+      <p className="rpt-small rpt-chartNote">
+        <em>{map.caption}</em>
+      </p>
+      <p className="rpt-small rpt-chartNote">{map.attribution}</p>
     </div>
   );
 }

@@ -476,6 +476,51 @@ try {
   await client.query("ROLLBACK TO SAVEPOINT contact_over_cap");
   assert(overCapRefused, "the messages table refuses a message past the form's own cap");
 
+  // The street lines table (M8.3, migration 0038): the
+  // table stands with its GiST index, a filed line reads
+  // back through the frame query the flood source runs,
+  // and the primary key refuses a second filing of the
+  // same OSM way.
+  const streetTables = await client.query(
+    `SELECT count(*)::int AS n FROM information_schema.tables
+      WHERE table_name = 'street_lines'`,
+  );
+  assert(streetTables.rows[0].n === 1, "the street lines table exists (migration 0038)");
+  const streetIndexes = await client.query(
+    `SELECT count(*)::int AS n FROM pg_indexes
+      WHERE tablename = 'street_lines' AND indexname = 'street_lines_geom_idx'`,
+  );
+  assert(streetIndexes.rows[0].n === 1, "the street lines geometry index exists");
+  await client.query(
+    `INSERT INTO street_lines (osm_id, name, highway, geom, source_name, source_date)
+     VALUES (990000001, 'Proof Street', 'residential',
+             ST_GeomFromText('LINESTRING(0.603 51.776, 0.604 51.777)', 4326),
+             'prove', '2026-11-12')`,
+  );
+  const streetRows = await client.query(
+    `SELECT name FROM street_lines
+     WHERE geom && ST_MakeEnvelope(0.59, 51.76, 0.62, 51.79, 4326)
+       AND ST_Intersects(geom, ST_MakeEnvelope(0.59, 51.76, 0.62, 51.79, 4326))`,
+  );
+  assert(
+    streetRows.rows.length === 1 && streetRows.rows[0].name === "Proof Street",
+    "a filed street line reads back through the flood map's frame query",
+  );
+  let dupeRefused = false;
+  await client.query("SAVEPOINT street_dupe");
+  try {
+    await client.query(
+      `INSERT INTO street_lines (osm_id, name, highway, geom, source_name)
+       VALUES (990000001, 'Proof Street Again', 'residential',
+               ST_GeomFromText('LINESTRING(0.603 51.776, 0.604 51.777)', 4326), 'prove')`,
+    );
+  } catch {
+    dupeRefused = true;
+  }
+  await client.query("ROLLBACK TO SAVEPOINT street_dupe");
+  assert(dupeRefused, "the street lines table refuses a second filing of the same OSM way");
+  await client.query("DELETE FROM street_lines WHERE osm_id = 990000001");
+
   // Founder fix batch (19 Nov 2026) — the district flood
   // defences corridor query, old form against new form.
   // The district page's watercourse roll-up ran a

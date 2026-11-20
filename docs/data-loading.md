@@ -10,7 +10,7 @@ calculation, not a data source. Computed answers are also cached per
 postcode and refreshed whenever a loader files new data.
 
 Cadences below are as registered in the loader schedule
-(`LOADER_SCHEDULE` in `loaders/run-loaders.mjs`, 44 loaders) on
+(`LOADER_SCHEDULE` in `loaders/run-loaders.mjs`, 45 loaders) on
 18 November 2026.
 
 ## 1. Held in our database, filed in bulk ahead of time
@@ -50,6 +50,7 @@ Cadences below are as registered in the loader schedule
 | Recorded flood defences                                                                                                      | Environment Agency (AIMS register)                      | The defences themselves, as recorded — maintainer category and condition as filed                                                                                        |
 | Transport stops                                                                                                              | NaPTAN                                                  |                                                                                                                                                                          |
 | What's Nearby places                                                                                                         | OpenStreetMap                                           |                                                                                                                                                                          |
+| Street lines (the flood maps' streets)                                                                                       | OpenStreetMap                                           | Filed nationally for England & Wales at M8.3 (preponed from M12); the flood maps draw over these lines only                                                              |
 | Parks and greenspace                                                                                                         | OS Greenspace                                           |                                                                                                                                                                          |
 | Building-safety tribunal decisions                                                                                           | GOV.UK tribunal decisions                               |                                                                                                                                                                          |
 | School destinations — where leavers went next                                                                                | Department for Education (Explore Education Statistics) | Latest cohort per school and stage (KS4 and 16 to 19); the October Provisional edition is superseded by the spring Revised; 16-plus providers are filed but never served |

@@ -69,11 +69,19 @@ describe("the served sample report (anonymised example home)", () => {
     }
   });
 
-  it("uses no map image of a real place — the location panels are schematic", () => {
+  it("uses no map image of a real place — the flood-map pictures are hand-drawn in the built dress (M8.3)", () => {
     expect(html).not.toContain("/sample-report/flood-map");
     expect(html).not.toContain("<img");
-    expect(html).toContain("Schematic location panel");
-    expect(html).toContain("Willow Close close-up");
+    // The M8.3 conform: the sample's Section 7 pictures are
+    // hand-drawn flood maps in the report's own form — the
+    // built titles, the attribution line, the clear-case
+    // captions — not the retired "not flood maps" panels.
+    expect(html).toContain("Flood zones for planning (rivers and the sea)");
+    expect(html).toContain("Flooding from surface water");
+    expect(html).toContain("hand-drawn for this sample in");
+    expect(html).toContain("this home sits outside them");
+    expect(html).toContain("OpenStreetMap contributors");
+    expect(html).not.toContain("not flood maps");
   });
 
   it("keeps the report's sections, in the sample's order", () => {

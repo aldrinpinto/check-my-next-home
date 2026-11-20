@@ -105,6 +105,7 @@ export const LOADER_SCHEDULE = [
   { item: "load-flood-surface-water-climate", cadence: "quarterly", timeoutMinutes: 30 },
   { item: "load-transport", cadence: "quarterly", timeoutMinutes: 30 },
   { item: "load-osm-places", cadence: "quarterly", timeoutMinutes: 30 },
+  { item: "load-streets", cadence: "quarterly", timeoutMinutes: 30 },
   { item: "load-os-greenspace", cadence: "quarterly", timeoutMinutes: 30 },
   { item: "load-ev-chargers", cadence: "monthly", timeoutMinutes: 30 },
   { item: "load-tribunal-building-safety", cadence: "quarterly", timeoutMinutes: 30 },
@@ -355,6 +356,7 @@ export const FRIENDLY_NAMES = {
     "Flood climate outlook — surface water, one published scenario",
   "load-transport": "Transport — bus stops and stations",
   "load-osm-places": "Nearby places — vets, shops, eating places, parks and more",
+  "load-streets": "Street lines — the streets the flood maps are drawn over",
   "load-os-greenspace": "Parks — official green spaces",
   "load-ev-chargers": "EV chargers — public charging points",
   "load-census": "Census 2021 — the area in numbers",
@@ -538,6 +540,10 @@ function shortDetail(item) {
     case "load-osm-places": {
       const filed = pick(/(\d+) places filed/);
       return filed ? `${filed} places filed` : "updated";
+    }
+    case "load-streets": {
+      const filed = pick(/(\d+) street lines filed/);
+      return filed ? `${filed} street lines filed` : "updated";
     }
     case "load-os-greenspace": {
       const filed = pick(/(\d+) points filed/);
@@ -908,6 +914,7 @@ async function main() {
       ]);
       await runAndLog("load-transport", ["--file", fx("transport")]);
       await runAndLog("load-osm-places", ["--file", fx("osm-places")]);
+      await runAndLog("load-streets", ["--file", fx("streets")]);
       await runAndLog("load-os-greenspace", ["--file", fx("os-greenspace")]);
       await runAndLog("load-ev-chargers", ["--file", fx("ev-chargers")]);
       await runAndLog("load-census", ["--file", fx("census")]);
@@ -1038,6 +1045,7 @@ async function main() {
         "load-flood-surface-water-climate",
         "load-transport",
         "load-osm-places",
+        "load-streets",
         "load-os-greenspace",
         "load-tribunal-building-safety",
       ]) {
@@ -1241,6 +1249,7 @@ async function main() {
         "load-flood-surface-water-climate",
         "load-transport",
         "load-osm-places",
+        "load-streets",
         "load-os-greenspace",
         "load-ev-chargers",
         "load-census",

@@ -6115,3 +6115,183 @@ counted; the partition is unchanged).
   be photographed yet — its live visual audit rides with M8.7's unlock,
   as M8.1 recorded; the tag partition stands unmoved at 205 tests
   (31 @smoke / 174 @regression).
+
+## Genuine flood maps (20 Nov 2026) — M8.3: two map pictures in Section 7, drawn from our own loaded shapes over street lines we hold
+
+- Built: the two map pictures of the plan step, on the M8.2 architecture.
+  All geometry is decided in `lib/report.ts` as a plain JSON-serialisable
+  model (`ReportFloodMapModel`, block type `floodMap`);
+  `components/ReportPage.tsx` maps the model to inline SVG and derives
+  nothing, so M8.4's PDF draws the identical pictures from the same
+  ReportView. Picture 1 shades the flood zones (Flood Zone 3 deep,
+  Flood Zone 2 pale — one water family, the serious end deep) over the
+  frame's street lines; picture 2 shades the surface-water bands (High
+  deep, Medium mid, Low pale). Each picture rides directly under its own
+  layer's words in Section 7, in a chart card with the M8.2 caption
+  pattern: a legend naming each shade, an italic caption, and the
+  attribution line ("Street data © OpenStreetMap contributors, available
+  under the Open Database Licence. Flood shapes: Environment Agency,
+  licensed under the Open Government Licence."). The home pin is the
+  Section 5 map's own dress (brass H at the centre). Flood defences are
+  NOT drawn — they stay the served list in words; the climate outlook
+  stays its fenced words sub-block, untouched.
+- No sample flood map exists to conform to: the sample report's own
+  picture honestly labelled itself "not flood maps" (its data is
+  invented), so the dress is derived from the Section 5 location
+  diagram's (chart card, home pin, caption under) in the samples' design
+  language, per the step's prep. The sample conform at the end of the
+  build replaces the sample's hand-made location panels with hand-made
+  map pictures in this dress (12 Willow Close, Very low on both layers:
+  streets and home pin with the shading standing away from the street,
+  captions in the built clear-case wording), and conforms the two
+  honesty texts that called the pictures "not flood maps" (the Section 7
+  intro and the Section 9 flood-check line); T-WEB-06's served-page
+  assertions follow the new labelling.
+- FOUNDER RULINGS (20 Nov 2026, adopting the prep's five
+  recommendations): (1) picture 1 shades the flood ZONES; where the
+  served rivers & sea likelihood is the defended story (the point inside
+  a zone, the rivers & sea band Very low, the defences bridge serving),
+  its caption carries the defences point composed from the bundle's own
+  served lines — the rivers & sea layer's point line followed by "that
+  likelihood already counts the flood defences in place and their
+  condition" (the bridge line's substance, in caption form; the bridge
+  itself prints whole in the defences sub-block). (2) The frame: see the
+  measurement note below. (3) A picture is emitted ONLY where that
+  layer's shapes are filed for the frame — unfiled keeps the section's
+  existing not-filed lines and emits no picture; where filed and the
+  street is clear, the caption says the areas are mapped and this street
+  sits outside them. (4) The promise test is three-layered: geometry
+  assertions in this build (below), an independent visual audit after,
+  visual-guard baselines at M8.7. (5) The sample conform rides at the
+  end of the build (above). PLUS the prepone: the national street-lines
+  filing moved from M12 into this step.
+- The frame measurement (a premise corrected by the data, recorded
+  plainly): the ruling set the frame at "about a mile wide". Measured
+  on the filed fixture shapes at this build, the nearest flood-zone
+  edge to the Birkdale golden home is 0.837 miles (the Chelmer zones) —
+  a frame a mile across in total holds NO zone shape at Birkdale, so
+  the step's own promise ("the Chelmer / Brain shaded areas held away"
+  — visible in the picture) could not be kept at that size. The frame
+  as built reaches a mile in each direction (two miles across, the
+  Section 5 diagram's outer ring), at which 13 zone features stand in
+  Birkdale's frame, clear of the street. The reading is recorded here
+  for the founder's ratification; the size is one constant
+  (`floodMapFrame` in lib/flood.ts).
+- Street lines (the preponed filing): until this step the project held
+  no street geometry anywhere. Migration 0038 creates `street_lines`
+  (OSM way id, name, highway class, LineString SRID 4326, GiST index).
+  `loaders/load-streets.mjs` files it from Geofabrik's England and
+  Wales extracts (md5-verified, the places loader's pattern) cut by a
+  sibling pyosmium cutter, `loaders/osm-streets-extract.py`
+  (KeyFilter on "highway"). The filed vocabulary is an allowlist — the
+  road classes plus the drawn path classes; construction, proposed and
+  abandoned ways never file. Modes: fixture (the committed captures,
+  real cuts of the 2026-11-12 England extract around the two golden
+  homes, filed through seed-golden and the runner's fixture pass so
+  CI's database job holds them), area cuts by bbox (per-area
+  transactions; the play server's golden areas), and national —
+  stage-then-swap: each country stages into `street_lines_stage` with
+  progress logged, floors England 3,000,000 / Wales 300,000 staged
+  lines (measured yields on the 2026-11-12 extracts: England
+  4,550,399 filed-class ways of 4,556,405 highway ways, the cutter
+  taking about five minutes; Wales about 494,000 ways in about one),
+  and one transaction swaps the stage into the live table only when
+  every country has staged — an interrupted run leaves the last good
+  table serving and a re-run resets the stage. Registry: LOADER_SCHEDULE
+  gains load-streets (quarterly, 30 minutes like its OSM sibling), the
+  friendly name, the runner's fixture pass, quarterly plan and
+  directory-free lists, the `load:streets` npm script, and the
+  loaders/README.md section; docs/data-loading.md's count moves 44 → 45
+  with a quarterly table row.
+- The bundle widening (the step's one served-shape change): the served
+  flood answer gains a `maps` sibling — the frame, the frame's street
+  lines, the home's own street line (or null), and per layer the filed
+  shapes clipped to the frame (or null). The database source clips,
+  dissolves per label (ST_Union — the surface-water grid files some
+  seventeen thousand small cells inside Birkdale's frame, measured at
+  this build; served per feature the model would carry every cell,
+  dissolved it carries the areas actually drawn, with coverage
+  preserved exactly) and
+  simplifies in PostGIS (shape tolerance 0.00001°, set against the
+  tightest golden: Exeter's point sits 7 metres inside its Flood Zone 3
+  edge, so the drawn edge may move by at most a seventh of that margin;
+  the served geometry IS the asserted geometry by construction). A
+  layer's entry is null unless the layer files a shape inside the frame
+  AND street lines are filed for the frame — the bundle itself enforces
+  ruling (3). Street reads are distance-ordered with a 12,000-line cap
+  (a two-mile frame in the densest centre holds on the order of ten
+  thousand lines — 8,392 measured in Exeter's frame — and any
+  truncation thins the corners, never the middle); a database predating
+  migration 0038 reads as no streets filed, so the pictures degrade to
+  their no-picture state rather than failing the flood answer.
+- The authorised re-pin: four pins moved in
+  `tests/fixtures/replay/bundle-shapes.json` (flood.served-mixed,
+  flood.served-warnings, flood.climate-mixed, flood.climate-inside —
+  the climate pins are full flood bundles), each differing by exactly
+  the added `maps` key, verified by leaf-diff against the printed
+  shapes (PRINT_SHAPES=1); the other 46 pins stand, including every
+  short pin (the headline derivation reads the layers only, and the
+  identity tests prove the sibling never reaches headline depth). The
+  flood cache's shape check extends (a pre-M8.3 entry carries no maps
+  key and recomputes), its guard gains the street_lines filed count
+  (the first street filing busts cached no-picture bundles), and
+  BRAIN_DEPENDENCIES.flood gains load-streets. The figure census
+  allowlists the maps subtree as positions, not figures, on the M8.1
+  coordinates precedent. Recorded in tests/bundle-contracts.test.ts's
+  header as well, so the change is never mistaken for drift.
+- The promise test, layer 1 (tests/golden-replay.test.ts, CI's
+  database job): Birkdale — picture 1 carries at least one shaded
+  polygon; the home point sits outside every drawn shaded polygon; and
+  NO drawn shading intersects the home's street, asserted against the
+  street AS DRAWN (the model's flagged home-street polyline, projected
+  from the filed street_lines geometry — the stronger of the brief's
+  two forms, chosen over home-point-plus-radius and recorded here):
+  no street point inside a shaded polygon, no street segment crossing
+  a ring edge, no ring vertex within the drawn line's own half-width
+  (2px) of the street. Exeter — the home point sits inside a drawn
+  FZ3 polygon on picture 1 (the filed answer for that home); picture
+  2's band at the home point equals the bundle's own filed RoFSW
+  covering label; and where the bundle serves the defences bridge, the
+  zones caption carries the defences point. Unit tests
+  (tests/report.test.ts, tests/flood.test.ts, tests/load-streets.test.ts)
+  cover the frame maths and projection, the no-picture states (unfiled
+  layer; shapes without street lines), the three caption cases
+  (defended / clear / inside), the draw and legend orders, Section 7
+  placement, the loader's vocabulary, name, bbox and golden-check
+  helpers, and the extract verification helpers.
+- Test position: the full unit suite stands at 2,345 passed (from
+  2,320 at M8.2's close), including the new tests named above
+  (tests/load-streets.test.ts 11, the report flood-map describes 8,
+  the flood maps-sibling describe 3), the
+  golden replay at 28 tests with the promise test its newest. No e2e
+  spec is added and no tag moves: the report door holds, so the real
+  pictures cannot be photographed yet — their live visual audit is
+  layer 2 of the promise test (after this build) and their baselines
+  join the visual guard at M8.7's unlock. The one e2e change is
+  T-WEB-06's labelling assertions following the sample conform (still
+  @regression; the partition stands at 205).
+- The fix pass (founder ruling, 20 Nov 2026, on the independent
+  audit's Divergences 1–3; applied to the built tree before the
+  push): (1) Projection isotropy (Divergence 1, S3) — the model now
+  projects in mile space at one uniform scale fitted to the card's
+  height, the Section 5 pattern, so a mile east covers exactly the
+  pixels a mile north does; the frame's content centres on the pin
+  (east/west edges at x = 100 / 660). A unit test proves isotropy on
+  known geometry (one mile east vs one mile north land at equal
+  pixel offsets). The served bundle is untouched — the correction
+  lives wholly in the report model. (2) Home-street label
+  (Divergence 2, S3) — both pictures now label the HOME street
+  (only the home street) along its own line near the pin, in the
+  sample labels' dress (13px, bold, deep forest, uppercased), the
+  anchor and rotation decided in the model and the label named in
+  the picture's aria description; tests prove the rendered picture
+  carries the name for Birkdale Rise and for Exeter Road. (3)
+  Clear-case caption (Divergence 3, S4) — the caption now reads
+  "this home sits outside them": the served fact is the home
+  point's state, not the street's whole geometry. Every serve path
+  conformed (lib/report.ts and the sample report's two captions);
+  the pins that named the street in the caption were updated, and
+  the golden replay's fragment ("sits outside them") stands
+  unchanged. No bundle-contract pin moved in this pass — captions
+  and pictures live in the report model and renderer, never in the
+  served bundle.

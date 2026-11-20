@@ -956,6 +956,11 @@ class FakeFloodSource implements FloodDataSource {
       sourceDate: null,
     }) as never;
   }
+  // M8.3: no map geometry in this fake world; the identity
+  // test below proves the short derivation never reads it.
+  async mapFacts() {
+    return { polygons: [], streets: [], homeStreet: null };
+  }
 }
 
 const floodSource = new FakeFloodSource();

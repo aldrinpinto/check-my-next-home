@@ -47,6 +47,7 @@
     "load:flood-surface-water-climate": "node loaders/load-flood-surface-water-climate.mjs",
     "load:transport": "node loaders/load-transport.mjs",
     "load:osm-places": "node loaders/load-osm-places.mjs",
+    "load:streets": "node loaders/load-streets.mjs",
     "load:os-greenspace": "node loaders/load-os-greenspace.mjs",
     "load:ev-chargers": "node loaders/load-ev-chargers.mjs",
     "load:census": "node loaders/load-census.mjs",

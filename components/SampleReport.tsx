@@ -13,10 +13,11 @@
 // transposed from the Final Sample Master. The format,
 // sections and structure are the sample's; only the
 // example's identity and figures are dummy. The two
-// location panels in Section 7 are neutral schematic
-// panels drawn for the invented example, not maps of a
-// real place (the sample's original map images depicted
-// a real locality and are no longer used here).
+// flood-map pictures in Section 7 are hand-drawn for the
+// invented example in the built product's own dress
+// (M8.3's conform), not maps of a real place (the
+// sample's original map images depicted a real locality
+// and are no longer used here).
 export default function SampleReport() {
   return (
     <div className="report-wrap">
@@ -1745,145 +1746,204 @@ export default function SampleReport() {
             </li>
           </ul>
           <p className="rpt-intro">
-            <strong>Location panels — not flood maps.</strong> The two panels below are simple
-            schematic drawings that show where this sample home sits in its invented village. They
-            do not show flood areas, and they would not change to show flooding. The flood findings
-            above come from checking Environment Agency flood data — to see the actual flood map,
-            use the GOV.UK flood risk check linked below each panel.
+            <strong>Flood maps.</strong> The two pictures below are hand-drawn for this sample in
+            the same form as a real report's flood maps — the Environment Agency's flood shapes
+            shaded over OpenStreetMap street lines, the home pinned at the centre. On a real report,
+            each picture is drawn from the shapes and street lines held for the home's own area, and
+            a picture appears only where that layer's shapes are filed. This sample's flood findings
+            are Very low on both layers, so the shading stands away from Willow Close, along the
+            River Bourne to the east.
           </p>
-          <div className="mapRow">
-            <div className="mapBox">
-              <span className="mcap">Map 1 — Location panel: wider area around this home</span>
-              <svg
-                viewBox="0 0 400 260"
-                width="400"
-                height="260"
-                role="img"
-                aria-label="Schematic location panel for the invented sample village of Millbrook, with a pin marking the sample home and a shaded circle showing the 150 metres around it. The River Bourne is drawn to the east. This is a schematic drawing only — it shows no flood areas."
-                style={{
-                  width: "100%",
-                  height: "auto",
-                  display: "block",
-                  border: "1px solid var(--sp-line)",
-                  borderRadius: "6px",
-                  background: "#EEF3E8",
-                }}
+          <div className="rpt-chartCard">
+            <h4>Flood zones for planning (rivers and the sea)</h4>
+            <svg
+              viewBox="0 0 760 560"
+              role="img"
+              aria-label="Flood map: Flood zones for planning (rivers and the sea) around this postcode, drawn from the Environment Agency's filed shapes over OpenStreetMap street lines. 6 street lines are drawn. Shaded: Flood Zone 3 (1 area), Flood Zone 2 (1 area). The home pin at the centre sits outside every shaded area."
+              style={{ width: "100%", height: "auto", display: "block" }}
+            >
+              <rect x="0" y="0" width="760" height="560" fill="#FDF8E8" />
+              <path d="M588 0 C 560 140, 620 300, 596 560 L760 560 L760 0 Z" fill="#A9C6DE" />
+              <path d="M664 0 C 644 150, 692 320, 672 560 L760 560 L760 0 Z" fill="#4E7FA8" />
+              <path d="M0 210 L760 168" stroke="#CFC7A8" strokeWidth="3.5" fill="none" />
+              <path
+                d="M60 560 C 120 420, 220 340, 380 292"
+                stroke="#CFC7A8"
+                strokeWidth="3.5"
+                fill="none"
+              />
+              <path
+                d="M180 0 C 220 110, 290 210, 380 268"
+                stroke="#CFC7A8"
+                strokeWidth="3.5"
+                fill="none"
+              />
+              <path d="M380 292 L380 120" stroke="#CFC7A8" strokeWidth="3.5" fill="none" />
+              <path d="M380 292 L560 340" stroke="#CFC7A8" strokeWidth="3.5" fill="none" />
+              <path d="M120 292 L640 292" stroke="#2F5D3E" strokeWidth="5" fill="none" />
+              <circle cx="380" cy="280" r="11" fill="#C29A3B" stroke="#1E402C" strokeWidth="2.5" />
+              <text
+                x="380"
+                y="284"
+                textAnchor="middle"
+                fontSize="11"
+                fontWeight="700"
+                fill="#1E402C"
               >
-                <path
-                  d="M330 0 C 300 70, 360 130, 320 260"
-                  stroke="#7FB3D5"
-                  strokeWidth="14"
-                  fill="none"
+                H
+              </text>
+              <text x="96" y="330" fontSize="13" fill="#5C6B60" transform="rotate(-24 96 330)">
+                ORCHARD END
+              </text>
+              <text x="470" y="330" fontSize="13" fill="#5C6B60" transform="rotate(9 470 330)">
+                MEADOW WAY
+              </text>
+              <text x="150" y="282" fontSize="13" fontWeight="700" fill="#1E402C">
+                WILLOW CLOSE
+              </text>
+            </svg>
+            <ul className="rpt-tight">
+              <li>
+                <strong>H</strong> — this home (the postcode point, at the centre)
+              </li>
+              <li>
+                <span
+                  aria-hidden="true"
+                  style={{
+                    display: "inline-block",
+                    width: "12px",
+                    height: "12px",
+                    background: "#4E7FA8",
+                    marginRight: "6px",
+                  }}
                 />
-                <path d="M0 90 L400 70" stroke="#FFFFFF" strokeWidth="10" />
-                <path
-                  d="M60 260 C 90 170, 150 120, 210 105"
-                  stroke="#FFFFFF"
-                  strokeWidth="8"
-                  fill="none"
+                Flood Zone 3
+              </li>
+              <li>
+                <span
+                  aria-hidden="true"
+                  style={{
+                    display: "inline-block",
+                    width: "12px",
+                    height: "12px",
+                    background: "#A9C6DE",
+                    marginRight: "6px",
+                  }}
                 />
-                <path
-                  d="M120 0 C 140 60, 170 90, 210 105"
-                  stroke="#FFFFFF"
-                  strokeWidth="8"
-                  fill="none"
-                />
-                <circle cx="205" cy="105" r="52" fill="#2F5D3E" opacity="0.12" />
-                <text x="88" y="140" fontSize="17" fontWeight="700" fill="#1E402C">
-                  Millbrook
-                </text>
-                <text x="300" y="150" fontSize="12" fill="#33607E" transform="rotate(72 300 150)">
-                  River Bourne
-                </text>
-                <path
-                  d="M205 78 c-14 0-23 9-23 20 0 15 23 34 23 34 s23-19 23-34 c0-11-9-20-23-20z"
-                  fill="#C0392B"
-                />
-                <circle cx="205" cy="99" r="8" fill="#FFFFFF" />
-              </svg>
-              <p>
-                Schematic panel centred on this sample postcode, with the pin on the home and the
-                shaded circle showing the 150 m checked around it.{" "}
-                <strong>The blue line to the east is the River Bourne</strong> as drawn on a general
-                location panel — it is a permanent watercourse, not a flood area, and it does not
-                indicate flooding. This picture shows no flood zones. Flood check result (from
-                Environment Agency data, not from this picture): no band at this point, and the
-                nearest Low band edge is 0.8 miles away; the mapped flood areas for the River Bourne
-                and River Brain both stop well away from Willow Close.{" "}
-                <a
-                  href="https://check-long-term-flood-risk.service.gov.uk/postcode"
-                  target="_blank"
-                  rel="noopener"
-                >
-                  Check flood risk on GOV.UK
-                </a>
-              </p>
-            </div>
-            <div className="mapBox">
-              <span className="mcap">Map 2 — Location panel: Willow Close close-up</span>
-              <svg
-                viewBox="0 0 400 260"
-                width="400"
-                height="260"
-                role="img"
-                aria-label="Close-up schematic panel of the invented Willow Close estate, with a pin marking the sample home among the estate streets, between Meadow Way and Orchard End, off Riverton Road. This is a schematic drawing only — it shows no flood areas."
-                style={{
-                  width: "100%",
-                  height: "auto",
-                  display: "block",
-                  border: "1px solid var(--sp-line)",
-                  borderRadius: "6px",
-                  background: "#F7F1DE",
-                }}
-              >
-                <path
-                  d="M40 260 C 70 170, 120 110, 200 92"
-                  stroke="#FFFFFF"
-                  strokeWidth="12"
-                  fill="none"
-                />
-                <path d="M200 92 L200 20" stroke="#FFFFFF" strokeWidth="9" />
-                <path d="M200 92 L330 130" stroke="#FFFFFF" strokeWidth="9" fill="none" />
-                <path d="M150 150 L250 150" stroke="#FFFFFF" strokeWidth="8" />
-                <path d="M250 150 L250 210" stroke="#FFFFFF" strokeWidth="8" />
-                <text x="52" y="238" fontSize="12" fill="#5C6B60" transform="rotate(-38 52 238)">
-                  RIVERTON ROAD
-                </text>
-                <text x="238" y="118" fontSize="12" fill="#5C6B60" transform="rotate(16 238 118)">
-                  MEADOW WAY
-                </text>
-                <text x="96" y="92" fontSize="12" fill="#5C6B60" transform="rotate(-24 96 92)">
-                  ORCHARD END
-                </text>
-                <path
-                  d="M205 62 c-14 0-23 9-23 20 0 15 23 34 23 34 s23-19 23-34 c0-11-9-20-23-20z"
-                  fill="#C0392B"
-                />
-                <circle cx="205" cy="83" r="8" fill="#FFFFFF" />
-              </svg>
-              <p>
-                Schematic panel close-up of the Willow Close estate, with the pin on the home. It
-                shows streets and layout only — there is no flood shading on this picture, and any
-                water shown on a panel like this is permanent water, not flooding. Flood check
-                result (from Environment Agency data, not from this picture): for surface water, the
-                nearest band edges are Low 0.0 miles, Medium 0.0 miles and High 0.1 miles from this
-                home.{" "}
-                <a
-                  href="https://check-long-term-flood-risk.service.gov.uk/postcode"
-                  target="_blank"
-                  rel="noopener"
-                >
-                  Check flood risk on GOV.UK
-                </a>
-              </p>
-            </div>
+                Flood Zone 2
+              </li>
+            </ul>
+            <p className="rpt-small rpt-chartNote">
+              <em>
+                The shaded areas in this picture are the mapped Flood Zone 2 and Flood Zone 3 areas
+                around this postcode, and this home sits outside them. The postcode point is not in
+                Flood Zone 2 or Flood Zone 3 on the Environment Agency's planning map.
+              </em>
+            </p>
+            <p className="rpt-small rpt-chartNote">
+              Street data © OpenStreetMap contributors, available under the Open Database Licence.
+              Flood shapes: Environment Agency, licensed under the Open Government Licence.
+            </p>
           </div>
+          <p className="rpt-small">
+            <a
+              href="https://check-long-term-flood-risk.service.gov.uk/postcode"
+              target="_blank"
+              rel="noopener"
+            >
+              Check flood risk on GOV.UK
+            </a>
+          </p>
+          <div className="rpt-chartCard">
+            <h4>Flooding from surface water</h4>
+            <svg
+              viewBox="0 0 760 560"
+              role="img"
+              aria-label="Flood map: Flooding from surface water around this postcode, drawn from the Environment Agency's filed shapes over OpenStreetMap street lines. 6 street lines are drawn. Shaded: Low (1 area). The home pin at the centre sits outside every shaded area."
+              style={{ width: "100%", height: "auto", display: "block" }}
+            >
+              <rect x="0" y="0" width="760" height="560" fill="#FDF8E8" />
+              <path d="M520 560 C 540 470, 640 430, 760 452 L760 560 Z" fill="#C3D8EA" />
+              <path d="M0 210 L760 168" stroke="#CFC7A8" strokeWidth="3.5" fill="none" />
+              <path
+                d="M60 560 C 120 420, 220 340, 380 292"
+                stroke="#CFC7A8"
+                strokeWidth="3.5"
+                fill="none"
+              />
+              <path
+                d="M180 0 C 220 110, 290 210, 380 268"
+                stroke="#CFC7A8"
+                strokeWidth="3.5"
+                fill="none"
+              />
+              <path d="M380 292 L380 120" stroke="#CFC7A8" strokeWidth="3.5" fill="none" />
+              <path d="M380 292 L560 340" stroke="#CFC7A8" strokeWidth="3.5" fill="none" />
+              <path d="M120 292 L640 292" stroke="#2F5D3E" strokeWidth="5" fill="none" />
+              <circle cx="380" cy="280" r="11" fill="#C29A3B" stroke="#1E402C" strokeWidth="2.5" />
+              <text
+                x="380"
+                y="284"
+                textAnchor="middle"
+                fontSize="11"
+                fontWeight="700"
+                fill="#1E402C"
+              >
+                H
+              </text>
+              <text x="96" y="330" fontSize="13" fill="#5C6B60" transform="rotate(-24 96 330)">
+                ORCHARD END
+              </text>
+              <text x="470" y="330" fontSize="13" fill="#5C6B60" transform="rotate(9 470 330)">
+                MEADOW WAY
+              </text>
+              <text x="150" y="282" fontSize="13" fontWeight="700" fill="#1E402C">
+                WILLOW CLOSE
+              </text>
+            </svg>
+            <ul className="rpt-tight">
+              <li>
+                <strong>H</strong> — this home (the postcode point, at the centre)
+              </li>
+              <li>
+                <span
+                  aria-hidden="true"
+                  style={{
+                    display: "inline-block",
+                    width: "12px",
+                    height: "12px",
+                    background: "#C3D8EA",
+                    marginRight: "6px",
+                  }}
+                />
+                Low
+              </li>
+            </ul>
+            <p className="rpt-small rpt-chartNote">
+              <em>
+                The shaded areas in this picture are the mapped surface-water flood areas around
+                this postcode, and this home sits outside them. No surface-water band reaches this
+                point — below the lowest band this product publishes.
+              </em>
+            </p>
+            <p className="rpt-small rpt-chartNote">
+              Street data © OpenStreetMap contributors, available under the Open Database Licence.
+              Flood shapes: Environment Agency, licensed under the Open Government Licence.
+            </p>
+          </div>
+          <p className="rpt-small">
+            <a
+              href="https://check-long-term-flood-risk.service.gov.uk/postcode"
+              target="_blank"
+              rel="noopener"
+            >
+              Check flood risk on GOV.UK
+            </a>
+          </p>
           <p className="rpt-chartNote">
-            These are schematic location panels for this invented sample home only — not flood maps,
-            and not maps of a real place. Water shown on them (rivers, lakes and ponds) is permanent
-            water as drawn on a location panel, not an area of flooding. The flood findings in this
-            section come from the Environment Agency data check described above, not from these
-            pictures.
+            Flood defences are never drawn on these pictures — the recorded defences near a home are
+            listed in words in this section. The climate outlook is words only too: no picture mixes
+            a future scenario with today's map.
           </p>
         </section>
         <section className="rpt-section">
@@ -1987,9 +2047,10 @@ export default function SampleReport() {
             <li>
               <strong>Flood check</strong> — findings in Section 7 are from checking Environment
               Agency flood data (River Bourne / River Brain flood areas; flood-zone and
-              surface-water data via the Planning Data platform). This report does not include
-              Environment Agency flood maps — the pictures in Section 7 are schematic location
-              panels only. Check flood risk, including the actual flood maps, at the{" "}
+              surface-water data via the Planning Data platform). The pictures in Section 7 are
+              drawn in a real report from the Environment Agency shapes and the OpenStreetMap street
+              lines held for the home's own area. Check flood risk, including the actual flood maps,
+              at the{" "}
               <a
                 href="https://check-long-term-flood-risk.service.gov.uk/postcode"
                 target="_blank"
