@@ -263,6 +263,7 @@ function fakeSource(overrides: Partial<DistrictDataSource> = {}): DistrictDataSo
       ],
       towns: [{ name: "CHELMSFORD", filings: 40 }],
       counties: ["ESSEX"],
+      settlementCounties: ["ESSEX"],
       settlementPostcodes: [
         { locality: "HATFIELD PEVEREL", postcode: "ZZ9 1AA" },
         { locality: "DANBURY", postcode: "ZZ9 2AA" },
@@ -440,6 +441,7 @@ describe("district bundle — head and the district itself", () => {
         ],
         towns: [{ name: "CHELMSFORD", filings: 40 }],
         counties: ["ESSEX"],
+        settlementCounties: ["ESSEX"],
         settlementPostcodes: [],
       }),
     });
@@ -466,6 +468,7 @@ describe("district bundle — head and the district itself", () => {
         ],
         towns: [{ name: "CHELMSFORD", filings: 900 }],
         counties: ["ESSEX"],
+        settlementCounties: ["ESSEX"],
         settlementPostcodes: [],
       }),
     });
@@ -475,6 +478,31 @@ describe("district bundle — head and the district itself", () => {
       "Chelmsford",
       "Springfield",
     ]);
+  });
+
+  it("drops the county where the district files none of its own — the register-wide set answers (BUG-034 residual)", async () => {
+    // The live CM11/CM2 shape (20 Nov 2026): the
+    // district's sales rows file no county at all, so
+    // places.counties is empty — but the register-wide
+    // set names Essex, and the upper-case ESSEX filed
+    // among the names must still drop. The head chip
+    // keeps the district's own counties only: the
+    // register-wide set must not leak into it.
+    const bundle = await servedBundle({
+      places: async () => ({
+        localities: [
+          { name: "BILLERICAY", filings: 700 },
+          { name: "ESSEX", filings: 24 },
+          { name: "DOWNHAM", filings: 40 },
+        ],
+        towns: [{ name: "BILLERICAY", filings: 700 }],
+        counties: [],
+        settlementCounties: ["Essex"],
+        settlementPostcodes: [],
+      }),
+    });
+    expect(bundle.sections.district.settlements).toEqual(["Billericay", "Downham"]);
+    expect(bundle.head.counties).toEqual([]);
   });
 });
 
@@ -565,6 +593,24 @@ describe("cleanSettlements — the shared settlement filter (BUG-034)", () => {
       "Chelmsford",
       "Essex",
     ]);
+  });
+
+  it("drops the county across case in both directions — the two sides never share a dress live", () => {
+    // The picking index files towns UPPER CASE and
+    // price_paid files counties in title case; the drop
+    // compares flattened keys, so either pairing drops.
+    expect(cleanSettlements([filed("ESSEX", 10), filed("CHELMSFORD", 900)], ["Essex"])).toEqual([
+      "Chelmsford",
+    ]);
+    expect(cleanSettlements([filed("Essex", 10), filed("CHELMSFORD", 900)], ["ESSEX"])).toEqual([
+      "Chelmsford",
+    ]);
+  });
+
+  it("a comma-bearing filing drops whole, county tail and all", () => {
+    expect(
+      cleanSettlements([filed("CHELMSFORD, ESSEX", 5), filed("CHELMSFORD", 900)], ["ESSEX"]),
+    ).toEqual(["Chelmsford"]);
   });
 });
 
@@ -1110,6 +1156,7 @@ describe("district view — the results layout system, no upsell", () => {
         localities: names.map((name) => ({ name, filings: 1 })),
         towns: [{ name: "CHELMSFORD", filings: 1 }],
         counties: ["ESSEX"],
+        settlementCounties: ["ESSEX"],
         settlementPostcodes: names.map((locality, i) => ({
           locality,
           postcode: `ZZ9 1A${String.fromCharCode(65 + i)}`,

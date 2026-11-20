@@ -106,11 +106,17 @@ describe("districtAreas — the place page's per-district area facts (BUG-026/BU
     townRows: { outward: string; town: string; filings: number }[] = [];
     indexRows: { outward: string; town: string; filings: number }[] = [];
     countyRows: { outward: string; county: string }[] = [];
+    nationalCountyRows: { county: string }[] = [];
     exampleRows: { outward: string; postcode: string }[] = [];
 
     async query(text: string) {
       if (text.includes("min(postcode)")) return { rows: this.exampleRows };
-      if (text.includes("county")) return { rows: this.countyRows };
+      // The read's two county queries: the districts'
+      // own (keyed by outward, through split_part) and
+      // the register-wide set (no outward in it).
+      if (text.includes("county")) {
+        return { rows: text.includes("split_part") ? this.countyRows : this.nationalCountyRows };
+      }
       if (text.includes("FROM picking_index")) return { rows: this.indexRows };
       if (text.includes("locality")) return { rows: this.localityRows };
       if (text.includes("FROM price_paid")) return { rows: this.townRows };
@@ -167,6 +173,30 @@ describe("districtAreas — the place page's per-district area facts (BUG-026/BU
     const areas = await createPlaceSource(db as unknown as PlaceQueryable).districtAreas(["CM1"]);
     expect(areas).toEqual([
       { outward: "CM1", settlements: ["Chelmsford", "Springfield"], examplePostcode: "CM1 1AA" },
+    ]);
+  });
+
+  it("drops the county where the district files none of its own (BUG-034 residual)", async () => {
+    // The live CM11 shape (20 Nov 2026): the picking
+    // index files ESSEX as a town, upper case, and the
+    // district's own county rows are EMPTY — the drop
+    // has to come from the register-wide county set,
+    // which files the name in title case.
+    const db = new FakeAreasDb();
+    db.indexRows = [
+      { outward: "CM11", town: "BILLERICAY", filings: 700 },
+      { outward: "CM11", town: "CHELMSFORD", filings: 200 },
+      { outward: "CM11", town: "DOWNHAM", filings: 40 },
+      { outward: "CM11", town: "ESSEX", filings: 24 },
+    ];
+    db.nationalCountyRows = [{ county: "Essex" }];
+    const areas = await createPlaceSource(db as unknown as PlaceQueryable).districtAreas(["CM11"]);
+    expect(areas).toEqual([
+      {
+        outward: "CM11",
+        settlements: ["Billericay", "Chelmsford", "Downham"],
+        examplePostcode: null,
+      },
     ]);
   });
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { AddressQueryable } from "../lib/address";
-import { createDistrictSource, DEFENCE_WATERCOURSES_SQL } from "../lib/district";
+import { cleanSettlements, createDistrictSource, DEFENCE_WATERCOURSES_SQL } from "../lib/district";
 
 // The district source's SQL forms (founder fix batch,
 // 19 Nov 2026 — audit Part 3, the district latency item).
@@ -106,5 +106,96 @@ describe("district source — flood layer coverage (audit item 14)", () => {
     const facts = await source.floodFacts("rofsw", ["ZZ9 1AA"]);
     expect(facts.filedCount).toBe(500);
     expect(facts.covered).toBe(false);
+  });
+});
+
+// The places() composition and the settlement filter's
+// county set (BUG-034 residual, 20 Nov 2026). The first
+// BUG-034 build handed the filter only the district's
+// own filed counties; where a district's sales rows
+// file no county the set was empty, and the county the
+// picking index files as a town stood as a settlement
+// on the live place page (CM11, CM2). These pins run
+// the REAL source against a fake register in exactly
+// that shape — the fake the first build's tests used
+// agreed with the code, so this one is built from the
+// live failure's rows instead.
+class PlacesDb implements AddressQueryable {
+  queries: { text: string; params: readonly unknown[] }[] = [];
+  localityRows: { locality: string; filings: number }[] = [];
+  townRows: { town: string; filings: number }[] = [];
+  indexTownRows: { town: string; filings: number }[] = [];
+  districtCountyRows: { county: string }[] = [];
+  nationalCountyRows: { county: string }[] = [];
+  settlementRows: { locality: string; postcode: string }[] = [];
+
+  async query(text: string, params: readonly unknown[] = []) {
+    this.queries.push({ text, params });
+    if (text.includes("min(postcode)")) return { rows: this.settlementRows };
+    if (text.includes("SELECT DISTINCT county")) {
+      // The district's own counties are read through
+      // its outward prefix; the register-wide set is
+      // the one read with no prefix in it.
+      return {
+        rows: text.includes("starts_with") ? this.districtCountyRows : this.nationalCountyRows,
+      };
+    }
+    if (text.includes("FROM picking_index")) return { rows: this.indexTownRows };
+    if (text.includes("locality")) return { rows: this.localityRows };
+    if (text.includes("FROM price_paid")) return { rows: this.townRows };
+    throw new Error(`PlacesDb: unhandled SQL: ${text}`);
+  }
+}
+
+describe("district source — places() and the register-wide county set (BUG-034 residual)", () => {
+  function cm11Db(): PlacesDb {
+    const db = new PlacesDb();
+    // The district's sales rows file localities but no
+    // county at all; the picking index files ESSEX as a
+    // town, upper case; the register at large files the
+    // county in title case.
+    db.localityRows = [
+      { locality: "BILLERICAY", filings: 700 },
+      { locality: "ESSEX", filings: 7 },
+      { locality: "DOWNHAM", filings: 40 },
+    ];
+    db.indexTownRows = [{ town: "ESSEX", filings: 24 }];
+    db.districtCountyRows = [];
+    db.nationalCountyRows = [{ county: "Essex" }];
+    return db;
+  }
+
+  it("keeps counties the district's own (empty) and hands the filter the union set", async () => {
+    const db = cm11Db();
+    const source = createDistrictSource(db);
+    const places = await source.places("CM11");
+    expect(places.counties).toEqual([]);
+    expect(places.settlementCounties).toEqual(["Essex"]);
+    // The served outcome, composed exactly as the
+    // bundle builder composes it: no Essex, in any
+    // case, among the settlements.
+    expect(cleanSettlements(places.localities, places.settlementCounties)).toEqual([
+      "Billericay",
+      "Downham",
+    ]);
+  });
+
+  it("reads the register-wide set once per pool, however many districts are composed", async () => {
+    const db = cm11Db();
+    const source = createDistrictSource(db);
+    await source.places("CM11");
+    await source.places("CM2");
+    const nationalReads = db.queries.filter(
+      (query) =>
+        query.text.includes("SELECT DISTINCT county") && !query.text.includes("starts_with"),
+    );
+    expect(nationalReads).toHaveLength(1);
+    // The district's own counties are still read per
+    // district — only the register-wide set is cached.
+    const districtReads = db.queries.filter(
+      (query) =>
+        query.text.includes("SELECT DISTINCT county") && query.text.includes("starts_with"),
+    );
+    expect(districtReads).toHaveLength(2);
   });
 });

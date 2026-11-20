@@ -134,7 +134,13 @@ function fakeSource() {
     healthCounts: async () => [],
     stations: async () => [],
     pickingHomes: async () => 0,
-    places: async () => ({ localities: [], towns: [], counties: [], settlementPostcodes: [] }),
+    places: async () => ({
+      localities: [],
+      towns: [],
+      counties: [],
+      settlementCounties: [],
+      settlementPostcodes: [],
+    }),
     floodFacts: async () => ({
       filedCount: 0,
       covered: false,

@@ -206,6 +206,51 @@ const UNIT_COLUMNS = `
   min(place_display) AS place_display,
   array_agg(outward ORDER BY outward) AS districts`;
 
+// Every county filed anywhere in the sales register
+// (BUG-034 residual, 20 Nov 2026): the shared
+// settlement filter (lib/district.ts's
+// cleanSettlements) drops county forms by the set it
+// is handed, and districtAreas used to hand it only
+// the district's own filed counties — where a
+// district's sales rows file no county, the set was
+// empty and the county stood as a settlement wherever
+// the picking index had filed it as a town (the live
+// CM11 row named "Essex" among its settlements). The
+// set handed over is the district's own UNION this
+// register-wide set, so a county is dropped even where
+// the district itself never files it. The set is small
+// and closed (the register's county column holds a
+// fixed vocabulary), and price_paid carries no index
+// on county, so the DISTINCT read is a register scan:
+// it runs once per pool per process and is cached —
+// anchored to globalThis (the sold-prices loads
+// pattern) because the serving runtime does not share
+// one module instance between routes, keyed by the
+// pool in a WeakMap so the entry lives exactly as long
+// as its pool, and a failed read evicts itself, so a
+// transient failure never poisons the process.
+const placeCountiesGlobal = globalThis as typeof globalThis & {
+  __cmnhPlaceAllCounties?: WeakMap<PlaceQueryable, Promise<string[]>>;
+};
+
+function everyFiledCounty(db: PlaceQueryable): Promise<string[]> {
+  const cache = (placeCountiesGlobal.__cmnhPlaceAllCounties ??= new WeakMap<
+    PlaceQueryable,
+    Promise<string[]>
+  >());
+  let pending = cache.get(db);
+  if (pending === undefined) {
+    pending = db
+      .query("SELECT DISTINCT county FROM price_paid WHERE county IS NOT NULL")
+      .then((result) => result.rows.map((row) => row.county as string));
+    cache.set(db, pending);
+    pending.catch(() => {
+      if (cache.get(db) === pending) cache.delete(db);
+    });
+  }
+  return pending;
+}
+
 export function createPlaceSource(db: PlaceQueryable): PlaceSource {
   return {
     async placesByPrefix(words, limit) {
@@ -343,13 +388,19 @@ export function createPlaceSource(db: PlaceQueryable): PlaceSource {
       // county column): the shared settlement filter
       // drops county names and their fragments from the
       // settlement set (BUG-034), and it can only do so
-      // when the caller names the counties.
+      // when the caller names the counties. The set
+      // handed over is each district's own UNION every
+      // county filed anywhere in the register
+      // (everyFiledCounty above): a district whose rows
+      // file no county must not let the county through
+      // (BUG-034 residual).
       const { rows: countyRows } = await db.query(
         `SELECT DISTINCT split_part(postcode, ' ', 1) AS outward, county
            FROM price_paid
           WHERE split_part(postcode, ' ', 1) = ANY($1) AND county IS NOT NULL`,
         [outwards],
       );
+      const nationalCounties = await everyFiledCounty(db);
       const localities = new Map<string, Map<string, number>>();
       const towns = new Map<string, Map<string, number>>();
       const counties = new Map<string, Set<string>>();
@@ -406,7 +457,7 @@ export function createPlaceSource(db: PlaceQueryable): PlaceSource {
         const local = counted(localities.get(outward));
         const settlements = cleanSettlements(
           local.length > 0 ? local : counted(towns.get(outward)),
-          [...(counties.get(outward) ?? [])],
+          [...new Set([...(counties.get(outward) ?? []), ...nationalCounties])],
         );
         return { outward, settlements, examplePostcode: examples.get(outward) ?? null };
       });

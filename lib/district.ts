@@ -303,12 +303,19 @@ export interface DistrictDataSource {
   // keeps the most-filed form of a name — BUG-034), the
   // counties its sales rows file (Price Paid's own county
   // column — the head chip's data, founder fix batch,
-  // audit item 4), and one filed postcode per locality
-  // (the bridge's named-area links land on it).
+  // audit item 4), the county set the settlement filter
+  // drops by (settlementCounties: the district's own
+  // UNION every county filed anywhere in the register —
+  // BUG-034 residual; counties above stays the district's
+  // own alone, because the head chip names the district's
+  // counties, not the nation's), and one filed postcode
+  // per locality (the bridge's named-area links land on
+  // it).
   places(outward: string): Promise<{
     localities: FiledPlaceName[];
     towns: FiledPlaceName[];
     counties: string[];
+    settlementCounties: string[];
     settlementPostcodes: { locality: string; postcode: string }[];
   }>;
   floodFacts(layer: FloodLayerType, postcodes: string[]): Promise<DistrictFloodFacts>;
@@ -834,14 +841,21 @@ function settlementKey(name: string): string {
 // 20 Nov 2026): the register's locality column
 // sometimes files the county itself among a district's
 // settlements ("Essex" in CM1) or a cut-off form of it
-// ("Ess"). The district's own filed counties — the
-// same rows' county column, passed in by the caller —
-// name what to drop: a name equal to a county, or a
-// strict prefix of one, at least three letters long
-// and at least two letters short of the whole (a
-// fragment; a real name that merely opens the same way
-// is longer than that or is the county's equal in full
-// only where it truly is the county).
+// ("Ess"). The county set the caller passes — the
+// district's own filed counties UNION every county
+// filed anywhere in the register (BUG-034 residual:
+// a district whose own rows file no county must not
+// let the county through) — names what to drop: a
+// name equal to a county, or a strict prefix of one,
+// at least three letters long and at least two letters
+// short of the whole (a fragment; a real name that
+// merely opens the same way is longer than that or is
+// the county's equal in full only where it truly is
+// the county). The comparison runs on settlementKey
+// forms on both sides, so the filed dress never
+// matters: an upper-case "ESSEX" from the picking
+// index drops against a title-case "Essex" from the
+// register, and the reverse.
 function isCountyForm(key: string, countyKeys: Set<string>): boolean {
   for (const county of countyKeys) {
     if (key === county) return true;
@@ -964,8 +978,9 @@ function collapseSpellingVariants(
 // clean the same filed names through the same filter,
 // so a settlement the district page would not name is
 // never named on the place page either. The caller
-// passes the district's own filed counties (the same
-// rows' county column) for the county-form drop.
+// passes the county set to drop by: the district's own
+// filed counties UNION every county filed anywhere in
+// the register (BUG-034 residual).
 export function cleanSettlements(filedNames: FiledPlaceName[], counties: string[] = []): string[] {
   const countyKeys = new Set(counties.map(settlementKey).filter((key) => key.length > 0));
   const byKey = new Map<string, { display: string; key: string; filings: number }>();
@@ -1187,9 +1202,13 @@ export async function buildDistrictBundle(
     sourceLine: sourceLineOf(stamp?.sourceName ?? null, stamp?.sourceDate ?? null),
   };
 
-  // 1 — The district itself.
+  // 1 — The district itself. The filter drops by the
+  // union set (places.settlementCounties), never the
+  // district's own counties alone (BUG-034 residual) —
+  // the head above keeps places.counties, the district's
+  // own, for its chip.
   const settlementsRaw = places.localities.length > 0 ? places.localities : places.towns;
-  const settlements = cleanSettlements(settlementsRaw, places.counties);
+  const settlements = cleanSettlements(settlementsRaw, places.settlementCounties);
   // The bridge's named links ride the same cleaned set:
   // one filed postcode per settlement, from the sales
   // rows that filed the locality.
@@ -1749,6 +1768,53 @@ export const DEFENCE_WATERCOURSES_SQL = `SELECT DISTINCT fd.water_course_name AS
    )
  ORDER BY fd.water_course_name`;
 
+// Every county filed anywhere in the sales register
+// (BUG-034 residual, 20 Nov 2026): the settlement
+// filter drops county forms by the set it is handed,
+// and a district whose own sales rows file no county
+// (the column is nullable and often unfiled) left the
+// set empty — the county then stood as a settlement
+// wherever the picking index had filed it as a town
+// ("Essex" in CM11's and CM2's rows, proven live). The
+// founder's rule is categorical — a county name is
+// never a settlement — so the filter's set is the
+// district's own counties UNION this register-wide
+// set, composed in places() below.
+//
+// The set is small and closed (the register's county
+// column holds a fixed vocabulary; a new county cannot
+// appear without a new filing of the register), and
+// price_paid carries no index on county, so the
+// DISTINCT read is a register scan: it runs once per
+// pool per process and is cached. The cache is
+// anchored to globalThis (the sold-prices loads
+// pattern) because the serving runtime does not share
+// one module instance between routes, and keyed by the
+// pool in a WeakMap, so the entry lives exactly as
+// long as its pool. A failed read evicts itself, so a
+// transient failure never poisons the process.
+const districtCountiesGlobal = globalThis as typeof globalThis & {
+  __cmnhDistrictAllCounties?: WeakMap<AddressQueryable, Promise<string[]>>;
+};
+
+function everyFiledCounty(db: AddressQueryable): Promise<string[]> {
+  const cache = (districtCountiesGlobal.__cmnhDistrictAllCounties ??= new WeakMap<
+    AddressQueryable,
+    Promise<string[]>
+  >());
+  let pending = cache.get(db);
+  if (pending === undefined) {
+    pending = db
+      .query("SELECT DISTINCT county FROM price_paid WHERE county IS NOT NULL")
+      .then((result) => result.rows.map((row) => row.county as string));
+    cache.set(db, pending);
+    pending.catch(() => {
+      if (cache.get(db) === pending) cache.delete(db);
+    });
+  }
+  return pending;
+}
+
 export function createDistrictSource(db: AddressQueryable): DistrictDataSource {
   const prefixOf = (outward: string) => `${outward} `;
   return {
@@ -2008,10 +2074,17 @@ export function createDistrictSource(db: AddressQueryable): DistrictDataSource {
       // (Price Paid's own county column) and one filed
       // postcode per locality — the head chip's data and
       // the bridge links' landings (founder fix batch).
+      // The settlement filter drops by a wider set: the
+      // district's own UNION every county filed anywhere
+      // in the register (everyFiledCounty above), because
+      // a district whose rows file no county must not let
+      // the county stand as a settlement (BUG-034
+      // residual).
       const { rows: countyRows } = await db.query(
         `SELECT DISTINCT county FROM price_paid WHERE starts_with(postcode, $1) AND county IS NOT NULL`,
         [prefixOf(outward)],
       );
+      const allCounties = await everyFiledCounty(db);
       const { rows: settlementRows } = await db.query(
         `SELECT locality, min(postcode) AS postcode FROM price_paid
          WHERE starts_with(postcode, $1) AND locality IS NOT NULL
@@ -2026,13 +2099,15 @@ export function createDistrictSource(db: AddressQueryable): DistrictDataSource {
       const towns = [...townsByName.entries()]
         .map(([name, filings]) => ({ name, filings }))
         .sort((a, b) => b.filings - a.filings || (a.name < b.name ? -1 : 1));
+      const districtCounties = countyRows.map((row) => row.county as string);
       return {
         localities: localityRows.map((row) => ({
           name: row.locality as string,
           filings: Number(row.filings),
         })),
         towns,
-        counties: countyRows.map((row) => row.county as string),
+        counties: districtCounties,
+        settlementCounties: [...new Set([...districtCounties, ...allCounties])],
         settlementPostcodes: settlementRows.map((row) => ({
           locality: row.locality as string,
           postcode: row.postcode as string,
