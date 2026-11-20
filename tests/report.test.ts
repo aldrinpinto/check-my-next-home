@@ -933,6 +933,12 @@ describe("report — the nine sections and the format", () => {
     expect(JSON.parse(JSON.stringify(view))).toEqual(view);
   });
 
+  it("a none-within line is recomposed at one-decimal precision, never the brain's raw line (BUG-014, founder ruling 20 Nov 2026)", () => {
+    const served = JSON.stringify(view);
+    expect(served).toContain("nearest is Broomfield Hospital, 5.9 miles away");
+    expect(served).not.toContain("5.89 miles away");
+  });
+
   it("the masthead names the home, its place and the matched certificate's facts", () => {
     expect(view.masthead.title).toBe("19 Birkdale Rise");
     expect(view.masthead.addressLine).toBe("Chelmsford CM3 2JT");

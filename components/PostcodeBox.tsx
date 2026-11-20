@@ -489,6 +489,19 @@ export default function PostcodeBox({
     // no-suggestions line belongs to the settled query,
     // and the next response re-settles it either way.
     setEmptySettled(false);
+    // BUG-033 (founder-found live, 20 Nov 2026): the
+    // previous query's list drops the moment the text
+    // changes. It used to stay rendered — and clickable
+    // — under the new text until the new response
+    // landed, so CM3's houses sat under a field reading
+    // CO1 and a tap could pick the wrong home's check.
+    // The panel now holds nothing of the old query
+    // while the new one is in flight; the settled
+    // response repaints it, and the no-suggestions
+    // line still waits for a settled empty answer,
+    // never a mid-flight one.
+    setLiveGroups([]);
+    setActiveId(null);
   }
 
   return (

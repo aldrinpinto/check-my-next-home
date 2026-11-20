@@ -93,6 +93,32 @@
 // and a place with none is not offered (Scotland / NI
 // keep the not-covered form; Phase 3 owns them).
 //
+// BUG-009 (founder ruling, 20 Nov 2026): a Districts
+// group returns — in a narrower form than the one
+// M7.15D removed. That group listed a picked PLACE's
+// districts inside the panel; this one serves a
+// single line when the typed input IS exactly a
+// postcode district the directory knows: "<DISTRICT>
+// — the wider area", linking to the district's
+// wider-area route (the same route a one-district
+// place's pick takes). A bare district otherwise
+// offered only its postcodes and its homes, and the
+// wider-area page — the page built for exactly that
+// intent — was unreachable from the panel.
+//
+// BUG-010 (founder ruling, 20 Nov 2026): a
+// full-postcode-shaped input that resolves to
+// nothing (the founder's witness: "CM3 2JTTX") no
+// longer falls through to the fragment shapes for
+// its outward, which read as though the visitor were
+// still browsing the district. It serves a settled
+// EMPTY response instead — the box shows its
+// no-suggestions line, and pressing search lands on
+// the couldn't-place notice. The shape is judged
+// from the classifier's own outputs
+// (failedFullPostcodeOf below); no new postcode
+// grammar is written here.
+//
 // Server-time budget: under 100ms (D72 item 4). Both reads
 // are prefix/index reads over filed tables — the postcode
 // prefix query rides the postcode column's index, and the
@@ -103,6 +129,7 @@ import {
   compareAddressParts,
   displayText,
   labelForAddressParts,
+  type ClassifiedInput,
   type LoadedAddressParts,
 } from "../address";
 import { homeKeyOf } from "../bundle-cache";
@@ -185,7 +212,7 @@ export interface SuggestionItem {
 
 export interface SuggestionGroups {
   groups: {
-    label: "Postcodes" | "Streets" | "Properties" | "Homes" | "Places";
+    label: "Postcodes" | "Streets" | "Properties" | "Homes" | "Places" | "Districts";
     items: SuggestionItem[];
   }[];
 }
@@ -364,6 +391,40 @@ export function spacedPrefixCandidatesOf(raw: string): string[] {
 // that serves is its fallback, "CM3 2").
 export function spacedPrefixOf(raw: string): string | null {
   return spacedPrefixCandidatesOf(raw)[0] ?? null;
+}
+
+// The failed full postcode (BUG-010, founder ruling
+// 20 Nov 2026): an input that occupies a full
+// postcode's shape — an outward plus an inward
+// ATTEMPT — yet is not one. The classifier found no
+// full postcode in it (a complete, well-formed inward
+// would have classified), and the attempt is not the
+// beginning of one either: inwardPartialOk admits the
+// honest partials ("CM3 2", "CM3 2J"), which keep
+// their fragment suggestions untouched. What remains
+// — an attempt at least a full inward's length,
+// opening with the inward's digit, that is neither —
+// is a postcode the visitor believes they typed
+// whole: "CM3 2JTTX", "CM32JTTX", "E16 1GNX".
+//
+// The judgement reads only the classifier's outputs:
+// the outward it found, and the input's normalised
+// text, which must consist of the outward alone (the
+// compact form) or the outward plus the one attempt
+// token (the spaced form). Anything carrying address
+// words — "CM3 Birkdale", "Birkdale Rise CM3",
+// "CM3 2 Birkdale" — is a mixed input, never this,
+// and keeps the fragment shapes exactly as before.
+function failedFullPostcodeOf(input: ClassifiedInput): boolean {
+  if (input.postcode !== null || input.outward === null) return false;
+  const tokens = input.text.split(" ").filter(Boolean);
+  let attempt: string | null = null;
+  if (tokens.length === 2 && tokens[0] === input.outward) attempt = tokens[1];
+  else if (tokens.length === 1 && tokens[0].startsWith(input.outward))
+    attempt = tokens[0].slice(input.outward.length);
+  if (attempt === null || attempt.length < 3) return false;
+  const first = attempt.charAt(0);
+  return first >= "0" && first <= "9" && !inwardPartialOk(attempt);
 }
 
 // The home key for filed parts alone. homeKeyOf's rung-1
@@ -585,14 +646,38 @@ export async function suggestionsFor(
     return { groups };
   }
 
+  if (failedFullPostcodeOf(input)) {
+    // BUG-010 (founder ruling, 20 Nov 2026): the
+    // failed full postcode serves a settled EMPTY
+    // response — the panel shows its no-suggestions
+    // line and a submit lands on the couldn't-place
+    // notice — rather than melting into the fragment
+    // shapes for its outward, which read as though
+    // the visitor were still browsing the district.
+    logEntry(req, "suggestions.served", {
+      layer: "local",
+      reason: "empty",
+      ms: entryNow() - started,
+      shape: "failed-postcode",
+      postcodes: 0,
+      streets: 0,
+      homes: 0,
+      places: 0,
+      districts: 0,
+    });
+    return { groups };
+  }
+
   // ---- The fragment shapes (M7.15C, M7.15D): the
   // groups. Group order — Postcodes, Streets,
-  // Properties, Places, then the named place's
-  // Districts — and each group serves under its own
-  // rule (see the header): Postcodes complete to the
-  // ceiling, Streets, Properties and Places capped at
-  // five, the Districts the named place's complete
-  // served set.
+  // Properties, Places, then Districts — and each
+  // group serves under its own rule (see the header):
+  // Postcodes complete to the ceiling, Streets,
+  // Properties and Places capped at five, Districts
+  // the single wider-area line for an input that is
+  // exactly a district (BUG-009, founder ruling
+  // 20 Nov 2026 — not the M7.15D place-districts
+  // group, which stays removed).
   const shape = input.outward ? "partial-postcode" : "text";
 
   // Postcodes: the first candidate the filed directory
@@ -739,15 +824,39 @@ export async function suggestionsFor(
     groups.push({ label: "Places", items: placeUnits.map(placeItemOf) });
   }
 
-  // The districts no longer ride the panel (founder
-  // ruling, 19 Nov 2026, reversing the M7.15D chooser):
-  // a place pick navigates to the place page, which
-  // lists the districts in full — the in-dropdown
-  // "Districts in <Place>" group and its exact-name
-  // expansion are gone entirely, so a panel holds the
-  // place as a choice and nothing beneath it, picked or
-  // not. The served log keeps its districts field at
-  // zero so the log's shape does not move.
+  // Districts (BUG-009, founder ruling 20 Nov 2026):
+  // the input IS exactly a district the directory
+  // knows — its normalised whole equals the outward,
+  // and the Postcodes walk above served that very
+  // prefix — so the panel also offers the district's
+  // wider-area page, the one destination the fragment
+  // shapes could not reach before. The item links to
+  // the wider-area route a one-district place's pick
+  // takes (widerAreaRoute). This is not the M7.15D
+  // "Districts in <Place>" group: that listed a
+  // place's districts under a pick (removed 19 Nov
+  // 2026, and it stays removed — a panel still holds
+  // a place as a choice and nothing beneath it); this
+  // serves one line for the district itself, only
+  // when nothing but the district was typed.
+  const bareDistrict =
+    input.outward !== null &&
+    servedPrefix === input.outward &&
+    raw.trim().toUpperCase().replace(/\s+/g, " ") === input.outward
+      ? input.outward
+      : null;
+  if (bareDistrict !== null) {
+    groups.push({
+      label: "Districts",
+      items: [{ label: `${bareDistrict} — the wider area`, href: widerAreaRoute(bareDistrict) }],
+    });
+  }
+
+  // The served log's districts field counts the
+  // Districts group above (0 or 1 since BUG-009): the
+  // field's shape does not move — it has stood in the
+  // line since M7.15D — and its count is the honest
+  // one again now a Districts group can serve.
   logEntry(req, "suggestions.served", {
     layer: "local",
     reason: groups.length > 0 ? "ok" : "empty",
@@ -757,7 +866,7 @@ export async function suggestionsFor(
     streets: streetUnits.length,
     homes: propertyCount,
     places: placeUnits.length,
-    districts: 0,
+    districts: bareDistrict !== null ? 1 : 0,
   });
   return { groups };
 }

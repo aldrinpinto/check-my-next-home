@@ -438,9 +438,14 @@ describe("two-digit districts — partial-postcode suggestions", () => {
   });
 
   it("a bare two-digit district suggests its postcodes", async () => {
+    // RE-PINNED (BUG-009, founder ruling 20 Nov 2026):
+    // a bare district now also serves the Districts
+    // group — its wider-area line — behind the
+    // Postcodes, so the panel holds two groups where
+    // this spec once pinned one. The Postcodes group
+    // itself is unchanged.
     const result = await suggestionsFor("E16", districtSource(), "t1");
-    expect(result.groups).toHaveLength(1);
-    expect(result.groups[0].label).toBe("Postcodes");
+    expect(result.groups.map((group) => group.label)).toEqual(["Postcodes", "Districts"]);
     expect(result.groups[0].items.map((item) => item.label)).toEqual(["E16 1EG", "E16 1GN"]);
   });
 
@@ -466,16 +471,211 @@ describe("two-digit districts — partial-postcode suggestions", () => {
     // directory does not hold, so the walk falls through
     // to "CM3 2" — the behaviour the site has always had
     // for this typing.
+    // RE-PINNED (BUG-009, founder ruling 20 Nov 2026):
+    // exactly "CM3" also serves the Districts group now
+    // (see the BUG-009 describe below), so the group
+    // count is asserted per input — the Postcodes group
+    // leads for all three, and only the bare district
+    // gains the second group.
     for (const raw of ["CM3", "CM32", "CM3 2"]) {
       const result = await suggestionsFor(raw, districtSource(), "t3");
-      expect(result.groups).toHaveLength(1);
+      expect(result.groups[0].label).toBe("Postcodes");
       expect(result.groups[0].items.map((item) => item.label)).toEqual(["CM3 2JT"]);
+      expect(result.groups.map((group) => group.label)).toEqual(
+        raw === "CM3" ? ["Postcodes", "Districts"] : ["Postcodes"],
+      );
     }
   });
 
   it("a well-formed prefix the directory does not hold still serves nothing", async () => {
     const result = await suggestionsFor("SW1A", districtSource(), "t4");
     expect(result.groups).toEqual([]);
+  });
+});
+
+// ------------------------------------------------------------------
+// BUG-009 (founder ruling, 20 Nov 2026): typing exactly
+// a postcode district served its Postcodes and its
+// Properties but never the district's own wider-area
+// page — the page built for exactly that intent was
+// unreachable from the panel. The fragment shapes now
+// carry a Districts group behind the others: one line,
+// "<DISTRICT> — the wider area", on the wider-area
+// route a one-district place's pick takes. It serves
+// only when the typed input IS the district (nothing
+// more typed with it) and the directory knows the
+// district. This is not the M7.15D "Districts in
+// <Place>" group (removed 19 Nov 2026): that listed a
+// place's districts under a pick; this names the
+// district the visitor typed themselves.
+// ------------------------------------------------------------------
+
+describe("BUG-009 — a bare district offers its wider area", () => {
+  // The witness directory: the golden CM3 2JT and two
+  // E16 postcodes; no streets, places or properties.
+  function districtSource(): SuggestionSource {
+    const directory = ["CM3 2JT", "E16 1EG", "E16 1GN"];
+    return {
+      async postcodesByPrefix(prefix, limit) {
+        return directory
+          .filter((postcode) => postcode.startsWith(prefix))
+          .sort()
+          .slice(0, limit);
+      },
+      async addressesInPostcode() {
+        return [];
+      },
+      async streetsByPrefix() {
+        return [];
+      },
+      async streetsByFuzzy() {
+        return [];
+      },
+      async placesByPrefix() {
+        return [];
+      },
+      async placesByFuzzy() {
+        return [];
+      },
+      async placeDistricts() {
+        return [];
+      },
+      async propertiesMatching() {
+        return [];
+      },
+    };
+  }
+
+  it("typing exactly CM3 offers the wider area, behind the Postcodes", async () => {
+    const result = await suggestionsFor("CM3", districtSource(), "b9a");
+    expect(result.groups.map((group) => group.label)).toEqual(["Postcodes", "Districts"]);
+    expect(result.groups[1].items).toEqual([
+      { label: "CM3 — the wider area", href: "/search?outward=CM3" },
+    ]);
+    const served = logsFor("b9a").find((l) => l.includes("event=suggestions.served"));
+    expect(served).toContain("districts=1");
+    expect(served).toContain("postcodes=1");
+  });
+
+  it("a bare two-digit district offers its wider area the same way", async () => {
+    const result = await suggestionsFor("E16", districtSource(), "b9b");
+    expect(result.groups.map((group) => group.label)).toEqual(["Postcodes", "Districts"]);
+    expect(result.groups[1].items).toEqual([
+      { label: "E16 — the wider area", href: "/search?outward=E16" },
+    ]);
+  });
+
+  it("case and padding do not change what exactly-the-district means", async () => {
+    for (const raw of ["cm3", " CM3 "]) {
+      const result = await suggestionsFor(raw, districtSource(), "b9c");
+      expect(result.groups.map((group) => group.label)).toEqual(["Postcodes", "Districts"]);
+    }
+  });
+
+  it("a partial postcode is not exactly a district — no wider-area line", async () => {
+    const result = await suggestionsFor("CM3 2", districtSource(), "b9d");
+    expect(result.groups.map((group) => group.label)).toEqual(["Postcodes"]);
+  });
+
+  it("a district typed with address words is not exactly a district either", async () => {
+    const result = await suggestionsFor("Birkdale Rise CM3", districtSource(), "b9e");
+    expect(result.groups.map((group) => group.label)).not.toContain("Districts");
+  });
+
+  it("a district the directory does not know offers nothing at all", async () => {
+    const result = await suggestionsFor("ZZ9", districtSource(), "b9f");
+    expect(result.groups).toEqual([]);
+  });
+});
+
+// ------------------------------------------------------------------
+// BUG-010 (founder ruling, 20 Nov 2026): a
+// full-postcode-shaped input that resolves to nothing
+// — the founder's witness "CM3 2JTTX", typed live —
+// fell through to the fragment shapes for its outward
+// and opened the district's fragment list, as though
+// the visitor were still browsing. It now serves a
+// settled EMPTY response: the panel shows the
+// no-suggestions line (BUG-008) and a submit lands on
+// the couldn't-place notice. Honest partials and
+// mixed inputs keep their fragment behaviour exactly.
+// ------------------------------------------------------------------
+
+describe("BUG-010 — a failed full postcode serves a settled empty response", () => {
+  function districtSource(): SuggestionSource {
+    const directory = ["CM3 2JT", "E16 1EG", "E16 1GN"];
+    return {
+      async postcodesByPrefix(prefix, limit) {
+        return directory
+          .filter((postcode) => postcode.startsWith(prefix))
+          .sort()
+          .slice(0, limit);
+      },
+      async addressesInPostcode() {
+        return [];
+      },
+      async streetsByPrefix() {
+        return [];
+      },
+      async streetsByFuzzy() {
+        return [];
+      },
+      async placesByPrefix() {
+        return [];
+      },
+      async placesByFuzzy() {
+        return [];
+      },
+      async placeDistricts() {
+        return [];
+      },
+      async propertiesMatching() {
+        return [];
+      },
+    };
+  }
+
+  it("the founder's witness: CM3 2JTTX serves nothing — no melt into CM3 fragments", async () => {
+    const result = await suggestionsFor("CM3 2JTTX", districtSource(), "b10a");
+    expect(result.groups).toEqual([]);
+    const served = logsFor("b10a").find((l) => l.includes("event=suggestions.served"));
+    expect(served).toContain("reason=empty");
+    expect(served).toContain("shape=failed-postcode");
+  });
+
+  it("the compact form melts no more than the spaced form", async () => {
+    const result = await suggestionsFor("CM32JTTX", districtSource(), "b10b");
+    expect(result.groups).toEqual([]);
+  });
+
+  it("an over-long inward in a two-digit district is the same shape", async () => {
+    const result = await suggestionsFor("E16 1GNX", districtSource(), "b10c");
+    expect(result.groups).toEqual([]);
+  });
+
+  it("honest partials keep their fragments: CM3 2 still serves its postcodes", async () => {
+    const result = await suggestionsFor("CM3 2", districtSource(), "b10d");
+    expect(result.groups.map((group) => group.label)).toEqual(["Postcodes"]);
+    expect(result.groups[0].items.map((item) => item.label)).toEqual(["CM3 2JT"]);
+  });
+
+  it("a begun inward is an honest partial, not a failed postcode: CM3 2J narrows and serves", async () => {
+    // "CM3 2J" has typed the inward's first two
+    // characters — a valid beginning (inwardPartialOk),
+    // so BUG-010 does not claim it: the fragment walk
+    // serves the postcodes under the "CM3 2J" prefix,
+    // exactly as before the ruling.
+    const result = await suggestionsFor("CM3 2J", districtSource(), "b10e");
+    expect(result.groups.map((group) => group.label)).toEqual(["Postcodes"]);
+    expect(result.groups[0].items.map((item) => item.label)).toEqual(["CM3 2JT"]);
+    const served = logsFor("b10e").find((l) => l.includes("event=suggestions.served"));
+    expect(served).toContain("shape=partial-postcode");
+  });
+
+  it("a mixed input is not a failed postcode: CM3 plus a street word keeps its fragments", async () => {
+    const result = await suggestionsFor("CM3 Birkdale", districtSource(), "b10f");
+    expect(result.groups[0].label).toBe("Postcodes");
+    expect(result.groups[0].items.map((item) => item.label)).toEqual(["CM3 2JT"]);
   });
 });
 

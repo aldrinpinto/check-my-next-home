@@ -27,6 +27,7 @@ import {
 // They are re-exported here so this module's existing
 // importers are untouched.
 export { floodBandOf, formatFiledDate, formatMiles, formatPounds };
+import { DISTANCE_BASIS_LABEL, RADIUS_MILES } from "./nearby";
 import type { CategoryAnswer, NearbyBundle, NearbyPlace } from "./nearby";
 import { HOW_WE_CHECK_PATH, REPORT_PRICE_LABEL } from "./site";
 import type { ShortBundle, ShortPolygonLayer, ShortSections } from "./short-bundle";
@@ -544,6 +545,23 @@ function placeRow(
   };
 }
 
+// The beyond-nearest line, recomposed at this layer
+// (BUG-014 residual, founder ruling 20 Nov 2026): the
+// brain composes its line with the miles at three
+// decimals (lib/nearby.ts), and serving it verbatim
+// put "14.671 miles away" on the results page while
+// every other miles figure the site serves is the
+// uniform one decimal (formatMiles). The sentence is
+// the brain's own — the checking feed recomposes it
+// the same way (lib/journey.ts's schools group) —
+// only the number's dress changes. Recomposing from
+// the parts here keeps the brain's line, and with it
+// the bundle contract pins and the golden replay,
+// exactly where they stand.
+export function noneWithinBeyondLine(name: string, miles: number): string {
+  return `none within ${RADIUS_MILES} miles — nearest is ${name}, ${formatMiles(miles)} miles away (${DISTANCE_BASIS_LABEL})`;
+}
+
 export function placeGroupView(
   category: CategoryAnswer,
   presentation: CategoryPresentation,
@@ -586,9 +604,12 @@ export function placeGroupView(
   if (category.state === "none-within" && category.beyondNearest) {
     // The essential-services form: the ruled line names the
     // beyond nearest, and the row carries it with its miles.
+    // The line is recomposed from its parts at the display
+    // precision (noneWithinBeyondLine above), never the
+    // brain's three-decimal form verbatim.
     return {
       ...base,
-      line: category.line,
+      line: noneWithinBeyondLine(category.beyondNearest.name, category.beyondNearest.miles),
       rows: [
         placeRow(
           {

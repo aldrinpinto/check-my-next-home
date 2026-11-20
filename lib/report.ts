@@ -10,6 +10,7 @@ import {
   CATCHMENT_BLOCK_HEADING,
   CATCHMENT_BLOCK_LINE,
   CATCHMENT_LINK,
+  noneWithinBeyondLine,
   reportRoute,
 } from "./results";
 import { REPORT_DOOR_STATE, type ReportDoorState } from "./site";
@@ -310,8 +311,19 @@ function countLine(answer: CategoryAnswer): ReportBlock | null {
 // finding about the area.
 function stateLine(answer: CategoryAnswer): ReportBlock | null {
   if (answer.state === "within" || answer.line === null) return null;
-  if (answer.state === "empty" || answer.state === "empty-map" || answer.state === "none-within")
-    return { type: "boldLine", text: answer.line };
+  if (answer.state === "empty" || answer.state === "empty-map" || answer.state === "none-within") {
+    // The none-within sentence is recomposed from its
+    // parts at the site's one-decimal precision, never
+    // served as the brain's raw-precision line — the
+    // results page's rule (BUG-014), extended to the
+    // report by the founder's ruling of 20 Nov 2026.
+    // The brain's line itself is untouched.
+    const text =
+      answer.state === "none-within" && answer.beyondNearest
+        ? noneWithinBeyondLine(answer.beyondNearest.name, answer.beyondNearest.miles)
+        : answer.line;
+    return { type: "boldLine", text };
+  }
   return { type: "line", text: answer.line };
 }
 
@@ -478,7 +490,14 @@ function buildShortVersion(input: ReportInput): ReportView["shortVersion"] {
     dentist && pharmacy
       ? `NHS dentist ${formatMiles(dentist.miles)} and pharmacy ${formatMiles(pharmacy.miles)}.`
       : null,
-    aeAnswer && aeAnswer.state === "none-within" ? aeAnswer.line : null,
+    // The none-within A&E line is recomposed at
+    // one-decimal precision, as in stateLine above —
+    // never the brain's raw-precision line.
+    aeAnswer && aeAnswer.state === "none-within"
+      ? aeAnswer.beyondNearest
+        ? noneWithinBeyondLine(aeAnswer.beyondNearest.name, aeAnswer.beyondNearest.miles)
+        : aeAnswer.line
+      : null,
     aeAnswer && aeAnswer.state === "within" && aeAnswer.places.length > 0
       ? `A&E ${formatMiles(aeAnswer.places[0].miles)} — ${aeAnswer.places[0].name}.`
       : null,

@@ -29,10 +29,16 @@
 // the client renders it scrollable). Fragment shapes
 // serve the groups in the ruling's order — "Postcodes",
 // "Streets", "Properties" (M7.15C), then "Places"
-// (M7.15D): Postcodes complete to the defensive ceiling
+// (M7.15D), then "Districts" (founder ruling, 20 Nov
+// 2026 — BUG-009: one wider-area line, only when the
+// typed input is exactly a district the directory
+// knows): Postcodes complete to the defensive ceiling
 // (the E161G fix — the grouped cap of 5 is a render
 // window in the panel's CSS, never a served cut),
-// Streets, Properties and Places capped at 5 each.
+// Streets, Properties and Places capped at 5 each. A
+// full-postcode-shaped input that resolves to nothing
+// serves a settled empty response (BUG-010, same
+// ruling) rather than its outward's fragments.
 //
 // A Places item carries { label, href, place }: the
 // href is the place page's route (a single-district

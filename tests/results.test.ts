@@ -734,6 +734,36 @@ describe("results — place groups", () => {
     expect(group.rows[0].band).toBe("green");
     expect(group.truncation).toBeNull();
   });
+
+  it("none-within: the served line rounds the beyond-nearest miles to one decimal (BUG-014 residual)", () => {
+    // The brain's composed line carries its miles at
+    // three decimals — the input below is the brain's
+    // own form, verbatim — and the results page used to
+    // serve it untouched, so "14.671 miles away" stood
+    // beside one-decimal figures everywhere else
+    // (founder ruling, 20 Nov 2026: round it like
+    // everywhere else). The group now recomposes the
+    // line from its parts at the display precision; the
+    // brain's line itself is not touched.
+    const primary = category({
+      category: "schools-primary",
+      state: "none-within",
+      places: [],
+      countWithin: 0,
+      beyondNearest: { name: "Far Away Place", miles: 14.671, latitude: 51.7, longitude: 0.6 },
+      line: "none within 2 miles — nearest is Far Away Place, 14.671 miles away (straight-line distance from the postcode point)",
+    });
+    const group = placeGroupView(
+      primary,
+      { heading: "Primary schools", groupLabel: "primary schools", display: 3, family: "school" },
+      true,
+    );
+    expect(group.line).toBe(
+      "none within 2 miles — nearest is Far Away Place, 14.7 miles away (straight-line distance from the postcode point)",
+    );
+    expect(group.rows).toHaveLength(1);
+    expect(group.rows[0].milesText).toBe("14.7 mi");
+  });
 });
 
 describe("results — pill logic D75 (fold-in)", () => {
@@ -2198,6 +2228,12 @@ describe("results — nation gating (Scotland/NI gap check, fold-in workstream 6
     const primary = section(view, "family", "schools-primary");
     expect(JSON.stringify(primary.blocks)).toContain("Far Away Place");
     expect(JSON.stringify(primary.blocks)).toContain("14.7 mi");
+    // BUG-014 residual (founder ruling, 20 Nov 2026):
+    // the group's line rides in the same blocks at the
+    // same precision — the brain's three-decimal form
+    // appears nowhere in the section.
+    expect(JSON.stringify(primary.blocks)).toContain("14.7 miles away");
+    expect(JSON.stringify(primary.blocks)).not.toContain("14.671");
   });
 
   it("beyond radius (CI #205 fix): a nearest beyond 25 miles serves the no-finding line, in England too", () => {

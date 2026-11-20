@@ -140,13 +140,17 @@ test.describe("suggestions dropdown — regression", () => {
       await box.fill("E161G");
       await expect(panel.getByRole("option", { name: "E16 1GN", exact: true })).toBeAttached();
       // The narrowed count is asserted with Playwright's
-      // retrying form: the panel still shows the "E161"
-      // pair until the debounced "E161G" response lands,
-      // and a one-shot count() reads that stale pair
-      // (CI #218: expected 1, got 2, on both attempts —
-      // the served set was already correct, as the unit
-      // pins in tests/entry-point.test.ts prove against
-      // this same two-postcode directory).
+      // retrying form: a one-shot count() can land in the
+      // beat between the fill clearing the "E161" pair
+      // (BUG-033: the old list drops the moment the text
+      // changes) and the debounced "E161G" response
+      // repainting the panel with the narrowed set — the
+      // served set was always correct, as the unit pins
+      // in tests/entry-point.test.ts prove against this
+      // same two-postcode directory. (CI #218's lesson,
+      // whose stale-pair mechanism — the panel holding
+      // the old pair until the new response landed —
+      // BUG-033 has since removed.)
       await expect(
         panel.getByRole("listbox", { name: "Postcodes" }).getByRole("option"),
       ).toHaveCount(1);
@@ -445,6 +449,53 @@ test.describe("suggestions dropdown — regression", () => {
 
       const panel = page.locator("#postcode-suggestions");
       await expect(panel).toBeVisible();
+      await expect(panel.locator(".suggest__empty")).toHaveText(
+        "No suggestions for that — check the spelling, or use the button to search anyway.",
+      );
+    },
+  );
+
+  test(
+    "BUG-033: editing the text drops the old suggestions at once — nothing stale renders mid-flight",
+    { tag: "@regression" },
+    async ({ page }) => {
+      // Founder-found live (20 Nov 2026): type CM3, then
+      // backspace and retype CO1 — the CM3 list stayed
+      // on screen for a few seconds under a field
+      // reading CO1, its rows clickable, so a tap could
+      // pick a CM3 home while aiming at CO1. The box
+      // now clears the served list the moment the text
+      // changes. The spec holds the CO1 response at the
+      // network so the mid-flight state is observed
+      // deterministically: with the response still
+      // outstanding, no CM3 row exists — and the
+      // no-suggestions line has NOT appeared either,
+      // because it belongs to a settled empty answer
+      // only (BUG-008). When the held response lands —
+      // CO1 names nothing in the seeded corpus — the
+      // line appears, on the settle.
+      await page.goto("/");
+      const box = page.locator("#postcode");
+      const panel = page.locator("#postcode-suggestions");
+      await box.fill("CM3");
+      await expect(panel.getByRole("option", { name: "CM3 2JT", exact: true })).toBeVisible();
+
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      await page.route(/\/api\/suggest\?q=CO1$/, async (route) => {
+        await held;
+        await route.continue();
+      });
+      await box.fill("CO1");
+
+      // Mid-flight: the old list is already gone, and
+      // nothing has taken its place yet.
+      await expect(panel.getByRole("option")).toHaveCount(0);
+      await expect(panel.locator(".suggest__empty")).toHaveCount(0);
+
+      release();
       await expect(panel.locator(".suggest__empty")).toHaveText(
         "No suggestions for that — check the spelling, or use the button to search anyway.",
       );
