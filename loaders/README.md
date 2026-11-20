@@ -532,7 +532,11 @@ private; only drawn facts are served, with the
 attribution line the flood-map pictures carry. Modes:
 default (live download, national), `--verify-only`,
 `--pbf-dir <dir>`, `--bbox <list>` (with `--pbf-dir` or a
-download), `--file tests/fixtures/streets`.
+download), `--file tests/fixtures/streets`. The Exeter capture is
+stored gzipped + base64 (`exeter.osm.gz.b64` — its
+5 MB of raw XML exceeds the push channel's request
+limit) and the loader materialises it in fixture mode
+on first use.
 
 ## Parks loader (plan step M5.6)
 

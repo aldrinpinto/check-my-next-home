@@ -73,10 +73,12 @@
 import {
   createReadStream,
   createWriteStream,
+  existsSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -86,6 +88,7 @@ import { createInterface } from "node:readline";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
+import { gunzipSync } from "node:zlib";
 import pg from "pg";
 
 const { Pool } = pg;
@@ -475,6 +478,22 @@ async function main() {
   try {
     if (fixtureMode) {
       const fixtureDir = fileArg ?? DEFAULT_FIXTURE_DIR;
+      // A capture too large to commit raw (the Exeter
+      // cut is 5 MB of XML, over the push channel's
+      // request limit) is stored gzipped + base64 as
+      // <name>.osm.gz.b64 and materialised here on
+      // first use — the same encoded-fixture pattern
+      // as the e2e screenshot baselines. A plain .osm
+      // already on disk is never overwritten.
+      for (const f of readdirSync(fixtureDir).filter((x) => x.endsWith(".osm.gz.b64"))) {
+        const plain = join(fixtureDir, f.slice(0, -".gz.b64".length));
+        if (!existsSync(plain)) {
+          writeFileSync(
+            plain,
+            gunzipSync(Buffer.from(readFileSync(join(fixtureDir, f), "utf8"), "base64")),
+          );
+        }
+      }
       const capturedDate = JSON.parse(
         readFileSync(join(fixtureDir, "fixture.json"), "utf8"),
       ).captured;
