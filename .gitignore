@@ -42,6 +42,7 @@ next-env.d.ts
 /app/apple-icon.png
 /public/og-image.png
 /public/sample-report/*.png
+/e2e/visual.e2e.ts-snapshots/*.png
 /public/fonts/*.woff2
 
 # Playwright (M7.1) — run artefacts, never committed

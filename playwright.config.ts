@@ -68,6 +68,10 @@ process.env.E2E_COLD_POOL = "1";
 export default defineConfig({
   testDir: "e2e",
   testMatch: "**/*.e2e.ts",
+  // The visual guard's baselines decode from their
+  // committed .b64 sources before any run (see
+  // e2e/materialise-snapshots.mjs).
+  globalSetup: "./e2e/materialise-snapshots.mjs",
   timeout: 60_000,
   // One retry, CI only (founder ruling, 17 Nov 2026): a
   // safety net for runner noise alongside the Turnstile
