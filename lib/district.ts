@@ -298,14 +298,16 @@ export interface DistrictDataSource {
   // national preload's distinct homes, M7.15B).
   pickingHomes(outward: string): Promise<number>;
   // The district's filed place names: localities and post
-  // towns from its sales rows and its picking index, the
+  // towns from its sales rows and its picking index,
+  // each with its filing count (the settlement filter
+  // keeps the most-filed form of a name — BUG-034), the
   // counties its sales rows file (Price Paid's own county
   // column — the head chip's data, founder fix batch,
   // audit item 4), and one filed postcode per locality
   // (the bridge's named-area links land on it).
   places(outward: string): Promise<{
-    localities: string[];
-    towns: string[];
+    localities: FiledPlaceName[];
+    towns: FiledPlaceName[];
     counties: string[];
     settlementPostcodes: { locality: string; postcode: string }[];
   }>;
@@ -815,18 +817,176 @@ export function isSettlementName(name: string): boolean {
   return true;
 }
 
+// The comparison form of a filed name: case, spacing
+// and punctuation flattened, so two filings that differ
+// only in dress ("BURNHAM-ON-CROUCH", "Burnham on
+// Crouch") compare as the same name.
+function settlementKey(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+// A county is never a settlement, and neither is the
+// truncated filing of one (BUG-034, founder ruling
+// 20 Nov 2026): the register's locality column
+// sometimes files the county itself among a district's
+// settlements ("Essex" in CM1) or a cut-off form of it
+// ("Ess"). The district's own filed counties — the
+// same rows' county column, passed in by the caller —
+// name what to drop: a name equal to a county, or a
+// strict prefix of one, at least three letters long
+// and at least two letters short of the whole (a
+// fragment; a real name that merely opens the same way
+// is longer than that or is the county's equal in full
+// only where it truly is the county).
+function isCountyForm(key: string, countyKeys: Set<string>): boolean {
+  for (const county of countyKeys) {
+    if (key === county) return true;
+    if (key.length >= 3 && county.length - key.length >= 2 && county.startsWith(key)) return true;
+  }
+  return false;
+}
+
+// The edit distance between two comparison forms, with
+// an adjacent transposition costing one edit — the
+// register's misspellings are substitutions, dropped or
+// added letters and swapped neighbours ("Chemlsford"
+// is Chelmsford with two letters swapped).
+function editDistance(a: string, b: string): number {
+  const table: number[][] = Array.from({ length: a.length + 1 }, (_, i) => {
+    const row = new Array<number>(b.length + 1).fill(0);
+    row[0] = i;
+    return row;
+  });
+  for (let j = 0; j <= b.length; j++) table[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      table[i][j] = Math.min(table[i - 1][j] + 1, table[i][j - 1] + 1, table[i - 1][j - 1] + cost);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+        table[i][j] = Math.min(table[i][j], table[i - 2][j - 2] + 1);
+      }
+    }
+  }
+  return table[a.length][b.length];
+}
+
+// Two filed forms are spellings of one settlement when
+// they are near-identical (BUG-034): same opening
+// letter, close in length, and within a small edit
+// distance — one edit for a short name, two for a
+// longer one. The leash is deliberately tight: two
+// edits in a short name is a different place, not a
+// typo, and distinct settlements (Springfield and
+// Broomfield; Great Baddow and Little Baddow) sit far
+// outside it. When in doubt the filter keeps both.
+function areSpellingVariants(a: string, b: string): boolean {
+  if (a === b || a.length < 4 || b.length < 4) return false;
+  if (a[0] !== b[0]) return false;
+  if (Math.abs(a.length - b.length) > 2) return false;
+  const distance = editDistance(a, b);
+  return Math.min(a.length, b.length) < 8 ? distance <= 1 : distance <= 2;
+}
+
+// One filed place name and how many filings stand
+// behind it (sales rows for a locality or post town;
+// sales plus picking-index rows for a post town in the
+// place page's read). The counts are what let the
+// filter below keep the MOST-FILED form of a name, as
+// the founder ruled — a misspelling is by construction
+// the rarely-filed form.
+export interface FiledPlaceName {
+  name: string;
+  filings: number;
+}
+
+// A variant cluster keeps ONE filed form (BUG-034,
+// founder ruling 20 Nov 2026): the most-filed form —
+// the spelling the register itself uses most — with
+// deterministic tie-breaks that never depend on
+// filing order (the form closest to the spellings it
+// would absorb, then the longer form, then the first
+// alphabetically). Each representative claims only
+// the names that are variants of ITSELF, never of a
+// fellow member — a chain of near-misses cannot walk
+// the cluster into a different settlement.
+function collapseSpellingVariants(
+  entries: { display: string; key: string; filings: number }[],
+): string[] {
+  // Standing: a form's total edit distance to the
+  // variants around it. The true spelling sits at the
+  // cluster's centre (every typo is one edit from it,
+  // and two from each other); a misspelling sits at
+  // its edge.
+  const standing = entries.map((entry, i) =>
+    entries.reduce(
+      (total, other, j) =>
+        i !== j && areSpellingVariants(entry.key, other.key)
+          ? total + editDistance(entry.key, other.key)
+          : total,
+      0,
+    ),
+  );
+  const order = entries
+    .map((_, i) => i)
+    .sort(
+      (x, y) =>
+        entries[y].filings - entries[x].filings ||
+        standing[x] - standing[y] ||
+        entries[y].key.length - entries[x].key.length ||
+        (entries[x].display < entries[y].display ? -1 : 1),
+    );
+  const claimed = new Set<number>();
+  const kept: string[] = [];
+  for (const i of order) {
+    if (claimed.has(i)) continue;
+    claimed.add(i);
+    kept.push(entries[i].display);
+    for (let j = 0; j < entries.length; j++) {
+      if (!claimed.has(j) && areSpellingVariants(entries[i].key, entries[j].key)) claimed.add(j);
+    }
+  }
+  return kept;
+}
+
 // The district's cleaned settlement set: display form,
-// fragments filtered, deduped, sorted — the one set the
-// district section's pills and the bridge's named links
-// both read, so the two surfaces can never disagree
-// about what the district's settlements are.
+// fragments filtered, county forms dropped, spelling
+// variants collapsed to one filed form, deduped,
+// sorted — the one set the district section's pills
+// and the bridge's named links both read, so the two
+// surfaces can never disagree about what the district's
+// settlements are.
 // Exported for one second consumer: the place page's
 // per-district area descriptions (lib/server/places.ts)
 // clean the same filed names through the same filter,
 // so a settlement the district page would not name is
-// never named on the place page either.
-export function cleanSettlements(rawNames: string[]): string[] {
-  return [...new Set(rawNames.map((name) => displayText(name)).filter(isSettlementName))].sort();
+// never named on the place page either. The caller
+// passes the district's own filed counties (the same
+// rows' county column) for the county-form drop.
+export function cleanSettlements(filedNames: FiledPlaceName[], counties: string[] = []): string[] {
+  const countyKeys = new Set(counties.map(settlementKey).filter((key) => key.length > 0));
+  const byKey = new Map<string, { display: string; key: string; filings: number }>();
+  for (const filed of filedNames) {
+    const display = displayText(filed.name);
+    if (!isSettlementName(display)) continue;
+    const key = settlementKey(display);
+    if (isCountyForm(key, countyKeys)) continue;
+    // Two filings in different dress share a key: their
+    // filings add up behind one name, and the
+    // alphabetically first display stands, so the
+    // choice never depends on filing order.
+    const existing = byKey.get(key);
+    if (existing === undefined) {
+      byKey.set(key, { display, key, filings: filed.filings });
+    } else {
+      existing.filings += filed.filings;
+      if (display < existing.display) existing.display = display;
+    }
+  }
+  return collapseSpellingVariants([...byKey.values()]).sort();
 }
 
 export interface DistrictBundleOptions {
@@ -1020,7 +1180,7 @@ export async function buildDistrictBundle(
     msoaCount: msoaCodes.length,
     councils,
     counties: [...new Set(places.counties.map((name) => displayText(name)))].sort(),
-    postTown: places.towns[0] ? displayText(places.towns[0]) : null,
+    postTown: places.towns[0] ? displayText(places.towns[0].name) : null,
     region: regions[0] ?? null,
     sourceName: stamp?.sourceName ?? null,
     sourceDate: stamp?.sourceDate ?? null,
@@ -1029,7 +1189,7 @@ export async function buildDistrictBundle(
 
   // 1 — The district itself.
   const settlementsRaw = places.localities.length > 0 ? places.localities : places.towns;
-  const settlements = cleanSettlements(settlementsRaw);
+  const settlements = cleanSettlements(settlementsRaw, places.counties);
   // The bridge's named links ride the same cleaned set:
   // one filed postcode per settlement, from the sales
   // rows that filed the locality.
@@ -1818,12 +1978,30 @@ export function createDistrictSource(db: AddressQueryable): DistrictDataSource {
     },
 
     async places(outward) {
-      const { rows } = await db.query(
-        `SELECT DISTINCT locality, town FROM price_paid WHERE starts_with(postcode, $1)`,
+      // Filing counts ride with the names (BUG-034):
+      // the settlement filter keeps the most-filed form
+      // of a name, so these reads count rather than
+      // dedupe. Post towns are counted across both
+      // registers that file them and stand most-filed
+      // first, so the head's post town is the district's
+      // main one, deterministically.
+      const { rows: localityRows } = await db.query(
+        `SELECT locality, count(*)::int AS filings FROM price_paid
+          WHERE starts_with(postcode, $1) AND locality IS NOT NULL
+          GROUP BY locality
+          ORDER BY filings DESC, locality`,
         [prefixOf(outward)],
       );
-      const { rows: indexRows } = await db.query(
-        `SELECT DISTINCT town FROM picking_index WHERE starts_with(postcode, $1)`,
+      const { rows: townRows } = await db.query(
+        `SELECT town, count(*)::int AS filings FROM price_paid
+          WHERE starts_with(postcode, $1) AND town IS NOT NULL
+          GROUP BY town`,
+        [prefixOf(outward)],
+      );
+      const { rows: indexTownRows } = await db.query(
+        `SELECT town, count(*)::int AS filings FROM picking_index
+          WHERE starts_with(postcode, $1) AND town IS NOT NULL
+          GROUP BY town`,
         [prefixOf(outward)],
       );
       // The counties the district's sales rows file
@@ -1840,18 +2018,20 @@ export function createDistrictSource(db: AddressQueryable): DistrictDataSource {
          GROUP BY locality`,
         [prefixOf(outward)],
       );
-      const localities = new Set<string>();
-      const towns = new Set<string>();
-      for (const row of rows) {
-        if (row.locality) localities.add(row.locality as string);
-        if (row.town) towns.add(row.town as string);
+      const townsByName = new Map<string, number>();
+      for (const row of [...townRows, ...indexTownRows]) {
+        const town = row.town as string;
+        townsByName.set(town, (townsByName.get(town) ?? 0) + Number(row.filings));
       }
-      for (const row of indexRows) {
-        if (row.town) towns.add(row.town as string);
-      }
+      const towns = [...townsByName.entries()]
+        .map(([name, filings]) => ({ name, filings }))
+        .sort((a, b) => b.filings - a.filings || (a.name < b.name ? -1 : 1));
       return {
-        localities: [...localities],
-        towns: [...towns],
+        localities: localityRows.map((row) => ({
+          name: row.locality as string,
+          filings: Number(row.filings),
+        })),
+        towns,
         counties: countyRows.map((row) => row.county as string),
         settlementPostcodes: settlementRows.map((row) => ({
           locality: row.locality as string,

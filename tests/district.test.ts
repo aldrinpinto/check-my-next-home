@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { CensusFacts } from "../lib/area-bundle";
 import {
   buildDistrictBundle,
+  cleanSettlements,
   type DistrictBundle,
   type DistrictDataSource,
   type DistrictWarningItem,
@@ -256,8 +257,11 @@ function fakeSource(overrides: Partial<DistrictDataSource> = {}): DistrictDataSo
     stations: async () => ["Hatfield Peverel", "Southminster"],
     pickingHomes: async () => 12345,
     places: async () => ({
-      localities: ["HATFIELD PEVEREL", "DANBURY"],
-      towns: ["CHELMSFORD"],
+      localities: [
+        { name: "HATFIELD PEVEREL", filings: 12 },
+        { name: "DANBURY", filings: 9 },
+      ],
+      towns: [{ name: "CHELMSFORD", filings: 40 }],
       counties: ["ESSEX"],
       settlementPostcodes: [
         { locality: "HATFIELD PEVEREL", postcode: "ZZ9 1AA" },
@@ -420,26 +424,147 @@ describe("district bundle — head and the district itself", () => {
     const bundle = await servedBundle({
       places: async () => ({
         localities: [
-          "HATFIELD PEVEREL",
+          { name: "HATFIELD PEVEREL", filings: 12 },
           // A postcode filed in the locality column (the
           // audit's EX2 witness, "Ex2 7ub").
-          "EX2 7UB",
+          { name: "EX2 7UB", filings: 1 },
           // A trailing-comma fragment of a split address.
-          "DANBURY,",
+          { name: "DANBURY,", filings: 1 },
           // A council's full authority name is never a
           // settlement.
-          "BRAINTREE DISTRICT COUNCIL",
-          "DANBURY",
+          { name: "BRAINTREE DISTRICT COUNCIL", filings: 1 },
+          { name: "DANBURY", filings: 9 },
           // A settlement that shares its council's short
           // name is honestly a settlement and stays.
-          "MALDON",
+          { name: "MALDON", filings: 7 },
         ],
-        towns: ["CHELMSFORD"],
+        towns: [{ name: "CHELMSFORD", filings: 40 }],
         counties: ["ESSEX"],
         settlementPostcodes: [],
       }),
     });
     expect(bundle.sections.district.settlements).toEqual(["Danbury", "Hatfield Peverel", "Maldon"]);
+  });
+
+  it("cleans the register's spelling variants and county forms at the same derivation (BUG-034)", async () => {
+    // The parity re-check's CM1 witness, in the
+    // register's filed forms: the place page served
+    // "Chelmsford, Chemlsford, Ess, Essex and 5 more"
+    // from filings in this shape. The district page
+    // reads the same shared filter, so its own set is
+    // the cleaned one too.
+    const bundle = await servedBundle({
+      places: async () => ({
+        localities: [
+          { name: "CHELMSFORD", filings: 900 },
+          { name: "CHEMLSFORD", filings: 2 },
+          { name: "ESS", filings: 1 },
+          { name: "ESSEX", filings: 3 },
+          { name: "SPRINGFIELD", filings: 60 },
+          { name: "BROOMFIELD", filings: 55 },
+          { name: "CHELMER VILLAGE", filings: 30 },
+        ],
+        towns: [{ name: "CHELMSFORD", filings: 900 }],
+        counties: ["ESSEX"],
+        settlementPostcodes: [],
+      }),
+    });
+    expect(bundle.sections.district.settlements).toEqual([
+      "Broomfield",
+      "Chelmer Village",
+      "Chelmsford",
+      "Springfield",
+    ]);
+  });
+});
+
+describe("cleanSettlements — the shared settlement filter (BUG-034)", () => {
+  // The parity re-check's three Chelmsford witness
+  // sets, in the register's filed forms with their
+  // filing counts, pinned to their cleaned outputs.
+  // The founder's ruling (20 Nov 2026): drop the
+  // fragments, collapse spelling variants to the
+  // most-filed form, and never merge real distinct
+  // settlements.
+  const filed = (name: string, filings: number) => ({ name, filings });
+
+  it("CM1: the county and its fragment go, the misspelling collapses, distinct settlements survive", () => {
+    expect(
+      cleanSettlements(
+        [
+          filed("CHELMSFORD", 900),
+          filed("CHEMLSFORD", 2),
+          filed("ESS", 1),
+          filed("ESSEX", 3),
+          filed("SPRINGFIELD", 60),
+          filed("BROOMFIELD", 55),
+          filed("CHELMER VILLAGE", 30),
+          filed("GREAT BADDOW", 45),
+        ],
+        ["ESSEX"],
+      ),
+    ).toEqual(["Broomfield", "Chelmer Village", "Chelmsford", "Great Baddow", "Springfield"]);
+  });
+
+  it("CM11: a dropped-letter variant collapses to the most-filed form", () => {
+    expect(
+      cleanSettlements(
+        [
+          filed("BILLERCAY", 3),
+          filed("BILLERICAY", 700),
+          filed("CHELMSFORD", 200),
+          filed("DOWNHAM", 40),
+          filed("RAMSDEN HEATH", 25),
+          filed("STOCK", 35),
+        ],
+        ["ESSEX"],
+      ),
+    ).toEqual(["Billericay", "Chelmsford", "Downham", "Ramsden Heath", "Stock"]);
+  });
+
+  it("CM2: two misspellings of one name collapse together; Great and Little Baddow both survive", () => {
+    expect(
+      cleanSettlements(
+        [
+          filed("BURNHAM-ON-CROUCH", 300),
+          filed("CHELMESFORD", 2),
+          filed("CHELMSFORD", 500),
+          filed("CHEMLSFORD", 1),
+          filed("GALLYWOOD", 40),
+          filed("GREAT BADDOW", 45),
+          filed("LITTLE BADDOW", 20),
+          filed("SANDON", 30),
+        ],
+        ["ESSEX"],
+      ),
+    ).toEqual([
+      "Burnham-on-crouch",
+      "Chelmsford",
+      "Gallywood",
+      "Great Baddow",
+      "Little Baddow",
+      "Sandon",
+    ]);
+  });
+
+  it("equal filings fall to standing among the variants: the hub form survives", () => {
+    expect(
+      cleanSettlements(
+        [filed("CHEMLSFORD", 5), filed("CHELMSFORD", 5), filed("CHELMESFORD", 5)],
+        ["ESSEX"],
+      ),
+    ).toEqual(["Chelmsford"]);
+  });
+
+  it("a settlement filed only under a misspelling keeps that form — no better form is filed", () => {
+    expect(cleanSettlements([filed("CHEMLSFORD", 4)], ["ESSEX"])).toEqual(["Chemlsford"]);
+  });
+
+  it("without filed counties the filter cannot know a county form, and keeps it", () => {
+    expect(cleanSettlements([filed("ESSEX", 10), filed("CHELMSFORD", 900)])).toEqual([
+      "Chelmsford",
+      "Essex",
+    ]);
   });
 });
 
@@ -982,8 +1107,8 @@ describe("district view — the results layout system, no upsell", () => {
     const names = ["ALPHA", "BRAVO", "CHARLIE", "DELTA", "ECHO", "FOXTROT"];
     const bundle = await servedBundle({
       places: async () => ({
-        localities: names,
-        towns: ["CHELMSFORD"],
+        localities: names.map((name) => ({ name, filings: 1 })),
+        towns: [{ name: "CHELMSFORD", filings: 1 }],
         counties: ["ESSEX"],
         settlementPostcodes: names.map((locality, i) => ({
           locality,

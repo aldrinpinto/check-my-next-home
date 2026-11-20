@@ -36,6 +36,9 @@ const COUNTING_LINE =
 const GIFT_COOKIE_LINE =
   "One more cookie appears if you arrive through a Check Together gift link. It remembers that the gift was claimed on this device, so your free report stays unlocked. It holds no personal details and is never used for counting or advertising.";
 
+const CONTACT_LINE =
+  "**Messages you send us** — if you write to us on the Contact page, we keep your name, your email address and your message on our server, so we can read it and reply. The message is saved before anything else happens, so it reaches us even if the email alerting us to it does not.";
+
 describe("the founder-approved Privacy wordings (19 Nov 2026)", () => {
   it("carries the amended shortlist line and the counting bullet in the collect card's list", () => {
     const items = listItems(card("What we collect and why").blocks);
@@ -64,5 +67,13 @@ describe("the founder-approved Privacy wordings (19 Nov 2026)", () => {
       "We do not use cookies to follow you around the web, to build a profile of you, or to show you advertising.",
       GIFT_COOKIE_LINE,
     ]);
+  });
+});
+
+describe("the founder-approved Privacy wording (20 Nov 2026)", () => {
+  it("carries the contact-messages bullet in the collect card's list, ahead of the counting bullet", () => {
+    const items = listItems(card("What we collect and why").blocks);
+    expect(items).toContain(CONTACT_LINE);
+    expect(items.indexOf(CONTACT_LINE)).toBeLessThan(items.indexOf(COUNTING_LINE));
   });
 });

@@ -1,14 +1,10 @@
 import {
-  PLACE_BRIDGE_LINE,
   PLACE_CHOICE_LINE,
-  SEARCH_ROUTE,
-  homeRoute,
-  placeBridgeHeading,
+  placeBridgeLine,
   placeChoiceCountLine,
   placeDistrictDescription,
   widerAreaRoute,
 } from "../lib/journey";
-import { POSTCODE_BOX_PLACEHOLDER } from "../lib/home";
 
 // The place page (founder ruling, 19 Nov 2026, reversing
 // the 18 Nov in-dropdown chooser): a place pick — from
@@ -27,10 +23,18 @@ import { POSTCODE_BOX_PLACEHOLDER } from "../lib/home";
 // each row carries its one-line area description (the
 // district's cleaned settlements — BUG-026), the count
 // line counts in full words (BUG-025, in
-// placeChoiceCountLine), and the one-home bridge block
-// stands under the list (BUG-027), in the district
-// bridge's own dress: a plain postcode form and one
-// filed postcode in the place as its example link.
+// placeChoiceCountLine), and the one-home bridge stands
+// under the list (BUG-027).
+//
+// BUG-035 (founder ruling, 20 Nov 2026): the bridge is
+// view 29's ONE line and nothing else — the BUG-027
+// block wore the district bridge's heading, form and
+// example chip (view 28's dress), and the parity
+// re-check logged the substitution. The line's example
+// is one filed postcode in the place: the first
+// district, in district order, that files one. No filed
+// postcode anywhere in the place, no example clause;
+// the line still stands.
 export default function PlaceChoice({
   place,
   districts,
@@ -38,10 +42,6 @@ export default function PlaceChoice({
   place: string;
   districts: { outward: string; settlements: string[]; examplePostcode: string | null }[];
 }) {
-  // The bridge's example: the first district's filed
-  // postcode, in district order — one home in the place
-  // to land on. No filed postcode anywhere in the place,
-  // no example link; the form still reaches every home.
   const bridgePostcode = districts.find((district) => district.examplePostcode)?.examplePostcode;
   return (
     <main className="journey-page">
@@ -64,32 +64,7 @@ export default function PlaceChoice({
             );
           })}
         </ul>
-        <div className="district-bridge">
-          <h2 className="district-bridge__heading">{placeBridgeHeading(place)}</h2>
-          <p className="district-bridge__line">{PLACE_BRIDGE_LINE}</p>
-          <form className="district-bridge__form" action={SEARCH_ROUTE} method="get">
-            <label className="visually-hidden" htmlFor="place-bridge-postcode">
-              Full postcode
-            </label>
-            <input
-              className="district-bridge__input"
-              id="place-bridge-postcode"
-              name="postcode"
-              placeholder={POSTCODE_BOX_PLACEHOLDER}
-              autoComplete="postal-code"
-            />
-            <button className="btn btn--primary" type="submit">
-              Check this home →
-            </button>
-          </form>
-          {bridgePostcode && (
-            <div className="district-bridge__links">
-              <a className="district-bridge__chip" href={homeRoute(bridgePostcode)}>
-                {`${bridgePostcode} · ${place}`}
-              </a>
-            </div>
-          )}
-        </div>
+        <p className="picker__bridge-line">{placeBridgeLine(place, bridgePostcode ?? null)}</p>
       </div>
     </main>
   );

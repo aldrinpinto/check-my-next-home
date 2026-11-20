@@ -1886,6 +1886,13 @@ body:has(.main--home) .site-footer {
   margin-bottom: var(--space-4);
 }
 
+/* The place page's one-home bridge line (BUG-035):
+   view 29's single small line under the district list. */
+.picker__bridge-line {
+  font-size: 0.875rem;
+  margin-top: var(--space-4);
+}
+
 .picker__list {
   list-style: none;
   padding: 0;

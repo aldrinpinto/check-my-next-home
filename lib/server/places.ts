@@ -302,22 +302,34 @@ export function createPlaceSource(db: PlaceQueryable): PlaceSource {
 
     async districtAreas(outwards) {
       if (outwards.length === 0) return [];
-      // The district bundle's places() composition, at
-      // set grain: localities and towns as filed in the
-      // sales register, towns topped up from the picking
-      // index, and one filed postcode per locality (the
-      // smallest, deterministically) for the bridge's
-      // example link.
-      const { rows: salesRows } = await db.query(
-        `SELECT DISTINCT split_part(postcode, ' ', 1) AS outward, locality, town
+      // The district bundle's places() composition:
+      // localities and towns as filed in the sales
+      // register, towns topped up from the picking
+      // index, each name carrying its filing count (the
+      // shared settlement filter keeps the most-filed
+      // form of a name — BUG-034), and one filed
+      // postcode per locality (the smallest,
+      // deterministically) for the bridge line's
+      // example.
+      const { rows: localityRows } = await db.query(
+        `SELECT split_part(postcode, ' ', 1) AS outward, locality, count(*)::int AS filings
            FROM price_paid
-          WHERE split_part(postcode, ' ', 1) = ANY($1)`,
+          WHERE split_part(postcode, ' ', 1) = ANY($1) AND locality IS NOT NULL
+          GROUP BY split_part(postcode, ' ', 1), locality`,
+        [outwards],
+      );
+      const { rows: townRows } = await db.query(
+        `SELECT split_part(postcode, ' ', 1) AS outward, town, count(*)::int AS filings
+           FROM price_paid
+          WHERE split_part(postcode, ' ', 1) = ANY($1) AND town IS NOT NULL
+          GROUP BY split_part(postcode, ' ', 1), town`,
         [outwards],
       );
       const { rows: indexRows } = await db.query(
-        `SELECT DISTINCT split_part(postcode, ' ', 1) AS outward, town
+        `SELECT split_part(postcode, ' ', 1) AS outward, town, count(*)::int AS filings
            FROM picking_index
-          WHERE split_part(postcode, ' ', 1) = ANY($1)`,
+          WHERE split_part(postcode, ' ', 1) = ANY($1) AND town IS NOT NULL
+          GROUP BY split_part(postcode, ' ', 1), town`,
         [outwards],
       );
       const { rows: exampleRows } = await db.query(
@@ -327,24 +339,60 @@ export function createPlaceSource(db: PlaceQueryable): PlaceSource {
           GROUP BY split_part(postcode, ' ', 1)`,
         [outwards],
       );
-      const localities = new Map<string, Set<string>>();
-      const towns = new Map<string, Set<string>>();
+      // The districts' filed counties (the same rows'
+      // county column): the shared settlement filter
+      // drops county names and their fragments from the
+      // settlement set (BUG-034), and it can only do so
+      // when the caller names the counties.
+      const { rows: countyRows } = await db.query(
+        `SELECT DISTINCT split_part(postcode, ' ', 1) AS outward, county
+           FROM price_paid
+          WHERE split_part(postcode, ' ', 1) = ANY($1) AND county IS NOT NULL`,
+        [outwards],
+      );
+      const localities = new Map<string, Map<string, number>>();
+      const towns = new Map<string, Map<string, number>>();
+      const counties = new Map<string, Set<string>>();
+      const addCounted = (
+        map: Map<string, Map<string, number>>,
+        outward: string,
+        name: string | null,
+        filings: number,
+      ) => {
+        if (!name) return;
+        const byName = map.get(outward) ?? new Map<string, number>();
+        byName.set(name, (byName.get(name) ?? 0) + filings);
+        map.set(outward, byName);
+      };
       const addTo = (map: Map<string, Set<string>>, outward: string, name: string | null) => {
         if (!name) return;
         const set = map.get(outward) ?? new Set<string>();
         set.add(name);
         map.set(outward, set);
       };
-      for (const row of salesRows as unknown as {
+      for (const row of localityRows as unknown as {
         outward: string;
-        locality: string | null;
-        town: string | null;
+        locality: string;
+        filings: number;
       }[]) {
-        addTo(localities, row.outward, row.locality);
-        addTo(towns, row.outward, row.town);
+        addCounted(localities, row.outward, row.locality, Number(row.filings));
       }
-      for (const row of indexRows as unknown as { outward: string; town: string | null }[]) {
-        addTo(towns, row.outward, row.town);
+      for (const row of townRows as unknown as {
+        outward: string;
+        town: string;
+        filings: number;
+      }[]) {
+        addCounted(towns, row.outward, row.town, Number(row.filings));
+      }
+      for (const row of indexRows as unknown as {
+        outward: string;
+        town: string;
+        filings: number;
+      }[]) {
+        addCounted(towns, row.outward, row.town, Number(row.filings));
+      }
+      for (const row of countyRows as unknown as { outward: string; county: string | null }[]) {
+        addTo(counties, row.outward, row.county);
       }
       const examples = new Map(
         (exampleRows as unknown as { outward: string; postcode: string }[]).map((row) => [
@@ -352,10 +400,13 @@ export function createPlaceSource(db: PlaceQueryable): PlaceSource {
           row.postcode,
         ]),
       );
+      const counted = (byName: Map<string, number> | undefined) =>
+        [...(byName ?? [])].map(([name, filings]) => ({ name, filings }));
       return outwards.map((outward) => {
-        const local = [...(localities.get(outward) ?? [])];
+        const local = counted(localities.get(outward));
         const settlements = cleanSettlements(
-          local.length > 0 ? local : [...(towns.get(outward) ?? [])],
+          local.length > 0 ? local : counted(towns.get(outward)),
+          [...(counties.get(outward) ?? [])],
         );
         return { outward, settlements, examplePostcode: examples.get(outward) ?? null };
       });

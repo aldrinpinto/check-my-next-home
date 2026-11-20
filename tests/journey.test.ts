@@ -46,7 +46,7 @@ import {
   notCoveredSectionLines,
   parseCheckingPartValue,
   pickerCountLine,
-  placeBridgeHeading,
+  placeBridgeLine,
   placeChoiceCountLine,
   placeDistrictDescription,
   postcodeNotFoundLine,
@@ -1239,7 +1239,7 @@ describe("the robot check's closed failure direction (ruling 5)", () => {
   });
 });
 
-describe("the place page's lines (fix batch — BUG-025/026/027)", () => {
+describe("the place page's lines (fix batch — BUG-025/026/027; BUG-034/035)", () => {
   it("counts in full words: postcode districts, never the clipped form (BUG-025)", () => {
     expect(placeChoiceCountLine(1)).toBe("1 postcode district");
     expect(placeChoiceCountLine(3)).toBe("3 postcode districts");
@@ -1255,7 +1255,30 @@ describe("the place page's lines (fix batch — BUG-025/026/027)", () => {
     expect(placeDistrictDescription(["A", "B", "C", "D", "E", "F"])).toBe("A, B, C, D and 2 more");
   });
 
-  it("the bridge heading names the place (BUG-027)", () => {
-    expect(placeBridgeHeading("Chelmsford")).toBe("Checking one home in Chelmsford?");
+  it("joins an exactly-four list with the sample's final 'and', not a fourth comma (BUG-034)", () => {
+    // The sample's own row (Master view 29's district
+    // list, drawn clean): the last pair is joined by
+    // "and".
+    expect(
+      placeDistrictDescription([
+        "Chelmsford city centre",
+        "Springfield",
+        "Broomfield",
+        "Chelmer Village",
+      ]),
+    ).toBe("Chelmsford city centre, Springfield, Broomfield and Chelmer Village");
+  });
+
+  it("the bridge is view 29's single line, its example the place's own filed postcode (BUG-035)", () => {
+    // The sample's exact sentence for Chelmsford.
+    expect(placeBridgeLine("Chelmsford", "CM3 2JT")).toBe(
+      "Checking one home in Chelmsford instead? Type its full postcode — e.g. CM3 2JT — and the check goes straight to that home.",
+    );
+  });
+
+  it("the bridge line stands without an example when the place files no postcode (BUG-035)", () => {
+    expect(placeBridgeLine("Chelmsford", null)).toBe(
+      "Checking one home in Chelmsford instead? Type its full postcode and the check goes straight to that home.",
+    );
   });
 });

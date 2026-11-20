@@ -419,24 +419,38 @@ export function placeChoiceCountLine(count: number): string {
 // (lib/district.ts's cleanSettlements). No filed
 // settlements, no line: the row stands on its code and
 // post town alone rather than inventing a description.
+// An exactly-four list closes with the sample's own
+// join (BUG-034): "…, Springfield, Broomfield and
+// Chelmer Village" — the last pair joined by "and",
+// not a fourth comma.
 export function placeDistrictDescription(settlements: string[]): string | null {
   if (settlements.length === 0) return null;
   const shown = settlements.slice(0, 4);
   const rest = settlements.length - shown.length;
-  return rest > 0 ? `${shown.join(", ")} and ${rest} more` : shown.join(", ");
+  if (rest > 0) return `${shown.join(", ")} and ${rest} more`;
+  if (shown.length === 4) return `${shown.slice(0, 3).join(", ")} and ${shown[3]}`;
+  return shown.join(", ");
 }
 
-// The place page's one-home bridge (fix batch, 19 Nov
-// 2026 — BUG-027): the district bridge's form (view 28)
-// restated for a place — under the district list, one
-// block inviting a full-postcode check for one home in
-// the place, with one filed postcode in the place as
-// its example link.
-export function placeBridgeHeading(place: string): string {
-  return `Checking one home in ${place}?`;
+// The place page's one-home bridge (founder ruling,
+// 20 Nov 2026 — BUG-035): Master view 29 draws ONE
+// line under the district list and nothing else — no
+// heading, no form, no chip. (The fix batch's BUG-027
+// block wore the district bridge's dress from view 28;
+// the parity re-check logged the substitution and the
+// founder ruled for the sample's single line.) The
+// example is a real filed postcode from the place's
+// own districts — the first district that files one,
+// the selection the BUG-027 chip already made, which
+// for Chelmsford serves CM3 2JT, the sample's exact
+// sentence. No filed postcode anywhere in the place:
+// the line stands without its example clause rather
+// than inventing one.
+export function placeBridgeLine(place: string, examplePostcode: string | null): string {
+  return examplePostcode
+    ? `Checking one home in ${place} instead? Type its full postcode — e.g. ${examplePostcode} — and the check goes straight to that home.`
+    : `Checking one home in ${place} instead? Type its full postcode and the check goes straight to that home.`;
 }
-export const PLACE_BRIDGE_LINE =
-  "The place tells you about the area. A full postcode tells you about the home — its flood point, its nearest schools, its street's crime and its sold history.";
 
 // The mid-pick fallback notice (entry-point build, 18 Nov
 // 2026; D72 item 3, gap item 5): a visitor who picked an

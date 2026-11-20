@@ -275,7 +275,7 @@ export const PRIVACY_H1 = "Privacy policy";
 export const PRIVACY_LEAD = "We collect as little as we can, and only what the site needs to work.";
 export const PRIVACY_LEAD_REST =
   "This page explains, in plain English, what we hold, why we hold it, and what we never do with it.";
-export const PRIVACY_DATE_LINE = "This version: 17 November 2026";
+export const PRIVACY_DATE_LINE = "This version: 20 November 2026";
 export const PRIVACY_EMAIL_ADDRESS = "privacy@checkmynexthome.co.uk";
 
 // Privacy copy carries the sample's bold lead-ins as **…**
@@ -308,6 +308,7 @@ export const PRIVACY_CARDS: PrivacyCard[] = [
         "**Your email address, only when you buy a report** — so we can deliver the report to you. If you only use the free headlines, we do not ask for an email address.",
         "**Your shortlist** — this lives in your own browser, on your own device. We cannot see which homes are on it. Our counting only learns that a home was added or removed — never which home.",
         "**Anything you type into the calculators** — the mortgage and stamp duty calculators work on the page itself. What you type never leaves the page and is never sent to us.",
+        "**Messages you send us** — if you write to us on the Contact page, we keep your name, your email address and your message on our server, so we can read it and reply. The message is saved before anything else happens, so it reaches us even if the email alerting us to it does not.",
         "**Counting, kept at home** — we count how the site is used — which pages are opened, how many checks run, where people stop — with our own counting on our own server, plus Cloudflare Web Analytics for traffic. The counting never records the home or postcode you checked, your email, or anything that identifies you: it counts journeys, not people. No analytics company is involved, and counting sets no cookies.",
       ]),
       p("That is the whole list. There are no accounts on this site, and nothing to sign up for."),

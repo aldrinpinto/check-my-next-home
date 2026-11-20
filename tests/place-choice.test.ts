@@ -98,18 +98,22 @@ describe("districtAreas — the place page's per-district area facts (BUG-026/BU
   // settlements the district page itself would name
   // (localities first, towns as the fallback — the
   // district bundle's own rule) and one filed postcode
-  // in the district for the bridge's example link. The
-  // fake answers the read's three set queries by their
+  // in the district for the bridge line's example. The
+  // fake answers the read's counted queries by their
   // shapes.
   class FakeAreasDb {
-    salesRows: { outward: string; locality: string | null; town: string | null }[] = [];
-    indexRows: { outward: string; town: string | null }[] = [];
+    localityRows: { outward: string; locality: string; filings: number }[] = [];
+    townRows: { outward: string; town: string; filings: number }[] = [];
+    indexRows: { outward: string; town: string; filings: number }[] = [];
+    countyRows: { outward: string; county: string }[] = [];
     exampleRows: { outward: string; postcode: string }[] = [];
 
     async query(text: string) {
       if (text.includes("min(postcode)")) return { rows: this.exampleRows };
+      if (text.includes("county")) return { rows: this.countyRows };
       if (text.includes("FROM picking_index")) return { rows: this.indexRows };
-      if (text.includes("FROM price_paid")) return { rows: this.salesRows };
+      if (text.includes("locality")) return { rows: this.localityRows };
+      if (text.includes("FROM price_paid")) return { rows: this.townRows };
       throw new Error(`FakeAreasDb: unhandled SQL: ${text}`);
     }
 
@@ -120,12 +124,15 @@ describe("districtAreas — the place page's per-district area facts (BUG-026/BU
 
   it("cleans and sorts each district's settlements, localities before towns", async () => {
     const db = new FakeAreasDb();
-    db.salesRows = [
-      { outward: "CM3", locality: "HATFIELD PEVEREL", town: "CHELMSFORD" },
-      { outward: "CM3", locality: "DANBURY", town: "CHELMSFORD" },
-      { outward: "CM1", locality: null, town: "CHELMSFORD" },
+    db.localityRows = [
+      { outward: "CM3", locality: "HATFIELD PEVEREL", filings: 5 },
+      { outward: "CM3", locality: "DANBURY", filings: 3 },
     ];
-    db.indexRows = [{ outward: "CM1", town: "CHELMSFORD" }];
+    db.townRows = [
+      { outward: "CM3", town: "CHELMSFORD", filings: 8 },
+      { outward: "CM1", town: "CHELMSFORD", filings: 6 },
+    ];
+    db.indexRows = [{ outward: "CM1", town: "CHELMSFORD", filings: 4 }];
     db.exampleRows = [{ outward: "CM3", postcode: "CM3 2JT" }];
     const areas = await createPlaceSource(db as unknown as PlaceQueryable).districtAreas([
       "CM1",
@@ -140,6 +147,26 @@ describe("districtAreas — the place page's per-district area facts (BUG-026/BU
         settlements: ["Danbury", "Hatfield Peverel"],
         examplePostcode: "CM3 2JT",
       },
+    ]);
+  });
+
+  it("cleans the register's spelling variants and county forms (BUG-034)", async () => {
+    // The parity re-check's CM1 witness through this
+    // read: the county and its fragment drop, the
+    // misspelling collapses into the most-filed form.
+    const db = new FakeAreasDb();
+    db.localityRows = [
+      { outward: "CM1", locality: "CHELMSFORD", filings: 900 },
+      { outward: "CM1", locality: "CHEMLSFORD", filings: 2 },
+      { outward: "CM1", locality: "ESS", filings: 1 },
+      { outward: "CM1", locality: "ESSEX", filings: 3 },
+      { outward: "CM1", locality: "SPRINGFIELD", filings: 60 },
+    ];
+    db.countyRows = [{ outward: "CM1", county: "ESSEX" }];
+    db.exampleRows = [{ outward: "CM1", postcode: "CM1 1AA" }];
+    const areas = await createPlaceSource(db as unknown as PlaceQueryable).districtAreas(["CM1"]);
+    expect(areas).toEqual([
+      { outward: "CM1", settlements: ["Chelmsford", "Springfield"], examplePostcode: "CM1 1AA" },
     ]);
   });
 
