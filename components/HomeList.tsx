@@ -5,28 +5,31 @@ import { useState } from "react";
 import {
   EMPTY_PICKER_LINE,
   PICKER_EXPLAINER,
+  PICKER_SELECT_PROMPT,
   PICK_FALLBACK_FLAG,
   homeRoute,
-  pickerCountLine,
 } from "../lib/journey";
 
-// The home list on the whole-postcode check (founder
-// ruling, 18 Nov 2026, parity fix batch: the picker page
-// is REMOVED and its list moved here). The whole-postcode
-// check carries the postcode's full home list — the union
-// read model in natural address order, uncapped as the
-// dropdown's full-postcode list is — each home linking
-// straight to its own check. The hybrid supplement
-// machinery (pickerRowsFor: the local union plus the
-// Postio supplement below the floor) feeds this list
-// exactly as it fed the picker, so no behaviour is lost.
+// The home picker on the whole-postcode check (founder
+// ruling, 20 Nov 2026, superseding the 18 Nov 2026 list
+// form): ONE dropdown under the intro line carries the
+// postcode's homes — the full address list dump and its
+// count line are gone. The rows arrive in natural address
+// order (house-number order) from the union read model —
+// the hybrid supplement machinery (pickerRowsFor: the
+// local union plus the Postio supplement below the
+// floor) feeds this dropdown exactly as it fed the list,
+// so no behaviour is lost.
 //
-// A local row is a plain link to its home key. A Postio
-// row resolves through /api/pick on click (the transient
-// record, or the mid-pick fallback) — the same machinery
-// the picker's confirm used, minus select-then-confirm:
-// on this page the visitor is already looking at the
-// postcode's check, so a row click IS the pick.
+// Choosing a home goes straight to its check: a local
+// row navigates to its home route; a Postio row resolves
+// through /api/pick first (the transient record, or the
+// mid-pick fallback) — the same machinery the list's
+// rows used, minus the rendered list: on this page the
+// visitor is already looking at the postcode's check, so
+// the choice IS the pick. The select wears the kit's
+// field dress (.field / .field__input), the site's one
+// form-control form.
 
 export interface PickerAddress {
   key: string;
@@ -90,31 +93,38 @@ export default function HomeList({
     })();
   };
 
+  const pick = (key: string) => {
+    const row = addresses.find((address) => address.key === key);
+    if (!row) return;
+    if (row.source === "postio" && row.udprn) {
+      resolvePostioRow(row);
+      return;
+    }
+    window.location.assign(homeRoute(postcode, row.key));
+  };
+
   return (
     <div className="picker">
       <h2>{heading}</h2>
       <p className="picker__explainer">{PICKER_EXPLAINER}</p>
-      <p className="picker__count">{pickerCountLine(addresses.length)}</p>
-      <ul className="picker__list">
-        {addresses.map((address) => (
-          <li key={address.key}>
-            {address.source === "postio" && address.udprn ? (
-              <button
-                type="button"
-                className="picker__row"
-                disabled={resolvingKey !== null}
-                onClick={() => resolvePostioRow(address)}
-              >
-                <span>{address.label}</span>
-              </button>
-            ) : (
-              <a className="picker__row" href={homeRoute(postcode, address.key)}>
-                <span>{address.label}</span>
-              </a>
-            )}
-          </li>
-        ))}
-      </ul>
+      <div className="field picker__field">
+        <select
+          className="field__input picker__select"
+          aria-label={PICKER_SELECT_PROMPT}
+          defaultValue=""
+          disabled={resolvingKey !== null}
+          onChange={(event) => pick(event.target.value)}
+        >
+          <option value="" disabled>
+            {PICKER_SELECT_PROMPT}
+          </option>
+          {addresses.map((address) => (
+            <option key={address.key} value={address.key}>
+              {address.label}
+            </option>
+          ))}
+        </select>
+      </div>
     </div>
   );
 }

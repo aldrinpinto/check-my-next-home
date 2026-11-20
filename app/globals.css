@@ -3576,6 +3576,15 @@ a.picker__row {
   flex: 1 1 30rem;
   margin: 0;
 }
+/* BUG-037: the calculators section carries the page's
+   section top spacing (the .results-subheading rule,
+   var(--space-4) above) — without it the heading sat
+   flush against the tabs card above it on the
+   whole-postcode page. The sample's calc-section carries
+   its own top margin the same way. */
+.calculators {
+  margin-top: var(--space-4);
+}
 .calculators__cards {
   display: flex;
   flex-wrap: wrap;

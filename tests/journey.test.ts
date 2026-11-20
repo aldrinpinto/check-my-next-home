@@ -29,6 +29,7 @@ import {
   NOT_COVERED_INTRO,
   OWNERSHIP_NOT_PART_LINE,
   PICKER_EXPLAINER,
+  PICKER_SELECT_PROMPT,
   SEARCH_ROUTE,
   TURNSTILE_BLOCK_LINE,
   UNPLACED_NOTICE_LINE,
@@ -45,7 +46,6 @@ import {
   notCoveredHeading,
   notCoveredSectionLines,
   parseCheckingPartValue,
-  pickerCountLine,
   placeBridgeLine,
   placeChoiceCountLine,
   placeDistrictDescription,
@@ -245,8 +245,6 @@ describe("pinned journey copy", () => {
       "Ownership — the ownership check is not part of this result.",
     );
     expect(NOT_COVERED_INTRO).toContain("covers England and Wales");
-    expect(pickerCountLine(1)).toBe("1 address");
-    expect(pickerCountLine(29)).toBe("29 addresses");
     expect(postcodeNotFoundLine("CM3 2JA")).toBe(
       "CM3 2JA isn't a postcode we hold — this is the wider area it points to instead.",
     );
@@ -302,12 +300,16 @@ describe("pinned journey copy", () => {
       "Crime and air quality couldn't be checked just now",
     );
     expect(PICKER_EXPLAINER).toBe(
-      "Schools and flood are address-sensitive, so pick your exact house before anything is checked.",
+      "Flood risk and school places can differ from one house to the next — pick your exact house for its own check.",
     );
+    expect(PICKER_SELECT_PROMPT).toBe("Choose your exact house");
     // The picker's confirm label and postcode-level link
-    // retired with the page (18 Nov 2026): the home list
-    // lives on the postcode check, whose rows link straight
-    // to each home — no confirm step, no level link.
+    // retired with the page (18 Nov 2026): the home picker
+    // lives on the postcode check — since the founder's
+    // ruling of 20 Nov 2026 as one dropdown under the
+    // intro line, a choice going straight to that home's
+    // check — no list dump, no count line, no confirm
+    // step, no level link.
     expect(scopeLabelFor(birkdale)).toBe("19 Birkdale Rise, CM3 2JT");
     expect(scopeLabelFor(birkdaleList)).toBe("CM3 2JT — the whole postcode, not one home");
   });

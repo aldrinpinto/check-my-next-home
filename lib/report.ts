@@ -990,6 +990,26 @@ function section1(input: ReportInput, cert: ServedCertificate | null): ReportSec
   });
   if (sold.building) {
     blocks.push({ type: "sub", text: `Sales in ${sold.building.building}` });
+    // The building's middle price stands as a stat in its
+    // own right (BUG-036): the counted line and the
+    // explainer printed without the figure itself, so the
+    // one number the block exists to give never appeared.
+    // The form is Section 2's — the median as a tile,
+    // labelled and scoped — printed only when the median
+    // is served; the too-few and none-recorded states keep
+    // their line alone.
+    if (sold.building.median.state === "served" && sold.building.median.value !== null) {
+      blocks.push({
+        type: "tiles",
+        tiles: [
+          {
+            label: "Building median",
+            value: formatPounds(sold.building.median.value),
+            sub: `Category A median for ${sold.building.building}`,
+          },
+        ],
+      });
+    }
     if (sold.building.median.line) blocks.push({ type: "line", text: sold.building.median.line });
     blocks.push({ type: "note", text: sold.building.median.explainer });
   }

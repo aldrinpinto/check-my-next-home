@@ -18,8 +18,9 @@ import { expect, test } from "./fixtures";
 // Picker removal (founder ruling, 18 Nov 2026, parity fix
 // batch): the picker page is retired — a button press with
 // a full postcode lands on the whole-postcode check, whose
-// home list links straight to each home's check, and
-// /search?postcode= redirects there.
+// home picker goes straight to each home's check (a list
+// until the founder's ruling of 20 Nov 2026, one dropdown
+// since), and /search?postcode= redirects there.
 //
 // M7.4 re-pointed the holding-page assertions at the real
 // results page (.results) that replaced it; M7.4's own
@@ -44,9 +45,10 @@ import { expect, test } from "./fixtures";
 //   T-WEB-07 — "an outward code lands on the district
 //     page" (cited in its title); the dropdown leg is in
 //     e2e/suggest.e2e.ts.
-//   T-WEB-08 — "the postcode check carries the full home
-//     list" (cited in its title; the row's picker form as
-//     amended when the picker was removed, 18 Nov 2026).
+//   T-WEB-08 — "the postcode check carries the home
+//     dropdown" (cited in its title; the picker's form as
+//     amended when the picker was removed, 18 Nov 2026,
+//     and when the list became a dropdown, 20 Nov 2026).
 //   T-WEB-09 — "the bare route redirects to the landing
 //     page with the unplaced notice" (the retired
 //     no-location route's served form).
@@ -322,7 +324,7 @@ test.describe("checker journey — regression", () => {
   );
 
   test(
-    "the postcode check carries the full home list — a home pick goes straight to that home's check (T-WEB-08, picker removed)",
+    "the postcode check carries the home dropdown — a home pick goes straight to that home's check (T-WEB-08, picker removed)",
     { tag: "@regression" },
     async ({ page }) => {
       await page.goto("/search/home?postcode=CM3+2JT");
@@ -331,10 +333,10 @@ test.describe("checker journey — regression", () => {
       await expect(page.locator(".results-head h1")).toHaveText(
         "Postcode area — CM3 2JT, not one exact home",
       );
-      await page
-        .locator(".picker")
-        .getByRole("link", { name: "19 Birkdale Rise", exact: true })
-        .click();
+      // The dropdown form (founder ruling, 20 Nov 2026):
+      // the list dump is gone — one select carries the
+      // postcode's homes, and choosing one is the pick.
+      await page.locator(".picker__select").selectOption({ label: "19 Birkdale Rise" });
       await page.waitForURL(/\/search\/home\?postcode=CM3\+2JT&home=/);
       await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
       await expect(page.locator(".results-head h1")).toHaveText("19 Birkdale Rise, CM3 2JT");
@@ -488,15 +490,15 @@ test.describe("checker journey — regression", () => {
   );
 
   test(
-    "Beaulieu CM1 6ER: the postcode check lists the picking index's homes (M7.15B)",
+    "Beaulieu CM1 6ER: the postcode check's dropdown carries the picking index's homes (M7.15B)",
     { tag: "@regression" },
     async ({ page }) => {
       await searchFromHome(page, "CM1 6ER");
       // The submit redirects to the whole-postcode check,
-      // which carries the list (picker removed).
+      // which carries the home picker (picker removed).
       await page.waitForURL("**/search/home?postcode=CM1+6ER");
       // CI #233 follow-up: the same results wait as every
-      // other spec here — the list renders inside the
+      // other spec here — the picker renders inside the
       // results, behind the checking screen's reveal; this
       // spec previously rode on the warm-gate's cover for
       // CM1 6ER alone.
@@ -506,12 +508,16 @@ test.describe("checker journey — regression", () => {
       // certificate homes (the odd numbers on George Heard
       // Crescent) are exactly what the union serves here —
       // the empty list this spec asserted before the
-      // preload is gone by design (CI #215).
+      // preload is gone by design (CI #215). Since the
+      // founder's ruling of 20 Nov 2026 they stand as the
+      // dropdown's options (49 homes + the prompt option),
+      // and the count line is gone with the list dump.
       await expect(page.locator(".picker__empty-line")).toHaveCount(0);
-      await expect(page.locator(".picker__count")).toHaveText("49 addresses");
+      await expect(page.locator(".picker__count")).toHaveCount(0);
+      await expect(page.locator(".picker__select option")).toHaveCount(50);
       await expect(
-        page.getByRole("link", { name: "49 George Heard Crescent", exact: true }),
-      ).toBeVisible();
+        page.locator(".picker__select option", { hasText: "49 George Heard Crescent" }),
+      ).toBeAttached();
       await expect(page.locator(".results-head h1")).toHaveText(
         "Postcode area — CM1 6ER, not one exact home",
       );

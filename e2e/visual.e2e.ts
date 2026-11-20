@@ -124,17 +124,18 @@ async function searchFromHome(page: Page, text: string) {
 
 // The single-home results (rung 1): the journey the
 // results specs walk — submit the postcode, then pick
-// the home from the whole-postcode page's list.
+// the home from the whole-postcode page's dropdown
+// (founder ruling, 20 Nov 2026 — the list dump is gone).
 async function openHomeResults(page: Page) {
   await searchFromHome(page, "CM3 2JT");
   await page.waitForURL("**/search/home?postcode=CM3+2JT");
-  await page.getByRole("link", { name: "19 Birkdale Rise" }).first().click();
+  await page.locator(".picker__select").selectOption({ label: "19 Birkdale Rise" });
   await page.waitForURL(/\/search\/home\?postcode=.*&home=/);
   await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
 }
 
 // The whole-postcode results (rung 2): the submit lands
-// on the check page, the home list at its head.
+// on the check page, the home dropdown at its head.
 async function openAreaResults(page: Page) {
   await page.goto("/search?postcode=CM3+2JT");
   await page.waitForURL("**/search/home?postcode=CM3+2JT");

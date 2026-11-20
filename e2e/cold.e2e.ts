@@ -452,12 +452,13 @@ test.describe("cold checks — regression", () => {
         await page.goto(`/search?postcode=${encodeURIComponent(pick.postcode)}`);
         await expect(page.locator(".results")).toBeVisible({ timeout: 60_000 });
         // The whole-postcode check carries the postcode's
-        // home list at its head (the picker's list, moved
-        // there 18 Nov 2026); a row goes to the home.
+        // home picker at its head (the picker's list, moved
+        // there 18 Nov 2026; since the founder's ruling of
+        // 20 Nov 2026 one dropdown — choosing the home in
+        // it goes to the home).
         await page
-          .getByRole("link", { name: `${home.paon} ${display(home.street)}`, exact: true })
-          .first()
-          .click();
+          .locator(".picker__select")
+          .selectOption({ label: `${home.paon} ${display(home.street)}` });
         await page.waitForURL(/\/search\/home\?postcode=.*&home=/);
         await expectResultsWhole(page);
       }

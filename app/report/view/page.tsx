@@ -57,5 +57,15 @@ export default async function ReportViewPage({
 
   const bundles = await checkAll(resolution);
   const view = buildReportView({ resolution, ...bundles, now: new Date() });
-  return <ReportPage view={view} />;
+  // The .site-pages wrapper every other content page
+  // carries (the sample report's page is the twin): the
+  // rpt-* styles are scoped under it, so without it the
+  // report renders unstyled the moment the door opens.
+  return (
+    <main className="site-pages">
+      <div className="site-pages__inner">
+        <ReportPage view={view} />
+      </div>
+    </main>
+  );
 }

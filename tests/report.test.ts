@@ -1002,6 +1002,88 @@ describe("report — the nine sections and the format", () => {
     expect(whole).not.toContain("Price change");
   });
 
+  it("Section 1's building block carries the building's middle price as its stat (BUG-036)", () => {
+    // The Atlantic Reach evidence shape (TR8 4LX, play
+    // server 20 Nov 2026): the building's median is served
+    // — £65,500 over 38 counted sales — and the figure
+    // itself must stand in the block as a stat, in Section
+    // 2's tile form, beside its counted line and explainer.
+    // (The golden replay's one building case, Minerva
+    // House, holds only two KT17 rows, so its building
+    // median stands too-few there and cannot pin the
+    // served figure — this unit pin carries it instead.)
+    const withBuilding = buildReportView(
+      input({
+        sold: {
+          ...soldServed,
+          building: {
+            building: "Atlantic Reach",
+            sales: [],
+            counted: 38,
+            median: {
+              state: "served",
+              value: 65500,
+              counted: 38,
+              spanFrom: "1998-07-08",
+              spanTo: "2026-06-19",
+              line: "counted over 38 recorded sales, 1998-07-08 to 2026-06-19",
+              explainer:
+                "The middle recorded sale price in this building — half sold for more, half for less. It is not a valuation of this home.",
+            },
+          },
+        },
+      }),
+    );
+    const s1 = withBuilding.sections[0];
+    const statBlock = s1.blocks.find(
+      (b) => b.type === "tiles" && b.tiles.some((t) => t.label === "Building median"),
+    );
+    if (!statBlock || statBlock.type !== "tiles") throw new Error("expected the building stat");
+    expect(statBlock.tiles).toContainEqual({
+      label: "Building median",
+      value: "£65,500",
+      sub: "Category A median for Atlantic Reach",
+    });
+    const s1Text = sectionText(withBuilding, 1);
+    expect(s1Text).toContain("Sales in Atlantic Reach");
+    expect(s1Text).toContain("counted over 38 recorded sales, 1998-07-08 to 2026-06-19");
+    // The stat stands between the sub heading and the
+    // counted line — the block reads heading, figure, basis.
+    expect(s1Text.indexOf("Sales in Atlantic Reach")).toBeLessThan(s1Text.indexOf("£65,500"));
+    expect(s1Text.indexOf("£65,500")).toBeLessThan(
+      s1Text.indexOf("counted over 38 recorded sales"),
+    );
+  });
+
+  it("Section 1's building block prints no stat when the building median is not served (BUG-036)", () => {
+    const tooFew = buildReportView(
+      input({
+        sold: {
+          ...soldServed,
+          building: {
+            building: "Minerva House",
+            sales: [],
+            counted: 1,
+            median: {
+              state: "too-few",
+              value: null,
+              counted: 1,
+              spanFrom: "2019-12-03",
+              spanTo: "2019-12-03",
+              line: "only 1 recorded sale in this building — too few for a median",
+              explainer:
+                "The middle recorded sale price in this building — half sold for more, half for less. It is not a valuation of this home.",
+            },
+          },
+        },
+      }),
+    );
+    const s1Text = sectionText(tooFew, 1);
+    expect(s1Text).toContain("Sales in Minerva House");
+    expect(s1Text).toContain("only 1 recorded sale in this building — too few for a median");
+    expect(s1Text).not.toContain("Building median");
+  });
+
   it("Section 2 carries the median form: value, counted, span, explainer", () => {
     const s2 = sectionText(view, 2);
     expect(s2).toContain("£588,995");

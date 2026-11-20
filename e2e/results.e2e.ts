@@ -368,7 +368,7 @@ test.describe("results page — regression", () => {
   );
 
   test(
-    "rung 2 at Beaulieu CM1 6ER: the pinned label with the picking index's homes listed at the head of the page (M7.15B)",
+    "rung 2 at Beaulieu CM1 6ER: the pinned label with the picking index's homes in the dropdown at the head of the page (M7.15B)",
     { tag: "@regression" },
     async ({ page }) => {
       await page.goto("/search/home?postcode=CM1+6ER");
@@ -376,17 +376,21 @@ test.describe("results page — regression", () => {
         "Postcode area — CM1 6ER, not one exact home",
       );
       await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
-      // M7.15B: the home list on the postcode check reads
+      // M7.15B: the home picker on the postcode check reads
       // the same union the picker read, so Beaulieu's 49
-      // index homes are listed here — the empty line this
-      // spec asserted before the preload is gone by design
-      // (CI #215). The empty list is pinned on CM0 7AA in
-      // the next spec.
+      // index homes stand here — the empty line this spec
+      // asserted before the preload is gone by design
+      // (CI #215). Since the founder's ruling of 20 Nov
+      // 2026 they stand as the dropdown's options (49 homes
+      // + the prompt option), and the count line is gone
+      // with the list dump. The empty list is pinned on
+      // CM0 7AA in the next spec.
       await expect(page.locator(".picker__empty-line")).toHaveCount(0);
-      await expect(page.locator(".picker__count")).toHaveText("49 addresses");
+      await expect(page.locator(".picker__count")).toHaveCount(0);
+      await expect(page.locator(".picker__select option")).toHaveCount(50);
       await expect(
-        page.getByRole("link", { name: "49 George Heard Crescent", exact: true }),
-      ).toBeVisible();
+        page.locator(".picker__select option", { hasText: "49 George Heard Crescent" }),
+      ).toBeAttached();
       await expect(page.getByRole("tab")).toHaveCount(4);
     },
   );

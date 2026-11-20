@@ -367,16 +367,21 @@ export function rowFailureLine(rowLabel: string): string {
   return `${rowLabel} couldn't be checked just now — the rest of the check still opens.`;
 }
 
-// The home list on the whole-postcode check (fold-in 3's
-// picker list, moved by the founder's ruling of 18 Nov
-// 2026: the picker page is removed and its list lives on
-// the postcode check itself). The explainer is the
-// design's own line (Stop W2), addressed to the visitor.
+// The home picker on the whole-postcode check (fold-in
+// 3's picker list, moved by the founder's ruling of 18
+// Nov 2026: the picker page is removed and its list lives
+// on the postcode check itself — then re-formed by the
+// founder's ruling of 20 Nov 2026: the full address list
+// dump and its count line come off the page, and ONE
+// dropdown under this intro line carries the postcode's
+// homes instead). The explainer is the founder's picked
+// wording (20 Nov 2026), addressed to the visitor.
 export const PICKER_EXPLAINER =
-  "Schools and flood are address-sensitive, so pick your exact house before anything is checked.";
-export function pickerCountLine(count: number): string {
-  return count === 1 ? "1 address" : `${count} addresses`;
-}
+  "Flood risk and school places can differ from one house to the next — pick your exact house for its own check.";
+// The dropdown's prompt option: the visitor's instruction
+// before any home is chosen (the select's own label, in
+// the site's plain voice).
+export const PICKER_SELECT_PROMPT = "Choose your exact house";
 
 // The empty list (fold-in 4): a valid England/Wales full
 // postcode with zero filed addresses. One named state, one

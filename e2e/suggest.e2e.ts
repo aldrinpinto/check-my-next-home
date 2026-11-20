@@ -179,7 +179,11 @@ test.describe("suggestions dropdown — regression", () => {
       await street.click();
       await page.waitForURL(/\/search\/home\?postcode=CM3\+2JT&street=BIRKDALE\+RISE/);
       await expect(page.locator(".picker h2")).toHaveText("Birkdale Rise");
-      await expect(page.locator(".picker__row", { hasText: "19 Birkdale Rise" })).toBeAttached();
+      // The street's homes stand as the dropdown's options
+      // (founder ruling, 20 Nov 2026 — the list dump is gone).
+      await expect(
+        page.locator(".picker__select option", { hasText: "19 Birkdale Rise" }),
+      ).toBeAttached();
     },
   );
 
