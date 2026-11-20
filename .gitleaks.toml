@@ -1,0 +1,12 @@
+# Gitleaks configuration.
+#
+# The visual guard's baselines (e2e/visual.e2e.ts-snapshots/)
+# are photographs carried as base64 text — the project's push
+# route moves text files only. Random stretches of that encoded
+# picture data can match secret patterns: on 20 Nov 2026 the
+# square-access-token rule fired twice on PNG data (CI runs
+# #259–#261). Photograph data is not a secret-bearing surface,
+# so the snapshots directory is allowlisted by path; every
+# other file in the repository remains fully scanned.
+[allowlist]
+paths = ['e2e/visual\.e2e\.ts-snapshots/']
