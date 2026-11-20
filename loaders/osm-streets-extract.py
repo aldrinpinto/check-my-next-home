@@ -45,9 +45,18 @@ def main() -> int:
         return 2
     source, out_path = sys.argv[1], sys.argv[2]
 
+    # Locations live in a DISK-BACKED sparse file array, not flex_mem:
+    # a whole-country extract holds 100M+ node locations and flex_mem
+    # (all in RAM) dies with std::bad_alloc on a small box — the M8.3
+    # smoke proved it twice on the 3.8 GB play server. The index file
+    # rides beside the output in the loader's temp workdir and is
+    # cleaned with it. Proven on the real England extract: 6,596,554
+    # highway ways in ~8 min with a bounded heap.
     fp = (
         osmium.FileProcessor(source)
-        .with_locations(osmium.index.create_map("flex_mem"))
+        .with_locations(
+            osmium.index.create_map(f"sparse_file_array,{out_path}.locidx")
+        )
         .with_filter(osmium.filter.KeyFilter("highway"))
     )
 

@@ -54,8 +54,15 @@ def main() -> int:
               "relation_no_geometry": 0}
 
     def processor(*filters):
+        # Disk-backed location index, not flex_mem: a whole-country
+        # extract holds 100M+ node locations and flex_mem (all in RAM)
+        # dies with std::bad_alloc on a small box — the M8.3 street
+        # smoke proved it twice on the 3.8 GB play server. The index
+        # file rides beside the output in the loader's temp workdir
+        # and is cleaned with it. Both passes read the same extract,
+        # so the same index file serves both.
         fp = osmium.FileProcessor(source).with_locations(
-            osmium.index.create_map("flex_mem"))
+            osmium.index.create_map(f"sparse_file_array,{out_path}.locidx"))
         for f in filters:
             fp = fp.with_filter(f)
         return fp
