@@ -1376,7 +1376,12 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
     const edinburghNearby = get("edinburgh2").nearby;
     if (edinburghNearby.kind !== "distances") throw new Error("expected distances");
     expect(edinburghNearby.schoolDeadlines).toBeNull();
-  });
+    // The 60s budget (not the 5s default): since M8.3 a
+    // fresh flood composition pays the two map-dissolve
+    // queries, and this test composes several homes end
+    // to end — CI #266 timed out at 5011ms. Production
+    // pays the cost once per cached bundle.
+  }, 60_000);
 
   it("maternity units (M6.24): the category serves through the real source — within at Exeter and Minerva, the beyond-nearest golden at Birkdale", () => {
     const category = (tag: string, key: string) => {

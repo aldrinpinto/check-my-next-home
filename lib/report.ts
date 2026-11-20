@@ -440,7 +440,14 @@ function monthYear(isoMonth: string): string {
 // ------------------------------------------------------------------
 
 function round1(value: number): number {
-  return Math.round(value * 10) / 10;
+  const rounded = Math.round(value * 10) / 10;
+  // A hair below zero rounds to -0, which a strict
+  // equality check counts as a different leaf from 0
+  // while JSON prints both as 0 — a model carrying -0
+  // fails its own JSON round-trip (the M8.3 golden
+  // failure, CI #266). Zero is zero: normalise it here,
+  // in the one helper every model number passes through.
+  return rounded === 0 ? 0 : rounded;
 }
 
 function count(value: number): string {
@@ -1488,8 +1495,8 @@ function buildSection5Map(input: ReportInput): ReportMapModel | null {
     name: pin.name,
     group: pin.group,
     miles: pin.miles,
-    x: Math.round(toX(pin.mx) * 10) / 10,
-    y: Math.round(toY(pin.my) * 10) / 10,
+    x: round1(toX(pin.mx)),
+    y: round1(toY(pin.my)),
   }));
   return {
     homeX: toX(0),
@@ -1972,7 +1979,12 @@ export function buildFloodMapModels(served: Extract<FloodBundle, { kind: "flood"
     if (layer.covering) displayLabels.set(layer.covering.label, layer.covering.displayLabel);
     for (const edge of layer.proximity) displayLabels.set(edge.label, edge.displayLabel);
   }
-  const round1 = (n: number) => Math.round(n * 10) / 10;
+  // As the module round1: a hair below zero must not
+  // reach the model as -0 (see the note there).
+  const round1 = (n: number) => {
+    const rounded = Math.round(n * 10) / 10;
+    return rounded === 0 ? 0 : rounded;
+  };
   // The projection (the Section 5 pattern): mile space —
   // eastings scaled by the cosine of the frame centre's
   // latitude — at ONE scale for both axes, fitted to the

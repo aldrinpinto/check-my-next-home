@@ -2156,6 +2156,42 @@ describe("report — M8.3 flood maps: frame maths and projection", () => {
   });
 });
 
+describe("report — M8.3 flood maps: JSON round-trip cleanliness", () => {
+  it("no model leaf is -0 or NaN, even for geometry a hair outside the frame edge", () => {
+    // The served geometry arrives as GeoJSON, whose
+    // coordinate rounding can leave a clipped vertex a
+    // hair beyond the frame's north edge; projected, its
+    // y lands a hair below zero and the 0.1 rounding
+    // would emit -0 — a different leaf from 0 to a strict
+    // equality check, the same leaf in JSON, so the
+    // model fails its own round-trip (CI #266).
+    const polygons = squareAt(MAP_HOME.lon, MAP_FRAME.north - 0.0005, 0.0005);
+    polygons[0][0][2][1] = MAP_FRAME.north + 0.000001;
+    polygons[0][0][3][1] = MAP_FRAME.north + 0.000001;
+    const served = servedWithMaps(mapsWith({ zones: { polygons: [{ label: "FZ2", polygons }] } }), {
+      flood_zone: { pointState: "zone-1", covering: null },
+    });
+    const models = buildFloodMapModels(served);
+    if (!models.zones) throw new Error("expected a zones picture");
+    const scan = (value: unknown, path: string): void => {
+      if (typeof value === "number") {
+        if (Object.is(value, -0)) throw new Error(`${path} is -0`);
+        if (Number.isNaN(value)) throw new Error(`${path} is NaN`);
+        return;
+      }
+      if (Array.isArray(value)) {
+        value.forEach((v, i) => scan(v, `${path}[${i}]`));
+        return;
+      }
+      if (value && typeof value === "object") {
+        for (const [k, v] of Object.entries(value)) scan(v, `${path}.${k}`);
+      }
+    };
+    scan(models, "models");
+    expect(JSON.parse(JSON.stringify(models))).toEqual(models);
+  });
+});
+
 describe("report — M8.3 flood maps: the no-picture states", () => {
   it("an unfiled layer (null entry) builds no picture, and Section 7 carries none", () => {
     const served = servedWithMaps(mapsWith());
