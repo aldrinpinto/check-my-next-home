@@ -4003,6 +4003,28 @@ a.picker__row {
 .site-pages .thanks.show {
   display: block;
 }
+/* The wired form's state lines (BUG-028 fix, 19 Nov
+   2026): the save-failure box wears the gift claim
+   form's alert dialect (the error tint, the same
+   radius and weight) inside the contact card; a
+   refused field's line stands under its field in the
+   error colour — wording as well as colour, never
+   colour alone. */
+.site-pages .contact-alert {
+  background: #fbeae9;
+  border: 1px solid var(--cmnh-error);
+  border-radius: 12px;
+  padding: 0.9rem 1.1rem;
+  color: var(--cmnh-error);
+  font-weight: 600;
+  margin-bottom: 1rem;
+}
+.site-pages .contact-card .contact-field-error {
+  color: var(--cmnh-error);
+  font-size: 0.92rem;
+  font-weight: 600;
+  margin-top: 0.35rem;
+}
 .site-pages .email-route {
   margin-top: 1.8rem;
   text-align: center;

@@ -248,6 +248,28 @@ export const CONTACT_EMAIL_PROMPT = "Prefer email? Write to us at";
 export const CONTACT_EMAIL_ADDRESS = "contact@checkmynexthome.co.uk";
 export const CONTACT_REPLY_PROMISE = "We reply within two working days.";
 
+// The wired form's own lines (BUG-028 fix, founder
+// ruling 19 Nov 2026 — real delivery wired behind the
+// form, the words above kept). The field errors stand
+// inline under their fields, in the gift claim form's
+// manner; the email line is the site's one email error,
+// word for word with the claim form's. The send-failure
+// line mirrors the claim form's send-failed pattern: it
+// names the failure, states plainly that nothing was
+// received, and invites a retry — it is the ONLY state
+// a failed save may show; the thanks above is reserved
+// for a message actually stored (lib/server/contact.ts).
+export const CONTACT_NAME_ERROR = "Enter your name";
+export const CONTACT_EMAIL_ERROR = "Enter an email address, like you@example.co.uk";
+export const CONTACT_MESSAGE_ERROR = "Enter your message";
+export const CONTACT_MESSAGE_TOO_LONG_ERROR =
+  "That message is too long — please keep it under 5,000 characters.";
+export const CONTACT_SEND_FAILED_LINE =
+  "We couldn't save your message just now — nothing has been received. Please try again.";
+// The notification email's subject, composed by the
+// mailer as "<this> from <the visitor's name>".
+export const CONTACT_NOTIFICATION_SUBJECT = "Website contact message";
+
 export const PRIVACY_EYEBROW = "Privacy policy";
 export const PRIVACY_H1 = "Privacy policy";
 export const PRIVACY_LEAD = "We collect as little as we can, and only what the site needs to work.";

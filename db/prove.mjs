@@ -439,6 +439,43 @@ try {
     "the alert memory holds one row per error fingerprint and counts its sightings",
   );
 
+  // The contact messages store (BUG-028 fix, migration
+  // 0037): the table stands, a stored message reads
+  // back whole (stored is what "received" means), and
+  // the length CHECKs refuse what the form's own
+  // validation would refuse (lib/contact.ts's caps,
+  // mirrored in the migration).
+  const contactTables = await client.query(
+    `SELECT count(*)::int AS n FROM information_schema.tables
+      WHERE table_name = 'contact_messages'`,
+  );
+  assert(contactTables.rows[0].n === 1, "the contact messages table exists (migration 0037)");
+
+  await client.query(
+    `INSERT INTO contact_messages (name, email, message)
+     VALUES ('Proof Visitor', 'proof@example.co.uk', 'A proof message from the prove script.')`,
+  );
+  const contactRows = await client.query(
+    `SELECT name, email, message FROM contact_messages WHERE email = 'proof@example.co.uk'`,
+  );
+  assert(
+    contactRows.rows.length === 1 && contactRows.rows[0].message.includes("proof message"),
+    "a stored contact message reads back whole",
+  );
+
+  let overCapRefused = false;
+  await client.query("SAVEPOINT contact_over_cap");
+  try {
+    await client.query(
+      `INSERT INTO contact_messages (name, email, message)
+       VALUES ('Proof Visitor', 'proof@example.co.uk', repeat('x', 5001))`,
+    );
+  } catch {
+    overCapRefused = true;
+  }
+  await client.query("ROLLBACK TO SAVEPOINT contact_over_cap");
+  assert(overCapRefused, "the messages table refuses a message past the form's own cap");
+
   // Founder fix batch (19 Nov 2026) — the district flood
   // defences corridor query, old form against new form.
   // The district page's watercourse roll-up ran a
