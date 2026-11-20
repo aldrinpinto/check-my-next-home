@@ -186,6 +186,16 @@ interface PostcodeFigures {
   // The zero-sales sentence when loadState is "loaded-none".
   stateLine: string | null;
   median: MedianAnswer;
+  // EVERY counted sale (the full category-A set the median
+  // is drawn from), newest first — recentSales is its
+  // 10-newest slice. The report's dot plot (M8.2) plots
+  // this set: one dot per counted sale, the same sales the
+  // median beside it is computed over, with no chart-only
+  // cap (founder ruling, 20 Nov 2026). Widened deliberately
+  // at M8.2 under the re-pin ceremony — the record stands
+  // in tests/bundle-contracts.test.ts and
+  // docs/frontend-design-pass.md.
+  countedSales: ServedSale[];
   recentSales: ServedSale[];
   recentLabel: string;
   building: BuildingSalesAnswer | null;
@@ -446,6 +456,7 @@ export async function buildSoldPricesBundle(
       sourceLine,
       stateLine: loadState === "loaded-none" ? NO_SALE_RECORDED_LINE : null,
       median: medianAnswer(counted, "postcode", MEDIAN_EXPLAINER, rows.length),
+      countedSales: counted.map(toServed),
       recentSales: counted.slice(0, RECENT_LIST_SIZE).map(toServed),
       recentLabel: RECENT_SALES_LABEL,
       building: null,

@@ -5910,3 +5910,208 @@ counted; the partition is unchanged).
       deduplicated in section order; the sample's narrative source
       paragraphs are presentation the served lines replace (each served
       line names its source and date itself).
+
+## All the charts (20 Nov 2026) — M8.2: dot plot, crime charts, Census grid, EPC spread
+
+- Built: the four chart families of the plan step, plus one moved up into
+  it (below). All geometry is decided in `lib/report.ts` as plain
+  JSON-serialisable chart models on the Section 5 map pattern
+  (`ReportDotPlotModel`, `ReportMonthChartModel`, and the extended `bars`
+  block whose rows now carry the view-decided width, printed value and
+  fill strength); `components/ReportPage.tsx` maps the models to SVG/HTML
+  and derives nothing, so M8.4's PDF draws the identical pictures from
+  the same ReportView. New block types: `dotPlot`, `monthChart`,
+  `statTile`, `chartGrid`. The chart kit (cards, bar rows, grid, notes)
+  was already in `app/globals.css` from the sample page; no CSS changed.
+- Section 2 — the sold-prices dot plot. One dot per counted sale, the
+  postcode median as a dashed labelled line, and at rung 1 the home's
+  last sale as the large brass dot, labelled below. Scale rules, settled
+  in the model and pinned by unit tests: a linear £ axis over the counted
+  prices (the home's price included in the extent), stepped at the
+  smallest 1/2/5 × 10^n step not finer than range ÷ 4, axis ends floored
+  and ceiled to the step and padded one step where a price lands exactly
+  on an end, ticks at every step (£k / £m forms). Dots sharing a 12px
+  column stack upward in 14px rows; the viewBox grows one row-step for
+  every stack row beyond the Master's two (760 × 118 at two rows, the
+  Master's exact geometry: axis y58, median label y12, line y18–84, home
+  label y90, ticks y108). Median and home labels anchor start/middle/end
+  by position so nothing leaves the viewBox; the home dot is drawn last
+  and never stacked. The plan's own check is a unit test: Exeter — 9
+  dots, median line at x397.5 (£310,000 on the £100k–£500k axis), home
+  dot at x327.5 (£270,000); the golden replay asserts the same facts on
+  the real bundle (9 dots, home left of median) and Birkdale's 29 dots
+  with the home on the median line.
+- FOUNDER RULING (20 Nov 2026), recorded here as instructed: the dot
+  plot has NO upper limit — it plots every counted sale, the same sales
+  the section's median is drawn from. A chart-only cap (most recent X
+  sales) was considered and rejected because the picture would disagree
+  with the median beside it. The bundle widening below exists to serve
+  exactly this: the plot is drawn from `countedSales`, never from the
+  recent-10 slice.
+- The authorised re-pin (the step's one bundle-shape change): the
+  sold-prices bundle gains `countedSales` — every counted category-A
+  sale as a served sale, newest first — in `lib/sold-prices.ts`
+  (`PostcodeFigures`). Five pins moved in
+  `tests/fixtures/replay/bundle-shapes.json` (sold.served-house,
+  sold.served-flat, sold.rung2, sold.too-few, sold.loaded-none), each
+  differing by exactly the added key, verified by leaf-diff against the
+  printed shapes; the other 45 pins stand, including every short pin
+  (the headline projection never reads the counted set). The sold bundle
+  is not held in the bundle cache, so no cache shape check extends. The
+  figure census registers the counted set's price under the
+  recorded-sale price family and its propertyType/newBuild leaves beside
+  recentSales' own. The full re-pin record also stands in the header of
+  `tests/bundle-contracts.test.ts`, as previous re-pins were recorded.
+  The golden replay carries no shape copies of its own (it asserts
+  figures, not shapes); its sold and report cases gained the counted-set
+  and chart locks instead — the CI #250 trap was hunted for and does not
+  exist in this tree.
+- Founder rulings applied (20 Nov 2026, adopting the prep's
+  recommendations): (1) at 1–4 counted sales there is no plot and no
+  median — the "too few for a median" line stands alone; the plot is
+  built only where a median is served. (2) At rung 2 the plot carries
+  dots and the median line with no home dot, titled in the postcode
+  form ("Recorded sales in postcode X"). (3) Crime by category
+  zero-fills to all 14 categories with explicit 0s (see the audit,
+  item 3, for the slug-list resolution). (4) The Census Age card
+  follows the Master: the age-bands bars the code could emit are
+  dropped, the grid opens with the median-age tile, and its caption
+  carries the product's honest basis — "calculated from the Census's
+  single years of age" — never the sample's "published figure" wording.
+  The prep's TS007A uncertainty is resolved: the golden corpus's filed
+  census facts DO carry TS007A (the area suite asserts Birkdale's
+  ts007a total of 8,141 on the real bundle), so the drop is a real
+  removal of a chart the M8.1 build emitted, and the moved pin in
+  `tests/report.test.ts` records it. (5) The EPC A–G ladder is NOT in
+  this build — it stays with M8.11. (6) The month chart's axis uses
+  nice steps (1/2/5 × 10^n) computed from the data, values printed on
+  every bar; at Birkdale's highest month of 47 the rule reproduces the
+  sample's axis exactly (step 10, top gridline 50, November's bar 188px
+  at y44), and at Exeter's high hundreds it steps to 200 with a 1,000
+  top gridline.
+- FOUNDER RULING ADDITION (20 Nov 2026): the postcode EPC distribution
+  chart moved up from M8.11(e) into this step, so every chart is built
+  in one go. It stands in Section 6's "Certificates at this postcode"
+  sub-block: one bar chart per assessment kind (predicted SAP /
+  assessments of existing homes (RdSAP)), band counts as served (D34)
+  in the brain's own A–G order with any no-band count last, widths
+  relative to the row's largest band, each row's served line as the
+  chart's caption (every figure the M8.1 prose carried survives the
+  swap), the spread explainer kept as the closing note. The checked
+  home's own band is never marked on or against the spread — the chart
+  model carries no home marker at all, and a test pins its absence.
+  M8.11(e) is discharged by this build; the plan artifact records the
+  move separately.
+- Section 4 — the two crime tables are replaced by the two charts in
+  the Master's order: total line, per-1,000 line + basis note, England
+  line, month chart, category chart, then the standing notes (crime
+  explainer, stale line where one serves, calibration explainer). The
+  filed basis string rides in the category chart's caption, where the
+  category table's caption carried it. Captions and aria-labels are
+  composed from served figures only; the month caption restates the
+  window in the Master's wrap form and the reconciliation, and never
+  names a highest or lowest month (the authority's naming, dropped by
+  the Master, is not revived — D24). Unit and replay tests assert the
+  reconciliations: both charts' bars sum to the section's headline
+  total (330 Birkdale; 10,722 Exeter).
+- Section 6 — the Census bars come to sample parity: the five table
+  cards plus the Age tile sit in the two-column `.rpt-chartGrid` in the
+  Master's order (Age, Tenure, Accommodation type, Ethnic group,
+  Religion, Bedroom occupancy); bars print the percentage alone at one
+  decimal with counts composed into per-table captions; the largest row
+  is full-strength and the rest the pale tint (the M8.1 renderer printed
+  every row full-strength with a "% (count)" value — both divergences
+  closed). TS021 charts the five headline groups the bundle carries,
+  with the detailed categories composed into its caption under their
+  groups. The bundle's census explainer (the figures describe the whole
+  Census area) stands as the section note after the grid, as in the
+  samples; the social-rented line follows the grid. Bar rows now sort
+  by share descending (the Master's order), served order kept on ties —
+  the M8.1 build served filed order.
+- Parity audit against Master View 7, chart by chart — divergences and
+  dispositions:
+  1. Dot plot scale: the Master's own x-coordinates are a hand-drawn
+     mock, not a consistent linear scale (its £425,000 median is drawn
+     at x508 while its ticks imply x180). The model defines the real
+     linear scale the mock gestures at; every other element (radii,
+     colours, dash, label forms and positions, caption form, aria form)
+     is the Master's exactly.
+  2. Dot plot and chart captions use the product's full-month date form
+     (`formatFiledDate`: "20 December 1996"), not the sample document's
+     abbreviated months — the standing product convention (M8.1 audit
+     item 8).
+  3. Crime category labels are the publisher's names via
+     `crimeCategoryLabel` ("Violence and sexual offences", "Criminal
+     damage and arson"), not the Master's "&" shorthand — the product
+     serves Police.uk's own words on every surface. The canonical
+     14-slug list the zero-fill needed is resolved from the code and
+     the D24 record: `CRIME_CATEGORY_LABELS` in `lib/district.ts`
+     holds 15 keys — the 14 published slugs (named identically in the
+     golden matrix's category splits) plus `unknown`, the loader's
+     filing bucket for records with no published category. The 14 are
+     now exported as `CRIME_CATEGORY_SLUGS` beside the labels; the
+     zero-fill fills exactly those, and a served `unknown` row (count
+     > 0 only — the brain never serves it at zero) rides where the
+     > brain's sort puts it, never zero-filled. Rows re-sort by the
+     > brain's own rule (count descending, slug order on ties), so zero
+     > rows fall last in slug order.
+  4. TS044 charts all eight served rows unmerged; the Master charts
+     five with an "Other types" rollup. The loader files Census
+     categories unmerged by design, and the caption carries every
+     row's count, so no figure is hidden. (Citation corrected at
+     the independent chart audit, 20 Nov 2026: an earlier draft
+     cited D24 here — that rule governs crime, not Census, and is
+     not this choice's authority.)
+  5. TS052 charts the five served rating rows under their served
+     labels ("+2 or more", "+1", "0", "-1", "-2 or less"); the Master
+     relabels them ("2+ spare bedrooms" …) and merges the two
+     below-par rows. The caption carries the Master's definition
+     sentence verbatim, which is what makes the served labels readable.
+  6. TS054 charts seven rows — the Owned total, its own split, then
+     the other four top-level tenures by share; the Master charts five,
+     dropping Shared ownership and Lives rent free entirely. Sub-parts
+     of the other totals are not charted: as bars beside their own
+     totals they would double-count them (the Master's own total +
+     split presentation is kept, extended to every top-level tenure).
+     The caption is the Master's terse form ("Tenure table (TS054):
+     3,397 households."). RATIFIED by the founder, 20 Nov 2026,
+     after the independent chart audit flagged it as the one
+     unruled departure: the seven served rows ship as built.
+  7. TS021's caption itemises EVERY detailed category under its group;
+     the Master's caption itemises only White's two largest details,
+     and its counts do not reconcile (7,528 + 172 ≠ 7,772). The
+     product's caption reconciles exactly, group by group.
+  8. Census captions and bar labels use the served Census labels
+     verbatim; the Master's captions use lowercase short forms
+     ("semi-detached 1,388"). Card titles use the served table titles
+     ("Occupancy rating for bedrooms", not the Master's "Bedroom
+     occupancy").
+  9. Print: the samples keep chart cards whole across page breaks
+     (`break-inside: avoid`); the product carries no print stylesheet
+     for the report at all — unchanged by this step. The geometry the
+     print rendering will consume lives in the models, which is this
+     step's half of the bargain; the print rules themselves belong to
+     M8.4, whose founder print check they gate. Flagged here so the
+     gap is a recorded one, not a discovered one.
+  10. The dot-plot caption's stacking sentence: the model stacks by
+      12px column, so dots at nearly the same price stack too. The
+      Master's sentence ("Dots at the same price stack…") over-claims
+      the rule — flagged by the independent chart audit, 20 Nov 2026,
+      and corrected on the founder's ruling the same day: the product
+      caption (lib/report.ts, and components/SampleReport.tsx to
+      match) reads "Dots at the same or nearly the same price stack
+      above the line, so every sale stays visible." The Master's own
+      caption is a flagged future conform, in the same family as the
+      Section 4 title.
+- Test position: `tests/report.test.ts` grows 39 → 56 tests (the
+  plan's Exeter check, stacking and viewBox growth, the rung-2 and
+  too-few forms, both crime charts' axes and reconciliations, the
+  zero-fill and the `unknown` ride-along, the full-parity Census grid
+  on Birkdale's real figures, the EPC spread chart, and rendered-markup
+  parity assertions). One M8.1 pin moved (the age-bands bars presence
+  pin, per ruling (4)). The golden replay's report case asserts the
+  charts on the real bundles in CI's database job, per its standing
+  gate. No e2e spec is added: the door holds, so the real report cannot
+  be photographed yet — its live visual audit rides with M8.7's unlock,
+  as M8.1 recorded; the tag partition stands unmoved at 205 tests
+  (31 @smoke / 174 @regression).

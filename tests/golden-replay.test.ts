@@ -618,6 +618,11 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
     expect(birkdale.median.counted).toBe(29);
     expect(birkdale.median.spanFrom).toBe("1996-12-20");
     expect(birkdale.median.spanTo).toBe("2026-07-20");
+    // The counted set (M8.2's widening): the whole set the
+    // median is drawn from — its middle, sorted, is the
+    // median itself.
+    expect(birkdale.countedSales).toHaveLength(29);
+    expect([...birkdale.countedSales.map((s) => s.price)].sort((a, b) => a - b)[14]).toBe(588995);
 
     const exeter = get("exeter1").sold;
     if (exeter.kind !== "sold-prices" || exeter.rung !== 1 || "soldPrices" in exeter)
@@ -626,6 +631,8 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
     expect(exeter.ownHistory[0]?.date).toBe("2014-01-17");
     expect(exeter.median.value).toBe(310000);
     expect(exeter.median.counted).toBe(9);
+    expect(exeter.countedSales).toHaveLength(9);
+    expect([...exeter.countedSales.map((s) => s.price)].sort((a, b) => a - b)[4]).toBe(310000);
 
     // Minerva's own sale is a golden fact; the excerpt corpus
     // holds only the two golden KT17 rows, so the postcode
@@ -1716,11 +1723,62 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
     if (!mapBlock || mapBlock.type !== "map") throw new Error("expected a map block");
     expect(mapBlock.map.pins.length).toBeGreaterThan(0);
     expect(mapBlock.map.pins.map((p) => p.name)).not.toContain("St Andrew's Junior School");
+    // The M8.2 charts on the real bundles: Birkdale's dot
+    // plot carries all 29 counted sales with the home's
+    // dot on the median line, and both crime charts
+    // reconcile with the section's 330 total.
+    const dotBlock = birkdale.sections[1].blocks.find((b) => b.type === "dotPlot");
+    if (!dotBlock || dotBlock.type !== "dotPlot") throw new Error("expected a dot plot");
+    expect(dotBlock.plot.dots).toHaveLength(29);
+    expect(dotBlock.plot.home?.x).toBe(dotBlock.plot.median.x);
+    const catBlock = birkdale.sections[3].blocks.find((b) => b.type === "bars");
+    if (!catBlock || catBlock.type !== "bars") throw new Error("expected the category chart");
+    // All 14 published categories stand (zero-filled); a
+    // served no-category bucket would add a fifteenth row.
+    expect(catBlock.rows.length).toBeGreaterThanOrEqual(14);
+    expect(catBlock.rows[0]).toMatchObject({
+      label: "Violence and sexual offences",
+      value: "133",
+      strong: true,
+    });
+    expect(catBlock.rows.reduce((sum, row) => sum + Number(row.value), 0)).toBe(330);
+    const monthBlock = birkdale.sections[3].blocks.find((b) => b.type === "monthChart");
+    if (!monthBlock || monthBlock.type !== "monthChart")
+      throw new Error("expected the month chart");
+    expect(monthBlock.chart.bars).toHaveLength(12);
+    expect(monthBlock.chart.bars.reduce((sum, bar) => sum + Number(bar.value), 0)).toBe(330);
+    // The Census grid stands on the real tables: the Age
+    // tile opens it, captioned with the calculated basis.
+    const gridBlock = birkdale.sections[5].blocks.find((b) => b.type === "chartGrid");
+    if (!gridBlock || gridBlock.type !== "chartGrid") throw new Error("expected the census grid");
+    const ageCard = gridBlock.cards[0];
+    if (!ageCard || ageCard.type !== "statTile") throw new Error("expected the Age tile");
+    expect(ageCard.value).toBe("46.5 years");
+    expect(ageCard.caption).toContain("calculated from the Census's single years of age");
+    expect(JSON.stringify(gridBlock)).not.toContain("Age by five-year age bands");
 
     const exeter = viewOf("exeter1");
     const exeterText = JSON.stringify(exeter);
     expect(exeterText).toContain("£310,000");
     expect(exeterText).toContain("10,722 recorded crimes");
+    // The plan's own dot-plot check on the real bundle:
+    // 9 dots, and on the one linear scale the £270,000
+    // home dot stands left of the £310,000 median line.
+    const exeterDot = exeter.sections[1].blocks.find((b) => b.type === "dotPlot");
+    if (!exeterDot || exeterDot.type !== "dotPlot") throw new Error("expected a dot plot");
+    expect(exeterDot.plot.dots).toHaveLength(9);
+    expect(exeterDot.plot.median.label).toBe("Median £310,000");
+    expect(exeterDot.plot.home?.label).toBe("This home — £270,000");
+    expect(exeterDot.plot.home?.x).toBeLessThan(exeterDot.plot.median.x);
+    // Exeter's crime charts reconcile with its 10,722
+    // total, on the adapted axis the high counts need.
+    const exeterCat = exeter.sections[3].blocks.find((b) => b.type === "bars");
+    if (!exeterCat || exeterCat.type !== "bars") throw new Error("expected the category chart");
+    expect(exeterCat.rows.reduce((sum, row) => sum + Number(row.value), 0)).toBe(10722);
+    const exeterMonths = exeter.sections[3].blocks.find((b) => b.type === "monthChart");
+    if (!exeterMonths || exeterMonths.type !== "monthChart")
+      throw new Error("expected the month chart");
+    expect(exeterMonths.chart.bars.reduce((sum, bar) => sum + Number(bar.value), 0)).toBe(10722);
 
     const minerva = viewOf("minerva1");
     const minervaText = JSON.stringify(minerva);

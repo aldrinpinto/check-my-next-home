@@ -298,6 +298,39 @@
 // recompute. All 50 pins stand. Recorded here and in
 // docs/frontend-design-pass.md so the change is never
 // mistaken for drift.
+//
+// RE-PIN RECORD: M8.2 (all the charts, founder-authorised
+// inside the step, 20 Nov 2026) deliberately widened the
+// frozen sold-prices shape — the postcode figures gain
+// countedSales, EVERY counted category-A sale as a served
+// sale (newest first), the full set the postcode median
+// is drawn from, of which recentSales remains the
+// 10-newest slice. The report's Section 2 dot plot plots
+// that set — one dot per counted sale, no chart-only cap
+// (a cap was considered and rejected by the founder's
+// ruling of 20 Nov 2026: the picture must not disagree
+// with the median beside it). Five pins moved
+// (sold.served-house, sold.served-flat, sold.rung2,
+// sold.too-few, sold.loaded-none), each differing by
+// exactly the added countedSales key — the served-sale
+// element shape on the four pins whose fake files sales,
+// the empty array on loaded-none — verified by leaf-diff
+// against the printed shapes (PRINT_SHAPES=1): with the
+// key stripped, each moved pin is the old pin. The
+// not-covered, unavailable and rung-3/4 pins did not
+// move — no figures serve there. No short pin moved: the
+// headline projection picks named fields and never reads
+// the counted set. The sold bundle is not held in the
+// bundle cache (lib/bundle-cache.ts covers crime, flood,
+// nearby and area only), so no cache shape check extends.
+// The figure census (tests/explainer-census.ts) registers
+// the counted set's price under the recorded-sale price
+// family (sold.recent-sales — its beside-figure line is
+// the median's explainer, which names the counted set)
+// and its propertyType/newBuild leaves beside
+// recentSales' own. All 50 pins stand. Recorded here and
+// in docs/frontend-design-pass.md so the change is never
+// mistaken for drift.
 
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";

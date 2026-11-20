@@ -1311,6 +1311,15 @@ export const FIGURE_PATH_PATTERNS: FigurePathPattern[] = [
   p("soldPrices\\.building\\.median\\.counted", "sold.counted-count-span"),
   p("soldPrices\\.building\\.sales\\[\\]\\.price", "sold.building-median"),
   p("soldPrices\\.recentSales\\[\\]\\.price", "sold.recent-sales"),
+  // The counted set (M8.2): every category-A sale behind
+  // the postcode median, widened onto the bundle for the
+  // report's dot plot. A counted sale's price is the
+  // recorded-sale price figure — the recent-sales family
+  // — and its beside-figure line is the median's own
+  // explainer, which names the counted set it is the
+  // middle of; the plot's caption restates the count,
+  // the span and the median beside the dots themselves.
+  p("soldPrices\\.countedSales\\[\\]\\.price", "sold.recent-sales"),
   p("soldPrices\\.recordedCount", "sold.recorded-count"),
   // Crime figures
   p("crime\\.crime\\.total", "crime.total"),
@@ -1452,8 +1461,8 @@ export const FIGURE_PATH_PATTERNS: FigurePathPattern[] = [
     "area\\.sections\\.nature\\.priorityHabitat\\.typesWithin\\[\\]",
     "area.nature.priority-habitat",
   ),
-  p("soldPrices\\.(recentSales|ownHistory)\\[\\]\\.propertyType", "sold.own-sale"),
-  p("soldPrices\\.(recentSales|ownHistory)\\[\\]\\.newBuild", "sold.own-sale"),
+  p("soldPrices\\.(recentSales|ownHistory|countedSales)\\[\\]\\.propertyType", "sold.own-sale"),
+  p("soldPrices\\.(recentSales|ownHistory|countedSales)\\[\\]\\.newBuild", "sold.own-sale"),
   p("short\\.sections\\.flood\\.layers\\[\\]\\.coveringLabel", "short.flood-labels"),
   p("flood\\.flood\\.layers\\[\\]\\.(covering|remainder)\\.displayLabel", "flood.label"),
   p("flood\\.flood\\.layers\\[\\]\\.proximity\\[\\]\\.displayLabel", "flood.label"),

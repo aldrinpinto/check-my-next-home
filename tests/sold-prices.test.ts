@@ -382,6 +382,14 @@ describe("sold prices — 19 Birkdale Rise, CM3 2JT", () => {
       address: "8 Birkdale Rise",
     });
     expect(bundle.recentSales.map((s) => s.price)).not.toContain(651440);
+    // The counted set (M8.2): EVERY counted category-A
+    // sale, the set the median above is drawn from — the
+    // recent list is its 10-newest slice, and the
+    // category-B sale is not among them either. The
+    // report's dot plot plots this set, uncapped.
+    expect(bundle.countedSales).toHaveLength(29);
+    expect(bundle.countedSales.map((s) => s.price)).not.toContain(651440);
+    expect(bundle.countedSales.slice(0, 10)).toEqual(bundle.recentSales);
     // A house has no building line.
     expect(bundle.building).toBeNull();
     // Every figure carries its source and edition (D9/D13).

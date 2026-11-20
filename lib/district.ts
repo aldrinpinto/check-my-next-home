@@ -692,6 +692,32 @@ const FLOOD_NOT_COVERED_LINE =
 const DEPRIVATION_NOT_COVERED_LINE =
   "The deprivation spread is England's index — the district's small areas sit outside its coverage, and Wales and Scotland publish their own indices on their own scales.";
 
+// The canonical list of Police.uk's 14 published crime
+// categories, in slug form — the set the report's
+// by-category chart zero-fills to (M8.2, founder ruling:
+// all 14 categories shown in full, zero counts served as
+// recorded zeroes, D24). The fifteenth key in the label
+// table below, "unknown", is NOT one of the 14: it is the
+// loader's filing bucket for records with no published
+// category, served only where it carries a count, and
+// never zero-filled.
+export const CRIME_CATEGORY_SLUGS: readonly string[] = [
+  "anti-social-behaviour",
+  "bicycle-theft",
+  "burglary",
+  "criminal-damage-arson",
+  "drugs",
+  "other-crime",
+  "other-theft",
+  "possession-of-weapons",
+  "public-order",
+  "robbery",
+  "shoplifting",
+  "theft-from-the-person",
+  "vehicle-crime",
+  "violent-crime",
+];
+
 // Police.uk's published category names for its slugs — the
 // publisher's own vocabulary, as the home page's breakdown
 // serves it. A slug the table does not hold serves in its

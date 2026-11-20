@@ -1,8 +1,15 @@
 import { displayText, type AddressResolution } from "./address";
-import type { AreaBundle, AreaSections, ServedCertificate } from "./area-bundle";
+import type {
+  AreaBundle,
+  AreaSections,
+  CensusRowServed,
+  CensusSection,
+  CensusTableServed,
+  ServedCertificate,
+} from "./area-bundle";
 import { CHECK_PAGES } from "./check-pages";
-import type { CrimeBundle } from "./crime";
-import { crimeCategoryLabel } from "./district";
+import type { CrimeBundle, ServedCrime } from "./crime";
+import { CRIME_CATEGORY_SLUGS, crimeCategoryLabel } from "./district";
 import type { FloodBundle, FloodLiveWarnings, ServedFloodWarning } from "./flood";
 import { formatFiledDate, formatMiles, formatPounds } from "./journey";
 import type { CategoryAnswer, NearbyBundle, NearbyCategory, NearbyPlace } from "./nearby";
@@ -171,6 +178,64 @@ export interface ReportMapModel {
   ariaLabel: string;
 }
 
+// The dot-plot model (M8.2): every coordinate decided
+// here, on the Section 5 map pattern — the renderer maps
+// the numbers to SVG and derives nothing, so M8.4's PDF
+// draws the identical picture. The plot carries one dot
+// per counted sale (the full counted set the median is
+// drawn from — no chart-only cap, founder ruling
+// 20 Nov 2026), the median as a dashed line, and, at
+// rung 1, the home's own last sale as the brass dot.
+export interface ReportDotPlotModel {
+  title: string;
+  // The viewBox is 760 wide; its height grows in fixed
+  // 14px steps as same-price stacks rise (the Master's
+  // form at two stack rows is 760 × 118).
+  height: number;
+  axisY: number;
+  tickY: number;
+  median: {
+    x: number;
+    label: string;
+    anchor: "start" | "middle" | "end";
+    labelY: number;
+    lineY1: number;
+    lineY2: number;
+  };
+  dots: { x: number; y: number }[];
+  home: {
+    x: number;
+    y: number;
+    label: string;
+    anchor: "start" | "middle" | "end";
+    labelY: number;
+  } | null;
+  ticks: { x: number; label: string; anchor: "start" | "middle" | "end" }[];
+  caption: string;
+  ariaLabel: string;
+}
+
+// The month-chart model (M8.2): the twelve monthly counts
+// as vertical bars on a nice-step axis (1/2/5 × 10^n,
+// founder ruling 20 Nov 2026), values printed on every
+// bar, geometry decided here like the dot plot's.
+export interface ReportMonthChartModel {
+  title: string;
+  height: number;
+  gridlines: { y: number; label: string; baseline: boolean }[];
+  bars: {
+    x: number;
+    y: number;
+    height: number;
+    cx: number;
+    value: string;
+    valueY: number;
+    month: string;
+  }[];
+  caption: string;
+  ariaLabel: string;
+}
+
 export type ReportBlock =
   | { type: "intro"; text: string }
   | { type: "line"; text: string }
@@ -181,12 +246,31 @@ export type ReportBlock =
   | { type: "tiles"; tiles: { label: string; value: string; sub: string }[] }
   | { type: "rows"; rows: ReportRow[] }
   | { type: "table"; head: string[]; rows: string[][]; caption?: string }
+  // A bar chart in a chart card (M8.2's form of the M8.1
+  // block): the view decides each row's bar width, its
+  // printed value and its fill strength — the largest row
+  // full-strength, the rest the pale tint (the sample
+  // kit's rule). The renderer maps and decides nothing.
   | {
       type: "bars";
       title: string;
-      rows: { label: string; pct: number; count: number }[];
+      rows: { label: string; widthPct: number; value: string; strong: boolean }[];
       caption: string;
     }
+  // A stat-tile chart card (the Census Age card): a chart
+  // card whose body is one stat tile, not bars.
+  | {
+      type: "statTile";
+      title: string;
+      label: string;
+      value: string;
+      sub: string | null;
+      caption: string;
+    }
+  // Chart cards arranged two-abreast (the Census grid).
+  | { type: "chartGrid"; cards: ReportBlock[] }
+  | { type: "dotPlot"; plot: ReportDotPlotModel }
+  | { type: "monthChart"; chart: ReportMonthChartModel }
   | { type: "list"; items: string[] }
   | { type: "note"; text: string }
   | { type: "lineLink"; text: string; label: string; href: string }
@@ -259,6 +343,82 @@ function monthLabel(isoMonth: string): string {
     "December",
   ];
   return `${months[Number(match[2]) - 1] ?? isoMonth} ${match[1]}`;
+}
+
+function monthName(isoMonth: string): string {
+  const label = monthLabel(isoMonth);
+  const space = label.lastIndexOf(" ");
+  return space > 0 ? label.slice(0, space) : label;
+}
+
+function monthYear(isoMonth: string): string {
+  const label = monthLabel(isoMonth);
+  const space = label.lastIndexOf(" ");
+  return space > 0 ? label.slice(space + 1) : "";
+}
+
+// ------------------------------------------------------------------
+// Chart machinery (M8.2) — the scale rules, settled here
+// and pinned by tests/report.test.ts. Every chart's
+// geometry is decided in this module; the renderers map
+// the models to SVG/HTML and derive nothing.
+// ------------------------------------------------------------------
+
+function round1(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
+function count(value: number): string {
+  return value.toLocaleString("en-GB");
+}
+
+// The nice-step rule (founder ruling, 20 Nov 2026): axis
+// steps are 1, 2 or 5 × 10^n — the smallest such step
+// that is not finer than the raw division asks for.
+function niceStep(raw: number): number {
+  if (!(raw > 0)) return 1;
+  const pow = 10 ** Math.floor(Math.log10(raw));
+  for (const m of [1, 2, 5, 10]) {
+    if (m * pow >= raw) return m * pow;
+  }
+  return 10 * pow;
+}
+
+// SVG text anchors by position, so a label at the plot's
+// edge grows inward and never leaves the viewBox (the
+// Master's centre-anchored labels sit mid-plot; the rule
+// is the model's answer where the sample never goes).
+function anchorFor(x: number): "start" | "middle" | "end" {
+  if (x < 110) return "start";
+  if (x > 650) return "end";
+  return "middle";
+}
+
+// One bars block with the kit's fill rule applied: the
+// first row attaining the largest width is full-strength,
+// every other row the pale tint.
+function barsBlock(
+  title: string,
+  rows: { label: string; widthPct: number; value: string }[],
+  caption: string,
+): ReportBlock {
+  const max = Math.max(0, ...rows.map((row) => row.widthPct));
+  let strongUsed = false;
+  return {
+    type: "bars",
+    title,
+    rows: rows.map((row) => {
+      const strong = !strongUsed && max > 0 && round1(row.widthPct) === round1(max);
+      if (strong) strongUsed = true;
+      return {
+        label: row.label,
+        widthPct: Math.min(100, Math.max(0, round1(row.widthPct))),
+        value: row.value,
+        strong,
+      };
+    }),
+    caption,
+  };
 }
 
 // The decile in words, on the IMD loader's own
@@ -560,6 +720,122 @@ function saleRow(sale: ServedSale): string[] {
   ];
 }
 
+function tickLabel(value: number): string {
+  if (value >= 1_000_000) {
+    const m = value / 1_000_000;
+    return `£${Number.isInteger(m) ? String(m) : m.toFixed(1)}m`;
+  }
+  if (value >= 1000) {
+    const k = value / 1000;
+    return `£${Number.isInteger(k) ? String(k) : k.toFixed(1)}k`;
+  }
+  return `£${value}`;
+}
+
+// The sold-prices dot plot: one dot per counted sale on a
+// linear £ axis padded to round ticks, the median as a
+// dashed line, the home's last sale (rung 1) as the brass
+// dot on the axis. Dots sharing a 12px column stack
+// upward in 14px rows; the viewBox grows by one row-step
+// for every stack row beyond the Master's two, so no dot
+// is ever thinned, binned or hidden — the caption
+// promises one dot per counted sale. Built only where a
+// median is served: at 1–4 counted sales the section's
+// "too few for a median" line stands alone (founder
+// ruling, 20 Nov 2026).
+function buildDotPlot(args: {
+  postcode: string;
+  countedSales: ServedSale[];
+  medianValue: number;
+  counted: number;
+  spanFrom: string | null;
+  spanTo: string | null;
+  homePrice: number | null;
+}): ReportDotPlotModel | null {
+  const { postcode, countedSales, medianValue, counted } = args;
+  if (countedSales.length === 0) return null;
+  const prices = countedSales.map((sale) => sale.price);
+  const extent = args.homePrice !== null ? [...prices, args.homePrice] : prices;
+  const min = Math.min(...extent);
+  const max = Math.max(...extent);
+  const step = niceStep((max - min) / 4);
+  let axisMin = Math.floor(min / step) * step;
+  let axisMax = Math.ceil(max / step) * step;
+  if (axisMin === min) axisMin -= step;
+  if (axisMax === max) axisMax += step;
+  if (axisMax <= axisMin) axisMax = axisMin + step;
+  const x = (price: number) => round1(30 + ((price - axisMin) / (axisMax - axisMin)) * 700);
+  const columns = new Map<number, number>();
+  const placed = [...countedSales]
+    .sort((a, b) => a.price - b.price)
+    .map((sale) => {
+      const px = x(sale.price);
+      const key = Math.round(px / 12);
+      const level = columns.get(key) ?? 0;
+      columns.set(key, level + 1);
+      return { x: px, level };
+    });
+  const maxStack = Math.max(1, ...columns.values());
+  const topPad = Math.max(0, maxStack - 2) * 14;
+  const axisY = 58 + topPad;
+  const medianX = x(medianValue);
+  const homeX = args.homePrice !== null ? x(args.homePrice) : null;
+  const ticks: ReportDotPlotModel["ticks"] = [];
+  for (let value = axisMin; value <= axisMax; value += step) {
+    ticks.push({
+      x: x(value),
+      label: tickLabel(value),
+      anchor: value === axisMax ? ("end" as const) : ("middle" as const),
+    });
+  }
+  const onMedian = args.homePrice !== null && args.homePrice === medianValue;
+  let caption = `Each dot is one of the ${counted} counted recorded sales in this postcode (category A)`;
+  if (args.spanFrom && args.spanTo)
+    caption += `, spanning ${formatFiledDate(args.spanFrom)} to ${formatFiledDate(args.spanTo)}`;
+  caption += `. The dashed line is the postcode median, ${formatPounds(medianValue)}.`;
+  if (maxStack > 1)
+    caption +=
+      " Dots at the same or nearly the same price stack above the line, so every sale stays visible.";
+  if (args.homePrice !== null)
+    caption += onMedian
+      ? " This home's sale, the brass dot, sits on the median line."
+      : " This home's sale is the brass dot.";
+  let ariaLabel = `Dot plot of the ${counted} counted recorded sales in postcode ${postcode}. The dashed line is the postcode median, ${formatPounds(medianValue)}.`;
+  if (args.homePrice !== null)
+    ariaLabel += ` This home's sale, ${formatPounds(args.homePrice)}, is the large brass dot${onMedian ? ", on the median line" : ""}.`;
+  return {
+    title:
+      args.homePrice !== null
+        ? `Where this home sits — recorded sales in postcode ${postcode}`
+        : `Recorded sales in postcode ${postcode}`,
+    height: 118 + topPad,
+    axisY,
+    tickY: axisY + 50,
+    median: {
+      x: medianX,
+      label: `Median ${formatPounds(medianValue)}`,
+      anchor: anchorFor(medianX),
+      labelY: 12 + topPad,
+      lineY1: 18 + topPad,
+      lineY2: axisY + 26,
+    },
+    dots: placed.map((dot) => ({ x: dot.x, y: axisY - 14 * dot.level })),
+    home:
+      homeX !== null && args.homePrice !== null
+        ? {
+            x: homeX,
+            y: axisY,
+            label: `This home — ${formatPounds(args.homePrice)}`,
+            anchor: anchorFor(homeX),
+            labelY: axisY + 32,
+          }
+        : null,
+    ticks,
+    caption,
+    ariaLabel,
+  };
+}
+
 function section1(input: ReportInput, cert: ServedCertificate | null): ReportSectionView {
   const blocks: ReportBlock[] = [];
   const { sold } = input;
@@ -683,6 +959,22 @@ function section2(input: ReportInput): ReportSectionView {
     blocks.push({ type: "line", text: median.line });
   }
   blocks.push({ type: "note", text: median.explainer });
+  if (median.state === "served" && median.value !== null) {
+    // The dot plot stands with the median it pictures:
+    // every counted sale, the median line, and at rung 1
+    // the home's own last sale. No median, no plot — the
+    // too-few line above stands alone (founder ruling).
+    const plot = buildDotPlot({
+      postcode: sold.postcode,
+      countedSales: sold.countedSales,
+      medianValue: median.value,
+      counted: median.counted,
+      spanFrom: median.spanFrom,
+      spanTo: median.spanTo,
+      homePrice: sold.rung === 1 && sold.ownHistory.length > 0 ? sold.ownHistory[0].price : null,
+    });
+    if (plot) blocks.push({ type: "dotPlot", plot });
+  }
   if (sold.recentSales.length > 0) {
     blocks.push({ type: "sub", text: sold.recentLabel });
     blocks.push({
@@ -806,6 +1098,97 @@ function healthExtra(key: NearbyCategory): (place: NearbyPlace) => string[] {
   };
 }
 
+// The crime month chart: the served monthly counts in
+// window order, on a nice-step axis computed from the
+// data (the sample's axis is drawn for a highest month
+// of 47; Exeter's window runs to the high hundreds, so
+// the step adapts — 1/2/5 × 10^n, the first step-multiple
+// at or above the highest month as the top gridline).
+// The caption restates the window and the reconciliation
+// only — it never names a highest or lowest month (the
+// Master dropped the authority's naming; D24 serves the
+// counts as dated facts, with no computed emphasis).
+function buildMonthChart(served: ServedCrime): ReportMonthChartModel {
+  const months = served.months;
+  const maxCount = Math.max(0, ...months.map((m) => m.count));
+  const step = maxCount === 0 ? 10 : niceStep(maxCount / 5);
+  const axisTop = maxCount === 0 ? 10 : Math.ceil(maxCount / step) * step;
+  const scale = 200 / axisTop;
+  const gridlines: ReportMonthChartModel["gridlines"] = [];
+  for (let value = 0; value <= axisTop; value += step) {
+    gridlines.push({
+      y: round1(232 - value * scale),
+      label: count(value),
+      baseline: value === 0,
+    });
+  }
+  const bars = months.map((m, index) => {
+    const height = round1(m.count * scale);
+    const y = round1(232 - height);
+    return {
+      x: 58 + index * 58,
+      y,
+      height,
+      cx: 58 + index * 58 + 19,
+      value: count(m.count),
+      valueY: round1(y - 8),
+      month: monthName(m.month).slice(0, 3),
+    };
+  });
+  const fromName = monthName(served.windowFrom);
+  const toName = monthName(served.windowTo);
+  const fromYear = monthYear(served.windowFrom);
+  const toYear = monthYear(served.windowTo);
+  const windowText =
+    fromYear !== "" && toYear !== "" && fromYear !== toYear
+      ? `Months run ${fromName} to December ${fromYear}, then January to ${toName} ${toYear}.`
+      : `Months run ${fromName} to ${toName} ${toYear}.`;
+  const caption = `${windowText} The ${months.length === 12 ? "twelve " : ""}bars add up to the ${count(served.total)} total.`;
+  const ariaLabel = `Bar chart of recorded incidents by month, ${monthLabel(served.windowFrom)} to ${monthLabel(served.windowTo)}: ${months.map((m) => `${monthName(m.month)} ${count(m.count)}`).join(", ")}. Total ${count(served.total)}.`;
+  return {
+    title: `Incidents by month — ${monthLabel(served.windowFrom)} to ${monthLabel(served.windowTo)}`,
+    height: 262,
+    gridlines,
+    bars,
+    caption,
+    ariaLabel,
+  };
+}
+
+// The crime category chart: ALL 14 published categories
+// as individual rows, zero-filled where the window
+// recorded none (founder ruling, 20 Nov 2026 — a missing
+// row would invite "was it even checked?"; D24 serves
+// zero counts as recorded zeroes). The canonical list is
+// CRIME_CATEGORY_SLUGS in lib/district.ts — the 14
+// published Police.uk slugs; the label table's fifteenth
+// key, "unknown", is the loader's no-category bucket,
+// not one of the 14, and serves only where the brain
+// served it with a count, never zero-filled. Rows keep
+// the brain's own order (count descending, slug order on
+// ties) over the filled union, so the zero rows fall
+// last in slug order and the bars still sum to the
+// section's headline total. Labels are the publisher's
+// names via crimeCategoryLabel — the Master's "&" forms
+// are the sample's shorthand, not the product's words.
+function buildCategoryBars(served: ServedCrime): ReportBlock {
+  const bySlug = new Map(served.categories.map((c) => [c.slug, c.count]));
+  const slugs = new Set<string>([...CRIME_CATEGORY_SLUGS, ...bySlug.keys()]);
+  const filled = [...slugs]
+    .map((slug) => ({ slug, value: bySlug.get(slug) ?? 0 }))
+    .sort((a, b) => b.value - a.value || a.slug.localeCompare(b.slug));
+  const largest = filled[0]?.value ?? 0;
+  return barsBlock(
+    `Incidents by category — 12 months to ${monthLabel(served.windowTo)} · all 14 categories`,
+    filled.map((row) => ({
+      label: crimeCategoryLabel(row.slug),
+      widthPct: largest > 0 ? (row.value / largest) * 100 : 0,
+      value: count(row.value),
+    })),
+    `All 14 Police.uk categories are shown in full. The categories above add up to the ${count(served.total)} total. ${served.basis}`,
+  );
+}
+
 function section4(input: ReportInput): ReportSectionView {
   const blocks: ReportBlock[] = [];
   const { nearby, crime } = input;
@@ -882,30 +1265,29 @@ function section4(input: ReportInput): ReportSectionView {
   }
 
   // Crime, with the D39 calibration lines beside the
-  // counts, exactly as served (scope (f)).
+  // counts, exactly as served (scope (f)). M8.2: the two
+  // tables become the two charts, in the Master's order —
+  // headline lines (total, the calibration pair), then
+  // the month chart, then the category chart, then the
+  // standing notes (the crime explainer, the stale line
+  // where one serves, the calibration explainer). The
+  // filed basis string rides in the category chart's
+  // caption, where the category table's caption carried
+  // it. A not-served state stays a named line, chart-free.
   blocks.push({ type: "sub", text: "Crime" });
   if (crime.kind === "crime") {
     const served = crime.crime;
     if (served.state === "served") {
       blocks.push({ type: "line", text: served.totalLine + "." });
-      blocks.push({
-        type: "table",
-        head: ["Recorded category", "Incidents"],
-        rows: served.categories.map((c) => [crimeCategoryLabel(c.slug), String(c.count)]),
-        caption: `${served.windowLine}. ${served.basis}`,
-      });
       if (served.perHead) {
         blocks.push({ type: "line", text: served.perHead.line + "." });
         blocks.push({ type: "note", text: served.perHead.basisLine });
       }
       if (served.englandFigure)
         blocks.push({ type: "line", text: served.englandFigure.line + "." });
-      blocks.push({
-        type: "table",
-        head: ["Month", "Incidents"],
-        rows: served.months.map((m) => [monthLabel(m.month), String(m.count)]),
-        caption: served.explainer,
-      });
+      blocks.push({ type: "monthChart", chart: buildMonthChart(served) });
+      blocks.push(buildCategoryBars(served));
+      blocks.push({ type: "note", text: served.explainer });
       if (served.staleLine) blocks.push({ type: "note", text: served.staleLine });
       blocks.push({ type: "note", text: served.calibrationExplainer });
     } else {
@@ -1103,6 +1485,123 @@ function section5(input: ReportInput): ReportSectionView {
 // Section 6 — Home, costs & risks
 // ------------------------------------------------------------------
 
+// ------------------------------------------------------------------
+// The Census chart cards (M8.2) — the Master's grid: the
+// Age tile first, then the five tables in the Master's
+// order (Tenure, Accommodation type, Ethnic group,
+// Religion, Bedroom occupancy). Bars carry the
+// percentage alone; the counts live in the caption,
+// composed from the served rows (D13). Rows sort by
+// share descending — the Master's order — with served
+// order kept on ties.
+// ------------------------------------------------------------------
+
+const CENSUS_GRID_ORDER = ["ts054", "ts044", "ts021", "ts030", "ts052"];
+
+const CENSUS_COUNT_UNITS: Record<string, string> = {
+  ts021: "residents",
+  ts030: "residents",
+  ts044: "households",
+  ts052: "households",
+};
+
+function byShareDesc(rows: CensusRowServed[]): CensusRowServed[] {
+  return [...rows].sort((a, b) => b.pct - a.pct);
+}
+
+function censusCountsCaption(table: CensusTableServed, rows: CensusRowServed[]): string {
+  const unit = CENSUS_COUNT_UNITS[table.code] ?? "counted";
+  let caption = `Counts, of ${count(table.total)} ${unit}: ${rows.map((row) => `${row.label} ${count(row.count)}`).join(" · ")}.`;
+  if (table.code === "ts030") caption += " The religion question was voluntary in Census 2021.";
+  if (table.code === "ts052")
+    caption +=
+      " Occupancy is the Census rating comparing bedrooms in the home with the bedrooms the ONS standard says the household needs.";
+  return caption;
+}
+
+function censusBarsBlock(table: CensusTableServed): ReportBlock {
+  const title = `${table.title} — Census 2021`;
+  const bar = (row: CensusRowServed) => ({
+    label: row.label,
+    widthPct: row.pct,
+    value: `${row.pct.toFixed(1)}%`,
+  });
+  if (table.code === "ts021" && table.groups) {
+    // The five headline groups as bars; the detailed
+    // categories compose into the caption under their
+    // headline group (the loader files every category as
+    // "{group}: {detail}", so the mapping is the label's
+    // own prefix — never a load-time merge).
+    const groups = byShareDesc(table.groups);
+    const caption = `Counts, of ${count(table.total)} residents: ${groups
+      .map((group) => {
+        const details = byShareDesc(
+          table.rows.filter((row) => row.label.startsWith(`${group.label}: `)),
+        ).map((row) => `${row.label.slice(group.label.length + 2)} ${count(row.count)}`);
+        return `${group.label} ${count(group.count)}${details.length > 0 ? ` (${details.join(", ")})` : ""}`;
+      })
+      .join(" · ")}.`;
+    return barsBlock(title, groups.map(bar), caption);
+  }
+  if (table.code === "ts054") {
+    // The Master's tenure form: the Owned total first,
+    // its own split beside it, then the remaining
+    // top-level tenures by share. The sub-parts of the
+    // other totals (a part of Social rented, of Private
+    // rented, of Shared ownership) are not charted — as
+    // bars beside their own totals they would
+    // double-count them; the bundle still serves them
+    // at every depth that prints rows. The caption is
+    // the Master's terse form: the table and its base.
+    const owned = table.rows.find((row) => row.label === "Owned");
+    let chartRows: CensusRowServed[];
+    if (owned) {
+      const splits = table.rows.filter((row) => row.label.startsWith("Owned: "));
+      const others = byShareDesc(
+        table.rows.filter((row) => row.label !== "Owned" && !row.label.includes(": ")),
+      );
+      chartRows = [owned, ...splits, ...others];
+    } else {
+      chartRows = byShareDesc(table.rows);
+    }
+    return barsBlock(
+      title,
+      chartRows.map(bar),
+      `Tenure table (TS054): ${count(table.total)} households.`,
+    );
+  }
+  const rows = byShareDesc(table.rows);
+  return barsBlock(title, rows.map(bar), censusCountsCaption(table, rows));
+}
+
+// The Age card: the grid opens with the median-age
+// tile, captioned with the product's honest basis —
+// the median age is CALCULATED from the Census's
+// single years of age (the brain's own served basis),
+// never the sample's "published figure" wording. The
+// age-bands table (TS007A) is not charted: the Master
+// draws no age-bands bars (founder ruling, 20 Nov 2026).
+function censusAgeCard(census: CensusSection): ReportBlock | null {
+  if (!census.medianAge) return null;
+  const value = census.medianAge.value;
+  const subParts: string[] = [];
+  if (census.msoaName) subParts.push(`MSOA ${census.msoaName}`);
+  if (census.residentsTotal !== null)
+    subParts.push(`${count(census.residentsTotal)} residents counted in this area's tables`);
+  const baseParts: string[] = [];
+  if (census.residentsTotal !== null) baseParts.push(`${count(census.residentsTotal)} residents`);
+  if (census.householdsTotal !== null)
+    baseParts.push(`${count(census.householdsTotal)} households`);
+  return {
+    type: "statTile",
+    title: "Age — Census 2021",
+    label: "Median age",
+    value: `${value} years`,
+    sub: subParts.length > 0 ? subParts.join(" · ") : null,
+    caption: `Median age ${value} years, calculated from the Census's single years of age${census.msoaName ? ` for ${census.msoaName}` : ""}${baseParts.length > 0 ? ` (${baseParts.join(", ")})` : ""}.`,
+  };
+}
+
 function section6(input: ReportInput): ReportSectionView {
   const blocks: ReportBlock[] = [];
   const sections = areaSections(input);
@@ -1174,9 +1673,35 @@ function section6(input: ReportInput): ReportSectionView {
     }
     if (epc.spread) {
       // D34: the spread counts certificates, not homes.
+      // The distribution chart (M8.11(e)'s chart, moved
+      // up into this step by the founder's ruling of
+      // 20 Nov 2026 so every chart is built in one step):
+      // one bar chart per assessment kind, band counts
+      // as served in the brain's own A–G order, widths
+      // relative to the row's largest band; each row's
+      // served line becomes the chart's caption, so
+      // every figure the prose carried survives the
+      // swap. The checked home's own band is never
+      // marked on or against the spread — the chart
+      // model carries no home marker at all.
       blocks.push({ type: "sub", text: "Certificates at this postcode" });
       blocks.push({ type: "line", text: epc.spread.grainLine });
-      for (const row of epc.spread.rows) blocks.push({ type: "line", text: row.line });
+      for (const row of epc.spread.rows) {
+        const largest = Math.max(0, ...row.bands.map((band) => band.count));
+        blocks.push(
+          barsBlock(
+            row.kind === "predicted"
+              ? "Band spread — predicted (SAP) certificates"
+              : "Band spread — assessments of existing homes (RdSAP)",
+            row.bands.map((band) => ({
+              label: band.band ? `Band ${band.band}` : "No band recorded",
+              widthPct: largest > 0 ? (band.count / largest) * 100 : 0,
+              value: count(band.count),
+            })),
+            row.line,
+          ),
+        );
+      }
       blocks.push({ type: "note", text: epc.spread.explainer });
     }
   }
@@ -1304,19 +1829,32 @@ function section6(input: ReportInput): ReportSectionView {
     });
   }
   if (census.line) blocks.push({ type: "line", text: census.line });
-  if (census.medianAge) blocks.push({ type: "line", text: census.medianAge.line });
-  for (const table of census.tables) {
-    blocks.push({
-      type: "bars",
-      title: `${table.title} — Census 2021`,
-      rows: table.rows.map((row) => ({ label: row.label, pct: row.pct, count: row.count })),
-      caption: `Census 2021 table ${table.code.toUpperCase()}: ${table.total.toLocaleString("en-GB")} counted in this table.`,
-    });
-    if (table.code === "ts054" && census.socialRented)
-      blocks.push({ type: "line", text: census.socialRented.line });
+  // The Census charts in the Master's grid (M8.2): the
+  // median-age tile opens the grid, then the five table
+  // cards in the Master's order; the section-level note
+  // — the bundle's own census explainer, that the
+  // figures describe the whole Census area — follows
+  // the grid, as in the samples. The social-rented
+  // share stands as its own line after the grid (scope
+  // (d)); it stood after the tenure bars at M8.1, and
+  // the grid keeps it beside the same card's section.
+  const cards: ReportBlock[] = [];
+  const ageCard = censusAgeCard(census);
+  if (ageCard) cards.push(ageCard);
+  const tablesByCode = new Map(census.tables.map((table) => [table.code, table]));
+  for (const code of CENSUS_GRID_ORDER) {
+    const table = tablesByCode.get(code);
+    if (table) cards.push(censusBarsBlock(table));
   }
-  if (census.socialRented && !census.tables.some((table) => table.code === "ts054"))
-    blocks.push({ type: "line", text: census.socialRented.line });
+  for (const table of census.tables) {
+    if (table.code !== "ts007a" && !CENSUS_GRID_ORDER.includes(table.code))
+      cards.push(censusBarsBlock(table));
+  }
+  if (cards.length > 0) {
+    blocks.push({ type: "chartGrid", cards });
+    blocks.push({ type: "note", text: census.explainer });
+  }
+  if (census.socialRented) blocks.push({ type: "line", text: census.socialRented.line });
 
   return section(6, "Home, costs & risks", blocks);
 }

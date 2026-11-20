@@ -357,8 +357,8 @@ export default function SampleReport() {
             <p className="rpt-small rpt-chartNote">
               Each dot is one of the 29 counted recorded sales in this postcode (category A),
               spanning 20 Dec 1996 to 20 Jul 2026. The dashed line is the postcode median, £425,000.
-              Dots at the same price stack above the line, so every sale stays visible. This home's
-              sale, the brass dot, sits on the median line.
+              Dots at the same or nearly the same price stack above the line, so every sale stays
+              visible. This home's sale, the brass dot, sits on the median line.
             </p>
           </div>
         </section>

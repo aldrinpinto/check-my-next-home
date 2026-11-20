@@ -1,4 +1,10 @@
-import type { ReportBlock, ReportMapModel, ReportView } from "../lib/report";
+import type {
+  ReportBlock,
+  ReportDotPlotModel,
+  ReportMapModel,
+  ReportMonthChartModel,
+  ReportView,
+} from "../lib/report";
 
 // The on-screen report (plan step M8.1): renders the
 // ReportView snapshot from lib/report.ts in the approved
@@ -92,16 +98,41 @@ function Block({ block }: { block: ReportBlock }) {
             <div className="rpt-barRow" key={row.label}>
               <span className="barLab">{row.label}</span>
               <span className="rpt-barTrack">
-                <i className="rpt-barFill" style={{ width: `${Math.min(row.pct, 100)}%` }}></i>
+                <i
+                  className={row.strong ? "rpt-barFill" : "rpt-barFill light"}
+                  style={{ width: `${row.widthPct}%` }}
+                ></i>
               </span>
-              <span className="rpt-barVal">
-                {row.pct}% ({row.count.toLocaleString("en-GB")})
-              </span>
+              <span className="rpt-barVal">{row.value}</span>
             </div>
           ))}
           <p className="rpt-small rpt-chartNote">{block.caption}</p>
         </div>
       );
+    case "statTile":
+      return (
+        <div className="rpt-chartCard">
+          <h4>{block.title}</h4>
+          <div className="rpt-tile" style={{ border: "0", padding: "2px 0 0" }}>
+            <div className="stLabel">{block.label}</div>
+            <div className="stValue">{block.value}</div>
+            {block.sub ? <div className="stSub">{block.sub}</div> : null}
+          </div>
+          <p className="rpt-small rpt-chartNote">{block.caption}</p>
+        </div>
+      );
+    case "chartGrid":
+      return (
+        <div className="rpt-chartGrid">
+          {block.cards.map((card, index) => (
+            <Block key={index} block={card} />
+          ))}
+        </div>
+      );
+    case "dotPlot":
+      return <DotPlot plot={block.plot} />;
+    case "monthChart":
+      return <MonthChart chart={block.chart} />;
     case "list":
       return (
         <ul className="rpt-tight">
@@ -215,6 +246,154 @@ function ReportMap({ map }: { map: ReportMapModel }) {
         ))}
       </ul>
       <p className="rpt-small rpt-chartNote">{map.caption}</p>
+    </div>
+  );
+}
+
+// The sold-prices dot plot (M8.2): a static SVG picture
+// drawn entirely from the model's geometry (lib/report.ts
+// decided every coordinate, the axis, the stacks and the
+// label anchors) — one pale dot per counted sale, the
+// median as a dashed line, the home's sale as the large
+// brass dot drawn last, on top. The colours and radii are
+// the Master's own, as the Section 5 map's are.
+function DotPlot({ plot }: { plot: ReportDotPlotModel }) {
+  return (
+    <div className="rpt-chartCard">
+      <h4>{plot.title}</h4>
+      <svg
+        className="dotPlot"
+        viewBox={`0 0 760 ${plot.height}`}
+        role="img"
+        aria-label={plot.ariaLabel}
+      >
+        <text
+          x={plot.median.x}
+          y={plot.median.labelY}
+          textAnchor={plot.median.anchor}
+          fontSize="13"
+          fontWeight="700"
+          fill="#2F5D3E"
+        >
+          {plot.median.label}
+        </text>
+        <line
+          x1={plot.median.x}
+          y1={plot.median.lineY1}
+          x2={plot.median.x}
+          y2={plot.median.lineY2}
+          stroke="#2F5D3E"
+          strokeWidth="2.5"
+          strokeDasharray="5 4"
+        />
+        <line
+          x1="30"
+          y1={plot.axisY}
+          x2="730"
+          y2={plot.axisY}
+          stroke="#D8CFB2"
+          strokeWidth="3"
+          strokeLinecap="round"
+        />
+        {plot.dots.map((dot, index) => (
+          <circle
+            key={index}
+            cx={dot.x}
+            cy={dot.y}
+            r="6"
+            fill="#A8C0AF"
+            stroke="#fff"
+            strokeWidth="2"
+          />
+        ))}
+        {plot.home ? (
+          <>
+            <circle
+              cx={plot.home.x}
+              cy={plot.home.y}
+              r="11"
+              fill="#C29A3B"
+              stroke="#1E402C"
+              strokeWidth="2.5"
+            />
+            <text
+              x={plot.home.x}
+              y={plot.home.labelY}
+              textAnchor={plot.home.anchor}
+              fontSize="13.5"
+              fontWeight="700"
+              fill="#7A5E14"
+            >
+              {plot.home.label}
+            </text>
+          </>
+        ) : null}
+        {plot.ticks.map((tick) => (
+          <text
+            key={tick.label}
+            x={tick.x}
+            y={plot.tickY}
+            textAnchor={tick.anchor}
+            fontSize="12"
+            fill="#5C6B60"
+          >
+            {tick.label}
+          </text>
+        ))}
+      </svg>
+      <p className="rpt-small rpt-chartNote">{plot.caption}</p>
+    </div>
+  );
+}
+
+// The crime month chart (M8.2): the model's gridlines,
+// bars and labels drawn as served — the count printed
+// above every bar, the three-letter month below.
+function MonthChart({ chart }: { chart: ReportMonthChartModel }) {
+  return (
+    <div className="rpt-chartCard">
+      <h4>{chart.title}</h4>
+      <svg
+        className="monthChart"
+        viewBox={`0 0 760 ${chart.height}`}
+        role="img"
+        aria-label={chart.ariaLabel}
+      >
+        {chart.gridlines.map((line) => (
+          <g key={line.label}>
+            <line
+              x1="44"
+              y1={line.y}
+              x2="744"
+              y2={line.y}
+              stroke={line.baseline ? "#8FAE9B" : "#E7DFC6"}
+              strokeWidth={line.baseline ? "2" : "1"}
+            />
+            <text x="30" y={line.y + 4} textAnchor="end" fontSize="12" fill="#5C6B60">
+              {line.label}
+            </text>
+          </g>
+        ))}
+        {chart.bars.map((bar) => (
+          <g key={bar.month + bar.x}>
+            <rect x={bar.x} y={bar.y} width="38" height={bar.height} rx="3" fill="#2F5D3E" />
+            <text
+              x={bar.cx}
+              y={bar.valueY}
+              textAnchor="middle"
+              fontSize="13"
+              fontWeight="700"
+              fill="#1E402C"
+            >
+              {bar.value}
+            </text>
+            <text x={bar.cx} y="252" textAnchor="middle" fontSize="12.5" fill="#33403B">
+              {bar.month}
+            </text>
+          </g>
+        ))}
+      </svg>
+      <p className="rpt-small rpt-chartNote">{chart.caption}</p>
     </div>
   );
 }

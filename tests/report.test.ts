@@ -315,6 +315,18 @@ const soldServed: SoldPricesBundle = {
     line: "the postcode median is £588,995",
     explainer: "MEDIAN-EXPLAINER: the middle of the counted category A sales",
   },
+  countedSales: [
+    205000, 230000, 252000, 268000, 285000, 299000, 315000, 332000, 350000, 372000, 398000, 420000,
+    445000, 470000, 588995, 596000, 610000, 628000, 645000, 660000, 678000, 695000, 712000, 730000,
+    755000, 780000, 805000, 840000, 875000,
+  ].map((price, index) => ({
+    price,
+    date: "2020-01-01",
+    propertyType: "D",
+    tenure: "F",
+    newBuild: false,
+    address: `${index + 1} Birkdale Rise`,
+  })),
   recentSales: [
     {
       price: 588995,
@@ -355,8 +367,27 @@ const crimeServed: CrimeBundle = {
     categories: [
       { slug: "violent-crime", count: 120 },
       { slug: "anti-social-behaviour", count: 65 },
+      { slug: "burglary", count: 40 },
+      { slug: "criminal-damage-arson", count: 35 },
+      { slug: "other-theft", count: 30 },
+      { slug: "public-order", count: 20 },
+      { slug: "vehicle-crime", count: 12 },
+      { slug: "shoplifting", count: 8 },
     ],
-    months: [{ month: "2025-10", count: 22 }],
+    months: [
+      { month: "2025-10", count: 22 },
+      { month: "2025-11", count: 47 },
+      { month: "2025-12", count: 28 },
+      { month: "2026-01", count: 26 },
+      { month: "2026-02", count: 14 },
+      { month: "2026-03", count: 28 },
+      { month: "2026-04", count: 37 },
+      { month: "2026-05", count: 33 },
+      { month: "2026-06", count: 34 },
+      { month: "2026-07", count: 23 },
+      { month: "2026-08", count: 26 },
+      { month: "2026-09", count: 12 },
+    ],
     basis: "BASIS: recorded against nearby streets",
     sourceName: "Police.uk",
     sourceLine: "Source: Police.uk street-level crime data",
@@ -1150,11 +1181,25 @@ describe("report — Section 6 home, costs & risks", () => {
     expect(demo).not.toContain("decile 8");
   });
 
-  it("the Census tables render as published, the age table among them (a), and social rent stands as its own line (d)", () => {
-    expect(s6).toContain("Age by five-year age bands — Census 2021");
+  it("the Census charts render in the Master's grid — the Age tile opens it and the age-bands bars are not drawn (a, M8.2), and social rent stands as its own line (d)", () => {
+    expect(s6).toContain("Age — Census 2021");
+    expect(s6).toContain("46.5 years");
+    expect(s6).toContain("calculated from the Census's single years of age");
+    expect(s6).not.toContain("Age by five-year age bands");
     expect(s6).toContain("Tenure — Census 2021");
+    expect(s6).toContain("Tenure table (TS054): 3,397 households.");
     expect(s6).toContain("SOCIAL-RENTED-LINE");
     expect(s6).toContain("SPREAD-EXPLAINER: certificates, not homes");
+  });
+
+  it("the EPC spread renders as a band chart with the row's served line as its caption — and no home marker anywhere on it (M8.2, the M8.11(e) chart moved up)", () => {
+    const spread = view.sections[5].blocks.find(
+      (b) => b.type === "bars" && b.title.includes("RdSAP"),
+    );
+    if (!spread || spread.type !== "bars") throw new Error("expected the EPC spread chart");
+    expect(spread.rows).toEqual([{ label: "Band B", widthPct: 100, value: "20", strong: true }]);
+    expect(spread.caption).toBe("SPREAD-LINE");
+    expect(JSON.stringify(spread).toLowerCase()).not.toContain("this home");
   });
 
   it("the planning hand-off renders — never a count, never a named list", () => {
@@ -1327,7 +1372,571 @@ describe("report — states, nations and the door seam", () => {
     });
     expect(reportViewGate("CM3 2JT", null, "paid")).toEqual({ action: "serve" });
   });
+});
 
+describe("report — M8.2 charts: the dot plot", () => {
+  function dotPlotOf(view: ReportView) {
+    const block = view.sections[1].blocks.find((b) => b.type === "dotPlot");
+    if (!block || block.type !== "dotPlot") throw new Error("expected a dot plot in Section 2");
+    return block.plot;
+  }
+
+  const exeterResolution: AddressResolution = {
+    rung: 1,
+    kind: "home",
+    address: {
+      postcode: "EX1 1AA",
+      paon: "1",
+      saon: null,
+      street: "HIGH STREET",
+      locality: null,
+      town: "EXETER",
+      label: "1 High Street",
+    },
+    directory: {
+      postcode: "EX1 1AA",
+      latitude: 50.7,
+      longitude: -3.5,
+      council: "Exeter",
+      ward: "Newtown",
+      region: "South West",
+      lsoaCode: "E01020001",
+      msoaCode: "E02000750",
+    },
+  };
+
+  function soldWith(args: {
+    prices: number[];
+    medianValue: number | null;
+    homePrice?: number;
+    rung?: 1 | 2;
+  }): SoldPricesBundle {
+    const counted = args.prices.length;
+    const base = {
+      kind: "sold-prices" as const,
+      postcode: "EX1 1AA",
+      loadState: "found" as const,
+      recordedCount: counted,
+      sourceName: "HM Land Registry",
+      edition: "2026-10-28",
+      sourceLine: "Source: HM Land Registry Price Paid Data, edition 28 October 2026",
+      stateLine: null,
+      median:
+        args.medianValue !== null
+          ? {
+              state: "served" as const,
+              value: args.medianValue,
+              counted,
+              spanFrom: "2001-05-11",
+              spanTo: "2024-09-30",
+              line: "the postcode median",
+              explainer: "MEDIAN-EXPLAINER",
+            }
+          : {
+              state: "too-few" as const,
+              value: null,
+              counted,
+              spanFrom: "2001-05-11",
+              spanTo: "2024-09-30",
+              line: `only ${counted} recorded sales in this postcode — too few for a median`,
+              explainer: "MEDIAN-EXPLAINER",
+            },
+      countedSales: args.prices.map((price) => ({
+        price,
+        date: "2020-01-01",
+        propertyType: "T",
+        tenure: "F",
+        newBuild: false,
+        address: "High Street",
+      })),
+      recentSales: [],
+      recentLabel: "The most recent recorded sales in this postcode",
+      building: null,
+    };
+    if (args.rung === 2) return { rung: 2, ...base };
+    return {
+      rung: 1,
+      ...base,
+      ownHistory:
+        args.homePrice !== undefined
+          ? [
+              {
+                price: args.homePrice,
+                date: "2014-01-17",
+                propertyType: "T",
+                tenure: "F",
+                newBuild: false,
+                address: "1 High Street",
+              },
+            ]
+          : [],
+      ownLine: null,
+      ownExplainer: "OWN-EXPLAINER",
+    };
+  }
+
+  it("the plan's own check: Exeter's dot plot — 9 dots, median £310,000 and this home £270,000 in the right coordinates", () => {
+    // The axis rule: range £175,000–£440,000 → nice step
+    // £100,000, axis £100,000–£500,000 over x 30–730, so
+    // x(price) = 30 + (price − 100,000) / 400,000 × 700.
+    const view = buildReportView(
+      input({
+        resolution: exeterResolution,
+        sold: soldWith({
+          prices: [175000, 210000, 245000, 280000, 310000, 335000, 360000, 395000, 440000],
+          medianValue: 310000,
+          homePrice: 270000,
+        }),
+      }),
+    );
+    const plot = dotPlotOf(view);
+    expect(plot.dots).toHaveLength(9);
+    expect(plot.median.x).toBe(397.5);
+    expect(plot.median.label).toBe("Median £310,000");
+    expect(plot.home?.x).toBe(327.5);
+    expect(plot.home?.label).toBe("This home — £270,000");
+    expect(plot.title).toBe("Where this home sits — recorded sales in postcode EX1 1AA");
+    expect(plot.ticks.map((t) => t.label)).toEqual(["£100k", "£200k", "£300k", "£400k", "£500k"]);
+    expect(plot.caption).toContain("9 counted recorded sales in this postcode (category A)");
+    expect(plot.caption).toContain("spanning 11 May 2001 to 30 September 2024");
+    expect(plot.ariaLabel).toContain("This home's sale, £270,000, is the large brass dot");
+  });
+
+  it("Birkdale: every one of the 29 counted sales is a dot, the home sits on the median line, and same-column dots stack", () => {
+    const plot = dotPlotOf(buildReportView(input()));
+    expect(plot.dots).toHaveLength(29);
+    expect(plot.home?.x).toBe(plot.median.x);
+    expect(plot.caption).toContain("sits on the median line");
+    expect(plot.caption).toContain("stack above the line, so every sale stays visible");
+    expect(plot.ariaLabel).toContain("29 counted recorded sales in postcode CM3 2JT");
+  });
+
+  it("dots at the same price stack upward in rows, and the viewBox grows a row-step per extra stack row", () => {
+    const view = buildReportView(
+      input({
+        resolution: exeterResolution,
+        sold: soldWith({
+          prices: [100000, 100000, 100000, 200000, 300000],
+          medianValue: 100000,
+          homePrice: 200000,
+        }),
+      }),
+    );
+    const plot = dotPlotOf(view);
+    const stacked = plot.dots.filter((d) => d.x === 146.7).map((d) => d.y);
+    expect(stacked.sort((a, b) => a - b)).toEqual([44, 58, 72]);
+    expect(plot.axisY).toBe(72);
+    expect(plot.height).toBe(132);
+  });
+
+  it("at rung 2 the plot carries dots and the median line, no home dot, under the postcode-form title", () => {
+    const rung2Resolution: AddressResolution = {
+      rung: 2,
+      kind: "address-list",
+      directory: exeterResolution.directory,
+      street: null,
+      building: null,
+      addresses: [exeterResolution.address],
+    };
+    const view = buildReportView(
+      input({
+        resolution: rung2Resolution,
+        sold: soldWith({
+          prices: [175000, 210000, 245000, 280000, 310000, 335000, 360000, 395000, 440000],
+          medianValue: 310000,
+          rung: 2,
+        }),
+      }),
+    );
+    const plot = dotPlotOf(view);
+    expect(plot.home).toBeNull();
+    expect(plot.title).toBe("Recorded sales in postcode EX1 1AA");
+    expect(plot.dots).toHaveLength(9);
+    expect(plot.caption).not.toContain("brass dot");
+  });
+
+  it("at 1–4 counted sales there is no plot — the too-few line stands alone", () => {
+    const view = buildReportView(
+      input({
+        resolution: exeterResolution,
+        sold: soldWith({ prices: [150000, 200000, 250000], medianValue: null, homePrice: 200000 }),
+      }),
+    );
+    expect(view.sections[1].blocks.some((b) => b.type === "dotPlot")).toBe(false);
+    expect(sectionText(view, 2)).toContain("too few for a median");
+  });
+});
+
+describe("report — M8.2 charts: crime by month and by category", () => {
+  const view = buildReportView(input());
+  const s4 = view.sections[3];
+
+  function monthChartOf(v: ReportView) {
+    const block = v.sections[3].blocks.find((b) => b.type === "monthChart");
+    if (!block || block.type !== "monthChart") throw new Error("expected a month chart");
+    return block.chart;
+  }
+
+  it("the month chart stands before the category chart, after the calibration lines (the Master's order)", () => {
+    const types = s4.blocks.map((b) => b.type);
+    const monthAt = types.indexOf("monthChart");
+    const categoryAt = s4.blocks.findIndex((b) => b.type === "bars");
+    const perHeadAt = s4.blocks.findIndex(
+      (b) => b.type === "line" && b.text.includes("for every 1,000 residents"),
+    );
+    expect(perHeadAt).toBeGreaterThan(-1);
+    expect(monthAt).toBeGreaterThan(perHeadAt);
+    expect(categoryAt).toBeGreaterThan(monthAt);
+  });
+
+  it("the month chart: twelve bars on the sample's axis for a highest month of 47 — step 10, top gridline 50", () => {
+    const chart = monthChartOf(view);
+    expect(chart.title).toBe("Incidents by month — October 2025 to September 2026");
+    expect(chart.bars).toHaveLength(12);
+    expect(chart.gridlines.map((g) => g.label)).toEqual(["0", "10", "20", "30", "40", "50"]);
+    const november = chart.bars[1];
+    expect(november.value).toBe("47");
+    expect(november.height).toBe(188);
+    expect(november.y).toBe(44);
+    expect(chart.bars.reduce((sum, bar) => sum + Number(bar.value), 0)).toBe(330);
+    expect(chart.caption).toContain(
+      "Months run October to December 2025, then January to September 2026.",
+    );
+    expect(chart.caption).toContain("The twelve bars add up to the 330 total.");
+    expect(chart.ariaLabel).toContain("November 47");
+    expect(chart.ariaLabel).toContain("Total 330");
+    // The caption never names a highest or lowest month.
+    expect(chart.caption.toLowerCase()).not.toContain("highest");
+    expect(chart.caption.toLowerCase()).not.toContain("lowest");
+  });
+
+  it("the month axis adapts by nice steps for a high-count window (a highest month of 940 → step 200, top 1,000)", () => {
+    const big = buildReportView(
+      input({
+        crime: {
+          ...crimeServed,
+          crime: {
+            ...crimeServed.crime,
+            total: 1500,
+            months: [
+              { month: "2025-10", count: 940 },
+              ...crimeServed.crime.months.slice(1).map((m) => ({ ...m, count: 50 })),
+            ],
+          },
+        },
+      }),
+    );
+    const chart = monthChartOf(big);
+    expect(chart.gridlines.map((g) => g.label)).toEqual(["0", "200", "400", "600", "800", "1,000"]);
+    expect(chart.bars[0].height).toBe(188);
+    expect(chart.bars[0].value).toBe("940");
+  });
+
+  it("the category chart zero-fills to all 14 categories with explicit 0s, and its bars sum to the headline total", () => {
+    const block = s4.blocks.find((b) => b.type === "bars");
+    if (!block || block.type !== "bars") throw new Error("expected the category chart");
+    expect(block.title).toBe(
+      "Incidents by category — 12 months to September 2026 · all 14 categories",
+    );
+    expect(block.rows).toHaveLength(14);
+    expect(block.rows.reduce((sum, row) => sum + Number(row.value), 0)).toBe(330);
+    expect(block.rows[0]).toEqual({
+      label: "Violence and sexual offences",
+      widthPct: 100,
+      value: "120",
+      strong: true,
+    });
+    // The six categories the window never recorded stand
+    // as explicit zero rows, last, in slug order.
+    const zeros = block.rows.filter((row) => row.value === "0").map((row) => row.label);
+    expect(zeros).toEqual([
+      "Bicycle theft",
+      "Drugs",
+      "Other crime",
+      "Possession of weapons",
+      "Robbery",
+      "Theft from the person",
+    ]);
+    expect(block.caption).toContain("All 14 Police.uk categories are shown in full.");
+    expect(block.caption).toContain("add up to the 330 total");
+    expect(block.caption).toContain("BASIS: recorded against nearby streets");
+  });
+
+  it("a served 'unknown' bucket rides where its count sorts — it is never zero-filled and never one of the 14", () => {
+    const withUnknown = buildReportView(
+      input({
+        crime: {
+          ...crimeServed,
+          crime: {
+            ...crimeServed.crime,
+            categories: [...crimeServed.crime.categories, { slug: "unknown", count: 5 }],
+          },
+        },
+      }),
+    );
+    const block = withUnknown.sections[3].blocks.find((b) => b.type === "bars");
+    if (!block || block.type !== "bars") throw new Error("expected the category chart");
+    expect(block.rows).toHaveLength(15);
+    const unknown = block.rows.find((row) => row.label === "Category not published");
+    expect(unknown?.value).toBe("5");
+  });
+});
+
+describe("report — M8.2 charts: the Census grid at full sample parity", () => {
+  const censusFull = {
+    state: "served",
+    line: "CENSUS-LINE",
+    explainer: "CENSUS-EXPLAINER: the whole Census area",
+    sourceName: "Census 2021",
+    sourceDate: "2021-03-21",
+    sourceLine: "Source: Census 2021",
+    msoaCode: "E02004463",
+    msoaName: "Braintree 018",
+    residentsTotal: 8138,
+    householdsTotal: 3398,
+    medianAge: { value: 46.5, calculated: true, line: "MEDIAN-AGE-LINE" },
+    socialRented: { count: 469, total: 3397, pct: 13.8, line: "SOCIAL-RENTED-LINE" },
+    tables: [
+      {
+        code: "ts007a",
+        title: "Age by five-year age bands",
+        total: 8138,
+        rows: [{ label: "Aged 0–4", count: 400, pct: 4.9 }],
+        groups: null,
+      },
+      {
+        code: "ts054",
+        title: "Tenure",
+        total: 3397,
+        rows: [
+          { label: "Owned", count: 2384, pct: 70.2 },
+          { label: "Owned: Owns outright", count: 1287, pct: 37.9 },
+          { label: "Owned: Owns with a mortgage or loan", count: 1097, pct: 32.3 },
+          { label: "Shared ownership", count: 12, pct: 0.4 },
+          { label: "Shared ownership: Shared ownership", count: 12, pct: 0.4 },
+          { label: "Social rented", count: 469, pct: 13.8 },
+          { label: "Social rented: Rents from council or Local Authority", count: 300, pct: 8.8 },
+          { label: "Social rented: Other social rented", count: 169, pct: 5.0 },
+          { label: "Private rented", count: 523, pct: 15.4 },
+          { label: "Private rented: Private landlord or letting agency", count: 500, pct: 14.7 },
+          { label: "Private rented: Other private rented", count: 23, pct: 0.7 },
+          { label: "Lives rent free", count: 9, pct: 0.3 },
+        ],
+        groups: null,
+      },
+      {
+        code: "ts044",
+        title: "Accommodation type",
+        total: 3398,
+        rows: [
+          { label: "Detached", count: 1287, pct: 37.9 },
+          { label: "Semi-detached", count: 1388, pct: 40.8 },
+          { label: "Terraced", count: 481, pct: 14.2 },
+          { label: "In a purpose-built block of flats or tenement", count: 208, pct: 6.1 },
+          { label: "Part of a converted or shared house, including bedsits", count: 21, pct: 0.6 },
+          { label: "Part of another converted building", count: 8, pct: 0.2 },
+          { label: "In a commercial building", count: 3, pct: 0.1 },
+          { label: "A caravan or other mobile or temporary structure", count: 2, pct: 0.1 },
+        ],
+        groups: null,
+      },
+      {
+        code: "ts021",
+        title: "Ethnic group",
+        total: 8138,
+        rows: [
+          { label: "Asian, Asian British or Asian Welsh: Bangladeshi", count: 3, pct: 0.0 },
+          { label: "Asian, Asian British or Asian Welsh: Chinese", count: 9, pct: 0.1 },
+          { label: "Asian, Asian British or Asian Welsh: Indian", count: 43, pct: 0.5 },
+          { label: "Asian, Asian British or Asian Welsh: Pakistani", count: 22, pct: 0.3 },
+          { label: "Asian, Asian British or Asian Welsh: Other Asian", count: 38, pct: 0.5 },
+          {
+            label: "Black, Black British, Black Welsh, Caribbean or African: African",
+            count: 60,
+            pct: 0.7,
+          },
+          {
+            label: "Black, Black British, Black Welsh, Caribbean or African: Caribbean",
+            count: 18,
+            pct: 0.2,
+          },
+          {
+            label: "Black, Black British, Black Welsh, Caribbean or African: Other Black",
+            count: 4,
+            pct: 0.0,
+          },
+          { label: "Mixed or Multiple ethnic groups: White and Asian", count: 50, pct: 0.6 },
+          {
+            label: "Mixed or Multiple ethnic groups: White and Black African",
+            count: 20,
+            pct: 0.2,
+          },
+          {
+            label: "Mixed or Multiple ethnic groups: White and Black Caribbean",
+            count: 40,
+            pct: 0.5,
+          },
+          {
+            label: "Mixed or Multiple ethnic groups: Other Mixed or Multiple ethnic groups",
+            count: 21,
+            pct: 0.3,
+          },
+          {
+            label: "White: English, Welsh, Scottish, Northern Irish or British",
+            count: 7528,
+            pct: 92.5,
+          },
+          { label: "White: Irish", count: 57, pct: 0.7 },
+          { label: "White: Gypsy or Irish Traveller", count: 15, pct: 0.2 },
+          { label: "White: Roma", count: 0, pct: 0.0 },
+          { label: "White: Other White", count: 172, pct: 2.1 },
+          { label: "Other ethnic group: Arab", count: 10, pct: 0.1 },
+          { label: "Other ethnic group: Any other ethnic group", count: 28, pct: 0.3 },
+        ],
+        groups: [
+          { label: "Asian, Asian British or Asian Welsh", count: 115, pct: 1.4 },
+          { label: "Black, Black British, Black Welsh, Caribbean or African", count: 82, pct: 1.0 },
+          { label: "Mixed or Multiple ethnic groups", count: 131, pct: 1.6 },
+          { label: "White", count: 7772, pct: 95.5 },
+          { label: "Other ethnic group", count: 38, pct: 0.5 },
+        ],
+      },
+      {
+        code: "ts030",
+        title: "Religion",
+        total: 8138,
+        rows: [
+          { label: "No religion", count: 3284, pct: 40.4 },
+          { label: "Christian", count: 4232, pct: 52.0 },
+          { label: "Buddhist", count: 20, pct: 0.2 },
+          { label: "Hindu", count: 35, pct: 0.4 },
+          { label: "Jewish", count: 9, pct: 0.1 },
+          { label: "Muslim", count: 48, pct: 0.6 },
+          { label: "Sikh", count: 13, pct: 0.2 },
+          { label: "Other religion", count: 27, pct: 0.3 },
+          { label: "Not answered", count: 470, pct: 5.8 },
+        ],
+        groups: null,
+      },
+      {
+        code: "ts052",
+        title: "Occupancy rating for bedrooms",
+        total: 3399,
+        rows: [
+          { label: "+2 or more", count: 1519, pct: 44.7 },
+          { label: "+1", count: 1163, pct: 34.2 },
+          { label: "0", count: 660, pct: 19.4 },
+          { label: "-1", count: 41, pct: 1.2 },
+          { label: "-2 or less", count: 16, pct: 0.5 },
+        ],
+        groups: null,
+      },
+    ],
+  };
+  const view = buildReportView(input({ area: areaWith({ census: censusFull }) }));
+  const grid = view.sections[5].blocks.find((b) => b.type === "chartGrid");
+  if (!grid || grid.type !== "chartGrid") throw new Error("expected the census chart grid");
+  const cards = grid.cards;
+  const cardByTitle = (title: string) => {
+    const card = cards.find((c) => c.type !== "chartGrid" && "title" in c && c.title === title);
+    if (!card || card.type !== "bars") throw new Error(`expected a bars card: ${title}`);
+    return card;
+  };
+
+  it("the grid opens with the Age tile, then the five cards in the Master's order", () => {
+    const titles = cards.map((c) => ("title" in c ? c.title : ""));
+    expect(titles).toEqual([
+      "Age — Census 2021",
+      "Tenure — Census 2021",
+      "Accommodation type — Census 2021",
+      "Ethnic group — Census 2021",
+      "Religion — Census 2021",
+      "Occupancy rating for bedrooms — Census 2021",
+    ]);
+    const age = cards[0];
+    if (!age || age.type !== "statTile") throw new Error("expected the Age stat tile");
+    expect(age.value).toBe("46.5 years");
+    expect(age.sub).toBe("MSOA Braintree 018 · 8,138 residents counted in this area's tables");
+    expect(age.caption).toBe(
+      "Median age 46.5 years, calculated from the Census's single years of age for Braintree 018 (8,138 residents, 3,398 households).",
+    );
+    // The section-level note follows the grid.
+    const gridAt = view.sections[5].blocks.findIndex((b) => b.type === "chartGrid");
+    expect(view.sections[5].blocks[gridAt + 1]).toEqual({
+      type: "note",
+      text: "CENSUS-EXPLAINER: the whole Census area",
+    });
+  });
+
+  it("tenure charts the Owned total, its split, then the other top-level tenures — no sub-part double-counts", () => {
+    const tenure = cardByTitle("Tenure — Census 2021");
+    expect(tenure.rows.map((r) => r.label)).toEqual([
+      "Owned",
+      "Owned: Owns outright",
+      "Owned: Owns with a mortgage or loan",
+      "Private rented",
+      "Social rented",
+      "Shared ownership",
+      "Lives rent free",
+    ]);
+    expect(tenure.rows[0]).toEqual({
+      label: "Owned",
+      widthPct: 70.2,
+      value: "70.2%",
+      strong: true,
+    });
+    expect(tenure.rows.slice(1).every((r) => !r.strong)).toBe(true);
+    expect(tenure.caption).toBe("Tenure table (TS054): 3,397 households.");
+  });
+
+  it("accommodation charts every served row unmerged, largest first and full-strength", () => {
+    const accom = cardByTitle("Accommodation type — Census 2021");
+    expect(accom.rows).toHaveLength(8);
+    expect(accom.rows[0].label).toBe("Semi-detached");
+    expect(accom.rows[0].strong).toBe(true);
+    expect(accom.rows[0].value).toBe("40.8%");
+    expect(accom.caption).toContain(
+      "Counts, of 3,398 households: Semi-detached 1,388 · Detached 1,287",
+    );
+  });
+
+  it("ethnic group charts the five headline groups; the detailed categories compose into the caption and reconcile", () => {
+    const ethnic = cardByTitle("Ethnic group — Census 2021");
+    expect(ethnic.rows.map((r) => r.label)).toEqual([
+      "White",
+      "Mixed or Multiple ethnic groups",
+      "Asian, Asian British or Asian Welsh",
+      "Black, Black British, Black Welsh, Caribbean or African",
+      "Other ethnic group",
+    ]);
+    expect(ethnic.rows[0]).toEqual({
+      label: "White",
+      widthPct: 95.5,
+      value: "95.5%",
+      strong: true,
+    });
+    expect(ethnic.caption).toContain(
+      "White 7,772 (English, Welsh, Scottish, Northern Irish or British 7,528, Other White 172, Irish 57, Gypsy or Irish Traveller 15, Roma 0)",
+    );
+    expect(ethnic.caption).toContain(
+      "Asian, Asian British or Asian Welsh 115 (Indian 43, Other Asian 38, Pakistani 22, Chinese 9, Bangladeshi 3)",
+    );
+  });
+
+  it("religion and occupancy captions carry their counts and their standing sentences", () => {
+    const religion = cardByTitle("Religion — Census 2021");
+    expect(religion.rows[0].label).toBe("Christian");
+    expect(religion.caption).toContain("Christian 4,232 · No religion 3,284");
+    expect(religion.caption).toContain("The religion question was voluntary in Census 2021.");
+    const occupancy = cardByTitle("Occupancy rating for bedrooms — Census 2021");
+    expect(occupancy.rows.map((r) => r.value)).toEqual(["44.7%", "34.2%", "19.4%", "1.2%", "0.5%"]);
+    expect(occupancy.caption).toContain(
+      "Occupancy is the Census rating comparing bedrooms in the home with the bedrooms the ONS standard says the household needs.",
+    );
+  });
+});
+
+describe("report — the rendered page", () => {
   it("the rendered page carries the nine numbered sections and no SAMPLE furniture", () => {
     const html = renderToStaticMarkup(
       createElement(ReportPage, { view: buildReportView(input()) }),
@@ -1339,6 +1948,22 @@ describe("report — states, nations and the door seam", () => {
     expect(html).not.toContain("watermark");
     expect(html).not.toContain("sample-banner");
     expect(html.toLowerCase()).not.toContain("childminder");
+    // The M8.2 charts render in the Master's own forms:
+    // the dot plot and month chart as inline SVG in chart
+    // cards, the census cards in the two-column grid, the
+    // category bars with the pale tint on all but the
+    // largest row.
+    expect(html).toContain('class="dotPlot"');
+    expect(html).toContain("Median £588,995");
+    expect(html).toContain("This home — £588,995");
+    expect(html).toContain('class="monthChart"');
+    expect(html).toContain("Incidents by month — October 2025 to September 2026");
+    expect(html).toContain(
+      "Incidents by category — 12 months to September 2026 · all 14 categories",
+    );
+    expect(html).toContain('class="rpt-chartGrid"');
+    expect(html).toContain('class="rpt-barFill light"');
+    expect(html).toContain("Band spread — assessments of existing homes (RdSAP)");
     // The map is an inline SVG picture — no tile service,
     // no image, no external basemap of any kind.
     expect(html).toContain("<svg");

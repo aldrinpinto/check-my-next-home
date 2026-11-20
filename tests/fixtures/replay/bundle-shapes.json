@@ -8336,6 +8336,7 @@
  },
  "sold.loaded-none": {
   "building": "null",
+  "countedSales": [],
   "edition": "string",
   "kind": "string",
   "loadState": "string",
@@ -8371,6 +8372,16 @@
  },
  "sold.rung2": {
   "building": "null",
+  "countedSales": [
+   {
+    "address": "string",
+    "date": "string",
+    "newBuild": "boolean",
+    "price": "number",
+    "propertyType": "string",
+    "tenure": "string"
+   }
+  ],
   "edition": "string",
   "kind": "string",
   "loadState": "string",
@@ -8441,6 +8452,16 @@
     }
    ]
   },
+  "countedSales": [
+   {
+    "address": "string",
+    "date": "string",
+    "newBuild": "boolean",
+    "price": "number",
+    "propertyType": "string",
+    "tenure": "string"
+   }
+  ],
   "edition": "string",
   "kind": "string",
   "loadState": "string",
@@ -8476,6 +8497,16 @@
  },
  "sold.served-house": {
   "building": "null",
+  "countedSales": [
+   {
+    "address": "string",
+    "date": "string",
+    "newBuild": "boolean",
+    "price": "number",
+    "propertyType": "string",
+    "tenure": "string"
+   }
+  ],
   "edition": "string",
   "kind": "string",
   "loadState": "string",
@@ -8520,6 +8551,16 @@
  },
  "sold.too-few": {
   "building": "null",
+  "countedSales": [
+   {
+    "address": "string",
+    "date": "string",
+    "newBuild": "boolean",
+    "price": "number",
+    "propertyType": "string",
+    "tenure": "string"
+   }
+  ],
   "edition": "string",
   "kind": "string",
   "loadState": "string",
