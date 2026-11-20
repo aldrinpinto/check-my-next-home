@@ -1,0 +1,68 @@
+name: Visual baseline capture
+
+# Manually dispatched, one purpose: render the visual
+# guard's screenshot specs in the same served-app stack
+# as the CI browser job and upload the generated
+# baselines as an artifact. Committing those baselines
+# to the repo is the deliberate approval act — this
+# workflow never commits anything itself.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    name: Capture visual baselines
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:17-3.5
+        env:
+          POSTGRES_USER: cmnh
+          POSTGRES_PASSWORD: cmnh
+          POSTGRES_DB: check_my_next_home
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cmnh -d check_my_next_home"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgresql://cmnh:cmnh@127.0.0.1:5432/check_my_next_home
+      TURNSTILE_SECRET_KEY: "1x0000000000000000000000000000000AA"
+      NEXT_PUBLIC_TURNSTILE_SITE_KEY: "1x00000000000000000000AA"
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies (exact, from the lockfile)
+        run: npm ci
+
+      - name: Set up the OSM extract cutter (the seed's runner pass, as in the browser job)
+        run: pip install osmium==4.3.2
+
+      - name: Install the Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Build the served app (Turnstile test site key inlined)
+        run: npm run build
+
+      - name: Capture the baselines (writes snapshots; nothing is gated here)
+        run: npx playwright test e2e/visual.e2e.ts --update-snapshots
+
+      - name: Upload the captured baselines
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-baselines
+          path: e2e/visual.e2e.ts-snapshots/
+          retention-days: 7
