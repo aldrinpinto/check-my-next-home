@@ -5,6 +5,7 @@ import type {
   CensusRowServed,
   CensusSection,
   CensusTableServed,
+  CompanyTitleServed,
   ServedCertificate,
 } from "./area-bundle";
 import { CHECK_PAGES } from "./check-pages";
@@ -155,8 +156,15 @@ export const REPORT_DISCLAIMER_D9 =
 // charging zones are explained on the air-quality page;
 // the Census and benefits blocks carry no check page and
 // keep their bases in the report itself (item 20).
+// Section 1 also names the council-tax and flood-risk
+// pages (M8.9): its Material Information checklist states
+// the Band D average and the home's flood standing, whose
+// method those two pages carry. The company-ownership
+// block carries no check page — like Census and benefits,
+// its explanation (the brain's own explainer, with the
+// No's three caveats) stays in the report itself.
 export const REPORT_SECTION_CHECK_LINKS: Record<number, string[]> = {
-  1: ["/check/sold-prices", "/check/epc"],
+  1: ["/check/sold-prices", "/check/epc", "/check/council-tax-band", "/check/flood-risk"],
   2: ["/check/sold-prices"],
   3: ["/check/schools"],
   4: ["/check/family-essentials", "/check/air-quality", "/check/noise", "/check/crime"],
@@ -1455,6 +1463,11 @@ function section1(input: ReportInput, cert: ServedCertificate | null): ReportSec
   if (history.length === 0) {
     if (sold.ownLine) blocks.push({ type: "line", text: sold.ownLine });
     blocks.push({ type: "note", text: sold.ownExplainer });
+    // The M8.9 additions stand even here: the checklist's
+    // sale-record items read "not stated" without a sale,
+    // and the council tax, EPC and flood facts are this
+    // home's either way.
+    blocks.push(...section1Additions(input, cert, null));
     return section(1, "Price & this home", blocks);
   }
   const last = history[0];
@@ -1571,7 +1584,224 @@ function section1(input: ReportInput, cert: ServedCertificate | null): ReportSec
     if (sold.building.median.line) blocks.push({ type: "line", text: sold.building.median.line });
     blocks.push({ type: "note", text: sold.building.median.explainer });
   }
+  blocks.push(...section1Additions(input, cert, last));
   return section(1, "Price & this home", blocks);
+}
+
+// ------------------------------------------------------------------
+// Section 1 additions (M8.9): the Material Information
+// checklist, then the company-owner block — the section's
+// closing pair, home reports only (section1's rung-2
+// branch returns before either is built, and its
+// sold-not-served branch carries its reason line alone).
+// ------------------------------------------------------------------
+
+// The two blocks, in the adopted order: checklist first,
+// company block after it.
+function section1Additions(
+  input: ReportInput,
+  cert: ServedCertificate | null,
+  last: ServedSale | null,
+): ReportBlock[] {
+  return [...materialInformationBlocks(input, cert, last), ...companyOwnershipBlocks(input)];
+}
+
+// The Material Information checklist: the standard items,
+// fixed at build time from facts the report already
+// serves — tenure and property type from the sale record,
+// council tax as served, the EPC rating and floor area
+// from the home's own certificate, the flood standing
+// from the flood bundle. Each item states its fact with
+// its source, or is marked "not stated in the records we
+// hold" — nothing stands on the list that we do not hold
+// a fact for. The block is introduced as what the
+// official records state about this home: it never reads
+// as the seller's or the agent's material-information
+// declaration for a listing, and its council tax item
+// states the area's Band D average, never this home's
+// own band (which no data we hold can state).
+function materialInformationBlocks(
+  input: ReportInput,
+  cert: ServedCertificate | null,
+  last: ServedSale | null,
+): ReportBlock[] {
+  const sections = areaSections(input);
+  const notStated = (label: string): ReportRichLine => [
+    boldSeg(`${label}:`),
+    seg(" not stated in the records we hold."),
+  ];
+  const items: ReportRichLine[] = [];
+
+  const tenureLabel = last?.tenure ? (TENURE_LABELS[last.tenure] ?? null) : null;
+  items.push(
+    tenureLabel && last
+      ? [
+          boldSeg("Tenure:"),
+          seg(
+            ` ${tenureLabel.toLowerCase()}, as recorded at this home's last recorded sale (${formatShortFiledDate(last.date)}) — HM Land Registry Price Paid Data.`,
+          ),
+        ]
+      : notStated("Tenure"),
+  );
+  const typeLabel = last?.propertyType ? (PROPERTY_TYPE_LABELS[last.propertyType] ?? null) : null;
+  items.push(
+    typeLabel && last
+      ? [
+          boldSeg("Property type:"),
+          seg(
+            ` ${typeLabel.toLowerCase()}, as recorded at this home's last recorded sale (${formatShortFiledDate(last.date)}) — HM Land Registry Price Paid Data.`,
+          ),
+        ]
+      : notStated("Property type"),
+  );
+
+  const tax = sections?.councilTax;
+  items.push(
+    tax && tax.state === "served" && tax.bandDAverageLabel
+      ? [
+          boldSeg("Council tax:"),
+          seg(` the average Band D charge${tax.authority ? ` for ${tax.authority}` : ""} is `),
+          boldSeg(`${tax.bandDAverageLabel} a year`),
+          seg(
+            `${tax.taxYear ? ` (${tax.taxYear})` : ""}. This is the area's Band D average — not this home's own band, and not its bill.`,
+          ),
+        ]
+      : notStated("Council tax"),
+  );
+
+  items.push(
+    cert && cert.band
+      ? [
+          boldSeg("Energy rating:"),
+          seg(" "),
+          boldSeg(`Band ${cert.band}${cert.rating !== null ? ` (score ${cert.rating})` : ""}`),
+          seg(
+            ", from the energy performance certificate recorded for this home on the official register.",
+          ),
+        ]
+      : notStated("Energy rating"),
+  );
+  items.push(
+    cert && cert.floorAreaSqM !== null
+      ? [
+          boldSeg("Floor area:"),
+          seg(
+            ` ${cert.floorAreaSqM} m², as recorded on the energy performance certificate for this home.`,
+          ),
+        ]
+      : notStated("Floor area"),
+  );
+
+  items.push(floodStandingItem(input));
+
+  return [
+    { type: "sub", text: "Material information" },
+    {
+      type: "intro",
+      text: "The standard material information items, as the official records we hold state them for this home. This is a summary of those records — not the seller's or the agent's material information declaration for a listing — and an item the records do not state is marked as not stated.",
+    },
+    { type: "richList", items },
+  ];
+}
+
+// The checklist's flood item: the home's standing on each
+// of the three filed layers — the covering band where the
+// home sits inside one, the Zone 1 remainder named, the
+// named absence forms otherwise. The layers' fuller
+// reading (the nearest edges, the pictures, the basis)
+// stays in Section 8 and on the flood-risk How-we-check
+// page, which Section 10 links from this section.
+function floodStandingItem(input: ReportInput): ReportRichLine {
+  const served = floodServed(input);
+  if (!served) return [boldSeg("Flood standing:"), seg(" not stated in the records we hold.")];
+  const standing = (layer: ServedFloodLayer | undefined): ReportRichSegment[] => {
+    if (!layer) return [seg("not stated in the records we hold")];
+    if (layer.pointState === "inside" && layer.covering)
+      return [boldSeg(layer.covering.displayLabel)];
+    if (layer.pointState === "zone-1")
+      return [boldSeg(layer.remainder?.displayLabel ?? "Flood Zone 1")];
+    if (layer.pointState === "no-band-published") return [seg("no band published at this point")];
+    if (layer.pointState === "below-lowest-band") return [seg("below the lowest mapped band")];
+    return [seg("not filed yet")];
+  };
+  const byKind = (kind: ServedFloodLayer["layer"]) => served.layers.find((l) => l.layer === kind);
+  return [
+    boldSeg("Flood standing:"),
+    seg(" rivers and sea — "),
+    ...standing(byKind("rofrs")),
+    seg("; surface water — "),
+    ...standing(byKind("rofsw")),
+    seg("; flood zones for planning — "),
+    ...standing(byKind("flood_zone")),
+    seg(" — Environment Agency flood data."),
+  ];
+}
+
+// The company-owner block: the M6.13 brain's answer in
+// full, at report depth (decision D32). The bundle
+// carries the section only while COMPANY_OWNERSHIP_ENABLED
+// is on — flag off, the key is absent and this builder
+// adds nothing at all, not a placeholder. While the flag
+// is on: the lead answer; each of the home's own titles
+// with its proprietor as filed, its title number and its
+// Companies House snapshot as published, with source and
+// date; a company-held building title only under its own
+// labelled line, never as this home's answer; the
+// licence attribution; and the brain's explainer, which
+// carries the No's three caveats every time it serves.
+// Public exposure still waits on HMLR's clause-3.2 answer
+// and the founder's go — the flag is the whole gate.
+function companyOwnershipBlocks(input: ReportInput): ReportBlock[] {
+  const company = areaSections(input)?.companyOwnership;
+  if (!company) return [];
+  const blocks: ReportBlock[] = [{ type: "sub", text: "Company ownership" }];
+  if (company.line) blocks.push({ type: "line", text: sentenceLine(company.line) });
+  for (const title of company.ownTitles) blocks.push(...companyTitleBlocks(title));
+  if (company.buildingLine) {
+    blocks.push({ type: "line", text: sentenceLine(company.buildingLine) });
+    for (const title of company.buildingTitles) blocks.push(...companyTitleBlocks(title));
+  }
+  if (company.attributionLine) blocks.push({ type: "note", text: company.attributionLine });
+  blocks.push({ type: "note", text: company.explainer });
+  return blocks;
+}
+
+// One title of the company block: the proprietor as
+// filed, the title number (the hand-off the explainer
+// names — the register entry is reached by it), and the
+// Companies House snapshot as published where one is
+// held; where the register records no company number, or
+// no snapshot is held under it, the title's own named
+// line stands instead of the missing half.
+function companyTitleBlocks(title: CompanyTitleServed): ReportBlock[] {
+  const items: ReportRichLine[] = [
+    [boldSeg("Proprietor:"), seg(` ${title.proprietorName}, as filed on the register.`)],
+    [boldSeg("Title number:"), seg(` ${title.titleNumber} (${title.tenure}).`)],
+  ];
+  if (title.companyNumber)
+    items.push([boldSeg("Company number:"), seg(` ${title.companyNumber}.`)]);
+  const snapshot = title.snapshot;
+  if (snapshot) {
+    items.push([boldSeg("Company name (Companies House):"), seg(` ${snapshot.companyName}.`)]);
+    if (snapshot.status)
+      items.push([
+        boldSeg("Status:"),
+        seg(` ${snapshot.status}, as published by Companies House.`),
+      ]);
+    if (snapshot.incorporationDate)
+      items.push([
+        boldSeg("Incorporated:"),
+        seg(` ${formatFiledDate(snapshot.incorporationDate)}.`),
+      ]);
+    if (snapshot.sicCodes.length > 0)
+      items.push([boldSeg("SIC codes:"), seg(` ${snapshot.sicCodes.join("; ")}.`)]);
+  }
+  const blocks: ReportBlock[] = [{ type: "richList", items }];
+  if (title.snapshotLine) blocks.push({ type: "line", text: sentenceLine(title.snapshotLine) });
+  if (snapshot?.sicCodesLine)
+    blocks.push({ type: "note", text: sentenceLine(snapshot.sicCodesLine) });
+  if (snapshot?.sourceLine) blocks.push({ type: "note", text: snapshot.sourceLine });
+  return blocks;
 }
 
 function section2(input: ReportInput): ReportSectionView {
@@ -3940,6 +4170,10 @@ function section10(input: ReportInput, cert: ServedCertificate | null): ReportSe
     chargingZones: "Charging zones",
     imd: "Deprivation",
     buildingSafety: "Building safety",
+    // Present only while the company-ownership flag is on
+    // (M8.9): the block's own source files here like every
+    // other section's.
+    companyOwnership: "Company ownership",
   };
   if (sections) {
     for (const key of Object.keys(sections) as (keyof AreaSections)[]) {
