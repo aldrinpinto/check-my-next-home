@@ -1818,7 +1818,14 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
     const belfast = viewOf("belfast2");
     expect(belfast.sections).toHaveLength(10);
     if (belfastBrains.crime.kind === "not-covered") {
-      expect(JSON.stringify(belfast.sections[3])).toContain(belfastBrains.crime.crime.reason);
+      // The report prints the brain's reason as a standalone
+      // line, so it stands sentence-cased (print-check item
+      // 15) — the assertion follows the composed form, not
+      // the brain's raw fragment.
+      const reason = belfastBrains.crime.crime.reason;
+      expect(JSON.stringify(belfast.sections[3])).toContain(
+        reason.charAt(0).toUpperCase() + reason.slice(1),
+      );
     }
     if (belfastBrains.flood.kind === "not-covered") {
       expect(JSON.stringify(belfast.sections[7])).toContain(belfastBrains.flood.flood.reason);
