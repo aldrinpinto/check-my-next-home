@@ -1773,7 +1773,11 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
     const exeter = viewOf("exeter1");
     const exeterText = JSON.stringify(exeter);
     expect(exeterText).toContain("£310,000");
-    expect(exeterText).toContain("10,722 recorded crimes");
+    expect(exeterText).toContain("10,722 incidents");
+    expect(exeterText).toContain(
+      " recorded within 1 mile of this home, October 2025 to September 2026 (Police.uk).",
+    );
+    expect(exeterText).toContain("122.5 recorded crimes for every 1,000 residents here");
     // The plan's own dot-plot check on the real bundle:
     // 9 dots, and on the one linear scale the £270,000
     // home dot stands left of the £310,000 median line.
@@ -1798,7 +1802,11 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
     const minerva = viewOf("minerva1");
     const minervaText = JSON.stringify(minerva);
     expect(minervaText).toContain("£420,000");
-    expect(minervaText).toContain("1,956 recorded crimes");
+    expect(minervaText).toContain("1,956 incidents");
+    expect(minervaText).toContain(
+      " recorded within 1 mile of this home, October 2025 to September 2026 (Police.uk).",
+    );
+    expect(minervaText).toContain("49.0 recorded crimes for every 1,000 residents here");
 
     // A Northern Ireland postcode report renders the
     // bundles' not-covered states in the affected
