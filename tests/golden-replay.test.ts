@@ -1828,7 +1828,11 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
       );
     }
     if (belfastBrains.flood.kind === "not-covered") {
-      expect(JSON.stringify(belfast.sections[7])).toContain(belfastBrains.flood.flood.reason);
+      // Same sentence-casing as the crime reason above.
+      const floodReason = belfastBrains.flood.flood.reason;
+      expect(JSON.stringify(belfast.sections[7])).toContain(
+        floodReason.charAt(0).toUpperCase() + floodReason.slice(1),
+      );
     }
   });
 
