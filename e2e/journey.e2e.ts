@@ -78,9 +78,11 @@ async function searchFromHome(page: Page, text: string) {
 async function pickAndReachResults(page: Page, postcode: string, rowName: string) {
   // The submit lands on the whole-postcode check (the
   // /search?postcode= route redirects there); its home
-  // list's rows are links straight to each home's check.
+  // dropdown carries the postcode's homes (founder
+  // ruling, 20 Nov 2026 — the list dump is gone), and
+  // choosing one goes straight to that home's check.
   await page.waitForURL(`**/search/home?postcode=${postcode.replace(" ", "+")}`);
-  await page.getByRole("link", { name: rowName, exact: true }).click();
+  await page.locator(".picker__select").selectOption({ label: rowName });
   await page.waitForURL(/\/search\/home\?postcode=.*&home=/);
   await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
 }
@@ -115,9 +117,8 @@ test.describe("checker journey — smoke", () => {
       await searchFromHome(page, "KT17 1FH");
       await page.waitForURL("**/search/home?postcode=KT17+1FH");
       await page
-        .getByRole("link", { name: /Flat 4, Minerva House/ })
-        .first()
-        .click();
+        .locator(".picker__select")
+        .selectOption({ label: "Flat 4, Minerva House, 12 Ceres Crescent" });
       await page.waitForURL(/\/search\/home\?postcode=KT17\+1FH&home=/);
       await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
       await expect(page.locator(".results-head h1")).toContainText("KT17 1FH");
@@ -141,7 +142,7 @@ test.describe("checker journey — smoke", () => {
       // enters the probe's way — /search?postcode=, which
       // redirects to the whole-postcode check — and
       // asserts that page's own results render whole:
-      // the rung-2 head, the home list it carries, its
+      // the rung-2 head, the home dropdown it carries, its
       // sections standing with content, and no error
       // page. Filed golden postcode only, per this
       // file's discipline — cold first checks are the
@@ -153,7 +154,9 @@ test.describe("checker journey — smoke", () => {
       await expect(page.locator(".results-head h1")).toHaveText(
         "Postcode area — CM3 2JT, not one exact home",
       );
-      await expect(page.getByRole("link", { name: "19 Birkdale Rise", exact: true })).toBeVisible();
+      await expect(
+        page.locator(".picker__select option", { hasText: "19 Birkdale Rise" }),
+      ).toBeAttached();
       const sections = page.locator("[data-section]");
       expect(await sections.count()).toBeGreaterThan(0);
       const firstText = (await sections.first().textContent()) ?? "";
@@ -182,7 +185,7 @@ test.describe("checker journey — regression", () => {
       });
       await searchFromHome(page, "CM3 2JT");
       await page.waitForURL("**/search/home?postcode=CM3+2JT");
-      await page.getByRole("link", { name: "19 Birkdale Rise", exact: true }).click();
+      await page.locator(".picker__select").selectOption({ label: "19 Birkdale Rise" });
 
       await expect(page.locator(".checking .page-title")).toHaveText("Your check is under way");
       const rows = page.locator(".checking__row");
@@ -231,7 +234,7 @@ test.describe("checker journey — regression", () => {
       });
       await searchFromHome(page, "CM3 2JT");
       await page.waitForURL("**/search/home?postcode=CM3+2JT");
-      await page.getByRole("link", { name: "19 Birkdale Rise", exact: true }).click();
+      await page.locator(".picker__select").selectOption({ label: "19 Birkdale Rise" });
       await expect(page.locator(".checking__row")).toHaveCount(5);
 
       // Item 2: the screen is NOT inside the results shell
@@ -305,11 +308,15 @@ test.describe("checker journey — regression", () => {
     async ({ page }) => {
       await searchFromHome(page, "e161gn");
       await page.waitForURL("**/search/home?postcode=E16+1GN");
-      await expect(page.getByRole("link", { name: "6 Exeter Road", exact: true })).toBeVisible();
+      await expect(
+        page.locator(".picker__select option", { hasText: "6 Exeter Road" }),
+      ).toBeAttached();
 
       await searchFromHome(page, " cm3 2jt ");
       await page.waitForURL("**/search/home?postcode=CM3+2JT");
-      await expect(page.getByRole("link", { name: "19 Birkdale Rise", exact: true })).toBeVisible();
+      await expect(
+        page.locator(".picker__select option", { hasText: "19 Birkdale Rise" }),
+      ).toBeAttached();
     },
   );
 
@@ -530,10 +537,10 @@ test.describe("checker journey — regression", () => {
     async ({ page }) => {
       await searchFromHome(page, "CM1 6ER");
       await page.waitForURL("**/search/home?postcode=CM1+6ER");
-      await page.getByRole("link", { name: "49 George Heard Crescent", exact: true }).click();
-      // The row's link carries the home's durable key —
-      // the same key a filed sale would carry — so the
-      // pick lands on the canonical home route, not on a
+      await page.locator(".picker__select").selectOption({ label: "49 George Heard Crescent" });
+      // The pick carries the home's durable key — the
+      // same key a filed sale would carry — so the pick
+      // lands on the canonical home route, not on a
       // transient resolve token.
       await page.waitForURL(
         /\/search\/home\?postcode=CM1\+6ER&home=49%7C%7CGEORGE\+HEARD\+CRESCENT/,
@@ -588,10 +595,12 @@ test.describe("checker journey — regression", () => {
       await page.goto("/search/home?postcode=CM3+2JT&home=no-such%7C%7Ckey");
       await page.waitForURL("**/search/home?postcode=CM3+2JT");
       // CI #233 follow-up: the same results wait as every
-      // other spec here — the home list renders inside
+      // other spec here — the home dropdown renders inside
       // the results, behind the checking screen's reveal.
       await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
-      await expect(page.getByRole("link", { name: "19 Birkdale Rise", exact: true })).toBeVisible();
+      await expect(
+        page.locator(".picker__select option", { hasText: "19 Birkdale Rise" }),
+      ).toBeAttached();
     },
   );
 
@@ -620,7 +629,9 @@ test.describe("checker journey — regression", () => {
       // keys against the real widget and verify endpoint.
       await searchFromHome(page, "E16 1GN");
       await page.waitForURL("**/search/home?postcode=E16+1GN");
-      await expect(page.getByRole("link", { name: "6 Exeter Road", exact: true })).toBeVisible();
+      await expect(
+        page.locator(".picker__select option", { hasText: "6 Exeter Road" }),
+      ).toBeAttached();
     },
   );
 
@@ -699,7 +710,7 @@ test.describe("checker journey — regression", () => {
       });
       await searchFromHome(page, "CM3 2JT");
       await page.waitForURL("**/search/home?postcode=CM3+2JT");
-      await page.getByRole("link", { name: "19 Birkdale Rise", exact: true }).click();
+      await page.locator(".picker__select").selectOption({ label: "19 Birkdale Rise" });
       const safetyRow = page.locator('.checking__row[data-row="safety"]');
       await expect(safetyRow).toHaveAttribute("data-state", "unavailable", { timeout: 15_000 });
       await expect(safetyRow.locator(".checking__row-state")).toContainText(

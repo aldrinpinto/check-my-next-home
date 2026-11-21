@@ -29,10 +29,12 @@ async function reachResults(
 ) {
   // The retired picker route redirects to the
   // whole-postcode check (picker removed, 18 Nov 2026);
-  // its home list's rows are links to each home's check.
+  // its home dropdown carries the postcode's homes
+  // (founder ruling, 20 Nov 2026 — the list dump is
+  // gone), and choosing one is the pick.
   await page.goto(`/search?postcode=${postcode.replace(" ", "+")}`);
   await page.waitForURL(/\/search\/home\?postcode=/);
-  await page.getByRole("link", { name: rowName }).first().click();
+  await page.locator(".picker__select").selectOption({ label: rowName });
   await page.waitForURL(/\/search\/home\?postcode=.*&home=/);
   await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
 }

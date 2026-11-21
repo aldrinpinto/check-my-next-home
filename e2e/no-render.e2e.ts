@@ -49,10 +49,10 @@ import { expect, test } from "./fixtures";
 // absence here is necessary but not sufficient — the
 // unit pins carry that half.
 
-const GOLDEN_HOMES: { name: string; postcode: string; rowName: string | RegExp }[] = [
+const GOLDEN_HOMES: { name: string; postcode: string; rowName: string }[] = [
   { name: "Birkdale", postcode: "CM3 2JT", rowName: "19 Birkdale Rise" },
   { name: "Exeter", postcode: "E16 1GN", rowName: "6 Exeter Road" },
-  { name: "Minerva", postcode: "KT17 1FH", rowName: /Flat 4, Minerva House/ },
+  { name: "Minerva", postcode: "KT17 1FH", rowName: "Flat 4, Minerva House, 12 Ceres Crescent" },
 ];
 
 const DEPTH_MARKERS: { label: string; pattern: RegExp }[] = [
@@ -86,9 +86,12 @@ async function searchFromHome(page: Page, query: string) {
   await page.getByRole("button", { name: "Check this home" }).click();
 }
 
-async function reachResults(page: Page, postcode: string, rowName: string | RegExp) {
+async function reachResults(page: Page, postcode: string, rowName: string) {
+  // The whole-postcode check's home dropdown carries the
+  // postcode's homes (founder ruling, 20 Nov 2026 — the
+  // list dump is gone); choosing one is the pick.
   await page.waitForURL(`**/search/home?postcode=${postcode.replace(" ", "+")}`);
-  await page.getByRole("link", { name: rowName }).first().click();
+  await page.locator(".picker__select").selectOption({ label: rowName });
   await page.waitForURL(/\/search\/home\?postcode=.*&home=/);
   await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
 }

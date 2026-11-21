@@ -101,7 +101,7 @@ async function openHomeResults(page: Page) {
   await page.locator("#postcode").fill("CM3 2JT");
   await page.getByRole("button", { name: "Check this home" }).click();
   await page.waitForURL("**/search/home?postcode=CM3+2JT");
-  await page.getByRole("link", { name: "19 Birkdale Rise" }).first().click();
+  await page.locator(".picker__select").selectOption({ label: "19 Birkdale Rise" });
   await page.waitForURL(/\/search\/home\?postcode=.*&home=/);
   await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
 }

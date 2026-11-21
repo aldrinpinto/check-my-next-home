@@ -126,10 +126,12 @@ async function searchFromHome(page: Page, text: string) {
   await page.getByRole("button", { name: "Check this home" }).click();
 }
 
-async function pickAndReachResults(page: Page, rowName: string | RegExp) {
+async function pickAndReachResults(page: Page, rowName: string) {
   // Picker removed (18 Nov 2026): the postcode check's
-  // home list rows are links straight to each home.
-  await page.getByRole("link", { name: rowName }).first().click();
+  // home dropdown carries its homes (founder ruling,
+  // 20 Nov 2026 — the list dump is gone), and choosing
+  // one goes straight to that home.
+  await page.locator(".picker__select").selectOption({ label: rowName });
   await page.waitForURL(/\/search\/home\?postcode=.*&home=/);
   await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
 }
@@ -312,7 +314,7 @@ test.describe("phone-first — 360×740 (T-WEB-01)", () => {
       });
       await searchFromHome(page, "CM3 2JT");
       await page.waitForURL("**/search/home?postcode=CM3+2JT");
-      await page.getByRole("link", { name: "19 Birkdale Rise", exact: true }).click();
+      await page.locator(".picker__select").selectOption({ label: "19 Birkdale Rise" });
       await expect(page.locator(".checking .page-title")).toHaveText("Your check is under way");
       await expect(page.locator(".checking__row")).toHaveCount(5);
       await expectNoSidewaysScroll(page);
@@ -624,7 +626,7 @@ test.describe("phone-first — 360×740 (T-WEB-01)", () => {
     async ({ page }) => {
       await seedShortlist(page, [BIRKDALE_CARD, EXETER_CARD, WIDER_AREA_CARD]);
       await page.goto("/search?postcode=KT17+1FH");
-      await pickAndReachResults(page, /Flat 4, Minerva House/);
+      await pickAndReachResults(page, "Flat 4, Minerva House, 12 Ceres Crescent");
       await page.getByRole("button", { name: "Shortlist this home" }).first().click();
 
       // The simple message stands where the button was

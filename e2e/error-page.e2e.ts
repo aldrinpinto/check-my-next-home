@@ -42,11 +42,14 @@ test.describe("the single error page — regression", () => {
       await expect(page.locator("#postcode")).toHaveValue("");
       await expect(page.getByText(KEPT_NOTE)).toHaveCount(0);
       // The box is the site's own, working: a check run
-      // from it lands on the postcode's home list.
+      // from it lands on the postcode's check, its home
+      // dropdown carrying the postcode's homes.
       await page.getByLabel("Postcode or address").fill("CM3 2JT");
       await page.getByRole("button", { name: "Check this home" }).click();
       await page.waitForURL("**/search/home?postcode=CM3+2JT");
-      await expect(page.getByRole("link", { name: "19 Birkdale Rise", exact: true })).toBeVisible();
+      await expect(
+        page.locator(".picker__select option", { hasText: "19 Birkdale Rise" }),
+      ).toBeAttached();
     },
   );
 

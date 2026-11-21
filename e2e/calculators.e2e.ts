@@ -50,9 +50,11 @@ async function searchFromHome(page: Page, text: string) {
 async function reachBirkdaleResults(page: Page) {
   await searchFromHome(page, "CM3 2JT");
   // Picker removed (18 Nov 2026): the submit lands on the
-  // whole-postcode check; the home list's row is a link.
+  // whole-postcode check; its home dropdown carries the
+  // postcode's homes (founder ruling, 20 Nov 2026 — the
+  // list dump is gone), and choosing one is the pick.
   await page.waitForURL("**/search/home?postcode=CM3+2JT");
-  await page.getByRole("link", { name: "19 Birkdale Rise" }).first().click();
+  await page.locator(".picker__select").selectOption({ label: "19 Birkdale Rise" });
   await page.waitForURL(/\/search\/home\?postcode=.*&home=/);
   await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
   await page.locator(".calculators").scrollIntoViewIfNeeded();

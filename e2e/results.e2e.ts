@@ -51,12 +51,14 @@ async function searchFromHome(page: Page, text: string) {
   await page.getByRole("button", { name: "Check this home" }).click();
 }
 
-async function reachResults(page: Page, postcode: string, rowName: string | RegExp) {
+async function reachResults(page: Page, postcode: string, rowName: string) {
   // Picker removed (18 Nov 2026): the submit lands on the
-  // whole-postcode check; its home list's rows are links
-  // straight to each home's check.
+  // whole-postcode check; its home dropdown carries the
+  // postcode's homes (founder ruling, 20 Nov 2026 — the
+  // list dump is gone), and choosing one goes straight
+  // to that home's check.
   await page.waitForURL(`**/search/home?postcode=${postcode.replace(" ", "+")}`);
-  await page.getByRole("link", { name: rowName }).first().click();
+  await page.locator(".picker__select").selectOption({ label: rowName });
   await page.waitForURL(/\/search\/home\?postcode=.*&home=/);
   await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
 }
@@ -172,7 +174,7 @@ test.describe("results page — smoke", () => {
     { tag: "@smoke" },
     async ({ page }) => {
       await searchFromHome(page, "KT17 1FH");
-      await reachResults(page, "KT17 1FH", /Flat 4, Minerva House/);
+      await reachResults(page, "KT17 1FH", "Flat 4, Minerva House, 12 Ceres Crescent");
       await expect(page.getByRole("tab")).toHaveCount(4);
       await openTab(page, "The Neighbourhood");
       await expect(page.locator('[data-section="crime"]')).toContainText("1,956");
@@ -260,7 +262,9 @@ test.describe("results page — regression", () => {
       );
       await page.goBack();
       await page.waitForURL(/\/search\/home\?postcode=CM3\+2JT$/);
-      await expect(page.getByRole("link", { name: "19 Birkdale Rise", exact: true })).toBeVisible();
+      await expect(
+        page.locator(".picker__select option", { hasText: "19 Birkdale Rise" }),
+      ).toBeAttached();
     },
   );
 

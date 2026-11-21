@@ -113,13 +113,15 @@ async function seedShortlist(page: Page, cards: ShortlistCard[]) {
   ] as const);
 }
 
-async function reachResults(page: Page, postcode: string, rowName: string | RegExp) {
+async function reachResults(page: Page, postcode: string, rowName: string) {
   // The retired picker route redirects to the
   // whole-postcode check (picker removed, 18 Nov 2026);
-  // its home list's rows are links to each home's check.
+  // its home dropdown carries the postcode's homes
+  // (founder ruling, 20 Nov 2026 — the list dump is
+  // gone), and choosing one is the pick.
   await page.goto(`/search?postcode=${postcode.replace(" ", "+")}`);
   await page.waitForURL(/\/search\/home\?postcode=/);
-  await page.getByRole("link", { name: rowName }).first().click();
+  await page.locator(".picker__select").selectOption({ label: rowName });
   await page.waitForURL(/\/search\/home\?postcode=.*&home=/);
   await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
 }
@@ -140,7 +142,7 @@ test.describe("shortlist — smoke", () => {
         let persistent = context.pages()[0] ?? (await context.newPage());
         await persistent.goto("/search?postcode=CM3+2JT");
         await persistent.waitForURL(/\/search\/home\?postcode=/);
-        await persistent.getByRole("link", { name: "19 Birkdale Rise" }).first().click();
+        await persistent.locator(".picker__select").selectOption({ label: "19 Birkdale Rise" });
         await persistent.waitForURL(/\/search\/home\?postcode=.*&home=/);
         await expect(persistent.locator(".results")).toBeVisible({ timeout: 30_000 });
         // Two shortlist controls render on a rung-1 page
@@ -336,7 +338,7 @@ test.describe("shortlist — regression", () => {
     { tag: "@regression" },
     async ({ page }) => {
       await seedShortlist(page, [BIRKDALE_CARD, EXETER_CARD, WIDER_AREA_CARD]);
-      await reachResults(page, "KT17 1FH", /Flat 4, Minerva House/);
+      await reachResults(page, "KT17 1FH", "Flat 4, Minerva House, 12 Ceres Crescent");
       await page.getByRole("button", { name: "Shortlist this home" }).first().click();
 
       // The simple message stands where the button was
@@ -370,7 +372,7 @@ test.describe("shortlist — regression", () => {
       await page.waitForURL(/\/shortlist$/);
       await page.getByRole("button", { name: "Remove 6 Exeter Road, E16 1GN" }).click();
       await expect(page.locator(".shortlist-card")).toHaveCount(2);
-      await reachResults(page, "KT17 1FH", /Flat 4, Minerva House/);
+      await reachResults(page, "KT17 1FH", "Flat 4, Minerva House, 12 Ceres Crescent");
       await page.getByRole("button", { name: "Shortlist this home" }).first().click();
       await expect(
         page.getByRole("button", { name: "Shortlisted — tap to remove" }).first(),

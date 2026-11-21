@@ -57,12 +57,14 @@ async function searchFromHome(page: Page, text: string) {
   await page.getByRole("button", { name: "Check this home" }).click();
 }
 
-async function reachResults(page: Page, postcode: string, rowName: string | RegExp) {
+async function reachResults(page: Page, postcode: string, rowName: string) {
   // Picker removed (18 Nov 2026): the submit lands on the
-  // whole-postcode check; its home list's rows are links
-  // straight to each home's check.
+  // whole-postcode check; its home dropdown carries the
+  // postcode's homes (founder ruling, 20 Nov 2026 — the
+  // list dump is gone), and choosing one goes straight
+  // to that home's check.
   await page.waitForURL(`**/search/home?postcode=${postcode.replace(" ", "+")}`);
-  await page.getByRole("link", { name: rowName }).first().click();
+  await page.locator(".picker__select").selectOption({ label: rowName });
   await page.waitForURL(/\/search\/home\?postcode=.*&home=/);
   await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
 }
@@ -74,7 +76,7 @@ async function openTab(page: Page, name: string) {
 interface GoldenHome {
   label: string;
   postcode: string;
-  rowName: string | RegExp;
+  rowName: string;
   council: string;
   brownfieldLine: string;
   builtUpLine: string;
@@ -100,7 +102,7 @@ const GOLDEN_HOMES: GoldenHome[] = [
   {
     label: "Minerva KT17 1FH",
     postcode: "KT17 1FH",
-    rowName: /Flat 4, Minerva House/,
+    rowName: "Flat 4, Minerva House, 12 Ceres Crescent",
     council: "Epsom and Ewell",
     brownfieldLine: "30 recorded brownfield sites within 2 miles of the postcode point",
     builtUpLine: "Inside the Ewell built-up area",
