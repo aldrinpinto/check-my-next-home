@@ -1065,6 +1065,16 @@ export async function buildAreaBundleCached(
         !("worldHeritageBufferZones" in heritage)
       )
         return false;
+      // The M8.10 presence rule, in the same pattern: the
+      // heritage section must carry its parksAndGardens
+      // layer (present on every fresh bundle, in every
+      // state — the layer composes through the same
+      // heritage loaders already in the version vector, so
+      // no stamp moves when the step deploys) — an entry
+      // written before the step lacks the key entirely and
+      // degrades to a recompute rather than the report
+      // reading the layer's absence as current.
+      if (!("parksAndGardens" in heritage)) return false;
       if (
         !epc.certificates.every(
           (cert) => typeof cert === "object" && cert !== null && "improvements" in cert,
