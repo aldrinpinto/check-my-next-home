@@ -1,3 +1,4 @@
+import { reportPdfCover, reportPrintUrl } from "../lib/report-pdf";
 import type {
   ReportBlock,
   ReportDotPlotModel,
@@ -163,6 +164,13 @@ function Block({ block }: { block: ReportBlock }) {
             <span key={link.href}>
               {index > 0 ? " · " : null}
               <a href={link.href}>{link.label}</a>
+              {/* The PDF twin (M8.4, prep point 4): in the
+                  printed Sources section each named link
+                  carries its URL beside it. The span is
+                  print-only and Sources-only (the print
+                  stylesheet shows it nowhere else); the web
+                  page keeps its linked names. */}
+              <span className="rpt-printUrl"> ({reportPrintUrl(link.href)})</span>
             </span>
           ))}
         </p>
@@ -269,6 +277,7 @@ function FloodMap({ map }: { map: ReportFloodMapModel }) {
     <div className="rpt-chartCard">
       <h4>{map.title}</h4>
       <svg
+        className="floodMap"
         viewBox={`0 0 ${map.width} ${map.height}`}
         role="img"
         aria-label={map.ariaLabel}
@@ -500,8 +509,20 @@ function MonthChart({ chart }: { chart: ReportMonthChartModel }) {
 
 export default function ReportPage({ view }: { view: ReportView }) {
   const { masthead } = view;
+  const cover = reportPdfCover(view);
   return (
     <div className="report-wrap">
+      {/* The PDF twin's cover (M8.4, prep point 3):
+          print-only furniture (the screen stylesheet
+          never shows it) carrying the home's address and
+          the facts date from the masthead, ahead of the
+          document the cover introduces. */}
+      <div className="rpt-cover" aria-hidden="true">
+        <p className="rpt-brand">{cover.brandLine}</p>
+        <h1>{cover.title}</h1>
+        {cover.addressLine ? <p className="rpt-addr">{cover.addressLine}</p> : null}
+        <p className="rpt-cover-date">{cover.preparedLine}</p>
+      </div>
       <article className="rpt-doc">
         <header className="rpt-mast">
           <p className="rpt-brand">{masthead.brandLine}</p>

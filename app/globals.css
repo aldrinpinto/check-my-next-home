@@ -4794,6 +4794,18 @@ a.picker__row {
   line-height: 1.5;
 }
 
+/* The PDF twin's print-only furniture (M8.4): the cover
+   and the Sources sections' printed URLs exist in the
+   document only for the printed twin — the @media print
+   rules at the end of this file are the only place they
+   ever show. */
+.site-pages .rpt-cover {
+  display: none;
+}
+.site-pages .rpt-printUrl {
+  display: none;
+}
+
 /* The sample's own small-screen values for these pages. */
 @media (max-width: 640px) {
   .site-pages {
@@ -5135,4 +5147,122 @@ a.picker__row {
 
 .infobox p {
   margin: 0;
+}
+
+/* =====================================================================
+   The PDF twin (plan step M8.4) — the report's print
+   stylesheet. The PDF is the real report page, printed
+   (the founder's adopted shape, 20 Nov 2026): the same
+   ReportView snapshot under these rules, never a second
+   layout. The Chromium generator (lib/server/
+   report-pdf.ts) prints A4 with the same margins @page
+   declares here, so a browser print of the page and the
+   generated file agree.
+   ===================================================================== */
+@page {
+  size: A4;
+  margin: 16mm 14mm 18mm;
+}
+
+@media print {
+  /* The site's furniture never prints — the PDF is the
+     report document alone. */
+  .site-header,
+  .site-footer,
+  .test-label {
+    display: none !important;
+  }
+
+  /* The cream page ground drops to white (prep point
+     5); brand and chart colours stay, printed exactly.
+     The flood pictures' cream backing is their ground
+     too, so it drops with the page's. */
+  .site-pages {
+    background: #ffffff;
+  }
+  .site-pages__inner {
+    max-width: none;
+    margin: 0;
+    padding: 0;
+  }
+  .site-pages .rpt-doc {
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+  .site-pages .rpt-final {
+    background: #ffffff;
+  }
+  .site-pages .floodMap > rect {
+    fill: #ffffff;
+  }
+
+  /* The cover (prep point 3): the first printed page,
+     carrying the home's address and the facts date; the
+     document follows on a fresh page. */
+  .site-pages .rpt-cover {
+    display: block;
+    break-after: page;
+    page-break-after: always;
+    padding-top: 52mm;
+  }
+  .site-pages .rpt-cover h1 {
+    font-size: 2.6rem;
+    line-height: 1.12;
+    margin: 0 0 6px;
+  }
+  .site-pages .rpt-cover .rpt-addr {
+    font-size: 1.1rem;
+    color: #44514c;
+    margin: 0 0 22px;
+  }
+  .site-pages .rpt-cover-date {
+    font-size: 1rem;
+    color: var(--sp-muted);
+    border-top: 3px solid var(--sp-brass);
+    padding-top: 14px;
+    max-width: 62%;
+  }
+
+  /* Cards, charts and the flood pictures never split
+     across pages (prep point 2); a heading keeps with
+     the block that follows it; a text block never
+     strands a line. */
+  .site-pages .rpt-chartCard,
+  .site-pages .rpt-tiles,
+  .site-pages .rpt-tile,
+  .site-pages .rpt-row,
+  .site-pages .rpt-doc table,
+  .site-pages .rpt-tldr .grp {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .site-pages .rpt-secHead,
+  .site-pages .rpt-sub,
+  .site-pages .rpt-chartCard h4,
+  .site-pages .rpt-tldr .grp h3 {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+  .site-pages .rpt-doc p,
+  .site-pages .rpt-doc li {
+    orphans: 3;
+    widows: 3;
+  }
+  /* A chart too tall for the page scales to fit rather
+     than splitting: the pictures are SVG drawings, so
+     capping the height scales the whole drawing. */
+  .site-pages .rpt-chartCard svg {
+    max-height: 225mm;
+  }
+
+  /* Sources (prep point 4): in the printed closing
+     section, each named link's URL prints beside it.
+     The spans exist throughout the document (the links
+     rows close every section) and show only here. */
+  .site-pages .rpt-final .rpt-printUrl {
+    display: inline;
+  }
 }
