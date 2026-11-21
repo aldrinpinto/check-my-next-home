@@ -174,9 +174,19 @@ function Block({ block, reportHref }: { block: SectionBlock; reportHref: string 
     case "notice":
       return <Notice variant={block.variant}>{block.text}</Notice>;
     case "link":
+      // The new-tab promise (M8.7): a link block whose URL
+      // leaves the site opens in a new tab with the safe
+      // rel; an in-page action (the empty "Try again" URL)
+      // stays a plain anchor.
       return (
         <p className="results-line">
-          <a href={block.url}>{block.label}</a>
+          {/^https?:\/\//.test(block.url) ? (
+            <a href={block.url} target="_blank" rel="noopener">
+              {block.label}
+            </a>
+          ) : (
+            <a href={block.url}>{block.label}</a>
+          )}
         </p>
       );
     case "tiles":
@@ -239,7 +249,9 @@ function Block({ block, reportHref }: { block: SectionBlock; reportHref: string 
           ))}
           {block.overflowLine && <p className="results-line">{block.overflowLine}</p>}
           <p className="results-line">
-            <a href={block.link.url}>{block.link.label}</a>
+            <a href={block.link.url} target="_blank" rel="noopener">
+              {block.link.label}
+            </a>
           </p>
         </div>
       );
@@ -395,7 +407,9 @@ export default function ResultsPage({
               {item.severity} — {item.areaDescription}{" "}
             </span>
           ))}
-          <a href={view.warningsStrip.link.url}>{view.warningsStrip.link.label}</a>
+          <a href={view.warningsStrip.link.url} target="_blank" rel="noopener">
+            {view.warningsStrip.link.label}
+          </a>
         </p>
       )}
       {view.warningsStrip.kind === "unavailable" && (

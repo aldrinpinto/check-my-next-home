@@ -2957,12 +2957,12 @@ export interface PlanningApplicationsSection extends AreaSectionMeta {
   link: { label: string; url: string } | null;
 }
 
-const PLANNING_SEARCH_GOVUK = {
+export const PLANNING_SEARCH_GOVUK = {
   label: "Search the register of planning decisions (GOV.UK)",
   url: "https://www.gov.uk/search-register-planning-decisions",
 };
 
-const PLANNING_REGISTER_NI = {
+export const PLANNING_REGISTER_NI = {
   label: "Northern Ireland Public Register",
   url: "https://planningregister.planningsystemni.gov.uk/simple-search",
 };
@@ -3607,7 +3607,7 @@ export interface BuildingSafetySection extends AreaSectionMeta {
 // Like planning's links (D31): a plain landing page, no
 // postcode in the URL; the line instructs the reader to
 // enter the postcode there.
-const BSR_REGISTER_SEARCH = {
+export const BSR_REGISTER_SEARCH = {
   label: "Search the register of high-rise residential buildings (GOV.UK)",
   url: "https://www.register-high-rise-building.service.gov.uk/public-register/search",
 };

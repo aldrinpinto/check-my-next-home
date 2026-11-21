@@ -1,0 +1,111 @@
+{
+  "generated": "Generated from lib/outside-links.ts by tests/outside-links.test.ts (OUTSIDE_LINKS_REGEN=1). Do not hand-edit: the gate test fails while this file and the code's own link sources disagree.",
+  "links": [
+    {
+      "url": "https://www.gov.uk/clean-air-zones",
+      "label": "Check a vehicle on GOV.UK",
+      "shownOn": ["check page /check/air-quality"]
+    },
+    {
+      "url": "https://tfl.gov.uk/modes/driving/check-your-vehicle/",
+      "label": "Check a vehicle with Transport for London",
+      "shownOn": ["check page /check/air-quality"]
+    },
+    {
+      "url": "https://vehicleemissionscheck.service.gov.scot/",
+      "label": "Check a vehicle on Scotland's Low Emission Zone checker",
+      "shownOn": ["check page /check/air-quality"]
+    },
+    {
+      "url": "https://www.gov.uk/stamp-duty-land-tax",
+      "label": "Stamp Duty Land Tax — GOV.UK",
+      "shownOn": ["the results page calculators"]
+    },
+    {
+      "url": "https://revenue.scot/taxes/land-buildings-transaction-tax/residential-property",
+      "label": "Land and Buildings Transaction Tax — Revenue Scotland",
+      "shownOn": ["the results page calculators"]
+    },
+    {
+      "url": "https://www.gov.wales/land-transaction-tax-guide",
+      "label": "Land Transaction Tax — GOV.WALES",
+      "shownOn": ["the results page calculators"]
+    },
+    {
+      "url": "https://www.gov.uk/check-flooding",
+      "label": "the official Check for flooding service",
+      "shownOn": ["flood warnings on the results page, the district page and the report"]
+    },
+    {
+      "url": "https://www.gov.uk/schools-admissions",
+      "label": "School admissions on GOV.UK",
+      "shownOn": ["the results page and the report"]
+    },
+    {
+      "url": "https://www.gov.uk/search-register-planning-decisions",
+      "label": "Search the register of planning decisions (GOV.UK)",
+      "shownOn": ["the report and the results page"]
+    },
+    {
+      "url": "https://planningregister.planningsystemni.gov.uk/simple-search",
+      "label": "Northern Ireland Public Register",
+      "shownOn": ["the report (Northern Ireland homes)"]
+    },
+    {
+      "url": "https://www.register-high-rise-building.service.gov.uk/public-register/search",
+      "label": "Search the register of high-rise residential buildings (GOV.UK)",
+      "shownOn": ["the report's building-safety hand-off"]
+    },
+    {
+      "url": "https://check-long-term-flood-risk.service.gov.uk/postcode",
+      "label": "GOV.UK long-term flood risk service",
+      "shownOn": ["the report's Sources list", "the sample report"]
+    },
+    {
+      "url": "https://www.nomisweb.co.uk/datasets/c2021ts054",
+      "label": "Nomis dataset C2021TS054",
+      "shownOn": ["the report's Sources list"]
+    },
+    {
+      "url": "https://www.nomisweb.co.uk/datasets/c2021ts044",
+      "label": "Nomis dataset C2021TS044",
+      "shownOn": ["the report's Sources list", "the sample report"]
+    },
+    {
+      "url": "https://www.nomisweb.co.uk/datasets/c2021ts021",
+      "label": "Nomis dataset C2021TS021",
+      "shownOn": ["the report's Sources list", "the sample report"]
+    },
+    {
+      "url": "https://www.nomisweb.co.uk/datasets/c2021ts030",
+      "label": "Nomis dataset C2021TS030",
+      "shownOn": ["the report's Sources list", "the sample report"]
+    },
+    {
+      "url": "https://www.nomisweb.co.uk/datasets/c2021ts052",
+      "label": "Nomis dataset C2021TS052",
+      "shownOn": ["the report's Sources list"]
+    },
+    {
+      "url": "https://find-energy-certificate.service.gov.uk/",
+      "label": "Find an Energy Certificate — the certificate for this home",
+      "shownOn": ["the report's Sources list", "the sample report"],
+      "pattern": "https://find-energy-certificate.service.gov.uk/energy-certificate/{certificate number}"
+    },
+    {
+      "url": "https://reports.ofsted.gov.uk/provider/21/115102",
+      "label": "",
+      "shownOn": ["the sample report"]
+    },
+    {
+      "url": "https://www.gov.uk/pay-council-tax",
+      "label": "",
+      "shownOn": ["the sample report"]
+    },
+    {
+      "url": "https://www.gov.uk/planning-permission-england-wales",
+      "label": "",
+      "shownOn": ["the sample report"]
+    }
+  ]
+}

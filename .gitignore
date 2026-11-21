@@ -51,3 +51,6 @@ next-env.d.ts
 
 # Loader runner fallback record (M4.8) — a local safety net, never committed
 loader-runs-fallback.jsonl
+
+# Outside-link robot state (M8.7) — last week's landings, never committed
+scripts/outside-link-state.json

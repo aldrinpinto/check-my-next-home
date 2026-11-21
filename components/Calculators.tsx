@@ -159,7 +159,9 @@ export default function Calculators({
             <>
               <p>{devolvedTax.line}</p>
               <p className="calculator-card__small">
-                <a href={devolvedTax.link.url}>{devolvedTax.link.label}</a>
+                <a href={devolvedTax.link.url} target="_blank" rel="noopener">
+                  {devolvedTax.link.label}
+                </a>
               </p>
             </>
           ) : (
@@ -208,7 +210,9 @@ export default function Calculators({
               {sdSentence && <p className="calculator-card__result">{sdSentence}</p>}
               <p className="calculator-card__small">{STAMP_DUTY_SMALL_PRINT}</p>
               <p className="calculator-card__small">
-                <a href={STAMP_DUTY_RATES_URL}>{STAMP_DUTY_RATES_LINE}</a>
+                <a href={STAMP_DUTY_RATES_URL} target="_blank" rel="noopener">
+                  {STAMP_DUTY_RATES_LINE}
+                </a>
               </p>
             </>
           )}

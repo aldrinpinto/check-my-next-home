@@ -2419,7 +2419,11 @@ function section5(input: ReportInput): ReportSectionView {
 // order kept on ties.
 // ------------------------------------------------------------------
 
-const CENSUS_GRID_ORDER = ["ts054", "ts044", "ts021", "ts030", "ts052"];
+// Exported for the outside-link registry (M8.7,
+// lib/outside-links.ts): the Sources list links exactly
+// these five Nomis datasets, so the robot's list derives
+// from the same order the report serves.
+export const CENSUS_GRID_ORDER = ["ts054", "ts044", "ts021", "ts030", "ts052"];
 
 const CENSUS_COUNT_UNITS: Record<string, string> = {
   ts021: "residents",
@@ -3721,6 +3725,19 @@ function section9(input: ReportInput, homeCerts: ServedCertificate[]): ReportSec
 // Section 10 — Sources, notes & disclaimers
 // ------------------------------------------------------------------
 
+// The Sources section's three outside destinations, named
+// as constants so the outside-link registry (M8.7,
+// lib/outside-links.ts) derives the robot's list from the
+// very strings the report serves — never a second copy.
+// The EPC destination is a per-certificate pattern: the
+// fixed base is what the registry holds, and the robot
+// checks the service behind it.
+export const EPC_CERTIFICATE_URL_BASE =
+  "https://find-energy-certificate.service.gov.uk/energy-certificate/";
+export const LONG_TERM_FLOOD_RISK_URL =
+  "https://check-long-term-flood-risk.service.gov.uk/postcode";
+export const NOMIS_DATASET_URL_BASE = "https://www.nomisweb.co.uk/datasets/c2021";
+
 function section10(input: ReportInput, cert: ServedCertificate | null): ReportSectionView {
   const blocks: ReportBlock[] = [];
   const sections = areaSections(input);
@@ -3760,7 +3777,7 @@ function section10(input: ReportInput, cert: ServedCertificate | null): ReportSe
       ),
       {
         text: "view certificate",
-        href: `https://find-energy-certificate.service.gov.uk/energy-certificate/${cert.certificateNumber}`,
+        href: `${EPC_CERTIFICATE_URL_BASE}${cert.certificateNumber}`,
       },
       seg("."),
     ]);
@@ -3822,7 +3839,7 @@ function section10(input: ReportInput, cert: ServedCertificate | null): ReportSe
       ),
       {
         text: "GOV.UK long-term flood risk service",
-        href: "https://check-long-term-flood-risk.service.gov.uk/postcode",
+        href: LONG_TERM_FLOOD_RISK_URL,
       },
       seg("."),
     ]);
@@ -3849,7 +3866,7 @@ function section10(input: ReportInput, cert: ServedCertificate | null): ReportSe
       const unit = CENSUS_COUNT_UNITS[code] ?? (code === "ts054" ? "households" : "counted");
       tableLinks.push({
         text: `${code.toUpperCase()} ${table.title} (${count(table.total)} ${unit})`,
-        href: `https://www.nomisweb.co.uk/datasets/c2021${code}`,
+        href: `${NOMIS_DATASET_URL_BASE}${code}`,
       });
     }
     sourceItem("Area & Census 2021", [

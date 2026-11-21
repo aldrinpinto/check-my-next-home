@@ -28,6 +28,20 @@ import SearchBlock from "./SearchBlock";
 // No visible breadcrumb exists (the samples show none); the
 // BreadcrumbList is structured data only.
 
+// The new-tab promise (M8.7): a content link that leaves
+// the site opens in a new tab with the safe rel; the
+// site's own pages keep the router link.
+function ContentLinkAnchor({ link }: { link: { label: string; href: string } }) {
+  if (/^https?:\/\//.test(link.href)) {
+    return (
+      <a href={link.href} target="_blank" rel="noopener">
+        {link.label}
+      </a>
+    );
+  }
+  return <Link href={link.href}>{link.label}</Link>;
+}
+
 function Sections({ sections }: { sections: ContentSection[] }) {
   return (
     <div className="stack">
@@ -41,7 +55,7 @@ function Sections({ sections }: { sections: ContentSection[] }) {
             <ul className="content-links">
               {section.links.map((link) => (
                 <li key={link.href}>
-                  <Link href={link.href}>{link.label}</Link>
+                  <ContentLinkAnchor link={link} />
                 </li>
               ))}
             </ul>
@@ -65,7 +79,7 @@ function RelatedBlock({
       <ul className="related-links">
         {links.map((link) => (
           <li key={link.href}>
-            <Link href={link.href}>{link.label}</Link>
+            <ContentLinkAnchor link={link} />
           </li>
         ))}
       </ul>
