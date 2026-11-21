@@ -1862,10 +1862,20 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
       const text = s7(tag);
       // The tribunal line in its locked as-at wording —
       // the fixture corpus files no decision naming any
-      // of the three postcodes.
-      expect(text).toContain(
-        "No published building-safety orders naming this postcode, as at 14 November 2026.",
+      // of the three postcodes. The as-at date is the
+      // filing pass's own date (the table's retrieved_at),
+      // so the expectation follows the bundle's served
+      // line, sentence-cased with its full stop as the
+      // report composes it — never a hardcoded calendar
+      // date (CI files the corpus on the run date).
+      const area = get(tag).area;
+      const tribunalLine =
+        area.kind === "area-bundle" ? area.sections.buildingSafety.tribunal.line : null;
+      if (!tribunalLine) throw new Error(`${tag}: no tribunal line served on the real bundle`);
+      expect(tribunalLine).toMatch(
+        /^no published building-safety orders naming this postcode(, as at .+)?$/,
       );
+      expect(text).toContain(tribunalLine.charAt(0).toUpperCase() + tribunalLine.slice(1) + ".");
       // Parks & gardens: wired, unfiled, named as such.
       expect(text).toContain(
         "The registered park and garden data is not filed yet, so no registered park and garden answer can be given yet.",
