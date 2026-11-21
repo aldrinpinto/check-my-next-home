@@ -1,0 +1,57 @@
+name: Outside links — weekly link robot
+
+# The outside-link robot (plan step M8.7): once a week it
+# visits every fixed outside destination the site serves
+# (the list is generated from the code's own link sources
+# — lib/outside-links.ts into scripts/outside-links.json)
+# and reports any that died or moved. The note prints in
+# the run's step summary; a problem run also emails the
+# project address and fails, so the alert is the run
+# itself. The robot never edits a link — a person fixes
+# the code. See docs/outside-link-robot-howto.md.
+# Timing is best-effort by GitHub's own documentation, so
+# the schedule sits off the hour, like the canary's.
+
+on:
+  schedule:
+    - cron: "41 7 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  outside-links:
+    name: Outside-link check
+    runs-on: ubuntu-latest
+    env:
+      RUNNER_ENV: ci
+      RUNNER_TRIGGER: schedule
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies (exact, from the lockfile)
+        run: npm ci
+
+      # Last week's record (final landings + last-seen-
+      # working dates) rides in the cache: each run saves
+      # under its own key and restores the newest by prefix.
+      - name: Restore the link state
+        uses: actions/cache@v4
+        with:
+          path: scripts/outside-link-state.json
+          key: outside-link-state-${{ github.run_id }}
+          restore-keys: |
+            outside-link-state-
+
+      - name: Run the link robot
+        env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+        run: npm run check:links
