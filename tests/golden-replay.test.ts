@@ -1717,8 +1717,11 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
     expect(birkdale.sections).toHaveLength(9);
     const birkdaleText = JSON.stringify(birkdale);
     expect(birkdaleText).toContain("£588,995");
-    expect(birkdaleText).toContain("330 recorded crimes within 1 mile");
-    expect(birkdaleText).toContain("51.7 recorded crimes per 1,000 residents");
+    expect(birkdaleText).toContain("330 incidents");
+    expect(birkdaleText).toContain(
+      " recorded within 1 mile of this home, October 2025 to September 2026 (Police.uk).",
+    );
+    expect(birkdaleText).toContain("51.7 recorded crimes for every 1,000 residents here");
     expect(birkdaleText.toLowerCase()).not.toContain("childminder");
     // The snapshot is plain data end to end.
     expect(JSON.parse(JSON.stringify(birkdale))).toEqual(birkdale);
