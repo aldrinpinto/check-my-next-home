@@ -462,7 +462,20 @@ export const floodServed: Extract<FloodBundle, { kind: "flood" }> = {
         line: "below the lowest mapped band at this point",
         covering: null,
         remainder: null,
-        proximity: [],
+        // The real golden fact (the replay pins it: a Low
+        // edge 0.03 miles from the point) — the surface-
+        // water near miss M8.5's question reads. Added at
+        // M8.5; before it the fabricated layer carried no
+        // proximity at all.
+        proximity: [
+          {
+            label: "Low",
+            displayLabel: "Low",
+            definition: "a chance of flooding in any given year between 1 in 1,000 and 1 in 100",
+            detail: ">0 m",
+            miles: 0.03,
+          },
+        ],
         beyondNearest: null,
         beyondLine: null,
         sourceName: "Environment Agency",

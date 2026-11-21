@@ -145,6 +145,20 @@ function Block({ block }: { block: ReportBlock }) {
           ))}
         </ul>
       );
+    case "questions":
+      // Section 8's numbered list, in the sample's own
+      // form (ol.rpt-seller): the number is the
+      // question's standing — the flood block first is
+      // Question 1.
+      return (
+        <ol className="rpt-seller">
+          {block.items.map((item) => (
+            <li key={item.title}>
+              <strong>{item.title}:</strong> {item.text}
+            </li>
+          ))}
+        </ol>
+      );
     case "note":
       return <p className="rpt-small rpt-chartNote">{block.text}</p>;
     case "lineLink":

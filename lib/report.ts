@@ -346,6 +346,15 @@ export type ReportBlock =
   | { type: "dotPlot"; plot: ReportDotPlotModel }
   | { type: "monthChart"; chart: ReportMonthChartModel }
   | { type: "list"; items: string[] }
+  // The seller questions (M8.5): Section 8's numbered
+  // list — each item a hand-written block's title and
+  // text, selected by fixed rules from the report's own
+  // facts (see section8). The renderer prints the
+  // ordered list in the sample's form (ol.rpt-seller),
+  // so an item's position IS its question number — the
+  // flood block's "Question 1" standing (the Exeter
+  // sample's Section 7 cross-reference) reads it.
+  | { type: "questions"; items: { title: string; text: string }[] }
   | { type: "note"; text: string }
   | { type: "lineLink"; text: string; label: string; href: string }
   | { type: "map"; map: ReportMapModel }
@@ -597,18 +606,21 @@ function floodStateLine(input: ReportInput): string | null {
   return input.flood.kind === "flood" ? null : input.flood.flood.reason;
 }
 
-// The certificate that is this home's own, where one of
-// the postcode's certificates is filed under the home's
-// own address: a conservative starts-with match on the
+// The certificates that are this home's own, where the
+// postcode's certificates filed under the home's own
+// address: a conservative starts-with match on the
 // normalised address (the register's address against the
 // resolution's label, then its number-and-street key).
 // No match, no claim — the masthead and Section 1 simply
-// carry no certificate facts for the home.
-function matchedCertificate(
+// carry no certificate facts for the home. Section 8
+// reads the whole set (a home can hold two certificates
+// that disagree); the masthead's certificate is the
+// first of them.
+function matchedCertificates(
   resolution: AddressResolution,
   certificates: ServedCertificate[],
-): ServedCertificate | null {
-  if (resolution.rung !== 1) return null;
+): ServedCertificate[] {
+  if (resolution.rung !== 1) return [];
   const address = resolution.address;
   const norm = (value: string) =>
     value
@@ -618,12 +630,31 @@ function matchedCertificate(
       .trim();
   const label = norm(address.label);
   const streetKey = norm(`${address.paon} ${address.street}`);
-  for (const cert of certificates) {
+  return certificates.filter((cert) => {
     const certAddress = norm(cert.address);
-    if (certAddress === label || certAddress.startsWith(`${label} `)) return cert;
-    if (streetKey.length > 3 && certAddress.startsWith(streetKey)) return cert;
+    if (certAddress === label || certAddress.startsWith(`${label} `)) return true;
+    return streetKey.length > 3 && certAddress.startsWith(streetKey);
+  });
+}
+
+function matchedCertificate(
+  resolution: AddressResolution,
+  certificates: ServedCertificate[],
+): ServedCertificate | null {
+  return matchedCertificates(resolution, certificates)[0] ?? null;
+}
+
+// The newest of a home's certificates by registration
+// date — the register's latest word on the home, which
+// is the certificate Section 8's heating and improvement
+// questions read. A certificate with no filed date sorts
+// below every dated one.
+function newestCertificate(certificates: ServedCertificate[]): ServedCertificate | null {
+  let best: ServedCertificate | null = null;
+  for (const cert of certificates) {
+    if (!best || (cert.registrationDate ?? "") > (best.registrationDate ?? "")) best = cert;
   }
-  return null;
+  return best;
 }
 
 // ------------------------------------------------------------------
@@ -2344,16 +2375,340 @@ function section7(input: ReportInput): ReportSectionView {
 }
 
 // ------------------------------------------------------------------
-// Section 8 — Questions to ask the seller (M8.5's step)
+// Section 8 — Questions to ask the seller (M8.5)
 // ------------------------------------------------------------------
 
-function section8(): ReportSectionView {
-  // The questions themselves are M8.5's step — hand-written,
-  // rule-selected per home, with their own check. This step
-  // builds the section's place in the nine; M8.5 fills it.
-  // No placeholder copy stands here: an invented question
-  // would be content no step has authorised.
-  return section(8, "Questions to ask the seller", []);
+// The question bank (founder-adopted prep, 20 Nov 2026):
+// eleven hand-written blocks, each a fixed template whose
+// only moving parts are named slots filled from figures
+// the report already shows — never a new figure computed
+// for the section, and a block whose slot figure is
+// missing does not fire at all. Selection is a fixed rule
+// set over the report's own facts and named states, in
+// the priority order the blocks are evaluated below,
+// capped at five. No AI generation anywhere.
+//
+// The guardrail (Business Case, absolute): seller
+// questions are never drawn from the demographics or
+// benefits figures — no block below reads the Census,
+// IMD or benefits sections, and those facts trigger
+// nothing. Data-coverage gaps (a layer not filed, a
+// nation not covered) never become questions either: a
+// gap becomes a question only where the seller holds the
+// fact — the band, the lease, the floor area, the
+// heating arrangement.
+//
+// The priority order is the samples' own: it reproduces
+// both golden sets exactly (Exeter: flood, lease,
+// heating, floor area, council tax; Birkdale: council
+// tax, surface water, energy improvements, broadband,
+// school places) and keeps the flood block Question 1
+// whenever it fires — the standing Exeter's Section 7
+// cross-reference ("see Question 1 in Section 8") needs.
+
+interface SellerQuestion {
+  title: string;
+  text: string;
+}
+
+const SELLER_QUESTION_CAP = 5;
+
+const QUESTION_COUNT_WORDS = ["One", "Two", "Three", "Four", "Five"];
+
+// The empty case: no sample carries it (every sample
+// home raises five), so this line is new copy in the
+// samples' voice, pinned here — a home whose results
+// raised nothing still gets its section, with the honest
+// line, rather than a silent blank.
+export const SELLER_QUESTIONS_EMPTY_LINE =
+  "Nothing in this home's results above raised a question that needs a seller's answer — every check was answered from the published sources.";
+
+interface SellerContext {
+  input: ReportInput;
+  sections: AreaSections | null;
+  homeCerts: ServedCertificate[];
+  newestCert: ServedCertificate | null;
+  flood: FloodServed | null;
+}
+
+function floodLayer(ctx: SellerContext, type: string): ServedFloodLayer | null {
+  return ctx.flood?.layers.find((layer) => layer.layer === type) ?? null;
+}
+
+// (1) Flood risk and insurance — the planning map puts
+// the home in Flood Zone 3 while the defended long-term
+// check rates the risk Very low: the two tellings
+// disagree, and only the seller can settle what the home
+// has actually lived. The zone's display label is the
+// slot; the "very low" is the trigger's own term.
+function floodInsuranceQuestion(ctx: SellerContext): SellerQuestion | null {
+  const zones = floodLayer(ctx, "flood_zone");
+  const rivers = floodLayer(ctx, "rofrs");
+  if (!zones || zones.pointState !== "inside" || zones.covering?.label !== "FZ3") return null;
+  if (!rivers || rivers.pointState !== "inside" || rivers.covering?.displayLabel !== "Very low")
+    return null;
+  return {
+    title: "Flood risk and insurance",
+    text: `the planning map puts this postcode in ${zones.covering.displayLabel}, while the long-term check with the flood defences in place rates the risk very low — ask whether the home has ever flooded, whether buildings insurance has ever been refused, loaded or made subject to a flood excess, and what the current premium is.`,
+  };
+}
+
+// (2) The lease — the home's latest recorded sale is
+// leasehold. The figures that decide what the home costs
+// to own are in no public source; the seller holds them.
+function leaseQuestion(ctx: SellerContext): SellerQuestion | null {
+  const { sold } = ctx.input;
+  if (sold.kind !== "sold-prices" || "soldPrices" in sold || sold.rung !== 1) return null;
+  if (sold.ownHistory[0]?.tenure !== "L") return null;
+  return {
+    title: "The lease",
+    text: "this home is leasehold — ask how many years are left on the lease, what the ground rent is and how it reviews, and what the annual service charge is and what it covers. None of those figures are in the public sources checked for this report, and they decide what this home really costs to own.",
+  };
+}
+
+// (3) Community heating — the home's newest certificate
+// records a community scheme as its main heating (the
+// register's own description, in the certificate's
+// construction block). No slots: the sample's text is
+// the whole block.
+function communityHeatingQuestion(ctx: SellerContext): SellerQuestion | null {
+  const heating = ctx.newestCert?.construction?.groups.find((group) => group.key === "mainHeating");
+  if (!heating) return null;
+  const described = heating.descriptions.join(" ").toLowerCase();
+  if (!described.includes("community")) return null;
+  return {
+    title: "Community heating",
+    text: "heating and hot water come from a community scheme — ask who runs it, what the unit rate and standing charge are, what the current household pays over a year, and whether any scheme repairs or price rises are planned.",
+  };
+}
+
+// (4) Floor area — the home holds two or more
+// certificates whose recorded floor areas disagree. The
+// slots are the earliest and latest dated certificates'
+// areas and years, both as filed; a certificate with no
+// area or no date cannot stand in the sentence, so the
+// block stays silent rather than guess.
+function floorAreaQuestion(ctx: SellerContext): SellerQuestion | null {
+  const dated = ctx.homeCerts
+    .filter((cert) => cert.floorAreaSqM !== null && cert.registrationDate !== null)
+    .sort((a, b) => (a.registrationDate ?? "").localeCompare(b.registrationDate ?? ""));
+  if (dated.length < 2) return null;
+  const first = dated[0];
+  const last = dated[dated.length - 1];
+  if (!first || !last || first.floorAreaSqM === last.floorAreaSqM) return null;
+  return {
+    title: "Floor area",
+    text: `the two energy certificates disagree — ${first.floorAreaSqM} m² in ${(first.registrationDate ?? "").slice(0, 4)} and ${last.floorAreaSqM} m² in ${(last.registrationDate ?? "").slice(0, 4)} — ask the seller to confirm the home's actual internal area, and check the current certificate on GOV.UK.`,
+  };
+}
+
+// (5) Council tax band — Section 6 serves the council's
+// scale, and the home's own band is published in none of
+// the sources checked: the reader is budgeting from the
+// scale without the one figure that sets their bill.
+// Fires only on the served state — a council whose
+// charges are not filed yet is our gap, not a question,
+// and the not-covered nations run different systems the
+// sample's GOV.UK wording does not describe.
+function councilTaxQuestion(ctx: SellerContext): SellerQuestion | null {
+  if (!ctx.sections || ctx.sections.councilTax.state !== "served") return null;
+  return {
+    title: "Council tax band",
+    text: "the band isn't published in the sources checked — ask the seller to confirm it, and check it against the GOV.UK council tax band service before you budget.",
+  };
+}
+
+// (6) Planning applications — the planning section is a
+// hand-off everywhere (D31), but where the hand-off
+// serves a register link the reader can check
+// applications themselves; the block fires only where
+// the hand-off leaves them with no link at all
+// (Scotland, Mid Ulster, an unknown nation), which is
+// why no golden home triggers it. NO SAMPLE carries this
+// block — the text is written in the samples' voice and
+// pinned here for the founder's eye.
+function planningQuestion(ctx: SellerContext): SellerQuestion | null {
+  const planning = ctx.sections?.planningApplications;
+  if (!planning || planning.state !== "handed-off" || planning.link !== null) return null;
+  return {
+    title: "Planning applications",
+    text: "there is no register this report can link to for this area, and it holds no copy of any council's register — ask the seller whether any planning applications have been made for this home or the homes around it, and whether any work on the home was done with the planning consent it needed.",
+  };
+}
+
+// (7) Estate charges and warranties — the home's newest
+// certificate is the register's new-dwelling prediction:
+// the register knows the home only as a new build, so
+// its estate charges and builder's warranties are live
+// questions. The slot is the prediction's year. (An
+// assessed certificate — Birkdale's — means the home has
+// been measured since it was built, and the block stays
+// silent.)
+function estateChargesQuestion(ctx: SellerContext): SellerQuestion | null {
+  const cert = ctx.newestCert;
+  if (!cert || !cert.predicted || !cert.registrationDate) return null;
+  return {
+    title: "Estate charges and warranties",
+    text: `this is a ${cert.registrationDate.slice(0, 4)} new build on a modern estate — is there an annual estate or management charge, what does it cover, and are the builder's warranties still running with any snagging or defect claims still open?`,
+  };
+}
+
+// (8) Surface water — the point itself is in no band,
+// but a band is mapped near it: where the strongest
+// nearby band is High or Medium, the sample's edge form
+// (the band and its distance are the slots); where only
+// the Low band — the extreme 1-in-1,000-year event — is
+// mapped near, the sample's extreme-event form. A point
+// inside a band is the flood conversation's graver case
+// and no sample words it, so the block stays silent
+// there rather than improvise.
+function surfaceWaterQuestion(ctx: SellerContext): SellerQuestion | null {
+  const layer = floodLayer(ctx, "rofsw");
+  if (!layer || layer.pointState === "inside" || layer.pointState === "not-filed") return null;
+  if (layer.proximity.length === 0) return null;
+  const tail =
+    "ask whether the street or the plot has ever flooded or held standing water in heavy rain, and whether drains or soakaways have ever been an issue.";
+  const strongest = ["High", "Medium", "Low"]
+    .map((label) => layer.proximity.find((edge) => edge.label === label))
+    .find((edge) => edge !== undefined);
+  if (!strongest) return null;
+  if (strongest.label === "Low") {
+    return {
+      title: "Surface water",
+      text: `the postcode is mapped only in the extreme 1-in-1,000-year surface-water event — ${tail}`,
+    };
+  }
+  return {
+    title: "Surface water",
+    text: `the nearest ${strongest.label} surface-water band edge is ${formatMiles(strongest.miles)} miles from this home — ${tail}`,
+  };
+}
+
+// (9) Energy improvements — the home's newest
+// certificate publishes suggested steps. The saving slot
+// is the steps' own typical savings added together (the
+// sample's "about £34" is exactly that sum on Birkdale's
+// certificate) — a step with no filed saving leaves a
+// hole in the total, so the block stays silent. The lift
+// slots are the certificate's band, rating and potential
+// band, as filed.
+function energyImprovementsQuestion(ctx: SellerContext): SellerQuestion | null {
+  const cert = ctx.newestCert;
+  const improvements = cert?.improvements;
+  if (!cert || !improvements || improvements.state !== "served") return null;
+  if (improvements.steps.length === 0) return null;
+  if (improvements.steps.some((step) => step.typicalSavingPence === null)) return null;
+  if (cert.band === null || cert.rating === null || cert.potentialBand === null) return null;
+  const totalPence = improvements.steps.reduce(
+    (sum, step) => sum + (step.typicalSavingPence ?? 0),
+    0,
+  );
+  return {
+    title: "Energy improvements",
+    text: `the certificate's suggested steps would save about ${formatPounds(Math.round(totalPence / 100))} a year and lift the home from ${cert.band} (${cert.rating}) to ${cert.potentialBand} — ask which, if any, of those steps have already been done since the certificate was issued.`,
+  };
+}
+
+// (10) Broadband at this house — Ofcom serves every
+// premises in the postcode as gigabit-capable. The
+// sample's hand-made lead claimed "full fibre"; the
+// served data does not separate full fibre from other
+// gigabit technologies (the broadband section's own
+// explainer says so), so the template carries the served
+// claim — gigabit-capable — and nothing stronger. The
+// slot is the home's number, and only a plain house
+// number carries the sample's "No." form.
+function broadbandQuestion(ctx: SellerContext): SellerQuestion | null {
+  const broadband = ctx.sections?.broadband;
+  if (!broadband || broadband.state !== "served" || broadband.gigabitCapablePct !== 100)
+    return null;
+  const { resolution } = ctx.input;
+  if (resolution.rung !== 1) return null;
+  if (!resolution.address.paon) return null;
+  const paon = resolution.address.paon.trim();
+  if (!/^\d+[A-Za-z]?$/.test(paon)) return null;
+  return {
+    title: `Broadband at No. ${paon}`,
+    text: "the postcode is gigabit-capable — ask which provider the current service uses and what speed is actually delivered at this house.",
+  };
+}
+
+// (11) School places — a primary school stands within
+// the check's radius. The distance slot is the nearest
+// named primary's, as the report prints it; the council
+// is named only as "the council" because the served
+// directory names the district, and admissions belong to
+// the county — a district name here would send the
+// reader to the wrong desk. Where a selective secondary
+// stands within the same radius, the sample's grammar
+// tail follows, with the school's name as the slot.
+function schoolPlacesQuestion(ctx: SellerContext): SellerQuestion | null {
+  const primary = category(ctx.input.nearby, "schools-primary");
+  if (!primary || primary.state !== "within" || primary.places.length === 0) return null;
+  const nearest = primary.places[0];
+  if (!nearest) return null;
+  const secondary = category(ctx.input.nearby, "schools-secondary");
+  const selective = secondary?.nearestSelective;
+  const tail =
+    selective && selective.miles <= 2 ? `, and note that ${selective.name} admits by test` : "";
+  return {
+    title: "School places",
+    text: `living ${formatMiles(nearest.miles)} miles from the nearest primary school does not guarantee a place — check admissions and recent cut-off distances with the council and the schools directly${tail}.`,
+  };
+}
+
+// The bank in priority order (see the header): the first
+// five blocks that fire are the section's questions.
+const SELLER_QUESTION_BANK: ((ctx: SellerContext) => SellerQuestion | null)[] = [
+  floodInsuranceQuestion,
+  leaseQuestion,
+  communityHeatingQuestion,
+  floorAreaQuestion,
+  councilTaxQuestion,
+  planningQuestion,
+  estateChargesQuestion,
+  surfaceWaterQuestion,
+  energyImprovementsQuestion,
+  broadbandQuestion,
+  schoolPlacesQuestion,
+];
+
+function sellerQuestions(ctx: SellerContext): SellerQuestion[] {
+  const fired: SellerQuestion[] = [];
+  for (const block of SELLER_QUESTION_BANK) {
+    const question = block(ctx);
+    if (question) fired.push(question);
+  }
+  return fired.slice(0, SELLER_QUESTION_CAP);
+}
+
+function section8(input: ReportInput, homeCerts: ServedCertificate[]): ReportSectionView {
+  const blocks: ReportBlock[] = [];
+  // The questions belong to a home, not a postcode: a
+  // whole-postcode report has no single seller to ask,
+  // and the section stands empty there, as it did before
+  // this step.
+  if (input.resolution.rung === 1) {
+    const ctx: SellerContext = {
+      input,
+      sections: areaSections(input),
+      homeCerts,
+      newestCert: newestCertificate(homeCerts),
+      flood: floodServed(input),
+    };
+    const questions = sellerQuestions(ctx);
+    if (questions.length > 0) {
+      const word = QUESTION_COUNT_WORDS[questions.length - 1] ?? String(questions.length);
+      blocks.push({
+        type: "intro",
+        text: `${word} question${questions.length === 1 ? "" : "s"} drawn from this home's own results above — the ${questions.length === 1 ? "point" : "points"} a viewing or a direct question can settle.`,
+      });
+      blocks.push({ type: "questions", items: questions });
+    } else {
+      blocks.push({ type: "line", text: SELLER_QUESTIONS_EMPTY_LINE });
+    }
+  }
+  return section(8, "Questions to ask the seller", blocks);
 }
 
 // ------------------------------------------------------------------
@@ -2449,6 +2804,9 @@ function section9(input: ReportInput): ReportSectionView {
 export function buildReportView(input: ReportInput): ReportView {
   const sections = areaSections(input);
   const cert = sections ? matchedCertificate(input.resolution, sections.epc.certificates) : null;
+  const homeCerts = sections
+    ? matchedCertificates(input.resolution, sections.epc.certificates)
+    : [];
   return {
     masthead: buildMasthead(input, cert),
     shortVersion: buildShortVersion(input),
@@ -2460,7 +2818,7 @@ export function buildReportView(input: ReportInput): ReportView {
       section5(input),
       section6(input),
       section7(input),
-      section8(),
+      section8(input, homeCerts),
       section9(input),
     ],
   };
