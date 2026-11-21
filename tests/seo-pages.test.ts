@@ -78,6 +78,11 @@ const JOURNEY_ROUTES: Record<string, () => Promise<MetadataModule>> = {
   "/gift": () => import("../app/gift/page"),
   "/gift/[token]": () => import("../app/gift/[token]/page"),
   "/gift/[token]/claimed": () => import("../app/gift/[token]/claimed/page"),
+  // M8.6 — the download link's landing page: explicit
+  // noindex in every environment (inline, like the gift
+  // routes), reached only via the private link in a
+  // delivery or re-issue email.
+  "/report/download/[token]": () => import("../app/report/download/[token]/page"),
 };
 
 const loaded = new Map<string, Metadata>();

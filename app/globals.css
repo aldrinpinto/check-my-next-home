@@ -4222,6 +4222,60 @@ a.picker__row {
   margin: 0 auto;
 }
 
+/* Download links (M8.6, Key K16; Master views 32–33)
+   — the expired and fresh-link-sent cards, in the
+   claim card's furniture and measure: the same 820px
+   wrap, the centred badge, the kit's field block for
+   the re-issue form. */
+.download-page .download-wrap {
+  max-width: 820px;
+}
+.download-page .download-card {
+  margin-top: 1.8rem;
+  text-align: center;
+}
+.download-page .download-card h1 {
+  font-size: 1.65rem;
+  margin-bottom: 0.55rem;
+}
+.download-page .download-card p {
+  margin-left: auto;
+  margin-right: auto;
+}
+.download-page .download-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  margin-bottom: 1rem;
+}
+.download-page .download-badge--warn {
+  background: #f6e3c2;
+  color: #8a5a12;
+}
+.download-page .download-badge--ok {
+  background: var(--sp-wash);
+  color: var(--sp-forest);
+}
+.download-page .download-card form {
+  display: grid;
+  gap: 1rem;
+  max-width: 520px;
+  margin: 1.4rem auto 0;
+  text-align: left;
+}
+.download-page .download-card form .btn {
+  justify-self: start;
+  min-height: 48px;
+}
+.download-page .download-fine-print {
+  font-size: 0.9rem;
+  color: var(--sp-muted);
+  text-align: left;
+}
+
 /* Content pages — the in-section check links, the sources
    line and the related-links block. */
 .site-pages .content-links {
