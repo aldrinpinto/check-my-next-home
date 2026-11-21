@@ -230,15 +230,25 @@ describe("report — the ten sections and the format", () => {
     const s2 = sectionText(view, 2);
     expect(s2).toContain("£588,995");
     expect(s2).toContain('"value":"29"');
-    expect(s2).toContain("MEDIAN-EXPLAINER");
+    // Second pass (BUG-104/067): while the plot serves,
+    // the median stands as the composed text line under
+    // the card title — figure and counted set in the
+    // line itself — and the served explainer no longer
+    // prints beside the plot.
+    expect(s2).toContain(
+      "Median value £588,995 — the middle recorded sale price in this postcode, from the 29 counted sales. Not a valuation of this home.",
+    );
+    expect(s2).not.toContain("MEDIAN-EXPLAINER");
   });
 
   it("no monthly cost-of-ownership figure appears anywhere (X6/X7 carve-out)", () => {
     const whole = text(view).toLowerCase();
     expect(whole).not.toContain("cost of ownership");
     expect(whole).not.toContain("total monthly");
-    // The two D33 lines ride inside their own sections only.
-    expect(sectionText(view, 7)).toContain("spread evenly over 12 months");
+    // The council tax's own monthly sentence came out in
+    // the second pass (BUG-087): the bands table's month
+    // column already carries it.
+    expect(sectionText(view, 7)).not.toContain("spread evenly over 12 months");
   });
 
   it("no childminder wording appears anywhere (founder ruling, 19 Nov 2026)", () => {
@@ -269,7 +279,15 @@ describe("report — Section 3 schools", () => {
   });
 
   it("the selective line serves beside the secondary list", () => {
-    expect(sectionText(view, 3)).toContain("selective means admission by entrance test");
+    // Second pass (BUG-070): the nearest selective
+    // school stands as a full entry — its own sub, the
+    // school's name and its entry-by-test bullet — not
+    // as the brain's bare selective line.
+    const s3 = sectionText(view, 3);
+    expect(s3).toContain("Nearest selective school");
+    expect(s3).toContain("King Edward VI Grammar School");
+    expect(s3).toContain("Entry by test.");
+    expect(s3).not.toContain("selective means admission by entrance test");
   });
 });
 
@@ -287,7 +305,8 @@ describe("report — Section 4 health, air, noise & crime", () => {
   });
 
   it("the air table carries the limits and guidelines as its own columns, and the AQMA answer inside the Air sub (m, n; BUG-048)", () => {
-    expect(s4).toContain("8.15 µg/m³");
+    // Levels print at one decimal (BUG-074).
+    expect(s4).toContain("8.2 µg/m³");
     expect(s4).toContain("UK legal limit (annual)");
     expect(s4).toContain("WHO 2021 guideline (annual)");
     expect(s4).toContain("40 µg/m³");
@@ -303,8 +322,9 @@ describe("report — Section 4 health, air, noise & crime", () => {
     expect(airTable.cellSubs?.[0][1]).toBe(
       "Within the UK legal limit, and below the stricter WHO guideline",
     );
-    // Below both yardsticks: no cell is highlighted.
-    expect(airTable.cellAlerts?.flat()).not.toContain(true);
+    // Below the UK legal limit: the level cell carries
+    // the green tone, and no cell is red (BUG-073).
+    expect(airTable.cellTones?.[0]).toEqual([null, "green", null, null]);
     // The yardstick sentences, the zone-compliance basis
     // and the AQMA basis no longer stand in the section —
     // they live on the air-quality How-we-check page.
@@ -347,7 +367,7 @@ describe("report — Section 4 health, air, noise & crime", () => {
     );
     const hotTable = hot.sections[3].blocks.find((b) => b.type === "table");
     if (!hotTable || hotTable.type !== "table") throw new Error("expected the air table");
-    expect(hotTable.cellAlerts?.[0]).toEqual([false, true, false, false]);
+    expect(hotTable.cellTones?.[0]).toEqual([null, "red", null, null]);
     expect(hotTable.cellSubs?.[0][1]).toBe(
       "Above the UK legal limit, and above the stricter WHO guideline",
     );
@@ -363,8 +383,23 @@ describe("report — Section 4 health, air, noise & crime", () => {
     expect(s4).toContain("recorded within 1 mile of this home");
     expect(s4).toContain("Violence and sexual offences");
     expect(s4).toContain("51.7 recorded crimes for every 1,000 residents here");
-    expect(s4).toContain("Across England, the figure is 94.5");
-    expect(s4).toContain("CALIBRATION-EXPLAINER");
+    // Second pass (BUG-077/078): the rate's short basis
+    // names the residents it is worked out from; England
+    // stands on its own labelled line with the relation
+    // in words; the long calibration workings live on
+    // the crime How-we-check page, and only the short
+    // caution stays in the report.
+    expect(s4).toContain(
+      "The rate is worked out from the 6,380 residents (Census 2021) of the small areas counted for this circle.",
+    );
+    expect(s4).toContain("Across England:");
+    expect(s4).toContain(
+      "94.5 recorded crimes for every 1,000 residents over the same 12 months — this circle's figure is about 0.6 times the England figure.",
+    );
+    expect(s4).not.toContain("CALIBRATION-EXPLAINER");
+    expect(s4).toContain(
+      "A per-head figure counts recorded crimes against residents — it is not a measure of any one person's risk.",
+    );
   });
 
   it("benefits and charging zones no longer stand in Section 4 (item 14 — they are Section 6's)", () => {
@@ -427,19 +462,25 @@ describe("report — Section 5 and its map", () => {
     expect(mapBlock.map.pins.map((p) => p.name)).toContain("Witham Station");
   });
 
-  it("the industrial sites block stands at the end of Section 5 while the flag serves it (p)", () => {
-    const s5 = view.sections[4];
-    const subs = s5.blocks.filter((b) => b.type === "sub");
-    expect(subs[subs.length - 1]).toEqual({ type: "sub", text: "Industrial sites" });
-    const s5Text = sectionText(view, 5);
-    expect(s5Text).toContain("Example Chemicals Ltd");
-    expect(s5Text).toContain("REPORTED-LINE");
-    expect(s5Text).toContain("THRESHOLD-LINE");
+  it("the industrial sites block stands in Section 4 with the air content while the flag serves it (p; moved by BUG-081)", () => {
+    const s4Text = sectionText(view, 4);
+    expect(s4Text).toContain("Industrial sites");
+    expect(s4Text).toContain("Example Chemicals Ltd");
+    // The two legalistic explainers collapse to the one
+    // short line (BUG-081 item 5); the served marker
+    // lines no longer stand in the report.
+    expect(s4Text).toContain(
+      "Every figure is the quantity the operator reported to the Environment Agency for",
+    );
+    expect(s4Text).not.toContain("REPORTED-LINE");
+    expect(s4Text).not.toContain("THRESHOLD-LINE");
+    expect(sectionText(view, 5)).not.toContain("Industrial sites");
   });
 
   it("with no industrial block in the bundle, no placeholder stands in its place", () => {
     const bare = buildReportView(input({ nearby: nearbyWith({}, false) }));
     expect(sectionText(bare, 5)).not.toContain("Industrial sites");
+    expect(sectionText(bare, 4)).not.toContain("Industrial sites");
   });
 });
 
@@ -466,22 +507,38 @@ describe("report — Section 6 the neighbourhood", () => {
     expect(s6).toContain("calculated from the Census's single years of age");
     expect(s6).not.toContain("Age by five-year age bands");
     expect(s6).toContain("Tenure — Census 2021");
-    expect(s6).toContain("Tenure table (TS054): 3,397 households.");
-    expect(s6).toContain("SOCIAL-RENTED-LINE");
+    // The internal table code came out (BUG-082).
+    expect(s6).toContain("Tenure table: 3,397 households.");
+    // Social rent stands as its own composed line with
+    // its label bold (BUG-083), not the served raw line.
+    expect(s6).toContain("Social rented homes:");
+    expect(s6).toContain("210 of 3,397 households in the area (6.2 percent).");
+    expect(s6).not.toContain("SOCIAL-RENTED-LINE");
   });
 
   it("benefits render in Section 6 as plain published lines — and nowhere else (c)", () => {
-    expect(s6).toContain("Claimant count, September 2026: 15 people — 1.6%.");
-    expect(text(view).split("Claimant count, September 2026").length).toBe(2);
-    expect(JSON.stringify(view.shortVersion)).not.toContain("Claimant count");
+    // Second pass (BUG-084): the block names its area
+    // and its size up front, and each count stands in
+    // its own line against its own total.
+    expect(s6).toContain(
+      "These counts are for the small area this home sits in — its Lower Layer Super Output Area (LSOA). The area holds 940 residents and 890 households (Census 2021).",
+    );
+    expect(s6).toContain(
+      "The Claimant Count (claimants of unemployment-related benefits): 15 of 940 residents in September 2026.",
+    );
+    expect(
+      text(view).split("The Claimant Count (claimants of unemployment-related benefits)").length,
+    ).toBe(2);
+    expect(JSON.stringify(view.shortVersion)).not.toContain("Claimant Count");
   });
 
   it("charging zones render under their own label with no charge amount (o)", () => {
-    expect(s6).toContain("Charging zones");
+    // Renamed in the second pass (BUG-085 item 1).
+    expect(s6).toContain("Clean air zones & driving charges");
     // The brain's line is a lowercase fragment; standing
     // alone it is capitalised (item 15).
     expect(s6).toContain("Not inside any Clean Air Zone");
-    const zonesAt = s6.indexOf("Charging zones");
+    const zonesAt = s6.indexOf("Clean air zones & driving charges");
     expect(s6.slice(zonesAt)).not.toContain("£");
   });
 
@@ -497,7 +554,9 @@ describe("report — Section 7 home, costs & risks", () => {
 
   it("council tax carries the bands table and its own D33 monthly line", () => {
     expect(s6).toContain("£2,145.00");
-    expect(s6).toContain("£178.75 a month if the Band D average is spread evenly over 12 months");
+    // The monthly sentence came out in the second pass
+    // (BUG-087) — the table's month column carries it.
+    expect(s6).not.toContain("spread evenly over 12 months");
   });
 
   it("EPC improvements render in register sequence with their own figures, never summed", () => {
@@ -522,9 +581,13 @@ describe("report — Section 7 home, costs & risks", () => {
     );
     if (!spread || spread.type !== "bars") throw new Error("expected the EPC spread chart");
     expect(spread.rows).toEqual([{ label: "Band B", widthPct: 100, value: "20", strong: true }]);
-    expect(spread.caption).toBe("SPREAD-LINE");
+    // Captions take the sentence finish too (BUG-090).
+    expect(spread.caption).toBe("SPREAD-LINE.");
     expect(JSON.stringify(spread).toLowerCase()).not.toContain("this home");
-    expect(sectionText(view, 7)).toContain("SPREAD-EXPLAINER: certificates, not homes");
+    // The spread workings moved behind the energy
+    // How-we-check link (BUG-092): the explainer no
+    // longer stands in the report.
+    expect(sectionText(view, 7)).not.toContain("SPREAD-EXPLAINER");
   });
 });
 
@@ -555,14 +618,26 @@ describe("report — Section 8 flood", () => {
   it("the defences sub-block carries its caveat and bridge line (k)", () => {
     expect(s7Text).toContain("DEFENCES-CAVEAT");
     expect(s7Text).toContain("DEFENCES-BRIDGE");
-    expect(s7Text).toContain("River Chelmer embankment");
-    expect(s7Text).toContain("condition: Fair (grade 3 of 5)");
+    // Second pass (BUG-099/100): the defences stand as
+    // a table — watercourse, maintainer, condition and
+    // the distance as a plain fact; the register's
+    // defence name is not a column and does not print.
+    expect(s7Text).toContain("River Chelmer");
+    expect(s7Text).not.toContain("River Chelmer embankment");
+    expect(s7Text).toContain("Fair (grade 3 of 5)");
+    expect(s7Text).toContain("1.1 miles");
   });
 
   it("the climate outlook stands as its own fenced sub-block with its basis (l)", () => {
-    expect(s7Text).toContain("CLIMATE-BASIS: UKCP18 RCP 8.5");
     expect(s7Text).toContain("CLIMATE-CAVEAT");
-    expect(s7Text).toContain("ROFRS-SCENARIO");
+    // Second pass (BUG-101): the scenario specification
+    // and basis stand on the flood How-we-check page;
+    // the report carries the plain per-source answer.
+    expect(s7Text).not.toContain("CLIMATE-BASIS: UKCP18 RCP 8.5");
+    expect(s7Text).not.toContain("ROFRS-SCENARIO");
+    expect(s7Text).toContain(
+      "Rivers and the sea: no likelihood band is published for this point under the scenario.",
+    );
   });
 });
 
@@ -821,7 +896,11 @@ describe("report — M8.2 charts: the dot plot", () => {
     const plot = dotPlotOf(view);
     expect(plot.dots).toHaveLength(9);
     expect(plot.median.x).toBe(397.5);
-    expect(plot.median.label).toBe("Median £310,000");
+    // The in-plot median label came out (BUG-104): the
+    // median stands as the text line above the plot.
+    expect(plot.medianLine).toBe(
+      "Median value £310,000 — the middle recorded sale price in this postcode, from the 9 counted sales. Not a valuation of this home.",
+    );
     expect(plot.home?.x).toBe(327.5);
     expect(plot.home?.label).toBe("This home — £270,000");
     expect(plot.title).toBe("Where this home sits — recorded sales in postcode EX1 1AA");
@@ -1189,11 +1268,15 @@ describe("report — M8.2 charts: the Census grid at full sample parity", () => 
     expect(age.caption).toBe(
       "Median age 46.5 years, calculated from the Census's single years of age for Braintree 018 (8,138 residents, 3,398 households).",
     );
-    // The section-level note follows the grid.
+    // The social-rented line stands between the grid
+    // and the closing note (BUG-083): the note closes
+    // the block, with nothing after it.
     const gridAt = view.sections[5].blocks.findIndex((b) => b.type === "chartGrid");
-    expect(view.sections[5].blocks[gridAt + 1]).toEqual({
+    expect(view.sections[5].blocks[gridAt + 1]?.type).toBe("richList");
+    expect(view.sections[5].blocks[gridAt + 2]).toEqual({
       type: "note",
-      text: "CENSUS-EXPLAINER: the whole Census area",
+      // The sentence finish (BUG-090) adds the stop.
+      text: "CENSUS-EXPLAINER: the whole Census area.",
     });
   });
 
@@ -1215,7 +1298,7 @@ describe("report — M8.2 charts: the Census grid at full sample parity", () => 
       strong: true,
     });
     expect(tenure.rows.slice(1).every((r) => !r.strong)).toBe(true);
-    expect(tenure.caption).toBe("Tenure table (TS054): 3,397 households.");
+    expect(tenure.caption).toBe("Tenure table: 3,397 households.");
   });
 
   it("accommodation charts every served row unmerged, largest first and full-strength", () => {
@@ -1283,7 +1366,7 @@ describe("report — the rendered page", () => {
     // category bars with the pale tint on all but the
     // largest row.
     expect(html).toContain('class="dotPlot"');
-    expect(html).toContain("Median £588,995");
+    expect(html).toContain("Median value £588,995");
     expect(html).toContain("This home — £588,995");
     expect(html).toContain('class="monthChart"');
     expect(html).toContain("Incidents by month — October 2025 to September 2026");
@@ -1868,7 +1951,8 @@ describe("report — the print-check batch (founder's PDF print check, 21 Nov 20
     const grammar = rowsBlock.rows[0];
     expect(grammar.tag).toBe("Grammar school");
     expect(grammar.tagStar).toBe(true);
-    expect(grammar.extra[0]).toBe("Entry by test.");
+    // Facts stand as bullets under the row (BUG-070).
+    expect(grammar.bullets?.[0]).toBe("Entry by test.");
     // 6.1 miles on the school bands (1/2) is beyond: red.
     expect(grammar.distBand).toBe("red");
     // The base view's own rows: primary at 0.3 (green),
@@ -1940,8 +2024,15 @@ describe("report — the print-check batch (founder's PDF print check, 21 Nov 20
 
   it("mobile lines lead with their service in plain words (item 16)", () => {
     // The fixture's unknown key falls back to the served
-    // label.
-    expect(sectionText(view, 7)).toContain("Data — DATA-LINE");
+    // label. Second pass (BUG-095): the shared wording
+    // stands once as the basis note, and each service is
+    // a short bullet — the fixture's service publishes
+    // no set, so it stands as not published.
+    expect(sectionText(view, 7)).toContain(
+      "Modelled by Ofcom for the whole Braintree council area: each figure is the share of premises where at least one mobile network is modelled to have coverage. It is not a measurement at this home.",
+    );
+    expect(sectionText(view, 7)).toContain("Data: not published by Ofcom in this release.");
+    expect(sectionText(view, 7)).not.toContain("DATA-LINE");
     const six = buildReportView(
       (() => {
         const base = input();
@@ -1977,14 +2068,14 @@ describe("report — the print-check batch (founder's PDF print check, 21 Nov 20
     );
     const s7 = sectionText(six, 7);
     for (const lead of [
-      "Voice calls — At least one mobile network",
-      "4G data — At least one mobile network",
-      "5G data (high confidence) — At least one mobile network",
-      "5G data (very high confidence) — At least one mobile network",
-      "5G standalone data (high confidence) — At least one mobile network",
-      "5G standalone data (very high confidence) — At least one mobile network",
+      "Voice calls",
+      "4G data",
+      "5G data (high confidence)",
+      "5G data (very high confidence)",
+      "5G standalone data (high confidence)",
+      "5G standalone data (very high confidence)",
     ]) {
-      expect(s7).toContain(lead);
+      expect(s7).toContain(`${lead}: not published by Ofcom in this release.`);
     }
   });
 
@@ -2002,7 +2093,7 @@ describe("report — the print-check batch (founder's PDF print check, 21 Nov 20
     const base = clone.defences.defences[0];
     clone.defences.defences = [
       { ...base, assetId: "A1", miles: 0.4 },
-      { ...base, assetId: "A2", miles: 0.9 },
+      { ...base, assetId: "A2", miles: 0.4 },
       { ...base, assetId: "A3", miles: 0.5, conditionLine: "condition: Good (grade 2 of 5)" },
     ];
     clone.defences.totalWithin = 3;
@@ -2011,15 +2102,27 @@ describe("report — the print-check batch (founder's PDF print check, 21 Nov 20
       flood: clone,
     };
     const grouped = buildReportView(input({ flood: bundle }));
-    const rowsBlock = grouped.sections[7].blocks.find((b) => b.type === "rows");
-    if (!rowsBlock || rowsBlock.type !== "rows") throw new Error("expected defence rows");
-    expect(rowsBlock.rows).toHaveLength(2);
-    expect(rowsBlock.rows[0].dist).toBe("0.4 mi");
-    expect(rowsBlock.rows[0].extra[0]).toBe("2 recorded stretches");
-    expect(rowsBlock.rows[0].extra).toContain("condition: Fair (grade 3 of 5)");
+    // Second pass (BUG-099/100): the defences stand as
+    // a table under their type — stretches identical in
+    // everything the table prints, distance included,
+    // share one row carrying their count; the distance
+    // is a plain text cell, never a pill.
+    const table = grouped.sections[7].blocks.find(
+      (b) => b.type === "table" && b.head.includes("Recorded stretches"),
+    );
+    if (!table || table.type !== "table") throw new Error("expected the defences table");
+    expect(table.rows).toHaveLength(2);
+    expect(table.rows[0]).toEqual([
+      "River Chelmer",
+      "Environment Agency",
+      "2",
+      "Fair (grade 3 of 5)",
+      "Not recorded",
+      "0.4 miles",
+    ]);
     // The genuinely different group stands separate.
-    expect(rowsBlock.rows[1].extra).toContain("condition: Good (grade 2 of 5)");
-    expect(rowsBlock.rows[1].extra[0]).not.toContain("recorded stretches");
+    expect(table.rows[1][3]).toBe("Good (grade 2 of 5)");
+    expect(table.rows[1][2]).toBe("1");
   });
 
   it("the places diagram draws the filed street lines as its ground, and its legend rounds distances (item 19)", () => {

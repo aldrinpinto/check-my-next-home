@@ -401,21 +401,23 @@ describe("report — Section 7 additions (M8.10): broadband & mobile depth", () 
     expect(text.toLowerCase()).not.toContain("full fibre is available");
   });
 
-  it("mobile: each service's lead, then its per-operator shares beneath — council named throughout", () => {
+  it("mobile: one basis line, then each service as a short bullet (BUG-095)", () => {
     const built = depthView();
     const text = sectionText(built, 7);
-    // The mobile block's established form (item 16):
-    // lead-prefixed served lines, capitalised, carrying
-    // no full stop of their own — the beneath-lines take
-    // the same form as the leads they stand under.
+    // The second-pass form: the shared wording stands
+    // once as the basis note — modelled, at least one
+    // network, the named council area — and each service
+    // is a bullet carrying its lead figure alone, the
+    // indoor figure in the same form where published.
+    // The all-operators shares no longer print.
+    expect(text).toContain(
+      "Modelled by Ofcom for the whole Braintree council area: each figure is the share of premises where at least one mobile network is modelled to have coverage. It is not a measurement at this home.",
+    );
     const expected = [
-      "Voice calls — At least one mobile network is modelled to have outdoor coverage at 99% of premises in Braintree",
-      "Voice calls — All four mobile networks are modelled to have outdoor coverage at 88% of premises in Braintree",
-      "4G data — At least one mobile network is modelled to have outdoor coverage at 98% of premises in Braintree",
-      "4G data — All four mobile networks are modelled to have outdoor coverage at 76% of premises in Braintree",
-      "4G data — At least one mobile network is modelled to have indoor coverage at 92% of premises in Braintree",
-      "4G data — All four mobile networks are modelled to have indoor coverage at 61% of premises in Braintree",
-      "5G standalone data (high confidence) — 5G standalone (high confidence) coverage is not published by Ofcom in this release",
+      "Voice calls: 99%.",
+      "4G data: 98%.",
+      "4G data indoors: 92%.",
+      "5G standalone data (high confidence): not published by Ofcom in this release.",
     ];
     let at = -1;
     for (const line of expected) {
@@ -423,10 +425,7 @@ describe("report — Section 7 additions (M8.10): broadband & mobile depth", () 
       expect(found, line).toBeGreaterThan(at);
       at = found;
     }
-    // The not-published service carries no share lines:
-    // nothing stands between its lead and the next sub.
-    expect(text).not.toContain("5G standalone data (high confidence) — All four");
-    expect(text).not.toContain("5G standalone data (high confidence) — At least one");
+    expect(text).not.toContain("All four mobile networks");
   });
 
   it("an unpublished all-operators share serves in words, never as 0", () => {
@@ -452,10 +451,12 @@ describe("report — Section 7 additions (M8.10): broadband & mobile depth", () 
     ];
     const built = buildReportView(input({ area }));
     const text = sectionText(built, 7);
-    expect(text).toContain(
-      "5G data (high confidence) — The share of premises in Braintree where all four mobile networks have outdoor coverage is not published for this service",
-    );
+    // The lead figure stands as its bullet; an
+    // unpublished all-operators share prints nothing —
+    // never a 0, and no share line of any kind.
+    expect(text).toContain("5G data (high confidence): 84%.");
     expect(text).not.toContain("at 0% of premises");
+    expect(text).not.toContain("all four mobile networks have outdoor coverage");
   });
 });
 

@@ -909,8 +909,10 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
     };
     // The replay world files the fixture cut: the eleven
     // sourced schemes; Portsmouth files no row (decision
-    // D63), so every outside answer is the named-gap
-    // form and the full outside line cannot serve.
+    // D63). Second pass (BUG-085): the uncheckable zone
+    // is named only for homes within its broad reach —
+    // every golden home stands far from Portsmouth, so
+    // every outside answer here is the plain form.
     const exeter = area("exeter1");
     expect(exeter.chargingZones.state).toBe("inside");
     expect(exeter.chargingZones.scheme?.name).toBe("London Ultra Low Emission Zone (ULEZ)");
@@ -931,7 +933,9 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
     for (const tag of ["birkdale1", "minerva1", "cardiff2"]) {
       const s = area(tag).chargingZones;
       expect(s.state).toBe("outside");
-      expect(s.line).toContain("Portsmouth Clean Air Zone");
+      expect(s.line).toBe(
+        "This postcode point is not inside any charging zone whose boundary is published.",
+      );
       expect(s.setDate).toBeNull();
       expect(s.filedCount).toBe(11);
     }
@@ -997,9 +1001,9 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
     expect(dataCentre?.belowThreshold).toHaveLength(10);
 
     const minerva = nearby("minerva1").industrialSites;
-    expect(minerva?.state).toBe("none-within-2-miles");
+    expect(minerva?.state).toBe("none-within-5-miles");
     expect(minerva?.line).toBe(
-      "No regulated industrial site in the Environment Agency's Pollution Inventory for 2024 is recorded within two miles of this postcode point.",
+      "No regulated industrial site in the Environment Agency's Pollution Inventory for 2024 is recorded within five miles of this postcode point.",
     );
 
     // The devolved witnesses: not covered, each naming
@@ -1787,7 +1791,9 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
     const exeterDot = exeter.sections[1].blocks.find((b) => b.type === "dotPlot");
     if (!exeterDot || exeterDot.type !== "dotPlot") throw new Error("expected a dot plot");
     expect(exeterDot.plot.dots).toHaveLength(9);
-    expect(exeterDot.plot.median.label).toBe("Median £310,000");
+    expect(exeterDot.plot.medianLine).toBe(
+      "Median value £310,000 — the middle recorded sale price in this postcode, from the 9 counted sales. Not a valuation of this home.",
+    );
     expect(exeterDot.plot.home?.label).toBe("This home — £270,000");
     expect(exeterDot.plot.home?.x).toBeLessThan(exeterDot.plot.median.x);
     // Exeter's crime charts reconcile with its 10,722

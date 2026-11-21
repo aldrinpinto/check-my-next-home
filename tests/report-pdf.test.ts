@@ -339,8 +339,12 @@ describe("report-pdf — the print document", () => {
 
   it("the Sources links carry their printed URLs in the document; the names stay the links", () => {
     const html = reportPrintDocument(birkdaleView, "");
-    expect(html).toContain('<span class="rpt-printUrl">');
-    expect(html).toContain("(https://checkmynexthome.co.uk/check/sold-prices)");
+    // Second pass (BUG-102/103): the printed URL stands
+    // bare — no brackets, no touching punctuation — and
+    // is itself a working anchor, as the label is.
+    expect(html).toContain('<a class="rpt-printUrl" href="/check/sold-prices">');
+    expect(html).toContain("> https://checkmynexthome.co.uk/check/sold-prices</a>");
+    expect(html).not.toContain("(https://checkmynexthome.co.uk/check/sold-prices)");
   });
 
   it("the print stylesheet carries the adopted rules", async () => {
@@ -641,8 +645,9 @@ describe("report-pdf — the render proof (the two golden reports, printed)", ()
         expect(squashed[i]).toContain(squash("Facts, not scores"));
       });
 
-      // Sources prints the URLs beside the names.
-      const sourcesUrl = squash("(https://checkmynexthome.co.uk/check/sold-prices)");
+      // Sources prints the URLs beside the names —
+      // bare, without brackets (BUG-102).
+      const sourcesUrl = squash("https://checkmynexthome.co.uk/check/sold-prices");
       expect(squashed.some((page) => page.includes(sourcesUrl))).toBe(true);
 
       // Nothing splits: every chart card, chart and

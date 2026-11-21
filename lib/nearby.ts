@@ -163,6 +163,27 @@ export const RADIUS_MILES = 2;
 // golden's grammar, KEGS, sits 6.1 miles away). Beyond it
 // the selective fact serves its absence, as before.
 export const SELECTIVE_SEARCH_MILES = 10;
+
+// The wider serving radii (second-pass batch, BUG-081 /
+// BUG-093 / BUG-079): three answers deliberately reach
+// past the 2-mile list radius, each because the thing it
+// names is an area fact, not a doorstep fact — the
+// regulated industrial sites a home's air story names
+// (5 miles), the public chargers a driver would actually
+// use (5 miles), and the pet services, whose two nearest
+// serve regardless of the list radius (the search bound
+// below is a practical cap far beyond any plausible
+// nearest pair, not a stated radius: no served line
+// names it).
+export const INDUSTRIAL_SITES_RADIUS_MILES = 5;
+export const EV_CHARGER_RADIUS_MILES = 5;
+export const PET_SEARCH_MILES = 50;
+export const PET_LIST_SIZE = 2;
+
+// The pet categories: the three kinds the Pets group
+// gathers, served on the two-nearest rule above.
+export const PET_CATEGORIES: ReadonlySet<string> = new Set(["vets", "pet-shops", "pet-boarding"]);
+
 export const LIST_SIZE = 3;
 
 // The report depth for the two school lists (M8.4 PDF
@@ -592,7 +613,7 @@ export type IndustrialSite = {
 };
 
 export type IndustrialSitesBlock = {
-  state: "served" | "none-within-2-miles" | "not-filed" | "not-covered";
+  state: "served" | "none-within-5-miles" | "not-filed" | "not-covered";
   dataYear: number | null;
   sourceName: string;
   sourceDate: string | null;
@@ -657,7 +678,7 @@ function industrialSitesBlock(
       site,
       miles: round3(haversineMiles(latitude, longitude, site.latitude, site.longitude)),
     }))
-    .filter((entry) => entry.miles <= RADIUS_MILES)
+    .filter((entry) => entry.miles <= INDUSTRIAL_SITES_RADIUS_MILES)
     .sort((a, b) => a.miles - b.miles || a.site.permitId.localeCompare(b.site.permitId));
   const sites: IndustrialSite[] = measured.map(({ site, miles }) => {
     const releases = site.releases
@@ -697,7 +718,7 @@ function industrialSitesBlock(
     };
   });
   return {
-    state: sites.length > 0 ? "served" : "none-within-2-miles",
+    state: sites.length > 0 ? "served" : "none-within-5-miles",
     dataYear: year,
     sourceName: facts.sourceName ?? INDUSTRIAL_SITES_SOURCE_NAME,
     sourceDate: facts.sourceDate,
@@ -706,8 +727,8 @@ function industrialSitesBlock(
     thresholdLine: `Each substance also shows the reporting threshold for ${year} — the level at or above which a quantity must be reported. A substance reported below its threshold was still released; below the reporting threshold is not a measurement of zero.`,
     line:
       sites.length > 0
-        ? "The regulated industrial sites recorded within two miles of this postcode point are listed below, nearest first."
-        : `No regulated industrial site in the Environment Agency's Pollution Inventory for ${year} is recorded within two miles of this postcode point.`,
+        ? "The regulated industrial sites recorded within five miles of this postcode point are listed below, nearest first."
+        : `No regulated industrial site in the Environment Agency's Pollution Inventory for ${year} is recorded within five miles of this postcode point.`,
     sites,
   };
 }
@@ -815,7 +836,12 @@ const CATEGORIES: { key: NearbyCategory; spec: CategorySpec }[] = [
   { key: "parks", spec: { label: "parks and greenspace", essential: false, emptyKind: "ground" } },
 ];
 
-function emptyLine(key: NearbyCategory, spec: CategorySpec, countWithin: number): string {
+function emptyLine(
+  key: NearbyCategory,
+  spec: CategorySpec,
+  countWithin: number,
+  radius: number = RADIUS_MILES,
+): string {
   if (spec.emptyKind === "map")
     return `no ${spec.label} recorded within ${RADIUS_MILES} miles on the map data we hold — a gap in the map is not proof that none exists`;
   if (spec.emptyKind === "register")
@@ -824,7 +850,7 @@ function emptyLine(key: NearbyCategory, spec: CategorySpec, countWithin: number)
     return countWithin > 0
       ? `no named greenspace site within ${RADIUS_MILES} miles of the postcode point`
       : `no greenspace site within ${RADIUS_MILES} miles of the postcode point`;
-  return `no ${spec.label} within ${RADIUS_MILES} miles of the postcode point`;
+  return `no ${spec.label} within ${radius} miles of the postcode point`;
 }
 
 // --- leavers' destinations (M6.34, D51/D65) --------------
@@ -948,48 +974,81 @@ async function buildCategory(
     }
     return answer;
   }
-  const within = await source.pointsWithin(key, latitude, longitude, RADIUS_MILES);
+  // The category's serving radius (BUG-093): EV chargers
+  // serve to five miles — a driver uses the chargers in
+  // reach, not only the ones inside the list radius.
+  // Every other category serves the list radius.
+  const radius = key === "ev-chargers" ? EV_CHARGER_RADIUS_MILES : RADIUS_MILES;
+  const within = await source.pointsWithin(key, latitude, longitude, radius);
   const measured = within
     .map((point) => ({
       point,
       raw: haversineMiles(latitude, longitude, point.latitude, point.longitude),
     }))
-    .filter((m) => m.raw <= RADIUS_MILES)
+    .filter((m) => m.raw <= radius)
     .sort((a, b) => a.raw - b.raw || (a.point.name ?? "").localeCompare(b.point.name ?? ""));
   const named = measured.filter((m) => m.point.name !== null && m.point.name !== "");
-  const places: NearbyPlace[] = named.slice(0, listSize).map((m) => {
-    const place: NearbyPlace = {
-      name: m.point.name as string,
-      miles: round3(m.raw),
-      detail: m.point.detail ?? null,
-      latitude: m.point.latitude,
-      longitude: m.point.longitude,
-    };
-    if (m.point.selective !== undefined) place.selective = m.point.selective;
-    // The rating field is the health categories' own
-    // (M6.25): present on every place they serve — the
-    // filed rating, or null where none is filed — and
-    // never set for any other category, whatever the
-    // source hands over.
-    if (RATED_CATEGORIES.has(key)) place.cqcRating = m.point.cqcRating ?? null;
-    // The sixth-form marker is the secondary category's
-    // own (M6.33, D51/D64): present on every place it
-    // serves — the filed flag as filed (true, false, or
-    // null) — and never set for any other category,
-    // whatever the source hands over.
-    if (key === "schools-secondary") {
-      place.sixthForm = m.point.sixthForm ?? null;
-      // The destinations block is the secondary
-      // category's own (M6.34, D51/D65): the URN the
-      // join stood on, and the composed block — present
-      // on every place it serves, in every state
-      // including not-filed — and never set for any
-      // other category, whatever the source hands over.
-      place.urn = m.point.urn;
-      place.destinations = composeDestinations(m.point, destinationsRelease);
-    }
-    return place;
-  });
+  // The pet categories' two-nearest rule (BUG-079): a
+  // vet, a pet shop or a boarding place is a service a
+  // household travels to, so where fewer than two named
+  // places stand inside the list radius the two nearest
+  // serve regardless of distance — the grammar-school
+  // pattern above, on the pet search bound. The within
+  // count above stays the within-radius count; only the
+  // served list widens.
+  let listed = named;
+  if (PET_CATEGORIES.has(key) && named.length < PET_LIST_SIZE) {
+    const wider = await source.pointsWithin(key, latitude, longitude, PET_SEARCH_MILES);
+    const widerNamed = wider
+      .map((point) => ({
+        point,
+        raw: haversineMiles(latitude, longitude, point.latitude, point.longitude),
+      }))
+      .filter(
+        (m) =>
+          m.raw > radius &&
+          m.raw <= PET_SEARCH_MILES &&
+          m.point.name !== null &&
+          m.point.name !== "",
+      )
+      .sort((a, b) => a.raw - b.raw || (a.point.name ?? "").localeCompare(b.point.name ?? ""));
+    listed = [...named, ...widerNamed];
+  }
+  const places: NearbyPlace[] = listed
+    .slice(0, PET_CATEGORIES.has(key) ? PET_LIST_SIZE : listSize)
+    .map((m) => {
+      const place: NearbyPlace = {
+        name: m.point.name as string,
+        miles: round3(m.raw),
+        detail: m.point.detail ?? null,
+        latitude: m.point.latitude,
+        longitude: m.point.longitude,
+      };
+      if (m.point.selective !== undefined) place.selective = m.point.selective;
+      // The rating field is the health categories' own
+      // (M6.25): present on every place they serve — the
+      // filed rating, or null where none is filed — and
+      // never set for any other category, whatever the
+      // source hands over.
+      if (RATED_CATEGORIES.has(key)) place.cqcRating = m.point.cqcRating ?? null;
+      // The sixth-form marker is the secondary category's
+      // own (M6.33, D51/D64): present on every place it
+      // serves — the filed flag as filed (true, false, or
+      // null) — and never set for any other category,
+      // whatever the source hands over.
+      if (key === "schools-secondary") {
+        place.sixthForm = m.point.sixthForm ?? null;
+        // The destinations block is the secondary
+        // category's own (M6.34, D51/D65): the URN the
+        // join stood on, and the composed block — present
+        // on every place it serves, in every state
+        // including not-filed — and never set for any
+        // other category, whatever the source hands over.
+        place.urn = m.point.urn;
+        place.destinations = composeDestinations(m.point, destinationsRelease);
+      }
+      return place;
+    });
   const answer: CategoryAnswer = {
     category: key,
     label: spec.label,
@@ -1045,19 +1104,19 @@ async function buildCategory(
         latitude: nearest.latitude,
         longitude: nearest.longitude,
       };
-      answer.line = `none within ${RADIUS_MILES} miles — nearest is ${nearest.name}, ${miles} miles away (${DISTANCE_BASIS_LABEL})`;
+      answer.line = `none within ${radius} miles — nearest is ${nearest.name}, ${miles} miles away (${DISTANCE_BASIS_LABEL})`;
     } else {
       // No NAMED nearest exists to serve (the table holds
       // only unnamed points, or none near): the category
       // still owes the reader its sentence — the empty
       // line, in the category's own honesty form — never
       // silence (the prep's wordless case, closed by D30).
-      answer.line = emptyLine(key, spec, measured.length);
+      answer.line = emptyLine(key, spec, measured.length, radius);
     }
     return answer;
   }
   answer.state = spec.emptyKind === "map" ? "empty-map" : "empty";
-  answer.line = emptyLine(key, spec, measured.length);
+  answer.line = emptyLine(key, spec, measured.length, radius);
   return answer;
 }
 
@@ -1554,7 +1613,7 @@ export function createNearbySource(db: AddressQueryable): NearbyDataSource {
       const meta = await db.query(
         "SELECT data_year, source_name, source_date::text AS source_date FROM industrial_sites LIMIT 1",
       );
-      const metres = Math.ceil(RADIUS_MILES * METRES_PER_MILE * 1.03);
+      const metres = Math.ceil(INDUSTRIAL_SITES_RADIUS_MILES * METRES_PER_MILE * 1.03);
       const result = await db.query(
         `SELECT s.permit_id, s.operator, s.site_address, s.site_postcode,
                 s.activity_description, s.sector, s.sub_sector,

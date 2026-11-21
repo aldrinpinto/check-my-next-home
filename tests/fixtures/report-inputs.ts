@@ -522,7 +522,7 @@ export const floodServed: Extract<FloodBundle, { kind: "flood" }> = {
       caveatLine: "CLIMATE-CAVEAT",
       sources: [
         {
-          source: "rofrs_cc",
+          source: "rivers-sea",
           title: "Rivers & sea, climate outlook",
           scenarioLine: "ROFRS-SCENARIO",
           pointState: "no-band-published",

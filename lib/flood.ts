@@ -1528,9 +1528,36 @@ export async function buildFloodBundle(
       : resolution.rung === 2
         ? resolution.street
         : null;
+  const zoneFacts = await source.mapFacts("flood_zone", frame, latitude, longitude, streetName);
+  // The Section 5 diagram's ground (second-pass batch,
+  // BUG-080): the report's places diagram frames two
+  // miles in each direction (its rings stand at 1 and 2
+  // miles), and its street ground is drawn across that
+  // whole frame — so the shared street set is read over
+  // the wider frame too, and the wider read's streets
+  // stand as the bundle's street set. The flood
+  // pictures' own frame (above) is untouched: they
+  // project the same set into their one-mile frame and
+  // draw exactly what they drew, the wider lines simply
+  // running off their edges. The wider read's shapes are
+  // discarded — the pictures' geometry is the one-mile
+  // read's, exactly as filed for them. The street read
+  // orders nearest first under its cap, so the inner
+  // ground is complete before any outer line is read.
+  const wideFrame: FloodMapFrame = {
+    west: longitude - (longitude - frame.west) * 2,
+    south: latitude - (latitude - frame.south) * 2,
+    east: longitude + (frame.east - longitude) * 2,
+    north: latitude + (frame.north - latitude) * 2,
+  };
+  const wideFacts = await source.mapFacts("flood_zone", wideFrame, latitude, longitude, streetName);
   const maps = buildFloodMaps(
     frame,
-    await source.mapFacts("flood_zone", frame, latitude, longitude, streetName),
+    {
+      polygons: zoneFacts.polygons,
+      streets: wideFacts.streets.length > 0 ? wideFacts.streets : zoneFacts.streets,
+      homeStreet: wideFacts.homeStreet ?? zoneFacts.homeStreet,
+    },
     await source.mapFacts("rofsw", frame, latitude, longitude, streetName),
   );
   // The live warnings compose only here — a served England

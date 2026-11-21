@@ -10,7 +10,7 @@ import {
   type ResolvedAddress,
 } from "./address";
 import { improvementName } from "./epc-improvements";
-import { DISTANCE_BASIS_LABEL, RADIUS_MILES } from "./nearby";
+import { DISTANCE_BASIS_LABEL, RADIUS_MILES, haversineMiles } from "./nearby";
 import { COMPANY_OWNERSHIP_ENABLED } from "./site";
 
 // Constraints & area bundle (plan step M6.6, decision D26).
@@ -4647,6 +4647,33 @@ const CHARGING_ZONE_REGISTER: readonly { key: string; name: string }[] = [
 // the full outside line serves.
 const CHARGING_GATE_MAX_AGE_DAYS = 120;
 
+// The reach of an unpublished boundary (second-pass
+// batch, BUG-085): a scheme whose boundary is not
+// published is named in a home's answer only where the
+// home stands within reach of the scheme's own city —
+// beyond that, the blind spot is not this home's fact,
+// and the answer says only that the point is inside no
+// published boundary. (The standing caveat — one
+// in-force zone publishes no boundary — lives on the
+// air-quality How-we-check page.) The points are the
+// register schemes' own urban centres, keyed as the
+// register keys them.
+const CHARGING_ZONE_CITY_POINTS: Record<string, { latitude: number; longitude: number }> = {
+  bath: { latitude: 51.3811, longitude: -2.359 },
+  birmingham: { latitude: 52.4808, longitude: -1.8998 },
+  bradford: { latitude: 53.796, longitude: -1.7594 },
+  bristol: { latitude: 51.4545, longitude: -2.5879 },
+  portsmouth: { latitude: 50.7989, longitude: -1.0912 },
+  sheffield: { latitude: 53.3811, longitude: -1.4701 },
+  tyneside: { latitude: 54.9783, longitude: -1.6178 },
+  ulez: { latitude: 51.5074, longitude: -0.1278 },
+  glasgow: { latitude: 55.8642, longitude: -4.2518 },
+  edinburgh: { latitude: 55.9533, longitude: -3.1883 },
+  dundee: { latitude: 56.462, longitude: -2.9707 },
+  aberdeen: { latitude: 57.1497, longitude: -2.0943 },
+};
+const CHARGING_ZONE_REACH_MILES = 30;
+
 const CHARGING_ZONES_BASIS_LINE =
   "Charging zones are areas where driving a vehicle that does not meet the zone's emission standard can cost the driver money. Whether a vehicle is charged depends on the vehicle, not on the home. The date shown for a zone is the date its charges, or its penalties, began.";
 
@@ -4701,7 +4728,11 @@ function buildChargingZoneScheme(row: ChargingZoneRow): ChargingZoneSchemeServed
   };
 }
 
-function buildChargingZones(facts: ChargingZonesFacts): ChargingZonesSection {
+function buildChargingZones(
+  facts: ChargingZonesFacts,
+  latitude: number,
+  longitude: number,
+): ChargingZonesSection {
   const meta = {
     // Report depth only: the headline projection never
     // picks this section (identity-proven in the short
@@ -4758,13 +4789,33 @@ function buildChargingZones(facts: ChargingZonesFacts): ChargingZonesSection {
     // The named-gap outside line (decision D63): true
     // of the published set, and it names what the set
     // lacks — the full outside line is never served on
-    // an incomplete set's evidence.
-    const names = joinWords(missing.map((scheme) => `the ${scheme.name}`));
+    // an incomplete set's evidence. The naming itself is
+    // reach-bound (BUG-085): a missing scheme is named
+    // only where this home stands within reach of the
+    // scheme's own city; where none of the missing
+    // schemes is within reach, the line states the
+    // published-boundary answer alone.
+    const named = missing.filter((scheme) => {
+      const point = CHARGING_ZONE_CITY_POINTS[scheme.key];
+      return (
+        point !== undefined &&
+        haversineMiles(latitude, longitude, point.latitude, point.longitude) <=
+          CHARGING_ZONE_REACH_MILES
+      );
+    });
+    if (named.length === 0) {
+      return {
+        ...filed,
+        state: "outside",
+        line: "This postcode point is not inside any charging zone whose boundary is published.",
+      };
+    }
+    const names = joinWords(named.map((scheme) => `the ${scheme.name}`));
     return {
       ...filed,
       state: "outside",
       line:
-        missing.length === 1
+        named.length === 1
           ? `This postcode point is not inside any charging zone whose boundary is published. ${names.charAt(0).toUpperCase() + names.slice(1)} is in force, but its boundary is not published, so it cannot be checked here.`
           : `This postcode point is not inside any charging zone whose boundary is published. ${names.charAt(0).toUpperCase() + names.slice(1)} are in force, but their boundaries are not published, so they cannot be checked here.`,
     };
@@ -5662,7 +5713,11 @@ export async function buildAreaBundle(
       solar: buildSolar(solarFacts),
       broadband: buildBroadband(broadbandFacts),
       mobile: buildMobile(mobileFacts),
-      chargingZones: buildChargingZones(chargingZonesFactsValue),
+      chargingZones: buildChargingZones(
+        chargingZonesFactsValue,
+        resolution.directory.latitude,
+        resolution.directory.longitude,
+      ),
       ...(companyOwnership ? { companyOwnership } : {}),
     },
   };

@@ -4697,8 +4697,16 @@ a.picker__row {
   gap: 10px;
   margin: 10px 0;
 }
+/* The one true small-print treatment (BUG-068/086):
+   every explainer, caption and disclaimer-grade line —
+   chart notes, table captions, cell second lines, the
+   .rpt-small class wherever it stands — sits at this
+   one terms-and-conditions scale, italic, against the
+   report's 0.94rem body. One size, set once, here and
+   in .rpt-small and .rpt-cellSub below; no per-instance
+   sizes anywhere. */
 .site-pages .rpt-chartNote {
-  font-size: 0.74rem;
+  font-size: 0.62rem;
   font-style: italic;
   color: var(--sp-muted);
   line-height: 1.5;
@@ -4779,20 +4787,30 @@ a.picker__row {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
-/* The air table's one red cell (print-check item 2): a
-   modelled level above the UK legal limit. Nothing else
-   in any report table takes this style — a level above
-   the WHO guideline alone never does. */
-.site-pages .rpt-doc td.alert {
-  background: #f7e3de;
-  color: #8c2b1d;
+/* The yardstick cells' two tones (BUG-073/076,
+   succeeding print-check item 2's red-only alert): a
+   figure within its yardstick takes the green tint, a
+   figure at or above it the red — the distance chips'
+   own tint pairings, on the same tokens. Only the air
+   table's modelled-level cells and the noise table's
+   band cells take these styles; a WHO position colours
+   nothing anywhere (its position is the cell's words). */
+.site-pages .rpt-doc td.cellRed {
+  background: var(--dist-red-bg);
+  color: var(--dist-red);
+  font-weight: 700;
+}
+.site-pages .rpt-doc td.cellGreen {
+  background: var(--dist-green-bg);
+  color: var(--dist-green);
   font-weight: 700;
 }
 /* A cell's second line (the air table's per-pollutant
-   position, item 6): smaller, quieter, under the figure. */
+   position, item 6): smaller, quieter, under the figure
+   — at the one small-print size (BUG-068/086). */
 .site-pages .rpt-doc .rpt-cellSub {
   display: block;
-  font-size: 0.74rem;
+  font-size: 0.62rem;
   font-weight: 400;
   font-style: italic;
   line-height: 1.4;
@@ -4938,10 +4956,38 @@ a.picker__row {
   display: block;
 }
 .site-pages .rpt-small {
-  font-size: 0.74rem;
+  font-size: 0.62rem;
   font-style: italic;
   color: var(--sp-muted);
   line-height: 1.5;
+}
+/* A row's fact bullets (BUG-070): a school's
+   destinations and sixth-form facts as a real bullet
+   list under its row, at the row-detail size. */
+.site-pages .rpt-rowBullets {
+  margin: 4px 0 2px;
+  padding-left: 18px;
+  font-size: 0.89rem;
+  color: #44514c;
+  line-height: 1.45;
+}
+.site-pages .rpt-rowBullets li {
+  margin: 2px 0;
+}
+/* A row's small-print line under its bullets: the note
+   furniture (border, rule) does not ride along — the
+   .rpt-small size and italic are the whole treatment. */
+.site-pages .rpt-rowNote {
+  margin: 4px 0 0;
+}
+/* The dot plot's median line (BUG-104): the median
+   stated as text under the card's title, above the
+   plot, at body size in the deep ink. */
+.site-pages .rpt-medianLine {
+  font-size: 0.94rem;
+  font-weight: 700;
+  color: var(--sp-deep);
+  margin: 2px 0 6px;
 }
 
 /* The PDF twin's print-only furniture (M8.4): the cover
@@ -5428,10 +5474,14 @@ a.picker__row {
 
   /* Sources (prep point 4): in the printed closing
      section, each named link's URL prints beside it.
-     The spans exist throughout the document and show
+     The anchors exist throughout the document and show
      only here — since BUG-052 the links live only in
-     the closing section in any case. */
+     the closing section in any case. The printed URL
+     reads as text (BUG-102: bare, no brackets) while
+     staying a real link in the file (BUG-103). */
   .site-pages .rpt-final .rpt-printUrl {
     display: inline;
+    color: inherit;
+    text-decoration: none;
   }
 }

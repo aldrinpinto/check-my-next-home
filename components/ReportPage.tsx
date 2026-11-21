@@ -24,7 +24,16 @@ function RichLine({ line }: { line: ReportRichLine }) {
             <a href={segment.href} target="_blank" rel="noopener">
               {segment.text}
             </a>
-            <span className="rpt-printUrl"> ({reportPrintUrl(segment.href)})</span>
+            {/* The printed URL stands bare (BUG-102): a
+                space, then the URL itself — no brackets,
+                no touching punctuation — and the URL is
+                itself a link (BUG-103), so the PDF's
+                annotation carries it too. Print-only, on
+                the stylesheet's Sources-only rule. */}
+            <a className="rpt-printUrl" href={segment.href} target="_blank" rel="noopener">
+              {" "}
+              {reportPrintUrl(segment.href)}
+            </a>
           </span>
         ) : segment.bold ? (
           <strong key={index}>{segment.text}</strong>
@@ -92,6 +101,20 @@ function Block({ block }: { block: ReportBlock }) {
                     {line}
                   </div>
                 ))}
+                {row.bullets && row.bullets.length > 0 ? (
+                  <ul className="rpt-rowBullets">
+                    {row.bullets.map((line) => (
+                      <li key={line}>{line}</li>
+                    ))}
+                  </ul>
+                ) : null}
+                {row.notes && row.notes.length > 0
+                  ? row.notes.map((line) => (
+                      <p className="rpt-small rpt-rowNote" key={line}>
+                        {line}
+                      </p>
+                    ))
+                  : null}
               </div>
               {row.dist ? (
                 <span className={row.distBand ? `dist ${row.distBand}` : "dist"}>{row.dist}</span>
@@ -107,13 +130,24 @@ function Block({ block }: { block: ReportBlock }) {
             <thead>
               <tr>
                 {/* One alignment standard for every report
-                    table (print-check items 1 and 3): a
+                    table (print-check items 1 and 3, made
+                    deliberate per table by BUG-088): a
                     header cell aligns exactly as the data
-                    cells under it — the numeric columns'
-                    headers right-align over their figures,
-                    never left over right-aligned data. */}
+                    cells under it. The model's align array
+                    rules where it stands — text left,
+                    figures right, long-form text never
+                    right-aligned; without it, the standing
+                    default (first column left, the rest
+                    right) applies. */}
                 {block.head.map((cell, cellIndex) => (
-                  <th key={cell} className={cellIndex > 0 ? "num" : undefined}>
+                  <th
+                    key={cell}
+                    className={
+                      (block.align ? block.align[cellIndex] === "right" : cellIndex > 0)
+                        ? "num"
+                        : undefined
+                    }
+                  >
                     {cell}
                   </th>
                 ))}
@@ -123,13 +157,13 @@ function Block({ block }: { block: ReportBlock }) {
               {block.rows.map((row, index) => (
                 <tr key={index}>
                   {row.map((cell, cellIndex) => {
-                    const alert = block.cellAlerts?.[index]?.[cellIndex] === true;
+                    const tone = block.cellTones?.[index]?.[cellIndex] ?? null;
                     const sub = block.cellSubs?.[index]?.[cellIndex] ?? null;
                     return (
                       <td
                         key={cellIndex}
                         className={
-                          `${cellIndex > 0 ? "num" : ""}${alert ? " alert" : ""}`.trim() ||
+                          `${block.align ? (block.align[cellIndex] === "right" ? "num" : "") : cellIndex > 0 ? "num" : ""}${tone === "red" ? " cellRed" : tone === "green" ? " cellGreen" : ""}`.trim() ||
                           undefined
                         }
                       >
@@ -243,11 +277,16 @@ function Block({ block }: { block: ReportBlock }) {
               <a href={link.href}>{link.label}</a>
               {/* The PDF twin (M8.4, prep point 4): in the
                   printed Sources section each named link
-                  carries its URL beside it. The span is
-                  print-only and Sources-only (the print
+                  carries its URL beside it — bare, with no
+                  brackets (BUG-102), and itself a link so
+                  the PDF annotates it (BUG-103). The anchor
+                  is print-only and Sources-only (the print
                   stylesheet shows it nowhere else); the web
                   page keeps its linked names. */}
-              <span className="rpt-printUrl"> ({reportPrintUrl(link.href)})</span>
+              <a className="rpt-printUrl" href={link.href}>
+                {" "}
+                {reportPrintUrl(link.href)}
+              </a>
             </span>
           ))}
         </p>
@@ -467,22 +506,17 @@ function DotPlot({ plot }: { plot: ReportDotPlotModel }) {
   return (
     <div className="rpt-chartCard">
       <h4>{plot.title}</h4>
+      {/* The median as a text line under the title
+          (BUG-104): the in-plot label the first pass
+          overprinted on the dots is gone; the dashed
+          line alone marks the median in the picture. */}
+      <p className="rpt-medianLine">{plot.medianLine}</p>
       <svg
         className="dotPlot"
         viewBox={`0 0 760 ${plot.height}`}
         role="img"
         aria-label={plot.ariaLabel}
       >
-        <text
-          x={plot.median.x}
-          y={plot.median.labelY}
-          textAnchor={plot.median.anchor}
-          fontSize="13"
-          fontWeight="700"
-          fill="#2F5D3E"
-        >
-          {plot.median.label}
-        </text>
         <line
           x1={plot.median.x}
           y1={plot.median.lineY1}

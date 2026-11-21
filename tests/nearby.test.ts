@@ -1073,9 +1073,17 @@ describe("nearby bundle — 19 Birkdale Rise, CM3 2JT", () => {
   it("serves the Witham Leisure Centre EV site with its membership class showing", async () => {
     const bundle = await bundleFor("CM3 2JT");
     const evCat = category(bundle, "ev-chargers");
-    expect(evCat.places).toHaveLength(1);
+    // Chargers list across five miles in the second
+    // pass (BUG-093): four file within the field, the
+    // list carries the nearest three.
+    expect(evCat.countWithin).toBe(4);
+    expect(evCat.places).toHaveLength(3);
     expect(evCat.places[0].name).toBe("Witham Leisure Centre");
     expect(evCat.places[0].detail).toBe("Public - Membership Required");
+    expect(evCat.places[1].name).toBe("Car Park, Newlands Drive");
+    expect(evCat.places[1].miles).toBe(2.202);
+    expect(evCat.places[2].name).toBe("Witham station Car Park");
+    expect(evCat.places[2].miles).toBe(2.599);
     // The lock is 1.864 — the product's ONE basis (D22):
     // haversine, earth radius 3,956, the M5.2/M5.5 basis. The
     // EV loader originally fixed this figure at 1.866 on its
@@ -1128,18 +1136,35 @@ describe("nearby bundle — 19 Birkdale Rise, CM3 2JT", () => {
       ["The Green", 0.338],
       ["Keith Bigden Memorial Ground", 0.647],
     ]);
-    expect(top(bundle, "pet-boarding")).toEqual([["Latneys Boarding Kennelsl and Cattery", 0.77]]);
+    // Pet boarding always serves its two nearest
+    // (BUG-079), however far the second stands.
+    expect(top(bundle, "pet-boarding")).toEqual([
+      ["Latneys Boarding Kennelsl and Cattery", 0.77],
+      ["Ponyo’s House", 31.304],
+    ]);
   });
 
-  it("says in words that the map holds no vets near Birkdale — the honestly-empty state", async () => {
+  it("says in words that the map holds no places to visit near Birkdale — the honestly-empty state", async () => {
     const bundle = await bundleFor("CM3 2JT");
-    for (const key of ["vets", "pet-shops", "places-to-visit"]) {
-      const c = category(bundle, key);
-      expect(c.state).toBe("empty-map");
-      expect(c.places).toEqual([]);
-      expect(c.countWithin).toBe(0);
-      expect(c.line).toContain("a gap in the map is not proof that none exists");
-    }
+    const c = category(bundle, "places-to-visit");
+    expect(c.state).toBe("empty-map");
+    expect(c.places).toEqual([]);
+    expect(c.countWithin).toBe(0);
+    expect(c.line).toContain("a gap in the map is not proof that none exists");
+    // The pet categories no longer take the empty
+    // state: each serves its two nearest regardless of
+    // distance (BUG-079) — in this fixture world the
+    // nearest filed vets and pet shops stand far away.
+    expect(top(bundle, "vets")).toEqual([
+      ["Goddard Vets Plaistow", 29.708],
+      ["Medivet", 30.378],
+    ]);
+    expect(top(bundle, "pet-shops")).toEqual([
+      ["Manor Aquatics Centre", 28.54],
+      ["Pets at Home", 28.878],
+    ]);
+    expect(category(bundle, "vets").countWithin).toBe(0);
+    expect(category(bundle, "pet-shops").countWithin).toBe(0);
   });
 });
 
@@ -1306,7 +1331,13 @@ describe("nearby bundle — Flat 4, Minerva House, KT17 1FH", () => {
       ["The Bridge Veterinary Surgery", 1.452],
     ]);
     expect(top(bundle, "parks")[0]).toEqual(["Gibraltar Recreation Ground", 0.493]);
-    expect(category(bundle, "pet-boarding").state).toBe("empty-map");
+    // Pet boarding serves its two nearest even here
+    // (BUG-079): two filed points of the same practice.
+    expect(category(bundle, "pet-boarding").state).toBe("within");
+    expect(top(bundle, "pet-boarding")).toEqual([
+      ["Tailwaggers East", 15.938],
+      ["Tailwaggers East", 15.938],
+    ]);
   });
 
   it("serves the nurseries category from filed rows, stopping at 2 miles (synthetic rows)", async () => {
@@ -1444,12 +1475,17 @@ describe("nearby bundle — Hilgay, CB6 1EH", () => {
     expect(category(bundle, "bus-stop").countWithin).toBe(7);
   });
 
-  it("names the nearest EV site beyond the radius, and no school is within it", async () => {
+  it("serves the EV site inside the widened charger field, and no school is within the radius", async () => {
     const bundle = await bundleFor("CB6 1EH");
     const evCat = category(bundle, "ev-chargers");
-    expect(evCat.state).toBe("none-within");
-    expect(evCat.beyondNearest?.name).toBe("The Coach House At Lodge Farm");
-    expect(Math.abs((evCat.beyondNearest?.miles ?? 0) - 3.535)).toBeLessThanOrEqual(0.005);
+    // The charger field is five miles in the second
+    // pass (BUG-093): the site at 3.535 miles, beyond
+    // the old two-mile radius, now serves in the list
+    // and no beyond-nearest stands.
+    expect(evCat.state).toBe("within");
+    expect(evCat.places[0].name).toBe("The Coach House At Lodge Farm");
+    expect(Math.abs((evCat.places[0].miles ?? 0) - 3.535)).toBeLessThanOrEqual(0.005);
+    expect(evCat.beyondNearest).toBeNull();
     // The GIAS fixture cut holds no Hilgay-area schools at all;
     // both school answers take the beyond-radius path here. The
     // real nearest schools are fixed in the golden matrix from

@@ -638,9 +638,9 @@ describe("report — M8.5 seller questions: intro, empty case, guardrail", () =>
     // benefits series, Section 4 the crime counts
     // (the print-check regrouping, item 14).
     expect(JSON.stringify(view.sections[5])).toContain("Tenure");
-    expect(JSON.stringify(view.sections[5])).toContain("Claimant count");
+    expect(JSON.stringify(view.sections[5])).toContain("Claimant Count");
     expect(JSON.stringify(view.sections[3])).toContain("330 incidents");
-    expect(JSON.stringify(view.sections[3])).not.toContain("Claimant count");
+    expect(JSON.stringify(view.sections[3])).not.toContain("Claimant Count");
     // And Section 9 is the empty line alone — no block
     // was drawn from any of it.
     expect(questionsOf(view)).toEqual([]);

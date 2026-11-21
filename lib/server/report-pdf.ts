@@ -8,6 +8,7 @@ import { chromium } from "@playwright/test";
 import ReportPage from "../../components/ReportPage";
 import { reportPdfFileName, reportPdfFooterHtml, reportPdfKey } from "../report-pdf";
 import type { ReportView } from "../report";
+import { SITE_URL } from "../site";
 import { getReportPdfStore, type ReportPdfStore } from "./report-storage";
 
 // The PDF twin's generator (plan step M8.4, prep points
@@ -84,6 +85,16 @@ export function reportPrintDocument(view: ReportView, css: string): string {
   const markup = renderToStaticMarkup(createElement(ReportPage, { view }));
   return (
     `<!doctype html>\n<html lang="en-GB"><head><meta charset="utf-8">` +
+    // The document's base (BUG-103): the printed report
+    // is handed to Chromium as a string with no URL of
+    // its own, so the report's own links (the How-we-
+    // check pages, the Sources records) would resolve
+    // against nothing and print as dead text. The base
+    // makes every relative href absolute against the
+    // site's own address, so Chromium emits real link
+    // annotations for the label anchors and for the
+    // printed URLs beside them.
+    `<base href="${SITE_URL}/">` +
     `<title>${view.masthead.brandLine} — ${view.masthead.title}</title>` +
     `<style>${css}</style></head><body>` +
     `<main class="site-pages"><div class="site-pages__inner">${markup}</div></main>` +

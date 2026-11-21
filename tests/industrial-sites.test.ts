@@ -235,7 +235,7 @@ describe("industrial sites — the served block (prep checks 2, 6–9, 11)", () 
       "Each substance also shows the reporting threshold for 2024 — the level at or above which a quantity must be reported. A substance reported below its threshold was still released; below the reporting threshold is not a measurement of zero.",
     );
     expect(served?.line).toBe(
-      "The regulated industrial sites recorded within two miles of this postcode point are listed below, nearest first.",
+      "The regulated industrial sites recorded within five miles of this postcode point are listed below, nearest first.",
     );
     expect(served?.sites).toHaveLength(1);
     const site = served!.sites[0]!;
@@ -320,7 +320,7 @@ describe("industrial sites — the served block (prep checks 2, 6–9, 11)", () 
     ]);
   });
 
-  it("orders sites nearest first, releases largest first, below-threshold names alphabetically — and cuts at two miles", async () => {
+  it("orders sites nearest first, releases largest first, below-threshold names alphabetically — and cuts at five miles", async () => {
     const far = siteAt(1.9, {
       permitId: "FAR00001",
       releases: [
@@ -331,7 +331,7 @@ describe("industrial sites — the served block (prep checks 2, 6–9, 11)", () 
       ],
     });
     const near = siteAt(0.4, { permitId: "NEAR0001" });
-    const beyond = siteAt(2.1, { permitId: "BEYOND01" });
+    const beyond = siteAt(5.1, { permitId: "BEYOND01" });
     const served = await block({ ...FILED, sites: [far, beyond, near] });
     expect(served?.sites.map((s) => s.permitId)).toEqual(["NEAR0001", "FAR00001"]);
     const farServed = served!.sites[1]!;
@@ -362,11 +362,11 @@ describe("industrial sites — the served block (prep checks 2, 6–9, 11)", () 
 });
 
 describe("industrial sites — the absence states (prep checks 3–5)", () => {
-  it("none within two miles: the filed none sentence, standing on the filed count", async () => {
+  it("none within five miles: the filed none sentence, standing on the filed count", async () => {
     const served = await block({ ...FILED, sites: [] });
-    expect(served?.state).toBe("none-within-2-miles");
+    expect(served?.state).toBe("none-within-5-miles");
     expect(served?.line).toBe(
-      "No regulated industrial site in the Environment Agency's Pollution Inventory for 2024 is recorded within two miles of this postcode point.",
+      "No regulated industrial site in the Environment Agency's Pollution Inventory for 2024 is recorded within five miles of this postcode point.",
     );
     expect(served?.sites).toEqual([]);
     expect(served?.dataYear).toBe(2024);

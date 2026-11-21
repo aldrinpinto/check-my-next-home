@@ -172,7 +172,7 @@ describe("air quality page — the D50 limits material in full", () => {
   it("carries the regulated industrial sites explainer (D66), as the product serves it", () => {
     expect(text).toContain("Environment Agency's Pollution Inventory");
     expect(text).toContain("2024 vintage, published in November 2025");
-    expect(text).toContain("within two miles of the postcode point");
+    expect(text).toContain("within five miles of the postcode point");
     expect(text).toContain("its operator, its permit reference");
     expect(text).toContain("releases to air the operator reported for that year");
     expect(text).toContain("below its threshold was still released");

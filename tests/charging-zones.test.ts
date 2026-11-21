@@ -384,15 +384,42 @@ describe("charging zones — outside, in its two forms, and the gate (D61/D63)",
     expect(at121.state).toBe("not-covered");
   });
 
-  it("while Portsmouth is unfiled, the outside answer is the named-gap line (D63)", async () => {
+  it("while Portsmouth is unfiled, a home far from it gets the plain outside line (D63, reach-bound by BUG-085)", async () => {
+    // The fixture home stands in London — far outside
+    // Portsmouth's broad reach, so the uncheckable zone
+    // is not named for it; the blind spot's standing
+    // record is the air How-we-check page.
     const s = await section(gapFacts());
     expect(s.state).toBe("outside");
     expect(s.line).toBe(
-      "This postcode point is not inside any charging zone whose boundary is published. The Portsmouth Clean Air Zone is in force, but its boundary is not published, so it cannot be checked here.",
+      "This postcode point is not inside any charging zone whose boundary is published.",
     );
     expect(s.setDate).toBeNull();
     expect(s.filedCount).toBe(11);
     expect(s.basisLine).toBe(BASIS);
+  });
+
+  it("while Portsmouth is unfiled, a home within its reach gets the named-gap line (D63)", async () => {
+    const source = new FakeSource();
+    source.cz = gapFacts();
+    const near: AddressResolution = {
+      ...EXETER,
+      directory: directory({
+        postcode: "PO1 1AA",
+        latitude: 50.81,
+        longitude: -1.08,
+        council: "Portsmouth",
+        lsoaCode: "E01017068",
+        msoaCode: "E02001374",
+      }),
+    };
+    const bundle = await buildAreaBundle(near, source);
+    if (bundle.kind !== "area-bundle") throw new Error("expected an area bundle");
+    const s = bundle.sections.chargingZones;
+    expect(s.state).toBe("outside");
+    expect(s.line).toBe(
+      "This postcode point is not inside any charging zone whose boundary is published. The Portsmouth Clean Air Zone is in force, but its boundary is not published, so it cannot be checked here.",
+    );
   });
 
   it("a complete but stale set serves not-covered — a negative that old is not proof", async () => {

@@ -36,7 +36,6 @@ import type {
 } from "./flood";
 import { formatFiledDate, formatMiles, formatPounds, nationOfLsoa } from "./journey";
 import type { CategoryAnswer, NearbyBundle, NearbyCategory, NearbyPlace } from "./nearby";
-import { REPORT_SCHOOL_LIST_SIZE } from "./nearby";
 import { CATCHMENT_LINK, distanceBand, reportRoute, type DistanceBand } from "./results";
 import { REPORT_DOOR_STATE, type ReportDoorState } from "./site";
 import type { ServedSale, SoldPricesBundle } from "./sold-prices";
@@ -241,6 +240,14 @@ export interface ReportRow {
   // (a school's destinations block, a surgery's CQC
   // rating line).
   extra: string[];
+  // The row's facts as a bullet list under it (BUG-070:
+  // a school's destinations and sixth-form facts print
+  // as bullets, not as a stack of look-alike lines).
+  bullets?: string[];
+  // The row's explanation-grade lines, printed under it
+  // in the small-print treatment (BUG-068/086: the
+  // "Sustained means…" line and its kin).
+  notes?: string[];
 }
 
 export interface ReportMapPin {
@@ -292,11 +299,13 @@ export interface ReportDotPlotModel {
   height: number;
   axisY: number;
   tickY: number;
+  // The median stated as a text line under the card's
+  // title, above the plot (BUG-104): the figure, its
+  // counted set, and what a median is — the in-plot
+  // label the first pass overprinted is gone.
+  medianLine: string;
   median: {
     x: number;
-    label: string;
-    anchor: "start" | "middle" | "end";
-    labelY: number;
     lineY1: number;
     lineY2: number;
   };
@@ -415,22 +424,27 @@ export type ReportBlock =
   | { type: "rows"; rows: ReportRow[] }
   // boldColumns: the column indexes whose cells print
   // bold (Section 1's sale-price column, in the sample's
-  // form). cellAlerts / cellSubs (print-check items 2 and
-  // 6): a per-cell red highlight — the air table's
-  // modelled-level cell, only where the level is above
-  // the UK legal limit — and a per-cell second line (the
-  // pollutant's position against its yardsticks, printed
-  // inside the table with its pollutant). Both are sparse
-  // grids aligned with rows; an absent entry is a plain
-  // cell.
+  // form). cellTones / cellSubs: a per-cell colour tone
+  // (the air and noise tables' yardstick cells — green
+  // within the yardstick, red at or above it; BUG-073 /
+  // BUG-076, succeeding print-check item 2's red-only
+  // alert) and a per-cell second line (the figure's
+  // position against its yardsticks, printed inside the
+  // table with its figure). Both are sparse grids
+  // aligned with rows; an absent entry is a plain cell.
+  // align: the deliberate per-column alignment
+  // (BUG-088) — text left, figures right, long-form text
+  // never right-aligned; absent, the renderer's standing
+  // default (first column left, the rest right) stands.
   | {
       type: "table";
       head: string[];
       rows: string[][];
       caption?: string;
       boldColumns?: number[];
-      cellAlerts?: boolean[][];
+      cellTones?: ("green" | "red" | null)[][];
       cellSubs?: (string | null)[][];
+      align?: ("left" | "right")[];
     }
   // A bar chart in a chart card (M8.2's form of the M8.1
   // block): the view decides each row's bar width, its
@@ -758,7 +772,7 @@ function stateLine(answer: CategoryAnswer): ReportBlock | null {
   if (answer.state === "empty" || answer.state === "empty-map" || answer.state === "none-within") {
     const text =
       answer.state === "none-within" && answer.beyondNearest
-        ? `None within 2 miles — nearest is ${answer.beyondNearest.name}, ${formatMiles(answer.beyondNearest.miles)} miles away.`
+        ? `None within ${answer.category === "ev-chargers" ? 5 : 2} miles — nearest is ${answer.beyondNearest.name}, ${formatMiles(answer.beyondNearest.miles)} miles away.`
         : sentenceLine(answer.line);
     return { type: "boldLine", text };
   }
@@ -1157,15 +1171,13 @@ function buildShortVersion(
             seg(" band at this point."),
           ]);
         } else if (layer.proximity.length > 0) {
-          riskLines.push([
-            seg("Surface water: nearest "),
-            seg(
-              layer.proximity
-                .map((edge) => `${edge.displayLabel} ${formatMiles(edge.miles)} miles`)
-                .join(", "),
-            ),
-            seg("."),
-          ]);
+          // The short version states the home's own
+          // standing only (BUG-066): the nearest-band
+          // distances are Section 8's and the flood
+          // page's material — a bullet that opens with
+          // another band's distance misstates the home's
+          // position before it states it.
+          riskLines.push([seg("Surface water: "), boldSeg("no band at this point"), seg(".")]);
         } else {
           riskLines.push([seg(sentenceLine(layer.line))]);
         }
@@ -1429,11 +1441,9 @@ function buildDotPlot(args: {
     height: 118 + topPad,
     axisY,
     tickY: axisY + 50,
+    medianLine: `Median value ${formatPounds(medianValue)} — the middle recorded sale price in this postcode, from the ${counted} counted sales. Not a valuation of this home.`,
     median: {
       x: medianX,
-      label: `Median ${formatPounds(medianValue)}`,
-      anchor: anchorFor(medianX),
-      labelY: 12 + topPad,
       lineY1: 18 + topPad,
       lineY2: axisY + 26,
     },
@@ -1475,7 +1485,7 @@ function section1(input: ReportInput, cert: ServedCertificate | null): ReportSec
         type: "table",
         head: ["Address", "Sale date", "Sale price", "Type", "Tenure", "New build"],
         rows: sold.recentSales.map((sale) => [sale.address, ...saleRow(sale)]),
-        caption: sold.sourceLine,
+        align: ["left", "left", "right", "left", "left", "left"],
       });
     }
     return section(1, "Price & this home", blocks);
@@ -1579,6 +1589,7 @@ function section1(input: ReportInput, cert: ServedCertificate | null): ReportSec
     }),
     caption: sold.ownExplainer,
     boldColumns: [1],
+    align: ["left", "right", "right", "left", "right"],
   });
   if (sold.building) {
     blocks.push({ type: "sub", text: `Sales in ${sold.building.building}` });
@@ -1872,7 +1883,6 @@ function section2(input: ReportInput): ReportSectionView {
   } else if (median.line) {
     blocks.push({ type: "line", text: median.line });
   }
-  blocks.push({ type: "note", text: median.explainer });
   if (median.state === "served" && median.value !== null) {
     // The dot plot stands with the median it pictures:
     // every counted sale, the median line, and at rung 1
@@ -1887,7 +1897,16 @@ function section2(input: ReportInput): ReportSectionView {
       spanTo: median.spanTo,
       homePrice: sold.rung === 1 && sold.ownHistory.length > 0 ? sold.ownHistory[0].price : null,
     });
-    if (plot) blocks.push({ type: "dotPlot", plot });
+    if (plot) {
+      // The plot's own median line carries the amended
+      // short form (BUG-067 / BUG-104) — the brain's
+      // long definition no longer stands beside it.
+      blocks.push({ type: "dotPlot", plot });
+    } else {
+      blocks.push({ type: "note", text: median.explainer });
+    }
+  } else {
+    blocks.push({ type: "note", text: median.explainer });
   }
   if (sold.recentSales.length > 0) {
     blocks.push({ type: "sub", text: sold.recentLabel });
@@ -1895,7 +1914,7 @@ function section2(input: ReportInput): ReportSectionView {
       type: "table",
       head: ["Address", "Sale date", "Sale price", "Type", "Tenure", "New build"],
       rows: sold.recentSales.map((sale) => [sale.address, ...saleRow(sale)]),
-      caption: sold.sourceLine,
+      align: ["left", "left", "right", "left", "left", "left"],
     });
   }
   if (sold.stateLine) blocks.push({ type: "boldLine", text: sold.stateLine });
@@ -1912,8 +1931,14 @@ function shareText(fact: { value: number | null; low: boolean }): string | null 
   return `${fact.value}%`;
 }
 
-function destinationsExtra(place: NearbyPlace): string[] {
-  const lines: string[] = [];
+// A school's destinations facts in the second-pass form
+// (BUG-070): the facts print as bullets under the
+// school's row, and the one explanation-grade line —
+// what "sustained" means — takes the small-print
+// treatment under them.
+function destinationsFacts(place: NearbyPlace): { bullets: string[]; notes: string[] } {
+  const bullets: string[] = [];
+  const notes: string[] = [];
   const stages = [
     { label: "KS4", stage: place.destinations?.ks4 },
     { label: "KS5", stage: place.destinations?.ks5 ?? null },
@@ -1921,10 +1946,10 @@ function destinationsExtra(place: NearbyPlace): string[] {
   for (const { label, stage } of stages) {
     if (!stage) continue;
     if (stage.state !== "served") {
-      lines.push(stage.line);
+      bullets.push(stage.line);
       continue;
     }
-    lines.push(stage.cohortLine);
+    bullets.push(stage.cohortLine);
     const shares: string[] = [];
     const overall = shareText(stage.overall);
     if (overall) shares.push(`stayed in education, employment or training: ${overall}`);
@@ -1938,17 +1963,17 @@ function destinationsExtra(place: NearbyPlace): string[] {
     if (apprenticeships) shares.push(`apprenticeships: ${apprenticeships}`);
     const employment = shareText(stage.employment);
     if (employment) shares.push(`employment: ${employment}`);
-    if (shares.length > 0) lines.push(`${label} destinations — ${shares.join("; ")}.`);
-    lines.push(stage.sustainedLine);
+    if (shares.length > 0) bullets.push(`${label} destinations — ${shares.join("; ")}.`);
+    notes.push(stage.sustainedLine);
   }
-  return lines;
+  return { bullets, notes };
 }
 
 function schoolGroup(
   blocks: ReportBlock[],
   heading: string,
   answer: CategoryAnswer | null,
-  extra?: (place: NearbyPlace) => string[],
+  facts?: (place: NearbyPlace) => { bullets: string[]; notes: string[] },
   decorate?: (row: ReportRow, place: NearbyPlace) => ReportRow,
 ) {
   blocks.push({ type: "sub", text: heading });
@@ -1956,7 +1981,8 @@ function schoolGroup(
   if (answer.places.length > 0) {
     // School rows take the results page's school distance
     // bands (1/2 miles — item 8).
-    let rows = placeRows(answer, extra, "school");
+    let rows = placeRows(answer, undefined, "school");
+    if (facts) rows = rows.map((row, index) => ({ ...row, ...facts(answer.places[index]) }));
     if (decorate) rows = rows.map((row, index) => decorate(row, answer.places[index]));
     blocks.push({ type: "rows", rows });
   }
@@ -1964,35 +1990,44 @@ function schoolGroup(
   if (state) blocks.push(state);
 }
 
+// A counted heading states the number actually served
+// (BUG-070's general amendment): the depth the bundle
+// was built at is not a promise — where fewer schools
+// serve, the heading counts what stands, and where none
+// serve it promises no count at all.
+function schoolHeading(label: string, answer: CategoryAnswer | null): string {
+  return answer && answer.places.length > 0 ? `${label} — nearest ${answer.places.length}` : label;
+}
+
 function section3(input: ReportInput): ReportSectionView {
   const blocks: ReportBlock[] = [];
   const { nearby } = input;
-  const secondaryExtra = (place: NearbyPlace): string[] => {
-    const lines: string[] = [];
-    if (place.sixthForm === true) lines.push("This school has a sixth form.");
-    if (place.sixthForm === false) lines.push("This school has no sixth form.");
-    lines.push(...destinationsExtra(place));
-    return lines;
+  const secondaryFacts = (place: NearbyPlace): { bullets: string[]; notes: string[] } => {
+    const facts = destinationsFacts(place);
+    if (place.sixthForm === true) facts.bullets.unshift("This school has a sixth form.");
+    if (place.sixthForm === false) facts.bullets.unshift("This school has no sixth form.");
+    return facts;
   };
-  // The report's school lists name five (BUG-044): the
-  // headings carry the depth, as the sample's do — the
-  // report's nearby bundle is built at that depth by the
-  // serve layer (checkReport), so the lists stand behind
-  // the headings.
+  // The report's school lists name five at full depth
+  // (BUG-044): the headings carry the number actually
+  // served (BUG-070) — the report's nearby bundle is
+  // built at that depth by the serve layer (checkReport),
+  // and where fewer schools stand, the heading counts
+  // what stands.
   schoolGroup(
     blocks,
-    `Primary schools — nearest ${REPORT_SCHOOL_LIST_SIZE}`,
+    schoolHeading("Primary schools", category(nearby, "schools-primary")),
     category(nearby, "schools-primary"),
   );
   const secondary = category(nearby, "schools-secondary");
   schoolGroup(
     blocks,
-    `Secondary schools — nearest ${REPORT_SCHOOL_LIST_SIZE}`,
+    schoolHeading("Secondary schools", secondary),
     secondary,
-    secondaryExtra,
+    secondaryFacts,
     // A selective school's row carries the highlighted
     // "Grammar school" label, and keeps the entry-by-test
-    // fact as a line of its own under the row (item 7 —
+    // fact as a bullet of its own under the row (item 7 —
     // the fact is the DfE admissions-policy field, already
     // served on the place).
     (row, place) =>
@@ -2001,12 +2036,42 @@ function section3(input: ReportInput): ReportSectionView {
             ...row,
             tag: "Grammar school",
             tagStar: true,
-            extra: ["Entry by test.", ...row.extra],
+            bullets: ["Entry by test.", ...(row.bullets ?? [])],
           }
         : row,
   );
-  if (secondary?.nearestSelectiveLine)
-    blocks.push({ type: "line", text: sentenceLine(secondary.nearestSelectiveLine) });
+  // The nearest selective school as a full entry
+  // (BUG-070): where it stands beyond the listed schools
+  // it draws its own entry — name, distance pill, the
+  // Grammar label and the entry-by-test fact — from the
+  // facts the bundle serves for it (name and distance;
+  // the bundle serves no destinations or sixth-form
+  // facts for a beyond-radius selective, so the entry
+  // carries none). Where it is already among the listed
+  // schools, its own row above carries the same facts
+  // and no second entry stands.
+  if (secondary?.nearestSelective) {
+    const selective = secondary.nearestSelective;
+    const listed = secondary.places.some((place) => place.name === selective.name);
+    if (!listed) {
+      blocks.push({ type: "sub", text: "Nearest selective school" });
+      blocks.push({
+        type: "rows",
+        rows: [
+          {
+            name: selective.name,
+            detail: null,
+            tag: "Grammar school",
+            tagStar: true,
+            dist: `${formatMiles(selective.miles)} mi`,
+            distBand: distanceBand("school", selective.miles),
+            extra: [],
+            bullets: ["Entry by test."],
+          },
+        ],
+      });
+    }
+  }
   // The catchment honesty block no longer stands here
   // (BUG-050(ii)): the sample carries the school-places
   // disclaimer in Section 10, not mid-section, so the
@@ -2130,6 +2195,115 @@ function buildCategoryBars(served: ServedCrime): ReportBlock {
   );
 }
 
+// The noise yardsticks (BUG-076, the founder's ruled
+// option C): each filed band is read against Defra's
+// thresholds — 55 dB by day, 50 dB by night, the levels
+// the published bands themselves are cut at, so a band
+// never straddles them — and against the World Health
+// Organization's 2018 environmental noise guidelines for
+// the band's own source (road 53 by day / 45 by night,
+// rail 54 / 44, aircraft 45 / 40), which a band can
+// straddle, and the words say so where it does. Colour
+// follows Defra alone: green where the band sits within
+// the threshold, red where it is at or above it. An
+// absence cell ("No modelled … noise") is a filed state,
+// not a level: it stays plain, with no colour and no
+// position words. Both yardsticks are explained on the
+// noise How-we-check page, which Section 10 links.
+const NOISE_WHO_GUIDELINES: Record<string, { day: number; night: number }> = {
+  road: { day: 53, night: 45 },
+  rail: { day: 54, night: 44 },
+  airport: { day: 45, night: 40 },
+};
+
+// A filed band's span, from the publisher's own band
+// text: "Below 55 dB" runs up to 55; "55–59 dB" runs 55
+// up to 60; "70 dB or more" runs from 70 without end.
+// Null where the text is not a band (the absence form).
+function noiseBandSpan(text: string): { lo: number; hi: number } | null {
+  const below = /^Below (\d+) dB$/.exec(text);
+  if (below) return { lo: 0, hi: Number(below[1]) };
+  const range = /^(\d+)–(\d+) dB$/.exec(text);
+  if (range) return { lo: Number(range[1]), hi: Number(range[2]) + 1 };
+  const orMore = /^(\d+) dB or more$/.exec(text);
+  if (orMore) return { lo: Number(orMore[1]), hi: Number.POSITIVE_INFINITY };
+  return null;
+}
+
+function noisePosition(
+  span: { lo: number; hi: number },
+  sourceKind: string,
+  when: "day" | "night",
+): { tone: "green" | "red"; words: string } {
+  const defra = when === "day" ? 55 : 50;
+  const tone = span.hi <= defra ? ("green" as const) : ("red" as const);
+  const defraPart =
+    span.hi <= defra
+      ? `below the Defra ${when} threshold of ${defra} dB`
+      : `at or above the Defra ${when} threshold of ${defra} dB`;
+  const who = NOISE_WHO_GUIDELINES[sourceKind]?.[when];
+  if (who === undefined) return { tone, words: sentence(defraPart) };
+  const whoPart =
+    span.hi <= who
+      ? `below the WHO guideline of ${who} dB`
+      : span.lo >= who
+        ? `at or above the WHO guideline of ${who} dB`
+        : `spanning the WHO guideline of ${who} dB`;
+  return { tone, words: sentence(`${defraPart}; ${whoPart}`) };
+}
+
+// The regulated industrial sites (BUG-081): the block
+// stands in Section 4 with the air content — it is an
+// air story, not a what's-nearby list — and serves every
+// regulated site within five miles. Its distance colours
+// run INVERTED (a near site is the concern): red within
+// a mile, orange within three, green beyond. The
+// reported-release line is recomposed in plain words
+// from the served substance names, and the block's
+// served explainer lines collapse to one short line;
+// the workings stand on the air-quality How-we-check
+// page, which Section 10 links.
+function industrialSitesBlocks(input: ReportInput): ReportBlock[] {
+  const { nearby } = input;
+  if (nearby.kind !== "distances" || !nearby.industrialSites) return [];
+  const sites = nearby.industrialSites;
+  const blocks: ReportBlock[] = [{ type: "sub", text: "Industrial sites" }];
+  if (sites.state === "served") {
+    blocks.push({
+      type: "rows",
+      rows: sites.sites.map((site) => ({
+        name: site.operator,
+        detail: [site.siteAddress, site.activityDescription].filter(Boolean).join(" · ") || null,
+        tag: null,
+        dist: `${formatMiles(site.miles)} mi`,
+        distBand: (site.miles <= 1 ? "red" : site.miles <= 3 ? "orange" : "green") as DistanceBand,
+        extra: [
+          ...(site.belowThreshold.length > 0 && sites.dataYear !== null
+            ? [
+                `This site reported releasing ${site.belowThreshold.join("; ")} in ${sites.dataYear}, in amounts recorded as below the reporting threshold.`,
+              ]
+            : []),
+          ...(site.noAirReturnsLine ? [site.noAirReturnsLine] : []),
+        ],
+      })),
+    });
+  } else if (sites.line) {
+    blocks.push({
+      type: sites.state === "none-within-5-miles" ? "boldLine" : "line",
+      text: sites.line,
+    });
+  }
+  if (sites.dataYear !== null) {
+    blocks.push({
+      type: "note",
+      text: `Every figure is the quantity the operator reported to the Environment Agency for ${sites.dataYear}. A substance reported below its reporting threshold was still released: below the threshold is not a measurement of zero.`,
+    });
+  } else if (sites.basisLine) {
+    blocks.push({ type: "note", text: sites.basisLine });
+  }
+  return blocks;
+}
+
 function section4(input: ReportInput): ReportSectionView {
   const blocks: ReportBlock[] = [];
   const { nearby, crime } = input;
@@ -2157,8 +2331,11 @@ function section4(input: ReportInput): ReportSectionView {
     if (!answer) continue;
     // The distance chip's band family (item 8): A&E rows
     // take the results page's hospital bands (5/10 miles),
-    // the rest the everyday bands.
-    const family = service.key === "ae" ? "hospital" : "everyday";
+    // the rest the everyday bands. Maternity takes the
+    // hospital bands too (BUG-071): a maternity unit is a
+    // hospital service, and its chip now colours on the
+    // same reach as A&E's.
+    const family = service.key === "ae" || service.key === "maternity" ? "hospital" : "everyday";
     if (answer.places.length > 0) {
       const rows = placeRows(answer, healthExtra(service.key), family).map((row) => ({
         ...row,
@@ -2189,7 +2366,8 @@ function section4(input: ReportInput): ReportSectionView {
   if (sections) {
     const air = sections.air;
     // The sample's air form (BUG-048), as the print-check
-    // batch settles it (items 2 and 6): the sub names the
+    // batch settles it (items 2 and 6) and the second
+    // pass amends it (BUG-072/073/074): the sub names the
     // source and the modelled year; the table carries the
     // yardsticks as its own columns — the modelled level
     // against the UK legal limit and the WHO 2021
@@ -2198,19 +2376,17 @@ function section4(input: ReportInput): ReportSectionView {
     // yardsticks prints INSIDE the table, as a second line
     // under its own modelled level, never as a free note
     // under the whole table. The modelled-level cell is
-    // highlighted red ONLY where the level is above the
-    // UK legal limit (position "above-uk-limit"); a level
-    // above the WHO guideline alone never highlights. The
-    // long explainers — the yardstick sentences, the
+    // coloured on the UK legal limit alone: green within
+    // it, red at or above it; the WHO guideline colours
+    // nothing — its position is the words in the cell.
+    // The long explainers — the yardstick sentences, the
     // zone-compliance basis, the AQMA basis — no longer
     // stand in the report at all: they live on the
     // air-quality How-we-check page, which Section 10
     // links (item 20's rule: minimum explanation here,
-    // the fuller explanation behind the link). The table's
-    // caption is the short key line — modelled levels for
-    // the whole square kilometre, not a measurement at
-    // this home. Where a filing predates the yardsticks,
-    // the table keeps its two-column served form.
+    // the fuller explanation behind the link). Where a
+    // filing predates the yardsticks, the table keeps its
+    // two-column served form.
     blocks.push({
       type: "sub",
       text: air.year !== null ? `Air — Defra modelled, ${air.year}` : "Air quality",
@@ -2233,16 +2409,25 @@ function section4(input: ReportInput): ReportSectionView {
           ],
           rows: air.yardsticks.pollutants.map((pollutant) => [
             pollutantNames[pollutant.pollutant.toUpperCase()] ?? pollutant.pollutant,
-            `${pollutant.value} ${air.unit}`,
+            `${pollutant.value.toFixed(1)} ${air.unit}`,
             `${pollutant.ukLimit} ${air.unit}`,
             `${pollutant.whoGuideline} ${air.unit}`,
           ]),
-          caption: air.explainer,
-          cellAlerts: air.yardsticks.pollutants.map((pollutant) => [
-            false,
-            pollutant.position === "above-uk-limit",
-            false,
-            false,
+          // No caption (BUG-072): the explainer the table
+          // carried restated the served line above it —
+          // the modelled year survives in the sub-heading.
+          // The level cell's colour (BUG-073): green where
+          // the level is within the UK legal limit, red
+          // where it is at or above it — no orange, and
+          // the WHO position stays words-only, in the
+          // cell's second line. The colour is computed on
+          // the level as filed, unrounded (BUG-074); the
+          // printed figure is that level at one decimal.
+          cellTones: air.yardsticks.pollutants.map((pollutant) => [
+            null,
+            pollutant.value >= pollutant.ukLimit ? ("red" as const) : ("green" as const),
+            null,
+            null,
           ]),
           cellSubs: air.yardsticks.pollutants.map((pollutant) => [
             null,
@@ -2250,6 +2435,7 @@ function section4(input: ReportInput): ReportSectionView {
             null,
             null,
           ]),
+          align: ["left", "right", "right", "right"],
         });
       } else {
         const rows: string[][] = [
@@ -2262,6 +2448,7 @@ function section4(input: ReportInput): ReportSectionView {
           head: ["Pollutant", `Modelled annual mean, ${air.year}`],
           rows,
           caption: air.explainer,
+          align: ["left", "right"],
         });
       }
     }
@@ -2287,8 +2474,12 @@ function section4(input: ReportInput): ReportSectionView {
         ],
       });
     } else {
+      // The AQMA absence prints as a plain line, not a
+      // bold finding (BUG-075): it is the absence of a
+      // designation, stated plainly like the block's
+      // other state lines.
       blocks.push({
-        type: air.aqma.state === "none" ? "boldLine" : "line",
+        type: "line",
         text: sentenceLine(air.aqma.line),
       });
     }
@@ -2307,6 +2498,14 @@ function section4(input: ReportInput): ReportSectionView {
       });
     }
     if (noise.state === "served" && noise.bands.length > 0) {
+      const positions = noise.bands.map((band) => {
+        const daySpan = band.dayBand ? noiseBandSpan(band.dayBand) : null;
+        const nightSpan = band.nightBand ? noiseBandSpan(band.nightBand) : null;
+        return {
+          day: daySpan ? noisePosition(daySpan, band.sourceKind, "day") : null,
+          night: nightSpan ? noisePosition(nightSpan, band.sourceKind, "night") : null,
+        };
+      });
       blocks.push({
         type: "table",
         head: ["Source", "Day", "Night"],
@@ -2316,23 +2515,42 @@ function section4(input: ReportInput): ReportSectionView {
           band.nightBand ?? "—",
         ]),
         caption: noise.explainer,
+        cellTones: positions.map((position) => [
+          null,
+          position.day?.tone ?? null,
+          position.night?.tone ?? null,
+        ]),
+        cellSubs: positions.map((position) => [
+          null,
+          position.day?.words ?? null,
+          position.night?.words ?? null,
+        ]),
+        align: ["left", "left", "left"],
       });
     }
   }
 
-  // Crime, in the sample's form (BUG-049): the sub names
-  // the window; three bullets lead — the total composed
+  // The industrial sites stand with the air content
+  // (BUG-081), after the noise table and before crime.
+  blocks.push(...industrialSitesBlocks(input));
+
+  // Crime, in the sample's form (BUG-049), as the
+  // second pass settles it (BUG-077/078): the sub names
+  // the window; the bullets lead — the total composed
   // from the served figures in the sample's words, the
-  // D39 calibration pair as one fully-bold bullet, and
-  // the standing street-anonymity sentence — then the two
-  // charts (M8.2), then the standing notes (the per-head
-  // basis, the crime explainer, the stale line where one
-  // serves, the calibration explainer). The brain's own
-  // total/per-head/England lines feed the results page
-  // and are not lifted here. The filed basis string rides
-  // in the category chart's caption, where the category
-  // table's caption carried it. A not-served state stays
-  // a named line, chart-free.
+  // per-head rate as its own bold bullet, and the
+  // standing street-anonymity sentence — then the rate's
+  // short basis note and the England comparison on its
+  // own labelled line, then the two charts (M8.2), then
+  // the standing notes (the crime explainer, the stale
+  // line where one serves, the short not-a-personal-risk
+  // caution). The per-head method paragraph itself
+  // stands on the crime How-we-check page. The brain's
+  // own total/per-head/England lines feed the results
+  // page and are not lifted here. The filed basis string
+  // rides in the category chart's caption, where the
+  // category table's caption carried it. A not-served
+  // state stays a named line, chart-free.
   blocks.push({ type: "sub", text: "Crime — last 12 months" });
   if (crime.kind === "crime") {
     const served = crime.crime;
@@ -2348,17 +2566,7 @@ function section4(input: ReportInput): ReportSectionView {
       if (served.perHead) {
         bullets.push([
           boldSeg(
-            `${per1000Text(served.perHead.per1000)} recorded crimes for every 1,000 residents here.${
-              served.englandFigure
-                ? ` Across England, the figure is ${per1000Text(served.englandFigure.englandPer1000)}.`
-                : ""
-            }`,
-          ),
-        ]);
-      } else if (served.englandFigure) {
-        bullets.push([
-          boldSeg(
-            `Across England, the figure is ${per1000Text(served.englandFigure.englandPer1000)} recorded crimes for every 1,000 residents.`,
+            `${per1000Text(served.perHead.per1000)} recorded crimes for every 1,000 residents here.`,
           ),
         ]);
       }
@@ -2366,12 +2574,50 @@ function section4(input: ReportInput): ReportSectionView {
         seg("Incidents are recorded against nearby streets, not against individual houses."),
       ]);
       blocks.push({ type: "richList", items: bullets });
-      if (served.perHead) blocks.push({ type: "note", text: served.perHead.basisLine });
+      // The rate's own short basis (BUG-077): the
+      // residents it is worked out from, in small
+      // wordings attached to the rate — the full
+      // workings (the areas counted whole, the areas
+      // reaching beyond the circle) stand on the crime
+      // How-we-check page, which Section 10 links.
+      if (served.perHead) {
+        blocks.push({
+          type: "note",
+          text: `The rate is worked out from the ${count(served.perHead.residents)} residents (Census 2021) of the small areas counted for this circle.`,
+        });
+      }
+      // The England comparison on its own labelled line
+      // (BUG-078), the relation stated in words — no
+      // longer a tail clause inside the bold rate bullet.
+      if (served.englandFigure) {
+        const england = served.englandFigure;
+        blocks.push({
+          type: "richList",
+          items: [
+            [
+              boldSeg("Across England:"),
+              seg(
+                ` ${per1000Text(england.englandPer1000)} recorded crimes for every 1,000 residents over the same 12 months${
+                  england.multiple !== null
+                    ? ` — this circle's figure is about ${england.multiple.toFixed(1)} times the England figure`
+                    : ""
+                }.`,
+              ),
+            ],
+          ],
+        });
+      }
       blocks.push({ type: "monthChart", chart: buildMonthChart(served) });
       blocks.push(buildCategoryBars(served));
       blocks.push({ type: "note", text: served.explainer });
       if (served.staleLine) blocks.push({ type: "note", text: served.staleLine });
-      blocks.push({ type: "note", text: served.calibrationExplainer });
+      // Only the short caution stays in the report
+      // (BUG-078): the long per-head method paragraph
+      // stands on the crime How-we-check page.
+      blocks.push({
+        type: "note",
+        text: "A per-head figure counts recorded crimes against residents — it is not a measure of any one person's risk.",
+      });
     } else {
       blocks.push({ type: "line", text: served.reason });
     }
@@ -2433,6 +2679,15 @@ function buildSection5Map(input: ReportInput): ReportMapModel | null {
       const answer = category(nearby, key);
       if (!answer) continue;
       for (const place of answer.places) {
+        // The diagram is the two-mile picture (BUG-080):
+        // a listed place beyond the frame does not pin —
+        // the pet categories' two-nearest serving
+        // (BUG-079) lists places however far they stand,
+        // and a pin tens of miles out would crush the
+        // rings and every local pin into the centre. A
+        // category's single beyond-nearest (the essential
+        // services) still pins, as it always has.
+        if (place.miles > 2) continue;
         raw.push({
           name: place.name,
           group: group.heading,
@@ -2599,6 +2854,17 @@ function transportRows(key: NearbyCategory, answer: CategoryAnswer): ReportRow[]
   return merged.map((entry) => entry.row);
 }
 
+// The Pets group's own sub-headings (BUG-079): each
+// kind stands under its own name, with its two nearest
+// (the brain serves the two nearest regardless of the
+// list radius) — the three kinds no longer run together
+// under the one group heading.
+const PET_SUBHEADINGS: Partial<Record<NearbyCategory, string>> = {
+  vets: "Vets",
+  "pet-shops": "Pet shops",
+  "pet-boarding": "Pet boarding",
+};
+
 function section5(input: ReportInput): ReportSectionView {
   const blocks: ReportBlock[] = [];
   const { nearby } = input;
@@ -2607,6 +2873,8 @@ function section5(input: ReportInput): ReportSectionView {
     for (const key of group.keys) {
       const answer = category(nearby, key);
       if (!answer) continue;
+      if (group.heading === "Pets")
+        blocks.push({ type: "sub", text: PET_SUBHEADINGS[key] ?? sentence(answer.label) });
       if (answer.places.length > 0) {
         blocks.push({
           type: "rows",
@@ -2620,38 +2888,9 @@ function section5(input: ReportInput): ReportSectionView {
   const map = buildSection5Map(input);
   if (map) blocks.push({ type: "map", map });
 
-  // The regulated industrial sites block (scope (p)):
-  // at the END of this section, only while the bundle
-  // carries it (INDUSTRIAL_SITES_ENABLED) — flag off, the
-  // key is absent and no placeholder stands in its place.
-  if (nearby.kind === "distances" && nearby.industrialSites) {
-    const sites = nearby.industrialSites;
-    blocks.push({ type: "sub", text: "Industrial sites" });
-    if (sites.state === "served") {
-      blocks.push({
-        type: "rows",
-        rows: sites.sites.map((site) => ({
-          name: site.operator,
-          detail: [site.siteAddress, site.activityDescription].filter(Boolean).join(" · ") || null,
-          tag: null,
-          dist: `${formatMiles(site.miles)} mi`,
-          distBand: distanceBand("everyday", site.miles),
-          extra: [
-            ...(site.belowThresholdLine ? [site.belowThresholdLine] : []),
-            ...(site.noAirReturnsLine ? [site.noAirReturnsLine] : []),
-          ],
-        })),
-      });
-    } else if (sites.line) {
-      blocks.push({
-        type: sites.state === "none-within-2-miles" ? "boldLine" : "line",
-        text: sites.line,
-      });
-    }
-    if (sites.reportedLine) blocks.push({ type: "line", text: sites.reportedLine });
-    if (sites.thresholdLine) blocks.push({ type: "line", text: sites.thresholdLine });
-    if (sites.basisLine) blocks.push({ type: "note", text: sites.basisLine });
-  }
+  // The regulated industrial sites no longer stand in
+  // this section (BUG-081): the block is an air story
+  // and stands in Section 4, with the air content.
   return section(5, "What's nearby", blocks);
 }
 
@@ -2745,7 +2984,10 @@ function censusBarsBlock(table: CensusTableServed): ReportBlock {
     return barsBlock(
       title,
       chartRows.map(bar),
-      `Tenure table (TS054): ${count(table.total)} households.`,
+      // The table's own name in plain words (BUG-082):
+      // the register code is bookkeeping and does not
+      // stand in the report.
+      `Tenure table: ${count(table.total)} households.`,
     );
   }
   const rows = byShareDesc(table.rows);
@@ -2796,12 +3038,13 @@ function section7(input: ReportInput): ReportSectionView {
       head: ["Band", "A year", "A month"],
       rows: tax.bands.map((band) => [band.band, band.labelPence, band.monthlyLabelPence]),
       caption: tax.bandsLine ?? undefined,
+      align: ["left", "right", "right"],
     });
-    // The D33 monthly line, inside its own section and
-    // never summed with anything (M8.10(b) settles the
-    // short version's form; the report carries the served
-    // line here).
-    if (tax.monthlyLine) blocks.push({ type: "line", text: tax.monthlyLine });
+    // The D33 monthly line no longer stands here
+    // (BUG-087): the sentence about spreading the year
+    // evenly over 12 months restated what the table's
+    // own month column already says. The table's month
+    // column stays.
   }
 
   // Mortgage & stamp duty (M8.10, item (f)): the static
@@ -2885,18 +3128,38 @@ function section7(input: ReportInput): ReportSectionView {
         c.rating !== null ? `${c.band ?? "—"} (${c.rating})` : (c.band ?? "—"),
         c.potentialBand ?? "—",
         c.floorAreaSqM !== null ? `${c.floorAreaSqM} m²` : "—",
-        c.registrationDate
-          ? `${c.assessmentLabel}, ${formatFiledDate(c.registrationDate)}`
-          : c.assessmentLabel,
+        // A composed cell starts with a capital like
+        // every composed line (BUG-088): the served
+        // assessment label is a lowercase fragment
+        // ("predicted — a SAP assessment…").
+        sentence(
+          c.registrationDate
+            ? `${c.assessmentLabel}, ${formatFiledDate(c.registrationDate)}`
+            : c.assessmentLabel,
+        ),
       ]),
       caption:
         epc.certificateCountAtPostcode !== null
           ? `${epc.certificateCountAtPostcode} certificates are held for this postcode.`
           : undefined,
+      align: ["left", "left", "left", "right", "left"],
     });
     for (const c of epc.certificates) {
       blocks.push({ type: "sub", text: c.address });
-      if (c.ratingLine) blocks.push({ type: "line", text: c.ratingLine });
+      // The certificate's own block states its rating
+      // (BUG-089): the figure and the band, with the
+      // explainer attached in the small-print treatment
+      // — the block no longer opens with the explainer
+      // and never states the number it exists to give.
+      if (c.rating !== null && c.band !== null) {
+        blocks.push({
+          type: "line",
+          text: `Energy rating: Band ${c.band} (score ${c.rating}).`,
+        });
+        if (c.ratingLine) blocks.push({ type: "note", text: c.ratingLine });
+      } else if (c.ratingLine) {
+        blocks.push({ type: "line", text: c.ratingLine });
+      }
       for (const fact of c.solarFacts) blocks.push({ type: "line", text: fact });
       if (c.energyCosts) {
         blocks.push({ type: "line", text: c.energyCosts.line });
@@ -2913,10 +3176,32 @@ function section7(input: ReportInput): ReportSectionView {
           // already prints its own line; it is not
           // doubled.)
           blocks.push({ type: "line", text: sentenceLine(c.improvements.line) });
-          // Register sequence, each step's own figures,
-          // never summed (D41; the sample's "save about
-          // £34 a year" line is not reproduced).
-          blocks.push({ type: "list", items: c.improvements.steps.map((step) => step.line) });
+          // Register sequence, each step under its own
+          // name with its facts as a labelled bullet list
+          // (BUG-091) — never the dot-separated run-on the
+          // served step line composes, and never summed
+          // (D41; the sample's "save about £34 a year"
+          // line is not reproduced). A step the published
+          // list names no name for stands under its
+          // sequence; a fact the register does not file
+          // for a step is simply absent from its list.
+          for (const step of c.improvements.steps) {
+            blocks.push({
+              type: "sub",
+              text:
+                step.name ??
+                (step.sequence !== null ? `Step ${step.sequence}` : "Suggested improvement"),
+            });
+            const items: string[] = [];
+            if (step.typicalSavingLabel)
+              items.push(`Typical saving: ${step.typicalSavingLabel} a year`);
+            if (step.indicativeCost) items.push(`Indicative cost: ${step.indicativeCost}`);
+            if (step.energyRatingAfter !== null)
+              items.push(`Energy rating after this step: ${step.energyRatingAfter}`);
+            if (step.environmentalRatingAfter !== null)
+              items.push(`Environmental rating after this step: ${step.environmentalRatingAfter}`);
+            if (items.length > 0) blocks.push({ type: "list", items });
+          }
         } else {
           blocks.push({ type: "line", text: c.improvements.line });
         }
@@ -2976,7 +3261,11 @@ function section7(input: ReportInput): ReportSectionView {
           ),
         );
       }
-      blocks.push({ type: "note", text: epc.spread.explainer });
+      // The spread's certificates-not-homes explainer no
+      // longer stands in the report (BUG-092): the
+      // workings stand on the energy How-we-check page,
+      // which Section 10 links. The spread's grain line
+      // and its per-row captions stay, as they stood.
     }
   }
 
@@ -3044,7 +3333,13 @@ function section7(input: ReportInput): ReportSectionView {
   const broadband = sections.broadband;
   blocks.push({ type: "sub", text: "Broadband" });
   if (broadband.line) blocks.push({ type: "line", text: broadband.line });
-  if (broadband.bandsLine) blocks.push({ type: "note", text: broadband.bandsLine });
+  // The bands explanation stands as the bands table's
+  // own caption (BUG-094) — attached under the table it
+  // explains, travelling with the block — not as a free
+  // note ahead of the category lines. Where no bands
+  // table serves, it keeps its note form.
+  if (broadband.bandsLine && broadband.bands.length === 0)
+    blocks.push({ type: "note", text: broadband.bandsLine });
   // The category lines beneath the headline — superfast,
   // ultrafast at 100 Mbit/s, broadband at 300 Mbit/s —
   // each the share of premises in this postcode, as
@@ -3062,13 +3357,14 @@ function section7(input: ReportInput): ReportSectionView {
   // The six speed bands as a table: each band is the
   // share of premises in this postcode whose maximum
   // predicted download speed falls in that range (the
-  // bandsLine note above is the table's explanation,
-  // kept with the block as served).
+  // bandsLine is the table's caption, beneath it).
   if (broadband.bands.length > 0) {
     blocks.push({
       type: "table",
       head: ["Maximum predicted download speed", "Share of premises"],
       rows: broadband.bands.map((band) => [band.label, `${sharePct(band.pct)}%`]),
+      caption: broadband.bandsLine ?? undefined,
+      align: ["left", "right"],
     });
   }
   // The unclassified share, named where the bands do not
@@ -3078,42 +3374,46 @@ function section7(input: ReportInput): ReportSectionView {
     blocks.push({ type: "line", text: sentenceLine(broadband.unclassifiedLine) });
   const mobile = sections.mobile;
   blocks.push({ type: "sub", text: "Mobile coverage" });
-  if (mobile.line) blocks.push({ type: "line", text: mobile.line });
-  for (const service of mobile.services) {
-    if (service.line) {
-      // Every line leads with the service it describes, in
-      // plain words (item 16): the served lines all open
-      // with the same "at least one mobile network…"
-      // clause, so as printed they read as one repeated
-      // fact. The lead names the service from the held
-      // Ofcom data — the service key's plain-words form,
-      // falling back to the publisher's own label for a
-      // key this table does not know.
+  // The mobile block in its second-pass form (BUG-095):
+  // ONE small-print basis line — modelled, at least one
+  // network, the share of premises in the named council
+  // area — then each service as a short bullet carrying
+  // its lead figure alone, the indoor figure in the same
+  // form where one is published (4G only). The served
+  // lines' repeated "at least one mobile network is
+  // modelled…" clause no longer prints service by
+  // service; the basis line states it once, for all of
+  // them. A service or figure Ofcom does not publish
+  // stands in the same bullet form, named as not
+  // published — never a 0.
+  if (mobile.state === "served" && mobile.council) {
+    blocks.push({
+      type: "note",
+      text: `Modelled by Ofcom for the whole ${mobile.council} council area: each figure is the share of premises where at least one mobile network is modelled to have coverage. It is not a measurement at this home.`,
+    });
+    const bullets: string[] = [];
+    for (const service of mobile.services) {
       const lead = MOBILE_SERVICE_LEADS[service.service] ?? service.label;
-      blocks.push({ type: "line", text: `${lead} — ${sentence(service.line)}` });
-      // The per-operator shares beneath the lead (M8.10,
-      // D36): all four networks together, for the outdoor
-      // set the lead describes and — for 4G, the one
-      // service with a published indoor set — the indoor
-      // set in full as well. Every figure is the council
-      // area's, and every served line names the council,
-      // so the grain travels with the figure. A share
-      // Ofcom does not publish serves its not-published
-      // line in words, never a 0.
-      if (service.outdoor) {
-        blocks.push({
-          type: "line",
-          text: `${lead} — ${sentence(service.outdoor.allOperatorsLine)}`,
-        });
+      if (service.state !== "served" || !service.outdoor) {
+        bullets.push(`${lead}: not published by Ofcom in this release.`);
+        continue;
       }
+      bullets.push(
+        service.outdoor.atLeastOneOperatorPct !== null
+          ? `${lead}: ${sharePct(service.outdoor.atLeastOneOperatorPct)}%.`
+          : `${lead}: not published.`,
+      );
       if (service.indoor) {
-        blocks.push({ type: "line", text: `${lead} — ${sentence(service.indoor.line)}` });
-        blocks.push({
-          type: "line",
-          text: `${lead} — ${sentence(service.indoor.allOperatorsLine)}`,
-        });
+        bullets.push(
+          service.indoor.atLeastOneOperatorPct !== null
+            ? `${lead} indoors: ${sharePct(service.indoor.atLeastOneOperatorPct)}%.`
+            : `${lead} indoors: not published.`,
+        );
       }
     }
+    if (bullets.length > 0) blocks.push({ type: "list", items: bullets });
+  } else if (mobile.line) {
+    blocks.push({ type: "line", text: mobile.line });
   }
 
   // Planning applications no longer stand in this section
@@ -3214,15 +3514,27 @@ function section7(input: ReportInput): ReportSectionView {
     heritage.parksAndGardens,
   ]) {
     heritageLines.push(sentenceLine(layer.line));
+    // The nearest, named (BUG-097): every designation
+    // layer takes the listed-buildings pattern — where
+    // the nearest designation stands beyond the filed
+    // radius, the served beyond line names it; where
+    // one stands within the radius but does not cover
+    // this point, the nearest line is composed here
+    // from the served name and distance. An absence
+    // that names nothing leaves the reader unable to
+    // tell a monument streets away from none in the
+    // county; the facts were already served — only the
+    // printing was missing. (Registered parks & gardens
+    // printed their beyond line before this batch; the
+    // other five layers now print theirs the same way.)
+    if (layer.beyondLine) {
+      heritageLines.push(sentenceLine(layer.beyondLine));
+    } else if (layer.state === "none-found" && layer.nearest) {
+      heritageLines.push(
+        `The nearest is ${layer.nearest.name}, ${formatMiles(layer.nearest.miles)} miles away.`,
+      );
+    }
   }
-  // Registered parks & gardens (M8.10) also print their
-  // beyond line, as the listed buildings above print
-  // theirs: where no registered park or garden stands
-  // within 2 miles, the nearest is named with its
-  // distance. Until the dataset's national filing lands
-  // the layer's line is its named not-filed state.
-  if (heritage.parksAndGardens.beyondLine)
-    heritageLines.push(sentenceLine(heritage.parksAndGardens.beyondLine));
   if (heritage.localListsLine) heritageLines.push(sentenceLine(heritage.localListsLine));
   if (heritageLines.length > 0) blocks.push({ type: "list", items: heritageLines });
 
@@ -3387,13 +3699,12 @@ function section6(input: ReportInput): ReportSectionView {
     blocks.push({ type: "line", text: sentenceLine(census.line) });
   // The Census charts in the Master's grid (M8.2): the
   // median-age tile opens the grid, then the five table
-  // cards in the Master's order; the section-level note
-  // — the bundle's own census explainer, that the
-  // figures describe the whole Census area — follows
-  // the grid, as in the samples. The social-rented
-  // share stands as its own line after the grid (scope
-  // (d)); it stood after the tenure bars at M8.1, and
-  // the grid keeps it beside the same card's section.
+  // cards in the Master's order. The social-rented share
+  // stands as its own labelled line with the tenure
+  // figures (scope (d), repositioned by BUG-083), and
+  // the section-level note — the bundle's own census
+  // explainer, that the figures describe the whole
+  // Census area — closes the block.
   const cards: ReportBlock[] = [];
   const ageCard = censusAgeCard(census);
   if (ageCard) cards.push(ageCard);
@@ -3408,9 +3719,26 @@ function section6(input: ReportInput): ReportSectionView {
   }
   if (cards.length > 0) {
     blocks.push({ type: "chartGrid", cards });
-    blocks.push({ type: "note", text: census.explainer });
   }
-  if (census.socialRented) blocks.push({ type: "line", text: census.socialRented.line });
+  // The social-rented line stands with the tenure
+  // figures it belongs to (BUG-083): up beside the grid
+  // whose tenure card it reads from, its lead label
+  // bold like every other labelled line — and the
+  // section's closing note closes the block, after it.
+  if (census.socialRented) {
+    blocks.push({
+      type: "richList",
+      items: [
+        [
+          boldSeg("Social rented homes:"),
+          seg(
+            ` ${count(census.socialRented.count)} of ${count(census.socialRented.total)} households in the area (${census.socialRented.pct} percent).`,
+          ),
+        ],
+      ],
+    });
+  }
+  if (cards.length > 0) blocks.push({ type: "note", text: census.explainer });
 
   // Benefits — the wider area. The D5 guardrails ride
   // with it: exactly as published with the source date,
@@ -3425,15 +3753,47 @@ function section6(input: ReportInput): ReportSectionView {
   const benefits = sections.benefits;
   blocks.push({ type: "sub", text: "Benefits — the wider area" });
   if (benefits.line) blocks.push({ type: "line", text: benefits.line });
-  for (const series of benefits.series) {
-    if (series.line) blocks.push({ type: "line", text: series.line });
+  // The block names its area and states its size up
+  // front (BUG-084): the counts belong to the small
+  // area this home sits in — its LSOA — and each count
+  // below stands against that area's own total, in its
+  // own line. No verdict language anywhere: counts
+  // against totals, as published.
+  if (benefits.bases) {
+    blocks.push({
+      type: "line",
+      text: `These counts are for the small area this home sits in — its Lower Layer Super Output Area (LSOA). The area holds ${count(benefits.bases.residents)} residents and ${count(benefits.bases.households)} households (Census 2021).`,
+    });
   }
-  if (benefits.basesLine) blocks.push({ type: "note", text: benefits.basesLine });
+  for (const series of benefits.series) {
+    if (series.state === "served" && series.count !== null && benefits.bases) {
+      const month = series.monthLabel ? ` in ${series.monthLabel}` : "";
+      if (series.series === "claimant_count") {
+        blocks.push({
+          type: "line",
+          text: `The Claimant Count (claimants of unemployment-related benefits): ${count(series.count)} of ${count(benefits.bases.residents)} residents${month}${series.pctLine ? ` — ${series.pctLine}` : ""}.`,
+        });
+      } else if (series.series === "uc_people") {
+        blocks.push({
+          type: "line",
+          text: `People on Universal Credit: ${count(series.count)} of ${count(benefits.bases.residents)} residents${month}.`,
+        });
+      } else {
+        blocks.push({
+          type: "line",
+          text: `Households on Universal Credit: ${count(series.count)} of ${count(benefits.bases.households)} households${month}.`,
+        });
+      }
+    } else if (series.line) {
+      blocks.push({ type: "line", text: series.line });
+    }
+  }
 
-  // Charging zones, under its own label (scope (o)).
-  // No charge amount is ever printed.
+  // Clean air zones & driving charges, under its own
+  // label (scope (o); renamed by BUG-085). No charge
+  // amount is ever printed.
   const zones = sections.chargingZones;
-  blocks.push({ type: "sub", text: "Charging zones" });
+  blocks.push({ type: "sub", text: "Clean air zones & driving charges" });
   blocks.push({ type: "line", text: zones.line });
   if (zones.scheme) {
     if (zones.scheme.carsLine) blocks.push({ type: "line", text: zones.scheme.carsLine });
@@ -3803,55 +4163,105 @@ function section8(input: ReportInput): ReportSectionView {
     if (layer.layer === "rofsw" && floodMaps.surfaceWater)
       blocks.push({ type: "floodMap", map: floodMaps.surfaceWater });
   }
-  // The recorded defences sub-block (scope (k)), with the
-  // print-check condensing (item 18): entries identical
-  // in everything the report prints — name, type,
-  // watercourse, maintainer, condition and standard of
-  // protection — print as ONE entry at the nearest
-  // distance, carrying the record count ("25 recorded
-  // stretches"); a group whose printed facts genuinely
-  // differ (a different condition, say) stays separate.
-  // The served order is kept: a group stands where its
-  // first entry stood.
+  // The recorded defences sub-block (scope (k)): the
+  // second pass turns the condensed entry list into
+  // per-type tables (BUG-099/100, below) — the type
+  // stated once per type, the stretches grouped on
+  // everything the table prints, the distance a plain
+  // text fact with no colour pill.
   const defences = served.defences;
   blocks.push({ type: "sub", text: defences.title });
   if (defences.state === "served") {
     if (defences.caveat) blocks.push({ type: "line", text: defences.caveat });
     if (defences.bridgeLine) blocks.push({ type: "line", text: defences.bridgeLine });
-    const defenceRowOf = (defence: ServedFloodDefence): ReportRow => ({
-      name: defence.name ?? defence.type ?? "Recorded flood defence",
-      detail:
-        [defence.name ? defence.type : null, defence.watercourse, defence.maintainer]
-          .filter((part): part is string => part !== null && part !== "")
-          .join(" · ") || null,
-      tag: null,
-      dist: `${formatMiles(defence.miles)} mi`,
-      distBand: distanceBand("everyday", defence.miles),
-      extra: [
-        defence.conditionLine,
-        ...(defence.designSopLine ? [defence.designSopLine] : []),
-        ...(defence.currentSopLine ? [defence.currentSopLine] : []),
-      ],
-    });
-    const groups: { key: string; row: ReportRow; count: number }[] = [];
+    // The defences as tables (BUG-099/100): one table
+    // per defence type, the type stated once as the
+    // table's own sub-heading; each row one recorded
+    // stretch group — watercourse, maintainer, the
+    // count of recorded stretches the row stands for,
+    // condition, design standard, and the distance as a
+    // plain fact in a text cell, never a colour pill (a
+    // near defence is not a warning, and a far one is
+    // not a reassurance). Stretches identical in
+    // everything the table prints — including the
+    // distance it prints, at the report's one-decimal
+    // precision — stand as one row carrying their
+    // count; stretches that differ in any printed fact
+    // stay separate rows. The standards' explanations
+    // stand once, after the tables, in the small-print
+    // treatment. (The register names almost no defence;
+    // a filed name is not carried — the table's columns
+    // are the founder's six.)
+    const stripPrefix = (line: string | null, prefix: string) =>
+      line === null ? "Not recorded" : line.startsWith(prefix) ? line.slice(prefix.length) : line;
+    const byType = new Map<string, ServedFloodDefence[]>();
     for (const defence of defences.defences) {
-      const row = defenceRowOf(defence);
-      const key = JSON.stringify([row.name, row.detail, ...row.extra]);
-      const existing = groups.find((group) => group.key === key);
-      if (existing) existing.count += 1;
-      else groups.push({ key, row, count: 1 });
+      const type = defence.type ?? "Recorded flood defence";
+      const list = byType.get(type) ?? [];
+      list.push(defence);
+      byType.set(type, list);
     }
-    blocks.push({
-      type: "rows",
-      rows: groups.map((group) =>
-        group.count > 1
-          ? {
-              ...group.row,
-              extra: [`${group.count} recorded stretches`, ...group.row.extra],
-            }
-          : group.row,
-      ),
-    });
+    let designExplainer: string | null = null;
+    let currentExplainer: string | null = null;
+    for (const [type, typeDefences] of byType) {
+      blocks.push({ type: "sub", text: type });
+      const groups = new Map<string, { defence: ServedFloodDefence; count: number }>();
+      for (const defence of typeDefences) {
+        const key = JSON.stringify([
+          defence.watercourse,
+          defence.maintainer,
+          defence.condition,
+          defence.designSop,
+          defence.currentSop,
+          formatMiles(defence.miles),
+        ]);
+        const existing = groups.get(key);
+        if (existing) existing.count += 1;
+        else groups.set(key, { defence, count: 1 });
+      }
+      const rows: string[][] = [];
+      const subs: (string | null)[][] = [];
+      for (const { defence, count: groupCount } of groups.values()) {
+        rows.push([
+          defence.watercourse ?? "Not recorded",
+          sentence(defence.maintainer),
+          String(groupCount),
+          sentence(stripPrefix(defence.conditionLine, "condition: ")),
+          sentence(stripPrefix(defence.designSopLine, "design standard: ")),
+          `${formatMiles(defence.miles)} miles`,
+        ]);
+        subs.push([
+          null,
+          null,
+          null,
+          null,
+          defence.currentSop !== null && defence.currentSop !== defence.designSop
+            ? `Current standard: 1 in ${defence.currentSop}`
+            : null,
+          null,
+        ]);
+        if (!designExplainer && defence.designSopExplainer)
+          designExplainer = defence.designSopExplainer;
+        if (!currentExplainer && defence.currentSopExplainer)
+          currentExplainer = defence.currentSopExplainer;
+      }
+      blocks.push({
+        type: "table",
+        head: [
+          "Watercourse",
+          "Maintainer",
+          "Recorded stretches",
+          "Condition",
+          "Design standard",
+          "Distance",
+        ],
+        rows,
+        cellSubs: subs,
+        align: ["left", "left", "right", "left", "left", "right"],
+      });
+    }
+    if (designExplainer) blocks.push({ type: "note", text: designExplainer });
+    if (currentExplainer) blocks.push({ type: "note", text: currentExplainer });
     if (defences.overflowLine) blocks.push({ type: "line", text: defences.overflowLine });
   } else if (defences.line) {
     blocks.push({
@@ -3859,18 +4269,31 @@ function section8(input: ReportInput): ReportSectionView {
       text: defences.line,
     });
   }
-  // The climate outlook, a fenced sub-block exactly as
-  // served (scope (l)): its heading and basis line print
-  // every time, the caveats with it, and no line compares
-  // a scenario band with a present-day band.
+  // The climate outlook in its second-pass form
+  // (BUG-101): the block leads with the plain short
+  // answer for each layer — no band published for this
+  // point under the scenario, in those words where that
+  // is the answer — and the scenario specification, the
+  // basis fence and the fuller caveats stand on the
+  // flood-risk How-we-check page, which Section 10
+  // links and which carries them in full. One
+  // small-print line stays in the report: the Agency's
+  // own caution. No line compares a scenario band with
+  // a present-day band.
   const climate = served.climate;
   blocks.push({ type: "sub", text: climate.heading });
-  blocks.push({ type: "line", text: climate.basisLine });
-  blocks.push({ type: "note", text: climate.caveatLine });
   for (const source of climate.sources) {
-    blocks.push({ type: "line", text: `${source.title}: ${source.line}` });
-    blocks.push({ type: "note", text: source.scenarioLine });
+    if (source.pointState === "no-band-published") {
+      const shortName = source.source === "rivers-sea" ? "Rivers and the sea" : "Surface water";
+      blocks.push({
+        type: "line",
+        text: `${shortName}: no likelihood band is published for this point under the scenario.`,
+      });
+    } else {
+      blocks.push({ type: "line", text: `${source.title}: ${source.line}` });
+    }
   }
+  blocks.push({ type: "note", text: climate.caveatLine });
   blocks.push({ type: "note", text: served.howWeCheck });
   return section(8, "Flood risk", blocks);
 }
@@ -4428,7 +4851,7 @@ function section10(input: ReportInput, cert: ServedCertificate | null): ReportSe
     constraints: "Planning constraints & land",
     heritage: "Listed buildings & heritage",
     nature: "Nature & protected areas",
-    chargingZones: "Charging zones",
+    chargingZones: "Clean air zones & driving charges",
     imd: "Deprivation",
     buildingSafety: "Building safety",
     // Present only while the company-ownership flag is on
@@ -4659,6 +5082,89 @@ function capitaliseStandaloneLines(view: ReportView): void {
   }
 }
 
+// The sentence-finishing pass (BUG-090): every printed
+// sentence ends with its full stop. Brain lines lifted
+// raw into line, note and caption slots — bypassing the
+// sentenceLine composition — can end mid-air; this pass
+// closes them, once, over the finished view, on the
+// same standalone set the capitalisation pass covers.
+// A line already ending in terminal punctuation is
+// untouched; a line ending in a colon, a comma or a
+// dash is a lead-in or a fragment by design and is
+// left; headings, table cells, tile fragments and the
+// seller questions are not sentences and stay outside,
+// exactly as they sit outside the capitalisation pass.
+// A rich line is finished on its last segment, and only
+// where that segment is not a link (a Sources line
+// closes with its own composed stop after its links).
+function finishSentence(text: string): string {
+  const trimmed = text.trimEnd();
+  if (trimmed === "") return text;
+  if (/[.!?…]$/.test(trimmed)) return text;
+  const last = trimmed.charAt(trimmed.length - 1);
+  if (/[A-Za-z0-9)%²³]$/.test(last) || last === "”" || last === '"') return `${trimmed}.`;
+  return text;
+}
+
+function finishRichLine(line: ReportRichLine): ReportRichLine {
+  if (line.length === 0) return line;
+  const last = line[line.length - 1];
+  if (last.href) return line;
+  return [...line.slice(0, -1), { ...last, text: finishSentence(last.text) }];
+}
+
+function finishBlock(block: ReportBlock): void {
+  switch (block.type) {
+    case "intro":
+    case "line":
+    case "boldLine":
+    case "note":
+      block.text = finishSentence(block.text);
+      break;
+    case "list":
+      block.items = block.items.map((item) => finishSentence(item));
+      break;
+    case "richList":
+      block.items = block.items.map((line) => finishRichLine(line));
+      break;
+    case "table":
+      if (block.caption) block.caption = finishSentence(block.caption);
+      break;
+    case "bars":
+    case "statTile":
+      block.caption = finishSentence(block.caption);
+      break;
+    case "chartGrid":
+      for (const card of block.cards) finishBlock(card);
+      break;
+    case "dotPlot":
+      block.plot.caption = finishSentence(block.plot.caption);
+      break;
+    case "monthChart":
+      block.chart.caption = finishSentence(block.chart.caption);
+      break;
+    case "map":
+      block.map.caption = finishSentence(block.map.caption);
+      break;
+    case "floodMap":
+      block.map.caption = finishSentence(block.map.caption);
+      break;
+    default:
+      break;
+  }
+}
+
+function finishStandaloneLines(view: ReportView): void {
+  if (view.shortVersion) {
+    for (const group of view.shortVersion.groups) {
+      group.lines = group.lines.map((line) => finishRichLine(line));
+    }
+  }
+  for (const viewSection of view.sections) {
+    for (const block of viewSection.blocks) finishBlock(block);
+  }
+}
+
 export function buildReportView(input: ReportInput): ReportView {
   const sections = areaSections(input);
   const cert = sections ? matchedCertificate(input.resolution, sections.epc.certificates) : null;
@@ -4682,5 +5188,6 @@ export function buildReportView(input: ReportInput): ReportView {
     ],
   };
   capitaliseStandaloneLines(view);
+  finishStandaloneLines(view);
   return view;
 }
