@@ -516,7 +516,7 @@ describe("report — Section 7 home, costs & risks", () => {
     expect(basisAt).toBeGreaterThan(lineAt);
   });
 
-  it("the EPC spread renders as a band chart with the row's served line as its caption — and no home marker anywhere on it (M8.2, the M8.11(e) chart moved up)", () => {
+  it("the EPC spread renders as a band chart with the row's served line as its caption — and no home marker anywhere on it (M8.2, the M8.10(e) chart moved up)", () => {
     const spread = view.sections[6].blocks.find(
       (b) => b.type === "bars" && b.title.includes("RdSAP"),
     );

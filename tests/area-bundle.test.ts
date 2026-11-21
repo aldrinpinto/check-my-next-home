@@ -5030,6 +5030,76 @@ describe("heritage — the four M6.21 layers", () => {
   });
 });
 
+describe("heritage — registered parks & gardens (M8.10)", () => {
+  it("unfiled, the layer serves its named not-filed state at all three homes — never an absence", async () => {
+    // The wiring lands ahead of the filing (the national
+    // filing rides with the national loads programme):
+    // where the layer's table holds no shapes, the
+    // layer's answer is the not-filed sentence, not a
+    // "none found" computed over an empty table. (The
+    // golden replay pins the same state on the real
+    // corpus, which files no parks shapes.)
+    class UnfiledParksSource extends FakeAreaSource {
+      override async planningLayerFacts(layer: PlanningLayerKind, lat: number, lng: number) {
+        if (layer === "registered_park_and_garden")
+          return layerFacts({ filedCount: 0, sourceName: null, sourceDate: null });
+        return super.planningLayerFacts(layer, lat, lng);
+      }
+    }
+    for (const resolution of [BIRKDALE, EXETER, MINERVA]) {
+      const { sections } = await bundle(resolution, new UnfiledParksSource());
+      const parks = sections.heritage.parksAndGardens;
+      expect(parks.state).toBe("not-filed");
+      expect(parks.line).toBe(
+        "the registered park and garden data is not filed yet, so no registered park and garden answer can be given yet",
+      );
+      expect(parks.beyondLine).toBeNull();
+    }
+  });
+
+  it("inside a registered park or garden, the line names the site", async () => {
+    class ParksSource extends FakeAreaSource {
+      override async planningLayerFacts(layer: PlanningLayerKind, lat: number, lng: number) {
+        if (layer === "registered_park_and_garden")
+          return layerFacts({
+            filedCount: 1723,
+            covering: [{ id: 91, name: "Nonsuch Park", detail: null }],
+          });
+        return super.planningLayerFacts(layer, lat, lng);
+      }
+    }
+    const { sections } = await bundle(MINERVA, new ParksSource());
+    const parks = sections.heritage.parksAndGardens;
+    expect(parks.state).toBe("inside");
+    expect(parks.line).toBe(
+      "the postcode point falls inside the Nonsuch Park registered park and garden",
+    );
+    expect(parks.insideName).toBe("Nonsuch Park");
+  });
+
+  it("filed but not covering, the absence line and the beyond line serve in the layer's own words", async () => {
+    class ParksBeyondSource extends FakeAreaSource {
+      override async planningLayerFacts(layer: PlanningLayerKind, lat: number, lng: number) {
+        if (layer === "registered_park_and_garden")
+          return layerFacts({
+            filedCount: 1723,
+            nearestBeyond: { id: 91, name: "Nonsuch Park", detail: null, miles: 2.412 },
+          });
+        return super.planningLayerFacts(layer, lat, lng);
+      }
+    }
+    const { sections } = await bundle(BIRKDALE, new ParksBeyondSource());
+    const parks = sections.heritage.parksAndGardens;
+    expect(parks.state).toBe("none-found");
+    expect(parks.line).toBe(
+      "no registered park and garden covers this postcode point in the national data",
+    );
+    expect(parks.beyondLine).toBe(
+      "none within 2 miles — the nearest is Nonsuch Park, 2.412 miles away (straight-line distance from the postcode point)",
+    );
+  });
+});
+
 describe("EPC suggested improvements — the register's modelled steps (M6.21)", () => {
   it("Birkdale: the two steps serve in register sequence, named, never summed", async () => {
     const { sections } = await bundle(BIRKDALE);

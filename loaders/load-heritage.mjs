@@ -56,6 +56,16 @@
 // only 9 buffer zones are published (not every site has
 // one), so the buffer layer's filed count is 9, honestly
 // small.
+//
+// M8.10 completes the register family with the sixth NHLE
+// polygon dataset: registered parks & gardens (the
+// platform's "park-and-garden" dataset, published title
+// "Historic parks and gardens"). The wiring lands ahead
+// of the filing — the national filing rides with the
+// national loads programme — so until then the layer
+// files nothing anywhere and the brain serves its named
+// not-filed state. See PARK_AND_GARDEN_DATASET below for
+// why it does not join NEW_LAYER_DATASETS.
 
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -91,6 +101,28 @@ const NEW_LAYER_DATASETS = [
     band: [5, 15],
   },
 ];
+// Registered parks & gardens (M8.10). It does NOT join
+// NEW_LAYER_DATASETS: that list's golden check asserts
+// every layer's absence at all three universal homes,
+// and Nonsuch Park — a registered park and garden —
+// stands about half a mile from the Epsom flat, so the
+// absence assertion cannot hold for this layer; its
+// golden check is the filed-count proof below. The live
+// band is the published register's size: the platform's
+// dataset page counted 1,723 parks and gardens on
+// 21 Nov 2026, so the filed shapes (current, deduped)
+// land in [1600, 1850]. In fixture mode a missing
+// park-and-garden.csv is a named skip, never a failure —
+// no fixture cut exists until the national filing's own
+// capture, and a fixture run without the cut files
+// nothing for the layer, exactly the production state
+// until the filing lands. In live mode the file is
+// required: a failed download fails the run.
+const PARK_AND_GARDEN_DATASET = {
+  dataset: "park-and-garden",
+  constraintType: "registered_park_and_garden",
+  band: [1600, 1850],
+};
 const GRADE_VOCABULARY = new Set(["I", "II*", "II"]);
 const NL_REFERENCE = "1495697";
 const ENDED_LB_REFERENCE = "1338507";
@@ -517,6 +549,19 @@ function checkGoldenNewLayers(newLayers) {
   if (fails.length > 0) throw new Error(`golden checks failed:\n - ${fails.join("\n - ")}`);
 }
 
+// The parks & gardens golden check (M8.10): the universal
+// absence assertion cannot hold for this layer (Nonsuch
+// Park stands about half a mile from the Epsom flat), so
+// the check is the filing proof alone — where the dataset
+// was read at all, it must file shapes. A fixture run
+// without a cut passes null and proves nothing, by the
+// design its spec comment records.
+function checkGoldenParks(parks) {
+  if (!parks) return;
+  if (parks.processed.filed.length <= 0)
+    throw new Error("golden checks failed:\n - park-and-garden: no shapes filed");
+}
+
 async function main() {
   const startedAt = Date.now();
   const args = process.argv.slice(2);
@@ -551,6 +596,23 @@ async function main() {
     newLayers.push({ ...spec, processed: processPolygons(rows, spec.dataset) });
   }
 
+  // Registered parks & gardens (M8.10), through the same
+  // polygon path — read with the fixture-mode tolerance
+  // its spec comment describes (a missing fixture cut is
+  // a named skip; a missing live file fails the run).
+  let parks = null;
+  const parksText = fixtureMode
+    ? await readDataset(PARK_AND_GARDEN_DATASET.dataset).catch(() => null)
+    : await readDataset(PARK_AND_GARDEN_DATASET.dataset);
+  if (parksText !== null) {
+    const parksRows = parseCsv(parksText);
+    requireHeaders(parksRows, PARK_AND_GARDEN_DATASET.dataset);
+    parks = {
+      ...PARK_AND_GARDEN_DATASET,
+      processed: processPolygons(parksRows, PARK_AND_GARDEN_DATASET.dataset),
+    };
+  }
+
   if (!fixtureMode) {
     if (lb.current < 370000 || lb.current > 395000)
       throw new Error(
@@ -567,9 +629,17 @@ async function main() {
           `sanity failure: ${layer.processed.filed.length} filed ${layer.dataset} shapes is outside the expected band`,
         );
     }
+    if (parks) {
+      const [lo, hi] = PARK_AND_GARDEN_DATASET.band;
+      if (parks.processed.filed.length < lo || parks.processed.filed.length > hi)
+        throw new Error(
+          `sanity failure: ${parks.processed.filed.length} filed park-and-garden shapes is outside the expected band`,
+        );
+    }
   }
   checkGolden(lb, sm);
   checkGoldenNewLayers(newLayers);
+  checkGoldenParks(parks);
 
   const summary = () =>
     `load-heritage · planning.data.gov.uk files retrieved ${sourceDate} (source of record: Historic England, NHLE) · ` +
@@ -580,7 +650,10 @@ async function main() {
         (layer) =>
           ` · ${layer.dataset}: ${layer.processed.filed.length} filed (${layer.processed.current} current of ${layer.processed.total} in file · ${layer.processed.ended} ended excluded · ${layer.processed.geoless} without geometry counted · ${layer.processed.duplicates} duplicates dropped)`,
       )
-      .join("");
+      .join("") +
+    (parks
+      ? ` · park-and-garden: ${parks.processed.filed.length} filed (${parks.processed.current} current of ${parks.processed.total} in file · ${parks.processed.ended} ended excluded · ${parks.processed.geoless} without geometry counted · ${parks.processed.duplicates} duplicates dropped)`
+      : " · park-and-garden: no fixture captured — the layer files nothing this run");
 
   if (verifyOnly) {
     console.log(`${summary()} · golden homes OK (verify only, nothing filed)`);
@@ -650,6 +723,10 @@ async function main() {
         constraintType: layer.constraintType,
         filed: layer.processed.filed,
       })),
+      // Parks & gardens file only where the dataset was
+      // read (M8.10): a fixture run without a cut leaves
+      // any filed parks rows exactly as they stand.
+      ...(parks ? [{ constraintType: parks.constraintType, filed: parks.processed.filed }] : []),
     ];
     const SM_CHUNK = 25;
     for (const set of polygonSets) {

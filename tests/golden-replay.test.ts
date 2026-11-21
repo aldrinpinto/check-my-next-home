@@ -1836,6 +1836,89 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
     }
   });
 
+  it("report view (M8.10): Section 7's additions carry the served depth on the real bundles", () => {
+    // The M8.10 blocks on the REAL bundles: building
+    // safety in its locked forms, the improvements
+    // introduction, brownfield's per-site rows, the
+    // static mortgage & stamp duty figures on each
+    // home's own last recorded sale, and the registered
+    // parks & gardens layer in its not-filed state (the
+    // wiring lands ahead of the national filing).
+    const viewOf = (tag: string) => {
+      const b = get(tag);
+      return buildReportView({
+        resolution: b.resolution,
+        nearby: b.nearby,
+        flood: b.flood,
+        area: b.area,
+        sold: b.sold,
+        crime: b.crime,
+        now: NOW,
+      });
+    };
+    const s7 = (tag: string) => JSON.stringify(viewOf(tag).sections[6]);
+
+    for (const tag of ["birkdale1", "exeter1", "minerva1"]) {
+      const text = s7(tag);
+      // The tribunal line in its locked as-at wording —
+      // the fixture corpus files no decision naming any
+      // of the three postcodes.
+      expect(text).toContain(
+        "No published building-safety orders naming this postcode, as at 14 November 2026.",
+      );
+      // Parks & gardens: wired, unfiled, named as such.
+      expect(text).toContain(
+        "The registered park and garden data is not filed yet, so no registered park and garden answer can be given yet.",
+      );
+      // The prohibitions hold on the real bundles too.
+      expect(text.toLowerCase()).not.toContain("no tribunal decisions found");
+      expect(text.toLowerCase()).not.toContain("total monthly");
+    }
+
+    // The two houses take the register scope line;
+    // Minerva's flat takes the hand-off with the
+    // official search link.
+    for (const tag of ["birkdale1", "exeter1"]) {
+      expect(s7(tag)).toContain(
+        "The Building Safety Regulator's register covers high-rise residential buildings — buildings of 7 or more storeys or 18 metres or more, with 2 or more residential units; a house is outside what the register is for.",
+      );
+    }
+    const minerva = s7("minerva1");
+    expect(minerva).toContain("can only be checked on the register's own search service");
+    expect(minerva).toContain(
+      "https://www.register-high-rise-building.service.gov.uk/public-register/search",
+    );
+
+    // Birkdale: the improvements introduction in the
+    // register's own words, and brownfield's nearest
+    // site as a row with the register's dwelling fact.
+    const birkdale = s7("birkdale1");
+    expect(birkdale).toContain(
+      "The certificate's suggested improvements, in the register's order — the register's modelled steps for this home, not advice.",
+    );
+    expect(birkdale).toContain("2 recorded brownfield sites within 2 miles of the postcode point.");
+    expect(birkdale).toContain("Universal Garage, The Street, Hatfield Peverel");
+    expect(birkdale).toContain("The register publishes 9 net dwellings for the site.");
+
+    // The static figures, on each home's own last
+    // recorded sale at the D44 assumptions (the
+    // calculators' arithmetic): Birkdale £588,995 →
+    // £2,455 a month and £19,450 duty; Exeter £270,000
+    // → £1,126 a month and £3,500 duty.
+    expect(birkdale).toContain(
+      "Worked on this home's last recorded sale price — £588,995 on 15 June 2023",
+    );
+    expect(birkdale).toContain("£2,455 a month, repayment.");
+    expect(birkdale).toContain(
+      "Stamp duty on that price would be £19,450 at the standard rates for a buyer moving from their own home.",
+    );
+    const exeter = s7("exeter1");
+    expect(exeter).toContain("£1,126 a month, repayment.");
+    expect(exeter).toContain(
+      "Stamp duty on that price would be £3,500 at the standard rates for a buyer moving from their own home.",
+    );
+  });
+
   it("report view (M8.3): the flood-map promise — Birkdale's street unshaded, Exeter's shading matches the data", () => {
     // THE PROMISE TEST, layer 1 (geometry) — the plan
     // step's own check, run against the DRAWN geometry:

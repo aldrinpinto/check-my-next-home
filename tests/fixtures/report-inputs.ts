@@ -616,6 +616,7 @@ export function areaWith(overrides: Record<string, unknown> = {}): AreaBundle {
       battlefields: polygon("no registered battlefield at this point"),
       protectedWrecks: polygon("no protected wreck at this point"),
       worldHeritageBufferZones: polygon("no buffer zone at this point"),
+      parksAndGardens: polygon("no registered park and garden at this point"),
       localListsLine: null,
     },
     nature: {
@@ -752,7 +753,34 @@ export function areaWith(overrides: Record<string, unknown> = {}): AreaBundle {
         url: "https://www.gov.uk/search-register-planning-decisions",
       },
     },
-    buildingSafety: { ...meta(null), tribunal: {}, register: {} },
+    buildingSafety: {
+      ...meta(null),
+      // The Birkdale-true forms (M8.10): a clear single
+      // house takes the register scope line with no link,
+      // and no filed decision names the postcode — the
+      // locked none-filed line, as at the fixture filing.
+      tribunal: {
+        state: "none-filed",
+        grain: "postcode point",
+        grainLine: "published decisions naming this postcode",
+        line: "no published building-safety orders naming this postcode, as at 14 November 2026",
+        decisionCount: 0,
+        groups: [],
+        sourceName: "Source",
+        sourceDate: "2026-11-14",
+        sourceLine: null,
+      },
+      register: {
+        state: "out-of-scope",
+        grain: "home",
+        grainLine: "this building, in the Building Safety Regulator's register",
+        line: "the Building Safety Regulator's register covers high-rise residential buildings — buildings of 7 or more storeys or 18 metres or more, with 2 or more residential units; a house is outside what the register is for",
+        link: null,
+        sourceName: null,
+        sourceDate: null,
+        sourceLine: null,
+      },
+    },
     census: {
       ...meta("Source: Census 2021"),
       state: "served",

@@ -499,6 +499,20 @@
           "sourceName": "string",
           "state": "string"
         },
+        "parksAndGardens": {
+          "beyondLine": "null",
+          "beyondNearest": "null",
+          "insideDetail": "null",
+          "insideName": "null",
+          "label": "string",
+          "layer": "string",
+          "line": "string",
+          "nearest": "null",
+          "sourceDate": "string",
+          "sourceLine": "string",
+          "sourceName": "string",
+          "state": "string"
+        },
         "protectedWrecks": {
           "beyondLine": "null",
           "beyondNearest": "null",
@@ -1311,6 +1325,20 @@
           "sourceName": "string",
           "state": "string"
         },
+        "parksAndGardens": {
+          "beyondLine": "null",
+          "beyondNearest": "null",
+          "insideDetail": "null",
+          "insideName": "null",
+          "label": "string",
+          "layer": "string",
+          "line": "string",
+          "nearest": "null",
+          "sourceDate": "string",
+          "sourceLine": "string",
+          "sourceName": "string",
+          "state": "string"
+        },
         "protectedWrecks": {
           "beyondLine": "null",
           "beyondNearest": "null",
@@ -2085,6 +2113,20 @@
           "sourceName": "string",
           "state": "string"
         },
+        "parksAndGardens": {
+          "beyondLine": "null",
+          "beyondNearest": "null",
+          "insideDetail": "null",
+          "insideName": "null",
+          "label": "string",
+          "layer": "string",
+          "line": "string",
+          "nearest": "null",
+          "sourceDate": "string",
+          "sourceLine": "string",
+          "sourceName": "string",
+          "state": "string"
+        },
         "protectedWrecks": {
           "beyondLine": "null",
           "beyondNearest": "null",
@@ -2659,6 +2701,20 @@
         },
         "localListsLine": "string",
         "monuments": {
+          "beyondLine": "null",
+          "beyondNearest": "null",
+          "insideDetail": "null",
+          "insideName": "null",
+          "label": "string",
+          "layer": "string",
+          "line": "string",
+          "nearest": "null",
+          "sourceDate": "null",
+          "sourceLine": "null",
+          "sourceName": "null",
+          "state": "string"
+        },
+        "parksAndGardens": {
           "beyondLine": "null",
           "beyondNearest": "null",
           "insideDetail": "null",
@@ -3355,6 +3411,20 @@
           "sourceName": "string",
           "state": "string"
         },
+        "parksAndGardens": {
+          "beyondLine": "null",
+          "beyondNearest": "null",
+          "insideDetail": "null",
+          "insideName": "null",
+          "label": "string",
+          "layer": "string",
+          "line": "string",
+          "nearest": "null",
+          "sourceDate": "string",
+          "sourceLine": "string",
+          "sourceName": "string",
+          "state": "string"
+        },
         "protectedWrecks": {
           "beyondLine": "null",
           "beyondNearest": "null",
@@ -3963,6 +4033,20 @@
         },
         "localListsLine": "string",
         "monuments": {
+          "beyondLine": "null",
+          "beyondNearest": "null",
+          "insideDetail": "null",
+          "insideName": "null",
+          "label": "string",
+          "layer": "string",
+          "line": "string",
+          "nearest": "null",
+          "sourceDate": "string",
+          "sourceLine": "string",
+          "sourceName": "string",
+          "state": "string"
+        },
+        "parksAndGardens": {
           "beyondLine": "null",
           "beyondNearest": "null",
           "insideDetail": "null",
@@ -4670,6 +4754,20 @@
         },
         "localListsLine": "string",
         "monuments": {
+          "beyondLine": "null",
+          "beyondNearest": "null",
+          "insideDetail": "null",
+          "insideName": "null",
+          "label": "string",
+          "layer": "string",
+          "line": "string",
+          "nearest": "null",
+          "sourceDate": "string",
+          "sourceLine": "string",
+          "sourceName": "string",
+          "state": "string"
+        },
+        "parksAndGardens": {
           "beyondLine": "null",
           "beyondNearest": "null",
           "insideDetail": "null",
@@ -5568,6 +5666,20 @@
         },
         "localListsLine": "string",
         "monuments": {
+          "beyondLine": "null",
+          "beyondNearest": "null",
+          "insideDetail": "null",
+          "insideName": "null",
+          "label": "string",
+          "layer": "string",
+          "line": "string",
+          "nearest": "null",
+          "sourceDate": "string",
+          "sourceLine": "string",
+          "sourceName": "string",
+          "state": "string"
+        },
+        "parksAndGardens": {
           "beyondLine": "null",
           "beyondNearest": "null",
           "insideDetail": "null",

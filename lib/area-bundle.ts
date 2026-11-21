@@ -297,7 +297,8 @@ export type PlanningLayerKind =
   | "world_heritage_site"
   | "battlefield"
   | "protected_wreck_site"
-  | "world_heritage_buffer_zone";
+  | "world_heritage_buffer_zone"
+  | "registered_park_and_garden";
 
 export interface PlanningShapeRow {
   id: number;
@@ -1506,6 +1507,14 @@ export interface HeritageSection extends AreaSectionMeta {
   battlefields: PolygonLayerAnswer;
   protectedWrecks: PolygonLayerAnswer;
   worldHeritageBufferZones: PolygonLayerAnswer;
+  // Registered parks & gardens (M8.10, decision D41's
+  // register family completed): one more NHLE polygon
+  // dataset in the monument shape, wired into the loader
+  // and this brain ahead of its national filing — until
+  // the filing lands (with the national loads programme)
+  // the layer serves its named not-filed state, never an
+  // absence computed over an empty table.
+  parksAndGardens: PolygonLayerAnswer;
   localListsLine: string;
 }
 
@@ -1573,6 +1582,21 @@ const WORLD_HERITAGE_BUFFER_SPEC: PolygonSpec = {
     absence === "sparse-coverage"
       ? "the world heritage site buffer zones filed cover England, and none is filed near this point"
       : "no world heritage site buffer zone covers this postcode point in the national data",
+};
+
+// Registered parks & gardens (M8.10): the Register of
+// Parks and Gardens of Special Historic Interest, in the
+// same NHLE polygon shape. Its inside line names the
+// site, as every layer's does.
+const REGISTERED_PARK_AND_GARDEN_SPEC: PolygonSpec = {
+  layer: "registered_park_and_garden",
+  label: "Registered park and garden",
+  unnamedName: "an unnamed registered park and garden",
+  insideLine: (name) => `the postcode point falls inside the ${name} registered park and garden`,
+  absenceLine: (absence) =>
+    absence === "sparse-coverage"
+      ? "the registered parks and gardens filed cover England, and none is filed near this point"
+      : "no registered park and garden covers this postcode point in the national data",
 };
 
 function toListedPlace(row: ListedRow): ListedPlace {
@@ -1671,6 +1695,11 @@ function buildHeritage(
     worldHeritageBufferZones: buildPolygonLayer(
       WORLD_HERITAGE_BUFFER_SPEC,
       heritageLayers.world_heritage_buffer_zone,
+      nation === "england" ? "none-found" : "sparse-coverage",
+    ),
+    parksAndGardens: buildPolygonLayer(
+      REGISTERED_PARK_AND_GARDEN_SPEC,
+      heritageLayers.registered_park_and_garden,
       nation === "england" ? "none-found" : "sparse-coverage",
     ),
     localListsLine:
@@ -5520,6 +5549,7 @@ export async function buildAreaBundle(
     battlefieldFacts,
     protectedWreckFacts,
     bufferZoneFacts,
+    parksAndGardensFacts,
     designations,
     listed,
     phi,
@@ -5549,6 +5579,7 @@ export async function buildAreaBundle(
     source.planningLayerFacts("battlefield", latitude, longitude),
     source.planningLayerFacts("protected_wreck_site", latitude, longitude),
     source.planningLayerFacts("world_heritage_buffer_zone", latitude, longitude),
+    source.planningLayerFacts("registered_park_and_garden", latitude, longitude),
     source.designationFacts(latitude, longitude),
     source.listedFacts(latitude, longitude),
     source.phiFacts(latitude, longitude),
@@ -5614,6 +5645,7 @@ export async function buildAreaBundle(
         battlefield: battlefieldFacts,
         protected_wreck_site: protectedWreckFacts,
         world_heritage_buffer_zone: bufferZoneFacts,
+        registered_park_and_garden: parksAndGardensFacts,
       }),
       nature: buildNature(designations, woodlandFacts, phi, nation),
       epc,

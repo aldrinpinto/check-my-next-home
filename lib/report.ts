@@ -8,6 +8,20 @@ import type {
   CompanyTitleServed,
   ServedCertificate,
 } from "./area-bundle";
+import {
+  MORTGAGE_DEFAULT_DEPOSIT_PCT,
+  MORTGAGE_DEFAULT_RATE_PCT,
+  MORTGAGE_DEFAULT_TERM_YEARS,
+  SCOTLAND_TAX_LINE,
+  SCOTLAND_TAX_LINK,
+  STAMP_DUTY_RATES_LINE,
+  STAMP_DUTY_RATES_URL,
+  WALES_TAX_LINE,
+  WALES_TAX_LINK,
+  defaultDeposit,
+  mortgageMonthly,
+  stampDuty,
+} from "./calculators";
 import { CHECK_PAGES } from "./check-pages";
 import type { CrimeBundle, ServedCrime } from "./crime";
 import { CRIME_CATEGORY_SLUGS, crimeCategoryLabel } from "./district";
@@ -20,7 +34,7 @@ import type {
   ServedFloodLayer,
   ServedFloodWarning,
 } from "./flood";
-import { formatFiledDate, formatMiles, formatPounds } from "./journey";
+import { formatFiledDate, formatMiles, formatPounds, nationOfLsoa } from "./journey";
 import type { CategoryAnswer, NearbyBundle, NearbyCategory, NearbyPlace } from "./nearby";
 import { REPORT_SCHOOL_LIST_SIZE } from "./nearby";
 import { CATCHMENT_LINK, distanceBand, reportRoute, type DistanceBand } from "./results";
@@ -621,6 +635,13 @@ function round1(value: number): number {
 
 function count(value: number): string {
   return value.toLocaleString("en-GB");
+}
+
+// A filed percentage, printed as published (the broadband
+// brain's own form): at most two decimal places, no
+// trailing zeros (100, 99.29, 97.9).
+function sharePct(value: number): string {
+  return String(Math.round(value * 100) / 100);
 }
 
 // The nice-step rule (founder ruling, 20 Nov 2026): axis
@@ -2777,10 +2798,78 @@ function section7(input: ReportInput): ReportSectionView {
       caption: tax.bandsLine ?? undefined,
     });
     // The D33 monthly line, inside its own section and
-    // never summed with anything (M8.11(b) settles the
+    // never summed with anything (M8.10(b) settles the
     // short version's form; the report carries the served
     // line here).
     if (tax.monthlyLine) blocks.push({ type: "line", text: tax.monthlyLine });
+  }
+
+  // Mortgage & stamp duty (M8.10, item (f)): the static
+  // worked figures, on the website calculators' own
+  // arithmetic and standard assumptions (D44), priced on
+  // the home's own last recorded sale — the calculators'
+  // basis. A home with no recorded sale carries no
+  // figure and no block. Numbers only: no affordability
+  // verdict, and these figures are never summed with the
+  // council tax or energy lines around them. Scotland
+  // and Wales charge their own taxes, so the stamp duty
+  // figure gives way to the calculators' named nation
+  // line and its official link (the D30 pattern) — no
+  // SDLT figure is ever served for either nation.
+  const soldForCosts = input.sold;
+  const lastSale =
+    soldForCosts.kind === "sold-prices" && "ownHistory" in soldForCosts
+      ? soldForCosts.ownHistory[0]
+      : undefined;
+  if (input.resolution.rung === 1 && lastSale) {
+    const price = lastSale.price;
+    const mortgage = mortgageMonthly(
+      price,
+      defaultDeposit(price),
+      MORTGAGE_DEFAULT_RATE_PCT,
+      MORTGAGE_DEFAULT_TERM_YEARS,
+    );
+    blocks.push({ type: "sub", text: "Mortgage & stamp duty" });
+    blocks.push({
+      type: "line",
+      text: `Worked on this home's last recorded sale price — ${formatPounds(price)} on ${formatFiledDate(lastSale.date)} — on the standard assumptions: a ${MORTGAGE_DEFAULT_DEPOSIT_PCT}% deposit, a ${MORTGAGE_DEFAULT_TERM_YEARS}-year term and a ${MORTGAGE_DEFAULT_RATE_PCT}% interest rate.`,
+    });
+    if (mortgage.sentence) blocks.push({ type: "line", text: mortgage.sentence });
+    const nation = nationOfLsoa(
+      "directory" in input.resolution ? input.resolution.directory.lsoaCode : null,
+    );
+    if (nation === "scotland") {
+      blocks.push({ type: "line", text: sentenceLine(SCOTLAND_TAX_LINE) });
+      blocks.push({
+        type: "lineLink",
+        text: "",
+        label: SCOTLAND_TAX_LINK.label,
+        href: SCOTLAND_TAX_LINK.url,
+      });
+    } else if (nation === "wales") {
+      blocks.push({ type: "line", text: sentenceLine(WALES_TAX_LINE) });
+      blocks.push({
+        type: "lineLink",
+        text: "",
+        label: WALES_TAX_LINK.label,
+        href: WALES_TAX_LINK.url,
+      });
+    } else {
+      blocks.push({
+        type: "line",
+        text: `Stamp duty on that price would be ${formatPounds(stampDuty(price, "moving"))} at the standard rates for a buyer moving from their own home.`,
+      });
+      blocks.push({
+        type: "lineLink",
+        text: "",
+        label: STAMP_DUTY_RATES_LINE,
+        href: STAMP_DUTY_RATES_URL,
+      });
+    }
+    blocks.push({
+      type: "note",
+      text: "Illustration only — rates change, and this is not advice and not a verdict on what you can afford.",
+    });
   }
 
   // Energy certificates.
@@ -2817,6 +2906,13 @@ function section7(input: ReportInput): ReportSectionView {
       if (c.improvements) {
         blocks.push({ type: "sub", text: "Suggested improvements" });
         if (c.improvements.state === "served") {
+          // The block's served introduction (M8.10, item
+          // (h)): what these steps are — the register's
+          // modelled steps for this home, in its order,
+          // not advice. (The none-published state below
+          // already prints its own line; it is not
+          // doubled.)
+          blocks.push({ type: "line", text: sentenceLine(c.improvements.line) });
           // Register sequence, each step's own figures,
           // never summed (D41; the sample's "save about
           // £34 a year" line is not reproduced).
@@ -2827,10 +2923,31 @@ function section7(input: ReportInput): ReportSectionView {
         if (c.improvements.closingLine)
           blocks.push({ type: "line", text: c.improvements.closingLine });
       }
+      if (c.construction) {
+        // Construction (M8.10, decision D48): the
+        // certificate's own recorded descriptions of how
+        // this home is built, under its assessment above —
+        // the seven element groups verbatim, "(assumed)"
+        // markers untidied, absent groups in their named
+        // not-recorded state. The basis line and the
+        // U-value line stand as served: a U-value appears
+        // only as text inside a recorded description,
+        // never as a number of ours, and per-element
+        // ratings are never printed (the served shape
+        // carries none).
+        blocks.push({ type: "sub", text: "Construction" });
+        blocks.push({ type: "line", text: sentenceLine(c.construction.line) });
+        blocks.push({
+          type: "list",
+          items: c.construction.groups.map((group) => sentenceLine(group.line)),
+        });
+        if (c.construction.uValueLine)
+          blocks.push({ type: "line", text: sentenceLine(c.construction.uValueLine) });
+      }
     }
     if (epc.spread) {
       // D34: the spread counts certificates, not homes.
-      // The distribution chart (M8.11(e)'s chart, moved
+      // The distribution chart (M8.10(e)'s chart, moved
       // up into this step by the founder's ruling of
       // 20 Nov 2026 so every chart is built in one step):
       // one bar chart per assessment kind, band counts
@@ -2920,12 +3037,45 @@ function section7(input: ReportInput): ReportSectionView {
     if (state) blocks.push(state);
   }
 
-  // Broadband and mobile, headline forms (full depth is
-  // M8.11(g)'s step).
+  // Broadband and mobile at report depth (M8.10, item
+  // (g); decision D36). The free page and the short
+  // bundle keep the gigabit headline only — everything
+  // beneath the headline stands in the report alone.
   const broadband = sections.broadband;
   blocks.push({ type: "sub", text: "Broadband" });
   if (broadband.line) blocks.push({ type: "line", text: broadband.line });
   if (broadband.bandsLine) blocks.push({ type: "note", text: broadband.bandsLine });
+  // The category lines beneath the headline — superfast,
+  // ultrafast at 100 Mbit/s, broadband at 300 Mbit/s —
+  // each the share of premises in this postcode, as
+  // served. No line separates full fibre from the other
+  // gigabit-capable technologies, because the data does
+  // not (the section's explainer, in Section 10's
+  // sources, says so) — no full-fibre claim is made.
+  for (const categoryLine of [
+    broadband.superfastLine,
+    broadband.ultrafast100Line,
+    broadband.ultrafast300Line,
+  ]) {
+    if (categoryLine) blocks.push({ type: "line", text: sentenceLine(categoryLine) });
+  }
+  // The six speed bands as a table: each band is the
+  // share of premises in this postcode whose maximum
+  // predicted download speed falls in that range (the
+  // bandsLine note above is the table's explanation,
+  // kept with the block as served).
+  if (broadband.bands.length > 0) {
+    blocks.push({
+      type: "table",
+      head: ["Maximum predicted download speed", "Share of premises"],
+      rows: broadband.bands.map((band) => [band.label, `${sharePct(band.pct)}%`]),
+    });
+  }
+  // The unclassified share, named where the bands do not
+  // cover the postcode's premises — derived and named by
+  // the brain, never silently absorbed into the bands.
+  if (broadband.unclassifiedLine)
+    blocks.push({ type: "line", text: sentenceLine(broadband.unclassifiedLine) });
   const mobile = sections.mobile;
   blocks.push({ type: "sub", text: "Mobile coverage" });
   if (mobile.line) blocks.push({ type: "line", text: mobile.line });
@@ -2941,6 +3091,28 @@ function section7(input: ReportInput): ReportSectionView {
       // key this table does not know.
       const lead = MOBILE_SERVICE_LEADS[service.service] ?? service.label;
       blocks.push({ type: "line", text: `${lead} — ${sentence(service.line)}` });
+      // The per-operator shares beneath the lead (M8.10,
+      // D36): all four networks together, for the outdoor
+      // set the lead describes and — for 4G, the one
+      // service with a published indoor set — the indoor
+      // set in full as well. Every figure is the council
+      // area's, and every served line names the council,
+      // so the grain travels with the figure. A share
+      // Ofcom does not publish serves its not-published
+      // line in words, never a 0.
+      if (service.outdoor) {
+        blocks.push({
+          type: "line",
+          text: `${lead} — ${sentence(service.outdoor.allOperatorsLine)}`,
+        });
+      }
+      if (service.indoor) {
+        blocks.push({ type: "line", text: `${lead} — ${sentence(service.indoor.line)}` });
+        blocks.push({
+          type: "line",
+          text: `${lead} — ${sentence(service.indoor.allOperatorsLine)}`,
+        });
+      }
     }
   }
 
@@ -2948,22 +3120,58 @@ function section7(input: ReportInput): ReportSectionView {
   // (item 14): the hand-off is a neighbourhood fact and
   // stands in Section 6, with the Census block.
 
-  // Planning constraints & land, exactly as served (full
-  // per-site depth is M8.11(i)/(j)'s step). The five
-  // layer lines print as one bullet list, not a stack of
-  // paragraphs (item 23b).
+  // Planning constraints & land: the four polygon layers
+  // print as one bullet list, not a stack of paragraphs
+  // (item 23b), with the built-up area's beyond line in
+  // the list where it serves — the full form (M8.10,
+  // item (j)) the same layers print in their own blocks
+  // elsewhere. Brownfield leaves the list for its own
+  // full form below.
   const constraints = sections.constraints;
   blocks.push({ type: "sub", text: "Planning constraints & land" });
-  blocks.push({
-    type: "list",
-    items: [
-      constraints.conservationArea,
-      constraints.article4,
-      constraints.greenBelt,
-      constraints.builtUpArea,
-      constraints.brownfield,
-    ].map((layer) => sentenceLine(layer.line)),
-  });
+  const constraintLines = [
+    constraints.conservationArea,
+    constraints.article4,
+    constraints.greenBelt,
+    constraints.builtUpArea,
+  ].map((layer) => sentenceLine(layer.line));
+  if (constraints.builtUpArea.beyondLine)
+    constraintLines.push(sentenceLine(constraints.builtUpArea.beyondLine));
+  blocks.push({ type: "list", items: constraintLines });
+
+  // Brownfield land in full (M8.10, item (i); decision
+  // D41): the count line or the gated absence line as
+  // served — a "none found" only ever stands for a
+  // council positively recorded in the supplier gate —
+  // then the recorded sites nearest the point as rows:
+  // the register's address label, its distance, and the
+  // register's own facts for the site (its size, its
+  // planning permission status, the net dwellings it
+  // publishes) where the site carries them. The beyond
+  // line stands where it serves. A recorded site is a
+  // site recorded near the point, never a finding about
+  // this home's plot — the register files a point per
+  // site, not a boundary.
+  const brownfield = constraints.brownfield;
+  blocks.push({ type: "sub", text: "Brownfield land" });
+  blocks.push({ type: "line", text: sentenceLine(brownfield.line) });
+  if (brownfield.within.length > 0) {
+    blocks.push({
+      type: "rows",
+      rows: brownfield.within.map((site) => ({
+        name: site.label,
+        detail: site.hectaresLine ? sentence(site.hectaresLine) : null,
+        tag: null,
+        dist: `${formatMiles(site.miles)} mi`,
+        distBand: distanceBand("everyday", site.miles),
+        extra: [site.statusLine, site.dwellingsLine]
+          .filter((line): line is string => line !== null)
+          .map((line) => sentenceLine(line)),
+      })),
+    });
+  }
+  if (brownfield.beyondLine)
+    blocks.push({ type: "line", text: sentenceLine(brownfield.beyondLine) });
 
   // Listed buildings & heritage (item 23): the named
   // buildings keep their rows; every other line of the
@@ -3003,11 +3211,64 @@ function section7(input: ReportInput): ReportSectionView {
     heritage.battlefields,
     heritage.protectedWrecks,
     heritage.worldHeritageBufferZones,
+    heritage.parksAndGardens,
   ]) {
     heritageLines.push(sentenceLine(layer.line));
   }
+  // Registered parks & gardens (M8.10) also print their
+  // beyond line, as the listed buildings above print
+  // theirs: where no registered park or garden stands
+  // within 2 miles, the nearest is named with its
+  // distance. Until the dataset's national filing lands
+  // the layer's line is its named not-filed state.
+  if (heritage.parksAndGardens.beyondLine)
+    heritageLines.push(sentenceLine(heritage.parksAndGardens.beyondLine));
   if (heritage.localListsLine) heritageLines.push(sentenceLine(heritage.localListsLine));
   if (heritageLines.length > 0) blocks.push({ type: "list", items: heritageLines });
+
+  // Building safety (M8.10, decision D17) — served in
+  // full by the bundle and, until this step, rendered
+  // nowhere in the report (BUG-062). The register half
+  // asserts nothing about this building: the hand-off
+  // line with the official search link where the brain
+  // serves them, or the houses scope line where it
+  // serves that instead — never a registered or
+  // not-registered verdict. The tribunal half prints
+  // its line in the bundle's locked as-at wording, with
+  // the grouped per-building decisions beneath it where
+  // carried — never "no tribunal decisions found": the
+  // served none-filed line is the one bounded claim,
+  // and the explainer closing the block carries
+  // everything that line does not mean.
+  const buildingSafety = sections.buildingSafety;
+  blocks.push({ type: "sub", text: "Building safety" });
+  if (buildingSafety.register.line) {
+    blocks.push({ type: "line", text: sentenceLine(buildingSafety.register.line) });
+    if (buildingSafety.register.link) {
+      blocks.push({
+        type: "lineLink",
+        text: "",
+        label: buildingSafety.register.link.label,
+        href: buildingSafety.register.link.url,
+      });
+    }
+  }
+  if (buildingSafety.tribunal.line) {
+    blocks.push({ type: "line", text: sentenceLine(buildingSafety.tribunal.line) });
+  }
+  for (const group of buildingSafety.tribunal.groups ?? []) {
+    blocks.push({
+      type: "boldLine",
+      text: group.isHomeBuilding
+        ? `${group.buildingName} — this home's building`
+        : group.buildingName,
+    });
+    blocks.push({
+      type: "list",
+      items: group.decisions.map((decision) => sentenceLine(decision.line)),
+    });
+  }
+  if (buildingSafety.explainer) blocks.push({ type: "note", text: buildingSafety.explainer });
 
   // Nature & protected areas (item 23): the same
   // treatment — the block's lines print as one bullet

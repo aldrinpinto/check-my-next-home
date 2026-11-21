@@ -227,6 +227,34 @@ describe("heritage loader — the M6.21 layers", () => {
     }
   });
 
+  it("registered parks & gardens (M8.10): the sixth dataset rides the same path, outside the absence-checked list", () => {
+    // The platform dataset is "park-and-garden" (its
+    // published title is "Historic parks and gardens"),
+    // filing as registered_park_and_garden with the live
+    // band the platform's own count supports (1,723
+    // parks and gardens on its dataset page, 21 Nov
+    // 2026).
+    expect(loader).toContain("park-and-garden");
+    expect(loader).toContain("registered_park_and_garden");
+    expect(loader).toContain("PARK_AND_GARDEN_DATASET");
+    expect(loader).toContain("band: [1600, 1850]");
+    // It does NOT join NEW_LAYER_DATASETS: that list's
+    // golden check asserts absence at all three homes,
+    // and Nonsuch Park stands about half a mile from the
+    // Epsom flat. Its own block must not list it.
+    const newLayerBlock = loader.slice(
+      loader.indexOf("const NEW_LAYER_DATASETS"),
+      loader.indexOf("];", loader.indexOf("const NEW_LAYER_DATASETS")),
+    );
+    expect(newLayerBlock).not.toContain("park-and-garden");
+    // No fixture cut is held yet (the capture rides with
+    // the national filing), and the fixture README says
+    // so — a fixture run skips the dataset by name.
+    const readme = readFileSync(join(fixtureDir, "README.md"), "utf8");
+    expect(readme).toContain("park-and-garden");
+    expect(loader).toContain("no fixture captured");
+  });
+
   it("the Bath witness rows are in the world heritage cut (City of Bath, 1000103)", () => {
     const whs = parseCsv(readFileSync(join(fixtureDir, "world-heritage-site.csv"), "utf8"));
     const bath = whs.find((r) => r["reference"] === "1000103" && (r["geometry"] ?? "") !== "");

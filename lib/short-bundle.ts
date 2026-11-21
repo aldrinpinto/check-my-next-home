@@ -108,6 +108,10 @@ import type { MedianAnswer, SoldPricesBundle } from "./sold-prices";
 // at-point line only. EPC improvement measures are report
 // depth by construction: they live on served certificates,
 // which this shape never carries.
+//
+// M8.10's registered parks & gardens layer follows the
+// M6.21 rule exactly: present in the full bundle and its
+// headline projection, absent from this skim.
 
 // ------------------------------------------------------------------
 // Served shapes

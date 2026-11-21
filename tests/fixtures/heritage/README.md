@@ -22,6 +22,19 @@ within 2 miles of one's edge; the Bath witness point (51.3811,
 Bath has none — the buffer-zone absence at Bath is a
 publication fact, not a capture gap.
 
+M8.10 note (21 Nov 2026): the loader also carries the
+park-and-garden dataset (registered parks & gardens), but
+no cut of it is held here yet — the national filing rides
+with the national loads programme, and its capture will be
+made from the live file then. Until a cut exists, a fixture
+run skips the dataset by name (the loader's summary says
+so) and files nothing for the layer, so the golden homes
+serve the layer's not-filed state — the same state
+production serves until the filing lands. The universal
+absence golden cannot cover this layer in any case:
+Nonsuch Park is a registered park and garden about half a
+mile from the Epsom flat (KT17 1FH).
+
 Selection: listed buildings whose point falls within 2.05 miles
 of a golden home (any status), the file's one anomalous "NL"
 grade row (Barton Hill Engine Sheds, 1495697), one known
