@@ -83,7 +83,9 @@ function Block({ block }: { block: ReportBlock }) {
             <div className="rpt-row" key={`${row.name}-${index}`}>
               <div className="rmain">
                 <span className="rname">{row.name}</span>
-                {row.tag ? <span className="tag">{row.tag}</span> : null}
+                {row.tag ? (
+                  <span className={row.tagStar ? "tag star" : "tag"}>{row.tag}</span>
+                ) : null}
                 {row.detail ? <div className="rpt-detail">{row.detail}</div> : null}
                 {row.extra.map((line) => (
                   <div className="rpt-detail" key={line}>
@@ -91,7 +93,9 @@ function Block({ block }: { block: ReportBlock }) {
                   </div>
                 ))}
               </div>
-              {row.dist ? <span className="dist">{row.dist}</span> : null}
+              {row.dist ? (
+                <span className={row.distBand ? `dist ${row.distBand}` : "dist"}>{row.dist}</span>
+              ) : null}
             </div>
           ))}
         </>
@@ -102,19 +106,38 @@ function Block({ block }: { block: ReportBlock }) {
           <table>
             <thead>
               <tr>
-                {block.head.map((cell) => (
-                  <th key={cell}>{cell}</th>
+                {/* One alignment standard for every report
+                    table (print-check items 1 and 3): a
+                    header cell aligns exactly as the data
+                    cells under it — the numeric columns'
+                    headers right-align over their figures,
+                    never left over right-aligned data. */}
+                {block.head.map((cell, cellIndex) => (
+                  <th key={cell} className={cellIndex > 0 ? "num" : undefined}>
+                    {cell}
+                  </th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {block.rows.map((row, index) => (
                 <tr key={index}>
-                  {row.map((cell, cellIndex) => (
-                    <td key={cellIndex} className={cellIndex > 0 ? "num" : undefined}>
-                      {block.boldColumns?.includes(cellIndex) ? <strong>{cell}</strong> : cell}
-                    </td>
-                  ))}
+                  {row.map((cell, cellIndex) => {
+                    const alert = block.cellAlerts?.[index]?.[cellIndex] === true;
+                    const sub = block.cellSubs?.[index]?.[cellIndex] ?? null;
+                    return (
+                      <td
+                        key={cellIndex}
+                        className={
+                          `${cellIndex > 0 ? "num" : ""}${alert ? " alert" : ""}`.trim() ||
+                          undefined
+                        }
+                      >
+                        {block.boldColumns?.includes(cellIndex) ? <strong>{cell}</strong> : cell}
+                        {sub ? <span className="rpt-cellSub">{sub}</span> : null}
+                      </td>
+                    );
+                  })}
                 </tr>
               ))}
             </tbody>
@@ -186,7 +209,7 @@ function Block({ block }: { block: ReportBlock }) {
         </ul>
       );
     case "questions":
-      // Section 8's numbered list, in the sample's own
+      // Section 9's numbered list, in the sample's own
       // form (ol.rpt-seller): the number is the
       // question's standing — the flood block first is
       // Question 1.
@@ -238,8 +261,12 @@ function Block({ block }: { block: ReportBlock }) {
 // from the model's own projection (lib/report.ts decided
 // every coordinate) — home pin, one numbered pin per
 // named place in the section's lists, rings at 1 and
-// 2 miles, and the legend naming each pin. No tiles, no
-// satellite basemap, no external service.
+// 2 miles, and the legend naming each pin. Where the
+// filed street lines are held, they draw as the ground
+// under the pins, in the flood pictures' dress (the home
+// street strong, the rest pale, over the cream ground —
+// print-check item 19). No tiles, no satellite basemap,
+// no external service.
 function ReportMap({ map }: { map: ReportMapModel }) {
   return (
     <div className="rpt-chartCard">
@@ -250,6 +277,22 @@ function ReportMap({ map }: { map: ReportMapModel }) {
         aria-label={map.ariaLabel}
         style={{ width: "100%", height: "auto", display: "block" }}
       >
+        {map.streets ? (
+          <>
+            <rect x="0" y="0" width="760" height="520" fill="#FDF8E8" />
+            {map.streets.map((street, index) => (
+              <polyline
+                key={index}
+                points={street.d}
+                fill="none"
+                stroke={street.home ? "#2F5D3E" : "#CFC7A8"}
+                strokeWidth={street.home ? 5 : 3.5}
+                strokeLinejoin="round"
+                strokeLinecap="round"
+              />
+            ))}
+          </>
+        ) : null}
         {map.rings.map((ring) => (
           <g key={ring.label}>
             <circle
@@ -300,13 +343,13 @@ function ReportMap({ map }: { map: ReportMapModel }) {
           H
         </text>
       </svg>
-      <ul className="rpt-tight">
+      <ul className="rpt-tight rpt-mapLegend">
         <li>
           <strong>H</strong> — {map.homeLabel} (this home)
         </li>
         {map.pins.map((pin) => (
           <li key={pin.n}>
-            <strong>{pin.n}</strong> — {pin.name} ({pin.group}, {pin.miles} miles)
+            <strong>{pin.n}</strong> — {pin.name} ({pin.group}, {pin.milesLabel} miles)
           </li>
         ))}
       </ul>
@@ -628,7 +671,8 @@ export default function ReportPage({ view }: { view: ReportView }) {
         ) : null}
         {view.sections.map((viewSection) => (
           <section
-            className={viewSection.number === 9 ? "rpt-section rpt-final" : "rpt-section"}
+            className={viewSection.number === 10 ? "rpt-section rpt-final" : "rpt-section"}
+            data-section={viewSection.number}
             key={viewSection.number}
           >
             <div className="rpt-secHead">

@@ -4421,6 +4421,31 @@ a.picker__row {
 .site-pages .rpt-sub:first-of-type {
   margin-top: 10px;
 }
+/* What's Nearby's group headings carry clear separation
+   and weight (print-check item 11): the section is a run
+   of look-alike place lists, so each group opens under a
+   hairline with air above it — the first group keeps the
+   section's own opening rhythm, rule-free. */
+.site-pages .rpt-section[data-section="5"] .rpt-sub {
+  border-top: 1px solid var(--sp-line);
+  padding-top: 14px;
+  margin-top: 24px;
+}
+.site-pages .rpt-section[data-section="5"] .rpt-sub:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+  margin-top: 10px;
+}
+/* The places diagram's legend in two columns (item 19):
+   diagram and legend together sit well inside the
+   section, never a page of their own. */
+.site-pages ul.rpt-mapLegend {
+  columns: 2;
+  column-gap: 28px;
+}
+.site-pages ul.rpt-mapLegend li {
+  break-inside: avoid;
+}
 .site-pages .rpt-doc p {
   font-size: 0.94rem;
   color: #26312a;
@@ -4503,6 +4528,26 @@ a.picker__row {
   background: var(--sp-wash);
   color: var(--sp-deep);
   border: 1px solid var(--sp-line);
+}
+/* The report's distance chips carry the results page's
+   distance bands (print-check item 8): the same tint
+   pairings as .place-row__miles--*, on the same design
+   tokens — green within the near band, orange the middle,
+   red beyond. An unbanded chip keeps the plain wash. */
+.site-pages .dist.green {
+  background: var(--dist-green-bg);
+  color: var(--dist-green);
+  border-color: transparent;
+}
+.site-pages .dist.orange {
+  background: var(--dist-orange-bg);
+  color: var(--dist-orange);
+  border-color: transparent;
+}
+.site-pages .dist.red {
+  background: var(--dist-red-bg);
+  color: var(--dist-red);
+  border-color: transparent;
 }
 .site-pages .badge {
   white-space: nowrap;
@@ -4600,6 +4645,19 @@ a.picker__row {
   padding-top: 8px;
   border-top: 1px solid var(--sp-line-soft);
 }
+/* One rule, never two (print-check item 5): a note that
+   follows a table stands under the table's own closing
+   border, and a note that follows another note continues
+   the same run — neither stacks a second bronze rule
+   above the note's text. */
+.site-pages .rpt-doc table + .rpt-chartNote,
+.site-pages .rpt-chartNote + .rpt-chartNote {
+  border-top: 0;
+  padding-top: 0;
+}
+.site-pages .rpt-chartNote + .rpt-chartNote {
+  margin-top: 2px;
+}
 .site-pages .rpt-barRow {
   display: grid;
   grid-template-columns: 150px 1fr 48px;
@@ -4659,6 +4717,25 @@ a.picker__row {
 .site-pages .rpt-doc th.num {
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+/* The air table's one red cell (print-check item 2): a
+   modelled level above the UK legal limit. Nothing else
+   in any report table takes this style — a level above
+   the WHO guideline alone never does. */
+.site-pages .rpt-doc td.alert {
+  background: #f7e3de;
+  color: #8c2b1d;
+  font-weight: 700;
+}
+/* A cell's second line (the air table's per-pollutant
+   position, item 6): smaller, quieter, under the figure. */
+.site-pages .rpt-doc .rpt-cellSub {
+  display: block;
+  font-size: 0.74rem;
+  font-weight: 400;
+  font-style: italic;
+  line-height: 1.4;
+  margin-top: 2px;
 }
 .site-pages .rpt-doc tr.hl td {
   background: var(--sp-wash);

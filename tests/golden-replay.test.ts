@@ -1714,7 +1714,10 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
       });
     };
     const birkdale = viewOf("birkdale1");
-    expect(birkdale.sections).toHaveLength(9);
+    // Ten sections since the print-check regrouping
+    // (item 14): the Census grid below stands in the new
+    // Section 6 at the same index it always had.
+    expect(birkdale.sections).toHaveLength(10);
     const birkdaleText = JSON.stringify(birkdale);
     expect(birkdaleText).toContain("£588,995");
     expect(birkdaleText).toContain("330 incidents");
@@ -1813,12 +1816,12 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
     // sections — never blanks, never England data.
     const belfastBrains = get("belfast2");
     const belfast = viewOf("belfast2");
-    expect(belfast.sections).toHaveLength(9);
+    expect(belfast.sections).toHaveLength(10);
     if (belfastBrains.crime.kind === "not-covered") {
       expect(JSON.stringify(belfast.sections[3])).toContain(belfastBrains.crime.crime.reason);
     }
     if (belfastBrains.flood.kind === "not-covered") {
-      expect(JSON.stringify(belfast.sections[6])).toContain(belfastBrains.flood.flood.reason);
+      expect(JSON.stringify(belfast.sections[7])).toContain(belfastBrains.flood.flood.reason);
     }
   });
 
@@ -1852,7 +1855,7 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
       { type: "floodMap" }
     >["map"];
     const floodMapsOf = (view: ReturnType<typeof buildReportView>): FloodMap[] =>
-      view.sections[6].blocks
+      view.sections[7].blocks
         .filter((b) => b.type === "floodMap")
         .map((b) => (b as { map: FloodMap }).map);
     // Even–odd ray casting over one polygon's rings (outer

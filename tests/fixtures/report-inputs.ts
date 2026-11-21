@@ -815,7 +815,13 @@ export function areaWith(overrides: Record<string, unknown> = {}): AreaBundle {
             whoGuideline: 10,
             position: "below-both",
             yardstickLine: "YARDSTICK-NO2: below the UK legal limit and the WHO guideline",
-            summaryLine: null,
+            // The real yardstick composition always serves
+            // this line (the brain's below-both form, as
+            // tests/area-bundle.test.ts pins it); the null
+            // this fixture carried was unrepresentative,
+            // and the print-check batch's in-table position
+            // line needs the served form to pin against.
+            summaryLine: "within the UK legal limit, and below the stricter WHO guideline",
           },
         ],
       },

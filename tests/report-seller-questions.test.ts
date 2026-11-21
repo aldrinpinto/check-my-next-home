@@ -23,7 +23,7 @@ import {
   soldServed,
 } from "./fixtures/report-inputs";
 
-// M8.5 — Section 8, "Questions to ask the seller": the
+// M8.5 — Section 9, "Questions to ask the seller": the
 // eleven hand-written blocks, their fixed selection rules
 // over the report's own facts, the cap of five in the
 // samples' priority order, and the guardrail (no block
@@ -46,8 +46,8 @@ interface AskedQuestion {
 }
 
 function section8(view: ReportView) {
-  const found = view.sections.find((s) => s.number === 8);
-  if (!found) throw new Error("no Section 8");
+  const found = view.sections.find((s) => s.number === 9);
+  if (!found) throw new Error("no Section 9");
   return found;
 }
 
@@ -634,12 +634,14 @@ describe("report — M8.5 seller questions: intro, empty case, guardrail", () =>
   it("the guardrail: demographics and benefits figures trigger nothing, however rich the view", () => {
     const view = buildReportView(stripped());
     // The view really is rich in the protected figures:
-    // Section 6 carries the Census tables, Section 4 the
-    // benefits series, and the crime bundle serves.
+    // Section 6 carries the Census tables and the
+    // benefits series, Section 4 the crime counts
+    // (the print-check regrouping, item 14).
     expect(JSON.stringify(view.sections[5])).toContain("Tenure");
-    expect(JSON.stringify(view.sections[3])).toContain("Claimant count");
+    expect(JSON.stringify(view.sections[5])).toContain("Claimant count");
     expect(JSON.stringify(view.sections[3])).toContain("330 incidents");
-    // And Section 8 is the empty line alone — no block
+    expect(JSON.stringify(view.sections[3])).not.toContain("Claimant count");
+    // And Section 9 is the empty line alone — no block
     // was drawn from any of it.
     expect(questionsOf(view)).toEqual([]);
     expect(section8(view).blocks).toEqual([{ type: "line", text: SELLER_QUESTIONS_EMPTY_LINE }]);

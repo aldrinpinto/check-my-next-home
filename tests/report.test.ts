@@ -9,13 +9,16 @@ import type { CrimeBundle } from "../lib/crime";
 import type { FloodBundle, FloodMaps } from "../lib/flood";
 import { floodMapFrame } from "../lib/flood";
 import type { CategoryAnswer, NearbyBundle, NearbyCategory } from "../lib/nearby";
+import { CHECK_PAGE_PATHS } from "../lib/check-pages";
 import {
   REPORT_DISCLAIMER_D9,
+  REPORT_SECTION_CHECK_LINKS,
   REPORT_VIEW_ROUTE,
   buildFloodMapModels,
   buildReportView,
   reportViewGate,
   reportViewRoute,
+  type ReportBlock,
   type ReportInput,
   type ReportView,
 } from "../lib/report";
@@ -38,7 +41,7 @@ import type { SoldPricesBundle } from "../lib/sold-prices";
 // golden facts (Birkdale) as the base case. The same view
 // built from REAL bundles is asserted in the golden
 // replay (tests/golden-replay.test.ts). What is pinned
-// here: the nine sections in order; the carve-outs as
+// here: the ten sections in order; the carve-outs as
 // amended by the M8.4 parity batch (Section 1 in the
 // sample's form — BUG-045 supersedes the B7 two-tile
 // carve-out; no IMD rank or score, no monthly total, no
@@ -54,17 +57,23 @@ function sectionText(view: ReportView, number: number): string {
   return JSON.stringify(view.sections[number - 1]);
 }
 
-describe("report — the nine sections and the format", () => {
+describe("report — the ten sections and the format", () => {
   const view = buildReportView(input());
 
-  it("builds exactly nine sections, in the approved order", () => {
-    expect(view.sections.map((s) => s.number)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+  it("builds exactly ten sections, in the approved order", () => {
+    // The print-check regrouping (item 14): Section 4 is
+    // health, air, noise and crime only; the Census,
+    // benefits, charging zones and planning applications
+    // stand together in Section 6, "The neighbourhood";
+    // home costs and risks follow as Section 7.
+    expect(view.sections.map((s) => s.number)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
     expect(view.sections.map((s) => s.title)).toEqual([
       "Price & this home",
       "Sold prices nearby",
       "Schools & nurseries",
       "Health, air & crime",
       "What's nearby",
+      "The neighbourhood",
       "Home, costs & risks",
       "Flood risk",
       "Questions to ask the seller",
@@ -176,12 +185,15 @@ describe("report — the nine sections and the format", () => {
     });
     const s1Text = sectionText(withBuilding, 1);
     expect(s1Text).toContain("Sales in Atlantic Reach");
-    expect(s1Text).toContain("counted over 38 recorded sales, 1998-07-08 to 2026-06-19");
+    // The brain's counted line is a lowercase fragment;
+    // standing alone in the report it is capitalised
+    // (item 15's rule, enforced by the composition pass).
+    expect(s1Text).toContain("Counted over 38 recorded sales, 1998-07-08 to 2026-06-19");
     // The stat stands between the sub heading and the
     // counted line — the block reads heading, figure, basis.
     expect(s1Text.indexOf("Sales in Atlantic Reach")).toBeLessThan(s1Text.indexOf("£65,500"));
     expect(s1Text.indexOf("£65,500")).toBeLessThan(
-      s1Text.indexOf("counted over 38 recorded sales"),
+      s1Text.indexOf("Counted over 38 recorded sales"),
     );
   });
 
@@ -210,7 +222,7 @@ describe("report — the nine sections and the format", () => {
     );
     const s1Text = sectionText(tooFew, 1);
     expect(s1Text).toContain("Sales in Minerva House");
-    expect(s1Text).toContain("only 1 recorded sale in this building — too few for a median");
+    expect(s1Text).toContain("Only 1 recorded sale in this building — too few for a median");
     expect(s1Text).not.toContain("Building median");
   });
 
@@ -226,7 +238,7 @@ describe("report — the nine sections and the format", () => {
     expect(whole).not.toContain("cost of ownership");
     expect(whole).not.toContain("total monthly");
     // The two D33 lines ride inside their own sections only.
-    expect(sectionText(view, 6)).toContain("spread evenly over 12 months");
+    expect(sectionText(view, 7)).toContain("spread evenly over 12 months");
   });
 
   it("no childminder wording appears anywhere (founder ruling, 19 Nov 2026)", () => {
@@ -237,9 +249,9 @@ describe("report — the nine sections and the format", () => {
 describe("report — Section 3 schools", () => {
   const view = buildReportView(input());
 
-  it("the catchment honesty sits in Section 9's disclaimers, not in Section 3 (BUG-050(ii))", () => {
+  it("the catchment honesty sits in Section 10's disclaimers, not in Section 3 (BUG-050(ii))", () => {
     expect(sectionText(view, 3)).not.toContain("catchment boundaries");
-    const s9 = sectionText(view, 9);
+    const s9 = sectionText(view, 10);
     expect(s9).toContain(
       "We hold no catchment boundaries, so we cannot say whether this home is in or out for any school.",
     );
@@ -279,9 +291,66 @@ describe("report — Section 4 health, air, noise & crime", () => {
     expect(s4).toContain("UK legal limit (annual)");
     expect(s4).toContain("WHO 2021 guideline (annual)");
     expect(s4).toContain("40 µg/m³");
-    expect(s4).toContain("YARDSTICK-NO2");
     expect(s4).toContain("AQMA-NONE-LINE");
     expect(s4).not.toContain("Air Quality Management Areas");
+  });
+
+  it("the air small print moved out (items 2 and 6): the position stands in the table with its pollutant, the long explainers stand nowhere in the report", () => {
+    // The pollutant's position prints inside the table,
+    // as the modelled-level cell's second line.
+    const airTable = view.sections[3].blocks.find((b) => b.type === "table");
+    if (!airTable || airTable.type !== "table") throw new Error("expected the air table");
+    expect(airTable.cellSubs?.[0][1]).toBe(
+      "Within the UK legal limit, and below the stricter WHO guideline",
+    );
+    // Below both yardsticks: no cell is highlighted.
+    expect(airTable.cellAlerts?.flat()).not.toContain(true);
+    // The yardstick sentences, the zone-compliance basis
+    // and the AQMA basis no longer stand in the section —
+    // they live on the air-quality How-we-check page.
+    expect(s4).not.toContain("YARDSTICK-NO2");
+    expect(s4).not.toContain("YARDSTICK-BASIS");
+    expect(s4).not.toContain("AQMA-BASIS");
+  });
+
+  it("a level above the UK legal limit highlights its cell — and only that cell (item 2)", () => {
+    const hot = buildReportView(
+      (() => {
+        const base = input();
+        if (base.area.kind !== "area-bundle") throw new Error("expected an area bundle");
+        const sections = base.area.sections;
+        return {
+          ...base,
+          area: {
+            ...base.area,
+            sections: {
+              ...sections,
+              air: {
+                ...sections.air,
+                yardsticks: sections.air.yardsticks
+                  ? {
+                      ...sections.air.yardsticks,
+                      pollutants: sections.air.yardsticks.pollutants.map((p) => ({
+                        ...p,
+                        value: 45,
+                        position: "above-uk-limit" as const,
+                        summaryLine:
+                          "above the UK legal limit, and above the stricter WHO guideline",
+                      })),
+                    }
+                  : null,
+              },
+            },
+          },
+        };
+      })(),
+    );
+    const hotTable = hot.sections[3].blocks.find((b) => b.type === "table");
+    if (!hotTable || hotTable.type !== "table") throw new Error("expected the air table");
+    expect(hotTable.cellAlerts?.[0]).toEqual([false, true, false, false]);
+    expect(hotTable.cellSubs?.[0][1]).toBe(
+      "Above the UK legal limit, and above the stricter WHO guideline",
+    );
   });
 
   it("noise renders the publisher's band text verbatim, day and night (h)", () => {
@@ -298,17 +367,10 @@ describe("report — Section 4 health, air, noise & crime", () => {
     expect(s4).toContain("CALIBRATION-EXPLAINER");
   });
 
-  it("benefits render at the end of Section 4 as plain published lines — and nowhere else (c)", () => {
-    expect(s4).toContain("Claimant count, September 2026: 15 people — 1.6%.");
-    expect(text(view).split("Claimant count, September 2026").length).toBe(2);
-    expect(JSON.stringify(view.shortVersion)).not.toContain("Claimant count");
-  });
-
-  it("charging zones render under their own label with no charge amount (o)", () => {
-    expect(s4).toContain("Charging zones");
-    expect(s4).toContain("not inside any Clean Air Zone");
-    const zonesAt = s4.indexOf("Charging zones");
-    expect(s4.slice(zonesAt)).not.toContain("£");
+  it("benefits and charging zones no longer stand in Section 4 (item 14 — they are Section 6's)", () => {
+    expect(s4).not.toContain("Claimant count");
+    expect(s4).not.toContain("Charging zones");
+    expect(s4).not.toContain("Benefits — the wider area");
   });
 });
 
@@ -381,9 +443,57 @@ describe("report — Section 5 and its map", () => {
   });
 });
 
-describe("report — Section 6 home, costs & risks", () => {
+describe("report — Section 6 the neighbourhood", () => {
   const view = buildReportView(input());
   const s6 = sectionText(view, 6);
+
+  it("demographics are led by the IMD decile-in-words line — no score, no rank, no bare decile (g)", () => {
+    const demoAt = s6.indexOf("The area in numbers");
+    const demo = s6.slice(demoAt);
+    expect(demo).toContain("is among the less deprived 30 percent of areas in England");
+    // The domain bullets' lead labels print bold (item
+    // 22): the label is its own segment now, so the JSON
+    // carries it apart from the words that follow.
+    expect(demo).toContain('"text":"Income:","bold":true');
+    expect(demo).toContain("among the less deprived 20 percent of areas in England.");
+    expect(demo.toLowerCase()).not.toContain("rank");
+    expect(demo).not.toContain("decile 8");
+  });
+
+  it("the Census charts render in the Master's grid — the Age tile opens it and the age-bands bars are not drawn (a, M8.2), and social rent stands as its own line (d)", () => {
+    expect(s6).toContain("Age — Census 2021");
+    expect(s6).toContain("46.5 years");
+    expect(s6).toContain("calculated from the Census's single years of age");
+    expect(s6).not.toContain("Age by five-year age bands");
+    expect(s6).toContain("Tenure — Census 2021");
+    expect(s6).toContain("Tenure table (TS054): 3,397 households.");
+    expect(s6).toContain("SOCIAL-RENTED-LINE");
+  });
+
+  it("benefits render in Section 6 as plain published lines — and nowhere else (c)", () => {
+    expect(s6).toContain("Claimant count, September 2026: 15 people — 1.6%.");
+    expect(text(view).split("Claimant count, September 2026").length).toBe(2);
+    expect(JSON.stringify(view.shortVersion)).not.toContain("Claimant count");
+  });
+
+  it("charging zones render under their own label with no charge amount (o)", () => {
+    expect(s6).toContain("Charging zones");
+    // The brain's line is a lowercase fragment; standing
+    // alone it is capitalised (item 15).
+    expect(s6).toContain("Not inside any Clean Air Zone");
+    const zonesAt = s6.indexOf("Charging zones");
+    expect(s6.slice(zonesAt)).not.toContain("£");
+  });
+
+  it("the planning hand-off renders — never a count, never a named list", () => {
+    expect(s6).toContain("planning register");
+    expect(s6).toContain("Search the register of planning decisions (GOV.UK)");
+  });
+});
+
+describe("report — Section 7 home, costs & risks", () => {
+  const view = buildReportView(input());
+  const s6 = sectionText(view, 7);
 
   it("council tax carries the bands table and its own D33 monthly line", () => {
     expect(s6).toContain("£2,145.00");
@@ -406,52 +516,30 @@ describe("report — Section 6 home, costs & risks", () => {
     expect(basisAt).toBeGreaterThan(lineAt);
   });
 
-  it("demographics are led by the IMD decile-in-words line — no score, no rank, no bare decile (g)", () => {
-    const demoAt = s6.indexOf("The area in numbers");
-    const demo = s6.slice(demoAt);
-    expect(demo).toContain("is among the less deprived 30 percent of areas in England");
-    expect(demo).toContain("Income: among the less deprived 20 percent of areas in England.");
-    expect(demo.toLowerCase()).not.toContain("rank");
-    expect(demo).not.toContain("decile 8");
-  });
-
-  it("the Census charts render in the Master's grid — the Age tile opens it and the age-bands bars are not drawn (a, M8.2), and social rent stands as its own line (d)", () => {
-    expect(s6).toContain("Age — Census 2021");
-    expect(s6).toContain("46.5 years");
-    expect(s6).toContain("calculated from the Census's single years of age");
-    expect(s6).not.toContain("Age by five-year age bands");
-    expect(s6).toContain("Tenure — Census 2021");
-    expect(s6).toContain("Tenure table (TS054): 3,397 households.");
-    expect(s6).toContain("SOCIAL-RENTED-LINE");
-    expect(s6).toContain("SPREAD-EXPLAINER: certificates, not homes");
-  });
-
   it("the EPC spread renders as a band chart with the row's served line as its caption — and no home marker anywhere on it (M8.2, the M8.11(e) chart moved up)", () => {
-    const spread = view.sections[5].blocks.find(
+    const spread = view.sections[6].blocks.find(
       (b) => b.type === "bars" && b.title.includes("RdSAP"),
     );
     if (!spread || spread.type !== "bars") throw new Error("expected the EPC spread chart");
     expect(spread.rows).toEqual([{ label: "Band B", widthPct: 100, value: "20", strong: true }]);
     expect(spread.caption).toBe("SPREAD-LINE");
     expect(JSON.stringify(spread).toLowerCase()).not.toContain("this home");
-  });
-
-  it("the planning hand-off renders — never a count, never a named list", () => {
-    expect(s6).toContain("planning register");
-    expect(s6).toContain("Search the register of planning decisions (GOV.UK)");
+    expect(sectionText(view, 7)).toContain("SPREAD-EXPLAINER: certificates, not homes");
   });
 });
 
-describe("report — Section 7 flood", () => {
+describe("report — Section 8 flood", () => {
   const view = buildReportView(input());
-  const s7 = view.sections[6];
-  const s7Text = sectionText(view, 7);
+  const s7 = view.sections[7];
+  const s7Text = sectionText(view, 8);
 
   it("opens with the live warnings block, the warning in full (e)", () => {
     const firstSub = s7.blocks.find((b) => b.type === "sub");
     expect(firstSub).toEqual({ type: "sub", text: "Flood warning — River Leadon catchment" });
     expect(s7Text).toContain("EA-MESSAGE-FULL-TEXT");
-    expect(s7Text).toContain("raised at 16:35 on 15 November 2026");
+    // The raised line stands alone as a note, so it is
+    // capitalised (item 15).
+    expect(s7Text).toContain("Raised at 16:35 on 15 November 2026");
     expect(s7Text).toContain("Open Government Licence");
   });
 
@@ -478,9 +566,9 @@ describe("report — Section 7 flood", () => {
   });
 });
 
-describe("report — Section 9 and the closing notes", () => {
+describe("report — Section 10 and the closing notes", () => {
   const view = buildReportView(input());
-  const s9 = sectionText(view, 9);
+  const s9 = sectionText(view, 10);
 
   it("carries the served schoolDeadlines line verbatim (j)", () => {
     expect(s9).toContain(
@@ -493,10 +581,10 @@ describe("report — Section 9 and the closing notes", () => {
     expect(REPORT_DISCLAIMER_D9).toContain("what it means for your decision is your own judgement");
   });
 
-  it("names the check explanations (the M7.12 discharge) — in Section 9 only (BUG-052)", () => {
+  it("names the check explanations (the M7.12 discharge) — in Section 10 only (BUG-052)", () => {
     expect(s9).toContain("/check/flood-risk");
     expect(s9).toContain("/check/schools");
-    for (const section of view.sections.slice(0, 8))
+    for (const section of view.sections.slice(0, 9))
       expect(JSON.stringify(section)).not.toContain("/check/");
   });
 
@@ -580,8 +668,8 @@ describe("report — states, nations and the door seam", () => {
     );
     expect(sectionText(view, 1)).toContain("SOLD-NOT-COVERED-REASON");
     expect(sectionText(view, 4)).toContain("CRIME-NOT-COVERED-REASON");
-    expect(sectionText(view, 7)).toContain("FLOOD-NOT-COVERED-REASON");
-    expect(view.sections).toHaveLength(9);
+    expect(sectionText(view, 8)).toContain("FLOOD-NOT-COVERED-REASON");
+    expect(view.sections).toHaveLength(10);
   });
 
   it("a postcode (rung 2) report heads with the postcode and fills Section 1 from the postcode's sales", () => {
@@ -1178,11 +1266,11 @@ describe("report — M8.2 charts: the Census grid at full sample parity", () => 
 });
 
 describe("report — the rendered page", () => {
-  it("the rendered page carries the nine numbered sections and no SAMPLE furniture", () => {
+  it("the rendered page carries the ten numbered sections and no SAMPLE furniture", () => {
     const html = renderToStaticMarkup(
       createElement(ReportPage, { view: buildReportView(input()) }),
     );
-    for (const n of [1, 2, 3, 4, 5, 6, 7, 8, 9]) {
+    for (const n of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
       expect(html).toContain(`<span class="rpt-secNum">${n}</span>`);
     }
     expect(html).toContain("rpt-doc");
@@ -1421,13 +1509,13 @@ describe("report — M8.3 flood maps: JSON round-trip cleanliness", () => {
 });
 
 describe("report — M8.3 flood maps: the no-picture states", () => {
-  it("an unfiled layer (null entry) builds no picture, and Section 7 carries none", () => {
+  it("an unfiled layer (null entry) builds no picture, and Section 8 carries none", () => {
     const served = servedWithMaps(mapsWith());
     const models = buildFloodMapModels(served);
     expect(models.zones).toBeNull();
     expect(models.surfaceWater).toBeNull();
     const view = buildReportView(input());
-    expect(view.sections[6].blocks.filter((b) => b.type === "floodMap")).toEqual([]);
+    expect(view.sections[7].blocks.filter((b) => b.type === "floodMap")).toEqual([]);
   });
 
   it("shapes without street lines build no picture (the bundle's null stands)", () => {
@@ -1637,7 +1725,7 @@ describe("report — M8.3 flood maps: the home-street label", () => {
   });
 });
 
-describe("report — M8.3 flood maps: Section 7 placement", () => {
+describe("report — M8.3 flood maps: Section 8 placement", () => {
   it("each picture rides directly under its own layer's words", () => {
     const maps = mapsWith({
       zones: {
@@ -1660,7 +1748,7 @@ describe("report — M8.3 flood maps: Section 7 placement", () => {
       flood,
     };
     const view = buildReportView(input({ flood: bundle }));
-    const blocks = view.sections[6].blocks;
+    const blocks = view.sections[7].blocks;
     const types = blocks.map((b) => b.type);
     const zonesSub = blocks.findIndex((b) => b.type === "sub" && b.text === "Flood zones");
     const rofrsSub = blocks.findIndex(
@@ -1677,5 +1765,324 @@ describe("report — M8.3 flood maps: Section 7 placement", () => {
     const rendered = renderToStaticMarkup(createElement(ReportPage, { view }));
     expect(rendered).toContain("Flood zones for planning (rivers and the sea)");
     expect(rendered).toContain("OpenStreetMap contributors");
+  });
+});
+
+describe("report — the print-check batch (founder's PDF print check, 21 Nov 2026)", () => {
+  const view = buildReportView(input());
+
+  it("every standalone line in the report begins with a capital (items 9, 15 and 15b)", () => {
+    // The sweep walks exactly the surfaces the
+    // composition pass governs: section lines, bullets,
+    // notes, sub-headings and captions, and the short
+    // version's bullets. Row details, tile fragments,
+    // table cells and question texts are continuations,
+    // not standalone lines, and are not swept.
+    const offenders: string[] = [];
+    const check = (text: string, where: string) => {
+      if (text.length > 0 && /^[a-z]/.test(text)) offenders.push(`${where}: ${text}`);
+    };
+    const walk = (block: ReportBlock, where: string) => {
+      switch (block.type) {
+        case "intro":
+        case "line":
+        case "boldLine":
+        case "note":
+        case "sub":
+          check(block.text, where);
+          break;
+        case "list":
+          block.items.forEach((item) => check(item, where));
+          break;
+        case "richList":
+          block.items.forEach((line) => {
+            if (line.length > 0) check(line[0].text, where);
+          });
+          break;
+        case "table":
+          if (block.caption) check(block.caption, where);
+          break;
+        case "bars":
+        case "statTile":
+          check(block.caption, where);
+          break;
+        case "chartGrid":
+          block.cards.forEach((card) => walk(card, where));
+          break;
+        case "dotPlot":
+          check(block.plot.caption, where);
+          break;
+        case "monthChart":
+          check(block.chart.caption, where);
+          break;
+        case "map":
+          check(block.map.caption, where);
+          break;
+        case "floodMap":
+          check(block.map.caption, where);
+          break;
+        default:
+          break;
+      }
+    };
+    for (const viewSection of view.sections)
+      viewSection.blocks.forEach((block) => walk(block, `Section ${viewSection.number}`));
+    for (const group of view.shortVersion?.groups ?? [])
+      group.lines.forEach((line) => {
+        if (line.length > 0) check(line[0].text, "short version");
+      });
+    expect(offenders).toEqual([]);
+  });
+
+  it("the printed How-we-check link set equals the app's check-page set (item 21)", () => {
+    const linked = new Set(Object.values(REPORT_SECTION_CHECK_LINKS).flat());
+    expect([...linked].sort()).toEqual([...CHECK_PAGE_PATHS].sort());
+  });
+
+  it("school rows carry the school distance bands, and a selective school carries the highlighted Grammar school label (items 7 and 8)", () => {
+    const withSelective = buildReportView(
+      input({
+        nearby: nearbyWith({
+          "schools-secondary": category({
+            category: "schools-secondary",
+            label: "secondary schools",
+            state: "within",
+            places: [
+              {
+                name: "King Edward VI Grammar School",
+                miles: 6.1,
+                detail: "Ages 11–18",
+                latitude: 51.8,
+                longitude: 0.63,
+                selective: true,
+              },
+            ],
+            countWithin: 1,
+          }),
+        }),
+      }),
+    );
+    const s3 = withSelective.sections[2];
+    const rowsBlock = s3.blocks.find((b) => b.type === "rows");
+    if (!rowsBlock || rowsBlock.type !== "rows") throw new Error("expected school rows");
+    const grammar = rowsBlock.rows[0];
+    expect(grammar.tag).toBe("Grammar school");
+    expect(grammar.tagStar).toBe(true);
+    expect(grammar.extra[0]).toBe("Entry by test.");
+    // 6.1 miles on the school bands (1/2) is beyond: red.
+    expect(grammar.distBand).toBe("red");
+    // The base view's own rows: primary at 0.3 (green),
+    // secondary at 1.8 (orange), on the school bands.
+    const baseRows = view.sections[2].blocks.filter((b) => b.type === "rows");
+    const bands = baseRows.flatMap((b) => (b.type === "rows" ? b.rows : [])).map((r) => r.distBand);
+    expect(bands).toContain("green");
+    expect(bands).toContain("orange");
+    // Health: the A&E beyond row takes the hospital bands
+    // (5/10) — 5.9 miles is orange there, where the
+    // everyday bands would call it red.
+    const s4Rows = view.sections[3].blocks.filter((b) => b.type === "rows");
+    const aeRow = s4Rows
+      .flatMap((b) => (b.type === "rows" ? b.rows : []))
+      .find((r) => r.name.includes("Broomfield"));
+    expect(aeRow?.distBand).toBe("orange");
+  });
+
+  it("transport entries carry their kind, and a same-name bus-stop pair prints as one entry for both directions (items 12 and 13)", () => {
+    const withStops = buildReportView(
+      input({
+        nearby: nearbyWith({
+          station: category({
+            category: "station",
+            label: "stations",
+            state: "within",
+            places: [
+              {
+                name: "Hatfield Peverel Station",
+                miles: 0.6,
+                detail: null,
+                latitude: 51.77,
+                longitude: 0.59,
+              },
+            ],
+            countWithin: 1,
+          }),
+          "bus-stop": category({
+            category: "bus-stop",
+            label: "bus stops",
+            state: "within",
+            places: [
+              { name: "New Road", miles: 0.2, detail: null, latitude: 51.7762, longitude: 0.6039 },
+              { name: "New Road", miles: 0.2, detail: null, latitude: 51.7763, longitude: 0.604 },
+              { name: "Church Green", miles: 0.5, detail: null, latitude: 51.779, longitude: 0.61 },
+            ],
+            countWithin: 3,
+          }),
+        }),
+      }),
+    );
+    const transportAt = withStops.sections[4].blocks.findIndex(
+      (b) => b.type === "sub" && b.text === "Transport",
+    );
+    // The group prints one rows block per category: the
+    // stations', then the bus stops'.
+    const transportRows = withStops.sections[4].blocks
+      .slice(transportAt + 1, transportAt + 3)
+      .flatMap((b) => (b.type === "rows" ? b.rows : []));
+    const station = transportRows.find((r) => r.name === "Hatfield Peverel Station");
+    expect(station?.tag).toBe("Rail station");
+    const stops = transportRows.filter((r) => r.tag === "Bus stop");
+    // The pair merged; the third stop stands alone.
+    expect(stops.map((r) => r.name)).toEqual(["New Road", "Church Green"]);
+    expect(stops[0].detail).toContain("both sides of the road");
+    expect(stops[0].dist).toBe("0.2 mi");
+    expect(stops[1].detail).toBeNull();
+  });
+
+  it("mobile lines lead with their service in plain words (item 16)", () => {
+    // The fixture's unknown key falls back to the served
+    // label.
+    expect(sectionText(view, 7)).toContain("Data — DATA-LINE");
+    const six = buildReportView(
+      (() => {
+        const base = input();
+        if (base.area.kind !== "area-bundle") throw new Error("expected an area bundle");
+        const sections = base.area.sections;
+        const keys = [
+          "voice",
+          "4g",
+          "5g_high_confidence",
+          "5g_very_high_confidence",
+          "5g_sa_high_confidence",
+          "5g_sa_very_high_confidence",
+        ] as const;
+        return {
+          ...base,
+          area: {
+            ...base.area,
+            sections: {
+              ...sections,
+              mobile: {
+                ...sections.mobile,
+                services: keys.map((key) => ({
+                  ...sections.mobile.services[0],
+                  service: key,
+                  label: "LABEL",
+                  line: "at least one mobile network is modelled to have good outdoor coverage at 90% of premises in Braintree",
+                })),
+              },
+            },
+          },
+        };
+      })(),
+    );
+    const s7 = sectionText(six, 7);
+    for (const lead of [
+      "Voice calls — At least one mobile network",
+      "4G data — At least one mobile network",
+      "5G data (high confidence) — At least one mobile network",
+      "5G data (very high confidence) — At least one mobile network",
+      "5G standalone data (high confidence) — At least one mobile network",
+      "5G standalone data (very high confidence) — At least one mobile network",
+    ]) {
+      expect(s7).toContain(lead);
+    }
+  });
+
+  it("the flood section carries no per-band proximity bullets (item 17)", () => {
+    const s8 = sectionText(view, 8);
+    // The fixture's surface-water layer serves a Low edge
+    // 0.03 miles away; the old list printed "Low — 0.0".
+    expect(s8).not.toContain("Low — 0.0");
+    expect(s8).toContain("HOW-WE-CHECK-FLOOD");
+  });
+
+  it("identical flood defences print as one entry carrying the record count (item 18)", () => {
+    if (floodServed.kind !== "flood") throw new Error("expected a served flood fixture");
+    const clone = structuredClone(floodServed.flood);
+    const base = clone.defences.defences[0];
+    clone.defences.defences = [
+      { ...base, assetId: "A1", miles: 0.4 },
+      { ...base, assetId: "A2", miles: 0.9 },
+      { ...base, assetId: "A3", miles: 0.5, conditionLine: "condition: Good (grade 2 of 5)" },
+    ];
+    clone.defences.totalWithin = 3;
+    const bundle: FloodBundle = {
+      ...(floodServed as Extract<FloodBundle, { kind: "flood" }>),
+      flood: clone,
+    };
+    const grouped = buildReportView(input({ flood: bundle }));
+    const rowsBlock = grouped.sections[7].blocks.find((b) => b.type === "rows");
+    if (!rowsBlock || rowsBlock.type !== "rows") throw new Error("expected defence rows");
+    expect(rowsBlock.rows).toHaveLength(2);
+    expect(rowsBlock.rows[0].dist).toBe("0.4 mi");
+    expect(rowsBlock.rows[0].extra[0]).toBe("2 recorded stretches");
+    expect(rowsBlock.rows[0].extra).toContain("condition: Fair (grade 3 of 5)");
+    // The genuinely different group stands separate.
+    expect(rowsBlock.rows[1].extra).toContain("condition: Good (grade 2 of 5)");
+    expect(rowsBlock.rows[1].extra[0]).not.toContain("recorded stretches");
+  });
+
+  it("the places diagram draws the filed street lines as its ground, and its legend rounds distances (item 19)", () => {
+    const flood = servedWithMaps(mapsWith());
+    const bundle: FloodBundle = {
+      ...(floodServed as Extract<FloodBundle, { kind: "flood" }>),
+      flood,
+    };
+    const withStreets = buildReportView(input({ flood: bundle }));
+    const mapBlock = withStreets.sections[4].blocks.find((b) => b.type === "map");
+    if (!mapBlock || mapBlock.type !== "map") throw new Error("expected a map block");
+    expect(mapBlock.map.streets).toHaveLength(2);
+    expect(mapBlock.map.streets?.filter((s) => s.home)).toHaveLength(1);
+    expect(mapBlock.map.caption).toContain("filed street lines");
+    const coop = mapBlock.map.pins.find((p) => p.name === "Co-op");
+    expect(coop?.milesLabel).toBe("0.3");
+    // The base fixture holds no street lines: the
+    // rings-only diagram stands, model and caption alike.
+    const baseMap = view.sections[4].blocks.find((b) => b.type === "map");
+    if (!baseMap || baseMap.type !== "map") throw new Error("expected a map block");
+    expect(baseMap.map.streets).toBeUndefined();
+    expect(baseMap.map.caption).toContain("not a street map");
+  });
+
+  it("the solar block prints as separate short lines where the basis is complete (item 23c)", () => {
+    const withBasis = buildReportView(
+      input({
+        area: areaWith({
+          solar: {
+            state: "served",
+            line: "SOLAR-LINE",
+            basisLine: "SOLAR-BASIS",
+            yieldKwhPerKwp: 1057.65,
+            irradiationKwhM2: 1150,
+            basis: {
+              peakPowerKwp: 1,
+              slopeDeg: 30,
+              azimuthDeg: 0,
+              systemLossPct: 14,
+              mounting: "free-standing",
+              pvTechnology: "crystalline silicon",
+              radiationDb: "PVGIS-SARAH3",
+              yearMin: 2005,
+              yearMax: 2023,
+            },
+          },
+        }),
+      }),
+    );
+    const s7 = sectionText(withBasis, 7);
+    expect(s7).toContain("modelled to generate about 1057.65 kWh in a year");
+    expect(s7).toContain("1150 kWh per square metre in a year");
+    expect(s7).toContain("1 kWp of panels, unshaded, south-facing, 30° slope, 14% system losses");
+    expect(s7).toContain("Radiation data: PVGIS-SARAH3, 2005–2023");
+    expect(s7).not.toContain("SOLAR-LINE");
+  });
+
+  it("the rendered page aligns table headers with their columns and colours the chips (items 1 and 8)", () => {
+    const html = renderToStaticMarkup(createElement(ReportPage, { view }));
+    // The air table's numeric headers right-align over
+    // their figures, like every report table's.
+    expect(html).toContain('<th class="num">Modelled level</th>');
+    // The A&E chip at 5.9 miles takes the hospital orange.
+    expect(html).toContain('class="dist orange"');
   });
 });

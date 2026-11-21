@@ -15,18 +15,19 @@ import type {
   FloodLiveWarnings,
   FloodMapPolygonSet,
   FloodMaps,
+  ServedFloodDefence,
   ServedFloodLayer,
   ServedFloodWarning,
 } from "./flood";
 import { formatFiledDate, formatMiles, formatPounds } from "./journey";
 import type { CategoryAnswer, NearbyBundle, NearbyCategory, NearbyPlace } from "./nearby";
 import { REPORT_SCHOOL_LIST_SIZE } from "./nearby";
-import { CATCHMENT_LINK, reportRoute } from "./results";
+import { CATCHMENT_LINK, distanceBand, reportRoute, type DistanceBand } from "./results";
 import { REPORT_DOOR_STATE, type ReportDoorState } from "./site";
 import type { ServedSale, SoldPricesBundle } from "./sold-prices";
 
 // The on-screen report (plan step M8.1): the detailed
-// report's nine sections, built from the five check
+// report's ten sections, built from the five check
 // bundles exactly as the serve layer assembles them for
 // the free check — wired to the real backend from the
 // first step (D67), no mock data path anywhere.
@@ -89,7 +90,7 @@ import type { ServedSale, SoldPricesBundle } from "./sold-prices";
 // and in the median's case never state the figure at
 // all. So: the short version's bullets, Section 4's
 // crime bullets, Section 6's census intro and Section
-// 9's sources are composed in this module, with their
+// 10's sources are composed in this module, with their
 // key facts in bold segments; standalone brain lines
 // that remain are sentence-cased at the point they are
 // placed; and explanation-grade text rides in note
@@ -139,19 +140,29 @@ export const REPORT_DISCLAIMER_D9 =
 // deferral, discharged at this step): each report section
 // names its own How-we-check page(s) — the /check/ pages
 // whose method the section's figures rest on — rendered
-// as the closing section's one link list (Section 9; the
+// as the closing section's one link list (Section 10; the
 // per-section link rows the M8.1 build appended were
 // removed by the parity audit, BUG-052 — the sample
 // carries check links only in its Sources section).
 // Paths are keys of CHECK_PAGES; labels come from there,
-// never re-typed.
+// never re-typed. The union of this map's values IS the
+// app's check-page set — a test pins the equality (the
+// print-check batch, item 21): the report may never link
+// to a page that does not exist, nor leave a check page
+// unlinked. Section 6 (the neighbourhood) names the two
+// pages its deferred explanations live on — planning
+// applications hand off to the planning-constraints page,
+// charging zones are explained on the air-quality page;
+// the Census and benefits blocks carry no check page and
+// keep their bases in the report itself (item 20).
 export const REPORT_SECTION_CHECK_LINKS: Record<number, string[]> = {
   1: ["/check/sold-prices", "/check/epc"],
   2: ["/check/sold-prices"],
   3: ["/check/schools"],
   4: ["/check/family-essentials", "/check/air-quality", "/check/noise", "/check/crime"],
   5: ["/check/family-essentials", "/check/public-transport"],
-  6: [
+  6: ["/check/planning-constraints", "/check/air-quality"],
+  7: [
     "/check/council-tax-band",
     "/check/epc",
     "/check/solar-potential",
@@ -160,9 +171,9 @@ export const REPORT_SECTION_CHECK_LINKS: Record<number, string[]> = {
     "/check/mobile-coverage",
     "/check/planning-constraints",
   ],
-  7: ["/check/flood-risk"],
-  8: [],
+  8: ["/check/flood-risk"],
   9: [],
+  10: [],
 };
 
 // ------------------------------------------------------------------
@@ -194,7 +205,16 @@ export interface ReportRow {
   name: string;
   detail: string | null;
   tag: string | null;
+  // The tag prints in its highlighted form (the sample's
+  // brass-pale pill) rather than the plain pill — the
+  // "Grammar school" label (print-check item 7).
+  tagStar?: boolean;
   dist: string | null;
+  // The distance chip's colour band, from the results
+  // page's own distanceBand rules for the row's family
+  // (print-check item 8 — no new thresholds are invented
+  // here; the band is computed where the row is built).
+  distBand?: DistanceBand;
   // Lines that belong to this row alone, printed under it
   // (a school's destinations block, a surgery's CQC
   // rating line).
@@ -206,6 +226,10 @@ export interface ReportMapPin {
   name: string;
   group: string;
   miles: number;
+  // The legend's distance, formatted as the rest of the
+  // report formats distances (formatMiles — "0.3", never
+  // the raw filed figure; print-check item 19).
+  milesLabel: string;
   x: number;
   y: number;
 }
@@ -219,6 +243,12 @@ export interface ReportMapModel {
   homeY: number;
   homeLabel: string;
   rings: { r: number; label: string }[];
+  // The filed street lines as the picture's ground, drawn
+  // under the pins (print-check item 19): the same street
+  // lines the flood pictures draw, projected into this
+  // map's mile space. Absent where no street lines are
+  // held for the frame — the rings-only diagram stands.
+  streets?: { d: string; home: boolean }[];
   pins: ReportMapPin[];
   caption: string;
   ariaLabel: string;
@@ -282,7 +312,7 @@ export interface ReportMonthChartModel {
   ariaLabel: string;
 }
 
-// The flood-map model (M8.3): one of Section 7's two map
+// The flood-map model (M8.3): one of Section 8's two map
 // pictures, drawn from the flood bundle's own filed
 // geometry (lib/flood.ts's maps sibling) over the street
 // lines we hold. Every coordinate is decided here, on the
@@ -363,8 +393,23 @@ export type ReportBlock =
   | { type: "rows"; rows: ReportRow[] }
   // boldColumns: the column indexes whose cells print
   // bold (Section 1's sale-price column, in the sample's
-  // form).
-  | { type: "table"; head: string[]; rows: string[][]; caption?: string; boldColumns?: number[] }
+  // form). cellAlerts / cellSubs (print-check items 2 and
+  // 6): a per-cell red highlight — the air table's
+  // modelled-level cell, only where the level is above
+  // the UK legal limit — and a per-cell second line (the
+  // pollutant's position against its yardsticks, printed
+  // inside the table with its pollutant). Both are sparse
+  // grids aligned with rows; an absent entry is a plain
+  // cell.
+  | {
+      type: "table";
+      head: string[];
+      rows: string[][];
+      caption?: string;
+      boldColumns?: number[];
+      cellAlerts?: boolean[][];
+      cellSubs?: (string | null)[][];
+    }
   // A bar chart in a chart card (M8.2's form of the M8.1
   // block): the view decides each row's bar width, its
   // printed value and its fill strength — the largest row
@@ -395,14 +440,14 @@ export type ReportBlock =
   // version's groups are built from these too): each item
   // is a rich line, so its key facts can print bold.
   | { type: "richList"; items: ReportRichLine[] }
-  // The seller questions (M8.5): Section 8's numbered
+  // The seller questions (M8.5): Section 9's numbered
   // list — each item a hand-written block's title and
   // text, selected by fixed rules from the report's own
-  // facts (see section8). The renderer prints the
+  // facts (see section9). The renderer prints the
   // ordered list in the sample's form (ol.rpt-seller),
   // so an item's position IS its question number — the
   // flood block's "Question 1" standing (the Exeter
-  // sample's Section 7 cross-reference) reads it.
+  // sample's cross-reference) reads it.
   | { type: "questions"; items: { title: string; text: string }[] }
   | { type: "note"; text: string }
   | { type: "lineLink"; text: string; label: string; href: string }
@@ -643,12 +688,23 @@ function category(bundle: NearbyBundle, key: NearbyCategory): CategoryAnswer | n
 // identical pill prints "0.3 mi"; formatMiles returns the
 // bare number by design, for the pill contexts that add
 // their own unit — the report's pills add theirs here).
-function placeRows(answer: CategoryAnswer, extra?: (place: NearbyPlace) => string[]): ReportRow[] {
+// The pill also carries its colour band (print-check
+// item 8): the results page's own distanceBand rules for
+// the row's family — schools 1/2 miles, hospitals 5/10,
+// everything else 0.5/1.5 — computed here from the filed
+// miles, so the web report and the PDF colour the chip
+// exactly as the results page colours its own.
+function placeRows(
+  answer: CategoryAnswer,
+  extra?: (place: NearbyPlace) => string[],
+  family: "school" | "hospital" | "everyday" = "everyday",
+): ReportRow[] {
   return answer.places.map((place) => ({
     name: place.name,
     detail: place.detail,
     tag: null,
     dist: `${formatMiles(place.miles)} mi`,
+    distBand: distanceBand(family, place.miles),
     extra: extra ? extra(place) : [],
   }));
 }
@@ -662,7 +718,7 @@ function placeRows(answer: CategoryAnswer, extra?: (place: NearbyPlace) => strin
 // (BUG-065), and the none-within form is recomposed from
 // its parts WITHOUT the basis parenthesis: the basis is
 // explanation, and explanation sits in the note style or
-// in Section 9's Distances note, never inside a finding
+// in Section 10's Distances note, never inside a finding
 // at body size (BUG-050(i)). The recomposition is at the
 // site's one-decimal precision, never the brain's raw
 // line — the results page's rule (BUG-014), extended to
@@ -683,7 +739,7 @@ function stateLine(answer: CategoryAnswer): ReportBlock | null {
 function section(number: number, title: string, blocks: ReportBlock[]): ReportSectionView {
   // No check-link row closes a section (BUG-052): the
   // sample report carries its How-we-check links only in
-  // Section 9, and so does the product — section9 builds
+  // Section 10, and so does the product — section10 builds
   // the one list from REPORT_SECTION_CHECK_LINKS itself.
   return { number, title, blocks };
 }
@@ -713,7 +769,7 @@ function floodStateLine(input: ReportInput): string | null {
 // normalised address (the register's address against the
 // resolution's label, then its number-and-street key).
 // No match, no claim — the masthead and Section 1 simply
-// carry no certificate facts for the home. Section 8
+// carry no certificate facts for the home. Section 9
 // reads the whole set (a home can hold two certificates
 // that disagree); the masthead's certificate is the
 // first of them.
@@ -747,7 +803,7 @@ function matchedCertificate(
 
 // The newest of a home's certificates by registration
 // date — the register's latest word on the home, which
-// is the certificate Section 8's heating and improvement
+// is the certificate Section 9's heating and improvement
 // questions read. A certificate with no filed date sorts
 // below every dated one.
 function newestCertificate(certificates: ServedCertificate[]): ServedCertificate | null {
@@ -923,7 +979,12 @@ function buildShortVersion(
       ? [
           seg(`${secondaryAnswer.nearestSelective.name}, `),
           boldSeg(`${formatMiles(secondaryAnswer.nearestSelective.miles)} miles`),
-          seg(" — selective, entry by test."),
+          // The selective school's label, in the report's
+          // highlighted (bold) form, keeping the
+          // entry-by-test fact (item 7).
+          seg(" — "),
+          boldSeg("Grammar school"),
+          seg(", entry by test."),
         ]
       : secondaryAnswer?.nearestSelectiveLine
         ? [seg(sentenceLine(secondaryAnswer.nearestSelectiveLine))]
@@ -1637,10 +1698,17 @@ function schoolGroup(
   heading: string,
   answer: CategoryAnswer | null,
   extra?: (place: NearbyPlace) => string[],
+  decorate?: (row: ReportRow, place: NearbyPlace) => ReportRow,
 ) {
   blocks.push({ type: "sub", text: heading });
   if (!answer) return;
-  if (answer.places.length > 0) blocks.push({ type: "rows", rows: placeRows(answer, extra) });
+  if (answer.places.length > 0) {
+    // School rows take the results page's school distance
+    // bands (1/2 miles — item 8).
+    let rows = placeRows(answer, extra, "school");
+    if (decorate) rows = rows.map((row, index) => decorate(row, answer.places[index]));
+    blocks.push({ type: "rows", rows });
+  }
   const state = stateLine(answer);
   if (state) blocks.push(state);
 }
@@ -1671,15 +1739,29 @@ function section3(input: ReportInput): ReportSectionView {
     `Secondary schools — nearest ${REPORT_SCHOOL_LIST_SIZE}`,
     secondary,
     secondaryExtra,
+    // A selective school's row carries the highlighted
+    // "Grammar school" label, and keeps the entry-by-test
+    // fact as a line of its own under the row (item 7 —
+    // the fact is the DfE admissions-policy field, already
+    // served on the place).
+    (row, place) =>
+      place.selective === true
+        ? {
+            ...row,
+            tag: "Grammar school",
+            tagStar: true,
+            extra: ["Entry by test.", ...row.extra],
+          }
+        : row,
   );
   if (secondary?.nearestSelectiveLine)
     blocks.push({ type: "line", text: sentenceLine(secondary.nearestSelectiveLine) });
   // The catchment honesty block no longer stands here
   // (BUG-050(ii)): the sample carries the school-places
-  // disclaimer in Section 9, not mid-section, so the
+  // disclaimer in Section 10, not mid-section, so the
   // block's content — no catchment boundaries are held,
   // and the answer lives with the council and the school
-  // — is folded into Section 9's School places disclaimer
+  // — is folded into Section 10's School places disclaimer
   // there, with its GOV.UK admissions link beside it. The
   // free results page keeps its own block, untouched.
   schoolGroup(blocks, "Sixth forms and colleges", category(nearby, "sixth-forms"));
@@ -1822,8 +1904,12 @@ function section4(input: ReportInput): ReportSectionView {
   for (const service of healthServices) {
     const answer = category(nearby, service.key);
     if (!answer) continue;
+    // The distance chip's band family (item 8): A&E rows
+    // take the results page's hospital bands (5/10 miles),
+    // the rest the everyday bands.
+    const family = service.key === "ae" ? "hospital" : "everyday";
     if (answer.places.length > 0) {
-      const rows = placeRows(answer, healthExtra(service.key)).map((row) => ({
+      const rows = placeRows(answer, healthExtra(service.key), family).map((row) => ({
         ...row,
         name: `${service.prefix} — ${row.name}`,
       }));
@@ -1838,6 +1924,7 @@ function section4(input: ReportInput): ReportSectionView {
             detail: `There is no ${service.absenceNoun} within 2 miles of this home; ${beyond.name} is the nearest, at ${formatMiles(beyond.miles)} miles.`,
             tag: null,
             dist: `${formatMiles(beyond.miles)} mi`,
+            distBand: distanceBand(family, beyond.miles),
             extra: [],
           },
         ],
@@ -1850,15 +1937,29 @@ function section4(input: ReportInput): ReportSectionView {
 
   if (sections) {
     const air = sections.air;
-    // The sample's air form (BUG-048): the sub names the
+    // The sample's air form (BUG-048), as the print-check
+    // batch settles it (items 2 and 6): the sub names the
     // source and the modelled year; the table carries the
     // yardsticks as its own columns — the modelled level
     // against the UK legal limit and the WHO 2021
     // guideline (D50's figures, in the sample's shape) —
-    // and the yardstick sentences ride beneath as notes,
-    // explanation text taking the note style (BUG-050).
-    // Where a filing predates the yardsticks, the table
-    // keeps its two-column served form.
+    // and each pollutant's position against those
+    // yardsticks prints INSIDE the table, as a second line
+    // under its own modelled level, never as a free note
+    // under the whole table. The modelled-level cell is
+    // highlighted red ONLY where the level is above the
+    // UK legal limit (position "above-uk-limit"); a level
+    // above the WHO guideline alone never highlights. The
+    // long explainers — the yardstick sentences, the
+    // zone-compliance basis, the AQMA basis — no longer
+    // stand in the report at all: they live on the
+    // air-quality How-we-check page, which Section 10
+    // links (item 20's rule: minimum explanation here,
+    // the fuller explanation behind the link). The table's
+    // caption is the short key line — modelled levels for
+    // the whole square kilometre, not a measurement at
+    // this home. Where a filing predates the yardsticks,
+    // the table keeps its two-column served form.
     blocks.push({
       type: "sub",
       text: air.year !== null ? `Air — Defra modelled, ${air.year}` : "Air quality",
@@ -1886,12 +1987,19 @@ function section4(input: ReportInput): ReportSectionView {
             `${pollutant.whoGuideline} ${air.unit}`,
           ]),
           caption: air.explainer,
+          cellAlerts: air.yardsticks.pollutants.map((pollutant) => [
+            false,
+            pollutant.position === "above-uk-limit",
+            false,
+            false,
+          ]),
+          cellSubs: air.yardsticks.pollutants.map((pollutant) => [
+            null,
+            pollutant.summaryLine ? sentence(pollutant.summaryLine) : null,
+            null,
+            null,
+          ]),
         });
-        blocks.push({ type: "note", text: air.yardsticks.basisLine });
-        for (const pollutant of air.yardsticks.pollutants) {
-          blocks.push({ type: "note", text: pollutant.yardstickLine });
-          if (pollutant.summaryLine) blocks.push({ type: "note", text: pollutant.summaryLine });
-        }
       } else {
         const rows: string[][] = [
           ["Nitrogen dioxide (NO₂)", air.no2 !== null ? `${air.no2} ${air.unit}` : "—"],
@@ -1908,7 +2016,10 @@ function section4(input: ReportInput): ReportSectionView {
     }
     // The AQMA answer as the sample draws it: a row —
     // name, detail sentence, distance pill where a
-    // nearest serves — not a subsection of its own.
+    // nearest serves — not a subsection of its own. Its
+    // basis note no longer stands here (item 6): what an
+    // AQMA is, and how one is declared, is explained on
+    // the air-quality How-we-check page.
     if (air.aqma.state === "inside" || air.aqma.state === "nearest") {
       blocks.push({
         type: "rows",
@@ -1918,6 +2029,8 @@ function section4(input: ReportInput): ReportSectionView {
             detail: air.aqma.line,
             tag: null,
             dist: air.aqma.miles !== null ? `${formatMiles(air.aqma.miles)} mi` : null,
+            distBand:
+              air.aqma.miles !== null ? distanceBand("everyday", air.aqma.miles) : undefined,
             extra: [],
           },
         ],
@@ -1928,10 +2041,12 @@ function section4(input: ReportInput): ReportSectionView {
         text: sentenceLine(air.aqma.line),
       });
     }
-    if (air.aqma.basisLine) blocks.push({ type: "note", text: air.aqma.basisLine });
 
     // Noise, as served: the publisher's band text
-    // verbatim, day and night (scope (h)).
+    // verbatim, day and night (scope (h)). The row labels
+    // are the brain's lowercase kind words ("road noise");
+    // a table's row label is a standalone line, so it is
+    // capitalised here at the composition layer (item 4).
     const noise = sections.noise;
     blocks.push({ type: "sub", text: "Noise" });
     if (noise.line) {
@@ -1944,7 +2059,11 @@ function section4(input: ReportInput): ReportSectionView {
       blocks.push({
         type: "table",
         head: ["Source", "Day", "Night"],
-        rows: noise.bands.map((band) => [band.label, band.dayBand ?? "—", band.nightBand ?? "—"]),
+        rows: noise.bands.map((band) => [
+          sentence(band.label),
+          band.dayBand ?? "—",
+          band.nightBand ?? "—",
+        ]),
         caption: noise.explainer,
       });
     }
@@ -2009,39 +2128,11 @@ function section4(input: ReportInput): ReportSectionView {
     blocks.push({ type: "line", text: crime.crime.reason });
   }
 
-  if (sections) {
-    // Benefits — the wider area (the Master's placement:
-    // the end of this section). The D5 guardrails ride
-    // with it: exactly as published with the source date,
-    // a neutral label, no colour, score or verdict, and
-    // never in the short version, the headlines or the
-    // pills — plain lines here and nowhere else.
-    const benefits = sections.benefits;
-    blocks.push({ type: "sub", text: "Benefits — the wider area" });
-    if (benefits.line) blocks.push({ type: "line", text: benefits.line });
-    for (const series of benefits.series) {
-      if (series.line) blocks.push({ type: "line", text: series.line });
-    }
-    if (benefits.basesLine) blocks.push({ type: "note", text: benefits.basesLine });
-
-    // Charging zones, under its own label (scope (o)).
-    // No charge amount is ever printed.
-    const zones = sections.chargingZones;
-    blocks.push({ type: "sub", text: "Charging zones" });
-    blocks.push({ type: "line", text: zones.line });
-    if (zones.scheme) {
-      if (zones.scheme.carsLine) blocks.push({ type: "line", text: zones.scheme.carsLine });
-      if (zones.scheme.classLine) blocks.push({ type: "line", text: zones.scheme.classLine });
-      if (zones.scheme.dateLine) blocks.push({ type: "line", text: zones.scheme.dateLine });
-      blocks.push({
-        type: "lineLink",
-        text: "",
-        label: zones.scheme.checkerLabel,
-        href: zones.scheme.checkerUrl,
-      });
-    }
-    if (zones.basisLine) blocks.push({ type: "note", text: zones.basisLine });
-  }
+  // Benefits and charging zones no longer stand in this
+  // section (print-check item 14): both are neighbourhood
+  // facts, and they stand in Section 6, "The
+  // neighbourhood", with the Census block. This section
+  // is health, air, noise and crime only.
 
   return section(4, "Health, air & crime", blocks);
 }
@@ -2147,8 +2238,42 @@ function buildSection5Map(input: ReportInput): ReportMapModel | null {
       x = round1(width / 2 + ux * 24);
       y = round1(height / 2 + uy * 24);
     }
-    return { n: index + 1, name: pin.name, group: pin.group, miles: pin.miles, x, y };
+    return {
+      n: index + 1,
+      name: pin.name,
+      group: pin.group,
+      miles: pin.miles,
+      milesLabel: formatMiles(pin.miles),
+      x,
+      y,
+    };
   });
+  // The ground (item 19): the filed street lines for the
+  // frame, projected into this map's mile space exactly as
+  // the flood pictures project them — the home's own
+  // street in the strong tint, the rest pale. The streets
+  // ride with the flood bundle's maps sibling (the one
+  // filed street set the check holds); where no flood
+  // maps serve, or the frame holds no street lines, the
+  // picture keeps its rings-only ground.
+  const flood = floodServed(input);
+  const streets: { d: string; home: boolean }[] = [];
+  if (flood && flood.maps && flood.maps.streets.length > 0) {
+    for (const street of flood.maps.streets) {
+      const projected = street.points.map(([lon, lat]) => ({
+        mx: (lon - home.longitude) * milesPerDegLon,
+        my: -(lat - home.latitude) * milesPerDegLat,
+      }));
+      // A street wholly outside the drawn extent adds
+      // nothing to the ground; keep the model lean.
+      if (!projected.some((p) => Math.abs(p.mx) <= extent && Math.abs(p.my) <= extent)) continue;
+      streets.push({
+        d: projected.map((p) => `${round1(toX(p.mx))},${round1(toY(p.my))}`).join(" "),
+        home: flood.maps.homeStreet !== null && street === flood.maps.homeStreet,
+      });
+    }
+  }
+  const onStreets = streets.length > 0;
   return {
     homeX: toX(0),
     homeY: toY(0),
@@ -2157,11 +2282,70 @@ function buildSection5Map(input: ReportInput): ReportMapModel | null {
       { r: scale, label: "1 mile" },
       { r: scale * 2, label: "2 miles" },
     ],
+    ...(onStreets ? { streets } : {}),
     pins,
-    caption:
-      "The named places in this section, plotted from their filed positions — straight-line distances from the home, with rings at 1 and 2 miles. The picture is drawn from the data this check holds; it is a diagram of the listed places, not a street map.",
+    caption: onStreets
+      ? "The named places in this section, plotted over the street lines this check holds for the area — straight-line distances from the home, with rings at 1 and 2 miles. The picture is drawn from the filed street lines and the listed places; it is a diagram of the listed places, not a street map."
+      : "The named places in this section, plotted from their filed positions — straight-line distances from the home, with rings at 1 and 2 miles. The picture is drawn from the data this check holds; it is a diagram of the listed places, not a street map.",
     ariaLabel: `Map of the ${pins.length} named places listed in this section, around ${resolution.rung === 1 ? resolution.address.label : home.postcode}, with rings at 1 and 2 miles`,
   };
+}
+
+// The straight-line distance between two filed points,
+// in miles, on the report's own mile-space projection —
+// used only to recognise a pair of bus stops as the two
+// sides of one stopping place.
+function milesBetween(
+  a: { latitude: number; longitude: number },
+  b: { latitude: number; longitude: number },
+): number {
+  const milesPerDegLat = 69.0;
+  const milesPerDegLon = 69.0 * Math.cos((a.latitude * Math.PI) / 180);
+  return Math.hypot(
+    (b.longitude - a.longitude) * milesPerDegLon,
+    (b.latitude - a.latitude) * milesPerDegLat,
+  );
+}
+
+// The Transport group's rows (print-check items 12 and
+// 13). Every entry carries its kind in words — "Rail
+// station" or "Bus stop" — from the stop type the
+// register files (the category the serve layer drew the
+// place from). The register holds no indicator, bearing
+// or direction for a bus stop, so a same-name pair cannot
+// be told apart by direction; where two same-name stops
+// stand within a few metres of each other — the pair on
+// opposite sides of the road — they print as ONE entry
+// saying both directions, at the nearer distance. The
+// map's pins are untouched: both filed positions are
+// real, and both stay plotted.
+const BUS_STOP_PAIR_MILES = 0.05;
+
+function transportRows(key: NearbyCategory, answer: CategoryAnswer): ReportRow[] {
+  const kind = key === "station" ? "Rail station" : "Bus stop";
+  const rows = placeRows(answer).map((row) => ({ ...row, tag: kind }));
+  if (key !== "bus-stop") return rows;
+  const merged: { row: ReportRow; place: NearbyPlace }[] = [];
+  answer.places.forEach((place, index) => {
+    const twin = merged.find(
+      (entry) =>
+        entry.place.name === place.name && milesBetween(entry.place, place) <= BUS_STOP_PAIR_MILES,
+    );
+    if (!twin) {
+      merged.push({ row: rows[index], place });
+      return;
+    }
+    // The pair stands as one entry: the nearer distance
+    // (the bundle orders nearest first, so the standing
+    // row already carries it), and a detail that says
+    // both directions in plain words.
+    const bothSides = "Stops on both sides of the road — one for each direction.";
+    twin.row = {
+      ...twin.row,
+      detail: twin.row.detail ? `${twin.row.detail} ${bothSides}` : bothSides,
+    };
+  });
+  return merged.map((entry) => entry.row);
 }
 
 function section5(input: ReportInput): ReportSectionView {
@@ -2172,7 +2356,12 @@ function section5(input: ReportInput): ReportSectionView {
     for (const key of group.keys) {
       const answer = category(nearby, key);
       if (!answer) continue;
-      if (answer.places.length > 0) blocks.push({ type: "rows", rows: placeRows(answer) });
+      if (answer.places.length > 0) {
+        blocks.push({
+          type: "rows",
+          rows: group.heading === "Transport" ? transportRows(key, answer) : placeRows(answer),
+        });
+      }
       const state = stateLine(answer);
       if (state) blocks.push(state);
     }
@@ -2195,6 +2384,7 @@ function section5(input: ReportInput): ReportSectionView {
           detail: [site.siteAddress, site.activityDescription].filter(Boolean).join(" · ") || null,
           tag: null,
           dist: `${formatMiles(site.miles)} mi`,
+          distBand: distanceBand("everyday", site.miles),
           extra: [
             ...(site.belowThresholdLine ? [site.belowThresholdLine] : []),
             ...(site.noAirReturnsLine ? [site.noAirReturnsLine] : []),
@@ -2215,7 +2405,7 @@ function section5(input: ReportInput): ReportSectionView {
 }
 
 // ------------------------------------------------------------------
-// Section 6 — Home, costs & risks
+// Section 7 — Home, costs & risks
 // ------------------------------------------------------------------
 
 // ------------------------------------------------------------------
@@ -2335,11 +2525,11 @@ function censusAgeCard(census: CensusSection): ReportBlock | null {
   };
 }
 
-function section6(input: ReportInput): ReportSectionView {
+function section7(input: ReportInput): ReportSectionView {
   const blocks: ReportBlock[] = [];
   const sections = areaSections(input);
   const { nearby } = input;
-  if (!sections) return section(6, "Home, costs & risks", blocks);
+  if (!sections) return section(7, "Home, costs & risks", blocks);
 
   // Council tax.
   const tax = sections.councilTax;
@@ -2439,13 +2629,47 @@ function section6(input: ReportInput): ReportSectionView {
     }
   }
 
-  // Solar — the basis rides in the section itself, in the
-  // line's own terms (founder requirement, 15 Nov 2026):
-  // the served line, then the served basis line, together.
+  // Solar (print-check item 23c): the served line is one
+  // dense paragraph of modelling facts; where the served
+  // basis is complete, the block prints as separate short
+  // lines instead — the generation figure, the sunshine
+  // figure, the standard system's assumptions, and the
+  // radiation source with its year span — each composed
+  // from the served structured facts, never re-wording a
+  // figure. Where the basis is incomplete (an older
+  // filing), the served line and basis line stand as
+  // before, in the section itself (founder requirement,
+  // 15 Nov 2026).
   const solar = sections.solar;
   blocks.push({ type: "sub", text: "Solar potential" });
-  if (solar.line) blocks.push({ type: "line", text: solar.line });
-  if (solar.basisLine) blocks.push({ type: "line", text: solar.basisLine });
+  const solarBasis = solar.state === "served" ? solar.basis : null;
+  if (
+    solarBasis &&
+    typeof solarBasis.radiationDb === "string" &&
+    solarBasis.radiationDb !== "" &&
+    solar.yieldKwhPerKwp !== null &&
+    solar.irradiationKwhM2 !== null
+  ) {
+    const assumptions: string[] = [
+      `${solarBasis.peakPowerKwp} kWp of panels`,
+      "unshaded",
+      "south-facing",
+      ...(solarBasis.slopeDeg !== null ? [`${solarBasis.slopeDeg}° slope`] : []),
+      ...(solarBasis.systemLossPct !== null ? [`${solarBasis.systemLossPct}% system losses`] : []),
+    ];
+    blocks.push({
+      type: "list",
+      items: [
+        `A standard 1 kWp system at this location is modelled to generate about ${solar.yieldKwhPerKwp} kWh in a year.`,
+        `The sunshine figure behind it is ${solar.irradiationKwhM2} kWh per square metre in a year.`,
+        `The standard system: ${assumptions.join(", ")}.`,
+        `Radiation data: ${solarBasis.radiationDb}${solarBasis.yearMin !== null && solarBasis.yearMax !== null ? `, ${solarBasis.yearMin}–${solarBasis.yearMax}` : ""}.`,
+      ],
+    });
+  } else {
+    if (solar.line) blocks.push({ type: "line", text: solar.line });
+    if (solar.basisLine) blocks.push({ type: "line", text: solar.basisLine });
+  }
 
   // EV charging, in the format's grouped form.
   blocks.push({ type: "sub", text: "EV charging" });
@@ -2472,40 +2696,54 @@ function section6(input: ReportInput): ReportSectionView {
   blocks.push({ type: "sub", text: "Mobile coverage" });
   if (mobile.line) blocks.push({ type: "line", text: mobile.line });
   for (const service of mobile.services) {
-    if (service.line) blocks.push({ type: "line", text: service.line });
+    if (service.line) {
+      // Every line leads with the service it describes, in
+      // plain words (item 16): the served lines all open
+      // with the same "at least one mobile network…"
+      // clause, so as printed they read as one repeated
+      // fact. The lead names the service from the held
+      // Ofcom data — the service key's plain-words form,
+      // falling back to the publisher's own label for a
+      // key this table does not know.
+      const lead = MOBILE_SERVICE_LEADS[service.service] ?? service.label;
+      blocks.push({ type: "line", text: `${lead} — ${sentence(service.line)}` });
+    }
   }
 
-  // The planning hand-off (D31): the council's register,
-  // never a count and never a named list.
-  const planning = sections.planningApplications;
-  blocks.push({ type: "sub", text: "Planning applications" });
-  blocks.push({ type: "line", text: sentenceLine(planning.line) });
-  if (planning.link)
-    blocks.push({
-      type: "lineLink",
-      text: "",
-      label: planning.link.label,
-      href: planning.link.url,
-    });
+  // Planning applications no longer stand in this section
+  // (item 14): the hand-off is a neighbourhood fact and
+  // stands in Section 6, with the Census block.
 
   // Planning constraints & land, exactly as served (full
-  // per-site depth is M8.11(i)/(j)'s step).
+  // per-site depth is M8.11(i)/(j)'s step). The five
+  // layer lines print as one bullet list, not a stack of
+  // paragraphs (item 23b).
   const constraints = sections.constraints;
   blocks.push({ type: "sub", text: "Planning constraints & land" });
-  for (const layer of [
-    constraints.conservationArea,
-    constraints.article4,
-    constraints.greenBelt,
-    constraints.builtUpArea,
-  ]) {
-    blocks.push({ type: "line", text: sentenceLine(layer.line) });
-  }
-  blocks.push({ type: "line", text: sentenceLine(constraints.brownfield.line) });
+  blocks.push({
+    type: "list",
+    items: [
+      constraints.conservationArea,
+      constraints.article4,
+      constraints.greenBelt,
+      constraints.builtUpArea,
+      constraints.brownfield,
+    ].map((layer) => sentenceLine(layer.line)),
+  });
 
+  // Listed buildings & heritage (item 23): the named
+  // buildings keep their rows; every other line of the
+  // block — the absence lines for the registers that hold
+  // nothing here, the at-point line, the local-lists line
+  // — prints as ONE bullet list in the same order, not a
+  // stack of look-alike paragraphs. Where buildings are
+  // named, the listed line still leads the rows as
+  // before; where none are, it takes its place in the
+  // list.
   const heritage = sections.heritage;
   blocks.push({ type: "sub", text: "Listed buildings & heritage" });
-  blocks.push({ type: "line", text: sentenceLine(heritage.listed.line) });
   if (heritage.listed.within.length > 0) {
+    blocks.push({ type: "line", text: sentenceLine(heritage.listed.line) });
     blocks.push({
       type: "rows",
       rows: heritage.listed.within.map((place) => ({
@@ -2513,16 +2751,18 @@ function section6(input: ReportInput): ReportSectionView {
         detail: `Grade ${place.grade}`,
         tag: null,
         dist: `${formatMiles(place.miles)} mi`,
+        distBand: distanceBand("everyday", place.miles),
         extra: [],
       })),
     });
   }
-  if (heritage.listed.beyondLine)
-    blocks.push({ type: "line", text: sentenceLine(heritage.listed.beyondLine) });
+  const heritageLines: string[] = [];
+  if (heritage.listed.within.length === 0) heritageLines.push(sentenceLine(heritage.listed.line));
+  if (heritage.listed.beyondLine) heritageLines.push(sentenceLine(heritage.listed.beyondLine));
   if (heritage.atPoint.state === "recorded")
-    blocks.push({ type: "line", text: sentenceLine(heritage.atPoint.line) });
+    heritageLines.push(sentenceLine(heritage.atPoint.line));
   if (heritage.atPoint.state === "needs-exact-home")
-    blocks.push({ type: "line", text: heritage.atPoint.reason });
+    heritageLines.push(sentenceLine(heritage.atPoint.reason));
   for (const layer of [
     heritage.monuments,
     heritage.worldHeritageSites,
@@ -2530,21 +2770,54 @@ function section6(input: ReportInput): ReportSectionView {
     heritage.protectedWrecks,
     heritage.worldHeritageBufferZones,
   ]) {
-    blocks.push({ type: "line", text: sentenceLine(layer.line) });
+    heritageLines.push(sentenceLine(layer.line));
   }
-  if (heritage.localListsLine)
-    blocks.push({ type: "line", text: sentenceLine(heritage.localListsLine) });
+  if (heritage.localListsLine) heritageLines.push(sentenceLine(heritage.localListsLine));
+  if (heritageLines.length > 0) blocks.push({ type: "list", items: heritageLines });
 
+  // Nature & protected areas (item 23): the same
+  // treatment — the block's lines print as one bullet
+  // list, in their served order.
   const nature = sections.nature;
   blocks.push({ type: "sub", text: "Nature & protected areas" });
-  if (nature.coverageLine) blocks.push({ type: "line", text: sentenceLine(nature.coverageLine) });
-  if (nature.placesLine) blocks.push({ type: "line", text: sentenceLine(nature.placesLine) });
-  if (nature.designationsLine)
-    blocks.push({ type: "line", text: sentenceLine(nature.designationsLine) });
-  blocks.push({ type: "line", text: sentenceLine(nature.ancientWoodland.line) });
+  const natureLines: string[] = [];
+  if (nature.coverageLine) natureLines.push(sentenceLine(nature.coverageLine));
+  if (nature.placesLine) natureLines.push(sentenceLine(nature.placesLine));
+  if (nature.designationsLine) natureLines.push(sentenceLine(nature.designationsLine));
+  natureLines.push(sentenceLine(nature.ancientWoodland.line));
   if (nature.ancientWoodlandInventoryLine)
-    blocks.push({ type: "line", text: sentenceLine(nature.ancientWoodlandInventoryLine) });
-  blocks.push({ type: "line", text: sentenceLine(nature.priorityHabitat.line) });
+    natureLines.push(sentenceLine(nature.ancientWoodlandInventoryLine));
+  natureLines.push(sentenceLine(nature.priorityHabitat.line));
+  blocks.push({ type: "list", items: natureLines });
+
+  // The area in numbers no longer stands in this section
+  // (item 14): the Census and deprivation block is a
+  // neighbourhood fact and opens Section 6, "The
+  // neighbourhood" (see section6 below).
+  return section(7, "Home, costs & risks", blocks);
+}
+
+// ------------------------------------------------------------------
+// Section 6 — The neighbourhood
+// ------------------------------------------------------------------
+
+// The plain-words lead for each mobile service the Ofcom
+// data holds (item 16), keyed by the brain's service key;
+// a key this table does not know falls back to the
+// publisher's own served label.
+const MOBILE_SERVICE_LEADS: Record<string, string> = {
+  voice: "Voice calls",
+  "4g": "4G data",
+  "5g_high_confidence": "5G data (high confidence)",
+  "5g_very_high_confidence": "5G data (very high confidence)",
+  "5g_sa_high_confidence": "5G standalone data (high confidence)",
+  "5g_sa_very_high_confidence": "5G standalone data (very high confidence)",
+};
+
+function section6(input: ReportInput): ReportSectionView {
+  const blocks: ReportBlock[] = [];
+  const sections = areaSections(input);
+  if (!sections) return section(6, "The neighbourhood", blocks);
 
   // The area in numbers — demographics, led by the IMD
   // decile-in-words line in its ruled sentence form (the
@@ -2605,9 +2878,14 @@ function section6(input: ReportInput): ReportSectionView {
   if (imd.state !== "served" && imd.line)
     blocks.push({ type: "line", text: sentenceLine(imd.line) });
   if (imd.state === "served" && imd.domains.length > 0) {
+    // The domains' lead labels print bold, like every
+    // other labelled bullet in the report (item 22).
     blocks.push({
-      type: "list",
-      items: imd.domains.map((domain) => `${domain.name}: ${decileWords(domain.decile)}.`),
+      type: "richList",
+      items: imd.domains.map((domain) => [
+        boldSeg(`${domain.name}:`),
+        seg(` ${decileWords(domain.decile)}.`),
+      ]),
     });
   }
   if (census.state !== "served" && census.line)
@@ -2639,11 +2917,60 @@ function section6(input: ReportInput): ReportSectionView {
   }
   if (census.socialRented) blocks.push({ type: "line", text: census.socialRented.line });
 
-  return section(6, "Home, costs & risks", blocks);
+  // Benefits — the wider area. The D5 guardrails ride
+  // with it: exactly as published with the source date,
+  // a neutral label, no colour, score or verdict, and
+  // never in the short version, the headlines or the
+  // pills — plain lines here and nowhere else. (The block
+  // stood at the end of Section 4 until the print-check
+  // regrouping, item 14; its bases stay explained in the
+  // report — no check page covers benefits, and item 20's
+  // audit names that plainly rather than deferring to a
+  // page that does not exist.)
+  const benefits = sections.benefits;
+  blocks.push({ type: "sub", text: "Benefits — the wider area" });
+  if (benefits.line) blocks.push({ type: "line", text: benefits.line });
+  for (const series of benefits.series) {
+    if (series.line) blocks.push({ type: "line", text: series.line });
+  }
+  if (benefits.basesLine) blocks.push({ type: "note", text: benefits.basesLine });
+
+  // Charging zones, under its own label (scope (o)).
+  // No charge amount is ever printed.
+  const zones = sections.chargingZones;
+  blocks.push({ type: "sub", text: "Charging zones" });
+  blocks.push({ type: "line", text: zones.line });
+  if (zones.scheme) {
+    if (zones.scheme.carsLine) blocks.push({ type: "line", text: zones.scheme.carsLine });
+    if (zones.scheme.classLine) blocks.push({ type: "line", text: zones.scheme.classLine });
+    if (zones.scheme.dateLine) blocks.push({ type: "line", text: zones.scheme.dateLine });
+    blocks.push({
+      type: "lineLink",
+      text: "",
+      label: zones.scheme.checkerLabel,
+      href: zones.scheme.checkerUrl,
+    });
+  }
+  if (zones.basisLine) blocks.push({ type: "note", text: zones.basisLine });
+
+  // The planning hand-off (D31): the council's register,
+  // never a count and never a named list.
+  const planning = sections.planningApplications;
+  blocks.push({ type: "sub", text: "Planning applications" });
+  blocks.push({ type: "line", text: sentenceLine(planning.line) });
+  if (planning.link)
+    blocks.push({
+      type: "lineLink",
+      text: "",
+      label: planning.link.label,
+      href: planning.link.url,
+    });
+
+  return section(6, "The neighbourhood", blocks);
 }
 
 // ------------------------------------------------------------------
-// Section 7 — Flood risk
+// Section 8 — Flood risk
 // ------------------------------------------------------------------
 
 // The two flood-map models (M8.3), built from the served
@@ -2947,13 +3274,13 @@ function warningBlocks(warnings: FloodLiveWarnings): ReportBlock[] {
   return blocks;
 }
 
-function section7(input: ReportInput): ReportSectionView {
+function section8(input: ReportInput): ReportSectionView {
   const blocks: ReportBlock[] = [];
   const served = floodServed(input);
   if (!served) {
     const line = floodStateLine(input);
     if (line) blocks.push({ type: "line", text: line });
-    return section(7, "Flood risk", blocks);
+    return section(8, "Flood risk", blocks);
   }
   // The live-warnings block opens the section (scope (e)).
   if (served.liveWarnings) blocks.push(...warningBlocks(served.liveWarnings));
@@ -2963,16 +3290,17 @@ function section7(input: ReportInput): ReportSectionView {
   // the surface-water layer — and exists only where the
   // bundle filed that layer's shapes for the frame.
   const floodMaps = buildFloodMapModels(served);
-  // The three filed layers, never merged (D25).
+  // The three filed layers, never merged (D25). The
+  // per-band proximity bullets no longer print (item 17):
+  // the section keeps the home's own position line, the
+  // pictures and the short basis note; what the bands are
+  // and how the nearest-band distances are read is
+  // explained on the flood-risk How-we-check page, which
+  // Section 10 links. (The short version's flood bullets
+  // are a different surface and keep their served form.)
   for (const layer of served.layers) {
     blocks.push({ type: "sub", text: layer.title });
     blocks.push({ type: "line", text: layer.line });
-    if (layer.proximity.length > 0) {
-      blocks.push({
-        type: "list",
-        items: layer.proximity.map((edge) => `${edge.label} — ${formatMiles(edge.miles)}`),
-      });
-    }
     if (layer.beyondLine) blocks.push({ type: "line", text: layer.beyondLine });
     blocks.push({ type: "note", text: layer.basisLine });
     if (layer.layer === "flood_zone" && floodMaps.zones)
@@ -2980,28 +3308,54 @@ function section7(input: ReportInput): ReportSectionView {
     if (layer.layer === "rofsw" && floodMaps.surfaceWater)
       blocks.push({ type: "floodMap", map: floodMaps.surfaceWater });
   }
-  // The recorded defences sub-block, as served (scope (k)).
+  // The recorded defences sub-block (scope (k)), with the
+  // print-check condensing (item 18): entries identical
+  // in everything the report prints — name, type,
+  // watercourse, maintainer, condition and standard of
+  // protection — print as ONE entry at the nearest
+  // distance, carrying the record count ("25 recorded
+  // stretches"); a group whose printed facts genuinely
+  // differ (a different condition, say) stays separate.
+  // The served order is kept: a group stands where its
+  // first entry stood.
   const defences = served.defences;
   blocks.push({ type: "sub", text: defences.title });
   if (defences.state === "served") {
     if (defences.caveat) blocks.push({ type: "line", text: defences.caveat });
     if (defences.bridgeLine) blocks.push({ type: "line", text: defences.bridgeLine });
+    const defenceRowOf = (defence: ServedFloodDefence): ReportRow => ({
+      name: defence.name ?? defence.type ?? "Recorded flood defence",
+      detail:
+        [defence.name ? defence.type : null, defence.watercourse, defence.maintainer]
+          .filter((part): part is string => part !== null && part !== "")
+          .join(" · ") || null,
+      tag: null,
+      dist: `${formatMiles(defence.miles)} mi`,
+      distBand: distanceBand("everyday", defence.miles),
+      extra: [
+        defence.conditionLine,
+        ...(defence.designSopLine ? [defence.designSopLine] : []),
+        ...(defence.currentSopLine ? [defence.currentSopLine] : []),
+      ],
+    });
+    const groups: { key: string; row: ReportRow; count: number }[] = [];
+    for (const defence of defences.defences) {
+      const row = defenceRowOf(defence);
+      const key = JSON.stringify([row.name, row.detail, ...row.extra]);
+      const existing = groups.find((group) => group.key === key);
+      if (existing) existing.count += 1;
+      else groups.push({ key, row, count: 1 });
+    }
     blocks.push({
       type: "rows",
-      rows: defences.defences.map((defence) => ({
-        name: defence.name ?? defence.type ?? "Recorded flood defence",
-        detail:
-          [defence.name ? defence.type : null, defence.watercourse, defence.maintainer]
-            .filter((part): part is string => part !== null && part !== "")
-            .join(" · ") || null,
-        tag: null,
-        dist: `${formatMiles(defence.miles)} mi`,
-        extra: [
-          defence.conditionLine,
-          ...(defence.designSopLine ? [defence.designSopLine] : []),
-          ...(defence.currentSopLine ? [defence.currentSopLine] : []),
-        ],
-      })),
+      rows: groups.map((group) =>
+        group.count > 1
+          ? {
+              ...group.row,
+              extra: [`${group.count} recorded stretches`, ...group.row.extra],
+            }
+          : group.row,
+      ),
     });
     if (defences.overflowLine) blocks.push({ type: "line", text: defences.overflowLine });
   } else if (defences.line) {
@@ -3023,11 +3377,11 @@ function section7(input: ReportInput): ReportSectionView {
     blocks.push({ type: "note", text: source.scenarioLine });
   }
   blocks.push({ type: "note", text: served.howWeCheck });
-  return section(7, "Flood risk", blocks);
+  return section(8, "Flood risk", blocks);
 }
 
 // ------------------------------------------------------------------
-// Section 8 — Questions to ask the seller (M8.5)
+// Section 9 — Questions to ask the seller (M8.5)
 // ------------------------------------------------------------------
 
 // The question bank (founder-adopted prep, 20 Nov 2026):
@@ -3055,8 +3409,8 @@ function section7(input: ReportInput): ReportSectionView {
 // heating, floor area, council tax; Birkdale: council
 // tax, surface water, energy improvements, broadband,
 // school places) and keeps the flood block Question 1
-// whenever it fires — the standing Exeter's Section 7
-// cross-reference ("see Question 1 in Section 8") needs.
+// whenever it fires — the standing cross-reference
+// ("see Question 1") needs.
 
 interface SellerQuestion {
   title: string;
@@ -3154,7 +3508,7 @@ function floorAreaQuestion(ctx: SellerContext): SellerQuestion | null {
   };
 }
 
-// (5) Council tax band — Section 6 serves the council's
+// (5) Council tax band — Section 7 serves the council's
 // scale, and the home's own band is published in none of
 // the sources checked: the reader is budgeting from the
 // scale without the one figure that sets their bill.
@@ -3334,7 +3688,7 @@ function sellerQuestions(ctx: SellerContext): SellerQuestion[] {
   return fired.slice(0, SELLER_QUESTION_CAP);
 }
 
-function section8(input: ReportInput, homeCerts: ServedCertificate[]): ReportSectionView {
+function section9(input: ReportInput, homeCerts: ServedCertificate[]): ReportSectionView {
   const blocks: ReportBlock[] = [];
   // The questions belong to a home, not a postcode: a
   // whole-postcode report has no single seller to ask,
@@ -3360,14 +3714,14 @@ function section8(input: ReportInput, homeCerts: ServedCertificate[]): ReportSec
       blocks.push({ type: "line", text: SELLER_QUESTIONS_EMPTY_LINE });
     }
   }
-  return section(8, "Questions to ask the seller", blocks);
+  return section(9, "Questions to ask the seller", blocks);
 }
 
 // ------------------------------------------------------------------
-// Section 9 — Sources, notes & disclaimers
+// Section 10 — Sources, notes & disclaimers
 // ------------------------------------------------------------------
 
-function section9(input: ReportInput, cert: ServedCertificate | null): ReportSectionView {
+function section10(input: ReportInput, cert: ServedCertificate | null): ReportSectionView {
   const blocks: ReportBlock[] = [];
   const sections = areaSections(input);
   const served = floodServed(input);
@@ -3464,7 +3818,7 @@ function section9(input: ReportInput, cert: ServedCertificate | null): ReportSec
   if (served) {
     sourceItem("Flood check", [
       seg(
-        "findings in Section 7 are from checking Environment Agency flood data. This report does not include Environment Agency flood maps. Check flood risk, including the actual flood maps, at the ",
+        "findings in Section 8 are from checking Environment Agency flood data. This report does not include Environment Agency flood maps. Check flood risk, including the actual flood maps, at the ",
       ),
       {
         text: "GOV.UK long-term flood risk service",
@@ -3479,7 +3833,7 @@ function section9(input: ReportInput, cert: ServedCertificate | null): ReportSec
     const bandD = tax.bands.find((band) => band.band === "D");
     sourceItem("Council tax", [
       seg(
-        `${tax.authority ? `${tax.authority} ` : ""}council tax${tax.taxYear ? `, ${tax.taxYear}` : ""}. The A–H table in Section 6 is derived from the Band D figure by the statutory ratios and is labelled as derived wherever it appears.${bandD ? ` Band D is ${bandD.labelPence} a year (${bandD.monthlyLabelPence} a month).` : ""}`,
+        `${tax.authority ? `${tax.authority} ` : ""}council tax${tax.taxYear ? `, ${tax.taxYear}` : ""}. The A–H table in Section 7 is derived from the Band D figure by the statutory ratios and is labelled as derived wherever it appears.${bandD ? ` Band D is ${bandD.labelPence} a year (${bandD.monthlyLabelPence} a month).` : ""}`,
       ),
     ]);
     consumedKeys.add("councilTax");
@@ -3514,7 +3868,7 @@ function section9(input: ReportInput, cert: ServedCertificate | null): ReportSec
   if (chargers && chargers.places.length > 0) {
     sourceItem("EV chargers", [
       seg(
-        "Open Charge Map and operator listings for the chargers named in Section 6; distances are straight-line from this postcode, calculated from each charger's published location.",
+        "Open Charge Map and operator listings for the chargers named in Section 7; distances are straight-line from this postcode, calculated from each charger's published location.",
       ),
     ]);
   }
@@ -3532,12 +3886,12 @@ function section9(input: ReportInput, cert: ServedCertificate | null): ReportSec
       consumedKeys.add("noise");
     }
     if (sections.broadband.state === "served") {
-      parts.push("Ofcom Connected Nations (Section 6)");
+      parts.push("Ofcom Connected Nations (Section 7)");
       consumedKeys.add("broadband");
     }
     if (sections.benefits.line) {
       parts.push(
-        "claimant count and Universal Credit figures via Stat-Xplore and Nomis (Section 4)",
+        "claimant count and Universal Credit figures via Stat-Xplore and Nomis (Section 6)",
       );
       consumedKeys.add("benefits");
     }
@@ -3707,12 +4061,91 @@ function section9(input: ReportInput, cert: ServedCertificate | null): ReportSec
     label: CATCHMENT_LINK.label,
     href: CATCHMENT_LINK.url,
   });
-  return { number: 9, title: "Sources, notes & disclaimers", blocks };
+  return { number: 10, title: "Sources, notes & disclaimers", blocks };
 }
 
 // ------------------------------------------------------------------
 // The builder — the one snapshot source (see the header)
 // ------------------------------------------------------------------
+
+// The standalone-line capitalisation pass (print-check
+// items 9, 15 and 15b; BUG-065 generalised from its named
+// instances to a rule of the whole report): EVERY line
+// that stands alone in the report — a section line, a
+// bullet, a note, a caption, a sub-heading — begins with
+// a capital letter. The brains compose many of their
+// lines as lowercase fragments for their labelled
+// contexts elsewhere; most section builders already
+// sentence-case the lines they lift, but not all, and a
+// missed one is exactly the inconsistency the founder's
+// print check kept finding. So the rule is enforced
+// here, once, over the finished view: only a line's
+// first letter can change; its words never do.
+//
+// What is NOT a standalone line, and is left untouched:
+// a row's detail and extra lines (fragments that belong
+// to their row), a tile's value and sub (display
+// fragments under a label), a seller question's text
+// (the continuation of its title, in the samples' own
+// form), table cells and bar labels (data, not lines),
+// and link labels. A test pins the rule over a rendered
+// report (item 15b).
+function capitaliseBlock(block: ReportBlock): void {
+  switch (block.type) {
+    case "intro":
+    case "line":
+    case "boldLine":
+    case "note":
+    case "sub":
+      block.text = sentence(block.text);
+      break;
+    case "list":
+      block.items = block.items.map((item) => sentence(item));
+      break;
+    case "richList":
+      block.items = block.items.map((line) =>
+        line.length > 0 ? [{ ...line[0], text: sentence(line[0].text) }, ...line.slice(1)] : line,
+      );
+      break;
+    case "table":
+      if (block.caption) block.caption = sentence(block.caption);
+      break;
+    case "bars":
+    case "statTile":
+      block.caption = sentence(block.caption);
+      break;
+    case "chartGrid":
+      for (const card of block.cards) capitaliseBlock(card);
+      break;
+    case "dotPlot":
+      block.plot.caption = sentence(block.plot.caption);
+      break;
+    case "monthChart":
+      block.chart.caption = sentence(block.chart.caption);
+      break;
+    case "map":
+      block.map.caption = sentence(block.map.caption);
+      break;
+    case "floodMap":
+      block.map.caption = sentence(block.map.caption);
+      break;
+    default:
+      break;
+  }
+}
+
+function capitaliseStandaloneLines(view: ReportView): void {
+  if (view.shortVersion) {
+    for (const group of view.shortVersion.groups) {
+      group.lines = group.lines.map((line) =>
+        line.length > 0 ? [{ ...line[0], text: sentence(line[0].text) }, ...line.slice(1)] : line,
+      );
+    }
+  }
+  for (const viewSection of view.sections) {
+    for (const block of viewSection.blocks) capitaliseBlock(block);
+  }
+}
 
 export function buildReportView(input: ReportInput): ReportView {
   const sections = areaSections(input);
@@ -3720,7 +4153,7 @@ export function buildReportView(input: ReportInput): ReportView {
   const homeCerts = sections
     ? matchedCertificates(input.resolution, sections.epc.certificates)
     : [];
-  return {
+  const view: ReportView = {
     masthead: buildMasthead(input, cert),
     shortVersion: buildShortVersion(input, cert),
     sections: [
@@ -3731,8 +4164,11 @@ export function buildReportView(input: ReportInput): ReportView {
       section5(input),
       section6(input),
       section7(input),
-      section8(input, homeCerts),
-      section9(input, cert),
+      section8(input),
+      section9(input, homeCerts),
+      section10(input, cert),
     ],
   };
+  capitaliseStandaloneLines(view);
+  return view;
 }
