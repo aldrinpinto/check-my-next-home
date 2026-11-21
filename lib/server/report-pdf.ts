@@ -52,7 +52,19 @@ export async function reportPrintCss(rootDir: string = process.cwd()): Promise<s
   let out = css;
   for (const ref of fontRefs) {
     try {
-      const bytes = await readFile(join(rootDir, "public", ref));
+      let bytes: Buffer;
+      try {
+        bytes = await readFile(join(rootDir, "public", ref));
+      } catch {
+        // The repository stores the fonts base64-wrapped
+        // (public/fonts/*.woff2.b64, decoded at build time by
+        // scripts/materialise-binary-assets.mjs); a clean
+        // checkout — CI's test run, a fresh clone — has only
+        // that stored form, so decode it here rather than
+        // silently serving the URL form.
+        const wrapped = await readFile(join(rootDir, "public", `${ref}.b64`), "utf8");
+        bytes = Buffer.from(wrapped.replace(/\s+/g, ""), "base64");
+      }
       out = out
         .split(`url("${ref}")`)
         .join(`url("data:font/woff2;base64,${bytes.toString("base64")}")`);
