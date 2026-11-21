@@ -5,8 +5,36 @@ import type {
   ReportFloodMapModel,
   ReportMapModel,
   ReportMonthChartModel,
+  ReportRichLine,
   ReportView,
 } from "../lib/report";
+
+// A composed line's segments: bold runs print as
+// <strong>, link runs as links (with their printed URL
+// beside them in the PDF's closing section, on the links
+// block's own rule), the rest as plain text. The model
+// decided which facts are bold; this maps and derives
+// nothing.
+function RichLine({ line }: { line: ReportRichLine }) {
+  return (
+    <>
+      {line.map((segment, index) =>
+        segment.href ? (
+          <span key={index}>
+            <a href={segment.href} target="_blank" rel="noopener">
+              {segment.text}
+            </a>
+            <span className="rpt-printUrl"> ({reportPrintUrl(segment.href)})</span>
+          </span>
+        ) : segment.bold ? (
+          <strong key={index}>{segment.text}</strong>
+        ) : (
+          <span key={index}>{segment.text}</span>
+        ),
+      )}
+    </>
+  );
+}
 
 // The on-screen report (plan step M8.1): renders the
 // ReportView snapshot from lib/report.ts in the approved
@@ -40,7 +68,9 @@ function Block({ block }: { block: ReportBlock }) {
           {block.tiles.map((tile) => (
             <div className="rpt-tile" key={tile.label}>
               <div className="stLabel">{tile.label}</div>
-              <div className="stValue">{tile.value}</div>
+              <div className="stValue" style={tile.smallValue ? { fontSize: "1rem" } : undefined}>
+                {tile.value}
+              </div>
               <div className="stSub">{tile.sub}</div>
             </div>
           ))}
@@ -82,7 +112,7 @@ function Block({ block }: { block: ReportBlock }) {
                 <tr key={index}>
                   {row.map((cell, cellIndex) => (
                     <td key={cellIndex} className={cellIndex > 0 ? "num" : undefined}>
-                      {cell}
+                      {block.boldColumns?.includes(cellIndex) ? <strong>{cell}</strong> : cell}
                     </td>
                   ))}
                 </tr>
@@ -142,6 +172,16 @@ function Block({ block }: { block: ReportBlock }) {
         <ul className="rpt-tight">
           {block.items.map((item) => (
             <li key={item}>{item}</li>
+          ))}
+        </ul>
+      );
+    case "richList":
+      return (
+        <ul className="rpt-tight">
+          {block.items.map((item, index) => (
+            <li key={index}>
+              <RichLine line={item} />
+            </li>
           ))}
         </ul>
       );
@@ -552,7 +592,11 @@ export default function ReportPage({ view }: { view: ReportView }) {
               ))}
             </div>
           ) : null}
-          <p className="rpt-small">{masthead.preparedLine}</p>
+          {/* No prepared line under the strip (BUG-053):
+              the Report date is the strip's fifth cell
+              now, in the sample's arrangement. The model
+              still carries preparedLine — the PDF cover's
+              facts date is taken from it. */}
         </header>
         {view.shortVersion ? (
           <section className="rpt-section" aria-label="Short version">
@@ -571,8 +615,10 @@ export default function ReportPage({ view }: { view: ReportView }) {
                 <div className="grp" key={group.heading}>
                   <h3>{group.heading}</h3>
                   <ul>
-                    {group.lines.map((line) => (
-                      <li key={line}>{line}</li>
+                    {group.lines.map((line, index) => (
+                      <li key={index}>
+                        <RichLine line={line} />
+                      </li>
                     ))}
                   </ul>
                 </div>

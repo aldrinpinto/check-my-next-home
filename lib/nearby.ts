@@ -165,6 +165,16 @@ export const RADIUS_MILES = 2;
 export const SELECTIVE_SEARCH_MILES = 10;
 export const LIST_SIZE = 3;
 
+// The report depth for the two school lists (M8.4 PDF
+// parity audit, BUG-044): the detailed report names the
+// nearest five primary and secondary schools — the
+// sample report's form ("Primary schools — nearest 5") —
+// where every other surface keeps LIST_SIZE. The depth
+// is a build option on the nearby bundle, never a change
+// to LIST_SIZE itself: the results page and the short
+// bundle keep serving three, exactly as before.
+export const REPORT_SCHOOL_LIST_SIZE = 5;
+
 const EARTH_RADIUS_MILES = 3956;
 
 // The loaders' haversine, verbatim in form (load-transport.mjs
@@ -914,6 +924,7 @@ async function buildCategory(
   longitude: number,
   source: NearbyDataSource,
   destinationsRelease: DestinationsReleaseFacts,
+  listSize: number = LIST_SIZE,
 ): Promise<CategoryAnswer> {
   // The filed-count guard (D30, the flood form): absence
   // is only ever computed against a proven filing. A
@@ -946,7 +957,7 @@ async function buildCategory(
     .filter((m) => m.raw <= RADIUS_MILES)
     .sort((a, b) => a.raw - b.raw || (a.point.name ?? "").localeCompare(b.point.name ?? ""));
   const named = measured.filter((m) => m.point.name !== null && m.point.name !== "");
-  const places: NearbyPlace[] = named.slice(0, LIST_SIZE).map((m) => {
+  const places: NearbyPlace[] = named.slice(0, listSize).map((m) => {
     const place: NearbyPlace = {
       name: m.point.name as string,
       miles: round3(m.raw),
@@ -1057,6 +1068,10 @@ async function buildCategory(
 // the shipped call sites pass nothing.
 export interface NearbyBundleOptions {
   industrialSitesEnabled?: boolean;
+  // The school lists' naming depth for this build (the
+  // report's five; see REPORT_SCHOOL_LIST_SIZE). Absent,
+  // LIST_SIZE governs every category, as it always has.
+  schoolListSize?: number;
 }
 
 export async function buildNearbyBundle(
@@ -1084,7 +1099,17 @@ export async function buildNearbyBundle(
   const destinationsRelease = await source.destinationsRelease();
   for (const { key, spec } of CATEGORIES)
     categories.push(
-      await buildCategory(key, spec, latitude, longitude, source, destinationsRelease),
+      await buildCategory(
+        key,
+        spec,
+        latitude,
+        longitude,
+        source,
+        destinationsRelease,
+        key === "schools-primary" || key === "schools-secondary"
+          ? (options.schoolListSize ?? LIST_SIZE)
+          : LIST_SIZE,
+      ),
     );
   const bundle: Extract<NearbyBundle, { kind: "distances" }> = {
     rung: resolution.rung,

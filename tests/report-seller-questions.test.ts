@@ -368,7 +368,12 @@ describe("report — M8.5 seller questions: the golden sets", () => {
   it("no question reaches the short version on the same page", () => {
     const view = buildReportView(input());
     const short = JSON.stringify(view.shortVersion);
-    for (const title of titles(view)) expect(short).not.toContain(title);
+    // The questions' own sentences never leak upward. (A
+    // one-word topic title — "Surface water" — is a
+    // shared label, not a leak: the flood layer carries
+    // the same name in the short version by right, since
+    // the parity batch composed its bullets.)
+    for (const q of questionsOf(view)) expect(short).not.toContain(q.text);
     expect(short).not.toContain("ask the seller");
   });
 
@@ -633,7 +638,7 @@ describe("report — M8.5 seller questions: intro, empty case, guardrail", () =>
     // benefits series, and the crime bundle serves.
     expect(JSON.stringify(view.sections[5])).toContain("Tenure");
     expect(JSON.stringify(view.sections[3])).toContain("Claimant count");
-    expect(JSON.stringify(view.sections[3])).toContain("330 recorded crimes");
+    expect(JSON.stringify(view.sections[3])).toContain("330 incidents");
     // And Section 8 is the empty line alone — no block
     // was drawn from any of it.
     expect(questionsOf(view)).toEqual([]);

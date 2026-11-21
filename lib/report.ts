@@ -20,13 +20,8 @@ import type {
 } from "./flood";
 import { formatFiledDate, formatMiles, formatPounds } from "./journey";
 import type { CategoryAnswer, NearbyBundle, NearbyCategory, NearbyPlace } from "./nearby";
-import {
-  CATCHMENT_BLOCK_HEADING,
-  CATCHMENT_BLOCK_LINE,
-  CATCHMENT_LINK,
-  noneWithinBeyondLine,
-  reportRoute,
-} from "./results";
+import { REPORT_SCHOOL_LIST_SIZE } from "./nearby";
+import { CATCHMENT_LINK, reportRoute } from "./results";
 import { REPORT_DOOR_STATE, type ReportDoorState } from "./site";
 import type { ServedSale, SoldPricesBundle } from "./sold-prices";
 
@@ -74,14 +69,37 @@ import type { ServedSale, SoldPricesBundle } from "./sold-prices";
 // on-screen layout. Where the samples and the decisions
 // disagree, the decisions govern (the M8.1 carve-outs:
 // no IMD rank or score anywhere — the decile in words
-// only; no computed sale tiles in Section 1; no monthly
-// cost-of-ownership figure anywhere; the flood section in
-// its served three-layer form; crime with its D39
-// calibration lines). Nation rendering inherits the
-// bundles' own not-covered states section by section
-// (scope note (v)): a Scottish or Northern Irish report
-// renders each section's named not-covered state, never a
-// blank and never England data.
+// only; no monthly cost-of-ownership figure anywhere;
+// the flood section in its served three-layer form;
+// crime with its D39 calibration lines). Nation rendering
+// inherits the bundles' own not-covered states section
+// by section (scope note (v)): a Scottish or Northern
+// Irish report renders each section's named not-covered
+// state, never a blank and never England data.
+//
+// THE COMPOSITION LAYER (M8.4 PDF parity audit, 21 Nov
+// 2026 — BUG-039/040/041/042/049/058/065): the report
+// composes its own sentences here, from the bundles'
+// served figures and facts — it does not lift the
+// brains' raw lines as standalone text. The brains' line
+// texts are composed for their labelled contexts on the
+// results page (continuation fragments, lowercase starts,
+// subject carried by the heading); lifted raw into the
+// report they read as fragments, drop their subjects,
+// and in the median's case never state the figure at
+// all. So: the short version's bullets, Section 4's
+// crime bullets, Section 6's census intro and Section
+// 9's sources are composed in this module, with their
+// key facts in bold segments; standalone brain lines
+// that remain are sentence-cased at the point they are
+// placed; and explanation-grade text rides in note
+// blocks, never inside findings at body size (BUG-050).
+// The brains and the results page are untouched by all
+// of this. (BUG-045 likewise restores Section 1's
+// sample form — four tiles and the five-column history
+// table — over the M8.1 two-tile carve-out: the added
+// cells are arithmetic over the home's own consecutive
+// filed sales only; see section1.)
 
 export const REPORT_VIEW_ROUTE = "/report/view";
 
@@ -121,9 +139,12 @@ export const REPORT_DISCLAIMER_D9 =
 // deferral, discharged at this step): each report section
 // names its own How-we-check page(s) — the /check/ pages
 // whose method the section's figures rest on — rendered
-// as the closing section's link list and as each
-// section's own closing link row. Paths are keys of
-// CHECK_PAGES; labels come from there, never re-typed.
+// as the closing section's one link list (Section 9; the
+// per-section link rows the M8.1 build appended were
+// removed by the parity audit, BUG-052 — the sample
+// carries check links only in its Sources section).
+// Paths are keys of CHECK_PAGES; labels come from there,
+// never re-typed.
 export const REPORT_SECTION_CHECK_LINKS: Record<number, string[]> = {
   1: ["/check/sold-prices", "/check/epc"],
   2: ["/check/sold-prices"],
@@ -150,6 +171,24 @@ export const REPORT_SECTION_CHECK_LINKS: Record<number, string[]> = {
 // now, PDF at M8.4) map blocks to their medium and derive
 // nothing.
 // ------------------------------------------------------------------
+
+// One run of text inside a composed line: the report's
+// own composition marks its key facts (figures, distances,
+// names) bold, in the sample report's form (the M8.4 PDF
+// parity audit, BUG-039: the short version's model carried
+// plain strings, so no bullet could carry a bold fact at
+// all). A rich line is a list of these segments; the
+// renderer maps bold to <strong> and derives nothing.
+export interface ReportRichSegment {
+  text: string;
+  bold?: boolean;
+  // A link run (the Sources section's named records): the
+  // renderer prints it as a link on screen and, in the
+  // PDF's closing section, with its URL beside it.
+  href?: string;
+}
+
+export type ReportRichLine = ReportRichSegment[];
 
 export interface ReportRow {
   name: string;
@@ -317,9 +356,15 @@ export type ReportBlock =
   // bold only (the approved format's rule).
   | { type: "boldLine"; text: string }
   | { type: "sub"; text: string }
-  | { type: "tiles"; tiles: { label: string; value: string; sub: string }[] }
+  // A tile's value normally prints at the tile size; a
+  // long value (the span-of-sales years) prints at the
+  // sample's reduced size instead (BUG-054).
+  | { type: "tiles"; tiles: { label: string; value: string; sub: string; smallValue?: boolean }[] }
   | { type: "rows"; rows: ReportRow[] }
-  | { type: "table"; head: string[]; rows: string[][]; caption?: string }
+  // boldColumns: the column indexes whose cells print
+  // bold (Section 1's sale-price column, in the sample's
+  // form).
+  | { type: "table"; head: string[]; rows: string[][]; caption?: string; boldColumns?: number[] }
   // A bar chart in a chart card (M8.2's form of the M8.1
   // block): the view decides each row's bar width, its
   // printed value and its fill strength — the largest row
@@ -346,6 +391,10 @@ export type ReportBlock =
   | { type: "dotPlot"; plot: ReportDotPlotModel }
   | { type: "monthChart"; chart: ReportMonthChartModel }
   | { type: "list"; items: string[] }
+  // A tight bullet list of composed lines (the short
+  // version's groups are built from these too): each item
+  // is a rich line, so its key facts can print bold.
+  | { type: "richList"; items: ReportRichLine[] }
   // The seller questions (M8.5): Section 8's numbered
   // list — each item a hand-written block's title and
   // text, selected by fixed rules from the report's own
@@ -375,7 +424,10 @@ export interface ReportView {
     meta: { label: string; value: string }[];
     preparedLine: string;
   };
-  shortVersion: { groups: { heading: string; lines: string[] }[] } | null;
+  // The short version's bullets are composed lines, not
+  // lifted brain text: standalone sentences with their
+  // key facts in bold segments (BUG-039/040).
+  shortVersion: { groups: { heading: string; lines: ReportRichLine[] }[] } | null;
   sections: ReportSectionView[];
 }
 
@@ -439,6 +491,61 @@ function monthYear(isoMonth: string): string {
   const label = monthLabel(isoMonth);
   const space = label.lastIndexOf(" ");
   return space > 0 ? label.slice(space + 1) : "";
+}
+
+const MONTH_ABBREVIATIONS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+
+// "2022-03-22" → "22 Mar 2022": the sample report's date
+// form for the masthead strip and the tile subs (the
+// masthead's Report date and the prose dates keep
+// formatFiledDate's full month). An unparseable value is
+// served raw, on formatFiledDate's own rule.
+function formatShortFiledDate(iso: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  if (!match) return iso;
+  const month = MONTH_ABBREVIATIONS[Number(match[2]) - 1];
+  if (!month) return iso;
+  return `${Number(match[3])} ${month} ${match[1]}`;
+}
+
+// A brain line standing alone in the report reads as a
+// sentence: its first letter capitalised (BUG-065 — the
+// brains compose continuation fragments for their labelled
+// contexts on the results page, lowercase starts and all;
+// the report's standalone lines may not inherit the
+// fragment form). Only the first letter changes — the
+// line's own words are untouched.
+function sentence(text: string): string {
+  return text.length > 0 ? text.charAt(0).toUpperCase() + text.slice(1) : text;
+}
+
+// A sentence with its full stop assured: brain fragments
+// carry none (they sit under labels elsewhere), and a
+// standalone bullet may not end mid-air.
+function sentenceLine(text: string): string {
+  const composed = sentence(text);
+  return /[.!?]$/.test(composed) ? composed : `${composed}.`;
+}
+
+// Segment shorthands for the composed lines.
+function seg(text: string): ReportRichSegment {
+  return { text };
+}
+function boldSeg(text: string): ReportRichSegment {
+  return { text, bold: true };
 }
 
 // ------------------------------------------------------------------
@@ -532,58 +639,52 @@ function category(bundle: NearbyBundle, key: NearbyCategory): CategoryAnswer | n
 }
 
 // One category's place rows, in the bundle's own order.
+// The distance pill carries its unit (BUG-042: the sample's
+// identical pill prints "0.3 mi"; formatMiles returns the
+// bare number by design, for the pill contexts that add
+// their own unit — the report's pills add theirs here).
 function placeRows(answer: CategoryAnswer, extra?: (place: NearbyPlace) => string[]): ReportRow[] {
   return answer.places.map((place) => ({
     name: place.name,
     detail: place.detail,
     tag: null,
-    dist: formatMiles(place.miles),
+    dist: `${formatMiles(place.miles)} mi`,
     extra: extra ? extra(place) : [],
   }));
-}
-
-// The count line D22 pairs with every nearest-3 list:
-// where more filed within the radius than are named, the
-// count is stated; where the named list is the whole
-// count, the rows speak for themselves.
-function countLine(answer: CategoryAnswer): ReportBlock | null {
-  if (answer.state !== "within") return null;
-  if (answer.countWithin <= answer.places.length) return null;
-  return {
-    type: "line",
-    text: `${answer.countWithin} ${answer.label} within 2 miles — the nearest ${answer.places.length} are named above.`,
-  };
 }
 
 // A category's non-"within" sentence: an absence finding
 // (the empty states) prints bold only, on the format's
 // rule; a coverage state (not filed) prints as a plain
 // named line — it is a statement about our data, not a
-// finding about the area.
+// finding about the area. Either way the line stands
+// alone in the report, so it is composed as a sentence
+// (BUG-065), and the none-within form is recomposed from
+// its parts WITHOUT the basis parenthesis: the basis is
+// explanation, and explanation sits in the note style or
+// in Section 9's Distances note, never inside a finding
+// at body size (BUG-050(i)). The recomposition is at the
+// site's one-decimal precision, never the brain's raw
+// line — the results page's rule (BUG-014), extended to
+// the report by the founder's ruling of 20 Nov 2026.
+// The brain's line itself is untouched.
 function stateLine(answer: CategoryAnswer): ReportBlock | null {
   if (answer.state === "within" || answer.line === null) return null;
   if (answer.state === "empty" || answer.state === "empty-map" || answer.state === "none-within") {
-    // The none-within sentence is recomposed from its
-    // parts at the site's one-decimal precision, never
-    // served as the brain's raw-precision line — the
-    // results page's rule (BUG-014), extended to the
-    // report by the founder's ruling of 20 Nov 2026.
-    // The brain's line itself is untouched.
     const text =
       answer.state === "none-within" && answer.beyondNearest
-        ? noneWithinBeyondLine(answer.beyondNearest.name, answer.beyondNearest.miles)
-        : answer.line;
+        ? `None within 2 miles — nearest is ${answer.beyondNearest.name}, ${formatMiles(answer.beyondNearest.miles)} miles away.`
+        : sentenceLine(answer.line);
     return { type: "boldLine", text };
   }
-  return { type: "line", text: answer.line };
+  return { type: "line", text: sentenceLine(answer.line) };
 }
 
 function section(number: number, title: string, blocks: ReportBlock[]): ReportSectionView {
-  const links = (REPORT_SECTION_CHECK_LINKS[number] ?? []).map((href) => ({
-    label: CHECK_PAGES[href].name,
-    href,
-  }));
-  if (links.length > 0) blocks.push({ type: "links", links });
+  // No check-link row closes a section (BUG-052): the
+  // sample report carries its How-we-check links only in
+  // Section 9, and so does the product — section9 builds
+  // the one list from REPORT_SECTION_CHECK_LINKS itself.
   return { number, title, blocks };
 }
 
@@ -680,7 +781,10 @@ function buildMasthead(input: ReportInput, cert: ServedCertificate | null): Repo
     if (sold.kind === "sold-prices" && "ownHistory" in sold && sold.ownHistory.length > 0) {
       const last = sold.ownHistory[0];
       meta.push({ label: "Last sale", value: formatPounds(last.price) });
-      meta.push({ label: "Sale date", value: formatFiledDate(last.date) });
+      // The strip's sale date takes the sample's short
+      // form ("22 Mar 2022", BUG-053); prose dates keep
+      // the full month.
+      meta.push({ label: "Sale date", value: formatShortFiledDate(last.date) });
     }
   } else if (resolution.rung === 2) {
     title = resolution.directory.postcode;
@@ -698,6 +802,14 @@ function buildMasthead(input: ReportInput, cert: ServedCertificate | null): Repo
     month: "long",
     year: "numeric",
   }).format(input.now);
+  // The strip's fifth cell (BUG-053): the Report date, in
+  // the sample's arrangement — the full-month date the
+  // prepared line carries, as a meta cell of its own. The
+  // preparedLine itself stays in the model: the PDF
+  // cover's facts date is taken from it, exactly as
+  // before; only the masthead's small line under the
+  // strip is gone (the renderer no longer prints it).
+  meta.push({ label: "Report date", value: prepared });
   const postcode =
     resolution.rung === 1 || resolution.rung === 2 ? resolution.directory.postcode : "";
   return {
@@ -716,42 +828,108 @@ function nearestOf(answer: CategoryAnswer | null): { name: string; miles: number
   return answer.beyondNearest;
 }
 
-function buildShortVersion(input: ReportInput): ReportView["shortVersion"] {
+function buildShortVersion(
+  input: ReportInput,
+  cert: ServedCertificate | null,
+): ReportView["shortVersion"] {
   const { nearby, flood, area, sold, crime } = input;
-  const groups: { heading: string; lines: string[] }[] = [];
-  const add = (heading: string, lines: (string | null)[]) => {
-    const kept = lines.filter((line): line is string => line !== null && line !== "");
+  const groups: { heading: string; lines: ReportRichLine[] }[] = [];
+  const add = (heading: string, lines: (ReportRichLine | null)[]) => {
+    const kept = lines.filter((line): line is ReportRichLine => line !== null && line.length > 0);
     if (kept.length > 0) groups.push({ heading, lines: kept });
   };
+  const rung1 = input.resolution.rung === 1;
 
-  // Price & sold history.
-  const priceLines: (string | null)[] = [];
+  // Price & sold history. The median bullet leads with
+  // the median figure (the founder's ruling on BUG-040:
+  // the brain's served median line is a continuation
+  // fragment that never states the figure — it is not
+  // lifted; the bullet is composed from the figure, the
+  // count and the span).
+  const priceLines: (ReportRichLine | null)[] = [];
   if (sold.kind === "sold-prices") {
     if ("soldPrices" in sold) {
-      priceLines.push(sold.soldPrices.reason);
+      priceLines.push([seg(sentenceLine(sold.soldPrices.reason))]);
     } else {
       if (sold.rung === 1 && sold.ownHistory.length > 0) {
         const last = sold.ownHistory[0];
-        priceLines.push(
-          `This home last sold for ${formatPounds(last.price)} on ${formatFiledDate(last.date)}.`,
-        );
+        priceLines.push([
+          seg("Last sold for "),
+          boldSeg(`${formatPounds(last.price)} on ${formatFiledDate(last.date)}`),
+          seg(
+            sold.ownHistory.length === 1 && last.newBuild
+              ? " — its first recorded sale as a new build."
+              : ".",
+          ),
+        ]);
       }
-      priceLines.push(sold.median.line ?? sold.stateLine);
+      const median = sold.median;
+      if (median.state === "served" && median.value !== null) {
+        priceLines.push([
+          seg("Postcode median (category A sales): "),
+          boldSeg(formatPounds(median.value)),
+          seg(
+            median.spanFrom && median.spanTo
+              ? `, over ${count(median.counted)} counted sales spanning ${formatShortFiledDate(median.spanFrom)} to ${formatShortFiledDate(median.spanTo)}.`
+              : `, over ${count(median.counted)} counted sales.`,
+          ),
+        ]);
+      } else if (median.line) {
+        priceLines.push([seg(sentenceLine(median.line))]);
+      } else if (sold.stateLine) {
+        priceLines.push([seg(sentenceLine(sold.stateLine))]);
+      }
     }
   } else {
-    priceLines.push(sold.soldPrices.reason);
+    priceLines.push([seg(sentenceLine(sold.soldPrices.reason))]);
   }
   add("Price & sold history", priceLines);
 
   // Education.
-  const primary = nearestOf(category(nearby, "schools-primary"));
-  const secondary = nearestOf(category(nearby, "schools-secondary"));
+  const primaryAnswer = category(nearby, "schools-primary");
   const secondaryAnswer = category(nearby, "schools-secondary");
-  add("Education", [
-    primary ? `Nearest primary: ${primary.name}, ${formatMiles(primary.miles)}.` : null,
-    secondary ? `Nearest secondary: ${secondary.name}, ${formatMiles(secondary.miles)}.` : null,
-    secondaryAnswer?.nearestSelectiveLine ?? null,
-  ]);
+  const primary = nearestOf(primaryAnswer);
+  const secondaryPlaces = secondaryAnswer?.places ?? [];
+  const secondary = nearestOf(secondaryAnswer);
+  const educationLines: (ReportRichLine | null)[] = [
+    primary
+      ? [
+          seg("Nearest primary: "),
+          boldSeg(`${primary.name}, ${formatMiles(primary.miles)} miles`),
+          seg("."),
+        ]
+      : null,
+    secondaryPlaces.length > 0
+      ? [
+          seg("Nearest secondary: "),
+          seg(`${secondaryPlaces[0].name}, `),
+          boldSeg(`${formatMiles(secondaryPlaces[0].miles)} miles`),
+          ...(secondaryPlaces[1]
+            ? [
+                seg(`; ${secondaryPlaces[1].name} `),
+                boldSeg(`${formatMiles(secondaryPlaces[1].miles)} miles`),
+              ]
+            : []),
+          seg("."),
+        ]
+      : secondary
+        ? [
+            seg("Nearest secondary: "),
+            boldSeg(`${secondary.name}, ${formatMiles(secondary.miles)} miles`),
+            seg("."),
+          ]
+        : null,
+    secondaryAnswer?.nearestSelective
+      ? [
+          seg(`${secondaryAnswer.nearestSelective.name}, `),
+          boldSeg(`${formatMiles(secondaryAnswer.nearestSelective.miles)} miles`),
+          seg(" — selective, entry by test."),
+        ]
+      : secondaryAnswer?.nearestSelectiveLine
+        ? [seg(sentenceLine(secondaryAnswer.nearestSelectiveLine))]
+        : null,
+  ];
+  add("Education", educationLines);
 
   // Health.
   const gp = nearestOf(category(nearby, "gp"));
@@ -759,21 +937,50 @@ function buildShortVersion(input: ReportInput): ReportView["shortVersion"] {
   const pharmacy = nearestOf(category(nearby, "pharmacy"));
   const aeAnswer = category(nearby, "ae");
   add("Health", [
-    gp ? `GP surgery ${formatMiles(gp.miles)} — ${gp.name}.` : null,
+    gp
+      ? [seg("GP surgery "), boldSeg(`${formatMiles(gp.miles)} miles`), seg(` — ${gp.name}.`)]
+      : null,
     dentist && pharmacy
-      ? `NHS dentist ${formatMiles(dentist.miles)} and pharmacy ${formatMiles(pharmacy.miles)}.`
-      : null,
-    // The none-within A&E line is recomposed at
-    // one-decimal precision, as in stateLine above —
-    // never the brain's raw-precision line.
-    aeAnswer && aeAnswer.state === "none-within"
-      ? aeAnswer.beyondNearest
-        ? noneWithinBeyondLine(aeAnswer.beyondNearest.name, aeAnswer.beyondNearest.miles)
-        : aeAnswer.line
-      : null,
-    aeAnswer && aeAnswer.state === "within" && aeAnswer.places.length > 0
-      ? `A&E ${formatMiles(aeAnswer.places[0].miles)} — ${aeAnswer.places[0].name}.`
-      : null,
+      ? [
+          seg("NHS dentist "),
+          boldSeg(`${formatMiles(dentist.miles)} miles`),
+          seg(" and pharmacy "),
+          boldSeg(`${formatMiles(pharmacy.miles)} miles`),
+          seg("."),
+        ]
+      : dentist
+        ? [
+            seg("NHS dentist "),
+            boldSeg(`${formatMiles(dentist.miles)} miles`),
+            seg(` — ${dentist.name}.`),
+          ]
+        : pharmacy
+          ? [
+              seg("Pharmacy "),
+              boldSeg(`${formatMiles(pharmacy.miles)} miles`),
+              seg(` — ${pharmacy.name}.`),
+            ]
+          : null,
+    // The A&E absence bullet carries its subject (BUG-041:
+    // the brain's none-within line is a subjectless
+    // continuation for its labelled results-page block;
+    // the report composes its own, with the hospital and
+    // its distance in bold, on the sample's form).
+    aeAnswer && aeAnswer.state === "none-within" && aeAnswer.beyondNearest
+      ? [
+          seg("No A&E within 2 miles — nearest is "),
+          boldSeg(
+            `${aeAnswer.beyondNearest.name}, ${formatMiles(aeAnswer.beyondNearest.miles)} miles`,
+          ),
+          seg("."),
+        ]
+      : aeAnswer && aeAnswer.state === "within" && aeAnswer.places.length > 0
+        ? [
+            seg("A&E "),
+            boldSeg(`${formatMiles(aeAnswer.places[0].miles)} miles`),
+            seg(` — ${aeAnswer.places[0].name}.`),
+          ]
+        : null,
   ]);
 
   // What's nearby.
@@ -782,41 +989,205 @@ function buildShortVersion(input: ReportInput): ReportView["shortVersion"] {
   const park = nearestOf(category(nearby, "parks"));
   const library = nearestOf(category(nearby, "libraries"));
   add("What's nearby", [
-    station ? `${station.name} ${formatMiles(station.miles)}.` : null,
+    station
+      ? [seg(`${station.name} `), boldSeg(`${formatMiles(station.miles)} miles`), seg(".")]
+      : null,
     supermarket && supermarket.places.length > 0
-      ? supermarket.places.map((p) => `${p.name} ${formatMiles(p.miles)}`).join("; ") + "."
+      ? [
+          ...supermarket.places.flatMap((place, index) => [
+            seg(`${index > 0 ? "; " : ""}${place.name} `),
+            boldSeg(`${formatMiles(place.miles)} miles`),
+          ]),
+          seg("."),
+        ]
       : null,
     park && library
-      ? `${park.name} ${formatMiles(park.miles)}; library ${formatMiles(library.miles)}.`
-      : null,
+      ? [
+          seg(`${park.name} `),
+          boldSeg(`${formatMiles(park.miles)} miles`),
+          seg("; library "),
+          boldSeg(`${formatMiles(library.miles)} miles`),
+          seg("."),
+        ]
+      : park
+        ? [seg(`${park.name} `), boldSeg(`${formatMiles(park.miles)} miles`), seg(".")]
+        : library
+          ? [seg("Library "), boldSeg(`${formatMiles(library.miles)} miles`), seg(".")]
+          : null,
   ]);
 
-  // Risks.
-  const riskLines: (string | null)[] = [];
+  // Risks. Flood bullets compose from each layer's own
+  // served state (BUG-040(iii)): the likelihood layer in
+  // the sample's short form, the zones layer by its
+  // point state, surface water by its nearest edges. The
+  // crime bullet is BUG-049's composition: the sample's
+  // wording, built from the served figures, the England
+  // figure folded in as the bullet's second sentence.
+  const riskLines: (ReportRichLine | null)[] = [];
   if (flood.kind === "flood") {
-    for (const layer of flood.flood.layers) riskLines.push(`${layer.title}: ${layer.line}`);
+    for (const layer of flood.flood.layers) {
+      if (layer.pointState === "not-filed") {
+        riskLines.push([seg(sentenceLine(layer.line))]);
+      } else if (layer.layer === "rofrs") {
+        if (layer.pointState === "inside" && layer.covering) {
+          riskLines.push([
+            seg("Flood from rivers & sea: "),
+            boldSeg(layer.covering.displayLabel),
+            seg("."),
+          ]);
+        } else {
+          const nearestEdge = layer.proximity[0] ?? layer.beyondNearest;
+          riskLines.push([
+            seg("Flood from rivers & sea: "),
+            boldSeg("no band at this point"),
+            seg(
+              nearestEdge
+                ? ` — nearest ${nearestEdge.displayLabel} band edge ${formatMiles(nearestEdge.miles)} miles away.`
+                : ".",
+            ),
+          ]);
+        }
+      } else if (layer.layer === "flood_zone") {
+        if (layer.pointState === "inside" && layer.covering) {
+          riskLines.push([
+            seg(
+              `Flood zones for planning: ${rung1 ? "this home is in " : "the postcode point is in "}`,
+            ),
+            boldSeg(layer.covering.displayLabel),
+            seg("."),
+          ]);
+        } else {
+          riskLines.push([seg(sentenceLine(layer.line))]);
+        }
+      } else if (layer.layer === "rofsw") {
+        if (layer.pointState === "inside" && layer.covering) {
+          riskLines.push([
+            seg("Surface water: "),
+            boldSeg(layer.covering.displayLabel),
+            seg(" band at this point."),
+          ]);
+        } else if (layer.proximity.length > 0) {
+          riskLines.push([
+            seg("Surface water: nearest "),
+            seg(
+              layer.proximity
+                .map((edge) => `${edge.displayLabel} ${formatMiles(edge.miles)} miles`)
+                .join(", "),
+            ),
+            seg("."),
+          ]);
+        } else {
+          riskLines.push([seg(sentenceLine(layer.line))]);
+        }
+      } else {
+        riskLines.push([seg(sentenceLine(layer.line))]);
+      }
+    }
   } else {
-    riskLines.push(flood.flood.reason);
+    riskLines.push([seg(sentenceLine(flood.flood.reason))]);
   }
   if (crime.kind === "crime" && crime.crime.state === "served") {
-    riskLines.push(crime.crime.totalLine + ".");
-    if (crime.crime.perHead) riskLines.push(crime.crime.perHead.line + ".");
-    if (crime.crime.englandFigure) riskLines.push(crime.crime.englandFigure.line + ".");
+    const served = crime.crime;
+    const crimeLine: ReportRichLine = [
+      seg("Crime: "),
+      boldSeg(`${count(served.total)} incidents`),
+      seg(
+        ` within 1 mile, ${monthName(served.windowFrom).slice(0, 3)} ${monthYear(served.windowFrom)}–${monthName(served.windowTo).slice(0, 3)} ${monthYear(served.windowTo)}.`,
+      ),
+    ];
+    if (served.perHead) {
+      crimeLine.push(
+        seg(
+          ` ${per1000Text(served.perHead.per1000)} recorded crimes for every 1,000 residents here`,
+        ),
+      );
+      if (served.englandFigure) {
+        crimeLine.push(
+          seg(
+            `; across England, the figure is ${per1000Text(served.englandFigure.englandPer1000)}.`,
+          ),
+        );
+      } else {
+        crimeLine.push(seg("."));
+      }
+    }
+    riskLines.push(crimeLine);
   }
   add("Risks", riskLines);
 
-  // Home, costs & energy.
+  // Home, costs & energy. Each bullet composes from the
+  // section's served figures where the report holds them
+  // (the home's own certificate, the council's Band D,
+  // the deprivation words form, the gigabit share); the
+  // served headline line, sentence-cased, is the fallback
+  // — never the raw fragment (BUG-040(v)).
   if (area.kind === "area-bundle") {
     const sections = area.sections;
+    const bandD = sections.councilTax.bands.find((band) => band.band === "D");
     add("Home, costs & energy", [
-      sections.epc.line,
-      sections.councilTax.line,
-      sections.imd.line,
-      sections.broadband.line,
+      cert && cert.band !== null && cert.rating !== null
+        ? [
+            seg("Energy rating "),
+            boldSeg(`Band ${cert.band} (score ${cert.rating})`),
+            seg(
+              cert.potentialBand
+                ? `, with potential to reach ${cert.potentialBand}${cert.potentialRating !== null ? ` (${cert.potentialRating})` : ""}.`
+                : ".",
+            ),
+            ...(cert.energyCosts
+              ? [seg(` Estimated energy cost about ${cert.energyCosts.currentAnnualLabel} a year.`)]
+              : []),
+          ]
+        : sections.epc.line
+          ? [seg(sentenceLine(sections.epc.line))]
+          : null,
+      bandD
+        ? [
+            seg("Council tax Band D: "),
+            boldSeg(`${bandD.labelPence} a year`),
+            seg(` (${bandD.monthlyLabelPence} a month).`),
+          ]
+        : sections.councilTax.line
+          ? [seg(sentenceLine(sections.councilTax.line))]
+          : null,
+      sections.imd.state === "served" && sections.imd.decile !== null
+        ? [
+            seg("Deprivation: "),
+            boldSeg(decileWords(sections.imd.decile)),
+            seg(" (Indices of Deprivation 2025)."),
+          ]
+        : sections.imd.line
+          ? [seg(sentenceLine(sections.imd.line))]
+          : null,
+      sections.broadband.state === "served" && sections.broadband.gigabitCapablePct !== null
+        ? [
+            seg(
+              sections.broadband.gigabitCapablePct >= 100
+                ? "Gigabit-capable broadband is available at this postcode."
+                : `Gigabit-capable broadband is available to ${pctText(sections.broadband.gigabitCapablePct)}% of premises in this postcode.`,
+            ),
+          ]
+        : sections.broadband.line
+          ? [seg(sentenceLine(sections.broadband.line))]
+          : null,
     ]);
   }
 
   return groups.length > 0 ? { groups } : null;
+}
+
+// The crime per-1,000 figure in the brain's own text form
+// (lib/crime.ts's per1000Text, mirrored: the report
+// composes its sentences from the served number, in the
+// same words the brain would print).
+function per1000Text(value: number): string {
+  return value === 0 ? "0" : value.toFixed(1);
+}
+
+// A percentage in the area brain's own text form
+// (lib/area-bundle.ts's fmtPct, mirrored).
+function pctText(value: number): string {
+  return String(Math.round(value * 100) / 100);
 }
 
 // ------------------------------------------------------------------
@@ -831,6 +1202,50 @@ function saleRow(sale: ServedSale): string[] {
     sale.tenure ? (TENURE_LABELS[sale.tenure] ?? sale.tenure) : "—",
     sale.newBuild === null ? "—" : sale.newBuild ? "Yes" : "No",
   ];
+}
+
+// A price difference with its sign carried in words'
+// form: "+£25,000", "−£10,000", "£0" for no change.
+function signedPounds(value: number): string {
+  if (value === 0) return "£0";
+  return value > 0 ? `+${formatPounds(value)}` : `−${formatPounds(-value)}`;
+}
+
+// The time between two filed sale dates, in the sample's
+// plain form: whole years and months ("3 years",
+// "2 years 3 months", "8 months", "Less than a month").
+function heldText(fromIso: string, toIso: string): string {
+  const from = new Date(`${fromIso.slice(0, 10)}T00:00:00Z`);
+  const to = new Date(`${toIso.slice(0, 10)}T00:00:00Z`);
+  let months =
+    (to.getUTCFullYear() - from.getUTCFullYear()) * 12 + (to.getUTCMonth() - from.getUTCMonth());
+  if (to.getUTCDate() < from.getUTCDate()) months -= 1;
+  if (months <= 0) return "Less than a month";
+  const years = Math.floor(months / 12);
+  const rest = months % 12;
+  const parts: string[] = [];
+  if (years > 0) parts.push(`${years} year${years === 1 ? "" : "s"}`);
+  if (rest > 0) parts.push(`${rest} month${rest === 1 ? "" : "s"}`);
+  return parts.join(" ");
+}
+
+// The annual growth between two consecutive filed sales
+// of the same home: the compound rate that carries the
+// earlier price to the later one over the years between
+// their dates — arithmetic over the two filed facts,
+// nothing else. Unmeasurable pairs (no time between the
+// sales, no earlier price) print the sample's "—".
+function annualGrowthText(previous: ServedSale, sale: ServedSale): string {
+  const days =
+    (Date.parse(`${sale.date.slice(0, 10)}T00:00:00Z`) -
+      Date.parse(`${previous.date.slice(0, 10)}T00:00:00Z`)) /
+    86_400_000;
+  if (!(days > 0) || previous.price <= 0) return "—";
+  const years = days / 365.25;
+  const pct = (Math.pow(sale.price / previous.price, 1 / years) - 1) * 100;
+  if (!Number.isFinite(pct)) return "—";
+  const sign = pct > 0 ? "+" : pct < 0 ? "−" : "";
+  return `${sign}${Math.abs(pct).toFixed(1)}%`;
 }
 
 function tickLabel(value: number): string {
@@ -982,19 +1397,27 @@ function section1(input: ReportInput, cert: ServedCertificate | null): ReportSec
     return section(1, "Price & this home", blocks);
   }
   const last = history[0];
-  // The format's factual tiles only: the last sale and the
-  // count of recorded sales. The computed tiles the sample
-  // once drew (change since previous sale, held by last
-  // owner, price change, annual growth) are NOT built —
-  // founder ruling B7 / the M8.1 carve-out: sold history
-  // serves as filed facts only (D23).
+  const previous = history.length > 1 ? history[1] : null;
+  // The sample's four tiles and five-column history table
+  // (BUG-045, the founder-commissioned parity audit of
+  // 21 Nov 2026 restoring the sample's form over the M8.1
+  // carve-out's two-tile form): the Change and Held tiles
+  // and the table's three right-hand columns are plain
+  // arithmetic over this home's OWN consecutive filed
+  // sales — the difference between two recorded prices,
+  // the time between two recorded dates, and that
+  // difference spread evenly over the years between
+  // them. No index, no adjustment, no other home's sale
+  // enters any of them, and a first recorded sale shows
+  // the sample's honest "—" with its reason, exactly as
+  // the sample's own single-sale home does.
   blocks.push({
     type: "tiles",
     tiles: [
       {
         label: "Last sale",
         value: formatPounds(last.price),
-        sub: `${formatFiledDate(last.date)} · HM Land Registry`,
+        sub: `${formatShortFiledDate(last.date)} · HM Land Registry`,
       },
       {
         label: "Times sold",
@@ -1004,20 +1427,63 @@ function section1(input: ReportInput, cert: ServedCertificate | null): ReportSec
             ? "Only recorded sale found for this address"
             : `${history.length} recorded sales found for this address`,
       },
+      {
+        label: "Change since previous sale",
+        value: previous ? signedPounds(last.price - previous.price) : "—",
+        sub: previous
+          ? `Previous sale ${formatPounds(previous.price)} on ${formatShortFiledDate(previous.date)}`
+          : "First recorded sale — no previous sale to compare",
+      },
+      {
+        label: "Held by last owner",
+        value: previous ? heldText(previous.date, last.date) : "—",
+        sub: previous
+          ? `${formatShortFiledDate(previous.date)} to ${formatShortFiledDate(last.date)}`
+          : last.newBuild
+            ? `New build — the ${last.date.slice(0, 4)} sale was its first`
+            : "Only recorded sale — no previous owner to measure",
+      },
     ],
   });
+  const bullets: ReportRichLine[] = [];
   const typeParts = [
-    last.propertyType ? (PROPERTY_TYPE_LABELS[last.propertyType] ?? null) : null,
+    cert?.dwellingType
+      ? cert.dwellingType.charAt(0).toLowerCase() + cert.dwellingType.slice(1)
+      : last.propertyType
+        ? (PROPERTY_TYPE_LABELS[last.propertyType]?.toLowerCase() ?? null)
+        : null,
     last.tenure ? (TENURE_LABELS[last.tenure]?.toLowerCase() ?? null) : null,
-    last.newBuild ? "new build" : null,
     cert?.floorAreaSqM != null ? `${cert.floorAreaSqM} m²` : null,
   ].filter((part): part is string => part !== null);
-  if (typeParts.length > 0) blocks.push({ type: "line", text: `Type: ${typeParts.join(", ")}.` });
+  if (typeParts.length > 0) bullets.push([boldSeg("Type:"), seg(` ${typeParts.join(", ")}.`)]);
+  const earliest = history[history.length - 1];
+  if (earliest.newBuild)
+    bullets.push([
+      boldSeg("Built:"),
+      seg(` new build, first sold in ${earliest.date.slice(0, 4)}.`),
+    ]);
+  bullets.push([
+    boldSeg("Recorded sales for this address:"),
+    seg(history.length === 1 ? " one — the sale below." : ` ${history.length} — the sales below.`),
+  ]);
+  blocks.push({ type: "richList", items: bullets });
   blocks.push({
     type: "table",
-    head: ["Sale date", "Sale price", "Type", "Tenure", "New build"],
-    rows: history.map(saleRow),
+    head: ["Sale date", "Sale price", "Price change", "Years held", "Annual growth"],
+    rows: history.map((sale, index) => {
+      const prev = history[index + 1] ?? null;
+      return [
+        formatShortFiledDate(sale.date),
+        formatPounds(sale.price),
+        prev
+          ? signedPounds(sale.price - prev.price)
+          : `— first recorded sale${sale.newBuild ? " (new build)" : ""}`,
+        prev ? heldText(prev.date, sale.date) : "",
+        prev ? annualGrowthText(prev, sale) : "",
+      ];
+    }),
     caption: sold.ownExplainer,
+    boldColumns: [1],
   });
   if (sold.building) {
     blocks.push({ type: "sub", text: `Sales in ${sold.building.building}` });
@@ -1060,7 +1526,7 @@ function section2(input: ReportInput): ReportSectionView {
   });
   const median = sold.median;
   if (median.state === "served" && median.value !== null) {
-    const tiles: { label: string; value: string; sub: string }[] = [
+    const tiles: { label: string; value: string; sub: string; smallValue?: boolean }[] = [
       {
         label: "Postcode median",
         value: formatPounds(median.value),
@@ -1076,7 +1542,10 @@ function section2(input: ReportInput): ReportSectionView {
       tiles.push({
         label: "Span of sales",
         value: `${median.spanFrom.slice(0, 4)} – ${median.spanTo.slice(0, 4)}`,
-        sub: `${formatFiledDate(median.spanFrom)} to ${formatFiledDate(median.spanTo)}`,
+        sub: `${formatShortFiledDate(median.spanFrom)} to ${formatShortFiledDate(median.spanTo)}`,
+        // The sample sets this tile's long value at the
+        // reduced size (BUG-054's micro-difference).
+        smallValue: true,
       });
     }
     if (sold.rung === 1 && sold.ownHistory.length > 0) {
@@ -1084,7 +1553,7 @@ function section2(input: ReportInput): ReportSectionView {
       tiles.push({
         label: "This home",
         value: formatPounds(last.price),
-        sub: `${formatFiledDate(last.date)} · HM Land Registry`,
+        sub: `${formatShortFiledDate(last.date)} · HM Land Registry`,
       });
     }
     blocks.push({ type: "tiles", tiles });
@@ -1174,8 +1643,6 @@ function schoolGroup(
   if (answer.places.length > 0) blocks.push({ type: "rows", rows: placeRows(answer, extra) });
   const state = stateLine(answer);
   if (state) blocks.push(state);
-  const count = countLine(answer);
-  if (count) blocks.push(count);
 }
 
 function section3(input: ReportInput): ReportSectionView {
@@ -1188,32 +1655,40 @@ function section3(input: ReportInput): ReportSectionView {
     lines.push(...destinationsExtra(place));
     return lines;
   };
-  schoolGroup(blocks, "Primary schools", category(nearby, "schools-primary"));
+  // The report's school lists name five (BUG-044): the
+  // headings carry the depth, as the sample's do — the
+  // report's nearby bundle is built at that depth by the
+  // serve layer (checkReport), so the lists stand behind
+  // the headings.
+  schoolGroup(
+    blocks,
+    `Primary schools — nearest ${REPORT_SCHOOL_LIST_SIZE}`,
+    category(nearby, "schools-primary"),
+  );
   const secondary = category(nearby, "schools-secondary");
-  schoolGroup(blocks, "Secondary schools", secondary, secondaryExtra);
+  schoolGroup(
+    blocks,
+    `Secondary schools — nearest ${REPORT_SCHOOL_LIST_SIZE}`,
+    secondary,
+    secondaryExtra,
+  );
   if (secondary?.nearestSelectiveLine)
-    blocks.push({ type: "line", text: secondary.nearestSelectiveLine });
-  // The catchment honesty block (founder ruling at M6.23):
-  // the fixed hand-written block, exactly as the free page
-  // carries it — we hold no catchment boundaries and cannot
-  // say whether this home is in or out for any school. It
-  // sits here, after the secondary group and before sixth
-  // forms, as the approved sample report places it.
-  blocks.push({ type: "sub", text: CATCHMENT_BLOCK_HEADING });
-  blocks.push({ type: "line", text: CATCHMENT_BLOCK_LINE });
-  blocks.push({
-    type: "lineLink",
-    text: "",
-    label: CATCHMENT_LINK.label,
-    href: CATCHMENT_LINK.url,
-  });
+    blocks.push({ type: "line", text: sentenceLine(secondary.nearestSelectiveLine) });
+  // The catchment honesty block no longer stands here
+  // (BUG-050(ii)): the sample carries the school-places
+  // disclaimer in Section 9, not mid-section, so the
+  // block's content — no catchment boundaries are held,
+  // and the answer lives with the council and the school
+  // — is folded into Section 9's School places disclaimer
+  // there, with its GOV.UK admissions link beside it. The
+  // free results page keeps its own block, untouched.
   schoolGroup(blocks, "Sixth forms and colleges", category(nearby, "sixth-forms"));
   schoolGroup(blocks, "Nurseries", category(nearby, "nurseries"));
   return section(3, "Schools & nurseries", blocks);
 }
 
 // ------------------------------------------------------------------
-// Section 4 — Health, air, noise & crime
+// Section 4 — Health, air & crime
 // ------------------------------------------------------------------
 
 const CQC_CATEGORIES: ReadonlySet<NearbyCategory> = new Set(["gp", "ae", "maternity"]);
@@ -1327,54 +1802,132 @@ function section4(input: ReportInput): ReportSectionView {
   const { nearby, crime } = input;
   const sections = areaSections(input);
 
-  const healthGroups: { heading: string; key: NearbyCategory }[] = [
-    { heading: "GP surgeries", key: "gp" },
-    { heading: "Dentists", key: "dentist" },
-    { heading: "Pharmacies", key: "pharmacy" },
-    { heading: "A&E departments", key: "ae" },
-    { heading: "Maternity units", key: "maternity" },
+  // Health, in the sample's form (BUG-048): ONE
+  // subsection of labelled rows — the row's name carries
+  // the service ("GP — …", "Hospital with A&E — …"), each
+  // with its detail sentence and its distance pill. A
+  // service whose nearest stands beyond the radius still
+  // draws its row, for that nearest, with the absence
+  // stated in the row's detail (the sample's A&E row);
+  // a service with nothing to name keeps its composed
+  // state line.
+  const healthServices: { key: NearbyCategory; prefix: string; absenceNoun: string }[] = [
+    { key: "gp", prefix: "GP", absenceNoun: "GP surgery" },
+    { key: "dentist", prefix: "NHS dentist", absenceNoun: "NHS dentist" },
+    { key: "pharmacy", prefix: "Pharmacy", absenceNoun: "pharmacy" },
+    { key: "ae", prefix: "Hospital with A&E", absenceNoun: "A&E" },
+    { key: "maternity", prefix: "Maternity unit", absenceNoun: "maternity unit" },
   ];
-  for (const group of healthGroups) {
-    const answer = category(nearby, group.key);
-    blocks.push({ type: "sub", text: group.heading });
+  blocks.push({ type: "sub", text: "Health" });
+  for (const service of healthServices) {
+    const answer = category(nearby, service.key);
     if (!answer) continue;
-    if (answer.places.length > 0)
-      blocks.push({ type: "rows", rows: placeRows(answer, healthExtra(group.key)) });
-    const state = stateLine(answer);
-    if (state) blocks.push(state);
-    const count = countLine(answer);
-    if (count) blocks.push(count);
+    if (answer.places.length > 0) {
+      const rows = placeRows(answer, healthExtra(service.key)).map((row) => ({
+        ...row,
+        name: `${service.prefix} — ${row.name}`,
+      }));
+      blocks.push({ type: "rows", rows });
+    } else if (answer.state === "none-within" && answer.beyondNearest) {
+      const beyond = answer.beyondNearest;
+      blocks.push({
+        type: "rows",
+        rows: [
+          {
+            name: `${service.prefix} — ${beyond.name}`,
+            detail: `There is no ${service.absenceNoun} within 2 miles of this home; ${beyond.name} is the nearest, at ${formatMiles(beyond.miles)} miles.`,
+            tag: null,
+            dist: `${formatMiles(beyond.miles)} mi`,
+            extra: [],
+          },
+        ],
+      });
+    } else {
+      const state = stateLine(answer);
+      if (state) blocks.push(state);
+    }
   }
 
   if (sections) {
-    // Air quality, at report depth (D50): the table with
-    // the yardstick line under each pollutant, exactly as
-    // served, then the AQMA answer under its own sub.
     const air = sections.air;
-    blocks.push({ type: "sub", text: "Air quality" });
+    // The sample's air form (BUG-048): the sub names the
+    // source and the modelled year; the table carries the
+    // yardsticks as its own columns — the modelled level
+    // against the UK legal limit and the WHO 2021
+    // guideline (D50's figures, in the sample's shape) —
+    // and the yardstick sentences ride beneath as notes,
+    // explanation text taking the note style (BUG-050).
+    // Where a filing predates the yardsticks, the table
+    // keeps its two-column served form.
+    blocks.push({
+      type: "sub",
+      text: air.year !== null ? `Air — Defra modelled, ${air.year}` : "Air quality",
+    });
     if (air.line) blocks.push({ type: "line", text: air.line });
     if (air.state === "served" && air.year !== null) {
-      const rows: string[][] = [
-        ["Nitrogen dioxide (NO₂)", air.no2 !== null ? `${air.no2} ${air.unit}` : "—"],
-        ["Fine particles (PM2.5)", air.pm25 !== null ? `${air.pm25} ${air.unit}` : "—"],
-        ["Coarse particles (PM10)", air.pm10 !== null ? `${air.pm10} ${air.unit}` : "—"],
-      ];
-      blocks.push({
-        type: "table",
-        head: ["Pollutant", `Modelled annual mean, ${air.year}`],
-        rows,
-        caption: air.explainer,
-      });
       if (air.yardsticks) {
+        const pollutantNames: Record<string, string> = {
+          NO2: "Nitrogen dioxide (NO₂)",
+          "PM2.5": "Fine particles (PM2.5)",
+          PM10: "Coarse particles (PM10)",
+        };
+        blocks.push({
+          type: "table",
+          head: [
+            "Pollutant",
+            "Modelled level",
+            "UK legal limit (annual)",
+            "WHO 2021 guideline (annual)",
+          ],
+          rows: air.yardsticks.pollutants.map((pollutant) => [
+            pollutantNames[pollutant.pollutant.toUpperCase()] ?? pollutant.pollutant,
+            `${pollutant.value} ${air.unit}`,
+            `${pollutant.ukLimit} ${air.unit}`,
+            `${pollutant.whoGuideline} ${air.unit}`,
+          ]),
+          caption: air.explainer,
+        });
         blocks.push({ type: "note", text: air.yardsticks.basisLine });
         for (const pollutant of air.yardsticks.pollutants) {
-          blocks.push({ type: "line", text: pollutant.yardstickLine });
-          if (pollutant.summaryLine) blocks.push({ type: "line", text: pollutant.summaryLine });
+          blocks.push({ type: "note", text: pollutant.yardstickLine });
+          if (pollutant.summaryLine) blocks.push({ type: "note", text: pollutant.summaryLine });
         }
+      } else {
+        const rows: string[][] = [
+          ["Nitrogen dioxide (NO₂)", air.no2 !== null ? `${air.no2} ${air.unit}` : "—"],
+          ["Fine particles (PM2.5)", air.pm25 !== null ? `${air.pm25} ${air.unit}` : "—"],
+          ["Coarse particles (PM10)", air.pm10 !== null ? `${air.pm10} ${air.unit}` : "—"],
+        ];
+        blocks.push({
+          type: "table",
+          head: ["Pollutant", `Modelled annual mean, ${air.year}`],
+          rows,
+          caption: air.explainer,
+        });
       }
     }
-    blocks.push({ type: "sub", text: "Air Quality Management Areas" });
-    blocks.push({ type: air.aqma.state === "none" ? "boldLine" : "line", text: air.aqma.line });
+    // The AQMA answer as the sample draws it: a row —
+    // name, detail sentence, distance pill where a
+    // nearest serves — not a subsection of its own.
+    if (air.aqma.state === "inside" || air.aqma.state === "nearest") {
+      blocks.push({
+        type: "rows",
+        rows: [
+          {
+            name: "Air quality management area",
+            detail: air.aqma.line,
+            tag: null,
+            dist: air.aqma.miles !== null ? `${formatMiles(air.aqma.miles)} mi` : null,
+            extra: [],
+          },
+        ],
+      });
+    } else {
+      blocks.push({
+        type: air.aqma.state === "none" ? "boldLine" : "line",
+        text: sentenceLine(air.aqma.line),
+      });
+    }
     if (air.aqma.basisLine) blocks.push({ type: "note", text: air.aqma.basisLine });
 
     // Noise, as served: the publisher's band text
@@ -1397,27 +1950,53 @@ function section4(input: ReportInput): ReportSectionView {
     }
   }
 
-  // Crime, with the D39 calibration lines beside the
-  // counts, exactly as served (scope (f)). M8.2: the two
-  // tables become the two charts, in the Master's order —
-  // headline lines (total, the calibration pair), then
-  // the month chart, then the category chart, then the
-  // standing notes (the crime explainer, the stale line
-  // where one serves, the calibration explainer). The
-  // filed basis string rides in the category chart's
-  // caption, where the category table's caption carried
-  // it. A not-served state stays a named line, chart-free.
-  blocks.push({ type: "sub", text: "Crime" });
+  // Crime, in the sample's form (BUG-049): the sub names
+  // the window; three bullets lead — the total composed
+  // from the served figures in the sample's words, the
+  // D39 calibration pair as one fully-bold bullet, and
+  // the standing street-anonymity sentence — then the two
+  // charts (M8.2), then the standing notes (the per-head
+  // basis, the crime explainer, the stale line where one
+  // serves, the calibration explainer). The brain's own
+  // total/per-head/England lines feed the results page
+  // and are not lifted here. The filed basis string rides
+  // in the category chart's caption, where the category
+  // table's caption carried it. A not-served state stays
+  // a named line, chart-free.
+  blocks.push({ type: "sub", text: "Crime — last 12 months" });
   if (crime.kind === "crime") {
     const served = crime.crime;
     if (served.state === "served") {
-      blocks.push({ type: "line", text: served.totalLine + "." });
+      const bullets: ReportRichLine[] = [
+        [
+          boldSeg(`${count(served.total)} incidents`),
+          seg(
+            ` recorded within 1 mile of ${input.resolution.rung === 1 ? "this home" : "this postcode"}, ${monthLabel(served.windowFrom)} to ${monthLabel(served.windowTo)} (Police.uk).`,
+          ),
+        ],
+      ];
       if (served.perHead) {
-        blocks.push({ type: "line", text: served.perHead.line + "." });
-        blocks.push({ type: "note", text: served.perHead.basisLine });
+        bullets.push([
+          boldSeg(
+            `${per1000Text(served.perHead.per1000)} recorded crimes for every 1,000 residents here.${
+              served.englandFigure
+                ? ` Across England, the figure is ${per1000Text(served.englandFigure.englandPer1000)}.`
+                : ""
+            }`,
+          ),
+        ]);
+      } else if (served.englandFigure) {
+        bullets.push([
+          boldSeg(
+            `Across England, the figure is ${per1000Text(served.englandFigure.englandPer1000)} recorded crimes for every 1,000 residents.`,
+          ),
+        ]);
       }
-      if (served.englandFigure)
-        blocks.push({ type: "line", text: served.englandFigure.line + "." });
+      bullets.push([
+        seg("Incidents are recorded against nearby streets, not against individual houses."),
+      ]);
+      blocks.push({ type: "richList", items: bullets });
+      if (served.perHead) blocks.push({ type: "note", text: served.perHead.basisLine });
       blocks.push({ type: "monthChart", chart: buildMonthChart(served) });
       blocks.push(buildCategoryBars(served));
       blocks.push({ type: "note", text: served.explainer });
@@ -1464,7 +2043,7 @@ function section4(input: ReportInput): ReportSectionView {
     if (zones.basisLine) blocks.push({ type: "note", text: zones.basisLine });
   }
 
-  return section(4, "Health, air, noise & crime", blocks);
+  return section(4, "Health, air & crime", blocks);
 }
 
 // ------------------------------------------------------------------
@@ -1472,19 +2051,24 @@ function section4(input: ReportInput): ReportSectionView {
 // sites block at its end
 // ------------------------------------------------------------------
 
-const SECTION5_GROUPS: { heading: string; key: NearbyCategory }[] = [
-  { heading: "Supermarkets", key: "supermarket" },
-  { heading: "Parks & green spaces", key: "parks" },
-  { heading: "Stations", key: "station" },
-  { heading: "Bus stops", key: "bus-stop" },
-  { heading: "Food & drink", key: "food-and-drink" },
-  { heading: "Leisure", key: "leisure" },
-  { heading: "Places to visit", key: "places-to-visit" },
-  { heading: "Places of worship", key: "places-of-worship" },
-  { heading: "Libraries", key: "libraries" },
-  { heading: "Vets", key: "vets" },
-  { heading: "Pet shops", key: "pet-shops" },
-  { heading: "Pet boarding", key: "pet-boarding" },
+// The section's groupings are the sample's (BUG-064):
+// Transport gathers the stations and the bus stops, Pets
+// gathers the vets, the pet shops and the pet boarding,
+// and Places of worship & libraries stands as one group.
+// The sample's "Shops" group has no served category — its
+// row in the sample is hand-written dummy colour, and no
+// brain files a shops list — so no group stands for it;
+// the categories themselves are unchanged, and the
+// results page's own groupings are untouched.
+const SECTION5_GROUPS: { heading: string; keys: NearbyCategory[] }[] = [
+  { heading: "Supermarkets", keys: ["supermarket"] },
+  { heading: "Parks", keys: ["parks"] },
+  { heading: "Transport", keys: ["station", "bus-stop"] },
+  { heading: "Food & drink", keys: ["food-and-drink"] },
+  { heading: "Leisure", keys: ["leisure"] },
+  { heading: "Places to visit", keys: ["places-to-visit"] },
+  { heading: "Places of worship & libraries", keys: ["places-of-worship", "libraries"] },
+  { heading: "Pets", keys: ["vets", "pet-shops", "pet-boarding"] },
 ];
 
 // The Section 5 map's pin set (founder ruling, 16 Nov
@@ -1503,25 +2087,27 @@ function buildSection5Map(input: ReportInput): ReportMapModel | null {
   const raw: { name: string; group: string; miles: number; latitude: number; longitude: number }[] =
     [];
   for (const group of SECTION5_GROUPS) {
-    const answer = category(nearby, group.key);
-    if (!answer) continue;
-    for (const place of answer.places) {
-      raw.push({
-        name: place.name,
-        group: group.heading,
-        miles: place.miles,
-        latitude: place.latitude,
-        longitude: place.longitude,
-      });
-    }
-    if (answer.beyondNearest) {
-      raw.push({
-        name: answer.beyondNearest.name,
-        group: group.heading,
-        miles: answer.beyondNearest.miles,
-        latitude: answer.beyondNearest.latitude,
-        longitude: answer.beyondNearest.longitude,
-      });
+    for (const key of group.keys) {
+      const answer = category(nearby, key);
+      if (!answer) continue;
+      for (const place of answer.places) {
+        raw.push({
+          name: place.name,
+          group: group.heading,
+          miles: place.miles,
+          latitude: place.latitude,
+          longitude: place.longitude,
+        });
+      }
+      if (answer.beyondNearest) {
+        raw.push({
+          name: answer.beyondNearest.name,
+          group: group.heading,
+          miles: answer.beyondNearest.miles,
+          latitude: answer.beyondNearest.latitude,
+          longitude: answer.beyondNearest.longitude,
+        });
+      }
     }
   }
   if (raw.length === 0) return null;
@@ -1541,14 +2127,28 @@ function buildSection5Map(input: ReportInput): ReportMapModel | null {
   const scale = Math.min(width, height) / 2 / extent;
   const toX = (mx: number) => width / 2 + mx * scale;
   const toY = (my: number) => height / 2 + my * scale;
-  const pins: ReportMapPin[] = points.map((pin, index) => ({
-    n: index + 1,
-    name: pin.name,
-    group: pin.group,
-    miles: pin.miles,
-    x: round1(toX(pin.mx)),
-    y: round1(toY(pin.my)),
-  }));
+  const pins: ReportMapPin[] = points.map((pin, index) => {
+    let x = round1(toX(pin.mx));
+    let y = round1(toY(pin.my));
+    // A pin whose centre lands within a pin-width of the
+    // home marker is swallowed by it (BUG-060's
+    // sub-defect: pin 1, the Co-op at 0.3 miles, vanished
+    // under the home pin in the audited render). Nudge
+    // such a pin radially outward to a full pin-width's
+    // clearance, keeping its direction: the picture stays
+    // honest about where the place lies, and every
+    // numbered pin stays visible beside the home marker.
+    const dx = x - width / 2;
+    const dy = y - height / 2;
+    const d = Math.hypot(dx, dy);
+    if (d < 24) {
+      const ux = d === 0 ? 1 : dx / d;
+      const uy = d === 0 ? 0 : dy / d;
+      x = round1(width / 2 + ux * 24);
+      y = round1(height / 2 + uy * 24);
+    }
+    return { n: index + 1, name: pin.name, group: pin.group, miles: pin.miles, x, y };
+  });
   return {
     homeX: toX(0),
     homeY: toY(0),
@@ -1568,14 +2168,14 @@ function section5(input: ReportInput): ReportSectionView {
   const blocks: ReportBlock[] = [];
   const { nearby } = input;
   for (const group of SECTION5_GROUPS) {
-    const answer = category(nearby, group.key);
     blocks.push({ type: "sub", text: group.heading });
-    if (!answer) continue;
-    if (answer.places.length > 0) blocks.push({ type: "rows", rows: placeRows(answer) });
-    const state = stateLine(answer);
-    if (state) blocks.push(state);
-    const count = countLine(answer);
-    if (count) blocks.push(count);
+    for (const key of group.keys) {
+      const answer = category(nearby, key);
+      if (!answer) continue;
+      if (answer.places.length > 0) blocks.push({ type: "rows", rows: placeRows(answer) });
+      const state = stateLine(answer);
+      if (state) blocks.push(state);
+    }
   }
   const map = buildSection5Map(input);
   if (map) blocks.push({ type: "map", map });
@@ -1586,7 +2186,7 @@ function section5(input: ReportInput): ReportSectionView {
   // key is absent and no placeholder stands in its place.
   if (nearby.kind === "distances" && nearby.industrialSites) {
     const sites = nearby.industrialSites;
-    blocks.push({ type: "sub", text: "Regulated industrial sites" });
+    blocks.push({ type: "sub", text: "Industrial sites" });
     if (sites.state === "served") {
       blocks.push({
         type: "rows",
@@ -1594,7 +2194,7 @@ function section5(input: ReportInput): ReportSectionView {
           name: site.operator,
           detail: [site.siteAddress, site.activityDescription].filter(Boolean).join(" · ") || null,
           tag: null,
-          dist: formatMiles(site.miles),
+          dist: `${formatMiles(site.miles)} mi`,
           extra: [
             ...(site.belowThresholdLine ? [site.belowThresholdLine] : []),
             ...(site.noAirReturnsLine ? [site.noAirReturnsLine] : []),
@@ -1860,8 +2460,6 @@ function section6(input: ReportInput): ReportSectionView {
     if (chargers.places.length > 0) blocks.push({ type: "rows", rows: placeRows(chargers) });
     const state = stateLine(chargers);
     if (state) blocks.push(state);
-    const count = countLine(chargers);
-    if (count) blocks.push(count);
   }
 
   // Broadband and mobile, headline forms (full depth is
@@ -1881,7 +2479,7 @@ function section6(input: ReportInput): ReportSectionView {
   // never a count and never a named list.
   const planning = sections.planningApplications;
   blocks.push({ type: "sub", text: "Planning applications" });
-  blocks.push({ type: "line", text: planning.line });
+  blocks.push({ type: "line", text: sentenceLine(planning.line) });
   if (planning.link)
     blocks.push({
       type: "lineLink",
@@ -1900,13 +2498,13 @@ function section6(input: ReportInput): ReportSectionView {
     constraints.greenBelt,
     constraints.builtUpArea,
   ]) {
-    blocks.push({ type: "line", text: layer.line });
+    blocks.push({ type: "line", text: sentenceLine(layer.line) });
   }
-  blocks.push({ type: "line", text: constraints.brownfield.line });
+  blocks.push({ type: "line", text: sentenceLine(constraints.brownfield.line) });
 
   const heritage = sections.heritage;
   blocks.push({ type: "sub", text: "Listed buildings & heritage" });
-  blocks.push({ type: "line", text: heritage.listed.line });
+  blocks.push({ type: "line", text: sentenceLine(heritage.listed.line) });
   if (heritage.listed.within.length > 0) {
     blocks.push({
       type: "rows",
@@ -1914,14 +2512,15 @@ function section6(input: ReportInput): ReportSectionView {
         name: place.name ?? `Listed building, grade ${place.grade}`,
         detail: `Grade ${place.grade}`,
         tag: null,
-        dist: formatMiles(place.miles),
+        dist: `${formatMiles(place.miles)} mi`,
         extra: [],
       })),
     });
   }
-  if (heritage.listed.beyondLine) blocks.push({ type: "line", text: heritage.listed.beyondLine });
+  if (heritage.listed.beyondLine)
+    blocks.push({ type: "line", text: sentenceLine(heritage.listed.beyondLine) });
   if (heritage.atPoint.state === "recorded")
-    blocks.push({ type: "line", text: heritage.atPoint.line });
+    blocks.push({ type: "line", text: sentenceLine(heritage.atPoint.line) });
   if (heritage.atPoint.state === "needs-exact-home")
     blocks.push({ type: "line", text: heritage.atPoint.reason });
   for (const layer of [
@@ -1931,19 +2530,21 @@ function section6(input: ReportInput): ReportSectionView {
     heritage.protectedWrecks,
     heritage.worldHeritageBufferZones,
   ]) {
-    blocks.push({ type: "line", text: layer.line });
+    blocks.push({ type: "line", text: sentenceLine(layer.line) });
   }
-  if (heritage.localListsLine) blocks.push({ type: "line", text: heritage.localListsLine });
+  if (heritage.localListsLine)
+    blocks.push({ type: "line", text: sentenceLine(heritage.localListsLine) });
 
   const nature = sections.nature;
   blocks.push({ type: "sub", text: "Nature & protected areas" });
-  if (nature.coverageLine) blocks.push({ type: "line", text: nature.coverageLine });
-  if (nature.placesLine) blocks.push({ type: "line", text: nature.placesLine });
-  if (nature.designationsLine) blocks.push({ type: "line", text: nature.designationsLine });
-  blocks.push({ type: "line", text: nature.ancientWoodland.line });
+  if (nature.coverageLine) blocks.push({ type: "line", text: sentenceLine(nature.coverageLine) });
+  if (nature.placesLine) blocks.push({ type: "line", text: sentenceLine(nature.placesLine) });
+  if (nature.designationsLine)
+    blocks.push({ type: "line", text: sentenceLine(nature.designationsLine) });
+  blocks.push({ type: "line", text: sentenceLine(nature.ancientWoodland.line) });
   if (nature.ancientWoodlandInventoryLine)
-    blocks.push({ type: "line", text: nature.ancientWoodlandInventoryLine });
-  blocks.push({ type: "line", text: nature.priorityHabitat.line });
+    blocks.push({ type: "line", text: sentenceLine(nature.ancientWoodlandInventoryLine) });
+  blocks.push({ type: "line", text: sentenceLine(nature.priorityHabitat.line) });
 
   // The area in numbers — demographics, led by the IMD
   // decile-in-words line in its ruled sentence form (the
@@ -1954,14 +2555,63 @@ function section6(input: ReportInput): ReportSectionView {
   const imd = sections.imd;
   const census = sections.census;
   blocks.push({ type: "sub", text: "The area in numbers — Census 2021" });
-  if (imd.line) blocks.push({ type: "line", text: imd.line });
+  // The sample's opening bullets (BUG-058): bold lead-ins
+  // naming the deprivation position, the Census area and
+  // its headline counts, and the area's classification.
+  // The deprivation figure keeps the ruled words form —
+  // the decile in words, never a bare figure or a rank
+  // (carve-out X1/X5, D26 governs over the sample's
+  // numeral here, as it governed at M8.1). The
+  // classification bullet composes only what the served
+  // directory carries (ward, council, region): no bundle
+  // serves a rural/urban classification, a parish or a
+  // constituency, so those elements of the sample's
+  // bullet are not composed — inventing them is not an
+  // option, and the gap is named in the batch report.
+  const censusIntro: ReportRichLine[] = [];
+  if (imd.state === "served" && imd.decile !== null && imd.lsoaName) {
+    censusIntro.push([
+      boldSeg("Deprivation:"),
+      seg(
+        ` this neighbourhood (LSOA ${imd.lsoaName}) is ${decileWords(imd.decile)} on the Indices of Deprivation 2025.`,
+      ),
+    ]);
+  }
+  if (census.state === "served" && census.msoaName) {
+    const stats: string[] = [];
+    if (census.residentsTotal !== null) stats.push(`${count(census.residentsTotal)} residents`);
+    if (census.householdsTotal !== null) stats.push(`${count(census.householdsTotal)} households`);
+    if (census.medianAge) stats.push(`median age ${census.medianAge.value}`);
+    censusIntro.push([
+      boldSeg("Census area:"),
+      seg(` MSOA ${census.msoaName}${stats.length > 0 ? " — " : ""}`),
+      ...(stats.length > 0 ? [boldSeg(stats.join(", "))] : []),
+      seg(
+        ". The tables below are the published Census 2021 figures for this area — counts and percentages exactly as the ONS published them.",
+      ),
+    ]);
+  }
+  const directory =
+    input.resolution.rung === 1 || input.resolution.rung === 2 ? input.resolution.directory : null;
+  if (directory && (directory.ward || directory.council)) {
+    const parts = [
+      directory.ward ? `Ward: ${displayText(directory.ward)}` : null,
+      directory.council ? `Council: ${displayText(directory.council)}` : null,
+      directory.region ? displayText(directory.region) : null,
+    ].filter((part): part is string => part !== null);
+    censusIntro.push([boldSeg("Classification:"), seg(` ${parts.join(" · ")}.`)]);
+  }
+  if (censusIntro.length > 0) blocks.push({ type: "richList", items: censusIntro });
+  if (imd.state !== "served" && imd.line)
+    blocks.push({ type: "line", text: sentenceLine(imd.line) });
   if (imd.state === "served" && imd.domains.length > 0) {
     blocks.push({
       type: "list",
       items: imd.domains.map((domain) => `${domain.name}: ${decileWords(domain.decile)}.`),
     });
   }
-  if (census.line) blocks.push({ type: "line", text: census.line });
+  if (census.state !== "served" && census.line)
+    blocks.push({ type: "line", text: sentenceLine(census.line) });
   // The Census charts in the Master's grid (M8.2): the
   // median-age tile opens the grid, then the five table
   // cards in the Master's order; the section-level note
@@ -2274,7 +2924,9 @@ function warningBlocks(warnings: FloodLiveWarnings): ReportBlock[] {
   if (warnings.state === "warnings") {
     for (const warning of warnings.warnings) {
       blocks.push({ type: "sub", text: warning.line });
-      blocks.push({ type: "line", text: warning.message });
+      // The warning's message is explanation-grade text:
+      // it takes the note style, not body size (BUG-050(iii)).
+      blocks.push({ type: "note", text: warning.message });
       blocks.push({ type: "note", text: `${warning.raisedLine}. ${warnings.attributionLine}` });
     }
     if (warnings.overflowLine) blocks.push({ type: "line", text: warnings.overflowLine });
@@ -2343,7 +2995,7 @@ function section7(input: ReportInput): ReportSectionView {
             .filter((part): part is string => part !== null && part !== "")
             .join(" · ") || null,
         tag: null,
-        dist: formatMiles(defence.miles),
+        dist: `${formatMiles(defence.miles)} mi`,
         extra: [
           defence.conditionLine,
           ...(defence.designSopLine ? [defence.designSopLine] : []),
@@ -2715,61 +3367,269 @@ function section8(input: ReportInput, homeCerts: ServedCertificate[]): ReportSec
 // Section 9 — Sources, notes & disclaimers
 // ------------------------------------------------------------------
 
-function section9(input: ReportInput): ReportSectionView {
+function section9(input: ReportInput, cert: ServedCertificate | null): ReportSectionView {
   const blocks: ReportBlock[] = [];
   const sections = areaSections(input);
   const served = floodServed(input);
+  const prepared = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/London",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(input.now);
 
-  blocks.push({ type: "sub", text: "Sources & dates" });
-  const sources: string[] = [];
-  const collect = (line: string | null | undefined) => {
-    if (line && !sources.includes(line)) sources.push(line);
-  };
-  if (input.sold.kind === "sold-prices" && !("soldPrices" in input.sold))
-    collect(input.sold.sourceLine);
-  if (input.crime.kind === "crime" && input.crime.crime.state === "served")
-    collect(input.crime.crime.sourceLine);
-  if (served) {
-    for (const layer of served.layers) collect(layer.sourceLine);
-    collect(served.defences.sourceLine);
+  // Sources & dates, in the sample's form (BUG-051):
+  // bold-named bullets stating what was checked and
+  // linking the official record where one exists — not a
+  // bare list of source lines. Each bullet composes from
+  // the served bundle it names; a topic whose data did
+  // not serve draws no bullet. Sections the sample does
+  // not name still carry their source: the catch-all at
+  // the end files each remaining section's served source
+  // line under its topic name, so no checked source goes
+  // unnamed in the closing section.
+  blocks.push({ type: "sub", text: `Sources & dates — everything checked on ${prepared}` });
+  const sources: ReportRichLine[] = [];
+  // The sources the composed bullets below account for,
+  // by line and by section key — the catch-all at the end
+  // files only what is left, so no topic appears twice.
+  const consumed = new Set<string>();
+  const consumedKeys = new Set<keyof AreaSections>();
+  const sourceItem = (name: string, body: ReportRichSegment[]) =>
+    sources.push([boldSeg(name), seg(" — "), ...body]);
+  const strippedSource = (line: string) => sentenceLine(line.replace(/^Source:\s*/, ""));
+
+  if (cert && cert.certificateNumber) {
+    sourceItem("Energy certificate", [
+      seg(
+        `GOV.UK Find an Energy Certificate, certificate ${cert.certificateNumber} for this address${cert.registrationDate ? `, registered ${formatFiledDate(cert.registrationDate)}` : ""}: `,
+      ),
+      {
+        text: "view certificate",
+        href: `https://find-energy-certificate.service.gov.uk/energy-certificate/${cert.certificateNumber}`,
+      },
+      seg("."),
+    ]);
+  } else if (sections && sections.epc.sourceLine) {
+    sourceItem("Energy certificates", [seg(strippedSource(sections.epc.sourceLine))]);
   }
+  if (cert || (sections && sections.epc.sourceLine)) consumedKeys.add("epc");
+
+  if (input.sold.kind === "sold-prices" && !("soldPrices" in input.sold)) {
+    const soldBundle = input.sold;
+    const median = soldBundle.median;
+    if (median.state === "served" && median.value !== null) {
+      const own =
+        soldBundle.rung === 1 && soldBundle.ownHistory.length > 0
+          ? `, including this home (${formatPounds(soldBundle.ownHistory[0].price)}, ${formatShortFiledDate(soldBundle.ownHistory[0].date)})`
+          : "";
+      sourceItem("Sold prices", [
+        seg(
+          `HM Land Registry Price Paid data for postcode ${soldBundle.postcode}: the median (${formatPounds(median.value)}) in Section 2 is the postcode category A median, calculated from the ${count(median.counted)} counted sales${
+            median.spanFrom && median.spanTo
+              ? ` spanning ${formatShortFiledDate(median.spanFrom)} to ${formatShortFiledDate(median.spanTo)}`
+              : ""
+          }${own}. Land Registry data typically lags by around two months.`,
+        ),
+      ]);
+    } else {
+      sourceItem("Sold prices", [seg(strippedSource(soldBundle.sourceLine))]);
+    }
+  }
+
+  if (input.crime.kind === "crime" && input.crime.crime.state === "served") {
+    const crimeServed = input.crime.crime;
+    sourceItem("Crime", [
+      seg(
+        `Police.uk street-level data, ${monthLabel(crimeServed.windowFrom)} to ${monthLabel(crimeServed.windowTo)}, within 1 mile of this postcode: ${count(crimeServed.total)} incidents. Monthly counts: ${crimeServed.months.map((m) => `${monthName(m.month).slice(0, 3)} ${count(m.count)}`).join(", ")}.`,
+      ),
+      ...(crimeServed.perHead && crimeServed.englandFigure
+        ? [
+            seg(
+              ` The per-1,000-residents figures (${per1000Text(crimeServed.perHead.per1000)} here; ${per1000Text(crimeServed.englandFigure.englandPer1000)} across England) are built from Census populations.`,
+            ),
+          ]
+        : []),
+    ]);
+  }
+
+  if (input.nearby.kind === "distances") {
+    sourceItem("Schools", [
+      seg(
+        "Department for Education school data and Ofsted reports, as filed for the schools named in Section 3.",
+      ),
+    ]);
+  }
+
+  if (served) {
+    sourceItem("Flood check", [
+      seg(
+        "findings in Section 7 are from checking Environment Agency flood data. This report does not include Environment Agency flood maps. Check flood risk, including the actual flood maps, at the ",
+      ),
+      {
+        text: "GOV.UK long-term flood risk service",
+        href: "https://check-long-term-flood-risk.service.gov.uk/postcode",
+      },
+      seg("."),
+    ]);
+  }
+
+  if (sections && sections.councilTax.state === "served") {
+    const tax = sections.councilTax;
+    const bandD = tax.bands.find((band) => band.band === "D");
+    sourceItem("Council tax", [
+      seg(
+        `${tax.authority ? `${tax.authority} ` : ""}council tax${tax.taxYear ? `, ${tax.taxYear}` : ""}. The A–H table in Section 6 is derived from the Band D figure by the statutory ratios and is labelled as derived wherever it appears.${bandD ? ` Band D is ${bandD.labelPence} a year (${bandD.monthlyLabelPence} a month).` : ""}`,
+      ),
+    ]);
+    consumedKeys.add("councilTax");
+  }
+
+  if (sections && sections.census.state === "served") {
+    const census = sections.census;
+    const tableLinks: ReportRichSegment[] = [];
+    for (const code of CENSUS_GRID_ORDER) {
+      const table = census.tables.find((t) => t.code === code);
+      if (!table) continue;
+      if (tableLinks.length > 0) tableLinks.push(seg(", "));
+      const unit = CENSUS_COUNT_UNITS[code] ?? (code === "ts054" ? "households" : "counted");
+      tableLinks.push({
+        text: `${code.toUpperCase()} ${table.title} (${count(table.total)} ${unit})`,
+        href: `https://www.nomisweb.co.uk/datasets/c2021${code}`,
+      });
+    }
+    sourceItem("Area & Census 2021", [
+      seg(
+        `ONS Census 2021 (Census Day 21 March 2021) for MSOA ${census.msoaName}, via Nomis${tableLinks.length > 0 ? ": " : "."}`,
+      ),
+      ...tableLinks,
+      ...(tableLinks.length > 0
+        ? [seg(". Percentages in Section 6 are calculated from those published counts.")]
+        : []),
+    ]);
+    consumedKeys.add("census");
+  }
+
+  const chargers = category(input.nearby, "ev-chargers");
+  if (chargers && chargers.places.length > 0) {
+    sourceItem("EV chargers", [
+      seg(
+        "Open Charge Map and operator listings for the chargers named in Section 6; distances are straight-line from this postcode, calculated from each charger's published location.",
+      ),
+    ]);
+  }
+
+  if (sections) {
+    const parts: string[] = [];
+    if (sections.air.state === "served" && sections.air.year !== null) {
+      parts.push(
+        `Defra modelled background air quality, ${sections.air.year} (Section 4), with UK legal limits and WHO 2021 guidelines as yardsticks`,
+      );
+      consumedKeys.add("air");
+    }
+    if (sections.noise.line) {
+      parts.push("modelled noise bands (Section 4)");
+      consumedKeys.add("noise");
+    }
+    if (sections.broadband.state === "served") {
+      parts.push("Ofcom Connected Nations (Section 6)");
+      consumedKeys.add("broadband");
+    }
+    if (sections.benefits.line) {
+      parts.push(
+        "claimant count and Universal Credit figures via Stat-Xplore and Nomis (Section 4)",
+      );
+      consumedKeys.add("benefits");
+    }
+    if (parts.length > 0)
+      sourceItem("Air, noise, broadband & benefits", [seg(`${parts.join("; ")}`)]);
+  }
+
+  // The catch-all: every remaining served source line,
+  // under its topic name.
+  if (input.sold.kind === "sold-prices" && !("soldPrices" in input.sold))
+    consumed.add(input.sold.sourceLine);
+  if (input.crime.kind === "crime" && input.crime.crime.state === "served")
+    consumed.add(input.crime.crime.sourceLine ?? "");
+  if (served) for (const layer of served.layers) consumed.add(layer.sourceLine ?? "");
+  const topicNames: Partial<Record<keyof AreaSections, string>> = {
+    epc: "Energy certificates",
+    councilTax: "Council tax",
+    census: "Area & Census 2021",
+    air: "Air quality",
+    noise: "Noise",
+    benefits: "Benefits",
+    broadband: "Broadband",
+    solar: "Solar potential",
+    mobile: "Mobile coverage",
+    planningApplications: "Planning",
+    constraints: "Planning constraints & land",
+    heritage: "Listed buildings & heritage",
+    nature: "Nature & protected areas",
+    chargingZones: "Charging zones",
+    imd: "Deprivation",
+    buildingSafety: "Building safety",
+  };
   if (sections) {
     for (const key of Object.keys(sections) as (keyof AreaSections)[]) {
       const value = sections[key] as { sourceLine?: string | null } | undefined;
-      if (value && typeof value === "object") collect(value.sourceLine);
+      if (!value || typeof value !== "object" || !value.sourceLine) continue;
+      if (consumedKeys.has(key)) continue;
+      if (consumed.has(value.sourceLine)) continue;
+      consumed.add(value.sourceLine);
+      sourceItem(topicNames[key] ?? "Source", [seg(strippedSource(value.sourceLine))]);
     }
   }
-  blocks.push({ type: "list", items: sources });
+  if (served && served.defences.sourceLine && !consumed.has(served.defences.sourceLine)) {
+    sourceItem("Flood defences", [seg(strippedSource(served.defences.sourceLine))]);
+  }
+  if (sources.length > 0) blocks.push({ type: "richList", items: sources });
 
+  // How to read this report: the sample's bold lead-ins,
+  // the standing explanations in their composed form.
   blocks.push({ type: "sub", text: "How to read this report" });
+  const howToRead: ReportRichLine[] = [];
   if (input.nearby.kind === "distances") {
-    blocks.push({
-      type: "line",
-      text: `Distances are ${input.nearby.basisLabel}, shown to one decimal place. A straight-line distance is always shorter than the route you would actually travel.`,
-    });
+    howToRead.push([
+      boldSeg("Distances"),
+      seg(
+        ` are ${input.nearby.basisLabel.replace(" distance ", " distances ")}, shown to one decimal place, unless a line says otherwise (for example, a road distance or a walking time). Straight-line distance is always shorter than the route you would actually travel.`,
+      ),
+    ]);
   }
-  blocks.push({
-    type: "line",
-    text: "Sold prices nearby summarise recorded sales. They are not a valuation of this home and make no claim about what it is worth. A median is only shown where there are enough counted sales to draw on.",
-  });
-  blocks.push({
-    type: "line",
-    text: "Modelled figures — air quality, noise and solar potential are modelled estimates for the area, labelled as modelled wherever they appear. They are not measurements taken at this address.",
-  });
+  howToRead.push([
+    boldSeg("Sold prices nearby"),
+    seg(
+      " summarise recorded sales. They are not a valuation of this home and make no claim about what it is worth. A median is only shown where there are enough counted sales to draw on.",
+    ),
+  ]);
+  howToRead.push([
+    boldSeg("Modelled figures"),
+    seg(
+      " — air quality, noise and solar potential are modelled estimates for the area, clearly labelled as modelled wherever they appear. They are not measurements taken at this address.",
+    ),
+  ]);
   if (sections && sections.census.state === "served") {
-    blocks.push({
-      type: "line",
-      text: "Census 2021 tables (Section 6) describe the whole Census area named in that section — not this street or this house. They are the counts and percentages the ONS published from Census Day, 21 March 2021, shown as facts only: no score, rating or verdict is added. Totals differ very slightly between Census tables because the ONS applies small disclosure-control adjustments to each table.",
-    });
+    howToRead.push([
+      boldSeg("Census 2021 charts (Section 6):"),
+      seg(
+        ` the tables describe the whole Census area${sections.census.msoaName ? ` — MSOA ${sections.census.msoaName}` : ""} — not this street or this house. They are the counts and percentages the ONS published from Census Day, 21 March 2021, shown as facts only: no score, rating or verdict is added. Totals differ very slightly between Census tables because the ONS applies small disclosure-control adjustments to each table.`,
+      ),
+    ]);
   }
-  blocks.push({
-    type: "line",
-    text: "Flood: flood zones, surface-water maps and defences are three separate pictures and are never merged into a single answer. Live flood warnings are fetched at the moment a check is run and are never stored.",
-  });
-  blocks.push({
-    type: "line",
-    text: "Planning: there is no national dataset of planning applications, so this report hands you to the council's own planning register rather than listing applications.",
-  });
+  howToRead.push([
+    boldSeg("Flood:"),
+    seg(
+      " flood zones, surface-water maps and defences are three separate pictures and are never merged into a single answer. Flood boundaries follow the lie of the land and can change within a single street — always confirm the position for the building itself on the GOV.UK long-term flood risk service before you commit. Live flood warnings are fetched at the moment a check is run and are never stored.",
+    ),
+  ]);
+  howToRead.push([
+    boldSeg("Planning:"),
+    seg(
+      " there is no national dataset of planning applications, so this report hands you to the council's own planning register rather than listing applications.",
+    ),
+  ]);
+  blocks.push({ type: "richList", items: howToRead });
 
   // The check explanations, named for the whole report
   // (the M7.12 discharge): every How-we-check page this
@@ -2784,16 +3644,69 @@ function section9(input: ReportInput): ReportSectionView {
   blocks.push({ type: "sub", text: "How we check" });
   blocks.push({ type: "links", links: allLinks });
 
+  // Disclaimers, in the sample's form (BUG-051): bold
+  // lead-ins, the sample's six bullets — School places
+  // (carrying the catchment block's first sentence
+  // verbatim — "We hold no catchment boundaries, so we
+  // cannot say whether this home is in or out for any
+  // school" — folded in from Section 3 by BUG-050(ii);
+  // the block's remaining sentence duplicates the
+  // bullet's own check-the-council wording, and its link
+  // stands below the list), Health services, Pets, Crime,
+  // Why the period ends, and the standing D9 general
+  // wording, verbatim under its lead.
   blocks.push({ type: "sub", text: "Disclaimers" });
-  blocks.push({
-    type: "line",
-    text: "School places: this report cannot tell you whether this home would get a school place. No national catchment map exists, living near a school does not guarantee a place, and cut-off distances change every year. Check the council and school admissions pages.",
-  });
+  const disclaimers: ReportRichLine[] = [
+    [
+      boldSeg("School places:"),
+      seg(
+        " this report cannot tell you whether this home would get a school place. No national catchment map exists, living near a school does not guarantee a place, and cut-off distances change every year. Check the council and school admissions pages. We hold no catchment boundaries, so we cannot say whether this home is in or out for any school.",
+      ),
+    ],
+  ];
   // The served schoolDeadlines line, verbatim (scope (j)).
   if (input.nearby.kind === "distances" && input.nearby.schoolDeadlines) {
-    blocks.push({ type: "line", text: input.nearby.schoolDeadlines.line });
+    disclaimers.push([seg(input.nearby.schoolDeadlines.line)]);
   }
-  blocks.push({ type: "line", text: REPORT_DISCLAIMER_D9 });
+  disclaimers.push(
+    [
+      boldSeg("Health services:"),
+      seg(
+        " GP lists and NHS dentist places open and close. This report shows distance only — check whether a practice is accepting new patients, and phone to confirm, before you move. Where a Care Quality Commission rating is published for a service, it is shown as the CQC published it; dentists are not CQC-rated, so no rating is shown for them.",
+      ),
+    ],
+    [
+      boldSeg("Pets:"),
+      seg(
+        " vet, pet-shop and pet-boarding locations come from OpenStreetMap and the filed data, and may be incomplete. Use the RCVS “Find a Vet” register to confirm the full local list.",
+      ),
+    ],
+    [
+      boldSeg("Crime:"),
+      seg(
+        " Police.uk anonymises each incident to a nearby street, so the counts in Section 4 cover the streets within 1 mile of this postcode, not this house. The figures are counts only — this report offers no view on whether an area is “safe” or “unsafe”, and draws no trend from the monthly counts.",
+      ),
+    ],
+  );
+  if (input.crime.kind === "crime" && input.crime.crime.state === "served") {
+    const windowEnd = monthLabel(input.crime.crime.windowTo);
+    disclaimers.push([
+      boldSeg(`Why the period ends in ${windowEnd}:`),
+      seg(
+        ` Police.uk publishes street-level crime in arrears, about six weeks behind. When this report was prepared on ${prepared}, ${windowEnd} was the latest month published — later figures do not exist yet in the source, so the last 12 complete published months are used.`,
+      ),
+    ]);
+  }
+  disclaimers.push([boldSeg("General:"), seg(` ${REPORT_DISCLAIMER_D9}`)]);
+  blocks.push({ type: "richList", items: disclaimers });
+  // The catchment block's link, beside the disclaimer it
+  // belongs to (moved with the block, BUG-050(ii)).
+  blocks.push({
+    type: "lineLink",
+    text: "",
+    label: CATCHMENT_LINK.label,
+    href: CATCHMENT_LINK.url,
+  });
   return { number: 9, title: "Sources, notes & disclaimers", blocks };
 }
 
@@ -2809,7 +3722,7 @@ export function buildReportView(input: ReportInput): ReportView {
     : [];
   return {
     masthead: buildMasthead(input, cert),
-    shortVersion: buildShortVersion(input),
+    shortVersion: buildShortVersion(input, cert),
     sections: [
       section1(input, cert),
       section2(input),
@@ -2819,7 +3732,7 @@ export function buildReportView(input: ReportInput): ReportView {
       section6(input),
       section7(input),
       section8(input, homeCerts),
-      section9(input),
+      section9(input, cert),
     ],
   };
 }

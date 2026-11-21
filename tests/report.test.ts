@@ -19,7 +19,6 @@ import {
   type ReportInput,
   type ReportView,
 } from "../lib/report";
-import { CATCHMENT_BLOCK_LINE } from "../lib/results";
 import {
   areaWith,
   birkdale,
@@ -39,9 +38,11 @@ import type { SoldPricesBundle } from "../lib/sold-prices";
 // golden facts (Birkdale) as the base case. The same view
 // built from REAL bundles is asserted in the golden
 // replay (tests/golden-replay.test.ts). What is pinned
-// here: the nine sections in order; the carve-outs (no
-// computed sale tiles, no IMD rank or score, no monthly
-// total, no summed EPC savings); the scope additions
+// here: the nine sections in order; the carve-outs as
+// amended by the M8.4 parity batch (Section 1 in the
+// sample's form — BUG-045 supersedes the B7 two-tile
+// carve-out; no IMD rank or score, no monthly total, no
+// summed EPC savings); the scope additions
 // (a)–(q) each rendering as served; the snapshot's
 // serialisability; the buyer-route seam and the door gate.
 
@@ -62,7 +63,7 @@ describe("report — the nine sections and the format", () => {
       "Price & this home",
       "Sold prices nearby",
       "Schools & nurseries",
-      "Health, air, noise & crime",
+      "Health, air & crime",
       "What's nearby",
       "Home, costs & risks",
       "Flood risk",
@@ -77,8 +78,22 @@ describe("report — the nine sections and the format", () => {
 
   it("a none-within line is recomposed at one-decimal precision, never the brain's raw line (BUG-014, founder ruling 20 Nov 2026)", () => {
     const served = JSON.stringify(view);
-    expect(served).toContain("nearest is Broomfield Hospital, 5.9 miles away");
+    // The short version's bullet, in the sample's form
+    // (BUG-041): the subject named, the distance at one
+    // decimal, the name and distance bold in the model.
+    const health = view.shortVersion?.groups.find((g) => g.heading === "Health");
+    const ae = health?.lines
+      .map((line) => line.map((segment) => segment.text).join(""))
+      .find((lineText) => lineText.includes("A&E"));
+    expect(ae).toBe("No A&E within 2 miles — nearest is Broomfield Hospital, 5.9 miles.");
+    // Section 4's row carries the sample's own sentence.
+    expect(sectionText(view, 4)).toContain(
+      "There is no A&E within 2 miles of this home; Broomfield Hospital is the nearest, at 5.9 miles.",
+    );
     expect(served).not.toContain("5.89 miles away");
+    // The basis parenthesis never rides inside a finding
+    // at body size (BUG-050(i)).
+    expect(served).not.toContain("(straight-line distance from the postcode point)");
   });
 
   it("the masthead names the home, its place and the matched certificate's facts", () => {
@@ -89,15 +104,32 @@ describe("report — the nine sections and the format", () => {
     expect(view.masthead.meta).toContainEqual({ label: "Last sale", value: "£588,995" });
   });
 
-  it("Section 1 carries the factual tiles only — the computed tiles are not built (B7 carve-out)", () => {
-    const s1 = sectionText(view, 1);
-    expect(s1).toContain("Last sale");
-    expect(s1).toContain("Times sold");
-    const whole = text(view);
-    expect(whole).not.toContain("Change since previous sale");
-    expect(whole).not.toContain("Held by last owner");
-    expect(whole).not.toContain("Annual growth");
-    expect(whole).not.toContain("Price change");
+  it("Section 1 carries the sample's four tiles and five-column history table (BUG-045 — the parity batch restores the sample form over the B7 two-tile carve-out)", () => {
+    const s1 = view.sections[0];
+    const tilesBlock = s1.blocks.find((b) => b.type === "tiles");
+    if (!tilesBlock || tilesBlock.type !== "tiles") throw new Error("expected the tiles");
+    expect(tilesBlock.tiles.map((t) => t.label)).toEqual([
+      "Last sale",
+      "Times sold",
+      "Change since previous sale",
+      "Held by last owner",
+    ]);
+    const table = s1.blocks.find((b) => b.type === "table");
+    if (!table || table.type !== "table") throw new Error("expected the history table");
+    expect(table.head).toEqual([
+      "Sale date",
+      "Sale price",
+      "Price change",
+      "Years held",
+      "Annual growth",
+    ]);
+    // One recorded sale: no change can be computed, and
+    // the row says so in the sample's words.
+    expect(table.rows).toEqual([
+      ["15 Jun 2023", "£588,995", "— first recorded sale (new build)", "", ""],
+    ]);
+    expect(tilesBlock.tiles[2].value).toBe("—");
+    expect(tilesBlock.tiles[3].sub).toBe("New build — the 2023 sale was its first");
   });
 
   it("Section 1's building block carries the building's middle price as its stat (BUG-036)", () => {
@@ -205,8 +237,13 @@ describe("report — the nine sections and the format", () => {
 describe("report — Section 3 schools", () => {
   const view = buildReportView(input());
 
-  it("carries the catchment honesty block verbatim", () => {
-    expect(sectionText(view, 3)).toContain(CATCHMENT_BLOCK_LINE);
+  it("the catchment honesty sits in Section 9's disclaimers, not in Section 3 (BUG-050(ii))", () => {
+    expect(sectionText(view, 3)).not.toContain("catchment boundaries");
+    const s9 = sectionText(view, 9);
+    expect(s9).toContain(
+      "We hold no catchment boundaries, so we cannot say whether this home is in or out for any school.",
+    );
+    expect(s9).toContain("School admissions on GOV.UK");
   });
 
   it("secondary rows carry their destinations block as served; sixth-form rows carry none (q)", () => {
@@ -237,11 +274,14 @@ describe("report — Section 4 health, air, noise & crime", () => {
     expect(s4.slice(dentistAt, dentistAt + 300)).not.toContain("Care Quality Commission");
   });
 
-  it("the air table carries the yardstick lines as served, and the AQMA answer (m, n)", () => {
+  it("the air table carries the limits and guidelines as its own columns, and the AQMA answer inside the Air sub (m, n; BUG-048)", () => {
     expect(s4).toContain("8.15 µg/m³");
+    expect(s4).toContain("UK legal limit (annual)");
+    expect(s4).toContain("WHO 2021 guideline (annual)");
+    expect(s4).toContain("40 µg/m³");
     expect(s4).toContain("YARDSTICK-NO2");
     expect(s4).toContain("AQMA-NONE-LINE");
-    expect(s4).toContain("Air Quality Management Areas");
+    expect(s4).not.toContain("Air Quality Management Areas");
   });
 
   it("noise renders the publisher's band text verbatim, day and night (h)", () => {
@@ -249,11 +289,12 @@ describe("report — Section 4 health, air, noise & crime", () => {
     expect(s4).toContain("Below 50 dB");
   });
 
-  it("crime carries the counts with the D39 calibration lines beside them (f)", () => {
-    expect(s4).toContain("330 recorded crimes within 1 mile");
+  it("crime carries the counts with the D39 calibration beside them (f)", () => {
+    expect(s4).toContain("330 incidents");
+    expect(s4).toContain("recorded within 1 mile of this home");
     expect(s4).toContain("Violence and sexual offences");
     expect(s4).toContain("51.7 recorded crimes for every 1,000 residents here");
-    expect(s4).toContain("across England, the figure is 94.5");
+    expect(s4).toContain("Across England, the figure is 94.5");
     expect(s4).toContain("CALIBRATION-EXPLAINER");
   });
 
@@ -327,7 +368,7 @@ describe("report — Section 5 and its map", () => {
   it("the industrial sites block stands at the end of Section 5 while the flag serves it (p)", () => {
     const s5 = view.sections[4];
     const subs = s5.blocks.filter((b) => b.type === "sub");
-    expect(subs[subs.length - 1]).toEqual({ type: "sub", text: "Regulated industrial sites" });
+    expect(subs[subs.length - 1]).toEqual({ type: "sub", text: "Industrial sites" });
     const s5Text = sectionText(view, 5);
     expect(s5Text).toContain("Example Chemicals Ltd");
     expect(s5Text).toContain("REPORTED-LINE");
@@ -336,7 +377,7 @@ describe("report — Section 5 and its map", () => {
 
   it("with no industrial block in the bundle, no placeholder stands in its place", () => {
     const bare = buildReportView(input({ nearby: nearbyWith({}, false) }));
-    expect(sectionText(bare, 5)).not.toContain("Regulated industrial sites");
+    expect(sectionText(bare, 5)).not.toContain("Industrial sites");
   });
 });
 
@@ -368,7 +409,7 @@ describe("report — Section 6 home, costs & risks", () => {
   it("demographics are led by the IMD decile-in-words line — no score, no rank, no bare decile (g)", () => {
     const demoAt = s6.indexOf("The area in numbers");
     const demo = s6.slice(demoAt);
-    expect(demo).toContain("Among the less deprived 30 percent of areas in England");
+    expect(demo).toContain("is among the less deprived 30 percent of areas in England");
     expect(demo).toContain("Income: among the less deprived 20 percent of areas in England.");
     expect(demo.toLowerCase()).not.toContain("rank");
     expect(demo).not.toContain("decile 8");
@@ -452,15 +493,22 @@ describe("report — Section 9 and the closing notes", () => {
     expect(REPORT_DISCLAIMER_D9).toContain("what it means for your decision is your own judgement");
   });
 
-  it("names the check explanations (the M7.12 discharge)", () => {
+  it("names the check explanations (the M7.12 discharge) — in Section 9 only (BUG-052)", () => {
     expect(s9).toContain("/check/flood-risk");
     expect(s9).toContain("/check/schools");
-    expect(sectionText(view, 7)).toContain("/check/flood-risk");
+    for (const section of view.sections.slice(0, 8))
+      expect(JSON.stringify(section)).not.toContain("/check/");
   });
 
-  it("collects the bundles' own source lines", () => {
-    expect(s9).toContain("Source: HM Land Registry Price Paid Data, edition 28 October 2026");
-    expect(s9).toContain("Source: Police.uk street-level crime data");
+  it("collects the sources as composed bullets, naming what was checked (BUG-051)", () => {
+    expect(s9).toContain("HM Land Registry Price Paid data for postcode CM3 2JT");
+    expect(s9).toContain("the median (£588,995)");
+    expect(s9).toContain("Police.uk street-level data");
+    expect(s9).toContain("330 incidents");
+    // A source with no composed bullet still files under
+    // its topic name.
+    expect(s9).toContain("EA flood defences");
+    expect(s9).not.toContain("Source: HM Land Registry Price Paid Data, edition");
   });
 });
 
@@ -770,12 +818,12 @@ describe("report — M8.2 charts: crime by month and by category", () => {
     return block.chart;
   }
 
-  it("the month chart stands before the category chart, after the calibration lines (the Master's order)", () => {
+  it("the month chart stands before the category chart, after the calibration bullets (the Master's order)", () => {
     const types = s4.blocks.map((b) => b.type);
     const monthAt = types.indexOf("monthChart");
     const categoryAt = s4.blocks.findIndex((b) => b.type === "bars");
     const perHeadAt = s4.blocks.findIndex(
-      (b) => b.type === "line" && b.text.includes("for every 1,000 residents"),
+      (b) => b.type === "richList" && JSON.stringify(b.items).includes("for every 1,000 residents"),
     );
     expect(perHeadAt).toBeGreaterThan(-1);
     expect(monthAt).toBeGreaterThan(perHeadAt);

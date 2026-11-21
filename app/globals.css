@@ -1087,8 +1087,9 @@ body:has(.main--home) .site-footer {
    narrower screens, as in the sample. */
 .source-strip {
   background: var(--cmnh-white);
-  border-top: 1px solid var(--cmnh-brass-pale);
-  border-bottom: 1px solid var(--cmnh-brass-pale);
+  /* Option 4 (founder ruling, 21 Nov 2026): the strip
+     stays on white with its hairline rules removed — the
+     cream family section below now does the separating. */
   padding: 1.25rem 1.875rem 1.375rem;
   text-align: center;
 }
@@ -1396,6 +1397,15 @@ body:has(.main--home) .site-footer {
   border-bottom: 1px solid var(--cmnh-brass-pale);
 }
 
+/* The family section under Option 4 (founder ruling,
+   21 Nov 2026): the cream ground moves here from the
+   cards, and the section carries no hairline rules —
+   the white strip above and the white section below
+   meet cream directly. */
+.home-section--family {
+  background: var(--cmnh-cream);
+}
+
 .home-section__sub {
   font-size: 0.90625rem;
   line-height: 1.5;
@@ -1410,15 +1420,17 @@ body:has(.main--home) .site-footer {
 }
 
 /* The audience card in the sample's form (fidelity pass 2;
-   D70 R3's text-only structure kept): Cream-filled with the
+   D70 R3's text-only structure kept): white-filled with the
    thin Brass pale line, the tile radius, the sample's 18px
    padding; title at the sample's 16.5px with its 8px
    under-margin; intro and check list at the sample's
    13.5px / 1.55 in its soft body grey, the list at the
-   sample's indent with no per-item margins. */
+   sample's indent with no per-item margins. (The fill was
+   Cream until Option 4, founder ruling 21 Nov 2026, moved
+   the cream to the section ground and the cards to white.) */
 .audience-cards .card {
   margin-bottom: 0;
-  background: var(--cmnh-cream);
+  background: var(--cmnh-white);
   border-color: var(--cmnh-brass-pale);
   border-radius: var(--radius-tile);
   padding: 1.125rem;
@@ -5176,7 +5188,14 @@ a.picker__row {
   /* The cream page ground drops to white (prep point
      5); brand and chart colours stay, printed exactly.
      The flood pictures' cream backing is their ground
-     too, so it drops with the page's. */
+     too, so it drops with the page's. The body itself
+     goes white too (BUG-063): the page canvas takes the
+     body's ground, and left cream it printed as an empty
+     pale band at the foot of the final page, below the
+     white document. */
+  body {
+    background: #ffffff;
+  }
   .site-pages {
     background: #ffffff;
   }
@@ -5229,13 +5248,15 @@ a.picker__row {
   /* Cards, charts and the flood pictures never split
      across pages (prep point 2); a heading keeps with
      the block that follows it; a text block never
-     strands a line. */
+     strands a line. Ordinary text — the short-version
+     groups, the place rows, the tables — flows across
+     pages (BUG-054): keeping whole groups unsplit was
+     what pushed them wholesale onto the next page and
+     left the large terminal gaps the founder measured
+     on the audited proof. */
   .site-pages .rpt-chartCard,
   .site-pages .rpt-tiles,
-  .site-pages .rpt-tile,
-  .site-pages .rpt-row,
-  .site-pages .rpt-doc table,
-  .site-pages .rpt-tldr .grp {
+  .site-pages .rpt-tile {
     break-inside: avoid;
     page-break-inside: avoid;
   }
@@ -5260,8 +5281,9 @@ a.picker__row {
 
   /* Sources (prep point 4): in the printed closing
      section, each named link's URL prints beside it.
-     The spans exist throughout the document (the links
-     rows close every section) and show only here. */
+     The spans exist throughout the document and show
+     only here — since BUG-052 the links live only in
+     the closing section in any case. */
   .site-pages .rpt-final .rpt-printUrl {
     display: inline;
   }

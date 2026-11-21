@@ -31,13 +31,12 @@ import { expect, test } from "./fixtures";
 //   of the no-sideways-scroll guarantee, so nothing can
 //   mask a block silently cut off.
 //   R4 — the surface set is enumerated, never crawled:
-//   the landing; the postcode check with its home
-//   dropdown (the picker's list, moved there when the
-//   picker page was removed, 18 Nov 2026; re-formed as
-//   one dropdown by the founder's ruling of 20 Nov 2026);
-//   the checking screen; rung-1 results with each of the
+//   the landing; the postcode check with its full home
+//   list (the picker's list, moved there when the picker
+//   page was removed, 18 Nov 2026); the
+//   checking screen; rung-1 results with each of the
 //   four tabs opened in turn; rung-2 results with the
-//   home dropdown at their head; the rung-3 wider area; the Scotland
+//   home list at their head; the rung-3 wider area; the Scotland
 //   not-covered results; the unplaced landing (the bare
 //   /search redirect); the
 //   whole-check failure; /shortlist empty, with one home
@@ -126,12 +125,10 @@ async function searchFromHome(page: Page, text: string) {
   await page.getByRole("button", { name: "Check this home" }).click();
 }
 
-async function pickAndReachResults(page: Page, rowName: string) {
+async function pickAndReachResults(page: Page, rowName: string | RegExp) {
   // Picker removed (18 Nov 2026): the postcode check's
-  // home dropdown carries its homes (founder ruling,
-  // 20 Nov 2026 — the list dump is gone), and choosing
-  // one goes straight to that home.
-  await page.locator(".picker__select").selectOption({ label: rowName });
+  // home list rows are links straight to each home.
+  await page.getByRole("link", { name: rowName }).first().click();
   await page.waitForURL(/\/search\/home\?postcode=.*&home=/);
   await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
 }
@@ -276,25 +273,22 @@ test.describe("phone-first — 360×740 (T-WEB-01)", () => {
   );
 
   test(
-    "the home dropdown on the postcode check: one 44px target carrying the postcode's homes, nothing scrolls sideways (F1/F2)",
+    "the home list on the postcode check: a full list of 44px rows, nothing scrolls sideways (F1/F2)",
     { tag: "@regression" },
     async ({ page }) => {
       await searchFromHome(page, "CM3 2JT");
       await page.waitForURL("**/search/home?postcode=CM3+2JT");
-      const select = page.locator(".picker__select");
-      // The dropdown renders inside the results, behind the
-      // checking screen's advance — wait for it before
-      // measuring (an immediate read races the advance).
-      // Since the founder's ruling of 20 Nov 2026 the homes
-      // stand as the dropdown's options behind one 44px
-      // target, not as a list of rows.
-      await expect(select).toBeVisible({ timeout: 30_000 });
-      expect(
-        await select.locator("option").count(),
-        "the dropdown carries the postcode's homes",
-      ).toBeGreaterThan(1);
-      await expectTapTarget(select, "the home dropdown");
-      await expectInsideViewport(select, PHONE.width, "the home dropdown");
+      const rows = page.locator(".picker__row");
+      // The list renders inside the results, behind the
+      // checking screen's advance — wait for the first row
+      // before counting (an immediate count races the
+      // advance and reads zero).
+      await expect(rows.first()).toBeVisible({ timeout: 30_000 });
+      expect(await rows.count(), "the list carries the postcode's homes").toBeGreaterThan(1);
+      for (const row of await rows.all()) {
+        await expectTapTarget(row, "a home-list row");
+        await expectInsideViewport(row, PHONE.width, "a home-list row");
+      }
       await expectNoSidewaysScroll(page);
       await expectNoTable(page);
     },
@@ -314,7 +308,7 @@ test.describe("phone-first — 360×740 (T-WEB-01)", () => {
       });
       await searchFromHome(page, "CM3 2JT");
       await page.waitForURL("**/search/home?postcode=CM3+2JT");
-      await page.locator(".picker__select").selectOption({ label: "19 Birkdale Rise" });
+      await page.getByRole("link", { name: "19 Birkdale Rise", exact: true }).click();
       await expect(page.locator(".checking .page-title")).toHaveText("Your check is under way");
       await expect(page.locator(".checking__row")).toHaveCount(5);
       await expectNoSidewaysScroll(page);
@@ -426,7 +420,7 @@ test.describe("phone-first — 360×740 (T-WEB-01)", () => {
   );
 
   test(
-    "rung-2 results: the home dropdown is a 44px target and nothing scrolls sideways (F1/F2)",
+    "rung-2 results: the home list's rows are 44px targets and nothing scrolls sideways (F1/F2)",
     { tag: "@regression" },
     async ({ page }) => {
       await page.goto("/search/home?postcode=CM3+2JT");
@@ -434,13 +428,11 @@ test.describe("phone-first — 360×740 (T-WEB-01)", () => {
       await expect(page.locator(".results-head h1")).toHaveText(
         "Postcode area — CM3 2JT, not one exact home",
       );
-      const select = page.locator(".picker__select");
-      await expect(select).toBeVisible();
-      expect(
-        await select.locator("option").count(),
-        "the home dropdown sits at the head of the page",
-      ).toBeGreaterThan(1);
-      await expectTapTarget(select, "the home dropdown");
+      const rows = page.locator(".picker__row");
+      expect(await rows.count(), "the home list sits at the head of the page").toBeGreaterThan(1);
+      for (const row of await rows.all()) {
+        await expectTapTarget(row, "a home-list row");
+      }
       await expectNoSidewaysScroll(page);
       await expectNoTable(page);
     },
@@ -626,7 +618,7 @@ test.describe("phone-first — 360×740 (T-WEB-01)", () => {
     async ({ page }) => {
       await seedShortlist(page, [BIRKDALE_CARD, EXETER_CARD, WIDER_AREA_CARD]);
       await page.goto("/search?postcode=KT17+1FH");
-      await pickAndReachResults(page, "Flat 4, Minerva House, 12 Ceres Crescent");
+      await pickAndReachResults(page, /Flat 4, Minerva House/);
       await page.getByRole("button", { name: "Shortlist this home" }).first().click();
 
       // The simple message stands where the button was
@@ -714,10 +706,11 @@ test.describe("phone-first — 360×740 (T-WEB-01)", () => {
         "Sold prices nearby",
         "Schools & nurseries",
         // The sample page's Section 4 title, as the Master
-        // drew it. The live report carries the format
+        // drew it. The live report carried the format
         // authority's title ("Health, air, noise & crime",
-        // v12) — pinned in tests/report.test.ts; the
-        // divergence is itemised in the M8.1 record.
+        // v12) until the M8.4 parity batch (BUG-047) conformed
+        // it to the Master's "Health, air & crime" — pinned in
+        // tests/report.test.ts.
         "Health, air & crime",
         "What's nearby",
         "Home, costs & risks",

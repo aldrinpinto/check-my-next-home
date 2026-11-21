@@ -27,7 +27,7 @@ import { buildCrimeBundle, createCrimeSource } from "../crime";
 import { createDistrictSource, createDistrictWarningSource } from "../district";
 import { buildDistrictBundleCached, createDistrictCache } from "../district-cache";
 import { buildFloodBundle, createFloodSource } from "../flood";
-import { buildNearbyBundle, createNearbySource } from "../nearby";
+import { buildNearbyBundle, createNearbySource, REPORT_SCHOOL_LIST_SIZE } from "../nearby";
 import { buildShortBundle } from "../short-bundle";
 import {
   journeyDestination,
@@ -321,6 +321,33 @@ export async function checkAll(resolution: AddressResolution) {
   const brains = createCachedBrains(db);
   const [nearby, flood, area, sold, crime] = await Promise.all([
     brains.buildNearbyBundle(resolution),
+    brains.buildFloodBundle(resolution),
+    brains.buildAreaBundle(resolution),
+    buildSoldPricesBundle(resolution, createSoldPricesSource(db)),
+    brains.buildCrimeBundle(resolution),
+  ]);
+  return { nearby, flood, area, sold, crime };
+}
+
+// Every bundle, for the detailed report (the report view
+// route and the PDF twin's generation): identical to
+// checkAll except the nearby bundle, which the report
+// builds at report depth — the school lists name five,
+// not three (BUG-044). The deeper bundle is built
+// UNCACHED, on the district builder's own pattern (the
+// uncached buildNearbyBundle call below): a bought
+// report is a rare, deliberate event, and a variant
+// entry in the shared bundle cache could otherwise
+// serve report depth to the results page (or the
+// reverse) under the same key. The results page's own
+// assembly (checkAll / checkResults) is untouched.
+export async function checkReport(resolution: AddressResolution) {
+  const db = getDbPool();
+  const brains = createCachedBrains(db);
+  const [nearby, flood, area, sold, crime] = await Promise.all([
+    buildNearbyBundle(resolution, createNearbySource(db), {
+      schoolListSize: REPORT_SCHOOL_LIST_SIZE,
+    }),
     brains.buildFloodBundle(resolution),
     brains.buildAreaBundle(resolution),
     buildSoldPricesBundle(resolution, createSoldPricesSource(db)),

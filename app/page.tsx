@@ -55,7 +55,10 @@ export const metadata: Metadata = pageMetadata({ ...PAGE_SEO["/"], path: "/" });
 //   as drawn greyscale lockups (components/SourceStrip.tsx).
 //   "Moving looks different for every family" — the three
 //   audience cards (the decided page's intros and check
-//   lists, Cream-filled) on a white panel section.
+//   lists) on the Cream section, the cards themselves
+//   white (Option 4, founder ruling 21 Nov 2026: the
+//   strip above stays white with its hairlines removed,
+//   and the cream moves to this section's ground).
 //   "What we check for you" — the nine-tile grid on the
 //   Cream band. The family-names annotation panel and the
 //   "What it checks" ruled list are retired: the sample
@@ -103,7 +106,10 @@ export default function Home() {
 
       <SourceStrip />
 
-      <section className="home-section home-section--alt" aria-labelledby="audience-cards-heading">
+      <section
+        className="home-section home-section--family"
+        aria-labelledby="audience-cards-heading"
+      >
         <h2 id="audience-cards-heading">{HOME_CARDS_HEADING}</h2>
         <p className="home-section__sub">{HOME_CARDS_SUB}</p>
         <AudienceCards />

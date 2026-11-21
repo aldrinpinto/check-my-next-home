@@ -5,7 +5,7 @@ import ReportPage from "../../../components/ReportPage";
 import { buildReportView, reportViewGate } from "../../../lib/report";
 import { reportRoute } from "../../../lib/results";
 import { pageMetadata } from "../../../lib/seo";
-import { checkAll, resolutionForRoute } from "../../../lib/server/serve";
+import { checkReport, resolutionForRoute } from "../../../lib/server/serve";
 
 // The bought report's page (plan step M8.1) — the
 // buyer-route seam the later steps land on: this route,
@@ -55,7 +55,7 @@ export default async function ReportViewPage({
   if (!resolution || (resolution.rung !== 1 && resolution.rung !== 2))
     redirect(reportRoute(postcode, homeKey));
 
-  const bundles = await checkAll(resolution);
+  const bundles = await checkReport(resolution);
   const view = buildReportView({ resolution, ...bundles, now: new Date() });
   // The .site-pages wrapper every other content page
   // carries (the sample report's page is the twin): the
