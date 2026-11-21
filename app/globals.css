@@ -4311,6 +4311,13 @@ a.picker__row {
   font-size: 0.94rem;
   color: rgba(253, 248, 232, 0.9);
 }
+/* M8.8 — the sample page's PDF download line, standing
+   under the document it downloads. */
+.site-pages .sample-download {
+  margin-top: 1.4rem;
+  font-size: 0.94rem;
+  color: var(--sp-muted);
+}
 .site-pages .rpt-doc {
   background: var(--sp-paper);
   color: var(--sp-ink);
@@ -5320,6 +5327,15 @@ a.picker__row {
     border-top: 3px solid var(--sp-brass);
     padding-top: 14px;
     max-width: 62%;
+  }
+  /* The sample cover's tagline line (M8.8): the name
+     never stands bare on a cover — the tagline sits
+     under the brand line, over the title. */
+  .site-pages .rpt-cover .rpt-cover-tag {
+    font-family: var(--font-family-display);
+    font-size: 1.05rem;
+    color: var(--sp-muted);
+    margin: 0 0 26px;
   }
 
   /* Cards, charts and the flood pictures never split

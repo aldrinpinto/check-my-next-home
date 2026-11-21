@@ -1,7 +1,11 @@
 import { inflateSync } from "node:zlib";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import type { AddressResolution } from "../lib/address";
@@ -13,6 +17,10 @@ import {
   reportPdfFooterHtml,
   reportPdfKey,
   reportPrintUrl,
+  sampleReportPdfContentDisposition,
+  sampleReportPdfCover,
+  sampleReportPdfFileName,
+  sampleReportPdfFooterHtml,
 } from "../lib/report-pdf";
 import {
   generateReportPdf,
@@ -20,6 +28,8 @@ import {
   reportPrintDocument,
   storeReportPdf,
 } from "../lib/server/report-pdf";
+import { generateSampleReportPdf, samplePrintUrl } from "../lib/server/sample-pdf";
+import SampleReportPrintPage from "../app/sample-report/print/page";
 import { createLocalReportPdfStore } from "../lib/server/report-storage";
 import type { SoldPricesBundle } from "../lib/sold-prices";
 import { floodServed, input } from "./fixtures/report-inputs";
@@ -697,6 +707,161 @@ describe("report-pdf — the render proof (the two golden reports, printed)", ()
       expect(await store.get(stored.key)).toEqual(stored.bytes);
     } finally {
       await rm(root, { recursive: true, force: true });
+    }
+  }, 180_000);
+});
+
+// ------------------------------------------------------------------
+// The sample report's PDF (M8.8)
+// ------------------------------------------------------------------
+
+describe("the sample report's PDF (M8.8)", () => {
+  it("the file name is descriptive: the brand, the word Sample, the example home", () => {
+    expect(sampleReportPdfFileName()).toBe(
+      "Check My Next Home — Sample report — 12 Willow Close MB3 4QX.pdf",
+    );
+  });
+
+  it("the cover carries the SAMPLE marking, the name with its tagline, and the invented-example line", () => {
+    const cover = sampleReportPdfCover();
+    expect(cover.mark).toBe("SAMPLE");
+    expect(cover.brandLine).toBe("Check My Next Home");
+    // The pairing rule (T-SEO-06's form): the name never
+    // stands bare on a cover — the tagline rides with it.
+    expect(cover.taglineLine).toBe("Check the house. Choose the home.");
+    expect(cover.title).toBe("Sample report — 12 Willow Close");
+    expect(cover.addressLine).toBe("Millbrook, Kingsford, Kent MB3 4QX");
+    expect(cover.exampleLine).toContain("invented example");
+  });
+
+  it("no sample surface names a real home", () => {
+    const surfaces = [
+      sampleReportPdfFileName(),
+      JSON.stringify(sampleReportPdfCover()),
+      sampleReportPdfFooterHtml(),
+      sampleReportPdfContentDisposition(),
+    ].join("\n");
+    expect(surfaces).not.toContain("Birkdale");
+    expect(surfaces).not.toContain("CM3 2JT");
+    expect(surfaces).not.toContain("Exeter");
+    expect(surfaces).not.toContain("E16 1GN");
+  });
+
+  it("the footer names the document a sample on every page, in the twin's shape", () => {
+    const html = sampleReportPdfFooterHtml();
+    expect(html).toContain("Sample report — 12 Willow Close · MB3 4QX");
+    expect(html).toContain("Facts, not scores");
+    expect(html).toContain('<span class="pageNumber"></span>');
+    expect(html).toContain('<span class="totalPages"></span>');
+  });
+
+  it("the download disposition carries the descriptive name, UTF-8 and ASCII forms", () => {
+    const disposition = sampleReportPdfContentDisposition();
+    expect(disposition.startsWith("attachment; ")).toBe(true);
+    expect(disposition).toContain(
+      'filename="Check My Next Home - Sample report - 12 Willow Close MB3 4QX.pdf"',
+    );
+    expect(disposition).toContain("filename*=UTF-8''");
+    expect(disposition).toContain(
+      encodeURIComponent("Check My Next Home — Sample report — 12 Willow Close MB3 4QX.pdf"),
+    );
+  });
+
+  it("the print view composes the cover first, then the sample page's own document", () => {
+    // The composition the PDF is printed from is a Server
+    // Component (app/sample-report/print) — a route
+    // handler's graph cannot render markup to a string in
+    // this setup, so the composition is pinned here as a
+    // render, the way the sample page's own tests pin it.
+    const html = renderToStaticMarkup(createElement(SampleReportPrintPage));
+    expect(html).toContain('<main class="site-pages">');
+    const coverAt = html.indexOf('class="rpt-cover"');
+    const docAt = html.indexOf('class="report-wrap"');
+    expect(coverAt).toBeGreaterThan(-1);
+    expect(docAt).toBeGreaterThan(coverAt);
+    // The cover's furniture, in order: the marking, the
+    // paired name and tagline, the title, the example
+    // home, the disclosure.
+    const cover = html.slice(coverAt, docAt);
+    expect(cover).toContain(">SAMPLE</span>");
+    expect(cover).toContain("Check My Next Home");
+    expect(cover).toContain("Check the house. Choose the home.");
+    expect(cover).toContain("Sample report — 12 Willow Close");
+    expect(cover).toContain("Millbrook, Kingsford, Kent MB3 4QX");
+    expect(cover).toContain("invented example");
+    // And the document that follows is the sample page's
+    // own — its banner and its dummy home, not a bought
+    // report's view.
+    expect(html).toContain("This is a sample report");
+    expect(html).toContain("12 Willow Close");
+    expect(html).not.toContain("Birkdale");
+    // The generator prints the print view, at the app's
+    // own address unless an origin is handed to it.
+    expect(samplePrintUrl("http://127.0.0.1:4321")).toBe(
+      "http://127.0.0.1:4321/sample-report/print",
+    );
+  });
+
+  it("the generated PDF: SAMPLE cover first, the sample footer on every page", async (ctx) => {
+    if (!(await chromiumAvailable())) {
+      ctx.skip("no Chromium available in this environment");
+      return;
+    }
+    // The generator prints the app's print view over
+    // HTTP; the test stands in for the app with a local
+    // server holding the same composition, dressed in
+    // the twin's standalone print CSS (the app itself
+    // serves the same stylesheet with the page).
+    const css = await reportPrintCss();
+    const body = renderToStaticMarkup(createElement(SampleReportPrintPage));
+    const document =
+      `<!doctype html>\n<html lang="en-GB"><head><meta charset="utf-8">` +
+      `<title>Sample report — print view</title><style>${css}</style></head>` +
+      `<body>${body}</body></html>`;
+    const server = createServer((request, response) => {
+      if (request.url === "/sample-report/print") {
+        response.setHeader("content-type", "text/html; charset=utf-8");
+        response.end(document);
+      } else {
+        response.statusCode = 404;
+        response.end();
+      }
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      const { port } = server.address() as AddressInfo;
+      const { fileName, bytes } = await generateSampleReportPdf(`http://127.0.0.1:${port}`);
+      expect(fileName).toBe("Check My Next Home — Sample report — 12 Willow Close MB3 4QX.pdf");
+      expect(Buffer.from(bytes.subarray(0, 5)).toString("latin1")).toBe("%PDF-");
+
+      const pages = pdfPageTexts(bytes);
+      expect(pages.length).toBeGreaterThanOrEqual(6);
+      const squashed = pages.map(squash);
+
+      // The cover stands alone on page 1: the marking, the
+      // paired name and tagline, the example home — and
+      // none of the document.
+      expect(squashed[0]).toContain(squash("SAMPLE"));
+      expect(squashed[0]).toContain(squash("Check My Next Home"));
+      expect(squashed[0]).toContain(squash("Check the house. Choose the home."));
+      expect(squashed[0]).toContain(squash("Sample report — 12 Willow Close"));
+      expect(squashed[0]).toContain(squash("invented example"));
+      expect(squashed[0]).not.toContain(squash("The short version"));
+
+      // The footer on every page after the cover: the
+      // sample address, the page's own number of the
+      // total, the standing line.
+      pages.forEach((_, i) => {
+        if (i === 0) return;
+        expect(squashed[i]).toContain(squash("Sample report — 12 Willow Close · MB3 4QX"));
+        expect(squashed[i]).toContain(squash(`Page ${i + 1} of ${pages.length}`));
+        expect(squashed[i]).toContain(squash("Facts, not scores"));
+      });
+
+      // The whole file names no real home.
+      expect(squashed.join(" ")).not.toContain(squash("Birkdale"));
+    } finally {
+      server.close();
     }
   }, 180_000);
 });

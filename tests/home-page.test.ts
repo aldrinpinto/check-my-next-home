@@ -324,6 +324,20 @@ describe("the rendered home page", () => {
     expect(html).not.toContain(SAMPLE_REPORT_LINK_TEXT);
   });
 
+  it("links to the sample report exactly once on the page — the report band's own door (M8.8)", () => {
+    // M8.8 prep point 1: the homepage's sample link is the
+    // report band's one link — no resurrected example
+    // section (pinned gone above), no second door. (The
+    // header and footer carry their own Sample report
+    // links; this render is the page alone, without them.)
+    expect(html.split('href="/sample-report"')).toHaveLength(2);
+    const bandAt = html.indexOf(HOME_REPORT_BAND_HEADING);
+    const linkAt = html.indexOf('href="/sample-report"');
+    expect(bandAt).toBeGreaterThan(-1);
+    expect(linkAt).toBeGreaterThan(bandAt);
+    expect(html).toContain(HOME_REPORT_BAND_CTA);
+  });
+
   it("renders the source strip under the hero, before the cards (founder's ruling, 18 Nov 2026)", () => {
     const small = html.indexOf(HOME_HERO_SMALL_LINE);
     const strip = html.indexOf("source-strip");

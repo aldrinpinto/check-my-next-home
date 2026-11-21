@@ -1,5 +1,5 @@
 import type { ReportView } from "./report";
-import { SITE_NAME, SITE_URL } from "./site";
+import { SITE_NAME, SITE_TAGLINE, SITE_URL } from "./site";
 
 // The PDF twin (plan step M8.4) — the pure half: every
 // string the PDF carries that is not already in the
@@ -148,4 +148,98 @@ export function reportPrintUrl(href: string): string {
   if (/^https?:\/\//i.test(href)) return href;
   if (href.startsWith("/")) return `${SITE_URL}${href}`;
   return href;
+}
+
+// ------------------------------------------------------------------
+// The sample report's PDF (plan step M8.8)
+// ------------------------------------------------------------------
+//
+// The one report a visitor may download without buying:
+// the sample, printed from the sample's own print view
+// (app/sample-report/print) by lib/server/sample-pdf.ts
+// and served at SAMPLE_REPORT_PDF_PATH. Its pure
+// derivations live here
+// beside the bought twin's, under the step's adopted
+// rules: only the dummy home is ever public (12 Willow
+// Close, Millbrook, MB3 4QX — the Final Sample Master's
+// invented example), the cover carries the SAMPLE
+// marking with the name and tagline paired (never the
+// name bare), and the file name is descriptive — it
+// says Sample, and names the example home, so a
+// downloaded copy can never be passed off as a real
+// report for a real home.
+
+export const SAMPLE_REPORT_PDF_PATH = "/sample-report.pdf";
+
+// The dummy home's identity, in the forms the cover and
+// the file name carry — the same strings the sample
+// page's masthead carries (components/SampleReport.tsx,
+// pinned by tests/sample-report.test.ts).
+const SAMPLE_HOME_TITLE = "12 Willow Close";
+const SAMPLE_HOME_ADDRESS = "Millbrook, Kingsford, Kent MB3 4QX";
+const SAMPLE_HOME_POSTCODE = "MB3 4QX";
+
+// The downloaded file's name: the brand, the word
+// Sample, and the example home it is worked on —
+// descriptive before it is anything else.
+export function sampleReportPdfFileName(): string {
+  return `${SITE_NAME} — Sample report — ${SAMPLE_HOME_TITLE} ${SAMPLE_HOME_POSTCODE}.pdf`;
+}
+
+// The sample cover's content: the SAMPLE marking first,
+// the name and tagline paired under it (the pairing the
+// brand rule requires wherever the name stands as a
+// cover's brand), then the example home and the
+// invented-example line — the sample banner's own
+// disclosure, carried onto the cover so the printed
+// first page says what the web page's banner says.
+export interface SampleReportPdfCover {
+  mark: string;
+  brandLine: string;
+  taglineLine: string;
+  title: string;
+  addressLine: string;
+  exampleLine: string;
+}
+
+export function sampleReportPdfCover(): SampleReportPdfCover {
+  return {
+    mark: "SAMPLE",
+    brandLine: SITE_NAME,
+    taglineLine: SITE_TAGLINE,
+    title: `Sample report — ${SAMPLE_HOME_TITLE}`,
+    addressLine: SAMPLE_HOME_ADDRESS,
+    exampleLine:
+      "The home in this sample is an invented example, with invented figures; the document that follows shows the format every detailed report follows.",
+  };
+}
+
+// The sample footer's template, in the bought twin's
+// shape (address, Page X of Y, the standing line): the
+// address names the document a sample before it names
+// the home, so every printed page carries the marking,
+// not only the cover.
+export function sampleReportPdfFooterHtml(): string {
+  const address = escapeHtml(`Sample report — ${SAMPLE_HOME_TITLE} · ${SAMPLE_HOME_POSTCODE}`);
+  return (
+    `<div style="width: 100%; padding: 0 14mm; display: flex; ` +
+    `justify-content: space-between; align-items: baseline; ` +
+    `font-family: 'DM Sans', Arial, sans-serif; font-size: 8pt; color: #5c6b60; ` +
+    `-webkit-print-color-adjust: exact;">` +
+    `<span>${address}</span>` +
+    `<span>Page <span class="pageNumber"></span> of <span class="totalPages"></span></span>` +
+    `<span>${REPORT_PDF_FOOTER_LINE}</span>` +
+    `</div>`
+  );
+}
+
+// The download's Content-Disposition: the descriptive
+// name rides in its UTF-8 form (RFC 5987 filename*), with
+// a plain-ASCII fallback for agents that read only the
+// older filename form — the em dashes become hyphens
+// there, nothing else changes.
+export function sampleReportPdfContentDisposition(): string {
+  const name = sampleReportPdfFileName();
+  const fallback = name.replace(/—/g, "-");
+  return `attachment; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(name)}`;
 }

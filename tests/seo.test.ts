@@ -7,6 +7,7 @@ import {
   HOME_PAGE_SEO,
   ORGANIZATION_SCHEMA,
   PAGE_SEO,
+  SAMPLE_REPORT_INDEXABLE,
   WEBSITE_SCHEMA,
   pageMetadata,
 } from "../lib/seo";
@@ -114,9 +115,18 @@ describe("sitemap generator (M2.11)", () => {
     // M7.8: the sitemap is exactly the locked set — every
     // PAGE_SEO key, in the record's order, homepage first.
     // The journey routes and /kitchen-sink are never here.
-    expect(sitemap().map((entry) => entry.url)).toEqual(
-      Object.keys(PAGE_SEO).map((path) => `${SITE_URL}${path}`),
-    );
+    // M8.8: one gated exception — /sample-report is listed
+    // only once its go-live gate opens
+    // (SAMPLE_REPORT_INDEXABLE); while the gate is shut
+    // the page is noindexed and T-SEO-02 keeps it out of
+    // the sitemap. The expectation follows the constant,
+    // so the flip is the constant alone.
+    const expected = Object.keys(PAGE_SEO)
+      .filter((path) => path !== "/sample-report" || SAMPLE_REPORT_INDEXABLE)
+      .map((path) => `${SITE_URL}${path}`);
+    const urls = sitemap().map((entry) => entry.url);
+    expect(urls).toEqual(expected);
+    expect(urls.includes(`${SITE_URL}/sample-report`)).toBe(SAMPLE_REPORT_INDEXABLE);
     expect(sitemap()[0]).toMatchObject({ url: `${SITE_URL}/`, priority: 1 });
   });
 });
@@ -137,7 +147,8 @@ describe("robots generator (M2.11)", () => {
     // /results, /checkout and /account — routes that have
     // never existed). M7.13 adds /gift — the Check
     // Together claim flow, reached only via a private
-    // link.
+    // link. M8.8 adds /sample-report/print — the sample
+    // PDF's internal print view.
     expect(result.rules).toMatchObject({
       userAgent: "*",
       allow: "/",
@@ -148,6 +159,7 @@ describe("robots generator (M2.11)", () => {
         "/report",
         "/shortlist",
         "/gift",
+        "/sample-report/print",
         "/kitchen-sink",
         "/api",
       ],

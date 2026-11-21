@@ -1,8 +1,12 @@
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
+import SampleReportPage from "../app/sample-report/page";
 import SampleReport from "../components/SampleReport";
+import { SAMPLE_REPORT_PDF_PATH } from "../lib/report-pdf";
 
 // Sample-report anonymisation (founder bug report, 18 Nov
 // 2026): the /sample-report page must never present a real
@@ -103,5 +107,49 @@ describe("the served sample report (anonymised example home)", () => {
       expect(index, heading).toBeGreaterThan(lastIndex);
       lastIndex = index;
     }
+  });
+});
+
+// M8.8 — the served page: the route renders the standing
+// component itself (the liveness pin), and carries the
+// PDF download line. The sample is the report machinery's
+// own worked example; it must never be swapped for a
+// frozen copy that could go stale against the machinery
+// it advertises.
+describe("the served sample page (M8.8)", () => {
+  const pageHtml = renderToString(createElement(SampleReportPage));
+
+  it("renders the standing SampleReport component itself, not a copy", () => {
+    // The page's served document contains the component's
+    // own render, byte for byte: the route composes the
+    // component, so what a visitor reads is always the
+    // machinery's current document. A frozen transcription
+    // pasted into the route would fail this the moment the
+    // component moved — and the second pin below bars the
+    // other frozen form, a static document asset.
+    expect(pageHtml).toContain(renderToString(createElement(SampleReport)));
+    expect(pageHtml).toContain("12 Willow Close");
+  });
+
+  it("keeps no static sample document among the public assets", () => {
+    const walk = (dir: string): string[] =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
+        entry.isDirectory() ? walk(join(dir, entry.name)) : [join(dir, entry.name)],
+      );
+    const assets = walk(join(process.cwd(), "public"));
+    const frozen = assets.filter((path) => /sample[^/]*\.(html|pdf)$/i.test(path));
+    expect(frozen).toEqual([]);
+  });
+
+  it("carries the PDF download line, pointing at the sample PDF's path", () => {
+    expect(SAMPLE_REPORT_PDF_PATH).toBe("/sample-report.pdf");
+    expect(pageHtml).toContain(`href="${SAMPLE_REPORT_PDF_PATH}"`);
+    expect(pageHtml).toContain("Download this sample report as a PDF");
+    expect(pageHtml).toContain("marked SAMPLE on its cover");
+    // The download line stands after the document it
+    // downloads.
+    expect(pageHtml.indexOf(`href="${SAMPLE_REPORT_PDF_PATH}"`)).toBeGreaterThan(
+      pageHtml.indexOf("Sources, notes &amp; disclaimers"),
+    );
   });
 });

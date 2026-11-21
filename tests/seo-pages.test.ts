@@ -6,7 +6,7 @@ import type { Metadata } from "next";
 import { CheckPageView, GuidePageView, GuidesHubView } from "../components/ContentPage";
 import { CHECK_PAGES, CHECK_PAGE_PATHS, GUIDES, GUIDE_PATHS } from "../lib/check-pages";
 import { HOME_CHECK_TILES } from "../lib/home";
-import { PAGE_SEO, breadcrumbSchema } from "../lib/seo";
+import { PAGE_SEO, SAMPLE_REPORT_INDEXABLE, breadcrumbSchema } from "../lib/seo";
 import { SITE_URL } from "../lib/site";
 
 // M7.8 — the per-route metadata harness. The indexing
@@ -48,9 +48,18 @@ const INDEXABLE_ROUTES: Record<string, () => Promise<MetadataModule>> = {
     import("../app/guides/is-this-area-good-for-families/page"),
   "/how-we-check": () => import("../app/how-we-check/page"),
   "/about": () => import("../app/about/page"),
-  "/sample-report": () => import("../app/sample-report/page"),
   "/contact": () => import("../app/contact/page"),
   "/privacy": () => import("../app/privacy/page"),
+};
+
+// M8.8 — the sample report stands apart from the
+// indexable set: it holds a locked pair like any page,
+// but its indexability is gated (SAMPLE_REPORT_INDEXABLE,
+// lib/seo.ts) and it stays noindexed until the go-live
+// flip. Its metadata is asserted in its own describe
+// below, not in the indexable sweep.
+const SAMPLE_ROUTE: Record<string, () => Promise<MetadataModule>> = {
+  "/sample-report": () => import("../app/sample-report/page"),
 };
 
 const JOURNEY_ROUTES: Record<string, () => Promise<MetadataModule>> = {
@@ -59,6 +68,10 @@ const JOURNEY_ROUTES: Record<string, () => Promise<MetadataModule>> = {
   "/search/failed": () => import("../app/search/failed/page"),
   "/shortlist": () => import("../app/shortlist/page"),
   "/report": () => import("../app/report/page"),
+  // M8.8 — the sample PDF's internal print view: explicit
+  // noindex in every environment (inline, not via
+  // PAGE_SEO), like the journey routes.
+  "/sample-report/print": () => import("../app/sample-report/print/page"),
   // M7.13 — the Check Together claim flow: explicit
   // noindex in every environment (the routes carry it
   // inline, not via PAGE_SEO).
@@ -71,7 +84,11 @@ const loaded = new Map<string, Metadata>();
 
 beforeAll(async () => {
   process.env.NEXT_PUBLIC_SITE_ENV = "production";
-  for (const [path, load] of Object.entries({ ...INDEXABLE_ROUTES, ...JOURNEY_ROUTES })) {
+  for (const [path, load] of Object.entries({
+    ...INDEXABLE_ROUTES,
+    ...SAMPLE_ROUTE,
+    ...JOURNEY_ROUTES,
+  })) {
     loaded.set(path, (await load()).metadata);
   }
 });
@@ -83,11 +100,17 @@ afterAll(() => {
 
 describe("per-route metadata under the production name (M7.8)", () => {
   it("covers every locked pair with a route, and no route is left over", () => {
-    expect(Object.keys(INDEXABLE_ROUTES).sort()).toEqual(Object.keys(PAGE_SEO).sort());
+    expect(Object.keys({ ...INDEXABLE_ROUTES, ...SAMPLE_ROUTE }).sort()).toEqual(
+      Object.keys(PAGE_SEO).sort(),
+    );
   });
 
   it("serves each indexable route its own locked pair, canonical and indexable", () => {
     for (const [path, pair] of Object.entries(PAGE_SEO)) {
+      // The sample report's pair is asserted in its own
+      // describe below (M8.8): same locked pair, gated
+      // indexability.
+      if (path === "/sample-report") continue;
       const metadata = loaded.get(path);
       expect(metadata, path).toBeDefined();
       expect(metadata?.title, path).toBe(pair.title);
@@ -105,6 +128,48 @@ describe("per-route metadata under the production name (M7.8)", () => {
       expect(metadata?.title, path).toBeTruthy();
       expect(metadata?.robots, path).toMatchObject({ index: false, follow: false });
     }
+  });
+});
+
+describe("the sample report's metadata (M8.8)", () => {
+  it("serves its locked pair and canonical, like any indexable page", () => {
+    const metadata = loaded.get("/sample-report");
+    const pair = PAGE_SEO["/sample-report"];
+    expect(metadata).toBeDefined();
+    expect(metadata?.title).toBe(pair.title);
+    expect(metadata?.description).toBe(pair.description);
+    expect(metadata?.alternates?.canonical).toBe("/sample-report");
+  });
+
+  it("stays noindexed under the production name while the go-live gate is shut", () => {
+    // THE go-live pin (M8.8): the gate is shut today, on
+    // purpose — the sample is built, linked and
+    // downloadable, but no search engine is invited to it
+    // until the flip at go-live. Flipping means setting
+    // SAMPLE_REPORT_INDEXABLE to true in lib/seo.ts and
+    // updating this one expectation; the metadata, the
+    // sitemap and the sample PDF's header all follow the
+    // constant, and the consistency assertion below holds
+    // either way.
+    expect(SAMPLE_REPORT_INDEXABLE).toBe(false);
+    const metadata = loaded.get("/sample-report");
+    if (SAMPLE_REPORT_INDEXABLE) {
+      expect(metadata?.robots).toBeUndefined();
+    } else {
+      expect(metadata?.robots).toMatchObject({ index: false, follow: false });
+    }
+  });
+
+  it("says example in plain words, in both halves of the pair", () => {
+    // The step's honesty rule: the sample never wears a
+    // live result's clothes. Both halves of the locked
+    // pair name it an example, and neither names a real
+    // place or postcode.
+    const pair = PAGE_SEO["/sample-report"];
+    expect(pair.title.toLowerCase()).toContain("example");
+    expect(pair.description.toLowerCase()).toContain("example");
+    expect(pair.title).not.toContain("MB3 4QX");
+    expect(pair.description).not.toContain("MB3 4QX");
   });
 });
 

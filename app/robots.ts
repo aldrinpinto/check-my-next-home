@@ -24,6 +24,12 @@ export const dynamic = "force-static";
 // M7.13: /gift joins the set — the Check Together claim flow is
 // reached only via the private gift link in a paid report's delivery
 // email, and is never an indexed page.
+//
+// M8.8: /sample-report/print joins the set — the sample PDF's
+// internal print view, noindexed in its own metadata and never
+// a crawl destination. The sample page itself is not named
+// here: its gate is its metadata and the sitemap, not this
+// file.
 export default function robots(): MetadataRoute.Robots {
   if (!isProductionEnv()) {
     return { rules: { userAgent: "*", disallow: "/" } };
@@ -39,6 +45,7 @@ export default function robots(): MetadataRoute.Robots {
         "/report",
         "/shortlist",
         "/gift",
+        "/sample-report/print",
         "/kitchen-sink",
         "/api",
       ],

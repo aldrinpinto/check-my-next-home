@@ -1,6 +1,6 @@
 import type { MetadataRoute } from "next";
 
-import { PAGE_SEO } from "../lib/seo";
+import { PAGE_SEO, SAMPLE_REPORT_INDEXABLE } from "../lib/seo";
 import { SITE_URL, isProductionEnv } from "../lib/site";
 
 // Required with the static-export build: the file is generated once at
@@ -21,11 +21,22 @@ export const dynamic = "force-static";
 // order, homepage first. The journey routes (/search, /search/home,
 // /search/failed, /report, /shortlist) and /kitchen-sink are never
 // here: noindex by metadata and declared non-indexable (M7.8).
+//
+// M8.8: one gated exception — /sample-report holds a
+// PAGE_SEO pair (its title and meta are locked like any
+// page's) but stays noindexed until its go-live flip
+// (SAMPLE_REPORT_INDEXABLE, lib/seo.ts), and a noindexed
+// page is absent from the sitemap (T-SEO-02). The filter
+// below reads the same constant the page's metadata
+// reads, so the flip is that one constant and nothing
+// else.
 export default function sitemap(): MetadataRoute.Sitemap {
   if (!isProductionEnv()) return [];
-  return Object.keys(PAGE_SEO).map((path) => ({
-    url: `${SITE_URL}${path}`,
-    changeFrequency: "weekly" as const,
-    priority: path === "/" ? 1 : 0.8,
-  }));
+  return Object.keys(PAGE_SEO)
+    .filter((path) => path !== "/sample-report" || SAMPLE_REPORT_INDEXABLE)
+    .map((path) => ({
+      url: `${SITE_URL}${path}`,
+      changeFrequency: "weekly" as const,
+      priority: path === "/" ? 1 : 0.8,
+    }));
 }

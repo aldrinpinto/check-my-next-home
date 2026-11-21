@@ -241,10 +241,18 @@ export const PAGE_SEO = {
     description:
       "About Check My Next Home — an independent checker that gathers the facts about a home from official sources onto one page, every fact shown with its source and date, written for the family who'll live there.",
   },
+  // M8.8 — the sample report's pair, re-locked for the
+  // step's mapped intent ("home buyer report / property
+  // check example"): the title and description both say
+  // "example" in plain words, so the page can never be
+  // mistaken for a live result for a real home. The page
+  // it dresses stays noindexed until the go-live flip —
+  // see SAMPLE_REPORT_INDEXABLE below.
   "/sample-report": {
-    title: "Sample report | Check My Next Home",
+    title:
+      "Home buyer report example — the full property check, worked on one example home | Check My Next Home",
     description:
-      "A sample of the detailed report, worked in full on one example home — every section the report carries, so you can see exactly what a report holds before you order one.",
+      "An example home buyer report, worked in full on one invented example home — every section the detailed property check carries, so you can see exactly what a report holds before you order one.",
   },
   "/contact": {
     title: "Contact | Check My Next Home",
@@ -257,6 +265,29 @@ export const PAGE_SEO = {
       "The privacy policy for Check My Next Home, in plain English — what the site collects when you run a check or buy a report, the services that handle it, and what we never do with it.",
   },
 } as const;
+
+// M8.8 — the sample report's go-live gate: THE one place
+// the sample's indexable switch lives. Everything the
+// switch governs reads this constant and nothing else:
+//   - the page's metadata (app/sample-report/page.tsx
+//     passes noindex: !SAMPLE_REPORT_INDEXABLE, so the
+//     robots lock holds in EVERY environment, the
+//     production name included — the environment rule
+//     alone would open the page the day the real site's
+//     name is set, gate or no gate);
+//   - the sitemap (app/sitemap.ts omits /sample-report
+//     while this is false — T-SEO-02: a noindexed page is
+//     absent from the sitemap);
+//   - the sample PDF download (app/sample-report.pdf
+//     carries X-Robots-Tag: noindex while this is false).
+// It stays false through the play period: the sample is
+// fully built, linked and downloadable, but no search
+// engine is invited to it yet. THE FLIP, at go-live
+// (M12, on the real domain): set this constant to true
+// and update the one pin that names its current value
+// (tests/seo-pages.test.ts). Nothing else changes —
+// metadata, sitemap and the PDF header all follow.
+export const SAMPLE_REPORT_INDEXABLE = false;
 
 export type PageSeoPath = keyof typeof PAGE_SEO;
 
