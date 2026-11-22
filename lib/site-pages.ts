@@ -385,3 +385,111 @@ export const PRIVACY_CARDS: PrivacyCard[] = [
     ],
   },
 ];
+
+// ----------------------------------------------------------------
+// M9.4 — Terms of service. The step's build drafts the
+// full text from the founder's adoption of 18 Nov 2026:
+// what the report is and is not; the £4.99 purchase and
+// delivery terms (PDF via the delivery email's signed
+// link; reports are not stored on the website); the
+// refund rules (a refund voids an unclaimed gift or a
+// claimed-but-unused gift; a redeemed gift stands). The
+// page is also the full-wording home of the D9 standing
+// disclaimer — TERMS_D9_WORDING below carries it
+// verbatim, and a test pins it equal to
+// REPORT_DISCLAIMER_D9 (lib/report.ts) so the two homes
+// of the wording can never drift apart. The founder
+// approves the exact words before this build is pushed;
+// the refund MECHANICS the words describe are M9.8's.
+
+export const TERMS_EYEBROW = "Terms of service";
+export const TERMS_H1 = "Terms of service";
+export const TERMS_LEAD = "The detailed report costs £4.99, and these are the terms it is sold on.";
+export const TERMS_LEAD_REST =
+  "What the report is and is not, how it is delivered, and what happens if something goes wrong — in plain English.";
+export const TERMS_DATE_LINE = "This version: 22 November 2026";
+export const TERMS_EMAIL_ADDRESS = "contact@checkmynexthome.co.uk";
+
+// D9's full standing wording, verbatim — the same words
+// every report's closing block carries
+// (REPORT_DISCLAIMER_D9 in lib/report.ts, pinned equal
+// by tests/terms.test.ts).
+export const TERMS_D9_WORDING =
+  "We present official data as it is published, with its source and date. We do not score, rate or recommend homes or areas, and we do not interpret the data for you — what it means for your decision is your own judgement. Data can be wrong at source, out of date, or incomplete; before you rely on any figure, check it with the council, your solicitor, or the body that published it.";
+
+export const TERMS_CARDS: PrivacyCard[] = [
+  {
+    heading: "What the report is",
+    blocks: [
+      p(
+        "The detailed report gathers the facts about one home from official sources — HM Land Registry, the Census, Police.uk, the Environment Agency and others — into one dated document. Every fact is shown with its source and its date, so you can see where it came from and how fresh it is.",
+      ),
+      p(
+        "The report is information, not advice. It is made for the home named in it, from the data published at the time it is made, and it is for you and your household's own use in deciding on that home.",
+      ),
+    ],
+  },
+  {
+    heading: "What the report is not",
+    blocks: [
+      p(TERMS_D9_WORDING),
+      p(
+        "The report is not a survey, not a valuation, and not a substitute for your solicitor's searches and enquiries. It does not tell you whether to buy a home — that judgement is yours.",
+      ),
+    ],
+  },
+  {
+    heading: "Buying a report",
+    blocks: [
+      p(
+        "A report costs **£4.99** — one payment. There is no subscription, and nothing further to pay. The free check stays free in full: buying a report adds the detail behind the headlines, it never unlocks the headlines themselves.",
+      ),
+      p(
+        "You pay on this website. Card payments are handled by **Stripe**: you give your card details to Stripe, not to us, and we never see or store them. Stripe confirms to us that a payment has been made, and that confirmation is what starts your report being made and sent.",
+      ),
+      p(
+        "**Delivery is by email.** When your payment goes through, we make your report and email you a link to it as a PDF document. The link works for seven days; if it runs out, a fresh link can be sent to the same email address, free, whenever you need one — the report itself does not expire.",
+      ),
+      p(
+        "Reports are not stored on the website, and there is no account to sign in to. Your delivery email is the way back to your report, so keep it.",
+      ),
+      p(
+        "When you pay, you ask us to make and deliver your report straight away, and we start as soon as your payment goes through. Because the report is made for one named home and delivered digitally at your request, there is no cooling-off period once your report has been delivered.",
+      ),
+    ],
+  },
+  {
+    heading: "The Check Together gift",
+    blocks: [
+      p(
+        "Every paid report's delivery email carries a gift: a link someone else can use to get one detailed report of their own, free. The gift can be claimed once, within 30 days, by an email address different from the buyer's.",
+      ),
+      p(
+        "A free report — claimed through a gift, or given in a free launch window — carries no gift of its own.",
+      ),
+    ],
+  },
+  {
+    heading: "Refunds",
+    blocks: [
+      p(
+        "If we cannot deliver your report, we refund the £4.99 in full, to the card you paid with — you do not need to ask.",
+      ),
+      p(
+        "A refund voids the report's gift. If the gift has not been claimed, it stops working. If it has been claimed but the gifted report has not been used, the gifted report is withdrawn. A gift that has already been redeemed — the gifted report delivered — stands, and is not affected by the refund.",
+      ),
+      p(
+        "If you believe a delivered report falls short of what these terms promise, write to us at contact@checkmynexthome.co.uk and tell us what is wrong. Where it does fall short, we will put it right or refund you.",
+      ),
+    ],
+  },
+  {
+    heading: "Changes to these terms",
+    blocks: [
+      p(
+        "If these terms change, the new version will appear on this page, with its date at the top. The terms on this page when you bought your report are the ones that apply to it.",
+      ),
+      p("Questions about these terms: write to us at contact@checkmynexthome.co.uk."),
+    ],
+  },
+];

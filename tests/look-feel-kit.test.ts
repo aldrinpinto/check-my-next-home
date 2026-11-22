@@ -262,8 +262,11 @@ describe("header and footer shells", () => {
     // founder's ruling of 18 Nov 2026: Guides joins between
     // About and Contact, pointing at the /guides hub, and
     // chrome unification adds Privacy policy after Contact.
-    // The header's set above carries no Guides (its own pin
-    // stands): the ruling is footer-only.
+    // M9.4 adds Terms of service after Privacy policy (the
+    // 18 Nov 2026 Terms adoption — the words stand before
+    // the first paid report is sold). The header's set
+    // above carries no Guides (its own pin stands): the
+    // ruling is footer-only.
     const labels = [
       "How we check",
       "Sample report",
@@ -271,6 +274,7 @@ describe("header and footer shells", () => {
       "Guides",
       "Contact",
       "Privacy policy",
+      "Terms of service",
     ];
     let lastIndex = -1;
     for (const label of labels) {
@@ -281,6 +285,7 @@ describe("header and footer shells", () => {
     expect(footer).toContain('href="/guides"');
     expect(footer).toContain('href="/contact"');
     expect(footer).toContain('href="/privacy"');
+    expect(footer).toContain('href="/terms"');
     expect(footer).toContain(FOOTER_SOURCES_LINE);
     expect(FOOTER_SOURCES_LINE).toBe("Data from named official sources. Facts, not scores.");
   });
@@ -561,9 +566,10 @@ describe("kitchen-sink page", () => {
     // 24 since M7.8 (the chrome pairs locked and About
     // re-locked at /about); 25 since 18 Nov 2026, when the
     // /guides hub's pair joined under the founder's footer
-    // ruling. The kitchen sink stays outside the set,
-    // declared non-indexable.
-    expect(Object.keys(PAGE_SEO)).toHaveLength(25);
+    // ruling; 26 since M9.4, when the /terms pair joined
+    // with the Terms page. The kitchen sink stays outside
+    // the set, declared non-indexable.
+    expect(Object.keys(PAGE_SEO)).toHaveLength(26);
     expect(PAGE_SEO["/"].title).toBe(`Check My Next Home — ${SITE_TAGLINE}`);
   });
 });

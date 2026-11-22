@@ -213,6 +213,8 @@ describe("locked SEO wording set (M6.10, D38)", () => {
     // 18 Nov 2026: the /guides hub's pair joins the set
     // (the founder's footer ruling — the hub is the footer's
     // Guides destination).
+    // M9.4: the /terms pair joins the set with the Terms
+    // page (the 18 Nov 2026 Terms adoption).
     expect(Object.keys(PAGE_SEO).sort()).toEqual(
       [
         "/",
@@ -240,6 +242,7 @@ describe("locked SEO wording set (M6.10, D38)", () => {
         "/contact",
         "/privacy",
         "/sample-report",
+        "/terms",
       ].sort(),
     );
   });

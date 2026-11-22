@@ -170,6 +170,13 @@ export const INDUSTRIAL_SITES_ENABLED = true;
 // the buy bar and M9.6's window lines share one source.
 export const REPORT_PRICE_LABEL = "£4.99";
 
+// The same price in pence (plan step M9.4): the amount a
+// payment is created for, from the same single source as
+// the label above — the payment translator
+// (lib/server/payments.ts) charges exactly this and no
+// surface, route or client may name its own figure.
+export const REPORT_PRICE_PENCE = 499;
+
 // The report door's state (plan step M7.6, ruling R1 of its
 // gap check): what /report does when a visitor reaches it.
 //   "holding" — reports are not on sale yet: the page says

@@ -42,6 +42,12 @@ const FOOTER_LINKS = [
   { label: "Guides", href: "/guides" },
   { label: "Contact", href: "/contact" },
   { label: "Privacy policy", href: "/privacy" },
+  // M9.4 — Terms of service joins after Privacy policy:
+  // the site carries the words before the first paid
+  // report is sold (the 18 Nov 2026 Terms adoption), and
+  // the Final Sample Master's footer is conformed in the
+  // same build.
+  { label: "Terms of service", href: "/terms" },
 ] as const;
 
 export const FOOTER_SOURCES_LINE = "Data from named official sources. Facts, not scores.";

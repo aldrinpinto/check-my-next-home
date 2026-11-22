@@ -1,8 +1,12 @@
 import ReportDoorPage from "../../components/ReportDoorPage";
+import ReportPaymentPage from "../../components/ReportPaymentPage";
 import { displayText } from "../../lib/address";
 import { homeKeyOf } from "../../lib/bundle-cache";
 import { buildReportDoorView, type ReportDoorIdentity } from "../../lib/report-door";
+import { buildReportPaymentView } from "../../lib/report-payment";
 import { resultsScopeLabel } from "../../lib/results";
+import { REPORT_DOOR_STATE } from "../../lib/site";
+import { paymentPublishableKey } from "../../lib/server/payments";
 import { resolutionForRoute } from "../../lib/server/serve";
 
 // The report door (plan step M7.6): /report, the route
@@ -83,5 +87,23 @@ export default async function ReportPage({
   const params = await searchParams;
   const postcode = params.postcode ?? null;
   const identity = await identityFor(postcode, params.home ?? null);
+  // M9.4 — the paid state exists from this step: the
+  // payment page is built in full and this branch
+  // renders it the moment the door flips. While the
+  // state is "holding" (until M9.6, which flips it with
+  // fulfilment behind it) the branch never renders and
+  // the holding form below is the page, byte for byte
+  // as before. The publishable key is read on the
+  // server and handed to the page as data.
+  if (REPORT_DOOR_STATE === "paid") {
+    return (
+      <ReportPaymentPage
+        view={buildReportPaymentView(identity)}
+        publishableKey={paymentPublishableKey()}
+        postcode={postcode}
+        homeKey={identity.kind === "home" ? identity.homeKey : null}
+      />
+    );
+  }
   return <ReportDoorPage view={buildReportDoorView(identity)} />;
 }

@@ -3419,6 +3419,98 @@ a.picker__row {
   margin: var(--space-2) 0 0;
 }
 
+/* The payment page (M9.4; Final Sample Master, Sample 9):
+   the door's paid state, in the door's own 640px wrap and
+   card dress. The email block wears the kit's field
+   classes; the card panel is the sample's stripe-panel —
+   a bordered white panel whose head carries the panel
+   title and the Powered by line. The provider's card
+   fields render inside its own iframes within the panel;
+   nothing card-shaped is styled here, because no card
+   field is ours. */
+.report-payment__lede {
+  margin-top: var(--space-3);
+}
+
+.report-payment__email {
+  margin-top: var(--space-5);
+}
+
+.report-payment__req {
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--colour-muted);
+  border: 1px solid var(--colour-tile-line);
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+  margin-left: var(--space-2);
+  vertical-align: middle;
+}
+
+/* The mystery tease strip (D21 as amended): the warm
+   band, the small-caps eyebrow (the buy bar's eyebrow
+   class, reused) and the line in the serif face — the
+   same dress as the buy bar's strip, on this page. */
+.report-payment__tease {
+  margin-top: var(--space-5);
+  background: var(--colour-band);
+  border: 1px solid var(--colour-band-line);
+  border-radius: var(--radius-panel);
+  padding: var(--space-4);
+}
+
+.report-payment__tease-line {
+  margin: var(--space-1) 0 0;
+  font-family: var(--font-family-display);
+  font-size: var(--font-size-lead);
+}
+
+.report-payment__panel {
+  margin-top: var(--space-5);
+  border: 1px solid var(--colour-tile-line);
+  border-radius: var(--radius-panel);
+  background: var(--cmnh-white);
+  padding: var(--space-4);
+}
+
+.report-payment__panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.report-payment__panel-title {
+  font-weight: 700;
+}
+
+.report-payment__panel-powered {
+  color: var(--colour-muted);
+  font-size: 0.9rem;
+}
+
+.report-payment__pay {
+  width: 100%;
+  margin-top: var(--space-4);
+  min-height: 48px;
+  font-size: 0.98rem;
+  font-weight: 700;
+}
+
+.report-payment__smallprint {
+  margin: var(--space-3) 0 0;
+  color: var(--colour-muted);
+  font-size: 0.9rem;
+}
+
+.report-payment__taken {
+  margin-top: var(--space-5);
+  font-weight: 700;
+}
+
 /* The comparison table (D70 R5/D17): the design's
    shared-label form — the first column names each check
    once, one column per home, values aligned, a report

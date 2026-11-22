@@ -264,6 +264,15 @@ export const PAGE_SEO = {
     description:
       "The privacy policy for Check My Next Home, in plain English — what the site collects when you run a check or buy a report, the services that handle it, and what we never do with it.",
   },
+  // M9.4 — the Terms page's locked pair, in the Privacy
+  // pair's form. No figure in the pair (D38's
+  // snippet-risk lock): the price is named on the page,
+  // never in a title or a meta.
+  "/terms": {
+    title: "Terms of service | Check My Next Home",
+    description:
+      "The terms of service for Check My Next Home — what the detailed report is and is not, how it is bought and delivered, and the refund rules.",
+  },
 } as const;
 
 // M8.8 — the sample report's go-live gate: THE one place
