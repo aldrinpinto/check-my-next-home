@@ -30,6 +30,34 @@
 // never touches payments (M9.6 calls the delivery with
 // kind "free"), so no £0 handling exists here to misuse.
 //
+// THE TEST LANE (M9.6, founder-approved 22 Nov 2026):
+// the founder and named testers run the whole journey
+// on the live site with dummy money while real buyers
+// are untouched. A second, TEST key set
+// (PAYMENT_TEST_*) stands beside the default set, and a
+// tester allowlist (TEST_BUYER_EMAILS, in the server
+// environment only — no admin UI, no buyer-facing
+// surface) decides the lane BY DELIVERY EMAIL at intent
+// creation: an allowlisted email creates its payment
+// with the TEST keys where a test set is configured,
+// and its order is flagged TEST in the payment's
+// metadata either way (on a server carrying only one
+// key set — the play server today, whose only keys are
+// the sandbox ones — the default set is used and the
+// order is still flagged). Any other email always takes
+// the default set, and the lane is invisible to it.
+// Test orders fulfil identically — real PDF, real
+// delivery email, real gift rules; only the money is
+// dummy — and the flag rides the metadata into M9.6's
+// audit log and fulfilment claim, so M9.10's order
+// record can separate test orders from real sales.
+// Webhook verification selects its secret by the
+// event's own mode (livemode) once both secrets exist;
+// with only one configured, the configured secret
+// verifies everything, exactly as the single-set seam
+// always behaved — verification still gates every
+// event, so an unverified mode hint gains nothing.
+//
 // Three implementations:
 //   - Stripe — the real adapter, used when the
 //     environment carries the key (K12/K13 —
@@ -49,6 +77,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 
 import Stripe from "stripe";
 
+import { normaliseEmail } from "../gift";
 import { REPORT_PRICE_PENCE } from "../site";
 
 export type CreateIntentResult =
@@ -65,6 +94,13 @@ export type WebhookEventResult =
       intentId: string | null;
       status: string | null;
       metadata: Record<string, string>;
+      // The event's own mode, from the verified event:
+      // true for a live-mode event, false for a
+      // test-mode one, null where the event carries no
+      // mode (the fake's unsigned-shape payloads in old
+      // tests). M9.6's audit log records it beside the
+      // order's TEST flag.
+      livemode: boolean | null;
     }
   | { ok: false; reason: string };
 
@@ -85,6 +121,13 @@ export interface Payments {
     postcode: string;
     homeKey: string | null;
     consent: ReportPaymentConsent;
+    // The order's TEST-lane flag (the test lane,
+    // M9.6): set by the caller from the allowlist, and
+    // carried in the payment's metadata when true —
+    // absent entirely for a real buyer's payment, so a
+    // real order's metadata is byte-for-byte what it
+    // was before the lane existed.
+    testOrder?: boolean;
   }): Promise<CreateIntentResult>;
   intentStatus(intentId: string): Promise<IntentStatusResult>;
   verifyWebhookEvent(input: { payload: string; signature: string }): WebhookEventResult;
@@ -99,6 +142,12 @@ export const PAYMENT_METADATA_POSTCODE = "postcode";
 export const PAYMENT_METADATA_HOME_KEY = "home_key";
 export const PAYMENT_METADATA_CONSENT_TICK = "consent_tick";
 export const PAYMENT_METADATA_CONSENT_TIMESTAMP = "consent_timestamp";
+// The TEST-lane flag (M9.6): present as "true" on a
+// test order's payment, absent on a real one. M9.6's
+// webhook path reads it into the audit log and the
+// fulfilment claim; M9.10's order record separates
+// test orders from real sales by it.
+export const PAYMENT_METADATA_TEST = "test";
 
 // The one currency the report is sold in.
 export const PAYMENT_CURRENCY = "gbp";
@@ -137,6 +186,7 @@ export interface StripeClientSlice {
       secret: string,
     ): {
       type: string;
+      livemode?: unknown;
       data: { object: Record<string, unknown> };
     };
   };
@@ -159,6 +209,7 @@ export function createStripePayments(config: {
           [PAYMENT_METADATA_CONSENT_TIMESTAMP]: input.consent.timestamp,
         };
         if (input.homeKey) metadata[PAYMENT_METADATA_HOME_KEY] = input.homeKey;
+        if (input.testOrder) metadata[PAYMENT_METADATA_TEST] = "true";
         const intent = await client.paymentIntents.create({
           amount: REPORT_PRICE_PENCE,
           currency: PAYMENT_CURRENCY,
@@ -210,6 +261,7 @@ export function createStripePayments(config: {
           intentId: typeof object.id === "string" ? object.id : null,
           status: typeof object.status === "string" ? object.status : null,
           metadata,
+          livemode: typeof event.livemode === "boolean" ? event.livemode : null,
         };
       } catch {
         return { ok: false, reason: "bad-signature" };
@@ -235,6 +287,9 @@ export interface FakePayments extends Payments {
     homeKey: string | null;
     consentTick: boolean;
     consentTimestamp: string;
+    // The TEST-lane flag the creation carried (M9.6) —
+    // the metadata's "test" key, read back here.
+    testOrder: boolean;
     amount: number;
     currency: string;
     status: string;
@@ -280,6 +335,7 @@ export function createFakePayments(config?: { webhookSecret?: string }): FakePay
         homeKey: input.homeKey,
         consentTick: input.consent.ticked,
         consentTimestamp: input.consent.timestamp,
+        testOrder: input.testOrder === true,
         amount: REPORT_PRICE_PENCE,
         currency: PAYMENT_CURRENCY,
         status: "requires_confirmation",
@@ -318,6 +374,7 @@ export function createFakePayments(config?: { webhookSecret?: string }): FakePay
       try {
         const event = JSON.parse(input.payload) as {
           type?: unknown;
+          livemode?: unknown;
           data?: { object?: Record<string, unknown> };
         };
         const object = event.data?.object ?? {};
@@ -335,6 +392,7 @@ export function createFakePayments(config?: { webhookSecret?: string }): FakePay
           intentId: typeof object.id === "string" ? object.id : null,
           status: typeof object.status === "string" ? object.status : null,
           metadata,
+          livemode: typeof event.livemode === "boolean" ? event.livemode : null,
         };
       } catch {
         return { ok: false, reason: "bad-payload" };
@@ -369,4 +427,153 @@ export function paymentPublishableKey(
 ): string | null {
   const key = env.PAYMENT_PUBLISHABLE_KEY;
   return key ? key : null;
+}
+
+// ----------------------------------------------------------------
+// The lanes (M9.6, the test lane): the router the routes
+// actually call. It holds the two key sets as lane sets
+// and answers the lane questions — which set creates
+// this email's payment, whether the order is a TEST
+// order, which publishable key the page initialises its
+// card element from, and which set verifies a webhook.
+
+export type PaymentLane = "live" | "test";
+
+export interface PaymentsLaneSet {
+  payments: Payments;
+  // Whether this set can verify a webhook (its secret
+  // is placed). Mode selection routes an event only to
+  // a set that can actually verify it; a set without a
+  // secret answers not-configured, exactly as the
+  // single-set seam did.
+  webhookConfigured: boolean;
+  publishableKey: string | null;
+}
+
+export interface PaymentsRouter {
+  // The lane an order for this delivery email runs in:
+  // the test lane only where the email is allowlisted
+  // AND a test set is configured; the default ("live")
+  // set otherwise — an unlisted email can never reach
+  // the test set.
+  laneFor(email: string): PaymentLane;
+  // Whether an order for this email is flagged TEST:
+  // allowlist membership alone decides it, configured
+  // test set or not (the one-key-set server still flags
+  // its testers' orders).
+  isTestOrder(email: string): boolean;
+  forLane(lane: PaymentLane): Payments;
+  publishableKeyFor(lane: PaymentLane): string | null;
+  // Verify a webhook, selecting the secret by the
+  // event's mode once both secrets exist (see the
+  // header's test-lane note).
+  verifyWebhookEvent(input: { payload: string; signature: string }): WebhookEventResult;
+}
+
+// The tester allowlist (TEST_BUYER_EMAILS): a
+// comma-separated list in the server environment,
+// matched under the codebase's email normalisation
+// (lib/gift.ts). Founder-controlled; nothing else in
+// the product reads it, and no surface renders it.
+export function testBuyerEmails(env: Record<string, string | undefined> = process.env): string[] {
+  const raw = env.TEST_BUYER_EMAILS;
+  if (!raw) return [];
+  return raw
+    .split(",")
+    .map((entry) => normaliseEmail(entry))
+    .filter((entry) => entry !== "");
+}
+
+// The mode a webhook payload CLAIMS, read from its
+// unverified JSON. A hint, never a trust: it only
+// chooses which secret verifies the event, and a
+// forged hint still has to pass that secret's
+// signature check — the same posture the provider's
+// own endpoint-per-mode setup assumes.
+function livemodeHint(payload: string): boolean | null {
+  try {
+    const parsed = JSON.parse(payload) as { livemode?: unknown };
+    return typeof parsed?.livemode === "boolean" ? parsed.livemode : null;
+  } catch {
+    return null;
+  }
+}
+
+export function createPaymentsRouter(config: {
+  live: PaymentsLaneSet;
+  test: PaymentsLaneSet | null;
+  testEmails: readonly string[];
+}): PaymentsRouter {
+  const allowlist = new Set(config.testEmails.map((entry) => normaliseEmail(entry)));
+  const isTestOrder = (email: string) => allowlist.has(normaliseEmail(email));
+  return {
+    isTestOrder,
+    laneFor(email) {
+      return isTestOrder(email) && config.test ? "test" : "live";
+    },
+    forLane(lane) {
+      return lane === "test" && config.test ? config.test.payments : config.live.payments;
+    },
+    publishableKeyFor(lane) {
+      return lane === "test" && config.test
+        ? config.test.publishableKey
+        : config.live.publishableKey;
+    },
+    verifyWebhookEvent(input) {
+      // Once both secrets exist, the event's own mode
+      // picks its secret: a test-mode event verifies
+      // against the test set, a live event against the
+      // default set. With only one secret configured,
+      // that secret verifies everything — the single-set
+      // seam's exact behaviour. With none, the default
+      // set answers, and fails closed.
+      const hint = livemodeHint(input.payload);
+      const first = hint === false ? config.test : config.live;
+      const second = hint === false ? config.live : config.test;
+      for (const set of [first, second]) {
+        if (set && set.webhookConfigured) return set.payments.verifyWebhookEvent(input);
+      }
+      return config.live.payments.verifyWebhookEvent(input);
+    },
+  };
+}
+
+// One lane set from its environment names, in the
+// provider-neutral style .env.example carries: the
+// default set is PAYMENT_*, the test set PAYMENT_TEST_*.
+function laneSetFromEnv(
+  env: Record<string, string | undefined>,
+  names: { apiKey: string; webhookSecret: string; publishableKey: string },
+): PaymentsLaneSet {
+  const apiKey = env[names.apiKey];
+  const webhookSecret = env[names.webhookSecret] ?? "";
+  const publishableKey = env[names.publishableKey];
+  return {
+    payments: apiKey
+      ? createStripePayments({ apiKey, webhookSecret })
+      : createUnconfiguredPayments(),
+    webhookConfigured: Boolean(apiKey && webhookSecret),
+    publishableKey: publishableKey ? publishableKey : null,
+  };
+}
+
+// The environment's router: the default set exactly as
+// getPayments() builds it, the test set where its key
+// is placed, and the allowlist from TEST_BUYER_EMAILS.
+export function getPaymentsRouter(
+  env: Record<string, string | undefined> = process.env,
+): PaymentsRouter {
+  const live = laneSetFromEnv(env, {
+    apiKey: "PAYMENT_API_KEY",
+    webhookSecret: "PAYMENT_WEBHOOK_SECRET",
+    publishableKey: "PAYMENT_PUBLISHABLE_KEY",
+  });
+  const test = env.PAYMENT_TEST_API_KEY
+    ? laneSetFromEnv(env, {
+        apiKey: "PAYMENT_TEST_API_KEY",
+        webhookSecret: "PAYMENT_TEST_WEBHOOK_SECRET",
+        publishableKey: "PAYMENT_TEST_PUBLISHABLE_KEY",
+      })
+    : null;
+  return createPaymentsRouter({ live, test, testEmails: testBuyerEmails(env) });
 }

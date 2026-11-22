@@ -32,15 +32,28 @@
 //   report_clicked     a "Get the full report" button was
 //                      clicked (results head, buy bar,
 //                      truncation rows, shortlist columns).
-//   checkout_started   checkout began — catalogue only in
-//                      this step; the surface is M9's and
-//                      the wiring is deferred into M9.6.
-//   checkout_paid      a payment completed — catalogue
-//                      only here; recorded SERVER-SIDE from
-//                      the payment confirmation at M9.6,
-//                      never from a browser beacon (gap
-//                      check item 4), copying no order
-//                      fields.
+//   checkout_started   checkout began — wired at M9.6 on
+//                      the payment page (the moment a
+//                      payment stands started for the
+//                      page's email and consent).
+//   checkout_paid      a payment completed — recorded
+//                      SERVER-SIDE at M9.6 from the
+//                      verified payment confirmation, at
+//                      the fulfilment claim, never from a
+//                      browser beacon (gap check item 4),
+//                      copying no order fields.
+//   report_delivered   a report was delivered — recorded
+//                      SERVER-SIDE at M9.6 by the
+//                      fulfilment path at the moment of
+//                      delivery (paid, free-window and
+//                      gifted deliveries alike). The
+//                      payment funnel's last step
+//                      (founder amendment, 22 Nov 2026):
+//                      door view (page_view on /report) →
+//                      checkout_started → checkout_paid →
+//                      report_delivered, so the drop-off
+//                      between paying and receiving is as
+//                      visible as every other step.
 //   gift_claimed       a gift was bound to its claimant —
 //                      wired at the gift store's
 //                      bindByConfirm (M7.13's named
@@ -85,6 +98,7 @@ export type JourneyEventName =
   | "report_clicked"
   | "checkout_started"
   | "checkout_paid"
+  | "report_delivered"
   | "gift_claimed"
   | "gift_redeemed"
   | "page_error";
@@ -119,6 +133,11 @@ export const JOURNEY_EVENT_CATALOGUE: JourneyEventSpec[] = [
     name: "checkout_paid",
     origin: "server",
     moment: "a payment completed (recorded server-side at M9.6)",
+  },
+  {
+    name: "report_delivered",
+    origin: "server",
+    moment: "a report was delivered (recorded server-side at M9.6)",
   },
   {
     name: "gift_claimed",

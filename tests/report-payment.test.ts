@@ -7,6 +7,7 @@ import type { ReportDoorIdentity } from "../lib/report-door";
 import {
   buildReportPaymentView,
   liveStartedPayment,
+  paymentElementKey,
   PAYMENT_CONSENT_LABEL,
   PAYMENT_EMAIL_ERROR,
   PAYMENT_EMAIL_HELP,
@@ -24,10 +25,10 @@ import { BUY_BAR_MYSTERY_EYEBROW, BUY_BAR_MYSTERY_LINE } from "../lib/results";
 import { TERMS_CARDS } from "../lib/site-pages";
 
 // M9.4/M9.5 — the payment page (Final Sample Master,
-// Sample 9), proven in its forced state: the door stays
-// "holding" until M9.6, so the paid view is built and
+// Sample 9), proven in its forced state: built and
 // rendered directly here, the M8.9 company block's
-// pattern. The page's copy is the Master's; its card
+// pattern (M9.6 has since landed the door on "paid";
+// the forced-state proofs stand as the page's own). The page's copy is the Master's; its card
 // panel mounts the provider's element; M9.4's Check is
 // pinned in its rendered half here — the email field
 // and the consent tick-box (M9.5) are the ONLY inputs
@@ -238,6 +239,7 @@ describe("payment page — the honest pre-payment screen (M9.5, T-PAY-06)", () =
       clientSecret: "pi_1_secret_x",
       email: "buyer@example.co.uk",
       consentAt: "2026-11-22T00:40:00.000Z",
+      publishableKey: "pk_default",
     };
     const standing = { emailValid: true, email: "buyer@example.co.uk" };
     expect(liveStartedPayment(started, { ...standing, consentAt: started.consentAt })).toBe(
@@ -328,5 +330,25 @@ describe("payment page — the rendered page (the step's Check, rendered half)",
     // of ours.
     const html = renderPaid();
     expect(html).not.toContain("<form");
+  });
+});
+
+describe("the payment element's key — the test lane (M9.6)", () => {
+  it("a started payment's own lane key wins; the page's default key stands otherwise", () => {
+    const started: StartedPayment = {
+      clientSecret: "pi_1_secret_x",
+      email: "tester@example.co.uk",
+      consentAt: "2026-11-22T00:40:00.000Z",
+      publishableKey: "pk_test_lane",
+    };
+    // The element initialises from the set that created
+    // the payment — a test-lane payment under the test
+    // key, never the page's default.
+    expect(paymentElementKey(started, "pk_default")).toBe("pk_test_lane");
+    expect(paymentElementKey({ ...started, publishableKey: null }, "pk_default")).toBe(
+      "pk_default",
+    );
+    expect(paymentElementKey(null, "pk_default")).toBe("pk_default");
+    expect(paymentElementKey(null, null)).toBeNull();
   });
 });

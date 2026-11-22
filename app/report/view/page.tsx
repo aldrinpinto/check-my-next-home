@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import ReportPage from "../../../components/ReportPage";
+import { nationOfLsoa } from "../../../lib/journey";
 import { buildReportView, reportViewGate } from "../../../lib/report";
+import { effectiveReportDoorState } from "../../../lib/report-door";
 import { reportRoute } from "../../../lib/results";
 import { pageMetadata } from "../../../lib/seo";
 import { checkReport, resolutionForRoute } from "../../../lib/server/serve";
@@ -15,15 +17,20 @@ import { checkReport, resolutionForRoute } from "../../../lib/server/serve";
 // M9's payment wiring all arrive here; nothing later
 // needs a second shape.
 //
-// THE DOOR HOLDS (M8.1 scope note (i)): while
-// REPORT_DOOR_STATE is "holding", this page redirects to
-// the report door for the same identity BEFORE any bundle
-// is assembled — the complete report exists behind the
-// door, and nobody can open one. The flip is the reviewed
-// constant's own change at M8.7/M9.6. An identity that no
-// longer resolves falls back to the door too, never an
-// error page and never a guessed home (the /report
-// pattern).
+// THE DOOR HOLDS (M8.1 scope note (i)): while the
+// door's state for this home is "holding", this page
+// redirects to the report door for the same identity
+// BEFORE any bundle is assembled — the complete report
+// exists behind the door, and nobody can open one. The
+// state is the EFFECTIVE one (M9.6, Road B): since the
+// flip to "paid", England and Wales serve — and
+// Scotland and Northern Ireland still hold, their
+// nation read from the resolved directory's filed area
+// code, so a held nation's report stays unopenable
+// until its own milestone lifts the hold. An identity
+// that no longer resolves falls back to the door too,
+// never an error page and never a guessed home (the
+// /report pattern).
 export const metadata: Metadata = pageMetadata({
   title: "Detailed report | Check My Next Home",
   description: "The detailed report for the home you checked.",
@@ -42,8 +49,6 @@ export default async function ReportViewPage({
   const postcode = params.postcode ?? null;
   const homeKey = params.home ?? null;
   if (!postcode) redirect("/report");
-  const gate = reportViewGate(postcode, homeKey);
-  if (gate.action === "door") redirect(gate.href);
 
   let resolution = await resolutionForRoute(postcode, homeKey).catch(() => null);
   if (!resolution && homeKey) {
@@ -52,6 +57,22 @@ export default async function ReportViewPage({
     // guessed home.
     resolution = await resolutionForRoute(postcode, null).catch(() => null);
   }
+  // The gate reads the effective state for the resolved
+  // nation (an unresolved identity has no nation — the
+  // checked-in state applies, and the resolution failure
+  // below sends it to the door regardless).
+  const gate = reportViewGate(
+    postcode,
+    homeKey,
+    effectiveReportDoorState(
+      nationOfLsoa(
+        resolution && (resolution.rung === 1 || resolution.rung === 2)
+          ? resolution.directory.lsoaCode
+          : null,
+      ),
+    ),
+  );
+  if (gate.action === "door") redirect(gate.href);
   if (!resolution || (resolution.rung !== 1 && resolution.rung !== 2))
     redirect(reportRoute(postcode, homeKey));
 

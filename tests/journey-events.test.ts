@@ -32,6 +32,7 @@ describe("the pinned catalogue", () => {
         "report_clicked",
         "checkout_started",
         "checkout_paid",
+        "report_delivered",
         "gift_claimed",
         "gift_redeemed",
         "page_error",
@@ -44,7 +45,7 @@ describe("the pinned catalogue", () => {
       (spec) => spec.name,
     );
     expect(new Set(serverOnly)).toEqual(
-      new Set(["checkout_paid", "gift_claimed", "gift_redeemed"]),
+      new Set(["checkout_paid", "report_delivered", "gift_claimed", "gift_redeemed"]),
     );
   });
 });

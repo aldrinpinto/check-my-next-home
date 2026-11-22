@@ -51,11 +51,13 @@ import { REPORT_PRICE_LABEL } from "./site";
 // M9.10's order record can read the consent back
 // (test T-PAY-06).
 //
-// NOT here, by the plan's own assignment: the success
-// surface (Sample 10 is M9.6's), and the standalone
-// Payment failed page (Sample 12 is M9.7's — a declined
-// card is answered inline here, in the sample's
-// error-line pattern).
+// NOT here, by the plan's own assignment: the
+// standalone Payment failed page (Sample 12 is M9.7's
+// — a declined card is answered inline here, in the
+// sample's error-line pattern). The success surface
+// (Sample 10) is M9.6's, built beside the fulfilment
+// call in lib/report-success.ts: a confirmed payment
+// leaves this page for it.
 
 export interface PaymentContentLine {
   lead: string;
@@ -180,6 +182,21 @@ export const PAYMENT_DECLINED_FALLBACK_LINE =
 // visitor can meet this line before M9.6 settles it.
 export const PAYMENT_TAKEN_LINE = "Payment taken — your report will arrive by email.";
 
+// M9.6: the interim line above is REPLACED — a confirmed
+// payment (and a gift-applied order) moves the buyer to
+// the success surface (lib/report-success.ts, Sample
+// 10), which reads the fulfilment state server-side.
+// The constant stands only for the brief moment between
+// the provider's confirmation and that navigation.
+
+// The free-window form's failure line (M9.6), in the
+// payment page's error-line manner: name the failure,
+// invite a retry. Nothing was charged — there is
+// nothing to charge — so the line says nothing about
+// money.
+export const WINDOW_START_FAILED_LINE =
+  "We couldn't start your free report just now. Please try again.";
+
 export function buildReportPaymentView(identity: ReportDoorIdentity): ReportPaymentView {
   const base = {
     lede: PAYMENT_LEDE,
@@ -223,11 +240,31 @@ export function buildReportPaymentView(identity: ReportDoorIdentity): ReportPaym
 // A payment the server has started for this page: its
 // client secret, and the exact page state it was
 // started for — the delivery email and the consent
-// timestamp it carries in its metadata (M9.5).
+// timestamp it carries in its metadata (M9.5) — plus
+// the publishable key of the lane that created it
+// (M9.6, the test lane): the card element initialises
+// from the SAME key set that created the payment, or
+// its confirmation would be spoken to the wrong
+// account.
 export interface StartedPayment {
   clientSecret: string;
   email: string;
   consentAt: string;
+  publishableKey: string | null;
+}
+
+// The key the card element initialises from: the
+// started payment's own lane key where the intent
+// answer carried one, else the page's key (the default
+// set's, handed down as page data). On a one-key-set
+// server the two are the same key; on the live site a
+// tester's element must initialise from the TEST key
+// or it cannot confirm a test payment.
+export function paymentElementKey(
+  started: StartedPayment | null,
+  pageKey: string | null,
+): string | null {
+  return started?.publishableKey ?? pageKey;
 }
 
 // The started payment that belongs to the page as it

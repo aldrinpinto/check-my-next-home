@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { loadStripe, type Stripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
 
 import { isEmailShape, normaliseEmail } from "../lib/gift";
 import {
   liveStartedPayment,
+  paymentElementKey,
   PAYMENT_DECLINED_FALLBACK_LINE,
   PAYMENT_HOME_NOT_FOUND_LINE,
   PAYMENT_START_FAILED_LINE,
@@ -14,6 +15,7 @@ import {
   type ReportPaymentView,
   type StartedPayment,
 } from "../lib/report-payment";
+import { fireJourneyEvent } from "./JourneyBeacon";
 
 // The payment page (plan steps M9.4 and M9.5; Final
 // Sample Master, Sample 9). The report door's paid
@@ -42,8 +44,39 @@ import {
 // button can fire a confirmation (test T-PAY-06). A
 // decline is answered inline, in Sample 9's error-line
 // pattern (the standalone Payment failed page is
-// M9.7's); a confirmation shows the interim taken line
-// until M9.6 builds Sample 10's success surface.
+// M9.7's).
+//
+// M9.6 completes the page's own wiring: the intent
+// answer carries the LANE's publishable key (the test
+// lane — a tester's payment is created with the test
+// key set, and the element initialises from that same
+// set or it cannot confirm it); a started payment
+// fires checkout_started (the funnel's second step,
+// recorded by our own endpoint like every journey
+// event); an answer that recognises a bound gift
+// creates no payment at all — the page moves straight
+// to the success surface, which shows the gift-applied
+// banner; and a confirmed payment moves to the success
+// surface too (Sample 10, lib/report-success.ts),
+// which reads the fulfilment state server-side — the
+// interim taken line below is only the moment between
+// the provider's confirmation and that navigation.
+
+// The provider library's promises, one per publishable
+// key (the default set's and the test lane's): the
+// library is a singleton per key by the provider's own
+// contract, and a payment's element must initialise
+// from the set that created it.
+const stripePromises = new Map<string, Promise<Stripe | null>>();
+
+function stripePromiseFor(key: string): Promise<Stripe | null> {
+  let promise = stripePromises.get(key);
+  if (!promise) {
+    promise = loadStripe(key);
+    stripePromises.set(key, promise);
+  }
+  return promise;
+}
 
 function PaySection({
   view,
@@ -119,12 +152,21 @@ export default function ReportPaymentPage({
   const [paid, setPaid] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const creatingFor = useRef<string | null>(null);
+  // The claim reference of the payment this page
+  // started — the success surface's key, kept from the
+  // intent answer (the started payment's own state is
+  // retired by the paid flag before navigation reads
+  // it, so the reference rides in a ref of its own).
+  const startedRef = useRef<string | null>(null);
   // The provider's browser library, loaded lazily on
   // the client only — the key arrives as page data from
-  // the server (never a build-time public variable).
-  const [stripePromise] = useState<Promise<Stripe | null> | null>(() =>
-    typeof window !== "undefined" && publishableKey ? loadStripe(publishableKey) : null,
-  );
+  // the server (never a build-time public variable),
+  // and a started payment's lane key (the test lane,
+  // M9.6) supersedes the page's key for that payment's
+  // element. loadStripe promises are cached per key at
+  // module level (stripePromiseFor, below): the element
+  // for a payment must initialise from the set that
+  // created it.
 
   const normalised = normaliseEmail(email);
   const emailValid = isEmailShape(normalised);
@@ -138,6 +180,16 @@ export default function ReportPaymentPage({
   const activeIntent = paid
     ? null
     : liveStartedPayment(started, { emailValid, email: normalised, consentAt });
+
+  // The element initialises from the key of the set
+  // that created the standing payment (the lane's key
+  // where the intent answer carried one — the test
+  // lane, M9.6), falling back to the page's own key.
+  const elementKey = paymentElementKey(activeIntent, publishableKey);
+  const stripePromise = useMemo(
+    () => (typeof window !== "undefined" && elementKey ? stripePromiseFor(elementKey) : null),
+    [elementKey],
+  );
 
   // A shape-valid email with the tick standing starts
   // its payment on the server; the answer lands in
@@ -171,12 +223,34 @@ export default function ReportPaymentPage({
         });
         const data = (await response.json().catch(() => null)) as {
           clientSecret?: string;
+          intentId?: string;
+          publishableKey?: string | null;
+          gifted?: boolean;
+          ref?: string;
           error?: string;
         } | null;
         if (!live) return;
+        if (response.ok && data?.gifted && data.ref) {
+          // Gift recognition: no payment was created —
+          // the order stands claimed as a gifted
+          // fulfilment, and the success surface (which
+          // carries the gift-applied banner) is where
+          // the buyer belongs.
+          window.location.assign(`/report/success?order=${encodeURIComponent(data.ref)}`);
+          return;
+        }
         if (response.ok && data?.clientSecret) {
           setNotice(null);
-          setStarted({ clientSecret: data.clientSecret, email: normalised, consentAt });
+          startedRef.current = data.intentId ?? null;
+          setStarted({
+            clientSecret: data.clientSecret,
+            email: normalised,
+            consentAt,
+            publishableKey: data.publishableKey ?? null,
+          });
+          // The funnel's second step: a payment stands
+          // started for this page (M9.6, Amendment B).
+          fireJourneyEvent("checkout_started");
         } else {
           setNotice(
             data?.error === "home-not-found"
@@ -324,7 +398,18 @@ export default function ReportPaymentPage({
                 <PaySection
                   view={view}
                   consented={consentAt !== null}
-                  onPaid={() => setPaid(true)}
+                  onPaid={() => {
+                    setPaid(true);
+                    // The success surface reads the
+                    // fulfilment claim server-side; the
+                    // claim's reference is the payment's
+                    // own id.
+                    if (startedRef.current) {
+                      window.location.assign(
+                        `/report/success?order=${encodeURIComponent(startedRef.current)}`,
+                      );
+                    }
+                  }}
                 />
               </Elements>
             ) : (

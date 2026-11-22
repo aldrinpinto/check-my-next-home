@@ -190,6 +190,7 @@ function contractSuite(
         type: "payment_intent.succeeded",
         intentId: created.intentId,
         status: "succeeded",
+        livemode: null,
         metadata: {
           email: EMAIL,
           postcode: POSTCODE,
@@ -390,6 +391,7 @@ describe("payments translator — the fake's own promises", () => {
         homeKey: HOME_KEY,
         consentTick: true,
         consentTimestamp: CONSENT.timestamp,
+        testOrder: false,
         amount: REPORT_PRICE_PENCE,
         currency: PAYMENT_CURRENCY,
         status: "requires_confirmation",
@@ -405,5 +407,149 @@ describe("payments translator — the fake's own promises", () => {
       ok: false,
       reason: "unknown-intent",
     });
+  });
+});
+
+// ----------------------------------------------------------------
+// M9.6 — the test lane at the translator: the allowlist
+// parsing, the lane decision, the TEST flag read back
+// from a verified event, and webhook secret selection
+// by the event's mode.
+
+import {
+  createPaymentsRouter,
+  testBuyerEmails,
+  type PaymentsLaneSet,
+} from "../lib/server/payments";
+
+const TEST_SECRET = "whsec_test_lane_throwaway";
+const TESTER = "tester@example.co.uk";
+
+function laneSet(payments: Payments, publishableKey: string): PaymentsLaneSet {
+  return { payments, webhookConfigured: true, publishableKey };
+}
+
+function modePayload(intentId: string, livemode: boolean, testFlag: boolean): string {
+  return JSON.stringify({
+    type: "payment_intent.succeeded",
+    livemode,
+    data: {
+      object: {
+        id: intentId,
+        status: "succeeded",
+        metadata: {
+          email: EMAIL,
+          postcode: POSTCODE,
+          home_key: HOME_KEY,
+          consent_tick: "true",
+          consent_timestamp: CONSENT.timestamp,
+          ...(testFlag ? { test: "true" } : {}),
+        },
+      },
+    },
+  });
+}
+
+describe("payments translator — the test lane (M9.6)", () => {
+  it("reads the tester allowlist with the codebase's email normalisation", () => {
+    expect(
+      testBuyerEmails({ TEST_BUYER_EMAILS: " Tester@Example.co.uk , other@example.co.uk " }),
+    ).toEqual(["tester@example.co.uk", "other@example.co.uk"]);
+    expect(testBuyerEmails({})).toEqual([]);
+    expect(testBuyerEmails({ TEST_BUYER_EMAILS: "  " })).toEqual([]);
+  });
+
+  it("selects the lane by email and configuration: test set only for an allowlisted email with a set configured", () => {
+    const live = createFakePayments();
+    const test = createFakePayments();
+    const withSet = createPaymentsRouter({
+      live: laneSet(live, "pk_live"),
+      test: laneSet(test, "pk_test"),
+      testEmails: [TESTER],
+    });
+    expect(withSet.laneFor(TESTER)).toBe("test");
+    expect(withSet.isTestOrder(` ${TESTER.toUpperCase()} `)).toBe(true);
+    expect(withSet.laneFor(EMAIL)).toBe("live");
+    expect(withSet.isTestOrder(EMAIL)).toBe(false);
+    expect(withSet.forLane("test")).toBe(test);
+    expect(withSet.publishableKeyFor("test")).toBe("pk_test");
+
+    const withoutSet = createPaymentsRouter({
+      live: laneSet(live, "pk_live"),
+      test: null,
+      testEmails: [TESTER],
+    });
+    // No test set configured: the default set creates the
+    // payment, but the order is STILL a test order.
+    expect(withoutSet.laneFor(TESTER)).toBe("live");
+    expect(withoutSet.isTestOrder(TESTER)).toBe(true);
+  });
+
+  it("reads the TEST flag back from a verified event's metadata", async () => {
+    const fake = createFakePayments({ webhookSecret: WEBHOOK_SECRET });
+    const created = await fake.createReportIntent({
+      email: TESTER,
+      postcode: POSTCODE,
+      homeKey: HOME_KEY,
+      consent: CONSENT,
+      testOrder: true,
+    });
+    if (!created.ok) throw new Error("creation failed");
+    const payload = modePayload(created.intentId, false, true);
+    const verdict = fake.verifyWebhookEvent({ payload, signature: fake.signWebhook(payload) });
+    expect(verdict.ok).toBe(true);
+    if (!verdict.ok) return;
+    expect(verdict.metadata?.test).toBe("true");
+    expect(verdict.livemode).toBe(false);
+  });
+
+  it("verifies a webhook against the secret of the event's own mode — and refuses the other mode's secret", () => {
+    const live = createFakePayments({ webhookSecret: WEBHOOK_SECRET });
+    const test = createFakePayments({ webhookSecret: TEST_SECRET });
+    const router = createPaymentsRouter({
+      live: laneSet(live, "pk_live"),
+      test: laneSet(test, "pk_test"),
+      testEmails: [TESTER],
+    });
+
+    const testPayload = modePayload("pi_lane_1", false, true);
+    const livePayload = modePayload("pi_lane_2", true, false);
+
+    // Each mode verifies under its own secret…
+    expect(
+      router.verifyWebhookEvent({ payload: testPayload, signature: test.signWebhook(testPayload) })
+        .ok,
+    ).toBe(true);
+    expect(
+      router.verifyWebhookEvent({ payload: livePayload, signature: live.signWebhook(livePayload) })
+        .ok,
+    ).toBe(true);
+    // …and refuses the other mode's secret.
+    expect(
+      router.verifyWebhookEvent({ payload: testPayload, signature: live.signWebhook(testPayload) })
+        .ok,
+    ).toBe(false);
+    expect(
+      router.verifyWebhookEvent({ payload: livePayload, signature: test.signWebhook(livePayload) })
+        .ok,
+    ).toBe(false);
+  });
+
+  it("with only one secret configured, verification behaves exactly as before — any mode against the one set", () => {
+    const live = createFakePayments({ webhookSecret: WEBHOOK_SECRET });
+    const router = createPaymentsRouter({
+      live: laneSet(live, "pk_live"),
+      test: null,
+      testEmails: [TESTER],
+    });
+    const testPayload = modePayload("pi_lane_3", false, true);
+    const verdict = router.verifyWebhookEvent({
+      payload: testPayload,
+      signature: live.signWebhook(testPayload),
+    });
+    expect(verdict.ok).toBe(true);
+    if (!verdict.ok) return;
+    expect(verdict.livemode).toBe(false);
+    expect(verdict.metadata?.test).toBe("true");
   });
 });

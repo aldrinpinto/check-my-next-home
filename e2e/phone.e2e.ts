@@ -514,12 +514,12 @@ test.describe("phone-first — 360×740 (T-WEB-01)", () => {
   );
 
   test(
-    "the report door: the holding page for a named home scrolls nowhere sideways (F1)",
+    "the report door: the payment page for a named home scrolls nowhere sideways (F1)",
     { tag: "@regression" },
     async ({ page }) => {
       await page.goto("/report?postcode=CM3+2JT&home=19%7C%7CBIRKDALE+RISE");
       await expect(page.locator("h1")).toHaveText("The detailed report for 19 Birkdale Rise");
-      await expect(page.locator(".report-door__card")).toBeVisible();
+      await expect(page.locator(".report-door__card").first()).toBeVisible();
       await expectNoSidewaysScroll(page);
       await expectNoTable(page);
     },

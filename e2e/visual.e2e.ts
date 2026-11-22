@@ -498,7 +498,7 @@ test.describe("visual guard — regression", () => {
     await shoot(page, "gift-expired.png", true);
   });
 
-  test("the report door's holding page, desktop", { tag: "@regression" }, async ({ page }) => {
+  test("the report door's payment page, desktop", { tag: "@regression" }, async ({ page }) => {
     await page.goto("/report");
     await expect(page.locator("h1")).toBeVisible();
     await shoot(page, "report-door.png", true);

@@ -817,14 +817,19 @@ describe("report — states, nations and the door seam", () => {
     expect(sectionText(view, 2)).toContain("£588,995");
   });
 
-  it("the buyer-route seam: the view route's shape, and the gate holding while the door holds", () => {
+  it("the buyer-route seam: the view route's shape, and the gate following the door's state", () => {
     expect(REPORT_VIEW_ROUTE).toBe("/report/view");
     expect(reportViewRoute("CM3 2JT")).toBe("/report/view?postcode=CM3+2JT");
     expect(reportViewRoute("CM3 2JT", "19|BIRKDALE RISE")).toBe(
       "/report/view?postcode=CM3+2JT&home=19%7CBIRKDALE+RISE",
     );
-    expect(REPORT_DOOR_STATE).toBe("holding");
-    expect(reportViewGate("CM3 2JT", null)).toEqual({
+    // M9.6 landed the door on "paid": the gate serves by
+    // default now, and still doors under an explicit
+    // holding state — the seam's contract is unchanged,
+    // only the constant moved.
+    expect(REPORT_DOOR_STATE).toBe("paid");
+    expect(reportViewGate("CM3 2JT", null)).toEqual({ action: "serve" });
+    expect(reportViewGate("CM3 2JT", null, "holding")).toEqual({
       action: "door",
       href: "/report?postcode=CM3+2JT",
     });

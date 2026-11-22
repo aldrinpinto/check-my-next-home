@@ -194,9 +194,20 @@ export const REPORT_PRICE_PENCE = 499;
 // Like the flags above, the state is a checked-in constant,
 // not an environment variable: moving the door is a
 // reviewed code change, visible in the commit history,
-// never a runtime flip. It sits at "holding" until M9.6
-// pins the window lines — no surface may render window or
-// paid wording while it does (the negative pin in
-// tests/report-door.test.ts).
+// never a runtime flip. It sat at "holding" until M9.6
+// filled both remaining states and landed it on "paid"
+// with fulfilment behind it (the webhook, the claim and
+// the worker) — the play site runs sandbox keys, so a
+// live test-buy is safe there, and the window's opening
+// is a go-live act that gets its own later flip commit.
+// The NATION HOLD filters this state per arrival
+// (founder ruling, 22 Nov 2026 — Road B;
+// effectiveReportDoorState in lib/report-door.ts):
+// Scotland and Northern Ireland render "holding"
+// whatever this constant says, until their own
+// milestone lifts the hold.
+// No surface renders a state's wording while the door
+// stands in another (the pins in tests/report-door.
+// test.ts).
 export type ReportDoorState = "holding" | "window" | "paid";
-export const REPORT_DOOR_STATE: ReportDoorState = "holding";
+export const REPORT_DOOR_STATE: ReportDoorState = "paid";

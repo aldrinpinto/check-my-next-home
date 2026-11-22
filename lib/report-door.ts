@@ -1,7 +1,7 @@
 import { SAMPLE_REPORT_LINK_TEXT, SAMPLE_REPORT_PATH } from "./home";
-import { homeRoute } from "./journey";
+import { homeRoute, isNotCoveredNation, type Nation } from "./journey";
 import { FLOOD_UPSELL_LEAD } from "./results";
-import { REPORT_DOOR_STATE, REPORT_PRICE_LABEL } from "./site";
+import { REPORT_DOOR_STATE, REPORT_PRICE_LABEL, type ReportDoorState } from "./site";
 
 // The report door (plan step M7.6): what /report renders
 // while the door is in its holding state (REPORT_DOOR_STATE
@@ -40,6 +40,26 @@ export type ReportDoorIdentity =
     }
   | { kind: "postcode"; postcode: string; subline: string | null }
   | { kind: "generic" };
+
+// The nation hold (founder ruling, 22 Nov 2026 — Road B,
+// superseding this step's original R1): the door is
+// nation-aware. England and Wales follow the door's
+// checked-in state exactly; Scotland and Northern
+// Ireland stay on the HOLDING form — no payment taken,
+// no free-window fulfilment — until their own later
+// milestone lands their data and lifts the hold. The
+// nation is the brains' own detection (lib/journey.ts:
+// the directory's filed area code for the postcode,
+// never the outward postcode letters, whose areas
+// straddle borders). An unknown nation follows the
+// state: the hold names the two nations it holds, and
+// nothing else.
+export function effectiveReportDoorState(
+  nation: Nation,
+  state: ReportDoorState = REPORT_DOOR_STATE,
+): ReportDoorState {
+  return isNotCoveredNation(nation) ? "holding" : state;
+}
 
 export interface ReportDoorView {
   heading: string;
@@ -81,12 +101,12 @@ export const REPORT_DOOR_PRICE_LINE = "One payment. No subscription, nothing fur
 export const REPORT_DOOR_HOLDING_STATE_LINE = `The detailed report is coming in the next stage. It will cost ${REPORT_PRICE_LABEL} — one payment — and the free check stays free in full.`;
 
 export function buildReportDoorView(identity: ReportDoorIdentity): ReportDoorView {
-  // The state seam (REPORT_DOOR_STATE): "window" and
-  // "paid" are M9.6's to fill when it pins their lines;
-  // until that step lands the door renders the holding
-  // form in every state — the constant is a reviewed code
-  // change, so the flip and the lines land in the same
-  // commit at M9.6, never apart.
+  // The state seam (REPORT_DOOR_STATE): this builder is
+  // the HOLDING form. M9.6 filled the other two states
+  // on their own surfaces — "paid" is the payment page
+  // (lib/report-payment.ts) and "window" is the window
+  // view below — and the route renders by the constant,
+  // so the flip and the lines always land together.
   const stateLine = REPORT_DOOR_HOLDING_STATE_LINE;
   void REPORT_DOOR_STATE;
 
@@ -96,6 +116,104 @@ export function buildReportDoorView(identity: ReportDoorIdentity): ReportDoorVie
     contents: REPORT_DOOR_CONTENTS,
     priceLine: REPORT_DOOR_PRICE_LINE,
     stateLine,
+    sampleHref: SAMPLE_REPORT_PATH,
+    sampleLabel: SAMPLE_REPORT_LINK_TEXT,
+  };
+
+  switch (identity.kind) {
+    case "home":
+      return {
+        ...base,
+        heading: `The detailed report for ${identity.subject}`,
+        subline: identity.subline,
+        backHref: homeRoute(identity.postcode, identity.homeKey),
+        backLabel: "Back to your free check",
+      };
+    case "postcode":
+      return {
+        ...base,
+        heading: `The detailed report for ${identity.postcode}`,
+        subline: identity.subline,
+        backHref: homeRoute(identity.postcode),
+        backLabel: "Back to your free check",
+      };
+    case "generic":
+      return {
+        ...base,
+        heading: "The detailed report",
+        backHref: "/",
+        backLabel: "Back to the home page",
+      };
+  }
+}
+
+// ----------------------------------------------------------------
+// The window state (plan step M9.6; the free launch
+// window, D44) — the lines M7.6's gap check deferred to
+// this build, and the surface the deferred free-window
+// Regression test pins: the door offers the report FREE
+// with the £4.99 still shown as the normal price, and
+// gift tokens inactive — which here means what it means
+// everywhere before a paid report exists: the gift is
+// never named (D21's surprise rule holds in the window
+// exactly as in holding). The fulfilment is an email
+// capture and nothing else: the address the report is
+// delivered to, claimed as a free fulfilment and
+// delivered by the same worker that delivers a bought
+// report.
+
+export interface ReportWindowView {
+  heading: string;
+  subline: string | null;
+  lede: string;
+  contentsHeading: string;
+  contents: string[];
+  stateLine: string;
+  emailLabel: string;
+  emailHelp: string;
+  emailPlaceholder: string;
+  emailError: string;
+  buttonLabel: string;
+  sampleHref: string;
+  sampleLabel: string;
+  backHref: string;
+  backLabel: string;
+}
+
+// The window state's one plain state line, in the
+// holding line's own shape: the report is free during
+// the window, the £4.99 stands as its normal price, and
+// the free check stays free in full.
+export const REPORT_DOOR_WINDOW_STATE_LINE = `The detailed report is free during the launch window. Its normal price is ${REPORT_PRICE_LABEL} — one payment — and the free check stays free in full.`;
+
+export const REPORT_WINDOW_LEDE =
+  "You've seen the headlines for this home, free. During the launch window the detailed report is free too — give us the email to send it to, and it's on its way.";
+
+// The window form's email block: Sample 9's own words,
+// shared with the payment page's block by pin (a test
+// holds the two copies equal, the refund-line pattern)
+// — the delivery email means the same thing in both
+// states, so it is worded the same way.
+export const REPORT_WINDOW_EMAIL_LABEL = "Email address for delivery";
+export const REPORT_WINDOW_EMAIL_HELP =
+  "Your report is delivered by email — there are no accounts and no passwords to remember.";
+export const REPORT_WINDOW_EMAIL_PLACEHOLDER = "you@example.co.uk";
+export const REPORT_WINDOW_EMAIL_ERROR =
+  "That email address doesn't look quite right — check it and try again, so your report reaches you.";
+export const REPORT_WINDOW_BUTTON_LABEL = "Send my free report";
+
+export function buildReportWindowView(identity: ReportDoorIdentity): ReportWindowView {
+  const base = {
+    subline: null as string | null,
+    lede: REPORT_WINDOW_LEDE,
+    contentsHeading: REPORT_DOOR_CONTENTS_HEADING,
+    contents: REPORT_DOOR_CONTENTS,
+    stateLine: REPORT_DOOR_WINDOW_STATE_LINE,
+    emailLabel: REPORT_WINDOW_EMAIL_LABEL,
+    emailHelp: REPORT_WINDOW_EMAIL_HELP,
+    emailPlaceholder: REPORT_WINDOW_EMAIL_PLACEHOLDER,
+    emailError: REPORT_WINDOW_EMAIL_ERROR,
+    buttonLabel: REPORT_WINDOW_BUTTON_LABEL,
     sampleHref: SAMPLE_REPORT_PATH,
     sampleLabel: SAMPLE_REPORT_LINK_TEXT,
   };

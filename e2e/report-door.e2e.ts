@@ -5,19 +5,31 @@ import { expect, test } from "./fixtures";
 // page (the shortlist control inside it, the D21 mystery
 // tease, and the /report?postcode=&home= link contract on
 // the bar's button and the truncation lines) and the
-// /report holding page in its identity forms (a resolved
-// home named, a postcode-only arrival, a cold visit's
-// generic form). All Regression — D68: no Smoke is
-// authored for M7.6.
+// /report page in its identity forms (a resolved home
+// named, a postcode-only arrival, a cold visit's generic
+// form). All Regression — D68: no Smoke is authored for
+// M7.6.
 //
 // Parity fix batch (18 Nov 2026): item 6 adds the second
 // shortlist control and the priced report button level
 // with the H1 in the results head; item 19 makes the
 // bar's button the unpriced form.
 //
+// M9.6 re-pin: the door stands at "paid" — the page these
+// specs land on is the payment page (Sample 9), not the
+// holding page. The heading, the contents card and the
+// price line are the door's own, unchanged; what the
+// flip adds is the honesty block, the delivery-email
+// field and the consent tick. The holding page's own
+// proofs live in tests/report-door.test.ts, and the
+// window state's in the same file's flag-forced form.
+// The served app carries no payment keys, so no payment
+// can start here — the card panel's unconfigured state
+// is what renders, and nothing in these specs pays.
+//
 // T-WEB map (M7.15 citation tidy):
 //   No T-WEB row — the three specs discharge M7.6's
-//   report door (the buy bar's contract and the holding
+//   report door (the buy bar's contract and the door
 //   page's identity forms).
 
 const BIRKDALE_DOOR_HREF = "/report?postcode=CM3+2JT&home=19%7C%7CBIRKDALE+RISE";
@@ -41,7 +53,7 @@ async function reachResults(
 
 test.describe("report door — regression", () => {
   test(
-    "the buy bar and the results head carry the controls, the tease and the contract; the bar's button opens the holding page naming the home",
+    "the buy bar and the results head carry the controls, the tease and the contract; the bar's button opens the payment page naming the home",
     { tag: "@regression" },
     async ({ page }) => {
       await reachResults(page, "CM3 2JT", "19 Birkdale Rise");
@@ -76,31 +88,26 @@ test.describe("report door — regression", () => {
       await button.click();
       await page.waitForURL("**/report?postcode=CM3+2JT&home=19%7C%7CBIRKDALE+RISE");
       await expect(page.locator("h1")).toHaveText("The detailed report for 19 Birkdale Rise");
-      await expect(page.locator(".type-lead")).toHaveText("Hatfield Peverel, CM3 2JT");
-      await expect(page.locator(".report-door__card h2")).toHaveText(
+      await expect(page.locator("p.type-lead").first()).toHaveText("Hatfield Peverel, CM3 2JT");
+      await expect(page.locator(".report-door__card h2").first()).toHaveText(
         "What the detailed report adds",
       );
-      await expect(page.locator(".report-door__card")).toContainText(
+      await expect(page.locator(".report-door__card").first()).toContainText(
         "Plus the flood findings in full, with a location map for each check",
       );
       await expect(page.locator(".report-door__price")).toHaveText(
         "One payment. No subscription, nothing further to pay.",
       );
-      await expect(page.locator(".report-door__state")).toContainText("£4.99");
-      await expect(page.locator(".report-door__state")).toContainText("coming in the next stage");
-      // The holding page takes no email and runs no form.
-      await expect(page.locator("input")).toHaveCount(0);
-      await expect(page.locator("form")).toHaveCount(0);
-      // Out again: the sample, and the way back to the
-      // free check for this home.
-      await expect(page.getByRole("link", { name: "See a SAMPLE report" })).toHaveAttribute(
-        "href",
-        "/sample-report",
-      );
-      await expect(page.getByRole("link", { name: "Back to your free check" })).toHaveAttribute(
-        "href",
-        "/search/home?postcode=CM3+2JT&home=19%7C%7CBIRKDALE+RISE",
-      );
+      // The paid state's own furniture (M9.4/M9.5): the
+      // honesty block with the consent tick, and the
+      // delivery-email field — the holding page's state
+      // line is gone, and the door takes the buyer's
+      // email and tick, nothing else of ours.
+      await expect(page.locator(".report-door__state")).toHaveCount(0);
+      await expect(page.locator("#payment-email")).toBeVisible();
+      await expect(page.locator("#payment-consent")).toBeVisible();
+      await expect(page.locator("#payment-consent")).not.toBeChecked();
+      await expect(page.locator("input")).toHaveCount(2);
     },
   );
 
@@ -110,29 +117,21 @@ test.describe("report door — regression", () => {
     async ({ page }) => {
       await page.goto("/report?postcode=CM3+2JT");
       await expect(page.locator("h1")).toHaveText("The detailed report for CM3 2JT");
-      await expect(page.locator("input")).toHaveCount(0);
-      await expect(page.getByRole("link", { name: "Back to your free check" })).toHaveAttribute(
-        "href",
-        "/search/home?postcode=CM3+2JT",
-      );
+      await expect(page.locator("#payment-email")).toBeVisible();
     },
   );
 
   test(
-    "a cold visit to /report renders the generic holding page",
+    "a cold visit to /report renders the generic payment page",
     { tag: "@regression" },
     async ({ page }) => {
       await page.goto("/report");
       await expect(page.locator("h1")).toHaveText("The detailed report");
-      await expect(page.locator(".report-door__card h2")).toHaveText(
+      await expect(page.locator(".report-door__card h2").first()).toHaveText(
         "What the detailed report adds",
       );
-      await expect(page.locator("input")).toHaveCount(0);
-      await expect(page.locator("form")).toHaveCount(0);
-      await expect(page.getByRole("link", { name: "Back to the home page" })).toHaveAttribute(
-        "href",
-        "/",
-      );
+      await expect(page.locator("#payment-email")).toBeVisible();
+      await expect(page.locator("#payment-consent")).toBeVisible();
     },
   );
 });

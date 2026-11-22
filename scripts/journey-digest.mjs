@@ -135,6 +135,11 @@ async function main() {
     const reportClicked = count("report_clicked");
     const checkoutStarted = count("checkout_started");
     const checkoutPaid = count("checkout_paid");
+    const reportDelivered = count("report_delivered");
+    // The payment funnel's top step (M9.6, Amendment B):
+    // arrivals on the report door itself — page views of
+    // the /report pattern, from the entry rows above.
+    const doorViews = entryRows.find((row) => row.route_pattern === "/report")?.n ?? 0;
     const giftClaimed = count("gift_claimed");
     const giftRedeemed = count("gift_redeemed");
     const errorsTotal = count("page_error");
@@ -142,14 +147,20 @@ async function main() {
     // The funnel, in the step's order. Ratios are between
     // consecutive steps; the biggest drop-off is the
     // largest share lost between two steps that both saw
-    // traffic.
+    // traffic. The payment leg stands in full (M9.6,
+    // Amendment B): door view → started → paid →
+    // delivered, so where buyers drop out of paying —
+    // and whether paying becomes receiving — is as
+    // visible as every other step.
     const funnel = [
       ["Arrived on the landing page", landingVisits],
       ["Started a check", started],
       ["Completed a check", completed],
       ["Clicked for the full report", reportClicked],
+      ["Viewed the report door", doorViews],
       ["Started checkout", checkoutStarted],
       ["Paid", checkoutPaid],
+      ["Report delivered", reportDelivered],
       ["A gift was claimed", giftClaimed],
     ];
     const funnelLines = [];

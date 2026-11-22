@@ -3551,6 +3551,60 @@ a.picker__row {
   font-weight: 700;
 }
 
+/* The success surface (M9.6; Final Sample Master,
+   Sample 10): the door's wrap and card dress, with the
+   sample's own furniture — the ready badge as a small
+   pill in the brand's ok colours, the home line under
+   the title, the gift-applied banner in the same ok
+   dress, and the check-another search row. */
+.report-success__badge {
+  display: inline-block;
+  margin: 0 0 var(--space-3);
+  padding: 0.3rem 0.8rem;
+  border-radius: 999px;
+  background: var(--colour-ok-bg, #edf4ec);
+  border: 1px solid var(--colour-ok-line, #bfd8be);
+  font-weight: 700;
+}
+
+.report-success__gift-banner {
+  margin: 0 0 var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-panel);
+  background: var(--colour-ok-bg, #edf4ec);
+  border: 1px solid var(--colour-ok-line, #bfd8be);
+  font-weight: 600;
+}
+
+.report-success__home {
+  font-size: var(--font-size-lead);
+  margin: var(--space-2) 0 0;
+}
+
+.report-success__sections {
+  margin-top: 0;
+}
+
+.report-success__search {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-top: var(--space-3);
+}
+
+.report-success__search .field__input {
+  flex: 1 1 240px;
+}
+
+.report-success__sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
 /* The comparison table (D70 R5/D17): the design's
    shared-label form — the first column names each check
    once, one column per home, values aligned, a report
