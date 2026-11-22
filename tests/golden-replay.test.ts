@@ -1128,18 +1128,30 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
     // The beyond pool starts beyond the five-mile list
     // radius (BUG-110), so the flagged secondaries the
     // radius serves (Lift New Rickstones, 3.212 miles;
-    // Plume School, 4.488) can no longer be named here;
-    // on the fixture cut the nearest ruling-4 witness
-    // beyond five miles is Ilford County High School,
-    // 25.896 miles (the cut files no Essex sixth-form
-    // evidence nearer beyond the radius — the national
-    // picture differs and is not what this suite pins).
+    // Plume School, 4.488) can no longer be named here.
+    // On the fixture cut the nearest ruling-4 witness
+    // beyond five miles is Ilford County High School at
+    // 25.896 miles — and no beyond name is served: the
+    // distance sanity bound (NEAREST_SANITY_MILES = 25,
+    // BUG-106, unit-pinned in tests/bug106-stack.test
+    // .ts) caps every essential category's beyond name,
+    // because a "nearest" further away than that is an
+    // artefact of a thin filing, not a fact a family can
+    // use. The bound is radius-independent — it governed
+    // the beyond name identically under the two-mile
+    // radius — and BUG-110 left the fallback otherwise
+    // unchanged, so the served answer is the category's
+    // honest absence line with no beyond name. (The cut
+    // files no Essex sixth-form evidence nearer beyond
+    // the radius; the national picture differs and is
+    // not what this suite pins.)
     const birkdaleCat = category("birkdale1", "sixth-forms");
     expect(birkdaleCat.state).toBe("none-within");
     expect(birkdaleCat.countWithin).toBe(0);
-    expect(birkdaleCat.beyondNearest?.name).toBe("Ilford County High School");
-    expect(Math.abs((birkdaleCat.beyondNearest?.miles ?? 0) - 25.896)).toBeLessThan(0.005);
-    expect(birkdaleCat.line).toContain("nearest is Ilford County High School");
+    expect(birkdaleCat.beyondNearest).toBeNull();
+    expect(birkdaleCat.line).toBe(
+      "no sixth forms and colleges within 5 miles of the postcode point",
+    );
 
     // Exeter: the beyond path on the fixture filing
     // names Bexley Grammar School, a flagged secondary —
