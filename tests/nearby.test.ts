@@ -961,7 +961,9 @@ describe("nearby basis (M6.2)", () => {
           expect(c.line.toLowerCase()).not.toContain("walk");
           expect(c.line.toLowerCase()).not.toContain("minute");
         }
-        expect(c.places.length).toBeLessThanOrEqual(3);
+        // The general list carries three; EV chargers
+        // carry their own five (BUG-123).
+        expect(c.places.length).toBeLessThanOrEqual(c.category === "ev-chargers" ? 5 : 3);
         const miles = c.places.map((p) => p.miles);
         expect(miles).toEqual([...miles].sort((a, b) => a - b));
         for (const p of c.places) expect(p.name).not.toBeNull();
@@ -1074,10 +1076,11 @@ describe("nearby bundle — 19 Birkdale Rise, CM3 2JT", () => {
     const bundle = await bundleFor("CM3 2JT");
     const evCat = category(bundle, "ev-chargers");
     // Chargers list across five miles in the second
-    // pass (BUG-093): four file within the field, the
-    // list carries the nearest three.
+    // pass (BUG-093): four file within the field, and
+    // the list now carries all four — EV chargers list
+    // their nearest five (BUG-123).
     expect(evCat.countWithin).toBe(4);
-    expect(evCat.places).toHaveLength(3);
+    expect(evCat.places).toHaveLength(4);
     expect(evCat.places[0].name).toBe("Witham Leisure Centre");
     expect(evCat.places[0].detail).toBe("Public - Membership Required");
     expect(evCat.places[1].name).toBe("Car Park, Newlands Drive");
@@ -1328,7 +1331,9 @@ describe("nearby bundle — Flat 4, Minerva House, KT17 1FH", () => {
     expect(evCat.places[0].miles).toBe(0.579);
     expect(Math.abs(evCat.places[0].miles - 0.58)).toBeLessThanOrEqual(0.005);
     // Three distinct Wilsons sites file; a name never merges them.
-    expect(evCat.places.map((p) => p.miles)).toEqual([0.579, 0.622, 0.668]);
+    // The list carries the nearest five chargers (BUG-123):
+    // the three Wilsons sites, then the next two in reach.
+    expect(evCat.places.map((p) => p.miles)).toEqual([0.579, 0.622, 0.668, 0.672, 0.955]);
     expect(top(bundle, "supermarket")[0]).toEqual(["Sainsbury's", 0.51]);
     expect(top(bundle, "food-and-drink")[0]).toEqual(["The Famous Green Man", 0.236]);
     expect(top(bundle, "libraries")[0]).toEqual(["Bourne Hall", 0.463]);

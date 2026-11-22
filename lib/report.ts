@@ -39,7 +39,13 @@ import {
 import { formatFiledDate, formatMiles, formatPounds, nationOfLsoa } from "./journey";
 import type { CategoryAnswer, NearbyBundle, NearbyCategory, NearbyPlace } from "./nearby";
 import { nationOfPostcode } from "./nation";
-import { CATCHMENT_LINK, distanceBand, reportRoute, type DistanceBand } from "./results";
+import {
+  CATCHMENT_LINK,
+  distanceBand,
+  reportRoute,
+  type DistanceBand,
+  type DistanceFamily,
+} from "./results";
 import { REPORT_DOOR_STATE, type ReportDoorState } from "./site";
 import type { ServedSale, SoldPricesBundle } from "./sold-prices";
 
@@ -166,12 +172,15 @@ export const REPORT_DISCLAIMER_D9 =
 // app's check-page set — a test pins the equality (the
 // print-check batch, item 21): the report may never link
 // to a page that does not exist, nor leave a check page
-// unlinked. Section 6 (the neighbourhood) names the two
-// pages its deferred explanations live on — planning
-// applications hand off to the planning-constraints page,
-// charging zones are explained on the air-quality page;
-// the Census and benefits blocks carry no check page and
-// keep their bases in the report itself (item 20).
+// unlinked. Section 6 (the neighbourhood) names no page
+// since the follow-up stack: its two explained blocks
+// moved out — planning applications to Section 7 and
+// clean air zones to Section 4 (BUG-125 / BUG-118) —
+// and the Census and benefits blocks carry no check page
+// and keep their bases in the report itself (item 20).
+// Section 7 also names the building-safety page: the
+// block's long explainer lives there now, the report
+// keeping one small-print line (BUG-128).
 // Section 1 also names the council-tax and flood-risk
 // pages (M8.9): its Material Information checklist states
 // the Band D average and the home's flood standing, whose
@@ -185,7 +194,7 @@ export const REPORT_SECTION_CHECK_LINKS: Record<number, string[]> = {
   3: ["/check/schools"],
   4: ["/check/family-essentials", "/check/air-quality", "/check/noise", "/check/crime"],
   5: ["/check/family-essentials", "/check/public-transport"],
-  6: ["/check/planning-constraints", "/check/air-quality"],
+  6: [],
   7: [
     "/check/council-tax-band",
     "/check/epc",
@@ -194,6 +203,7 @@ export const REPORT_SECTION_CHECK_LINKS: Record<number, string[]> = {
     "/check/broadband",
     "/check/mobile-coverage",
     "/check/planning-constraints",
+    "/check/building-safety",
   ],
   8: ["/check/flood-risk"],
   9: [],
@@ -420,6 +430,10 @@ export type ReportBlock =
   // bold only (the approved format's rule).
   | { type: "boldLine"; text: string }
   | { type: "sub"; text: string }
+  // A layer-3 group heading (BUG-119/BUG-121): semibold
+  // sentence case, no rule — for groups inside a layer-2
+  // block (numbered improvement steps, the EV halves).
+  | { type: "sub3"; text: string }
   // A tile's value normally prints at the tile size; a
   // long value (the span-of-sales years) prints at the
   // sample's reduced size instead (BUG-054).
@@ -743,7 +757,7 @@ function category(bundle: NearbyBundle, key: NearbyCategory): CategoryAnswer | n
 function placeRows(
   answer: CategoryAnswer,
   extra?: (place: NearbyPlace) => string[],
-  family: "school" | "hospital" | "everyday" = "everyday",
+  family: DistanceFamily = "everyday",
 ): ReportRow[] {
   return answer.places.map((place) => ({
     name: place.name,
@@ -2309,7 +2323,7 @@ function industrialSitesBlocks(input: ReportInput): ReportBlock[] {
         detail: [site.siteAddress, site.activityDescription].filter(Boolean).join(" · ") || null,
         tag: null,
         dist: `${formatMiles(site.miles)} mi`,
-        distBand: (site.miles <= 1 ? "red" : site.miles <= 3 ? "orange" : "green") as DistanceBand,
+        distBand: distanceBand("concern", site.miles),
         extra: [
           ...(site.belowThreshold.length > 0 && sites.dataYear !== null
             ? [
@@ -2566,6 +2580,31 @@ function section4(input: ReportInput): ReportSectionView {
   // The industrial sites stand with the air content
   // (BUG-081), after the noise table and before crime.
   blocks.push(...industrialSitesBlocks(input));
+
+  // Clean air zones & driving charges stand with the
+  // air content (BUG-118, founder ruling 22 Nov 2026):
+  // the block moved here from Section 6 — it is a
+  // driving-charge fact about the area's air, and its
+  // explanation lives on the air-quality How-we-check
+  // page, which this section's link line names. No
+  // charge amount is ever printed.
+  if (sections) {
+    const zones = sections.chargingZones;
+    blocks.push({ type: "sub", text: "Clean air zones & driving charges" });
+    blocks.push({ type: "line", text: zones.line });
+    if (zones.scheme) {
+      if (zones.scheme.carsLine) blocks.push({ type: "line", text: zones.scheme.carsLine });
+      if (zones.scheme.classLine) blocks.push({ type: "line", text: zones.scheme.classLine });
+      if (zones.scheme.dateLine) blocks.push({ type: "line", text: zones.scheme.dateLine });
+      blocks.push({
+        type: "lineLink",
+        text: "",
+        label: zones.scheme.checkerLabel,
+        href: zones.scheme.checkerUrl,
+      });
+    }
+    if (zones.basisLine) blocks.push({ type: "note", text: zones.basisLine });
+  }
 
   // Crime, in the sample's form (BUG-049), as the
   // second pass settles it (BUG-077/078): the sub names
@@ -3177,6 +3216,11 @@ function section7(input: ReportInput): ReportSectionView {
           : undefined,
       align: ["left", "left", "left", "right", "left"],
     });
+    // The identities of the certificates the table
+    // above prints as rows — BUG-120's test for whether
+    // a certificate's own block may drop its restated
+    // rating line.
+    const tableCertificateNumbers = new Set(epc.certificates.map((c) => c.certificateNumber));
     for (const c of epc.certificates) {
       blocks.push({ type: "sub", text: c.address });
       // The certificate's own block states its rating
@@ -3184,11 +3228,21 @@ function section7(input: ReportInput): ReportSectionView {
       // explainer attached in the small-print treatment
       // — the block no longer opens with the explainer
       // and never states the number it exists to give.
+      // BUG-120 (founder ruling 22 Nov 2026): where the
+      // certificate is itself a row of the table above,
+      // the restated "Energy rating: Band X (score N)"
+      // line is dropped — the figure stands in the table
+      // once, and the explainer note below now points at
+      // it there. Where a certificate is NOT among the
+      // table's rows, the line stays: it is then the only
+      // place the figure appears.
       if (c.rating !== null && c.band !== null) {
-        blocks.push({
-          type: "line",
-          text: `Energy rating: Band ${c.band} (score ${c.rating}).`,
-        });
+        if (!tableCertificateNumbers.has(c.certificateNumber)) {
+          blocks.push({
+            type: "line",
+            text: `Energy rating: Band ${c.band} (score ${c.rating}).`,
+          });
+        }
         if (c.ratingLine) blocks.push({ type: "note", text: c.ratingLine });
       } else if (c.ratingLine) {
         blocks.push({ type: "line", text: c.ratingLine });
@@ -3218,12 +3272,20 @@ function section7(input: ReportInput): ReportSectionView {
           // list names no name for stands under its
           // sequence; a fact the register does not file
           // for a step is simply absent from its list.
-          for (const step of c.improvements.steps) {
+          // Each step is a NUMBERED layer-3 heading
+          // (BUG-121, founder ruling 22 Nov 2026): the
+          // register's sequence as a reading number —
+          // "1 — Solar water heating" — semibold sentence
+          // case, no rule, so the steps read as the
+          // children of "Suggested improvements" they
+          // are, not as its peers.
+          c.improvements.steps.forEach((step, stepIndex) => {
             blocks.push({
-              type: "sub",
-              text:
+              type: "sub3",
+              text: `${stepIndex + 1} — ${
                 step.name ??
-                (step.sequence !== null ? `Step ${step.sequence}` : "Suggested improvement"),
+                (step.sequence !== null ? `Step ${step.sequence}` : "Suggested improvement")
+              }`,
             });
             const items: string[] = [];
             if (step.typicalSavingLabel)
@@ -3234,7 +3296,7 @@ function section7(input: ReportInput): ReportSectionView {
             if (step.environmentalRatingAfter !== null)
               items.push(`Environmental rating after this step: ${step.environmentalRatingAfter}`);
             if (items.length > 0) blocks.push({ type: "list", items });
-          }
+          });
         } else {
           blocks.push({ type: "line", text: c.improvements.line });
         }
@@ -3344,17 +3406,25 @@ function section7(input: ReportInput): ReportSectionView {
     if (solar.basisLine) blocks.push({ type: "line", text: solar.basisLine });
   }
 
-  // EV charging, in the format's grouped form.
+  // EV charging, in the format's grouped form. Its two
+  // halves are layer-3 headings under "EV charging"
+  // (BUG-119): semibold sentence case, no rule — the
+  // parent/child step the heading audit found missing.
   blocks.push({ type: "sub", text: "EV charging" });
-  blocks.push({ type: "sub", text: "At home" });
+  blocks.push({ type: "sub3", text: "At home" });
   blocks.push({
     type: "line",
     text: "Home charge points are not something this check can see — it covers the public charge points below.",
   });
-  blocks.push({ type: "sub", text: "Public chargers" });
+  blocks.push({ type: "sub3", text: "Public chargers" });
   const chargers = category(nearby, "ev-chargers");
   if (chargers) {
-    if (chargers.places.length > 0) blocks.push({ type: "rows", rows: placeRows(chargers) });
+    // The charger pills colour on the EV family
+    // (BUG-123): green within a mile, orange to three,
+    // red beyond — a driver's reach, not the everyday
+    // bands.
+    if (chargers.places.length > 0)
+      blocks.push({ type: "rows", rows: placeRows(chargers, undefined, "ev") });
     const state = stateLine(chargers);
     if (state) blocks.push(state);
   }
@@ -3366,27 +3436,36 @@ function section7(input: ReportInput): ReportSectionView {
   const broadband = sections.broadband;
   blocks.push({ type: "sub", text: "Broadband" });
   if (broadband.line) blocks.push({ type: "line", text: broadband.line });
+  // The threshold lines beneath the gigabit headline
+  // print as a bulleted list (BUG-122, founder ruling
+  // 22 Nov 2026): superfast and ultrafast, each the
+  // share of premises in this postcode, as served. The
+  // "300 Mbit/s or more" line no longer stands here —
+  // it duplicates the band table's fastest row, and the
+  // gigabit headline above already carries the
+  // technology story. No line separates full fibre from
+  // the other gigabit-capable technologies, because the
+  // data does not (the section's explainer, in Section
+  // 10's sources, says so) — no full-fibre claim is made.
+  const thresholdLines = [broadband.superfastLine, broadband.ultrafast100Line].filter(
+    (line): line is string => typeof line === "string",
+  );
+  if (thresholdLines.length > 0)
+    blocks.push({ type: "list", items: thresholdLines.map((line) => sentenceLine(line)) });
+  // ONE small-print line above the band table ties the
+  // three systems together (BUG-122): the bands split
+  // the same premises and add to 100%, superfast is the
+  // two fastest bands combined, and the gigabit figure
+  // is counted by network technology, not taken from
+  // the table.
+  if (broadband.bands.length > 0) blocks.push({ type: "note", text: BROADBAND_TIE_LINE });
   // The bands explanation stands as the bands table's
   // own caption (BUG-094) — attached under the table it
-  // explains, travelling with the block — not as a free
-  // note ahead of the category lines. Where no bands
-  // table serves, it keeps its note form.
+  // explains, travelling with the block. Where no bands
+  // table serves, it keeps its note form, after the
+  // threshold list.
   if (broadband.bandsLine && broadband.bands.length === 0)
     blocks.push({ type: "note", text: broadband.bandsLine });
-  // The category lines beneath the headline — superfast,
-  // ultrafast at 100 Mbit/s, broadband at 300 Mbit/s —
-  // each the share of premises in this postcode, as
-  // served. No line separates full fibre from the other
-  // gigabit-capable technologies, because the data does
-  // not (the section's explainer, in Section 10's
-  // sources, says so) — no full-fibre claim is made.
-  for (const categoryLine of [
-    broadband.superfastLine,
-    broadband.ultrafast100Line,
-    broadband.ultrafast300Line,
-  ]) {
-    if (categoryLine) blocks.push({ type: "line", text: sentenceLine(categoryLine) });
-  }
   // The six speed bands as a table: each band is the
   // share of premises in this postcode whose maximum
   // predicted download speed falls in that range (the
@@ -3408,11 +3487,12 @@ function section7(input: ReportInput): ReportSectionView {
   const mobile = sections.mobile;
   blocks.push({ type: "sub", text: "Mobile coverage" });
   // The mobile block in its second-pass form (BUG-095):
-  // ONE small-print basis line — modelled, at least one
-  // network, the share of premises in the named council
-  // area — then each service as a short bullet carrying
-  // its lead figure alone, the indoor figure in the same
-  // form where one is published (4G only). The served
+  // each service as a short bullet carrying its lead
+  // figure alone, the indoor figure in the same form
+  // where one is published (4G only) — then ONE
+  // small-print basis line after them (modelled, at
+  // least one network, the share of premises in the
+  // named council area; repositioned by BUG-124). The served
   // lines' repeated "at least one mobile network is
   // modelled…" clause no longer prints service by
   // service; the basis line states it once, for all of
@@ -3420,10 +3500,6 @@ function section7(input: ReportInput): ReportSectionView {
   // stands in the same bullet form, named as not
   // published — never a 0.
   if (mobile.state === "served" && mobile.council) {
-    blocks.push({
-      type: "note",
-      text: `Modelled by Ofcom for the whole ${mobile.council} council area: each figure is the share of premises where at least one mobile network is modelled to have coverage. It is not a measurement at this home.`,
-    });
     const bullets: string[] = [];
     for (const service of mobile.services) {
       const lead = MOBILE_SERVICE_LEADS[service.service] ?? service.label;
@@ -3445,6 +3521,15 @@ function section7(input: ReportInput): ReportSectionView {
       }
     }
     if (bullets.length > 0) blocks.push({ type: "list", items: bullets });
+    // The basis line stands AFTER the figures it
+    // explains (BUG-124, founder ruling 22 Nov 2026 —
+    // small print never precedes its data). It used to
+    // open the block, wearing its hairline above
+    // "MOBILE COVERAGE" in the founder's screenshots.
+    blocks.push({
+      type: "note",
+      text: `Modelled by Ofcom for the whole ${mobile.council} council area: each figure is the share of premises where at least one mobile network is modelled to have coverage. It is not a measurement at this home.`,
+    });
   } else if (mobile.line) {
     blocks.push({ type: "line", text: mobile.line });
   }
@@ -3461,10 +3546,6 @@ function section7(input: ReportInput): ReportSectionView {
       type: "note",
       text: "Broadband and mobile: the exact package at this home varies by provider.",
     });
-
-  // Planning applications no longer stand in this section
-  // (item 14): the hand-off is a neighbourhood fact and
-  // stands in Section 6, with the Census block.
 
   // Planning constraints & land: the four polygon layers
   // print as one bullet list, not a stack of paragraphs
@@ -3484,6 +3565,55 @@ function section7(input: ReportInput): ReportSectionView {
   if (constraints.builtUpArea.beyondLine)
     constraintLines.push(sentenceLine(constraints.builtUpArea.beyondLine));
   blocks.push({ type: "list", items: constraintLines });
+  // The planning group's small print (BUG-125, founder
+  // ruling 22 Nov 2026): a one-line distinguisher after
+  // the block, telling the reader what kind of fact the
+  // block holds, then a one-line definition for each
+  // opaque term the block actually engages — a
+  // designation's definition stands where the home is
+  // inside that designation, which is when the term
+  // bites.
+  blocks.push({
+    type: "note",
+    text: "Planning constraints are the designations already in force over this home and its plot — what is already protected or restricted here.",
+  });
+  if (constraints.conservationArea.state === "inside")
+    blocks.push({
+      type: "note",
+      text: "A conservation area is an area the council has designated for its special architectural or historic character, where extra planning controls protect that character.",
+    });
+  if (constraints.article4.state === "inside")
+    blocks.push({
+      type: "note",
+      text: "An Article 4 direction removes some permitted development rights — the changes a householder can usually make without applying for permission — so those changes need a planning application in the area it covers.",
+    });
+  if (constraints.greenBelt.state === "inside")
+    blocks.push({
+      type: "note",
+      text: "Green belt is land kept permanently open to stop towns spreading into the countryside — building on it is tightly restricted.",
+    });
+
+  // Planning applications (the D31 hand-off: the
+  // council's register, never a count and never a named
+  // list) stand directly after Planning constraints &
+  // land (BUG-125): the block moved here from Section 6
+  // so the two planning blocks stand together, each
+  // with its distinguisher — proposals asked for,
+  // against designations already in force.
+  const planning = sections.planningApplications;
+  blocks.push({ type: "sub", text: "Planning applications" });
+  blocks.push({ type: "line", text: sentenceLine(planning.line) });
+  if (planning.link)
+    blocks.push({
+      type: "lineLink",
+      text: "",
+      label: planning.link.label,
+      href: planning.link.url,
+    });
+  blocks.push({
+    type: "note",
+    text: "Planning applications are proposals other people have made to the council near this home — things asked for, not yet decided or built.",
+  });
 
   // Brownfield land in full (M8.10, item (i); decision
   // D41): the count line or the gated absence line as
@@ -3509,7 +3639,12 @@ function section7(input: ReportInput): ReportSectionView {
         detail: site.hectaresLine ? sentence(site.hectaresLine) : null,
         tag: null,
         dist: `${formatMiles(site.miles)} mi`,
-        distBand: distanceBand("everyday", site.miles),
+        // BUG-126: a brownfield site's pill inverts to
+        // the concern family — a recorded development
+        // site close by is the thing a buyer weighs, so
+        // red within a mile, orange to three, green
+        // beyond (the industrial-sites mechanism).
+        distBand: distanceBand("concern", site.miles),
         extra: [site.statusLine, site.dwellingsLine]
           .filter((line): line is string => line !== null)
           .map((line) => sentenceLine(line)),
@@ -3518,6 +3653,12 @@ function section7(input: ReportInput): ReportSectionView {
   }
   if (brownfield.beyondLine)
     blocks.push({ type: "line", text: sentenceLine(brownfield.beyondLine) });
+  // The term's one-line definition (BUG-125), in small
+  // print after the block's findings.
+  blocks.push({
+    type: "note",
+    text: "Brownfield land is land that has been built on before, registered by the council as suitable for redevelopment.",
+  });
 
   // Listed buildings & heritage (item 23): the named
   // buildings keep their rows; every other line of the
@@ -3544,9 +3685,35 @@ function section7(input: ReportInput): ReportSectionView {
       })),
     });
   }
+  // BUG-127 (founder ruling 22 Nov 2026): each other
+  // designation is ONE bullet carrying its whole
+  // finding in a single sentence — the absence (or the
+  // inside finding) with its nearest named in the same
+  // bullet, and the nearest named ONLY when it stands
+  // within the 2-mile frame. The far-away tails the
+  // brain's beyond lines used to print (a wreck 32.876
+  // miles away, at raw three-decimal precision) are
+  // gone: every distance here is composed from the
+  // served figure at the report's one decimal. The
+  // coverage states (a register not filed, not
+  // published, or covering England only) are not
+  // findings — they demote to small print after the
+  // bullets, with the local-lists line.
   const heritageLines: string[] = [];
-  if (heritage.listed.within.length === 0) heritageLines.push(sentenceLine(heritage.listed.line));
-  if (heritage.listed.beyondLine) heritageLines.push(sentenceLine(heritage.listed.beyondLine));
+  const heritageNotes: string[] = [];
+  if (heritage.listed.within.length === 0) {
+    heritageLines.push(sentenceLine(heritage.listed.line));
+    // The listed lead's own beyond sentence, recomposed
+    // from the served parts at one decimal (the brain's
+    // line carries its raw miles; the results page's
+    // BUG-014 rule, applied here as everywhere).
+    if (heritage.listed.beyondNearest) {
+      const beyond = heritage.listed.beyondNearest;
+      heritageLines.push(
+        `None within 2 miles — the nearest listed building is ${beyond.name ?? "an unnamed listed building"} (grade ${beyond.grade}), ${formatMiles(beyond.miles)} miles away.`,
+      );
+    }
+  }
   if (heritage.atPoint.state === "recorded")
     heritageLines.push(sentenceLine(heritage.atPoint.line));
   if (heritage.atPoint.state === "needs-exact-home")
@@ -3559,30 +3726,32 @@ function section7(input: ReportInput): ReportSectionView {
     heritage.worldHeritageBufferZones,
     heritage.parksAndGardens,
   ]) {
-    heritageLines.push(sentenceLine(layer.line));
-    // The nearest, named (BUG-097): every designation
-    // layer takes the listed-buildings pattern — where
-    // the nearest designation stands beyond the filed
-    // radius, the served beyond line names it; where
-    // one stands within the radius but does not cover
-    // this point, the nearest line is composed here
-    // from the served name and distance. An absence
-    // that names nothing leaves the reader unable to
-    // tell a monument streets away from none in the
-    // county; the facts were already served — only the
-    // printing was missing. (Registered parks & gardens
-    // printed their beyond line before this batch; the
-    // other five layers now print theirs the same way.)
-    if (layer.beyondLine) {
-      heritageLines.push(sentenceLine(layer.beyondLine));
-    } else if (layer.state === "none-found" && layer.nearest) {
+    if (layer.state === "inside") {
+      heritageLines.push(sentenceLine(layer.line));
+    } else if (layer.state === "none-found") {
       heritageLines.push(
-        `The nearest is ${layer.nearest.name}, ${formatMiles(layer.nearest.miles)} miles away.`,
+        layer.nearest && layer.nearest.miles <= 2
+          ? `${sentenceLine(layer.line)} The nearest is ${layer.nearest.name ?? "an unnamed designation"}, ${formatMiles(layer.nearest.miles)} miles away.`
+          : sentenceLine(layer.line),
       );
+    } else {
+      heritageNotes.push(sentenceLine(layer.line));
     }
   }
-  if (heritage.localListsLine) heritageLines.push(sentenceLine(heritage.localListsLine));
+  if (heritage.localListsLine) heritageNotes.push(sentenceLine(heritage.localListsLine));
   if (heritageLines.length > 0) blocks.push({ type: "list", items: heritageLines });
+  for (const note of heritageNotes) blocks.push({ type: "note", text: note });
+  // The listed term's one-line definition (BUG-125) and
+  // the designations' set line (BUG-127): small print
+  // after the block's data.
+  blocks.push({
+    type: "note",
+    text: "A listed building is on the national list for its special architectural or historic interest and is protected by law — changing or demolishing it needs special consent from the council.",
+  });
+  blocks.push({
+    type: "note",
+    text: "The designations above are the national registers' own categories — what each one protects stands on the planning How-we-check page, linked at the end of this section.",
+  });
 
   // Building safety (M8.10, decision D17) — served in
   // full by the bundle and, until this step, rendered
@@ -3626,22 +3795,88 @@ function section7(input: ReportInput): ReportSectionView {
       items: group.decisions.map((decision) => sentenceLine(decision.line)),
     });
   }
-  if (buildingSafety.explainer) blocks.push({ type: "note", text: buildingSafety.explainer });
+  // BUG-128 (founder ruling 22 Nov 2026): the block's
+  // long explainer no longer prints here — it filled a
+  // page of italics in the founder's flat report. One
+  // short small-print line stands in its place, and the
+  // full text lives on the building-safety How-we-check
+  // page, which this section's link line names. (The
+  // bundle still serves the explainer; the report
+  // simply no longer prints it.)
+  if (buildingSafety.explainer)
+    blocks.push({
+      type: "note",
+      text: "The two records answer different questions, and each has limits — what they can and cannot show stands on the building-safety How-we-check page, linked at the end of this section.",
+    });
 
-  // Nature & protected areas (item 23): the same
-  // treatment — the block's lines print as one bullet
-  // list, in their served order.
+  // Nature & protected areas (item 23), rebuilt by
+  // BUG-129 (founder ruling 22 Nov 2026): the count
+  // line, then the grouped designated places the
+  // bundle serves as NAMED ROWS under it — the block
+  // used to serve the count and never name the places
+  // (Birkdale's three SSSIs stood behind "3 designated
+  // places within 2 miles" with no names anywhere).
+  // Each row: the place's name, its designation stack
+  // in the brain's plain words, and its distance pill
+  // on the everyday bands. The woodland and habitat
+  // findings follow as bullets; the coverage lines —
+  // the filed-count guard's designations line and the
+  // Ancient Woodland Inventory's provisional caveat —
+  // demote to small print under the findings they
+  // qualify (BUG-124's after-the-data rule).
   const nature = sections.nature;
   blocks.push({ type: "sub", text: "Nature & protected areas" });
-  const natureLines: string[] = [];
-  if (nature.coverageLine) natureLines.push(sentenceLine(nature.coverageLine));
-  if (nature.placesLine) natureLines.push(sentenceLine(nature.placesLine));
-  if (nature.designationsLine) natureLines.push(sentenceLine(nature.designationsLine));
-  natureLines.push(sentenceLine(nature.ancientWoodland.line));
+  // The count group (coverage, count, and the beyond
+  // line where no place stands within) prints as one
+  // bullet list; the named rows stand under it; the
+  // woodland and habitat findings follow as their own
+  // list.
+  const leadLines: string[] = [];
+  if (nature.coverageLine) leadLines.push(sentenceLine(nature.coverageLine));
+  if (nature.placesLine) leadLines.push(sentenceLine(nature.placesLine));
+  // The beyond sentence recomposed from the served
+  // place at one decimal (the brain's beyondLine
+  // carries its raw miles — the BUG-014 rule).
+  if (nature.beyondPlace)
+    leadLines.push(
+      `No designated site within 2 miles — the nearest is ${nature.beyondPlace.line}, ${formatMiles(nature.beyondPlace.miles)} miles away.`,
+    );
+  // The habitat finding likewise: composed from the
+  // served nearest where one stands, so its distance
+  // prints at the report's one decimal, never the
+  // brain's raw figure.
+  const habitat = nature.priorityHabitat;
+  const habitatLine =
+    habitat.state === "served" && habitat.nearest
+      ? habitat.nearest.miles === 0
+        ? `Priority habitat recorded at this postcode point: ${habitat.nearest.habitat}.`
+        : `Nearest recorded priority habitat: ${habitat.nearest.habitat}, ${formatMiles(habitat.nearest.miles)} miles away.`
+      : sentenceLine(habitat.line);
+  const tailLines: string[] = [sentenceLine(nature.ancientWoodland.line), habitatLine];
+  if (leadLines.length > 0) blocks.push({ type: "list", items: leadLines });
+  if (nature.places.length > 0) {
+    blocks.push({
+      type: "rows",
+      rows: nature.places.map((place) => {
+        const displayName = place.name ?? "an unnamed site";
+        return {
+          name: displayName,
+          detail: place.line.startsWith(`${displayName} — `)
+            ? place.line.slice(displayName.length + 3)
+            : place.line,
+          tag: null,
+          dist: `${formatMiles(place.miles)} mi`,
+          distBand: distanceBand("everyday", place.miles),
+          extra: [],
+        };
+      }),
+    });
+  }
+  if (tailLines.length > 0) blocks.push({ type: "list", items: tailLines });
+  if (nature.designationsLine)
+    blocks.push({ type: "note", text: sentenceLine(nature.designationsLine) });
   if (nature.ancientWoodlandInventoryLine)
-    natureLines.push(sentenceLine(nature.ancientWoodlandInventoryLine));
-  natureLines.push(sentenceLine(nature.priorityHabitat.line));
-  blocks.push({ type: "list", items: natureLines });
+    blocks.push({ type: "note", text: sentenceLine(nature.ancientWoodlandInventoryLine) });
 
   // The area in numbers no longer stands in this section
   // (item 14): the Census and deprivation block is a
@@ -3653,6 +3888,16 @@ function section7(input: ReportInput): ReportSectionView {
 // ------------------------------------------------------------------
 // Section 6 — The neighbourhood
 // ------------------------------------------------------------------
+
+// The broadband block's tie line (BUG-122, founder
+// ruling 22 Nov 2026): the one small-print line that
+// reconciles the headline, the threshold bullets and
+// the band table. "The two fastest bands" is the
+// founder's "top two rows" stated against the table's
+// printed order, which runs slowest first — the two
+// fastest bands are its last two rows.
+const BROADBAND_TIE_LINE =
+  "The bands in the table below split the same premises in this postcode between them and add up to 100%: superfast is the two fastest bands added together. The gigabit figure above is counted by network technology, not taken from the table.";
 
 // The deprivation block's one explaining note (M8.11):
 // the founder-adopted words, verbatim — the prep's draft
@@ -3865,37 +4110,13 @@ function section6(input: ReportInput): ReportSectionView {
     }
   }
 
-  // Clean air zones & driving charges, under its own
-  // label (scope (o); renamed by BUG-085). No charge
-  // amount is ever printed.
-  const zones = sections.chargingZones;
-  blocks.push({ type: "sub", text: "Clean air zones & driving charges" });
-  blocks.push({ type: "line", text: zones.line });
-  if (zones.scheme) {
-    if (zones.scheme.carsLine) blocks.push({ type: "line", text: zones.scheme.carsLine });
-    if (zones.scheme.classLine) blocks.push({ type: "line", text: zones.scheme.classLine });
-    if (zones.scheme.dateLine) blocks.push({ type: "line", text: zones.scheme.dateLine });
-    blocks.push({
-      type: "lineLink",
-      text: "",
-      label: zones.scheme.checkerLabel,
-      href: zones.scheme.checkerUrl,
-    });
-  }
-  if (zones.basisLine) blocks.push({ type: "note", text: zones.basisLine });
-
-  // The planning hand-off (D31): the council's register,
-  // never a count and never a named list.
-  const planning = sections.planningApplications;
-  blocks.push({ type: "sub", text: "Planning applications" });
-  blocks.push({ type: "line", text: sentenceLine(planning.line) });
-  if (planning.link)
-    blocks.push({
-      type: "lineLink",
-      text: "",
-      label: planning.link.label,
-      href: planning.link.url,
-    });
+  // Clean air zones and planning applications no longer
+  // stand in this section (follow-up stack): the zones
+  // moved into Section 4's air content (BUG-118) and the
+  // planning hand-off into Section 7, directly after
+  // Planning constraints & land (BUG-125) — each stands
+  // with the content it belongs to, and this section's
+  // link line no longer names their pages.
 
   return section(6, "The neighbourhood", blocks);
 }
@@ -4310,7 +4531,12 @@ function section8(input: ReportInput): ReportSectionView {
     let designExplainer: string | null = null;
     let currentExplainer: string | null = null;
     for (const [type, typeDefences] of byType) {
-      blocks.push({ type: "sub", text: type });
+      // Each type's heading is a layer-3 group heading
+      // under the defences block's own layer-2 title
+      // (heading audit A-B7): semibold sentence case,
+      // no rule — the step down the parent/child pair
+      // was missing.
+      blocks.push({ type: "sub3", text: type });
       const groups = new Map<string, { defence: ServedFloodDefence; count: number }>();
       for (const defence of typeDefences) {
         const key = JSON.stringify([
@@ -4400,7 +4626,20 @@ function section8(input: ReportInput): ReportSectionView {
     }
   }
   blocks.push({ type: "note", text: climate.caveatLine });
-  blocks.push({ type: "note", text: served.howWeCheck });
+  // BUG-128 (founder ruling 22 Nov 2026): the section no
+  // longer closes with the served howWeCheck passage —
+  // a full paragraph of small print at the old rendered
+  // size. One short line stands in its place; the full
+  // limits text (the postcode-point basis, the
+  // no-past-flooding record, the insurers-and-lenders
+  // boundary, the unknown-source shapes) lives on the
+  // flood-risk How-we-check page, which this section's
+  // link line names. The served passage itself is
+  // untouched in the bundle.
+  blocks.push({
+    type: "note",
+    text: "These answers describe the postcode point on the published maps, not the property itself — the full limits stand on the flood-risk How-we-check page, linked at the end of this section.",
+  });
   return section(8, "Flood risk", blocks);
 }
 

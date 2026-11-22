@@ -6204,6 +6204,7 @@
           "west": "number"
         },
         "homeStreet": "null",
+        "streetRead": "string",
         "streets": [],
         "surfaceWater": "null",
         "zones": "null"
@@ -6311,6 +6312,7 @@
           "west": "number"
         },
         "homeStreet": "null",
+        "streetRead": "string",
         "streets": [],
         "surfaceWater": "null",
         "zones": "null"
@@ -6455,6 +6457,7 @@
           "west": "number"
         },
         "homeStreet": "null",
+        "streetRead": "string",
         "streets": [],
         "surfaceWater": "null",
         "zones": "null"
@@ -6597,6 +6600,7 @@
           "west": "number"
         },
         "homeStreet": "null",
+        "streetRead": "string",
         "streets": [],
         "surfaceWater": "null",
         "zones": "null"

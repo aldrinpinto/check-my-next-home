@@ -4843,7 +4843,7 @@ describe("brownfield land — points serving, gated absence", () => {
     expect(brownfield.state).toBe("served");
     expect(brownfield.countWithin).toBe(2);
     expect(brownfield.line).toBe(
-      "2 recorded brownfield sites within 2 miles of the postcode point",
+      "2 recorded brownfield sites within 5 miles of the postcode point",
     );
     expect(brownfield.within).toHaveLength(2);
     const nearest = brownfield.within[0];
@@ -4887,10 +4887,10 @@ describe("brownfield land — points serving, gated absence", () => {
     expect(brownfield.state).toBe("none-found");
     expect(brownfield.countWithin).toBe(0);
     expect(brownfield.line).toBe(
-      "no brownfield sites are recorded within 2 miles of the postcode point on the national register",
+      "no brownfield sites are recorded within 5 miles of the postcode point on the national register",
     );
     expect(brownfield.beyondLine).toBe(
-      "none within 2 miles — the nearest recorded site is Etwell House and former coach, Station Approach, 2.41 miles away (straight-line distance from the postcode point)",
+      "none within 5 miles — the nearest recorded site is Etwell House and former coach, Station Approach, 2.41 miles away (straight-line distance from the postcode point)",
     );
   });
 

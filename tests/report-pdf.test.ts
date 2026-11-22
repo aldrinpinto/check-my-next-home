@@ -114,6 +114,7 @@ function mapsFor(
     homeStreet,
     zones,
     surfaceWater,
+    streetRead: "banded",
   };
 }
 

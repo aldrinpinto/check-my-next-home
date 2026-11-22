@@ -40,6 +40,10 @@ const INDEXABLE_ROUTES: Record<string, () => Promise<MetadataModule>> = {
   "/check/air-quality": () => import("../app/check/air-quality/page"),
   "/check/solar-potential": () => import("../app/check/solar-potential/page"),
   "/check/mobile-coverage": () => import("../app/check/mobile-coverage/page"),
+  // Follow-up stack (BUG-128) — the building-safety
+  // check page joins the indexable set with its own
+  // locked pair.
+  "/check/building-safety": () => import("../app/check/building-safety/page"),
   "/guides": () => import("../app/guides/page"),
   "/guides/checks-before-buying-a-house": () =>
     import("../app/guides/checks-before-buying-a-house/page"),

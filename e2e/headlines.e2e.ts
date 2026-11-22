@@ -78,6 +78,11 @@ interface GoldenHome {
   postcode: string;
   rowName: string;
   council: string;
+  // The brownfield headline counts the five-mile search
+  // (BUG-126 widened it from two miles); on the seeded
+  // fixture corpus the counts are the cut's three-mile
+  // counts, the cut holding no rows beyond three miles
+  // of a golden home.
   brownfieldLine: string;
   builtUpLine: string;
 }
@@ -88,7 +93,7 @@ const GOLDEN_HOMES: GoldenHome[] = [
     postcode: "CM3 2JT",
     rowName: "19 Birkdale Rise",
     council: "Braintree",
-    brownfieldLine: "2 recorded brownfield sites within 2 miles of the postcode point",
+    brownfieldLine: "10 recorded brownfield sites within 5 miles of the postcode point",
     builtUpLine: "Inside the Hatfield Peverel built-up area",
   },
   {
@@ -96,7 +101,7 @@ const GOLDEN_HOMES: GoldenHome[] = [
     postcode: "E16 1GN",
     rowName: "6 Exeter Road",
     council: "Newham",
-    brownfieldLine: "97 recorded brownfield sites within 2 miles of the postcode point",
+    brownfieldLine: "226 recorded brownfield sites within 5 miles of the postcode point",
     builtUpLine: "Inside the Newham built-up area",
   },
   {
@@ -104,7 +109,7 @@ const GOLDEN_HOMES: GoldenHome[] = [
     postcode: "KT17 1FH",
     rowName: "Flat 4, Minerva House, 12 Ceres Crescent",
     council: "Epsom and Ewell",
-    brownfieldLine: "30 recorded brownfield sites within 2 miles of the postcode point",
+    brownfieldLine: "98 recorded brownfield sites within 5 miles of the postcode point",
     builtUpLine: "Inside the Ewell built-up area",
   },
 ];

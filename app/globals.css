@@ -4659,7 +4659,10 @@ a.picker__row {
   padding: 24px 28px 6px;
 }
 .site-pages .rpt-section + .rpt-section {
-  border-top: 3px solid var(--sp-forest);
+  /* Heading/line rulebook rule 2 (follow-up stack): no
+     divider stands above a numbered section title — the
+     first layer-2 heading's own rule does the separating.
+     The air stays; the thick green rule goes. */
   margin-top: 22px;
 }
 .site-pages .rpt-secHead {
@@ -4709,25 +4712,34 @@ a.picker__row {
   border-top: 1px solid var(--sp-line);
   font-family: inherit;
 }
-.site-pages .rpt-sub:first-of-type {
-  margin-top: 10px;
-  padding-top: 0;
-  border-top: 0;
-}
-/* What's Nearby's group headings carry clear separation
-   and weight (print-check item 11): the section is a run
-   of look-alike place lists, so each group opens under a
-   hairline with air above it — the first group keeps the
-   section's own opening rhythm, rule-free. */
-.site-pages .rpt-section[data-section="5"] .rpt-sub {
-  border-top: 1px solid var(--sp-line);
-  padding-top: 14px;
-  margin-top: 24px;
-}
-.site-pages .rpt-section[data-section="5"] .rpt-sub:first-of-type {
+/* Heading/line rulebook rule 2 (follow-up stack): the
+   first layer-2 heading in a section KEEPS its rule —
+   that rule is what separates the section title from its
+   first group. The old :first-of-type strip and the
+   Section-5-scoped override (print-check item 11's
+   special case, subsumed when BUG-111 gave every
+   layer-2 heading the rule) are gone: one grammar,
+   report-wide. */
+/* Stacked layer-2 headings share one rule (BUG-117):
+   where two sub-headings stand back to back (the Pets
+   stack's shape), the second carries no rule of its own
+   and sits close under the first. */
+.site-pages .rpt-sub + .rpt-sub {
   border-top: 0;
   padding-top: 0;
-  margin-top: 10px;
+  margin-top: 2px;
+}
+/* Layer-3 group headings (BUG-119/BUG-121): a real step
+   down from layer 2 — semibold, sentence case, deep
+   colour, NO rule — for the groups that live inside a
+   layer-2 block (numbered improvement steps, the EV
+   block's two halves). */
+.site-pages .rpt-sub3 {
+  font-size: 0.98rem;
+  font-weight: 600;
+  color: var(--sp-deep);
+  margin: 16px 0 4px;
+  font-family: inherit;
 }
 /* The places diagram's legend in two columns (item 19):
    diagram and legend together sit well inside the
@@ -4766,8 +4778,9 @@ a.picker__row {
   letter-spacing: 0.08em;
   color: var(--sp-forest);
   margin: 12px 0 2px;
-  padding-bottom: 4px;
-  border-bottom: 1px solid var(--sp-line);
+  /* Heading/line rulebook (follow-up stack): no line
+     under a heading — the summary's group labels carry
+     no rule at all. */
   font-family: inherit;
 }
 .site-pages .rpt-tldr ul {
@@ -4789,7 +4802,14 @@ a.picker__row {
   border-bottom: 1px dashed var(--sp-line);
   font-size: 0.94rem;
 }
-.site-pages .rpt-row:last-child {
+/* Dotted lines stand BETWEEN rows only (rulebook rule
+   5): rows render inside a .rpt-rows wrapper, so the
+   last row of each list is a true :last-child and
+   carries no line under it. (Rows used to render as a
+   bare fragment inside the section container, where
+   :last-child almost never matched and nearly every
+   list kept a trailing dotted line.) */
+.site-pages .rpt-rows .rpt-row:last-child {
   border-bottom: 0;
 }
 .site-pages .rpt-row .rmain {
@@ -4941,26 +4961,24 @@ a.picker__row {
    report's 0.94rem body. One size, set once, here and
    in .rpt-small and .rpt-cellSub below; no per-instance
    sizes anywhere. */
-.site-pages .rpt-chartNote {
+/* BUG-128 (follow-up stack): the note selectors carry
+   .rpt-doc so they outrank `.rpt-doc p` (0,2,1) — as
+   plain two-class selectors they LOST to it, and every
+   note rendered at body size (0.94rem) with only the
+   italic applying, which is why the founder's pages of
+   "small print" read at near-body size. At (0,3,0) the
+   terms-and-conditions scale below is the size that
+   actually renders. Rulebook rule 7: note blocks carry
+   NO top hairline — the old border-top and its
+   table/note carve-outs are gone. */
+.site-pages .rpt-doc .rpt-chartNote {
   font-size: 0.62rem;
   font-style: italic;
   color: var(--sp-muted);
   line-height: 1.5;
   margin: 14px 0 0;
-  padding-top: 8px;
-  border-top: 1px solid var(--sp-line-soft);
 }
-/* One rule, never two (print-check item 5): a note that
-   follows a table stands under the table's own closing
-   border, and a note that follows another note continues
-   the same run — neither stacks a second bronze rule
-   above the note's text. */
-.site-pages .rpt-doc table + .rpt-chartNote,
-.site-pages .rpt-chartNote + .rpt-chartNote {
-  border-top: 0;
-  padding-top: 0;
-}
-.site-pages .rpt-chartNote + .rpt-chartNote {
+.site-pages .rpt-doc .rpt-chartNote + .rpt-chartNote {
   margin-top: 2px;
 }
 .site-pages .rpt-barRow {
@@ -5191,7 +5209,10 @@ a.picker__row {
   height: auto;
   display: block;
 }
-.site-pages .rpt-small {
+.site-pages .rpt-doc .rpt-small {
+  /* BUG-128: .rpt-doc in the selector for the same
+     reason as .rpt-chartNote above — the small print
+     must outrank the document's body-paragraph rule. */
   font-size: 0.62rem;
   font-style: italic;
   color: var(--sp-muted);

@@ -712,10 +712,14 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
     };
 
     // Brownfield: the fixture cut's deduped sites, counted
-    // and distanced by PostGIS from the filed points.
+    // and distanced by PostGIS from the filed points. The
+    // counts are the five-mile counts (BUG-126 widened the
+    // search from two miles); on the fixture filing they
+    // equal the cut's three-mile counts, the cut holding
+    // no rows beyond three miles of a golden home.
     const birkdale = area("birkdale1");
     expect(birkdale.constraints.brownfield.state).toBe("served");
-    expect(birkdale.constraints.brownfield.countWithin).toBe(2);
+    expect(birkdale.constraints.brownfield.countWithin).toBe(10);
     expect(birkdale.constraints.brownfield.within[0]?.label).toBe(
       "Universal Garage, The Street, Hatfield Peverel",
     );
@@ -726,7 +730,7 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
 
     const exeter = area("exeter1");
     expect(exeter.constraints.brownfield.state).toBe("served");
-    expect(exeter.constraints.brownfield.countWithin).toBe(97);
+    expect(exeter.constraints.brownfield.countWithin).toBe(226);
     expect(exeter.constraints.brownfield.within[0]?.label).toBe(
       "45 Beckton Road, Canning Town, London, E16 4EA",
     );
@@ -734,7 +738,7 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
 
     const minerva = area("minerva1");
     expect(minerva.constraints.brownfield.state).toBe("served");
-    expect(minerva.constraints.brownfield.countWithin).toBe(30);
+    expect(minerva.constraints.brownfield.countWithin).toBe(98);
     expect(minerva.constraints.brownfield.within[0]?.label).toBe(
       "Etwell House and former coach, Station Approach",
     );
@@ -1002,8 +1006,11 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
 
     const minerva = nearby("minerva1").industrialSites;
     expect(minerva?.state).toBe("none-within-5-miles");
+    // Re-pinned (BUG-113): the search radius is ten
+    // miles — the absence line names ten (the state
+    // string keeps its original name).
     expect(minerva?.line).toBe(
-      "No regulated industrial site in the Environment Agency's Pollution Inventory for 2024 is recorded within five miles of this postcode point.",
+      "No regulated industrial site in the Environment Agency's Pollution Inventory for 2024 is recorded within ten miles of this postcode point.",
     );
 
     // The devolved witnesses: not covered, each naming
@@ -1085,7 +1092,11 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
       ["Nonsuch High School for Girls", true],
     ]);
     // Exeter's three all file "Does not have a sixth
-    // form"; Birkdale's one files the same.
+    // form". Birkdale's list serves to five miles
+    // (BUG-109), so three secondaries stand: Lift
+    // Maltings files "Does not have a sixth form"; the
+    // two the wider radius serves both file "Has a
+    // sixth form".
     expect(
       category("exeter1", "schools-secondary").places.map((p) => [p.name, p.sixthForm]),
     ).toEqual([
@@ -1095,7 +1106,11 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
     ]);
     expect(
       category("birkdale1", "schools-secondary").places.map((p) => [p.name, p.sixthForm]),
-    ).toEqual([["Lift Maltings", false]]);
+    ).toEqual([
+      ["Lift Maltings", false],
+      ["Lift New Rickstones", true],
+      ["Plume School", true],
+    ]);
     // The marker's null value has no witness among the
     // fixture's served secondaries (every one files Has
     // or Does-not); it is pinned in tests/sixth-forms
@@ -1109,16 +1124,22 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
       for (const place of secondary?.places ?? []) expect(place).toHaveProperty("sixthForm");
     }
 
-    // Birkdale: nothing within on the fixture filing;
-    // the beyond name is the flagged secondary the D64
-    // ruling names nationally — Lift New Rickstones,
-    // 3.212 miles — drawn from the wider pool (ruling 4).
+    // Birkdale: nothing within on the fixture filing.
+    // The beyond pool starts beyond the five-mile list
+    // radius (BUG-110), so the flagged secondaries the
+    // radius serves (Lift New Rickstones, 3.212 miles;
+    // Plume School, 4.488) can no longer be named here;
+    // on the fixture cut the nearest ruling-4 witness
+    // beyond five miles is Ilford County High School,
+    // 25.896 miles (the cut files no Essex sixth-form
+    // evidence nearer beyond the radius — the national
+    // picture differs and is not what this suite pins).
     const birkdaleCat = category("birkdale1", "sixth-forms");
     expect(birkdaleCat.state).toBe("none-within");
     expect(birkdaleCat.countWithin).toBe(0);
-    expect(birkdaleCat.beyondNearest?.name).toBe("Lift New Rickstones");
-    expect(Math.abs((birkdaleCat.beyondNearest?.miles ?? 0) - 3.212)).toBeLessThan(0.005);
-    expect(birkdaleCat.line).toContain("nearest is Lift New Rickstones");
+    expect(birkdaleCat.beyondNearest?.name).toBe("Ilford County High School");
+    expect(Math.abs((birkdaleCat.beyondNearest?.miles ?? 0) - 25.896)).toBeLessThan(0.005);
+    expect(birkdaleCat.line).toContain("nearest is Ilford County High School");
 
     // Exeter: the beyond path on the fixture filing
     // names Bexley Grammar School, a flagged secondary —
@@ -1130,12 +1151,15 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
     expect(Math.abs((exeterCat.beyondNearest?.miles ?? 0) - 5.484)).toBeLessThan(0.005);
 
     // City Island: a second ruling-4 witness through the
-    // real source — St Bonaventure's RC School, a flagged
-    // secondary just beyond the radius.
+    // real source. St Bonaventure's RC School (2.088
+    // miles) stood as the beyond name under the 2-mile
+    // radius; inside the five-mile radius now (BUG-110),
+    // the beyond name is the nearest witness past five
+    // miles — Bexley Grammar School, 5.785 miles.
     const cityCat = category("cityIsland2", "sixth-forms");
     expect(cityCat.state).toBe("none-within");
-    expect(cityCat.beyondNearest?.name).toBe("St Bonaventure's RC School");
-    expect(Math.abs((cityCat.beyondNearest?.miles ?? 0) - 2.088)).toBeLessThan(0.005);
+    expect(cityCat.beyondNearest?.name).toBe("Bexley Grammar School");
+    expect(Math.abs((cityCat.beyondNearest?.miles ?? 0) - 5.785)).toBeLessThan(0.005);
   });
 
   it("school destinations (M6.34, D51/D65): both stages served on the core three through the real source; 16-plus rows filed but never served", async () => {
@@ -1912,7 +1936,9 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
     expect(birkdale).toContain(
       "The certificate's suggested improvements, in the register's order — the register's modelled steps for this home, not advice.",
     );
-    expect(birkdale).toContain("2 recorded brownfield sites within 2 miles of the postcode point.");
+    expect(birkdale).toContain(
+      "10 recorded brownfield sites within 5 miles of the postcode point.",
+    );
     expect(birkdale).toContain("Universal Garage, The Street, Hatfield Peverel");
     expect(birkdale).toContain("The register publishes 9 net dwellings for the site.");
 

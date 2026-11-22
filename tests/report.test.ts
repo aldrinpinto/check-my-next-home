@@ -557,19 +557,36 @@ describe("report — Section 6 the neighbourhood", () => {
     expect(JSON.stringify(view.shortVersion)).not.toContain("Claimant Count");
   });
 
-  it("charging zones render under their own label with no charge amount (o)", () => {
-    // Renamed in the second pass (BUG-085 item 1).
-    expect(s6).toContain("Clean air zones & driving charges");
+  it("charging zones render in Section 4 with the air content, under their own label with no charge amount (o) (BUG-118)", () => {
+    // Renamed in the second pass (BUG-085 item 1); moved
+    // from this section into Section 4 in the follow-up
+    // stack (BUG-118).
+    const s4 = sectionText(view, 4);
+    expect(s4).toContain("Clean air zones & driving charges");
+    expect(s6).not.toContain("Clean air zones & driving charges");
     // The brain's line is a lowercase fragment; standing
     // alone it is capitalised (item 15).
-    expect(s6).toContain("Not inside any Clean Air Zone");
-    const zonesAt = s6.indexOf("Clean air zones & driving charges");
-    expect(s6.slice(zonesAt)).not.toContain("£");
+    expect(s4).toContain("Not inside any Clean Air Zone");
+    const zonesAt = s4.indexOf("Clean air zones & driving charges");
+    expect(s4.slice(zonesAt)).not.toContain("£");
   });
 
-  it("the planning hand-off renders — never a count, never a named list", () => {
-    expect(s6).toContain("planning register");
-    expect(s6).toContain("Search the register of planning decisions (GOV.UK)");
+  it("the planning hand-off renders in Section 7 after the constraints — never a count, never a named list (BUG-125)", () => {
+    const s7 = sectionText(view, 7);
+    expect(s6).not.toContain("planning register");
+    expect(s7).toContain("planning register");
+    expect(s7).toContain("Search the register of planning decisions (GOV.UK)");
+    // The two planning blocks stand together, constraints
+    // first, each closed by its distinguisher.
+    expect(s7.indexOf("Planning constraints & land")).toBeLessThan(
+      s7.indexOf("Planning applications"),
+    );
+    expect(s7).toContain(
+      "Planning constraints are the designations already in force over this home and its plot",
+    );
+    expect(s7).toContain(
+      "Planning applications are proposals other people have made to the council near this home",
+    );
   });
 });
 
@@ -718,10 +735,19 @@ describe("report — Section 10 and the closing notes", () => {
     // BUG-114 (superseding BUG-052 for this point): each
     // section closes with its own small-print How-we-check
     // line naming its page(s); Section 10's list stays.
+    // Section 6 is the exception since the follow-up
+    // stack: its two explained blocks moved out (clean
+    // air zones to Section 4, BUG-118; planning
+    // applications to Section 7, BUG-125), so it maps no
+    // page and gains no line, like Sections 9 and 10.
     for (const section of view.sections.slice(0, 8)) {
       const text = JSON.stringify(section);
-      expect(text).toContain("/check/");
+      if (section.number === 6) expect(text).not.toContain("/check/");
+      else expect(text).toContain("/check/");
     }
+    // Section 7's line names the building-safety page
+    // (BUG-128's new page) among its pages.
+    expect(sectionText(view, 7)).toContain("/check/building-safety");
     const s3Text = sectionText(view, 3);
     expect(s3Text).toContain("/check/schools");
     // Section 9 has no mapped pages and gains no line.
@@ -1511,6 +1537,7 @@ function mapsWith(overrides: Partial<FloodMaps> = {}): FloodMaps {
     homeStreet,
     zones: null,
     surfaceWater: null,
+    streetRead: "banded",
     ...overrides,
   };
 }
@@ -2154,7 +2181,14 @@ describe("report — the print-check batch (founder's PDF print check, 21 Nov 20
     // The fixture's surface-water layer serves a Low edge
     // 0.03 miles away; the old list printed "Low — 0.0".
     expect(s8).not.toContain("Low — 0.0");
-    expect(s8).toContain("HOW-WE-CHECK-FLOOD");
+    // BUG-128: the served how-we-check passage no longer
+    // closes the section — one short line stands in its
+    // place, pointing at the flood-risk How-we-check
+    // page, which carries the full limits.
+    expect(s8).not.toContain("HOW-WE-CHECK-FLOOD");
+    expect(s8).toContain(
+      "These answers describe the postcode point on the published maps, not the property itself — the full limits stand on the flood-risk How-we-check page, linked at the end of this section.",
+    );
   });
 
   it("identical flood defences print as one entry carrying the record count (item 18)", () => {

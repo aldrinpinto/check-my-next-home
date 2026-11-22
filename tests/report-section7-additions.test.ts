@@ -155,8 +155,13 @@ describe("report — Section 7 additions (M8.10): building safety", () => {
       "Whether this building is on the Building Safety Regulator's register of high-rise residential buildings can only be checked on the register's own search service",
     );
     const blocks = section7(servedView).blocks;
+    // The finder names the high-rise register's label in
+    // full: since BUG-125 the planning hand-off's link
+    // ("Search the register of planning decisions…")
+    // stands earlier in the same section and also opens
+    // with "Search the register".
     const link = blocks.find(
-      (b) => b.type === "lineLink" && b.label.startsWith("Search the register"),
+      (b) => b.type === "lineLink" && b.label.startsWith("Search the register of high-rise"),
     );
     if (!link || link.type !== "lineLink") throw new Error("expected the register search link");
     expect(link.label).toBe("Search the register of high-rise residential buildings (GOV.UK)");
@@ -179,8 +184,14 @@ describe("report — Section 7 additions (M8.10): building safety", () => {
       "Remediation order (section 123 of the Building Safety Act 2022) for 1-31 Oyster Bay Apartments, Sterte, Poole BH15 2FN — HAV/00HQ/BSA/2025/0002, 10 April 2026.",
     );
     expect(text).toContain("LON/00AE/BSA/2024/0007, 3 March 2025.");
-    // The explainer closes the block.
-    expect(text).toContain("EXPLAINER-BS: what an empty tribunal answer does and does not mean");
+    // The short small-print line closes the block
+    // (BUG-128): the long explainer no longer prints in
+    // the report — its full text stands on the
+    // building-safety How-we-check page.
+    expect(text).toContain(
+      "The two records answer different questions, and each has limits — what they can and cannot show stands on the building-safety How-we-check page, linked at the end of this section.",
+    );
+    expect(text).not.toContain("EXPLAINER-BS");
   });
 });
 
@@ -356,7 +367,7 @@ describe("report — Section 7 additions (M8.10): broadband & mobile depth", () 
     return buildReportView(input({ area }));
   }
 
-  it("broadband: the category lines, the six-band table and the unclassified share, in order", () => {
+  it("broadband: the threshold bullets, the tie line, the six-band table and the unclassified share, in order", () => {
     const built = depthView();
     const text = sectionText(built, 7);
     const gigabitAt = text.indexOf("BROADBAND-LINE");
@@ -366,8 +377,18 @@ describe("report — Section 7 additions (M8.10): broadband & mobile depth", () 
     const ultra100At = text.indexOf(
       "Ultrafast broadband (at least 100 Mbit/s) is available to 91.5% of premises in this postcode.",
     );
-    const ultra300At = text.indexOf(
+    // BUG-122: the "300 Mbit/s or more" category line is
+    // dropped — it duplicated the band table's fastest
+    // row. The sentence must not stand anywhere (the
+    // table's own row label, "300 Mbit/s or more", is a
+    // different string and stays).
+    expect(text).not.toContain(
       "Broadband at 300 Mbit/s or more is available to 88.9% of premises in this postcode.",
+    );
+    // The tie line stands above the band table, after
+    // the threshold bullets.
+    const tieAt = text.indexOf(
+      "The bands in the table below split the same premises in this postcode between them and add up to 100%: superfast is the two fastest bands added together. The gigabit figure above is counted by network technology, not taken from the table.",
     );
     const unclassifiedAt = text.indexOf(
       "1.7% of premises in this postcode could not be matched to a provider record with a predicted speed, so they appear in no speed band.",
@@ -375,8 +396,8 @@ describe("report — Section 7 additions (M8.10): broadband & mobile depth", () 
     expect(gigabitAt).toBeGreaterThanOrEqual(0);
     expect(superfastAt).toBeGreaterThan(gigabitAt);
     expect(ultra100At).toBeGreaterThan(superfastAt);
-    expect(ultra300At).toBeGreaterThan(ultra100At);
-    expect(unclassifiedAt).toBeGreaterThan(ultra300At);
+    expect(tieAt).toBeGreaterThan(ultra100At);
+    expect(unclassifiedAt).toBeGreaterThan(tieAt);
     // The bands table stands between the category lines
     // and the unclassified line, with the bandsLine note
     // still in the block.
@@ -401,15 +422,16 @@ describe("report — Section 7 additions (M8.10): broadband & mobile depth", () 
     expect(text.toLowerCase()).not.toContain("full fibre is available");
   });
 
-  it("mobile: one basis line, then each service as a short bullet (BUG-095)", () => {
+  it("mobile: each service as a short bullet, then the one basis line after them (BUG-095, repositioned by BUG-124)", () => {
     const built = depthView();
     const text = sectionText(built, 7);
-    // The second-pass form: the shared wording stands
-    // once as the basis note — modelled, at least one
-    // network, the named council area — and each service
-    // is a bullet carrying its lead figure alone, the
-    // indoor figure in the same form where published.
-    // The all-operators shares no longer print.
+    // The second-pass form: each service is a bullet
+    // carrying its lead figure alone, the indoor figure
+    // in the same form where published — and the shared
+    // basis note stands AFTER the bullets (BUG-124:
+    // small print follows its data), modelled, at least
+    // one network, the named council area. The
+    // all-operators shares no longer print.
     expect(text).toContain(
       "Modelled by Ofcom for the whole Braintree council area: each figure is the share of premises where at least one mobile network is modelled to have coverage. It is not a measurement at this home.",
     );
@@ -425,6 +447,11 @@ describe("report — Section 7 additions (M8.10): broadband & mobile depth", () 
       expect(found, line).toBeGreaterThan(at);
       at = found;
     }
+    // The basis note stands after the last bullet
+    // (BUG-124).
+    expect(text.indexOf("Modelled by Ofcom for the whole Braintree council area")).toBeGreaterThan(
+      at,
+    );
     expect(text).not.toContain("All four mobile networks");
   });
 
@@ -699,7 +726,7 @@ describe("report — Section 7 additions (M8.10): registered parks & gardens", (
     expect(parksAt).toBeGreaterThan(bufferAt);
   });
 
-  it("inside a registered park or garden, the line names the site; beyond 2 miles, the nearest is named", () => {
+  it("inside a registered park or garden, the line names the site; the nearest is named only within the 2-mile frame (BUG-127)", () => {
     const area = areaWith();
     if (area.kind !== "area-bundle") throw new Error("expected an area bundle");
     area.sections.heritage.parksAndGardens = {
@@ -713,16 +740,44 @@ describe("report — Section 7 additions (M8.10): registered parks & gardens", (
       "The postcode point falls inside the Nonsuch Park registered park and garden.",
     );
 
+    // A nearest within the frame is named in the same
+    // bullet as the absence, at one decimal.
     const area2 = areaWith();
     if (area2.kind !== "area-bundle") throw new Error("expected an area bundle");
     area2.sections.heritage.parksAndGardens = {
       ...area2.sections.heritage.parksAndGardens,
-      beyondLine:
-        "none within 2 miles — the nearest is Nonsuch Park, 2.4 miles away (straight-line distance from the postcode point)",
+      state: "none-found",
+      line: "no registered park and garden covers this postcode point in the national data",
+      nearest: { name: "Nonsuch Park", miles: 1.234 },
+      beyondLine: null,
     };
-    const beyond = buildReportView(input({ area: area2 }));
-    expect(sectionText(beyond, 7)).toContain(
-      "None within 2 miles — the nearest is Nonsuch Park, 2.4 miles away (straight-line distance from the postcode point).",
+    const within = buildReportView(input({ area: area2 }));
+    expect(sectionText(within, 7)).toContain(
+      "No registered park and garden covers this postcode point in the national data. The nearest is Nonsuch Park, 1.2 miles away.",
     );
+
+    // A nearest beyond the frame is NOT named (BUG-127
+    // reverses the BUG-097 tail for the designation
+    // layers): the absence bullet stands alone, and the
+    // brain's beyond line — raw three-decimal miles and
+    // all — never reaches the page.
+    const area3 = areaWith();
+    if (area3.kind !== "area-bundle") throw new Error("expected an area bundle");
+    area3.sections.heritage.parksAndGardens = {
+      ...area3.sections.heritage.parksAndGardens,
+      state: "none-found",
+      line: "no registered park and garden covers this postcode point in the national data",
+      nearest: null,
+      beyondNearest: { name: "Nonsuch Park", miles: 2.412 },
+      beyondLine:
+        "none within 2 miles — the nearest is Nonsuch Park, 2.412 miles away (straight-line distance from the postcode point)",
+    };
+    const beyond = buildReportView(input({ area: area3 }));
+    const beyondText = sectionText(beyond, 7);
+    expect(beyondText).toContain(
+      "No registered park and garden covers this postcode point in the national data.",
+    );
+    expect(beyondText).not.toContain("Nonsuch Park");
+    expect(beyondText).not.toContain("2.412");
   });
 });

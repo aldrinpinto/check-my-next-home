@@ -10,7 +10,12 @@ import {
   type ResolvedAddress,
 } from "./address";
 import { improvementName } from "./epc-improvements";
-import { DISTANCE_BASIS_LABEL, RADIUS_MILES, haversineMiles } from "./nearby";
+import {
+  BROWNFIELD_RADIUS_MILES,
+  DISTANCE_BASIS_LABEL,
+  RADIUS_MILES,
+  haversineMiles,
+} from "./nearby";
 import { nationOfPostcode } from "./nation";
 import { COMPANY_OWNERSHIP_ENABLED } from "./site";
 
@@ -1289,13 +1294,14 @@ function buildBrownfield(
   const countWithin: number | null = covered ? facts.within.length : null;
   let beyondNearest: BrownfieldSite | null = null;
   let beyondLine: string | null = null;
-  // The beyond line asserts "none within 2 miles", so it is
+  // The beyond line asserts "none within 5 miles" (the
+  // brownfield search radius, BUG-126), so it is
   // gated exactly as the none-found state is: for a council
   // that does not supply the register, the filed data cannot
   // prove the absence the line states.
   if (covered && councilPublishes && countWithin === 0 && facts.nearestBeyond) {
     beyondNearest = toBrownfieldSite(facts.nearestBeyond);
-    beyondLine = `none within ${RADIUS_MILES} miles — the nearest recorded site is ${beyondNearest.label}, ${beyondNearest.miles} miles away (${DISTANCE_BASIS_LABEL})`;
+    beyondLine = `none within ${BROWNFIELD_RADIUS_MILES} miles — the nearest recorded site is ${beyondNearest.label}, ${beyondNearest.miles} miles away (${DISTANCE_BASIS_LABEL})`;
   }
   if (!covered) {
     return {
@@ -1316,7 +1322,7 @@ function buildBrownfield(
       countWithin,
       beyondNearest: null,
       beyondLine: null,
-      line: `${countWithin} recorded brownfield site${countWithin === 1 ? "" : "s"} within ${RADIUS_MILES} miles of the postcode point`,
+      line: `${countWithin} recorded brownfield site${countWithin === 1 ? "" : "s"} within ${BROWNFIELD_RADIUS_MILES} miles of the postcode point`,
     };
   }
   return {
@@ -1330,7 +1336,7 @@ function buildBrownfield(
     beyondNearest,
     beyondLine,
     line: councilPublishes
-      ? "no brownfield sites are recorded within 2 miles of the postcode point on the national register"
+      ? `no brownfield sites are recorded within ${BROWNFIELD_RADIUS_MILES} miles of the postcode point on the national register`
       : "this council does not supply the national brownfield register, so no finding can be made from the data — the council's own brownfield register is the record",
   };
 }
@@ -6325,7 +6331,11 @@ export function createAreaSource(
           row.maximum_net_dwellings === null ? null : Number(row.maximum_net_dwellings),
         miles: Number(row.miles),
       });
-      const metres = RADIUS_MILES * METRES_PER_MILE;
+      // The brownfield search radius is its own
+      // (BUG-126): five miles, not the polygon layers'
+      // two — the within set, its count line and its
+      // beyond line all follow this constant.
+      const metres = BROWNFIELD_RADIUS_MILES * METRES_PER_MILE;
       const { rows } = await db.query(
         `SELECT ${siteColumns},
                 ST_Distance(geom::geography, ${point12}::geography) / ${METRES_PER_MILE} AS miles
@@ -6334,7 +6344,7 @@ export function createAreaSource(
          ORDER BY ST_Distance(geom::geography, ${point12}::geography)`,
         [longitude, latitude, degreeRadius(metres, latitude)],
       );
-      const within = rows.map(toRow).filter((row) => row.miles <= RADIUS_MILES);
+      const within = rows.map(toRow).filter((row) => row.miles <= BROWNFIELD_RADIUS_MILES);
 
       let nearestBeyond: BrownfieldRow | null = null;
       if (within.length === 0) {

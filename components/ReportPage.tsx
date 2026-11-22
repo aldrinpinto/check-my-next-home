@@ -71,6 +71,8 @@ function Block({ block }: { block: ReportBlock }) {
       );
     case "sub":
       return <h3 className="rpt-sub">{block.text}</h3>;
+    case "sub3":
+      return <h4 className="rpt-sub3">{block.text}</h4>;
     case "tiles":
       return (
         <div className="rpt-tiles">
@@ -87,7 +89,7 @@ function Block({ block }: { block: ReportBlock }) {
       );
     case "rows":
       return (
-        <>
+        <div className="rpt-rows">
           {block.rows.map((row, index) => (
             <div className="rpt-row" key={`${row.name}-${index}`}>
               <div className="rmain">
@@ -121,7 +123,7 @@ function Block({ block }: { block: ReportBlock }) {
               ) : null}
             </div>
           ))}
-        </>
+        </div>
       );
     case "table":
       return (

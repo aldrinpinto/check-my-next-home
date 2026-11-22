@@ -813,14 +813,26 @@ export async function buildFloodBundleCached(
     // maps key (M8.3) extends it a third time, identically:
     // a pre-M8.3 entry carries no map geometry and
     // recomputes; the stored form keeps the geometry whole.
+    // The maps.streetRead marker (BUG-116) extends it a
+    // fourth time: a bundle stored before the banded wide
+    // street read carries maps without the marker, so it
+    // recomputes rather than serving its starved outer
+    // streets — the cache-version move the fix requires.
     shapeOk: (bundle) => {
       if (typeof bundle !== "object" || bundle === null) return false;
       const b = bundle as { kind?: unknown; flood?: unknown };
       if (b.kind !== "flood") return true;
       const flood = b.flood as Record<string, unknown> | null | undefined;
       if (!flood || flood.state !== "served") return true;
+      const maps = flood.maps as Record<string, unknown> | null | undefined;
       return (
-        "liveWarnings" in flood && "defences" in flood && "climate" in flood && "maps" in flood
+        "liveWarnings" in flood &&
+        "defences" in flood &&
+        "climate" in flood &&
+        "maps" in flood &&
+        !!maps &&
+        typeof maps === "object" &&
+        "streetRead" in maps
       );
     },
   });

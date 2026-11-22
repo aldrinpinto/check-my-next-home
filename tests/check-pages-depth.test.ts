@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import { CHECK_PAGES } from "../lib/check-pages";
 
-// M7.12 — the depth pins for the fifteen /check/ pages.
+// M7.12 — the depth pins for the sixteen /check/ pages
+// (the sixteenth, building safety, joined in the
+// follow-up stack, BUG-128).
 //
 // M7.8 built the pages as search landers at summary depth;
 // M7.12 deepens each one to the step's full depth: every
@@ -46,6 +48,7 @@ const PUBLISHERS: Record<string, string[]> = {
   "/check/air-quality": ["Defra", "Environment Agency"],
   "/check/solar-potential": ["PVGIS", "Joint Research Centre"],
   "/check/mobile-coverage": ["Ofcom"],
+  "/check/building-safety": ["First-tier Tribunal", "Building Safety Regulator"],
 };
 
 const GEOGRAPHY: Record<string, string> = {
@@ -64,6 +67,7 @@ const GEOGRAPHY: Record<string, string> = {
   "/check/air-quality": "kilometre square",
   "/check/solar-potential": "postcode",
   "/check/mobile-coverage": "council-wide",
+  "/check/building-safety": "postcode",
 };
 
 // An edition or snapshot marker the repo itself names, or
@@ -72,7 +76,7 @@ const EDITION_MARKER =
   /Census 2021|since 1995|January 2026|Round 4|2024|PVGIS-SARAH3|December 2024|tax year named|12 months named|as published/;
 
 describe("check pages at M7.12 depth — every page", () => {
-  it("covers all fifteen check pages", () => {
+  it("covers all sixteen check pages", () => {
     expect(Object.keys(CHECK_PAGES).sort()).toEqual(Object.keys(PUBLISHERS).sort());
   });
 

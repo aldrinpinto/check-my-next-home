@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { POSTCODE_BOX_PLACEHOLDER } from "../lib/home";
-import { REPORT_ROUTE, formatMiles, reportRoute } from "../lib/results";
+import { REPORT_ROUTE, formatMiles, reportRoute, type DistanceFamily } from "../lib/results";
 import { REPORT_PRICE_LABEL } from "../lib/site";
 import {
   SHORTLIST_EMPTY_HEADING,
@@ -87,13 +87,7 @@ function cardReportHref(card: ShortlistRecord["cards"][number]): string {
   return card.rung === 1 ? reportRoute(card.postcode, card.homeKey) : REPORT_ROUTE;
 }
 
-function CompareCell({
-  cell,
-  family,
-}: {
-  cell: ShortlistCell;
-  family: "school" | "everyday" | "hospital" | null;
-}) {
+function CompareCell({ cell, family }: { cell: ShortlistCell; family: DistanceFamily | null }) {
   // Pointer cells are legacy: only cards saved before the
   // 17 Nov 2026 ruling (real flood/crime figures in the
   // cells) hold them, and they still render their pointer

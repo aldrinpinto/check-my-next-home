@@ -94,11 +94,22 @@ export function reportRoute(postcode: string, homeKey?: string | null): string {
 // ------------------------------------------------------------------
 
 export type DistanceBand = "green" | "orange" | "red";
-export type DistanceFamily = "school" | "everyday" | "hospital";
+export type DistanceFamily = "school" | "everyday" | "hospital" | "ev" | "concern";
 
 export function distanceBand(family: DistanceFamily, miles: number): DistanceBand {
   if (family === "school") return miles <= 1 ? "green" : miles <= 2 ? "orange" : "red";
   if (family === "hospital") return miles <= 5 ? "green" : miles <= 10 ? "orange" : "red";
+  // The EV family (BUG-123, founder ruling 22 Nov 2026):
+  // a public charger's usefulness is a driver's reach —
+  // green within a mile, orange to three miles, red
+  // beyond — on the report and the free results pages
+  // alike.
+  if (family === "ev") return miles <= 1 ? "green" : miles <= 3 ? "orange" : "red";
+  // The concern family (BUG-126, founder ruling
+  // 22 Nov 2026): the industrial-sites inversion as a
+  // named family — nearness is the concern, so red
+  // within a mile, orange to three, green beyond.
+  if (family === "concern") return miles <= 1 ? "red" : miles <= 3 ? "orange" : "green";
   return miles <= 0.5 ? "green" : miles <= 1.5 ? "orange" : "red";
 }
 
@@ -459,7 +470,9 @@ export const NEARBY_CATEGORIES: Record<string, CategoryPresentation> = {
     heading: "EV chargers",
     groupLabel: "EV chargers",
     display: 1,
-    family: "everyday",
+    // BUG-123: charger pills colour on the EV family
+    // (1 / 3 miles), here as in the report.
+    family: "ev",
   },
   leisure: {
     // Heading conformed to the Master (parity fix batch):

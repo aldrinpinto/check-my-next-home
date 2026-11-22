@@ -569,7 +569,7 @@ describe("kitchen-sink page", () => {
     // ruling; 26 since M9.4, when the /terms pair joined
     // with the Terms page. The kitchen sink stays outside
     // the set, declared non-indexable.
-    expect(Object.keys(PAGE_SEO)).toHaveLength(26);
+    expect(Object.keys(PAGE_SEO)).toHaveLength(27);
     expect(PAGE_SEO["/"].title).toBe(`Check My Next Home — ${SITE_TAGLINE}`);
   });
 });

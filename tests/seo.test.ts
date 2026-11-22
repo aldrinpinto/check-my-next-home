@@ -215,12 +215,17 @@ describe("locked SEO wording set (M6.10, D38)", () => {
     // Guides destination).
     // M9.4: the /terms pair joins the set with the Terms
     // page (the 18 Nov 2026 Terms adoption).
+    // Follow-up stack (BUG-128): the /check/building-safety
+    // pair joins the set with the building-safety check
+    // page, created to carry the report block's full
+    // explanation.
     expect(Object.keys(PAGE_SEO).sort()).toEqual(
       [
         "/",
         "/about",
         "/check/air-quality",
         "/check/broadband",
+        "/check/building-safety",
         "/check/council-tax-band",
         "/check/crime",
         "/check/epc",
@@ -288,6 +293,15 @@ describe("SEO wording scan (M6.10, D38)", () => {
   //     and "the 12 months named" (the crime window's basis).
   //     They are stripped before the no-figure scan; every
   //     other digit fails.
+  //   - The statutory name (follow-up stack, BUG-128):
+  //     "Building Safety" is a proper noun — the Building
+  //     Safety Act 2022, the Building Safety Regulator, and
+  //     the report section's own ruled name — not a claim
+  //     that a home or an area is "safe". The name's two
+  //     forms (spaced, and the check page's hyphenated slug)
+  //     are stripped before the union scan in both wording
+  //     scans; the ban on "safe" as a claim stands
+  //     everywhere else.
   const D9_NEGATION = "We do not score, rate or recommend homes or areas.";
   const FIGURE_BASIS_PHRASES = ["12 months", "Article 4"];
 
@@ -309,11 +323,15 @@ describe("SEO wording scan (M6.10, D38)", () => {
       expect(lower, `gift wording: ${gift}`).not.toContain(gift);
   }
 
+  function stripStatutoryName(text: string): string {
+    return text.toLowerCase().split("building safety").join("").split("building-safety").join("");
+  }
+
   function expectUnionClean(text: string) {
     const stripped = text.split(VALUATION_DISCLAIMER).join("");
     expect(stripped.toLowerCase()).not.toContain("valuation");
     for (const term of BANNED_WORDING)
-      expect(text.toLowerCase(), `banned term: ${term}`).not.toContain(term);
+      expect(stripStatutoryName(text), `banned term: ${term}`).not.toContain(term);
   }
 
   it("scans every locked title and meta", () => {
@@ -398,8 +416,13 @@ describe("page body copy scan (M7.8)", () => {
       expect(stripped.toLowerCase(), `valuation in "${text.slice(0, 60)}"`).not.toContain(
         "valuation",
       );
+      // The statutory-name exception (BUG-128), as in the
+      // locked-pair scan above: "building safety" /
+      // "building-safety" is the Act's and the Regulator's
+      // proper name, stripped before the union runs.
+      const unionText = lower.split("building safety").join("").split("building-safety").join("");
       for (const term of BANNED_WORDING)
-        expect(lower, `banned term: ${term} in "${text.slice(0, 60)}"`).not.toContain(term);
+        expect(unionText, `banned term: ${term} in "${text.slice(0, 60)}"`).not.toContain(term);
     }
   });
 });

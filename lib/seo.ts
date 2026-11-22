@@ -221,6 +221,12 @@ export const PAGE_SEO = {
     description:
       "Modelled mobile coverage for the council area a postcode sits in, from Ofcom data as published — the council is named in every answer, and the figures describe the area, not the signal inside one home.",
   },
+  "/check/building-safety": {
+    title:
+      "Building safety check — tribunal decisions and the high-rise register | Check My Next Home",
+    description:
+      "The building-safety records for a postcode: the tribunal's published remediation decisions naming it, and the Building Safety Regulator's register of high-rise residential buildings — and what an empty answer does and does not mean.",
+  },
   "/how-we-check": {
     title: "How we check | Check My Next Home",
     description:

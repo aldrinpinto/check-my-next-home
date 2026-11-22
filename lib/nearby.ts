@@ -215,6 +215,19 @@ export const INDUSTRIAL_SITES_RADIUS_MILES = 10;
 export const SECONDARY_RADIUS_MILES = 5;
 export const SIXTH_FORM_RADIUS_MILES = 5;
 export const EV_CHARGER_RADIUS_MILES = 5;
+// The EV list size (BUG-123, founder ruling 22 Nov
+// 2026): public chargers list their nearest FIVE — a
+// driver choosing where to charge reads a real choice,
+// not the general list's three. An EV-specific size,
+// as the pets have theirs.
+export const EV_LIST_SIZE = 5;
+// The brownfield search radius (BUG-126, founder
+// ruling 22 Nov 2026): the brownfield register's
+// search widens to five miles under its OWN constant
+// — a recorded development site is an area fact a
+// buyer weighs at that reach — while listed buildings
+// and the other polygon layers keep the 2-mile frame.
+export const BROWNFIELD_RADIUS_MILES = 5;
 export const PET_SEARCH_MILES = 50;
 export const PET_LIST_SIZE = 2;
 
@@ -1092,7 +1105,10 @@ async function buildCategory(
     listed = [...named, ...widerNamed];
   }
   const places: NearbyPlace[] = listed
-    .slice(0, PET_CATEGORIES.has(key) ? PET_LIST_SIZE : listSize)
+    .slice(
+      0,
+      PET_CATEGORIES.has(key) ? PET_LIST_SIZE : key === "ev-chargers" ? EV_LIST_SIZE : listSize,
+    )
     .map((m) => {
       const place: NearbyPlace = {
         name: m.point.name as string,

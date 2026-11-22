@@ -96,6 +96,7 @@ export const CHECK_PAGES: Record<string, CheckPageContent> = {
         heading: "Known limits",
         paragraphs: [
           "The defences record covers only the Environment Agency's own assets — the defences the Agency owns, manages or inspects. Defences recorded by other bodies, and defences on smaller watercourses, are not in it, so an empty defences list never means no defences exist near a home. Flood defences reduce the chance of flooding; they do not remove it, and a defence elsewhere on a watercourse may do nothing for a particular point.",
+          "Insurers and lenders run their own models on the building itself; nothing here says whether a home can be insured or borrowed against, and these answers are not a substitute for an insurer's or lender's own check. A small number of the Environment Agency's flood-zone shapes do not state whether the flooding is from rivers, the sea or another source.",
           "The years-ahead pictures are published under one climate scenario: UKCP18 projections under RCP 8.5 — the Central allowance for rivers, covering 2040–2069, and the Higher Central allowance for the sea, covering 2036–2065 and allowing for cumulative sea level rise to 2065; for surface water the Central allowance for the 2040–2060 epoch. The Environment Agency's own caveats travel with those pictures: flood likelihood is hard to predict, especially further into the future, the modelled likelihood could turn out bigger or smaller, and the models cannot say when within the period flooding might happen. The scenario pictures are scenarios for planning, not predictions for a home, and they are never set beside the present-day maps as a change.",
           "The answers describe the postcode point on the published maps, not the building itself: a postcode covers more ground than one home, and the point can fall in a different mapped area from the building. We hold no record of past flooding at any home, and holding no record does not mean a home has never flooded.",
         ],
@@ -791,6 +792,60 @@ export const CHECK_PAGES: Record<string, CheckPageContent> = {
     ],
     sources: "Ofcom Connected Nations coverage data, as published.",
     related: ["/check/broadband", "/check/ev-charging"],
+    guide: "/guides/checks-before-buying-a-house",
+  },
+
+  // The building-safety page (follow-up stack, BUG-128):
+  // created because the report's building-safety block
+  // carried a page-length explainer in small print, and
+  // the ruling moves the full text here — the report
+  // keeps its findings plus one short line pointing at
+  // this page. The text below IS that full explanation:
+  // the two records, what each holds, and everything an
+  // empty answer does not mean.
+  "/check/building-safety": {
+    path: "/check/building-safety",
+    name: "Building safety check",
+    eyebrow: "The building safety check",
+    h1: "Building safety records for a postcode — the tribunal decisions and the high-rise register",
+    lead: "The check brings together the two official records that speak to a building of this kind: the building-safety decisions the First-tier Tribunal (Property Chamber) has published naming the postcode, and the Building Safety Regulator's register of high-rise residential buildings in England.",
+    sections: [
+      {
+        heading: "What the check shows",
+        paragraphs: [
+          "The published tribunal decisions in the remediation series that name this postcode — remediation orders and remediation contribution orders under the Building Safety Act 2022 — grouped under the building each one concerns, with the order's kind, its case reference and its date. Beside them, the hand-off to the official register of high-rise residential buildings, where the building's own entry can be searched for.",
+        ],
+      },
+      {
+        heading: "What the check cannot tell you",
+        paragraphs: [
+          "Whether a building has cladding is a question neither record answers here. EWS1 forms have no public register. And an empty answer from either record is a statement about the record, not about the building: what each empty answer does and does not mean is set out in full below.",
+        ],
+      },
+      {
+        heading: "How the figure is produced",
+        paragraphs: [
+          "The two records answer different questions. The tribunal index holds the building-safety decisions the First-tier Tribunal (Property Chamber) has published in the remediation series — remediation orders and remediation contribution orders under the Building Safety Act 2022. The check reads the published decisions and matches them to this postcode where a decision names it. The register is a separate record, kept by the Building Safety Regulator for high-rise residential buildings in England: the check hands the reader to the official search rather than asserting anything about this building from it.",
+          "The two records also reach different buildings. The register covers buildings of 18 metres or 7 storeys and above, while the tribunal's remediation orders reach buildings of 11 metres and above, so a building can sit inside the tribunal's world and outside the register's.",
+        ],
+      },
+      {
+        heading: "Where the data comes from",
+        paragraphs: [
+          "The official sources are the First-tier Tribunal (Property Chamber)'s published building-safety decisions, and the Building Safety Regulator's register of high-rise residential buildings in England, searched on the official GOV.UK register service.",
+        ],
+      },
+      {
+        heading: "Known limits",
+        paragraphs: [
+          "Publication is selective: the tribunal publishes only some of its decisions, cases in other series are not in this index, a small number of published documents cannot be read by the filing process (their text is scanned or encoded so it cannot be extracted) and so file nothing, and some published decisions name no full postcode in their header, so they cannot be matched to any postcode here. An empty tribunal answer means only that no published, readable decision in the filed index names this postcode.",
+          "If a building is not found on the register, that can mean the building is outside the register's scope, that it is unregistered, or that it is registered under a different postcode — the search result is the reader's to interpret, and this check draws no conclusion from it.",
+        ],
+      },
+    ],
+    sources:
+      "First-tier Tribunal (Property Chamber) published building-safety decisions, as published; the Building Safety Regulator's register of high-rise residential buildings.",
+    related: ["/check/planning-constraints", "/check/epc"],
     guide: "/guides/checks-before-buying-a-house",
   },
 };

@@ -688,6 +688,16 @@ export interface FloodMaps {
   homeStreet: FloodMapStreetLine | null;
   zones: { polygons: FloodMapPolygonSet[] } | null;
   surfaceWater: { polygons: FloodMapPolygonSet[] } | null;
+  // The wide street read's form (BUG-116): "banded" is
+  // the only value this build serves — the read is
+  // banded by distance so the Section 5 diagram's
+  // street ground reaches the whole 2-mile frame. The
+  // marker's presence is what the bundle cache's flood
+  // shape rule requires: a bundle filed before the
+  // banded read carries no marker, fails the shape
+  // check, and is re-fetched instead of serving its
+  // starved outer streets.
+  streetRead: "banded";
 }
 
 // The brain's read port over the filed shapes — the same
@@ -707,6 +717,11 @@ export interface FloodDataSource {
     latitude: number,
     longitude: number,
     streetName: string | null,
+    // The wide read (BUG-116): "wide" asks for the
+    // banded street read over a doubled frame; absent
+    // (the flood pictures' own calls), the plain
+    // nearest-first read stands, byte-untouched.
+    streetRead?: "wide",
   ): Promise<FloodMapFacts>;
 }
 
@@ -1453,6 +1468,7 @@ export function buildFloodMaps(
       drawable && surfaceWaterFacts.polygons.length > 0
         ? { polygons: surfaceWaterFacts.polygons }
         : null,
+    streetRead: "banded",
   };
 }
 
@@ -1541,16 +1557,27 @@ export async function buildFloodBundle(
   // draw exactly what they drew, the wider lines simply
   // running off their edges. The wider read's shapes are
   // discarded — the pictures' geometry is the one-mile
-  // read's, exactly as filed for them. The street read
-  // orders nearest first under its cap, so the inner
-  // ground is complete before any outer line is read.
+  // read's, exactly as filed for them. The wide read is
+  // BANDED (BUG-116): a single nearest-first read under
+  // one cap starved the outer frame — at a dense point
+  // the cap filled with inner streets and the diagram's
+  // rim stood empty — so the wide read runs one capped
+  // query per distance band and concatenates them in
+  // band order, and every band's ground is present.
   const wideFrame: FloodMapFrame = {
     west: longitude - (longitude - frame.west) * 2,
     south: latitude - (latitude - frame.south) * 2,
     east: longitude + (frame.east - longitude) * 2,
     north: latitude + (frame.north - latitude) * 2,
   };
-  const wideFacts = await source.mapFacts("flood_zone", wideFrame, latitude, longitude, streetName);
+  const wideFacts = await source.mapFacts(
+    "flood_zone",
+    wideFrame,
+    latitude,
+    longitude,
+    streetName,
+    "wide",
+  );
   const maps = buildFloodMaps(
     frame,
     {
@@ -1823,7 +1850,7 @@ export function createFloodSource(db: AddressQueryable): FloodDataSource {
     // migration 0038) reads as no streets filed, so the
     // pictures degrade to their no-picture state rather
     // than failing the whole flood answer.
-    async mapFacts(layer, frame, latitude, longitude, streetName) {
+    async mapFacts(layer, frame, latitude, longitude, streetName, streetRead) {
       const envelope = "ST_MakeEnvelope($2, $3, $4, $5, 4326)";
       const roundPoint = (p: number[]): [number, number] => [
         Math.round(Number(p[0]) * 1e6) / 1e6,
@@ -1889,15 +1916,51 @@ export function createFloodSource(db: AddressQueryable): FloodDataSource {
       let homeStreet: FloodMapStreetLine | null = null;
       try {
         const streetEnvelope = "ST_MakeEnvelope($1, $2, $3, $4, 4326)";
-        const { rows: streetRows } = await db.query(
-          `SELECT name, highway,
+        const streetSelect = `SELECT name, highway,
                   ST_AsGeoJSON(ST_Simplify(ST_Intersection(geom, ${streetEnvelope}), 0.00002))::json AS geo
            FROM street_lines
-           WHERE geom && ${streetEnvelope} AND ST_Intersects(geom, ${streetEnvelope})
-           ORDER BY ST_Distance(geom::geography, ST_SetSRID(ST_MakePoint($5, $6), 4326)::geography), osm_id
+           WHERE geom && ${streetEnvelope} AND ST_Intersects(geom, ${streetEnvelope})`;
+        const streetOrder = `ORDER BY ST_Distance(geom::geography, ST_SetSRID(ST_MakePoint($5, $6), 4326)::geography), osm_id`;
+        // The wide read (BUG-116) runs banded: one capped
+        // query per distance band (metres from the point),
+        // concatenated in band order, so the outer bands
+        // contribute their nearest streets instead of
+        // being crowded out by the inner ground under a
+        // single nearest-first cap. The plain read (the
+        // flood pictures' own one-mile frame) is the
+        // original single query, unchanged.
+        const streetRowSets: Record<string, unknown>[][] = [];
+        if (streetRead === "wide") {
+          const bands: [number, number | null][] = [
+            [0, 800],
+            [800, 1600],
+            [1600, 2400],
+            [2400, 3200],
+            [3200, null],
+          ];
+          for (const [lo, hi] of bands) {
+            const { rows: bandRows } = await db.query(
+              `${streetSelect}
+           AND ST_Distance(geom::geography, ST_SetSRID(ST_MakePoint($5, $6), 4326)::geography) >= $7
+           ${hi !== null ? "AND ST_Distance(geom::geography, ST_SetSRID(ST_MakePoint($5, $6), 4326)::geography) < $8" : ""}
+           ${streetOrder}
+           LIMIT 4000`,
+              hi !== null
+                ? [frame.west, frame.south, frame.east, frame.north, longitude, latitude, lo, hi]
+                : [frame.west, frame.south, frame.east, frame.north, longitude, latitude, lo],
+            );
+            streetRowSets.push(bandRows as Record<string, unknown>[]);
+          }
+        } else {
+          const { rows } = await db.query(
+            `${streetSelect}
+           ${streetOrder}
            LIMIT 12000`,
-          [frame.west, frame.south, frame.east, frame.north, longitude, latitude],
-        );
+            [frame.west, frame.south, frame.east, frame.north, longitude, latitude],
+          );
+          streetRowSets.push(rows as Record<string, unknown>[]);
+        }
+        const streetRows = streetRowSets.flat();
         for (const row of streetRows) {
           for (const points of toLines(row.geo)) {
             if (points.length >= 2)
