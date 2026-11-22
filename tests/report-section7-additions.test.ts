@@ -428,6 +428,17 @@ describe("report — Section 7 additions (M8.10): broadband & mobile depth", () 
     expect(text).not.toContain("All four mobile networks");
   });
 
+  it("broadband & mobile close with the provider caveat, once (M8.11)", () => {
+    const built = depthView();
+    const text = sectionText(built, 7);
+    const caveat = "Broadband and mobile: the exact package at this home varies by provider.";
+    expect(text.split(caveat).length - 1).toBe(1);
+    // The caveat closes the two blocks — it stands after
+    // the mobile bullets, before Planning constraints.
+    expect(text.indexOf(caveat)).toBeGreaterThan(text.indexOf("Voice calls: 99%."));
+    expect(text.indexOf(caveat)).toBeLessThan(text.indexOf("Planning constraints"));
+  });
+
   it("an unpublished all-operators share serves in words, never as 0", () => {
     const area = areaWith();
     if (area.kind !== "area-bundle") throw new Error("expected an area bundle");

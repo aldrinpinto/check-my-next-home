@@ -25,14 +25,16 @@ import {
 import { CHECK_PAGES } from "./check-pages";
 import type { CrimeBundle, ServedCrime } from "./crime";
 import { CRIME_CATEGORY_SLUGS, crimeCategoryLabel } from "./district";
-import type {
-  FloodBundle,
-  FloodLiveWarnings,
-  FloodMapPolygonSet,
-  FloodMaps,
-  ServedFloodDefence,
-  ServedFloodLayer,
-  ServedFloodWarning,
+import {
+  FLOOD_BAND_DEFINITIONS,
+  FLOOD_ZONE_1_DEFINITION,
+  type FloodBundle,
+  type FloodLiveWarnings,
+  type FloodMapPolygonSet,
+  type FloodMaps,
+  type ServedFloodDefence,
+  type ServedFloodLayer,
+  type ServedFloodWarning,
 } from "./flood";
 import { formatFiledDate, formatMiles, formatPounds, nationOfLsoa } from "./journey";
 import type { CategoryAnswer, NearbyBundle, NearbyCategory, NearbyPlace } from "./nearby";
@@ -3415,6 +3417,19 @@ function section7(input: ReportInput): ReportSectionView {
   } else if (mobile.line) {
     blocks.push({ type: "line", text: mobile.line });
   }
+  // The provider caveat (M8.11, carried in from the
+  // 18 Nov gap check): the sample's one line for the
+  // broadband and mobile figures together — the shares
+  // are the postcode's and the council area's, never a
+  // promise about this home's own package. One
+  // small-print note closing the two blocks, in the
+  // sample's words (the same caveat the results page
+  // appends to its broadband line).
+  if (broadband.state === "served" || mobile.state === "served")
+    blocks.push({
+      type: "note",
+      text: "Broadband and mobile: the exact package at this home varies by provider.",
+    });
 
   // Planning applications no longer stand in this section
   // (item 14): the hand-off is a neighbourhood fact and
@@ -3608,6 +3623,13 @@ function section7(input: ReportInput): ReportSectionView {
 // Section 6 — The neighbourhood
 // ------------------------------------------------------------------
 
+// The deprivation block's one explaining note (M8.11):
+// the founder-adopted words, verbatim — the prep's draft
+// was adopted unamended on 21 Nov 2026, so this string is
+// never re-drafted here.
+const DEPRIVATION_NOTE =
+  "Each line ranks this area against every other small area in England on that measure — 'among the more deprived 40 percent' means 60 in every 100 areas rank better off on it.";
+
 // The plain-words lead for each mobile service the Ofcom
 // data holds (item 16), keyed by the brain's service key;
 // a key this table does not know falls back to the
@@ -3695,6 +3717,16 @@ function section6(input: ReportInput): ReportSectionView {
       ]),
     });
   }
+  // The deprivation note (M8.11): the decile-in-words
+  // lines are the report's clearest unexplained hard
+  // figure — every line is a ranking against every other
+  // small area in England, and nothing in the lines
+  // themselves says what the ranking means. One
+  // small-print note for the block, in the words the
+  // founder adopted unamended (M8.11 prep, 21 Nov 2026),
+  // standing wherever the deprivation lines stand.
+  if (imd.state === "served" && imd.decile !== null)
+    blocks.push({ type: "note", text: DEPRIVATION_NOTE });
   if (census.state !== "served" && census.line)
     blocks.push({ type: "line", text: sentenceLine(census.line) });
   // The Census charts in the Master's grid (M8.2): the
@@ -4129,6 +4161,18 @@ function warningBlocks(warnings: FloodLiveWarnings): ReportBlock[] {
   return blocks;
 }
 
+// The outside-band annual-chance notes (M8.11, carried
+// in from the 18 Nov gap check): the rivers & sea form
+// is built from the publisher's own Very-low definition
+// (lib/flood.ts's pinned table, never retyped) — the
+// same equivalence the results page's verdict row pins
+// for this absence; the surface-water form is the
+// sample's, the postcode appearing only in the extreme
+// 1-in-1,000-year picture.
+const FLOOD_ROFRS_ABSENCE_NOTE = `The Very low band means ${FLOOD_BAND_DEFINITIONS["Very low"]}.`;
+const FLOOD_ROFSW_ABSENCE_NOTE =
+  "This postcode appears only in the extreme 1-in-1,000-year surface-water picture.";
+
 function section8(input: ReportInput): ReportSectionView {
   const blocks: ReportBlock[] = [];
   const served = floodServed(input);
@@ -4158,6 +4202,24 @@ function section8(input: ReportInput): ReportSectionView {
     blocks.push({ type: "line", text: layer.line });
     if (layer.beyondLine) blocks.push({ type: "line", text: layer.beyondLine });
     blocks.push({ type: "note", text: layer.basisLine });
+    // The outside-band annual-chance line (M8.11): a
+    // home outside a layer's bands gains the plain
+    // annual-chance explanation in the data's own words
+    // beside its line — the Zone 1 definition the brain
+    // serves on the remainder, and the two absence notes
+    // above. Inside a band, the band's own line and the
+    // basis note carry the figure, and the full band
+    // definitions stand on the flood-risk How-we-check
+    // page, as before.
+    if (layer.layer === "flood_zone" && layer.pointState === "zone-1")
+      blocks.push({
+        type: "note",
+        text: `${layer.remainder?.displayLabel ?? "Flood Zone 1"} is ${layer.remainder?.definition ?? FLOOD_ZONE_1_DEFINITION}.`,
+      });
+    if (layer.layer === "rofrs" && layer.pointState === "no-band-published")
+      blocks.push({ type: "note", text: FLOOD_ROFRS_ABSENCE_NOTE });
+    if (layer.layer === "rofsw" && layer.pointState === "below-lowest-band")
+      blocks.push({ type: "note", text: FLOOD_ROFSW_ABSENCE_NOTE });
     if (layer.layer === "flood_zone" && floodMaps.zones)
       blocks.push({ type: "floodMap", map: floodMaps.zones });
     if (layer.layer === "rofsw" && floodMaps.surfaceWater)

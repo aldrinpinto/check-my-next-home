@@ -1196,7 +1196,20 @@ export function summaryPills(input: SummaryPillsInput): SummaryPill[] | null {
   // 9 Vet — good <=2 mi; concerning >5 mi.
   {
     const vet = nearestOf(categoryOf(nearby, "vets"));
-    if (vet) {
+    // The pill's qualifying basis is the pre-BUG-079 one.
+    // The vets category is not essential, so before the
+    // second-pass batch it served places only inside the
+    // list radius and never carried a beyond-nearest: a
+    // pill fact existed only when the nearest vet stood
+    // within RADIUS_MILES. BUG-079 widened the SERVED LIST
+    // to the two nearest at any distance — the What's
+    // Nearby lists' rule, which the founder ruled on; he
+    // never ruled on pill thresholds — so the factor now
+    // stays silent past the list radius, exactly as
+    // before. A vet 29.7 miles away is not a concerning
+    // fact about this home, and the lists keep their two
+    // nearest untouched: only this factor's fact is bound.
+    if (vet && vet.miles <= RADIUS_MILES) {
       const verdict: PillVerdict =
         vet.miles > 5 ? "concerning" : vet.miles <= 2 ? "good" : "neither";
       add(verdict, milesPill("Vet", "everyday", vet.miles));

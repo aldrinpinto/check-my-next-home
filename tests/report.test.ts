@@ -497,8 +497,31 @@ describe("report — Section 6 the neighbourhood", () => {
     // carries it apart from the words that follow.
     expect(demo).toContain('"text":"Income:","bold":true');
     expect(demo).toContain("among the less deprived 20 percent of areas in England.");
-    expect(demo.toLowerCase()).not.toContain("rank");
+    // The no-rank rule binds the deprivation FIGURES —
+    // no rank is ever printed for this area. The M8.11
+    // note below the lines uses "ranks" as a verb to
+    // explain what the ranking means (the founder's
+    // adopted words), so the ban is scoped to the text
+    // standing before that note.
+    const noteAt = demo.indexOf("Each line ranks this area");
+    expect(noteAt).toBeGreaterThan(-1);
+    expect(demo.slice(0, noteAt).toLowerCase()).not.toContain("rank");
     expect(demo).not.toContain("decile 8");
+  });
+
+  it("the deprivation block carries the M8.11 note in the founder's adopted words, once", () => {
+    const note =
+      "Each line ranks this area against every other small area in England on that measure — 'among the more deprived 40 percent' means 60 in every 100 areas rank better off on it.";
+    expect(s6.split(note).length - 1).toBe(1);
+    const s6view = view.sections.find((s) => s.number === 6);
+    const noteBlock = s6view?.blocks.find((b) => b.type === "note" && b.text === note);
+    expect(noteBlock).toBeDefined();
+    // The note stands with the deprivation lines, ahead
+    // of the Census charts.
+    const noteIndex = s6view?.blocks.indexOf(noteBlock!) ?? -1;
+    const gridIndex = s6view?.blocks.findIndex((b) => b.type === "chartGrid") ?? -1;
+    expect(noteIndex).toBeGreaterThan(-1);
+    expect(gridIndex).toBeGreaterThan(noteIndex);
   });
 
   it("the Census charts render in the Master's grid — the Age tile opens it and the age-bands bars are not drawn (a, M8.2), and social rent stands as its own line (d)", () => {
@@ -613,6 +636,37 @@ describe("report — Section 8 flood", () => {
     expect(zones).toBeGreaterThan(-1);
     expect(rivers).toBeGreaterThan(zones);
     expect(surface).toBeGreaterThan(rivers);
+  });
+
+  it("outside-band layers carry the annual-chance explanation in the data's own words (M8.11)", () => {
+    // The fixture home stands outside all three layers:
+    // Zone 1 for planning, no band published for rivers
+    // & sea, below the lowest band for surface water.
+    // Each outside line gains its one-line annual-chance
+    // explanation beside it.
+    expect(s7Text).toContain(
+      "Flood Zone 1 is land having a less than 1 in 1,000 annual probability of river or sea flooding.",
+    );
+    expect(s7Text).toContain(
+      "The Very low band means a chance of flooding in any given year of less than 1 in 1,000.",
+    );
+    expect(s7Text).toContain(
+      "This postcode appears only in the extreme 1-in-1,000-year surface-water picture.",
+    );
+  });
+
+  it("inside a band, no outside-band annual-chance note stands (M8.11)", () => {
+    if (floodServed.kind !== "flood") throw new Error("expected a served flood fixture");
+    const clone = structuredClone(floodServed.flood);
+    for (const layer of clone.layers) layer.pointState = "inside";
+    const bundle: FloodBundle = {
+      ...(floodServed as Extract<FloodBundle, { kind: "flood" }>),
+      flood: clone,
+    };
+    const inside = sectionText(buildReportView(input({ flood: bundle })), 8);
+    expect(inside).not.toContain("Flood Zone 1 is land having");
+    expect(inside).not.toContain("The Very low band means");
+    expect(inside).not.toContain("1-in-1,000-year surface-water picture");
   });
 
   it("the defences sub-block carries its caveat and bridge line (k)", () => {

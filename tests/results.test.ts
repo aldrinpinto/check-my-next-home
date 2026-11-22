@@ -1666,6 +1666,151 @@ describe("results — pill logic D75 (fold-in)", () => {
     expect(text).toContain("with their Ofsted ratings and inspection dates");
     expect(text).toContain("The full list of nurseries and pre-schools near this home.");
   });
+
+  it("BUG-079 side effect (CI #292): a vets list widened to a far two-nearest pair gives NO Vet pill — the pill keeps its list-radius basis", () => {
+    // The second-pass batch (BUG-079) widened the vets
+    // category's served list to the two nearest at ANY
+    // distance — the What's Nearby lists' rule the founder
+    // ruled on; he never ruled on pill thresholds. In a
+    // sparse corpus the nearest vet stands 29.7 miles away
+    // (the e2e corpus), and the factor, reading places[0],
+    // called that "concerning" (>5 mi), took a concerning
+    // slot and pushed EPC off the strip. The input below
+    // is the Birkdale worked example's, plus the widened
+    // vets list in its served form: the strip must read
+    // exactly as the worked example's — no Vet pill.
+    const nearby = nearbyWith({
+      "schools-primary": primaryNear,
+      "schools-secondary": category({
+        category: "schools-secondary",
+        state: "within",
+        places: [
+          {
+            latitude: 51.7,
+            longitude: 0.6,
+            name: "Maltings Academy",
+            miles: 1.87,
+            detail: null,
+            sixthForm: true,
+          },
+        ],
+        countWithin: 1,
+        nearestSelective: null,
+        nearestSelectiveLine: null,
+      }),
+      ae: category({
+        category: "ae",
+        state: "none-within",
+        places: [],
+        countWithin: 0,
+        beyondNearest: { latitude: 51.7, longitude: 0.6, name: "Broomfield Hospital", miles: 5.8 },
+        line: "none within 2 miles — nearest is Broomfield Hospital, 5.8 miles away",
+      }),
+      station: category({
+        category: "station",
+        state: "within",
+        places: [
+          {
+            latitude: 51.7,
+            longitude: 0.6,
+            name: "Hatfield Peverel station",
+            miles: 0.6,
+            detail: null,
+          },
+        ],
+        countWithin: 1,
+      }),
+      nurseries: category({
+        category: "nurseries",
+        state: "within",
+        places: [{ latitude: 51.7, longitude: 0.6, name: "Nursery", miles: 0.3, detail: null }],
+        countWithin: 1,
+      }),
+      vets: category({
+        category: "vets",
+        state: "within",
+        places: [
+          { latitude: 51.7, longitude: 0.6, name: "Faraway Vets", miles: 29.7, detail: null },
+          { latitude: 51.7, longitude: 0.6, name: "Farther Vets", miles: 31.304, detail: null },
+        ],
+        countWithin: 0,
+      }),
+    });
+    const pills = summaryPills({
+      nearby: nearby as Extract<NearbyBundle, { kind: "distances" }>,
+      flood: floodBundle(noWarnings),
+      crime: crimeBundle(0.5),
+      sections: shortSections(),
+      area: d75Area(),
+    });
+    expect(pills?.map(pillText)).toEqual([
+      "Schools · 0.4 / 1.9 mi",
+      "Flood · Very low",
+      "Crime · Below England average",
+      "Noise · Quiet",
+      "Deprivation · 8 of 10",
+    ]);
+    expect(pills?.some((pill) => pill.label === "Vet")).toBe(false);
+  });
+
+  it("BUG-079 side effect (CI #292): a vet inside the list radius still earns its good pill, in D75 fill order", () => {
+    // The bound is the list radius, not a silence: a vet
+    // within it qualifies exactly as before the batch.
+    // Same shape as the test above, with the deprivation
+    // fact neutral (decile 5) so the good Vet pill takes
+    // the last fill slot in priority order.
+    const nearby = nearbyWith({
+      "schools-primary": primaryNear,
+      "schools-secondary": category({
+        category: "schools-secondary",
+        state: "within",
+        places: [
+          {
+            latitude: 51.7,
+            longitude: 0.6,
+            name: "Maltings Academy",
+            miles: 1.87,
+            detail: null,
+            sixthForm: true,
+          },
+        ],
+        countWithin: 1,
+        nearestSelective: null,
+        nearestSelectiveLine: null,
+      }),
+      vets: category({
+        category: "vets",
+        state: "within",
+        places: [
+          { latitude: 51.7, longitude: 0.6, name: "Village Vets", miles: 1.2, detail: null },
+        ],
+        countWithin: 1,
+      }),
+    });
+    const pills = summaryPills({
+      nearby: nearby as Extract<NearbyBundle, { kind: "distances" }>,
+      flood: floodBundle(noWarnings),
+      crime: crimeBundle(0.5),
+      sections: shortSections(),
+      area: d75Area({
+        imd: {
+          state: "served",
+          line: null,
+          decile: 5,
+          summary: null,
+          domains: [],
+          sourceLine: null,
+        },
+      }),
+    });
+    expect(pills?.map(pillText)).toEqual([
+      "Schools · 0.4 / 1.9 mi",
+      "Flood · Very low",
+      "Crime · Below England average",
+      "Noise · Quiet",
+      "Vet · 1.2 mi",
+    ]);
+  });
 });
 
 describe("results — warnings forms", () => {
