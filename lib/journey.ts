@@ -268,7 +268,7 @@ export function journeyDestination(
 // five-segment seal stamps CHECKED when the last group
 // lands, as the final beat before the reveal. The
 // mechanics are D73's, unchanged: the advance still waits
-// for the three /api/check part calls to settle, group
+// for the four /api/check part calls to settle, group
 // completion is driven by those settlements (the pacing
 // below is smoothing over them, never a substitute), and
 // the reveal behaviour is untouched. A group whose part
@@ -306,6 +306,17 @@ export const CHECKING_WAITING_LINE = "Waiting";
 // line the row always shows, the doing line it carries
 // while it is the group in flight, and the ticker sentence
 // the live line rotates to while it is in flight.
+//
+// BUG-144 (founder ruling, 22 Nov 2026): Safety &
+// surroundings stands LAST in this order — it is the
+// slowest group on a cold postcode (its crime count and
+// flood working-out are computed on the spot) — but its
+// computation is triggered FIRST: the screen fires its
+// two part calls (flood and crime) ahead of the others
+// and the two halves run in parallel, so by the time
+// the feed reaches the last row its data should already
+// be there. The group's own time bound (D73) still
+// applies to the computation itself.
 export const CHECKING_ROWS = [
   {
     key: "schools",
@@ -322,13 +333,6 @@ export const CHECKING_ROWS = [
     ticker: "Now finding the GP, dentist, pharmacy and station…",
   },
   {
-    key: "safety",
-    label: "Safety & surroundings",
-    source: "Police.uk · Environment Agency",
-    doing: "Counting recorded crime and checking flood maps…",
-    ticker: "Now checking crime, flood maps and air quality…",
-  },
-  {
     key: "costs",
     label: "Costs & connections",
     source: "Council & providers",
@@ -341,6 +345,13 @@ export const CHECKING_ROWS = [
     source: "HM Land Registry",
     doing: "Pulling recorded sale prices for this postcode…",
     ticker: "Now pulling recorded sale prices from the Land Registry…",
+  },
+  {
+    key: "safety",
+    label: "Safety & surroundings",
+    source: "Police.uk · Environment Agency",
+    doing: "Counting recorded crime and checking flood maps…",
+    ticker: "Now checking crime, flood maps and air quality…",
   },
 ] as const;
 
@@ -378,6 +389,12 @@ export function rowFailureLine(rowLabel: string): string {
 // wording (20 Nov 2026), addressed to the visitor.
 export const PICKER_EXPLAINER =
   "Flood risk and school places can differ from one house to the next — pick your exact house for its own check.";
+// The picker's own title (BUG-150, founder's wording,
+// 22 Nov 2026): the whole-postcode page's dropdown
+// stood untitled under the page heading, and its
+// explainer read at body size. The title stands above
+// the explainer; the explainer wears small print.
+export const PICKER_TITLE = "Pick a home";
 // The dropdown's prompt option: the visitor's instruction
 // before any home is chosen (the select's own label, in
 // the site's plain voice).
@@ -1058,8 +1075,13 @@ export function floodCheckingSegments(bundle: FloodBundle): CheckingSegment[] {
 }
 
 // ------------------------------------------------------------------
-// The area part — the safety group's crime and air
-// segments, the costs group and the history group.
+// The crime part — the safety group's crime segment,
+// with its air rider (BUG-144: the crime half of the
+// safety group is its own part call, fired first and
+// running in parallel with the flood half; the air
+// segment rides it because the safety line interleaves
+// crime, flood, air — the air fact derives from the
+// area bundle, whose cached build the area part shares).
 // ------------------------------------------------------------------
 
 function crimeCheckingSegment(crime: CrimeBundle): CheckingSegment {
@@ -1232,35 +1254,50 @@ function historyGroupResult(sold: SoldPricesBundle): CheckingGroupResult {
   return groupResult(rowSource("history"), segments);
 }
 
+// The crime part's derivation: the safety group's
+// crime segment and its air rider, from the crime
+// bundle and the area bundle.
+export function safetyCheckingSegments(
+  crime: CrimeBundle,
+  area: AreaBundle,
+): { crime: CheckingSegment; air: CheckingSegment | null } {
+  return {
+    crime: crimeCheckingSegment(crime),
+    air: airCheckingSegment(area),
+  };
+}
+
+// The area part's derivation: the costs group and the
+// history group. Until BUG-144 the crime bundle rode
+// this part too, so the safety group could not settle
+// until sold prices and the whole area bundle had —
+// the coupling that made the slowest group wait on
+// work it does not read.
 export function areaCheckingGroups(
   area: AreaBundle,
   sold: SoldPricesBundle,
-  crime: CrimeBundle,
 ): {
-  safetyCrime: CheckingSegment;
-  safetyAir: CheckingSegment | null;
   costs: CheckingGroupResult;
   history: CheckingGroupResult;
 } {
   return {
-    safetyCrime: crimeCheckingSegment(crime),
-    safetyAir: airCheckingSegment(area),
     costs: costsGroupResult(area),
     history: historyGroupResult(sold),
   };
 }
 
 // ------------------------------------------------------------------
-// Assembly — the three parts' derived payloads in (as the
+// Assembly — the four parts' derived payloads in (as the
 // /api/check routes serve them and the client holds them),
 // the five groups' outcomes out. A group whose parts have
 // not settled yet reads null. Group-to-part wiring:
 // schools and health settle with the nearby part; safety
-// with the flood part and the area part together (crime
-// and air ride the area part, its segments interleaved
-// around the flood part's: crime, flood, air); costs and
-// history with the area part. A failed part completes its
-// groups with their named failure lines.
+// with the flood part and the crime part together (the
+// crime part carries the air rider; its segments
+// interleave around the flood part's: crime, flood,
+// air); costs and history with the area part. A failed
+// part completes its groups with their named failure
+// lines.
 // ------------------------------------------------------------------
 
 export interface CheckingNearbyPayload {
@@ -1268,8 +1305,12 @@ export interface CheckingNearbyPayload {
   health: CheckingGroupResult;
 }
 
+export interface CheckingCrimePayload {
+  crime: CheckingSegment;
+  air: CheckingSegment | null;
+}
+
 export interface CheckingAreaPayload {
-  safety: { crime: CheckingSegment; air: CheckingSegment | null };
   groups: { costs: CheckingGroupResult; history: CheckingGroupResult };
 }
 
@@ -1301,11 +1342,12 @@ function isCheckingGroupResult(value: unknown): value is CheckingGroupResult {
 
 export function parseCheckingPartValue(part: "nearby", body: unknown): CheckingNearbyPayload | null;
 export function parseCheckingPartValue(part: "flood", body: unknown): CheckingSegment[] | null;
+export function parseCheckingPartValue(part: "crime", body: unknown): CheckingCrimePayload | null;
 export function parseCheckingPartValue(part: "area", body: unknown): CheckingAreaPayload | null;
 export function parseCheckingPartValue(
-  part: "nearby" | "flood" | "area",
+  part: "nearby" | "flood" | "crime" | "area",
   body: unknown,
-): CheckingNearbyPayload | CheckingSegment[] | CheckingAreaPayload | null {
+): CheckingNearbyPayload | CheckingSegment[] | CheckingCrimePayload | CheckingAreaPayload | null {
   if (part === "nearby") {
     if (!isRecord(body)) return null;
     if (!isCheckingGroupResult(body.schools) || !isCheckingGroupResult(body.health)) return null;
@@ -1315,9 +1357,13 @@ export function parseCheckingPartValue(
     if (!Array.isArray(body) || !body.every(isCheckingSegment)) return null;
     return body as CheckingSegment[];
   }
-  if (!isRecord(body) || !isRecord(body.safety) || !isRecord(body.groups)) return null;
-  if (!isCheckingSegment(body.safety.crime)) return null;
-  if (body.safety.air !== null && !isCheckingSegment(body.safety.air)) return null;
+  if (part === "crime") {
+    if (!isRecord(body)) return null;
+    if (!isCheckingSegment(body.crime)) return null;
+    if (body.air !== null && !isCheckingSegment(body.air)) return null;
+    return body as unknown as CheckingCrimePayload;
+  }
+  if (!isRecord(body) || !isRecord(body.groups)) return null;
   if (!isCheckingGroupResult(body.groups.costs) || !isCheckingGroupResult(body.groups.history))
     return null;
   return body as unknown as CheckingAreaPayload;
@@ -1326,6 +1372,7 @@ export function parseCheckingPartValue(
 export function assembleCheckingOutcomes(parts: {
   nearby?: CheckingPart<CheckingNearbyPayload>;
   flood?: CheckingPart<CheckingSegment[]>;
+  crime?: CheckingPart<CheckingCrimePayload>;
   area?: CheckingPart<CheckingAreaPayload>;
 }): Record<CheckingRowKey, CheckingGroupResult | null> {
   const failed = (label: string): CheckingGroupResult => ({
@@ -1334,9 +1381,9 @@ export function assembleCheckingOutcomes(parts: {
   });
 
   let safety: CheckingGroupResult | null = null;
-  if (parts.flood !== undefined && parts.area !== undefined) {
+  if (parts.flood !== undefined && parts.crime !== undefined) {
     const segments: CheckingSegment[] = [];
-    if (parts.area.ok) segments.push(parts.area.value.safety.crime);
+    if (parts.crime.ok) segments.push(parts.crime.value.crime);
     else
       segments.push({
         text: CHECKING_CRIME_AIR_FAILED_LINE,
@@ -1350,7 +1397,7 @@ export function assembleCheckingOutcomes(parts: {
         prefix: "Environment Agency",
         named: true,
       });
-    if (parts.area.ok && parts.area.value.safety.air) segments.push(parts.area.value.safety.air);
+    if (parts.crime.ok && parts.crime.value.air) segments.push(parts.crime.value.air);
     safety = groupResult(rowSource("safety"), segments);
   }
 

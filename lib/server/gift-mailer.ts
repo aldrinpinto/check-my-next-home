@@ -42,6 +42,7 @@ import {
   GIFT_CONFIRM_SUBJECT,
 } from "../gift";
 import { SITE_NAME } from "../site";
+import { envValue } from "./env";
 
 export type GiftMailResult = { sent: true } | { sent: false; reason: string };
 
@@ -167,10 +168,14 @@ export function createCaptureGiftMailer(config: {
 // environment, in this order: the harness's capture
 // seam, then a configured Resend, then unconfigured.
 export function getGiftMailer(): GiftMailer {
-  const captureUrl = process.env.GIFT_MAILER_CAPTURE_URL;
+  // Every name reads through envValue (BUG-148): a
+  // name the compose file passes empty counts as
+  // unset, so an unplaced FROM leaves this mailer
+  // unconfigured instead of sending with a blank From.
+  const captureUrl = envValue("GIFT_MAILER_CAPTURE_URL");
   if (captureUrl) return createCaptureGiftMailer({ captureUrl });
-  const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.GIFT_CONFIRMATION_FROM;
+  const apiKey = envValue("RESEND_API_KEY");
+  const from = envValue("GIFT_CONFIRMATION_FROM");
   if (apiKey && from) return createResendGiftMailer({ apiKey, from });
   return createUnconfiguredGiftMailer();
 }

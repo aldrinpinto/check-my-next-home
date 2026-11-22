@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 
 import BreadcrumbLd from "../../components/BreadcrumbLd";
+import HowWeCheckIcon from "../../components/HowWeCheckIcon";
+import ReportBand from "../../components/ReportBand";
 import SearchBlock from "../../components/SearchBlock";
 import { PAGE_SEO, pageMetadata } from "../../lib/seo";
 import {
@@ -41,7 +43,10 @@ export default function HowWeCheckPage() {
             <article className="card how-card" key={card.heading}>
               <div className="card-head">
                 <span className="card-icon" aria-hidden="true">
-                  {card.icon}
+                  {/* BUG-157: the tile draws the section's
+                      own glyph (components/HowWeCheckIcon),
+                      keyed by the card's icon key. */}
+                  <HowWeCheckIcon name={card.icon} />
                 </span>
                 <h2>{card.heading}</h2>
                 <span className="source-tag">{card.source}</span>
@@ -69,6 +74,10 @@ export default function HowWeCheckPage() {
           </div>
         </div>
 
+        {/* BUG-149(4) (22 Nov 2026): the sample-report
+            band — the homepage's strip — stands on the
+            hub too, above the search block. */}
+        <ReportBand />
         <SearchBlock />
       </div>
     </main>

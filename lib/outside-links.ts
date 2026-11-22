@@ -23,11 +23,12 @@
 //     long-term flood risk service, the five Nomis dataset
 //     pages the Sources list links, and the energy
 //     certificate pattern;
-//   - the sample report's literal anchors
-//     (components/SampleReport.tsx) — JSX literals have no
-//     programmatic source, so they are extracted from the
-//     component's own text, and the gate pins what the
-//     extraction finds so a changed shape fails loudly.
+//   - the sample report (BUG-159): the generated,
+//     anonymised report — it serves exactly the report's
+//     own anchors and no literals of its own, so it adds
+//     no entries; the certificate pattern records the
+//     surface because the sample serves it (with its
+//     fiction certificate number).
 //
 // The robot consumes this collection through a generated
 // JSON copy (scripts/outside-links.json); the gate test
@@ -176,46 +177,30 @@ export function reportOutsideLinks(): RawLink[] {
   return raw;
 }
 
-// The sample report's outside destinations, extracted
-// from the component's own text (its anchors are JSX
-// literals — there is no other source). An extracted URL
-// that is an instance of a collected pattern (the dummy
-// certificate) folds into that pattern's entry instead of
-// standing as its own destination.
-export function sampleReportOutsideLinks(sourceText: string): RawLink[] {
-  const raw: RawLink[] = [];
-  const seen = new Set<string>();
-  for (const match of sourceText.matchAll(/href="(https:\/\/[^"]+)"/g)) {
-    const url = match[1];
-    if (seen.has(url)) continue;
-    seen.add(url);
-    if (url.startsWith(EPC_CERTIFICATE_URL_BASE)) continue;
-    raw.push({ url, label: "", shownOn: "the sample report" });
-  }
-  return raw;
+// BUG-159: the sample report is the generated report,
+// anonymised — it carries no literal anchors of its own;
+// every anchor it serves is the report builder's, already
+// collected by reportOutsideLinks above.
+export function sampleReportOutsideLinks(): RawLink[] {
+  return [];
 }
 
 // The whole set, in source order, duplicates folded with
-// every surface that serves them. `sampleSourceText` is
-// the SampleReport component's text (read by the caller —
-// this module never touches the filesystem).
-export function collectOutsideLinks(sampleSourceText = ""): OutsideLink[] {
-  const sample = sampleReportOutsideLinks(sampleSourceText);
+// every surface that serves them.
+export function collectOutsideLinks(): OutsideLink[] {
   const links = merge([
     ...checkPageOutsideLinks(),
     ...calculatorOutsideLinks(),
     ...brainOutsideLinks(),
     ...reportOutsideLinks(),
-    ...sample,
+    ...sampleReportOutsideLinks(),
   ]);
-  // The sample also serves the certificate pattern (with
-  // its dummy number): record the surface on the pattern
-  // entry the extraction folded it into.
-  if (sampleSourceText.includes(EPC_CERTIFICATE_URL_BASE)) {
-    const pattern = links.find((link) => link.pattern);
-    if (pattern && !pattern.shownOn.includes("the sample report")) {
-      pattern.shownOn.push("the sample report");
-    }
+  // The sample serves the certificate pattern (with its
+  // fiction number): record the surface on the pattern
+  // entry.
+  const pattern = links.find((link) => link.pattern);
+  if (pattern && !pattern.shownOn.includes("the sample report")) {
+    pattern.shownOn.push("the sample report");
   }
   return links;
 }

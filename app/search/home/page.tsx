@@ -141,6 +141,10 @@ async function Results({
           resolution,
           nearby: results.nearby,
           sold: results.sold,
+          // BUG-164: the full area bundle, so the card's
+          // Air quality cell composes from the same air
+          // section the page's pill verdict derived from.
+          area: results.area,
           short: results.short,
           routeKey: homeKey,
         })

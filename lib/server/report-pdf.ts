@@ -9,6 +9,7 @@ import ReportPage from "../../components/ReportPage";
 import { reportPdfFileName, reportPdfFooterHtml, reportPdfKey } from "../report-pdf";
 import type { ReportView } from "../report";
 import { SITE_URL } from "../site";
+import { reportFooterFontCss } from "./footer-font";
 import { getReportPdfStore, type ReportPdfStore } from "./report-storage";
 
 // The PDF twin's generator (plan step M8.4, prep points
@@ -112,6 +113,7 @@ export async function generateReportPdf(
   postcode: string,
 ): Promise<GeneratedReportPdf> {
   const css = await reportPrintCss();
+  const footerFont = await reportFooterFontCss();
   const html = reportPrintDocument(view, css);
   const browser = await chromium.launch();
   try {
@@ -122,7 +124,7 @@ export async function generateReportPdf(
       printBackground: true,
       displayHeaderFooter: true,
       headerTemplate: "<span></span>",
-      footerTemplate: reportPdfFooterHtml(view, postcode),
+      footerTemplate: reportPdfFooterHtml(view, postcode, footerFont),
       margin: { top: "16mm", bottom: "18mm", left: "14mm", right: "14mm" },
     });
     return { fileName: reportPdfFileName(view, postcode), bytes: new Uint8Array(pdf) };

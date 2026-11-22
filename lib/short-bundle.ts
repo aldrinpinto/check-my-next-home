@@ -285,6 +285,16 @@ export type ShortCrime =
       // total is not yet embedded).
       perHeadLine: string | null;
       englandLine: string | null;
+      // The calibration pair as numbers (BUG-163): the
+      // pill verdict's own inputs — the local rate per
+      // 1,000 residents and the England figure for the
+      // same months — projected so the shortlist card's
+      // crime cell colours by the same graduated verdict
+      // (lib/results.ts's crimePillBand), never by a
+      // threshold faked on the raw count. Null exactly
+      // where the lines above are null.
+      per1000: number | null;
+      englandPer1000: number | null;
       // The stale line travels verbatim when the filed
       // window is old — a headline total with no stale line
       // would present old data as current.
@@ -631,6 +641,10 @@ function shortCrime(bundle: Extract<CrimeBundle, { rung: 1 | 2 }>): ShortCrime {
     asb: asb ? { count: asb.count } : null,
     perHeadLine: crime.perHead?.line ?? null,
     englandLine: crime.englandFigure?.line ?? null,
+    // The same calibration pair as numbers (BUG-163), for
+    // the pill verdict's band computation.
+    per1000: crime.perHead?.per1000 ?? null,
+    englandPer1000: crime.englandFigure?.englandPer1000 ?? null,
     staleLine: crime.staleLine,
     sourceLine: crime.sourceLine,
     explainer: crime.explainer,

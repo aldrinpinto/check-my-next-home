@@ -10,7 +10,7 @@ import Calculators from "../components/Calculators";
 import { CheckPageView } from "../components/ContentPage";
 import ReportPage from "../components/ReportPage";
 import ResultsPage from "../components/ResultsPage";
-import SampleReport from "../components/SampleReport";
+import SampleReportDocument from "../components/SampleReportDocument";
 import type { AreaBundle } from "../lib/area-bundle";
 import { CHECK_PAGES } from "../lib/check-pages";
 import type { FloodBundle, FloodLayerType, FloodLiveWarnings, FloodPointState } from "../lib/flood";
@@ -58,11 +58,10 @@ import { baseNearby, birkdale, crimeServed, input, soldServed } from "./fixtures
 // dead link — planted into a source, collected, then
 // checked — makes the robot alert (the loop test).
 
-const sampleText = readFileSync(
-  fileURLToPath(new URL("../components/SampleReport.tsx", import.meta.url)),
-  "utf8",
-);
-const collected = collectOutsideLinks(sampleText);
+// BUG-159: the sample report is the generated report —
+// it serves the report's own destinations and no literals
+// of its own, so the collection takes no sample text.
+const collected = collectOutsideLinks();
 const collectedUrls = collected.map((link) => link.url);
 
 const EXPECTED_URLS = [
@@ -89,10 +88,13 @@ const EXPECTED_URLS = [
   "https://www.nomisweb.co.uk/datasets/c2021ts030",
   "https://www.nomisweb.co.uk/datasets/c2021ts052",
   "https://find-energy-certificate.service.gov.uk/",
-  // The sample report only.
-  "https://www.gov.uk/pay-council-tax",
-  "https://www.gov.uk/planning-permission-england-wales",
-  "https://reports.ofsted.gov.uk/provider/21/115102",
+  // BUG-159: the hand-built sample's three sample-only
+  // literals (pay council tax, the planning-permission
+  // guide, one school's Ofsted page) are NOT fixed
+  // destinations of the generated sample: it serves the
+  // report's own set, and its Ofsted links are per-school
+  // data, exactly like a bought report's — outside the
+  // fixed set the robot checks.
 ];
 
 describe("outside links — the collected set (prep point 5)", () => {
@@ -166,12 +168,10 @@ describe("outside links — the collected set (prep point 5)", () => {
     for (const url of filed) expect(collectedUrls).toContain(url);
   });
 
-  it("the sample extraction finds the sample-only destinations and folds the dummy certificate into the pattern", () => {
-    const sampleUrls = sampleReportOutsideLinks(sampleText).map((link) => link.url);
-    expect(sampleUrls).toContain("https://www.gov.uk/pay-council-tax");
-    expect(sampleUrls).toContain("https://www.gov.uk/planning-permission-england-wales");
-    expect(sampleUrls).toContain("https://reports.ofsted.gov.uk/provider/21/115102");
-    expect(sampleUrls.some((url) => url.includes("0000-0000"))).toBe(false);
+  it("the sample contributes no destinations of its own — the generated sample serves the report's set", () => {
+    expect(sampleReportOutsideLinks()).toEqual([]);
+    const pattern = collected.find((link) => link.pattern);
+    expect(pattern?.shownOn).toContain("the sample report");
   });
 });
 
@@ -409,6 +409,8 @@ function shortSections(overrides: Partial<ShortSections> = {}): ShortSections {
       perHeadLine: "about 45 recorded crimes per 1,000 residents in this postcode's area",
       englandLine:
         "England's figure for the same months is 94.5 per 1,000 — about 0.5× this area's rate",
+      per1000: 45,
+      englandPer1000: 94.5,
       staleLine: null,
       sourceLine: "Police.uk crime data",
       explainer: "explainer",
@@ -678,11 +680,15 @@ describe("outside links — the new-tab promise on every rendered surface (prep 
     );
   });
 
-  it("the results page: the catchment link, the planning hand-off and the flood-warning links", () => {
+  it("the results page: the planning hand-off and the flood-warning links", () => {
     const html = renderToStaticMarkup(createElement(ResultsPage, { view: resultsView() }));
     const anchors = expectNewTabPromise(html);
     const hrefs = anchors.map((anchor) => anchor.href);
-    expect(hrefs).toContain("https://www.gov.uk/schools-admissions");
+    // Re-pinned (FC-06, BUG-154): the catchment block —
+    // the results page's schools-admissions link — is
+    // retired; the link stands in the report (next test)
+    // and the outside-links list, not on this page.
+    expect(hrefs).not.toContain("https://www.gov.uk/schools-admissions");
     expect(hrefs).toContain("https://www.gov.uk/search-register-planning-decisions");
     expect(hrefs).toContain("https://www.gov.uk/check-flooding");
   });
@@ -691,12 +697,21 @@ describe("outside links — the new-tab promise on every rendered surface (prep 
     const html = renderToStaticMarkup(
       createElement(ReportPage, { view: buildReportView(input()) }),
     );
-    expectNewTabPromise(html);
+    const anchors = expectNewTabPromise(html);
+    // The catchment link stands here (FC-06): Section
+    // 10's admissions hand-off, beside the disclaimer it
+    // belongs to.
+    expect(anchors.map((anchor) => anchor.href)).toContain("https://www.gov.uk/schools-admissions");
   });
 
-  it("the sample report: every literal anchor", () => {
-    const html = renderToStaticMarkup(createElement(SampleReport));
+  it("the sample report: the generated document's anchors keep the promise", () => {
+    // BUG-159: the sample is the generated report, so its
+    // anchors are the report's own — rendered here through
+    // the sample's document composition.
+    const html = renderToStaticMarkup(
+      createElement(SampleReportDocument, { view: buildReportView(input()) }),
+    );
     const anchors = expectNewTabPromise(html);
-    expect(anchors.length).toBeGreaterThanOrEqual(13);
+    expect(anchors.length).toBeGreaterThanOrEqual(10);
   });
 });

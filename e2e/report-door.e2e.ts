@@ -92,8 +92,11 @@ test.describe("report door — regression", () => {
       await expect(page.locator(".report-door__card h2").first()).toHaveText(
         "What the detailed report adds",
       );
+      // Re-pinned (HCR-03, BUG-153): the lead names the
+      // mapped layers — the report draws no rivers & sea
+      // map, so "for each check" is out.
       await expect(page.locator(".report-door__card").first()).toContainText(
-        "Plus the flood findings in full, with a location map for each check",
+        "Plus the flood findings in full, with location maps for the flood zones and surface water",
       );
       // BUG-131 (payment-flow parity stack, 22 Nov
       // 2026): the one-payment price line is gone from

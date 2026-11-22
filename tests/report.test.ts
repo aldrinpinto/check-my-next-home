@@ -2517,6 +2517,12 @@ describe("report — the print-check batch (founder's PDF print check, 21 Nov 20
     expect(s7).toContain("1 kWp of panels, unshaded, south-facing, 30° slope, 14% system losses");
     expect(s7).toContain("Radiation data: PVGIS-SARAH3, 2005–2023");
     expect(s7).not.toContain("SOLAR-LINE");
+    // BUG-149(2): the distinguisher stands after the
+    // figures — potential is the location's sun, not
+    // panels fitted.
+    expect(s7).toContain(
+      "Solar potential is about the sun this location gets — it does not mean this home has panels fitted.",
+    );
   });
 
   it("the rendered page aligns table headers with their columns and colours the chips (items 1 and 8)", () => {

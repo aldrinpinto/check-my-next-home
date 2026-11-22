@@ -18,6 +18,7 @@ import {
   assembleCheckingOutcomes,
   parseCheckingPartValue,
   type CheckingAreaPayload,
+  type CheckingCrimePayload,
   type CheckingGroupResult,
   type CheckingNearbyPayload,
   type CheckingPart,
@@ -40,8 +41,10 @@ import { fireJourneyEvent } from "./JourneyBeacon";
 // CHECKED when the last group lands, as the final beat
 // before the reveal.
 //
-// The mechanics are D73's, unchanged: the same three
-// /api/check part calls fire in parallel; a group completes
+// The mechanics are D73's, unchanged: the same
+// /api/check part calls fire in parallel (four since
+// BUG-144 split the safety group's crime half out of
+// the area part); a group completes
 // only once its parts have settled, paced at least
 // CHECKING_ROW_MS after the previous group's completion
 // (smoothing over the real settlements, never a timer
@@ -77,6 +80,7 @@ const SEAL_ROTATIONS = [-90, -18, 54, 126, 198];
 type PartSettlements = {
   nearby?: CheckingPart<CheckingNearbyPayload>;
   flood?: CheckingPart<CheckingSegment[]>;
+  crime?: CheckingPart<CheckingCrimePayload>;
   area?: CheckingPart<CheckingAreaPayload>;
 };
 
@@ -104,11 +108,15 @@ export default function CheckingScreen({
   const [doneCount, setDoneCount] = useState(0);
   const [complete, setComplete] = useState(false);
 
-  // The real wiring: fire the three check calls in parallel
+  // The real wiring: fire the four check calls in parallel
   // and record each part's settlement as it lands — the
   // derived group payload on success, the failure mark on
   // an error status, an unreadable body or a network
-  // failure.
+  // failure. BUG-144: the safety group's two parts —
+  // flood and crime — fire FIRST, in the same moment as
+  // the rest: the group stands last in the feed, and its
+  // computation (the slowest on a cold postcode) runs
+  // from the start, in parallel with the earlier groups.
   useEffect(() => {
     let cancelled = false;
     fireJourneyEvent("check_started", { rung: homeKey ? 1 : 2 });
@@ -156,11 +164,14 @@ export default function CheckingScreen({
         return { ok: false };
       }
     };
-    void settle("nearby", (body) => parseCheckingPartValue("nearby", body)).then((part) => {
-      if (!cancelled) setParts((prev) => ({ ...prev, nearby: part }));
-    });
     void settle("flood", (body) => parseCheckingPartValue("flood", body)).then((part) => {
       if (!cancelled) setParts((prev) => ({ ...prev, flood: part }));
+    });
+    void settle("crime", (body) => parseCheckingPartValue("crime", body)).then((part) => {
+      if (!cancelled) setParts((prev) => ({ ...prev, crime: part }));
+    });
+    void settle("nearby", (body) => parseCheckingPartValue("nearby", body)).then((part) => {
+      if (!cancelled) setParts((prev) => ({ ...prev, nearby: part }));
     });
     void settle("area", (body) => parseCheckingPartValue("area", body)).then((part) => {
       if (!cancelled) setParts((prev) => ({ ...prev, area: part }));
@@ -172,7 +183,10 @@ export default function CheckingScreen({
 
   const outcomes = assembleCheckingOutcomes(parts);
   const allSettled =
-    parts.nearby !== undefined && parts.flood !== undefined && parts.area !== undefined;
+    parts.nearby !== undefined &&
+    parts.flood !== undefined &&
+    parts.crime !== undefined &&
+    parts.area !== undefined;
   const sealed = doneCount >= CHECKING_ROWS.length;
 
   // The pacing: the next group completes CHECKING_ROW_MS

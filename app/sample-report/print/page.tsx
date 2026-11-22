@@ -1,16 +1,16 @@
 import type { Metadata } from "next";
 
-import SampleReport from "../../../components/SampleReport";
-import { sampleReportPdfCover } from "../../../lib/report-pdf";
+import SampleReportPrintDocument from "../../../components/SampleReportPrintDocument";
+import { getSampleReportView } from "../../../lib/server/sample-report";
 import { pageMetadata } from "../../../lib/seo";
 
-// The sample report's print view (plan step M8.8): the
-// composition the sample PDF is printed from — the
-// sample cover (lib/report-pdf.ts's sampleReportPdfCover:
-// the SAMPLE marking, the name and tagline paired, the
-// example home, the invented-example line) followed by
-// the sample page's own document, components/
-// SampleReport.tsx, inside the site-pages wrapper.
+// The sample report's print view (plan step M8.8;
+// BUG-159): the composition the sample PDF is printed
+// from — the sample cover (lib/report-pdf.ts's
+// sampleReportPdfCover: the SAMPLE marking, the name and
+// tagline paired, the example home, the invented-example
+// line) followed by the generated, anonymised sample
+// document (components/SampleReportPrintDocument.tsx).
 //
 // It exists as a page, not a string built in a route
 // handler, because the app's route graphs cannot render
@@ -27,7 +27,7 @@ import { pageMetadata } from "../../../lib/seo";
 // environment (the metadata below), disallowed in the
 // production robots file, unlinked from every surface,
 // and absent from PAGE_SEO and the sitemap. What it
-// shows is only the dummy home's already-public sample.
+// shows is only the fiction home's anonymised sample.
 export const metadata: Metadata = pageMetadata({
   title: "Sample report — print view | Check My Next Home",
   description: "The sample report's print view — the composition its PDF is printed from.",
@@ -35,20 +35,14 @@ export const metadata: Metadata = pageMetadata({
   noindex: true,
 });
 
-export default function SampleReportPrintPage() {
-  const cover = sampleReportPdfCover();
+export const dynamic = "force-dynamic";
+
+export default async function SampleReportPrintPage() {
+  const view = await getSampleReportView();
   return (
     <main className="site-pages">
       <div className="site-pages__inner">
-        <div className="rpt-cover">
-          <span className="sample-pill">{cover.mark}</span>
-          <p className="rpt-brand">{cover.brandLine}</p>
-          <p className="rpt-cover-tag">{cover.taglineLine}</p>
-          <h1>{cover.title}</h1>
-          <p className="rpt-addr">{cover.addressLine}</p>
-          <p className="rpt-cover-date">{cover.exampleLine}</p>
-        </div>
-        <SampleReport />
+        <SampleReportPrintDocument view={view} />
       </div>
     </main>
   );

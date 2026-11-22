@@ -14,10 +14,7 @@ import {
 // per district the place serves, ALL of them (the
 // dropdown's reveal capped the list at five; Liverpool's
 // districts run far past that), each row opening that
-// district's wider-area search. The page is the street
-// choice page's seam and dress throughout: the picker's
-// shell, the place as the heading, the pinned explainer
-// and count lines, the picker's rows.
+// district's wider-area search.
 //
 // Fix batch, 19 Nov 2026 — the view-29 parity items:
 // each row carries its one-line area description (the
@@ -35,6 +32,13 @@ import {
 // district, in district order, that files one. No filed
 // postcode anywhere in the place, no example clause;
 // the line still stands.
+//
+// WA-10 (BUG-160 as corrected): the page wears Sample
+// 29's own dress — the district measure, the addr-line,
+// the serif title, the intro, the count as a .sect head
+// and the rows as open ruled rows with the outward's
+// code tile. The words are unchanged; the picker's
+// dress is retired from this page.
 export default function PlaceChoice({
   place,
   districts,
@@ -45,26 +49,30 @@ export default function PlaceChoice({
   const bridgePostcode = districts.find((district) => district.examplePostcode)?.examplePostcode;
   return (
     <main className="journey-page">
-      <div className="picker">
-        <h1>{place}</h1>
-        <p className="picker__explainer">{PLACE_CHOICE_LINE}</p>
-        <p className="picker__count">{placeChoiceCountLine(districts.length)}</p>
-        <ul className="picker__list">
+      <div className="district-place">
+        <p className="addr-line">
+          Wider area · <b>Place</b>
+        </p>
+        <h1 className="page-title">{place}</h1>
+        <p className="district-intro">{PLACE_CHOICE_LINE}</p>
+        <h2 className="district-sect">{placeChoiceCountLine(districts.length)}</h2>
+        <ul className="district-place__list">
           {districts.map((district) => {
             const description = placeDistrictDescription(district.settlements);
             return (
               <li key={district.outward}>
-                <a className="picker__row" href={widerAreaRoute(district.outward)}>
-                  <span className="picker__row-main">
-                    <span>{`${district.outward} — ${place}`}</span>
-                    {description && <span className="picker__row-detail">{description}</span>}
+                <a className="district-place__row" href={widerAreaRoute(district.outward)}>
+                  <span className="district-place__code">{district.outward}</span>
+                  <span className="district-place__main">
+                    <span className="district-place__label">{`${district.outward} — ${place}`}</span>
+                    {description && <span className="district-place__detail">{description}</span>}
                   </span>
                 </a>
               </li>
             );
           })}
         </ul>
-        <p className="picker__bridge-line">{placeBridgeLine(place, bridgePostcode ?? null)}</p>
+        <p className="district-place__bridge">{placeBridgeLine(place, bridgePostcode ?? null)}</p>
       </div>
     </main>
   );

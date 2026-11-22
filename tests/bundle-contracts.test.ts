@@ -55,6 +55,20 @@
 // founder's D42 ruling; recorded here and in the golden matrix
 // so the change is never mistaken for drift.
 //
+// RE-PIN RECORD: BUG-163 (founder ruling, 22 Nov 2026)
+// deliberately widened the short crime shape — the served
+// crime section gained per1000 and englandPer1000, the
+// calibration pair as numbers, projected so the shortlist
+// card's crime cell derives the pill verdict's band from
+// the same rate data the pill uses (never a threshold
+// faked on the raw count). The pins that moved:
+// short.rung1, short.rung2, short.flood-warnings and
+// short.unavailable — every pin whose crime section serves
+// with the pair filed; the pre-calibration and named-state
+// pins did not move. Authorised by the founder's BUG-163
+// ruling; recorded here so the change is never mistaken
+// for drift.
+//
 // NO-RE-PIN RECORD: M6.24 (founder ruling at M6.23) added the
 // maternity category to the nearby bundle — a content change,
 // not a shape change. The category's answer is the established

@@ -142,8 +142,12 @@ describe("report door — the holding page's contents (R5)", () => {
     const view = buildReportDoorView(HOME);
     expect(view.contentsHeading).toBe("What the detailed report adds");
     expect(view.contents).toContain(FLOOD_UPSELL_LEAD);
+    // Re-pinned (HCR-03, BUG-153): the lead names the
+    // mapped layers — "a location map for each check"
+    // promised a rivers & sea map the report never
+    // draws.
     expect(FLOOD_UPSELL_LEAD).toBe(
-      "Plus the flood findings in full, with a location map for each check",
+      "Plus the flood findings in full, with location maps for the flood zones and surface water",
     );
     const text = JSON.stringify(view);
     expect(text).not.toContain("flood map pictures");

@@ -1,4 +1,4 @@
-import type { DistanceFamily } from "./results";
+import { distanceBand, type DistanceBand, type DistanceFamily } from "./results";
 
 // The shortlist (plan step M7.5, built to D40 with the gap
 // check's four rulings of 17 Nov 2026). Everything about the
@@ -65,6 +65,11 @@ export const SHORTLIST_UNAVAILABLE_LINE =
 export const SHORTLIST_FULL_LINE = "Your shortlist is full — it holds 3 homes.";
 export const SEE_THIS_HOMES_CHECK = "See this home's check";
 export const NOT_COVERED_LINE = "This check is not covered for this postcode.";
+// The Air quality row's cell for a card saved before the
+// row existed (BUG-164): the snapshot holds no air fact,
+// and none is borrowed — the row says so, in the table's
+// plain dress.
+export const AIR_NOT_SAVED_LINE = "Air quality is not in this saved snapshot.";
 
 // ------------------------------------------------------------------
 // The record shape (pinned in tests/shortlist.test.ts)
@@ -78,14 +83,22 @@ export const NOT_COVERED_LINE = "This check is not covered for this postcode.";
 // renders its named state, never a borrowed figure
 // (fold-in 7); flood and crime are line cells carrying the
 // real bands and the real 12-month count (founder's
-// ruling, 17 Nov 2026). A pointer cell carries nothing and
-// is LEGACY: only cards saved before that ruling hold one,
-// and the renderer still honours the shape so a saved list
-// is never dropped for its age — new assembly never
-// produces one.
+// ruling, 17 Nov 2026). A line cell may also carry a BAND
+// (BUG-163): the pill verdict's colour for its fact,
+// derived at assembly from lib/results.ts's own band
+// functions — flood by floodPillBand, crime by
+// crimePillBand over the calibration pair, air quality by
+// airPillBand (BUG-164) — and absent wherever the verdict
+// cannot honestly be produced (a pre-calibration crime
+// snapshot carries no rate pair, so its cell stays plain;
+// no threshold is ever faked on the raw count). A pointer
+// cell carries nothing and is LEGACY: only cards saved
+// before that ruling hold one, and the renderer still
+// honours the shape so a saved list is never dropped for
+// its age — new assembly never produces one.
 export type ShortlistCell =
   | { kind: "distance"; name: string; miles: number }
-  | { kind: "line"; text: string }
+  | { kind: "line"; text: string; band?: DistanceBand }
   | { kind: "pointer" };
 
 export type ComparisonRowKey =
@@ -95,6 +108,7 @@ export type ComparisonRowKey =
   | "nursery"
   | "flood"
   | "crime"
+  | "air"
   | "gp"
   | "ae"
   | "station"
@@ -103,16 +117,18 @@ export type ComparisonRowKey =
 
 // The comparison's row set, pinned in tests. The ORDER is
 // the D75 summary-pill priority order (founder's ruling,
-// 17 Nov 2026): Flood and Crime lead, then the schools
-// (grammar grouped with them — it is a row here though it
-// is not a pill factor), A&E before GP, then Vet, Station
-// and Nursery in their pill order; Council tax is not a
-// pill factor at all and closes the table as a cost fact.
-// The family is the M7.4 distance-colour family for the
-// row's miles figure (lib/results.ts's thresholds); rows
-// without a family never carry a distance cell in a form
-// that colours (grammar's, flood's and crime's cells are
-// lines; council tax is a line).
+// 17 Nov 2026): Flood and Crime lead, Air quality follows
+// Crime (BUG-164's rank, founder ruling 22 Nov 2026),
+// then the schools (grammar grouped with them — it is a
+// row here though it is not a pill factor), A&E before
+// GP, then Vet, Station and Nursery in their pill order;
+// Council tax is not a pill factor at all and closes the
+// table as a cost fact. The family is the M7.4
+// distance-colour family for the row's miles figure
+// (lib/results.ts's thresholds); rows without a family
+// never carry a distance cell in a form that colours
+// (grammar's, flood's, crime's and air quality's cells
+// are lines; council tax is a line).
 export const COMPARISON_ROWS: {
   key: ComparisonRowKey;
   label: string;
@@ -120,6 +136,7 @@ export const COMPARISON_ROWS: {
 }[] = [
   { key: "flood", label: "Flood", family: null },
   { key: "crime", label: "Crime — 12-month total", family: null },
+  { key: "air", label: "Air quality", family: null },
   { key: "primary", label: "Nearest primary", family: "school" },
   { key: "secondary", label: "Nearest secondary", family: "school" },
   { key: "grammar", label: "Grammar school nearby", family: null },
@@ -269,9 +286,42 @@ export function buildComparison(cards: ShortlistCard[]): ComparisonView {
       key: row.key,
       label: row.label,
       family: row.family,
-      cells: cards.map((card) => card.comparison[row.key]),
+      cells: cards.map((card) => {
+        const cell = card.comparison[row.key];
+        if (cell !== undefined) return cell;
+        // Only the Air quality row can be absent: a card
+        // saved before BUG-164 added the row holds no air
+        // cell (isCard below tolerates exactly that one
+        // gap), and the row serves the not-saved line for
+        // it rather than dropping the card or borrowing a
+        // figure.
+        return { kind: "line", text: AIR_NOT_SAVED_LINE };
+      }),
     })),
   };
+}
+
+// The colour a cell takes in the table (BUG-163, founder
+// ruling 22 Nov 2026): the reports' own colour machinery,
+// never a second set of thresholds. A distance cell takes
+// its row family's band (lib/results.ts's distanceBand) —
+// except GP: its family stands in the row table, but the
+// product never colours a GP distance anywhere, so the
+// table does not start. A line cell takes the band
+// assembly derived for it from the pill verdicts (flood,
+// crime, air quality); every other line — council tax
+// above all — stays plain, as does a legacy pointer.
+export function comparisonCellBand(
+  rowKey: ComparisonRowKey,
+  family: DistanceFamily | null,
+  cell: ShortlistCell,
+): DistanceBand | null {
+  if (cell.kind === "distance") {
+    if (family === null || rowKey === "gp") return null;
+    return distanceBand(family, cell.miles);
+  }
+  if (cell.kind === "line") return cell.band ?? null;
+  return null;
 }
 
 // ------------------------------------------------------------------
@@ -314,7 +364,14 @@ function isCell(value: unknown): value is ShortlistCell {
   if (typeof value !== "object" || value === null) return false;
   const cell = value as Record<string, unknown>;
   if (cell.kind === "pointer") return true;
-  if (cell.kind === "line") return typeof cell.text === "string";
+  if (cell.kind === "line")
+    return (
+      typeof cell.text === "string" &&
+      (cell.band === undefined ||
+        cell.band === "green" ||
+        cell.band === "orange" ||
+        cell.band === "red")
+    );
   if (cell.kind === "distance")
     return typeof cell.name === "string" && typeof cell.miles === "number";
   return false;
@@ -338,7 +395,16 @@ function isCard(value: unknown): value is ShortlistCard {
   }
   if (typeof card.comparison !== "object" || card.comparison === null) return false;
   const comparison = card.comparison as Record<string, unknown>;
-  return COMPARISON_ROWS.every((row) => isCell(comparison[row.key]));
+  // The Air quality cell is the one tolerated gap
+  // (BUG-164): cards saved before the row existed hold no
+  // air cell at all, and the card survives — the stored
+  // record is never rewritten; buildComparison serves the
+  // not-saved line for that row instead.
+  return COMPARISON_ROWS.every((row) =>
+    row.key === "air"
+      ? comparison[row.key] === undefined || isCell(comparison[row.key])
+      : isCell(comparison[row.key]),
+  );
 }
 
 export function parseShortlistRecord(raw: string | null): ShortlistRecord {

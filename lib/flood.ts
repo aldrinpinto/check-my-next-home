@@ -208,7 +208,16 @@ export const FLOOD_WARNING_DIST_KM = 3.22;
 // body — still degrades to the filed answer plus the
 // named failure line; the check never blocks and never
 // fails because of the warnings feed.
-export const FLOOD_WARNING_TIMEOUT_MS = 5000;
+//
+// Raised to the full bound (founder ruling, 22 Nov
+// 2026): measured from the play server the same day,
+// the EA endpoint's cold first hit ran 3.5 seconds and
+// spiked past the 5-second cap — the service itself
+// healthy, the cap the failure. The cap is now the
+// D73 per-part bound itself, 10 seconds: still one
+// attempt, no retry; a feed slower than the bound
+// still degrades exactly as before.
+export const FLOOD_WARNING_TIMEOUT_MS = 10000;
 
 // At most this many warnings serve in the block; any beyond
 // it are counted and named in the overflow line, never

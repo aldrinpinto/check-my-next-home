@@ -6,11 +6,12 @@ import StreetChoice from "../components/StreetChoice";
 
 // The street choice page (M7.15C, 18 Nov 2026): a
 // street spanning postcodes renders its short postcode
-// list in the picker's list style — the rows in the
-// order the read model served them (home count
-// descending, the street's centre of gravity first),
-// each row opening that postcode's check narrowed to
-// the street.
+// list — the rows in the order the read model served
+// them (home count descending, the street's centre of
+// gravity first), each row opening that postcode's
+// check narrowed to the street. WA-10 re-pin: the page
+// wears Sample 29's district dress now — the postcode
+// in the row's code tile, the street as its label.
 describe("the street choice page", () => {
   it("renders the heading, the pinned line, the count and one row per postcode", () => {
     const html = renderToStaticMarkup(
@@ -23,18 +24,20 @@ describe("the street choice page", () => {
         ],
       }),
     );
-    expect(html).toContain("<h1>Birkdale Rise, Chelmsford</h1>");
+    expect(html).toContain('<h1 class="page-title">Birkdale Rise, Chelmsford</h1>');
     expect(html).toContain(
       "This street covers more than one postcode — pick yours to see its homes.",
     );
     expect(html).toContain("2 postcodes");
     expect(html).toContain('href="/search?postcode=CM3+2JT&amp;street=BIRKDALE+RISE"');
     expect(html).toContain('href="/search?postcode=CM3+2JU&amp;street=BIRKDALE+RISE"');
-    expect(html).toContain("Birkdale Rise, Chelmsford, CM3 2JT");
-    expect(html).toContain("Birkdale Rise, Chelmsford, CM3 2JU");
-    // The picker's own list anatomy.
-    expect(html).toContain('class="picker__list"');
-    expect(html).toContain('class="picker__row"');
+    expect(html).toContain("Birkdale Rise, Chelmsford");
+    // The Sample 29 row anatomy: the code tile carries
+    // the postcode, the label the street.
+    expect(html).toContain('class="district-place__list"');
+    expect(html).toContain('class="district-place__row"');
+    expect(html).toContain('<span class="district-place__code">CM3 2JT</span>');
+    expect(html).toContain('<span class="district-place__code">CM3 2JU</span>');
     // A street pick never lands on a home.
     expect(html).not.toContain("home=");
   });
@@ -50,7 +53,8 @@ describe("the street choice page", () => {
         ],
       }),
     );
-    expect(html).toContain("<h1>Mill Lane</h1>");
-    expect(html).toContain("Mill Lane, AB1 2CD");
+    expect(html).toContain('<h1 class="page-title">Mill Lane</h1>');
+    expect(html).toContain('<span class="district-place__code">AB1 2CD</span>');
+    expect(html).toContain("Mill Lane");
   });
 });

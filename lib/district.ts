@@ -390,8 +390,10 @@ const DISTRICT_WARNINGS_URL = "https://environment.data.gov.uk/flood-monitoring/
 // in lib/flood.ts), raised from 2s by the same fix batch
 // (19 Nov 2026 — BUG-006): the EA API's first-hit latency
 // runs past 2 seconds, so a 2-second cap aborted the
-// lookup on effectively every first check.
-const DISTRICT_WARNING_TIMEOUT_MS = 5000;
+// lookup on effectively every first check. Raised with
+// it to the full 10-second bound (founder ruling, 22 Nov
+// 2026 — the measurement stands in lib/flood.ts).
+const DISTRICT_WARNING_TIMEOUT_MS = 10000;
 
 export function parseDistrictWarningItems(body: unknown): DistrictWarningItem[] {
   if (typeof body !== "object" || body === null)

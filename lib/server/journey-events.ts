@@ -27,6 +27,7 @@
 // error, and never silence because Resend blinked.
 
 import type { AddressQueryable } from "../address";
+import { envValue } from "./env";
 import {
   assertJourneyEventSafe,
   browserClassOf,
@@ -113,9 +114,13 @@ interface AlertEmail {
 // from the request, and a failed send is retried by the
 // next occurrence of the error, not by a loop here.
 async function sendAlertEmail(email: AlertEmail): Promise<boolean> {
-  const key = process.env.RESEND_API_KEY;
+  // Both names read through envValue (BUG-148): a
+  // name the compose file passes empty counts as
+  // unset, so the alert's recipient falls back to the
+  // project inbox instead of an empty address.
+  const key = envValue("RESEND_API_KEY");
   if (!key) return false;
-  const to = process.env.ALERT_EMAIL_TO ?? "checkmynexthome@gmail.com";
+  const to = envValue("ALERT_EMAIL_TO") ?? "checkmynexthome@gmail.com";
   try {
     const response = await fetch("https://api.resend.com/emails", {
       method: "POST",

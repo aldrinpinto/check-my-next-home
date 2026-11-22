@@ -7206,7 +7206,9 @@
           "count": "number"
         },
         "englandLine": "string",
+        "englandPer1000": "number",
         "explainer": "string",
+        "per1000": "number",
         "perHeadLine": "string",
         "sourceLine": "string",
         "staleLine": "null",
@@ -7505,7 +7507,9 @@
           "count": "number"
         },
         "englandLine": "string",
+        "englandPer1000": "number",
         "explainer": "string",
+        "per1000": "number",
         "perHeadLine": "string",
         "sourceLine": "string",
         "staleLine": "null",
@@ -7782,7 +7786,9 @@
           "count": "number"
         },
         "englandLine": "string",
+        "englandPer1000": "number",
         "explainer": "string",
+        "per1000": "number",
         "perHeadLine": "string",
         "sourceLine": "string",
         "staleLine": "null",
@@ -8334,7 +8340,9 @@
           "count": "number"
         },
         "englandLine": "string",
+        "englandPer1000": "number",
         "explainer": "string",
+        "per1000": "number",
         "perHeadLine": "string",
         "sourceLine": "string",
         "staleLine": "null",

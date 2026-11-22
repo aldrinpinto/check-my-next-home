@@ -569,9 +569,12 @@ p {
 
 .site-footer__sources {
   margin-bottom: 0;
-  /* Very small — clearly smaller than the footer body
-     text (0.78125rem on .site-footer__inner). */
-  font-size: 0.625rem;
+  /* True small print (BUG-165, founder ruling 22 Nov
+     2026): the site's small-print measure, 0.62rem (the
+     BUG-128 measure) — visibly smaller than the footer
+     links and the footer body text (0.78125rem on
+     .site-footer__inner). */
+  font-size: 0.62rem;
   line-height: 1.3;
   text-align: right;
 }
@@ -1890,8 +1893,30 @@ body:has(.main--home) .site-footer {
    the selected tint, the heavy weight and a tick; the
    full-width Ink button below confirms. The count line
    (an M7.3 fold-in the design lacks) stays. */
+/* BUG-150 (22 Nov 2026): the picker's title stands
+   above its explainer in the page's sub-heading
+   register, and the explainer wears the results
+   surfaces' small print (0.72rem, muted) — it read at
+   body size before, as though it were a finding. */
+.picker__title {
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--cmnh-forest);
+  margin: var(--space-4) 0 6px;
+}
+
 .picker__explainer {
   max-width: 36rem;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: var(--colour-muted);
+}
+
+/* BUG-150: the dropdown is capped narrower than the
+   page column, so it reads as a dropdown — it stretched
+   the full width before, reading as a text field. */
+.picker__select {
+  max-width: 26rem;
 }
 
 .picker__count {
@@ -2523,51 +2548,64 @@ body:has(.main--home) .site-footer {
   margin-bottom: var(--space-5);
 }
 
-/* The 'About these checks' expander (M7.12, stacked build
-   18 Nov 2026): the one home for the results page's links
-   to the per-check How we check pages — a collapsed
-   details block in the kit's dress, its summary a full
-   tap target, sitting between the calculators and the
-   closing disclaimer. No sample carries this element (the
-   founder's ruling created it), so it is built in the
-   samples' design language: hairline border, tile radius,
-   Forest summary in the section-label register. */
-.about-checks {
-  border: 1px solid #dbe6df;
-  border-radius: var(--radius-tile);
-  padding: 0 14px;
-  margin: 18px 0 0;
+/* The 'About these checks' strip (M7.12; a pull-down
+   until BUG-143, founder ruling 22 Nov 2026): the one
+   home for the results page's links to the per-check
+   How we check pages — the links as little clickable
+   pills in one closing strip, the page's last
+   furniture. The pull-down read as a static card, or
+   an empty box closed; the strip is open by
+   construction. Built in the samples' design language:
+   the heading in the section-label register, the pills
+   in the district bridge chips' dress. */
+.check-pills {
+  margin: 22px 0 0;
 }
 
-.about-checks summary {
-  min-height: var(--tap-target);
-  display: flex;
-  align-items: center;
-  cursor: pointer;
+.check-pills__heading {
   font-size: 0.78rem;
   font-weight: 900;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--cmnh-forest);
+  margin: 0 0 10px;
 }
 
-.about-checks__list {
+.check-pills__list {
   list-style: none;
-  margin: 0 0 12px;
+  margin: 0;
   padding: 0;
-  display: grid;
+  display: flex;
+  flex-wrap: wrap;
   gap: var(--space-2);
 }
 
-.about-checks__list a {
+.check-pills__pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  border: 1px solid var(--colour-card-line);
+  border-radius: 999px;
+  padding: 11px 13px;
+  font-weight: 800;
+  font-size: 0.88rem;
+  background: var(--cmnh-white);
   color: var(--cmnh-forest);
+  text-decoration: none;
+}
+
+.check-pills__pill:hover {
+  background: var(--colour-selected-bg);
 }
 
 /* D3 (parity fix stack, 18 Nov 2026): the closing
    disclaimers sit in the sample's tinted box, not as plain
-   text over a rule. */
+   text over a rule. BUG-143: the box stands directly
+   under the results tabs now, so it carries a bottom
+   margin too — the furniture below it (bridge, buy bar)
+   does not all carry its own top margin. */
 .results-disclaimer-closing {
-  margin: 18px 0 0;
+  margin: 18px 0;
   padding: 12px 14px;
   background: #f1f5f3;
   border: 1px solid #dbe6df;
@@ -2585,20 +2623,32 @@ body:has(.main--home) .site-footer {
 }
 
 .results-section__heading {
-  /* The sample's .sect form: a small tracked label, Forest,
-     heavy — the heading element and its semantics stay. */
-  font-size: 0.78rem;
+  /* BUG-156: the report rulebook's .sect form, extended
+     to the results tabs — the heading stands ABOVE the
+     item names in scale (1.02rem over the rows' .94rem
+     leads), tracked, Forest, heavy, with the solid tile
+     line above it. The heading element and its semantics
+     stay. */
+  font-size: 1.02rem;
   font-weight: 900;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   line-height: 1.4;
   color: var(--cmnh-forest);
-  margin: 18px 0 2px;
+  border-top: 1px solid var(--colour-tile-line);
+  padding-top: 14px;
+  margin: 24px 0 2px;
 }
 
 .results-section:first-child .results-section__heading {
-  margin-top: 6px;
+  margin-top: 8px;
 }
+
+/* BUG-160: the district view takes the same heading
+   dress as the home results — the .sect form above
+   applies to its sections unchanged (the earlier
+   district exception, .78rem with no rule, is retired
+   by the founder's ruling). */
 
 .results-line {
   margin-bottom: var(--space-2);
@@ -2621,6 +2671,17 @@ body:has(.main--home) .site-footer {
   align-items: flex-start;
   padding: 11px 0;
   border-bottom: 1px dashed #e5e0d0;
+}
+
+/* BUG-156 (the rulebook's line discipline): a dashed
+   rule stands BETWEEN entries only — never below a
+   list's last entry, where it trailed into the strip or
+   the next heading. The sample's mechanism is
+   .row:has(+ :not(.row)); the product's list form is
+   the last-child of the list. Grammar rows are boxed
+   and keep their box. */
+.place-list > .place-row:last-child:not(.place-row--grammar) {
+  border-bottom: none;
 }
 
 .place-row__main {
@@ -2759,7 +2820,8 @@ a.trunc-row:hover {
 /* The checking screen's slim eyebrow (item 2): the only
    address reference on the standalone checking view. */
 .addr-line {
-  font-size: 0.92rem;
+  /* WA-13: Sample 28/29's addr-line size. */
+  font-size: 1.02rem;
   color: var(--colour-muted);
   margin: 0 0 var(--space-2);
 }
@@ -2777,6 +2839,51 @@ a.trunc-row:hover {
   gap: 14px;
   padding: 11px 0;
   border-bottom: 1px dashed #e5e0d0;
+}
+
+/* BUG-156: the sample's own mechanism, verbatim in
+   effect — a row followed by anything that is not a
+   row (its own link, a strip, the section's end) drops
+   its dashed rule, so an entry is never split from its
+   link and no rule trails below a section's last entry.
+   A row that is the section's last block has no next
+   sibling for :has to see; the last-child rule covers
+   it. */
+.results-row:has(+ :not(.results-row)) {
+  border-bottom: none;
+}
+
+.results-section > .results-row:last-child {
+  border-bottom: none;
+}
+
+/* The small-print dress for standalone explainer and
+   coverage lines (NB-01 / HCR-19): the sample's
+   .fineprint form as a block — small, muted, line-free,
+   standing after the data it explains. */
+.results-small-line {
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: var(--colour-muted);
+  margin: 0 0 var(--space-2);
+}
+
+/* The bullet treatment (BUG-156): findings lists on the
+   results tabs, in the report bullets' language — one
+   fact per item, tight spacing, no line of their own. */
+.results-list {
+  margin: 0 0 var(--space-2);
+  padding-left: 18px;
+  line-height: 1.45;
+}
+
+.results-list__item {
+  margin: 2px 0;
+}
+
+.results-list--row {
+  font-size: var(--font-size-small);
+  margin-bottom: 0;
 }
 
 .results-row__main {
@@ -2842,36 +2949,31 @@ a.trunc-row:hover {
   margin-top: 8px;
 }
 
-/* The comparison miles (item 43): plain bold Forest text,
-   never a tinted pill. */
+/* The comparison miles in their plain dress: bold Forest
+   text. Item 43 of the parity fix batch set this form;
+   BUG-163 (22 Nov 2026) colours every banded value in the
+   pills' figure dress instead, so this plain form now
+   remains only for the rows the product never colours
+   (GP) and for bandless cells. */
 .compare-mi {
   color: var(--cmnh-forest);
   font-weight: 700;
   white-space: nowrap;
 }
 
-/* The shortlist empty state's plain search form (item
-   41): the card's own measures — 52px field and button,
-   10px radius — with no dropdown shell. */
-.shortlist-search-form {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
+/* A banded line value in the comparison (BUG-163): the
+   pills' figure chip carries a whole fact here (a flood
+   pair, a crime count, the air values), not a short
+   figure — the text wraps inside the cell rather than
+   overflowing it. */
+.pill__figure.compare-val {
+  white-space: normal;
 }
 
-.shortlist-search-form input {
-  flex: 1 1 16rem;
-  min-height: 52px;
-  border-radius: 10px;
-  border: 1px solid var(--colour-card-line);
-  padding: 0 14px;
-  font: inherit;
-}
-
-.shortlist-search-form__button {
-  min-height: 52px;
-  border-radius: 10px;
-}
+/* The shortlist empty state's search form stood here
+   until BUG-147 (22 Nov 2026): the card now carries the
+   standard PostcodeBox, whose own dress governs — the
+   plain form's rules are retired with the form. */
 
 /* Home-list rows render as links as well as buttons (the
    picker's list, moved onto the postcode check): a link
@@ -3524,30 +3626,29 @@ a.picker__row {
 
 /* The honesty area (M9.5, in the founder's Option A
    form, 22 Nov 2026): the door's card dress, standing
-   above the email block in the 17 Nov reading order —
-   the one line with its Terms link, the price
-   restated, the refund line, and the digital-content
-   tick-box the Pay button waits on. Its rhythm is the
-   sample's (PF-12): 15.5px lines at 1.6, the gaps the
-   sample's inline styles set, the consent label in
-   regular weight. */
+   above the email block — the digital-content
+   tick-box the Pay button waits on, the one line with
+   its Terms link, and the price restated. Its rhythm
+   is the sample's (PF-12): 15.5px lines at 1.6, the
+   gaps the sample's inline styles set, the consent
+   label in regular weight. BUG-145 (founder, 22 Nov
+   2026, as amended) re-formed the block: the tick
+   stands first, the one line drops to the page's
+   small print (the closing smallprint's 13px muted
+   form), the bold price line closes the block, and
+   the refund line is gone from the block entirely. */
 .report-payment__honesty-line {
-  font-size: 0.96875rem;
-  line-height: 1.6;
-  margin: 0 0 0.625rem;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: #4a5548;
+  margin: 0 0 0.5rem;
 }
 
 .report-payment__honesty-price {
   font-size: 1rem;
   line-height: 1.55;
   font-weight: 700;
-  margin: 0 0 0.625rem;
-}
-
-.report-payment__honesty-refund {
-  font-size: 0.96875rem;
-  line-height: 1.6;
-  margin: 0 0 1.125rem;
+  margin: 0;
 }
 
 .report-payment__consent {
@@ -3557,6 +3658,7 @@ a.picker__row {
   font-size: 0.96875rem;
   line-height: 1.55;
   cursor: pointer;
+  margin-bottom: 0.875rem;
 }
 
 .report-payment__consent-box {
@@ -3584,7 +3686,10 @@ a.picker__row {
   padding: 11px 14px;
   font-size: 0.90625rem;
   line-height: 1.55;
-  margin: 0.875rem 0 0;
+  /* BUG-145: the tick now leads its card, so the
+     error's gap stands below it (the tick's own
+     margin carries the gap above). */
+  margin: 0 0 0.875rem;
 }
 
 /* The email block's field dress (PF-08): the sample's
@@ -4031,6 +4136,20 @@ a.picker__row {
   font-weight: 600;
 }
 
+/* BUG-146 (22 Nov 2026): the re-send's FAILED answer
+   wears the site's failure treatment — the same tinted
+   box as the BUG-132 consent error — never plain black
+   text. The sent answer keeps the plain dress above. */
+.report-success__resend-answer--failed {
+  background: #fbeee3;
+  border: 1px solid #e3b98f;
+  color: #7a4416;
+  border-radius: 10px;
+  padding: 11px 14px;
+  font-size: 0.90625rem;
+  line-height: 1.55;
+}
+
 /* The failed surface's reasons (PF-21): Sample 12's
    list — no bullets, each reason carrying a small
    brass dot. */
@@ -4199,10 +4318,10 @@ a.picker__row {
 /* The empty state's search card (sample view 14;
    shortlist sample-parity fix, 18 Nov 2026): the sample's
    paper card under the empty card. Parity fix batch
-   (item 41): the card carries the sample's PLAIN form —
-   the form's own rules (.shortlist-search-form, in the
-   parity block above) hold the sample's row measures
-   (52px field and button, 10px radius). */
+   (item 41) carried the sample's PLAIN form here;
+   BUG-147 (22 Nov 2026) replaced it with the standard
+   PostcodeBox — the card's dress stands, the box's own
+   dress governs the search inside it. */
 .shortlist-search-card {
   margin-top: 1.8rem;
   background: var(--cmnh-white);
@@ -4251,7 +4370,15 @@ a.picker__row {
   margin-bottom: var(--space-3);
 }
 .results-subheading {
+  /* BUG-156: a group subheading is a layer-3 heading in
+     the rulebook's terms — it carries NO line of its
+     own (the pre-fix page ruled subheadings like
+     sections); it stands in bold at body scale above
+     its group. */
   margin: var(--space-4) 0 var(--space-2);
+  font-size: 0.98rem;
+  font-weight: 700;
+  border: none;
 }
 /* The .upsell panel retired (parity fix batch, item 14):
    every upsell on the results page renders as the
@@ -5089,6 +5216,16 @@ a.picker__row {
 .site-pages .report-wrap {
   position: relative;
 }
+/* BUG-159: the generated sample's wrapper carries the
+   watermark overlay across the whole document, and the
+   sample's print composition suppresses the report view's
+   own print cover — the SAMPLE cover stands in its place. */
+.site-pages .sample-report-doc {
+  position: relative;
+}
+.site-pages .sample-print-doc .report-wrap > .rpt-cover {
+  display: none !important;
+}
 .site-pages .watermark {
   position: absolute;
   inset: 0;
@@ -5862,8 +5999,10 @@ a.picker__row {
    the page's only forward path, into a full-postcode
    check. Built from the kit's tokens only. */
 
+/* WA-13: the scope line in Sample 28's intro form. */
 .results-scope-line {
-  font-size: var(--font-size-lead);
+  font-size: 1rem;
+  max-width: 56ch;
   margin-bottom: var(--space-3);
 }
 
@@ -5874,13 +6013,15 @@ a.picker__row {
   margin-bottom: var(--space-3);
 }
 
+/* WA-13: the head chips in Sample 28's values — white
+   ground, the sample's padding and weight. */
 .district-chips .chip {
   border: 1px solid var(--cmnh-brass-pale);
   border-radius: 999px;
-  background: var(--colour-surface);
-  padding: 4px 12px;
-  font-size: 0.85rem;
-  font-weight: 600;
+  background: #fff;
+  padding: 8px 11px;
+  font-size: 0.84rem;
+  font-weight: 700;
 }
 
 /* The label/value table: label and its small detail at the
@@ -5898,6 +6039,14 @@ a.picker__row {
   gap: 14px;
   padding: 8px 0;
   border-bottom: 1px dashed #e5e0d0;
+}
+
+/* The dotted-line discipline (wider-area audit's
+   mechanism note): the district tables' rows carry
+   their rule under .results-table__row — the last
+   row of a table carries none. */
+.results-table__row:last-child {
+  border-bottom: none;
 }
 
 .results-table__label {
@@ -5918,42 +6067,63 @@ a.picker__row {
   color: var(--cmnh-forest-deep);
 }
 
-/* The deprivation decile spread: ten cells, the count
-   above the decile number; empty deciles sit muted. */
+/* The deprivation decile spread in Sample 28's form
+   (WA-09): ten colour blocks on the sample's ramp —
+   pale red at decile 1, deepening greens to decile 10
+   — the decile number bold beneath each block (the
+   figure), the area count small beneath that (the
+   detail). */
 .deciles {
   display: flex;
   gap: 4px;
-  margin: 0 0 var(--space-3);
+  margin: 14px 0 var(--space-3);
+  flex-wrap: wrap;
 }
 
 .decile {
-  flex: 1 1 0;
+  flex: 1 1 3.2rem;
   min-width: 0;
   text-align: center;
-  border: 1px solid var(--colour-tile-line);
-  border-radius: var(--radius-tile);
-  background: var(--colour-card);
-  padding: 6px 2px;
 }
 
-.decile__count {
+.decile__block {
   display: block;
-  font-family: var(--font-family-display);
-  font-weight: 700;
-  font-size: 1rem;
-  color: var(--cmnh-forest-deep);
+  height: 44px;
+  border-radius: 7px;
+  background: #eaf0e6;
+  border: 1px solid #d8e2d0;
+}
+
+.decile:nth-child(1) .decile__block {
+  background: #f3e8e8;
+}
+
+.decile:nth-child(6) .decile__block,
+.decile:nth-child(7) .decile__block {
+  background: #dcead6;
+}
+
+.decile:nth-child(8) .decile__block,
+.decile:nth-child(9) .decile__block {
+  background: #c8dfbe;
+}
+
+.decile:nth-child(10) .decile__block {
+  background: #b9d6a8;
 }
 
 .decile__num {
   display: block;
-  font-size: 0.68rem;
-  font-weight: 800;
-  letter-spacing: 0.05em;
-  color: var(--colour-muted);
+  font-weight: 700;
+  font-size: 0.75rem;
+  margin-top: 4px;
+  color: var(--cmnh-ink);
 }
 
-.decile[data-empty] {
-  opacity: 0.55;
+.decile__count {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--colour-muted);
 }
 
 /* The flood roll-up's stacked share bar: one segment per
@@ -5974,24 +6144,25 @@ a.picker__row {
   height: 100%;
 }
 
+/* WA-06: Sample 28's segment colours. */
 .stackbar__seg--high {
-  background: #8c3b2e;
+  background: #b42318;
 }
 
 .stackbar__seg--medium {
-  background: #c96f2e;
+  background: #e07a2c;
 }
 
 .stackbar__seg--low {
-  background: var(--cmnh-brass);
+  background: #e8c547;
 }
 
 .stackbar__seg--very-low {
-  background: #7fae7a;
+  background: #2f5d3e;
 }
 
 .stackbar__seg--none {
-  background: #e9e4d2;
+  background: #d8d2bc;
 }
 
 /* The crime calibration bars: label, track, figure. */
@@ -6056,34 +6227,10 @@ a.picker__row {
   margin-bottom: var(--space-4);
 }
 
-.district-bridge__form {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.district-bridge__input {
-  flex: 1 1 16rem;
-  min-height: 44px;
-  padding: 9px 11px;
-  border: 1px solid #c9cfc9;
-  border-radius: 8px;
-  font: inherit;
-  font-size: 1rem;
-  font-weight: 700;
-  background: var(--cmnh-white);
-  color: var(--colour-text);
-}
-
-.district-bridge__input:focus {
-  outline: 3px solid var(--cmnh-forest);
-  outline-offset: 1px;
-}
-
-.district-bridge__form .btn {
-  min-height: 44px;
-  border-radius: 8px;
-}
+/* The bridge's plain form stood here until BUG-147
+   (22 Nov 2026): the bridge now carries the standard
+   PostcodeBox, whose own dress governs — the plain
+   form's rules are retired with the form. */
 
 .district-bridge__links {
   display: flex;
@@ -6144,6 +6291,416 @@ a.picker__row {
 
 .infobox p {
   margin: 0;
+}
+
+/* --- Sample 28 district dress (BUG-160 as corrected,
+   WA-01..15) -------------------------------------------------
+   The district page's own sample system: the two-tier
+   section head (a numbered label with NO line above it,
+   the serif title, the grain pill), the .source line,
+   the fact rows, the stat tiles, the crime panel, the
+   flood cards, the warnings strip, the bandbox and the
+   boxed disclaimers panel. Scoped to the district view
+   (.results--district) wherever a class could meet the
+   home pages. */
+
+.district-sect {
+  margin: 18px 0 2px;
+  color: var(--cmnh-forest);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.78rem;
+  font-weight: 900;
+  font-family: var(--font-family-body);
+  border: none;
+  padding: 0;
+}
+
+.results-tab .results-section:first-child .district-sect {
+  margin-top: 6px;
+}
+
+.district-sect-head2 {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  margin-bottom: 6px;
+}
+
+.district-sect-title {
+  font-family: var(--font-family-display);
+  font-weight: 700;
+  font-size: 1.35rem;
+  line-height: 1.2;
+  color: var(--cmnh-forest);
+}
+
+.district-grain {
+  font-size: 0.78rem;
+  font-weight: 900;
+  background: #eaf0e6;
+  color: var(--cmnh-forest-deep);
+  padding: 6px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.district-source {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px dashed #ddd6b8;
+  font-size: 0.81rem;
+  color: var(--colour-muted);
+}
+
+.district-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 11px 0;
+  border-bottom: 1px dashed #e5e0d0;
+}
+
+.district-row:last-child {
+  border-bottom: none;
+}
+
+.district-row__main {
+  min-width: 0;
+}
+
+.district-row__lead {
+  display: block;
+  font-weight: 700;
+  color: var(--cmnh-ink);
+}
+
+.district-row__detail {
+  display: block;
+  font-size: 0.88rem;
+  color: var(--colour-muted);
+  margin-top: 2px;
+}
+
+.district-row__value {
+  font-weight: 900;
+  color: var(--cmnh-ink);
+  white-space: nowrap;
+}
+
+.district-tiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  list-style: none;
+  padding: 0;
+  margin: 10px 0 6px;
+}
+
+.district-tile {
+  border: 1px solid var(--colour-tile-line);
+  border-radius: var(--radius-tile);
+  background: var(--colour-card);
+  padding: 10px 14px;
+  min-width: 10.5rem;
+  flex: 1 1 10.5rem;
+}
+
+.district-tile__value {
+  display: block;
+  font-size: 1.2rem;
+  font-weight: 900;
+  line-height: 1.3;
+  color: var(--cmnh-ink);
+}
+
+.district-tile__sub {
+  display: block;
+  font-size: 0.82rem;
+  color: var(--colour-muted);
+  margin-top: 2px;
+}
+
+.bar-compare {
+  margin-top: 14px;
+  background: var(--cmnh-cream);
+  border-radius: 12px;
+  padding: 14px;
+}
+
+.bar-compare__heading {
+  font-weight: 700;
+  color: var(--cmnh-forest-deep);
+  margin: 0 0 6px;
+}
+
+.bar-compare__label {
+  font-size: 0.84rem;
+  margin: 0;
+}
+
+.bar-compare__track {
+  height: 12px;
+  background: #e9e2c2;
+  border-radius: 999px;
+  margin: 6px 0 12px;
+  overflow: hidden;
+}
+
+.bar-compare__fill {
+  display: block;
+  height: 100%;
+  background: var(--cmnh-forest);
+  border-radius: 999px;
+}
+
+.bar-compare__fill--england {
+  background: #b9a86a;
+}
+
+.bar-compare__note {
+  font-size: 0.81rem;
+  color: var(--colour-muted);
+  margin: 0;
+}
+
+.flood-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-top: 14px;
+}
+
+@media (max-width: 640px) {
+  .flood-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.flood-card {
+  border: 1px solid var(--colour-card-line);
+  border-radius: 12px;
+  padding: 16px;
+  background: #fffef9;
+}
+
+.flood-card__title {
+  font-family: var(--font-family-display);
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--cmnh-forest-deep);
+  margin: 0 0 8px;
+}
+
+.flood-card__sub {
+  font-size: 0.88rem;
+  color: var(--colour-muted);
+  margin: 0 0 10px;
+}
+
+.flood-card .stackbar {
+  margin: 10px 0;
+}
+
+.flood-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  list-style: none;
+  padding: 0;
+  margin: 0 0 10px;
+  font-size: 0.81rem;
+  color: var(--colour-muted);
+}
+
+.flood-legend__dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  margin-right: 4px;
+}
+
+.flood-legend__dot--high {
+  background: #b42318;
+}
+
+.flood-legend__dot--medium {
+  background: #e07a2c;
+}
+
+.flood-legend__dot--low {
+  background: #e8c547;
+}
+
+.flood-legend__dot--very-low {
+  background: #2f5d3e;
+}
+
+.flood-legend__dot--none {
+  background: #d8d2bc;
+}
+
+.flood-card__narrative {
+  font-size: 0.91rem;
+  margin: 0 0 10px;
+}
+
+.warn-strip {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  background: #eaf6ec;
+  border: 1px solid #bfe0c2;
+  border-radius: var(--radius-tile);
+  padding: 12px 14px;
+  margin-top: 12px;
+  color: #1e402c;
+}
+
+.warn-strip__dot {
+  color: #2e7d46;
+  line-height: 1.4;
+}
+
+.warn-strip__line {
+  font-weight: 700;
+  margin: 0;
+}
+
+.warn-strip__area {
+  font-weight: 700;
+  margin: 2px 0 0;
+}
+
+.bandbox {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius-tile);
+  background: #fff3d6;
+  border: 1px solid #e6d9a8;
+  font-size: 0.95rem;
+  color: #33403b;
+}
+
+.bandbox p {
+  margin: 0;
+}
+
+.district-disclaimers {
+  margin: 18px 0 0;
+  padding: 12px 14px;
+  background: #f1f5f3;
+  border: 1px solid #dbe6df;
+  border-radius: var(--radius-tile);
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: var(--colour-muted);
+}
+
+.district-disclaimers h4 {
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-size: 0.72rem;
+  margin: 0 0 6px;
+  color: var(--colour-muted);
+}
+
+.district-disclaimers p {
+  margin: 0;
+}
+
+/* --- Sample 29 place dress (WA-10) --------------------
+   The place and street choice pages in the district
+   system: the 72rem measure, the intro, the count as a
+   section head, and the choices as open ruled rows —
+   the code tile, the bold label, the muted description.
+   The words are the journey's own; only the dress is
+   the sample's. */
+
+.district-place {
+  max-width: 72rem;
+  margin: 0 auto;
+  padding: 26px 26px 34px;
+}
+
+.district-place .addr-line {
+  margin-top: 22px;
+}
+
+.district-intro {
+  font-size: 1rem;
+  max-width: 56ch;
+  color: #33403b;
+  margin: 0 0 10px;
+}
+
+.district-place .district-sect {
+  margin-top: 22px;
+}
+
+.district-place__list {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
+}
+
+.district-place__row {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  width: 100%;
+  min-height: 56px;
+  padding: 14px 16px;
+  background: #fff;
+  border-top: 1px solid var(--colour-tile-line);
+  text-decoration: none;
+  color: inherit;
+  box-sizing: border-box;
+}
+
+.district-place__row:hover {
+  background: #fdf8e8;
+}
+
+.district-place__code {
+  font-family: ui-monospace, monospace;
+  font-weight: 900;
+  background: var(--cmnh-forest);
+  color: #fff;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 0.94rem;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+  min-width: 58px;
+  text-align: center;
+}
+
+.district-place__main {
+  min-width: 0;
+}
+
+.district-place__label {
+  display: block;
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--cmnh-forest-deep);
+}
+
+.district-place__detail {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.88rem;
+  color: var(--colour-muted);
+}
+
+.district-place__bridge {
+  font-size: 0.88rem;
+  color: var(--colour-muted);
+  margin-top: 16px;
 }
 
 /* =====================================================================

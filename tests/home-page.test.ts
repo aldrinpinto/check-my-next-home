@@ -216,10 +216,10 @@ describe("home page copy (lib/home.ts)", () => {
     ]);
   });
 
-  it("pins the report band verbatim (founder follow-on — the sample's band)", () => {
+  it("pins the report band verbatim (founder follow-on — the sample's band; line replaced by BUG-166, founder's approved text verbatim)", () => {
     expect(HOME_REPORT_BAND_HEADING).toBe("The detailed report");
     expect(HOME_REPORT_BAND_LINE).toBe(
-      "Everything the listing doesn't tell you, in one document: full school lists, month-by-month crime, genuine flood maps, sold prices nearby, the cost-of-ownership breakdown, planning applications by name, and questions to ask the seller — all sourced, all dated.",
+      "Listings show you the house. The detailed report shows you everything around it: full school lists, crime month by month, flood maps, sold prices nearby, the running costs, planning applications by name, and the neighbourhood itself — who lives there, the age mix, who owns and who rents. Plus the questions to ask the seller before you commit. All from named official sources, all dated — facts, not scores.",
     );
     expect(HOME_REPORT_BAND_CTA).toBe("See a sample report");
     expect(HOME_REPORT_BAND_PRICE).toBe("£4.99");

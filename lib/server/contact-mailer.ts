@@ -57,6 +57,7 @@
 //   - Unconfigured — answers not-configured.
 
 import type { ContactInput } from "../contact";
+import { envValue } from "./env";
 import {
   DOWNLOAD_EMAIL_FOOTER_LINE,
   DOWNLOAD_EMAIL_GREETING,
@@ -233,11 +234,15 @@ export function createResendContactMailer(config: {
 // each send then stands or falls on its own FROM
 // name), else unconfigured.
 export function getContactMailer(): ContactMailer {
-  const apiKey = process.env.RESEND_API_KEY;
+  // Every name reads through envValue (BUG-148): a
+  // FROM name the compose file passes empty counts as
+  // unplaced, so its send answers not-configured
+  // instead of sending with a blank From.
+  const apiKey = envValue("RESEND_API_KEY");
   if (!apiKey) return createUnconfiguredContactMailer();
   return createResendContactMailer({
     apiKey,
-    from: process.env.CONTACT_NOTIFICATION_FROM,
-    acknowledgementFrom: process.env.CONTACT_ACKNOWLEDGEMENT_FROM,
+    from: envValue("CONTACT_NOTIFICATION_FROM"),
+    acknowledgementFrom: envValue("CONTACT_ACKNOWLEDGEMENT_FROM"),
   });
 }

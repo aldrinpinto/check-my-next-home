@@ -19,7 +19,7 @@
     {
       "url": "https://www.gov.uk/stamp-duty-land-tax",
       "label": "Stamp Duty Land Tax — GOV.UK",
-      "shownOn": ["the results page calculators", "the sample report"]
+      "shownOn": ["the results page calculators"]
     },
     {
       "url": "https://revenue.scot/taxes/land-buildings-transaction-tax/residential-property",
@@ -59,7 +59,7 @@
     {
       "url": "https://check-long-term-flood-risk.service.gov.uk/postcode",
       "label": "GOV.UK long-term flood risk service",
-      "shownOn": ["the report's Sources list", "the sample report"]
+      "shownOn": ["the report's Sources list"]
     },
     {
       "url": "https://www.nomisweb.co.uk/datasets/c2021ts054",
@@ -69,17 +69,17 @@
     {
       "url": "https://www.nomisweb.co.uk/datasets/c2021ts044",
       "label": "Nomis dataset C2021TS044",
-      "shownOn": ["the report's Sources list", "the sample report"]
+      "shownOn": ["the report's Sources list"]
     },
     {
       "url": "https://www.nomisweb.co.uk/datasets/c2021ts021",
       "label": "Nomis dataset C2021TS021",
-      "shownOn": ["the report's Sources list", "the sample report"]
+      "shownOn": ["the report's Sources list"]
     },
     {
       "url": "https://www.nomisweb.co.uk/datasets/c2021ts030",
       "label": "Nomis dataset C2021TS030",
-      "shownOn": ["the report's Sources list", "the sample report"]
+      "shownOn": ["the report's Sources list"]
     },
     {
       "url": "https://www.nomisweb.co.uk/datasets/c2021ts052",
@@ -91,21 +91,6 @@
       "label": "Find an Energy Certificate — the certificate for this home",
       "shownOn": ["the report's Sources list", "the sample report"],
       "pattern": "https://find-energy-certificate.service.gov.uk/energy-certificate/{certificate number}"
-    },
-    {
-      "url": "https://reports.ofsted.gov.uk/provider/21/115102",
-      "label": "",
-      "shownOn": ["the sample report"]
-    },
-    {
-      "url": "https://www.gov.uk/planning-permission-england-wales",
-      "label": "",
-      "shownOn": ["the sample report"]
-    },
-    {
-      "url": "https://www.gov.uk/pay-council-tax",
-      "label": "",
-      "shownOn": ["the sample report"]
     }
   ]
 }

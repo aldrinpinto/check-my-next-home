@@ -633,17 +633,23 @@ describe("district bundle — census sums (audit item 37)", () => {
     const view = buildDistrictResultsView(bundle);
     const censusText = blockTexts(sectionBlocks(bundle, "neighbourhood", "census"));
     expect(censusText).toContain("The typical (median) age is 50½");
+    // BUG-160: the census headlines are list items with
+    // bold lead-ins — the words unchanged, split at the
+    // lead (the renderer rejoins them with the dash).
+    expect(censusText).toContain('"lead":"Owning and renting"');
     expect(censusText).toContain(
-      "Owning and renting — 7 in 10 households across ZZ9 own their home: 40% outright and 30% with a mortgage. 10% rent from a social landlord, 20% rent privately.",
+      "7 in 10 households across ZZ9 own their home: 40% outright and 30% with a mortgage. 10% rent from a social landlord, 20% rent privately.",
     );
-    expect(censusText).toContain("The people here — 85 in 100 residents are White");
+    expect(censusText).toContain('"lead":"The people here"');
+    expect(censusText).toContain("85 in 100 residents are White");
     // The Religion headline in the sample's form (founder
     // fix batch, audit item 7): the two largest groups
     // named, the remaining named religions combined, the
     // not-answered share last as "Not stated" — never the
     // first four rows as filed.
+    expect(censusText).toContain('"lead":"Religion"');
     expect(censusText).toContain(
-      "Religion — Christian: 45% · No religion: 45% · Other religions combined: 6% · Not stated: 5%",
+      "Christian: 45% · No religion: 45% · Other religions combined: 6% · Not stated: 5%",
     );
     // The homes-themselves headline is retired (audit
     // item 7): the sample carries Family make-up in its
@@ -701,10 +707,12 @@ describe("district bundle — crime", () => {
       { slug: "violent-crime", label: "Violence and sexual offences", count: 600 },
       { slug: "burglary", label: "Burglary", count: 120 },
     ]);
+    // WA-08 re-pin: the comparison bars are the panel
+    // block now, same calibration shares.
     const bars = sectionBlocks(bundle, "neighbourhood", "crime").find(
-      (block) => block.type === "bars",
+      (block) => block.type === "bar-compare",
     );
-    expect(bars?.type === "bars" && bars.rows.map((row) => row.pctOfMax)).toEqual([100, 75]);
+    expect(bars?.type === "bar-compare" && bars.rows.map((row) => row.pctOfMax)).toEqual([100, 75]);
   });
 
   it("withholds the England pair where the national base is too thin", async () => {
@@ -860,11 +868,13 @@ describe("district bundle — deprivation, council tax, connectivity", () => {
       { lauaName: "Maldon", fourGOutdoorAtLeastOnePct: null },
     ]);
     const viewText = blockTexts(sectionBlocks(bundle, "home", "connectivity"));
-    expect(viewText).toContain("Gigabit-capable: 80% of premises on average.");
+    // WA-03 re-pin: the measures are rows now — lead and
+    // detail in separate fields, the words unchanged.
+    expect(viewText).toContain('"lead":"Gigabit-capable","detail":"80% of premises on average"');
     expect(viewText).toContain(
-      "Braintree — 4G outdoors from at least one network covers 97% of the area.",
+      '"lead":"Braintree","detail":"4G outdoors from at least one network covers 97% of the area"',
     );
-    expect(viewText).toContain("Ofcom does not publish a 4G outdoor figure for this area.");
+    expect(viewText).toContain("Ofcom does not publish a 4G outdoor figure for this area");
   });
 });
 
@@ -922,8 +932,11 @@ describe("district bundle — the flood roll-up", () => {
     // rivers & sea block carries its "Where it touches…"
     // narrative from the filed defence watercourses, and
     // the roll-up carries its method box.
+    // WA-05 re-pin: the narrative rides inside the
+    // rivers card, its lead and text in separate fields.
+    expect(viewText).toContain('"lead":"Where it touches ZZ9:"');
     expect(viewText).toContain(
-      "Where it touches ZZ9: flood defences are recorded along the River Chelmer within 2 miles of the district's postcodes.",
+      "flood defences are recorded along the River Chelmer within 2 miles of the district's postcodes.",
     );
     expect(viewText).toContain("How the roll-up is built");
     expect(viewText).not.toContain("Flood defences are recorded along");
@@ -1058,7 +1071,10 @@ describe("district bundle — air range", () => {
     expect(air.pm25).toEqual({ min: 5, max: 7.25 });
     const viewText = blockTexts(sectionBlocks(bundle, "neighbourhood", "air"));
     expect(viewText).toContain("NO₂ 8–14.5 µg/m³");
-    expect(viewText).toContain("MODELLED");
+    // Sample 28's form (WA-03): the ranges as one
+    // body-text paragraph, the modelled marking in the
+    // section grain and the basis line — no subheading.
+    expect(viewText).toContain("Across ZZ9's modelled 1 km squares: NO₂ 8–14.5 µg/m³");
   });
 });
 

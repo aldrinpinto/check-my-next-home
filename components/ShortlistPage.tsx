@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { POSTCODE_BOX_PLACEHOLDER } from "../lib/home";
 import { REPORT_ROUTE, formatMiles, reportRoute, type DistanceFamily } from "../lib/results";
 import { REPORT_PRICE_LABEL } from "../lib/site";
 import {
@@ -14,15 +13,18 @@ import {
   SEE_THIS_HOMES_CHECK,
   buildComparison,
   cardLastSaleLine,
+  comparisonCellBand,
   loadShortlist,
   notifyShortlistChanged,
   removeCardFromRecord,
   saveShortlist,
   subscribeShortlistChanged,
+  type ComparisonRowKey,
   type ShortlistCell,
   type ShortlistRecord,
 } from "../lib/shortlist";
 import { fireJourneyEvent } from "./JourneyBeacon";
+import PostcodeBox from "./PostcodeBox";
 import ReportLink from "./ReportLink";
 
 // The /shortlist page's client island (plan step M7.5,
@@ -38,9 +40,9 @@ import ReportLink from "./ReportLink";
 // empty state carries NO lead, and the saved states carry
 // exactly the one stored-on-no-server sentence. The empty
 // state also gains the sample's "Check a home" card under
-// the empty card — a plain form in the sample's card dress
-// (parity fix batch, item 41: no dropdown, no picker
-// behaviour; the saved states keep their PostcodeBox).
+// the empty card — built as the sample's plain form in
+// the parity fix batch (item 41), and carrying the
+// standard PostcodeBox since BUG-147 (22 Nov 2026).
 //
 // The two named lines stay distinct (fold-in 5): storage
 // unavailable renders its own line where the shortlist
@@ -87,19 +89,46 @@ function cardReportHref(card: ShortlistRecord["cards"][number]): string {
   return card.rung === 1 ? reportRoute(card.postcode, card.homeKey) : REPORT_ROUTE;
 }
 
-function CompareCell({ cell, family }: { cell: ShortlistCell; family: DistanceFamily | null }) {
+function CompareCell({
+  cell,
+  rowKey,
+  family,
+}: {
+  cell: ShortlistCell;
+  rowKey: ComparisonRowKey;
+  family: DistanceFamily | null;
+}) {
   // Pointer cells are legacy: only cards saved before the
   // 17 Nov 2026 ruling (real flood/crime figures in the
   // cells) hold them, and they still render their pointer
   // rather than dropping a saved list for its age.
   if (cell.kind === "pointer") return <span>{SEE_THIS_HOMES_CHECK}</span>;
-  if (cell.kind === "line") return <span>{cell.text}</span>;
-  // Item 43 (parity fix batch): the Master's comparison
-  // miles are plain bold Forest text after a "·" — no
-  // tinted distance pill in a comparison cell.
+  // BUG-163 (founder ruling, 22 Nov 2026): the table takes
+  // the reports' colour coding. The band comes from
+  // lib/shortlist.ts's comparisonCellBand — the pill
+  // machinery's own bands, never a second threshold set —
+  // and the colour lives on the VALUE, in the pills'
+  // coloured figure dress (the .pill__figure chip). This
+  // supersedes item 43 of the parity fix batch, under
+  // which the Master's comparison miles stood plain bold
+  // Forest with no tint; the Master itself is not edited
+  // here. A cell with no band keeps its plain dress.
+  const band = comparisonCellBand(rowKey, family, cell);
+  if (cell.kind === "line") {
+    if (!band) return <span>{cell.text}</span>;
+    return <span className={`pill__figure pill__figure--${band} compare-val`}>{cell.text}</span>;
+  }
+  if (!band) {
+    return (
+      <span>
+        {cell.name} · <span className="compare-mi">{formatMiles(cell.miles)} mi</span>
+      </span>
+    );
+  }
   return (
     <span>
-      {cell.name} · <span className="compare-mi">{formatMiles(cell.miles)} mi</span>
+      {cell.name} ·{" "}
+      <span className={`pill__figure pill__figure--${band}`}>{formatMiles(cell.miles)} mi</span>
     </span>
   );
 }
@@ -174,30 +203,18 @@ export default function ShortlistPage() {
           <p>{SHORTLIST_EMPTY_LINE}</p>
         </section>
         {/* The sample's search card (view 14), under the
-            empty card. Item 41 (parity fix batch): the
-            sample's card is a PLAIN form — a text input and
-            the brass button, no suggestions dropdown and no
-            picker behaviour. It submits to /search like
-            the landing search (a full postcode now lands
-            on that postcode's check). Empty state only; the
-            saved states' PostcodeBox usage is untouched. */}
+            empty card. Item 41 (parity fix batch) built
+            the sample's PLAIN form here — a text input
+            and the brass button, no suggestions. BUG-147
+            (founder finding, 22 Nov 2026) retires it: the
+            plain form dead-ended on anything it could not
+            resolve (a place name typed into it went
+            nowhere), so the card now carries the standard
+            PostcodeBox (D72 hybrid), the same box as
+            every other surface. Empty state only. */}
         <section className="shortlist-search-card">
           <h2>Check a home</h2>
-          <form className="shortlist-search-form" action="/search" method="get">
-            <label className="visually-hidden" htmlFor="shortlist-postcode">
-              Postcode
-            </label>
-            <input
-              id="shortlist-postcode"
-              name="postcode"
-              type="text"
-              placeholder={POSTCODE_BOX_PLACEHOLDER}
-              autoComplete="postal-code"
-            />
-            <button type="submit" className="btn btn--brass shortlist-search-form__button">
-              Check this home
-            </button>
-          </form>
+          <PostcodeBox bare />
         </section>
       </>
     );
@@ -300,7 +317,7 @@ export default function ShortlistPage() {
                     <th scope="row">{row.label}</th>
                     {row.cells.map((cell, columnIndex) => (
                       <td key={comparison.columns[columnIndex].id}>
-                        <CompareCell cell={cell} family={row.family} />
+                        <CompareCell cell={cell} rowKey={row.key} family={row.family} />
                       </td>
                     ))}
                   </tr>
@@ -349,7 +366,11 @@ export default function ShortlistPage() {
                         >
                           <dt>{row.label}</dt>
                           <dd>
-                            <CompareCell cell={row.cells[columnIndex]} family={row.family} />
+                            <CompareCell
+                              cell={row.cells[columnIndex]}
+                              rowKey={row.key}
+                              family={row.family}
+                            />
                           </dd>
                         </div>
                       ))}

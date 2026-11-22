@@ -74,6 +74,17 @@ services:
       PAYMENT_TEST_WEBHOOK_SECRET: ${PAYMENT_TEST_WEBHOOK_SECRET:-}
       PAYMENT_TEST_PUBLISHABLE_KEY: ${PAYMENT_TEST_PUBLISHABLE_KEY:-}
       TEST_BUYER_EMAILS: ${TEST_BUYER_EMAILS:-}
+      # K16, the report signing secret (BUG-148, 22 Nov
+      # 2026): without this line the app container never
+      # received it — getReportDeliveryService() returned
+      # null in-app and every signed-link flow (download
+      # verification, re-issue, buyer re-send, gift
+      # claiming) answered not-configured, masked because
+      # the host worker sources .env.local directly. The
+      # play server carried it through a server-local
+      # override from 22 Nov; that entry retires when
+      # this deploys.
+      REPORT_SIGNING_SECRET: ${REPORT_SIGNING_SECRET:-}
       # The mail configuration (K11's key + one FROM name
       # per sender — the EM-14 wiring fix, 22 Nov 2026:
       # without these lines the app container carried no

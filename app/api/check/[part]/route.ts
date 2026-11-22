@@ -1,15 +1,22 @@
 // GET /api/check/<part>?postcode=…&home=… — the checking
-// screen's brain calls (plan step M7.3). Three parts, one
+// screen's brain calls (plan step M7.3). Four parts, one
 // per settlement the screen's five groups wait on:
 //   nearby — the schools and health groups (the nearby
 //            brain answers both together);
 //   flood  — the safety group's flood segments (the flood
 //            brain, its live warnings composed at serve
 //            inside the D42 budget by the cached builder);
-//   area   — the safety group's crime and air segments,
-//            the costs group and the history group (the
-//            area bundle plus the sold-prices and crime
-//            answers).
+//   crime  — the safety group's crime segment and its air
+//            rider (the crime bundle plus the area bundle
+//            the air fact derives from);
+//   area   — the costs group and the history group (the
+//            area bundle plus the sold-prices answer).
+// BUG-144 (founder ruling, 22 Nov 2026): the safety
+// group's two halves are their own parts — flood and
+// crime — fired first by the screen and running in
+// parallel; until this stack the crime answer rode the
+// area part, so the slowest group waited on sold prices
+// it does not read.
 // The handlers call the frozen brains through the serve
 // layer and derive the groups' completion lines through
 // lib/journey.ts — the derivation runs here, server-side,
@@ -23,8 +30,8 @@
 // answers with the payload object itself, in exactly the
 // shape of lib/journey.ts's payload interfaces — nearby
 // answers the {schools, health} groups object, flood
-// answers the bare segments array, area answers
-// {safety, groups}. The first cut of this route wrapped
+// answers the bare segments array, crime answers
+// {crime, air}, area answers {groups}. The first cut of this route wrapped
 // nearby in {groups: …} and flood in {safety: …}; the
 // client's assembly read the groups as absent (the screen
 // never advanced) and spread the flood object as if it
@@ -59,11 +66,13 @@ import {
   areaCheckingGroups,
   floodCheckingSegments,
   nearbyCheckingGroups,
+  safetyCheckingSegments,
 } from "../../../../lib/journey";
 import { newRequestId } from "../../../../lib/server/entry-log";
 import { getDbPool } from "../../../../lib/server/db";
 import {
   checkArea,
+  checkCrime,
   checkDistrictBundleOnly,
   checkFlood,
   checkNearby,
@@ -75,7 +84,13 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: Request, { params }: { params: Promise<{ part: string }> }) {
   const { part } = await params;
-  if (part !== "nearby" && part !== "flood" && part !== "area" && part !== "district") {
+  if (
+    part !== "nearby" &&
+    part !== "flood" &&
+    part !== "crime" &&
+    part !== "area" &&
+    part !== "district"
+  ) {
     return NextResponse.json({ error: "unknown-part" }, { status: 404 });
   }
   const url = new URL(request.url);
@@ -115,10 +130,13 @@ export async function GET(request: Request, { params }: { params: Promise<{ part
       const bundle = await checkFlood(resolution);
       return NextResponse.json(floodCheckingSegments(bundle));
     }
-    const { area, sold, crime } = await checkArea(resolution);
-    const groups = areaCheckingGroups(area, sold, crime);
+    if (part === "crime") {
+      const { crime, area } = await checkCrime(resolution);
+      return NextResponse.json(safetyCheckingSegments(crime, area));
+    }
+    const { area, sold } = await checkArea(resolution);
+    const groups = areaCheckingGroups(area, sold);
     return NextResponse.json({
-      safety: { crime: groups.safetyCrime, air: groups.safetyAir },
       groups: { costs: groups.costs, history: groups.history },
     });
   } catch {

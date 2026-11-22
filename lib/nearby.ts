@@ -258,6 +258,25 @@ export const LIST_SIZE = 3;
 // bundle keep serving three, exactly as before.
 export const REPORT_SCHOOL_LIST_SIZE = 5;
 
+// The one serving table (OBS-012 structural remedy,
+// adopted 22 Nov 2026 in place of per-site strip fixes):
+// the depth the detailed report serves for a category —
+// the results page's truncation seam caps every buyer-
+// facing numeral at this depth, and the serving code
+// reads its own depths from the same table, so the two
+// can never drift apart. Schools serve at report depth
+// (REPORT_SCHOOL_LIST_SIZE), chargers at EV_LIST_SIZE,
+// the pet kinds at PET_LIST_SIZE, everything else at
+// the brain's LIST_SIZE — the exact depths the slice in
+// categoryAnswer below has always applied.
+export function reportListSizeFor(category: string): number {
+  if (category === "schools-primary" || category === "schools-secondary")
+    return REPORT_SCHOOL_LIST_SIZE;
+  if (category === "ev-chargers") return EV_LIST_SIZE;
+  if (PET_CATEGORIES.has(category)) return PET_LIST_SIZE;
+  return LIST_SIZE;
+}
+
 const EARTH_RADIUS_MILES = 3956;
 
 // The loaders' haversine, verbatim in form (load-transport.mjs
@@ -905,6 +924,44 @@ const CATEGORIES: { key: NearbyCategory; spec: CategorySpec }[] = [
   { key: "parks", spec: { label: "parks and greenspace", essential: false, emptyKind: "ground" } },
 ];
 
+// The category's serving radius (BUG-093's rule, as
+// buildCategory applies it): EV chargers, secondary
+// schools and sixth forms serve to five miles; every
+// other category serves the list radius.
+export function servingRadiusMiles(key: NearbyCategory): number {
+  return key === "ev-chargers"
+    ? EV_CHARGER_RADIUS_MILES
+    : key === "schools-secondary"
+      ? SECONDARY_RADIUS_MILES
+      : key === "sixth-forms"
+        ? SIXTH_FORM_RADIUS_MILES
+        : RADIUS_MILES;
+}
+
+// The builder's own empty-answer form (the state and the
+// line buildCategory serves when no named place stands),
+// exported for one second consumer: the sample report's
+// name suppression (lib/sample-report.ts, BUG-159) drops
+// a banned-named entry "as if unfiled", and where the
+// drop empties a category the sample owes the reader
+// exactly the sentence the builder itself would have
+// served for the reduced filing — never a new wording.
+// An essential category falls to its none-within state
+// with the no-named-nearest line (its beyond-nearest is
+// a named entry and cannot be recomputed here); a
+// non-essential falls to its empty state with its line.
+export function emptyAnswerForm(
+  key: NearbyCategory,
+  countWithin: number,
+): { state: CategoryState; line: string } {
+  const entry = CATEGORIES.find((c) => c.key === key);
+  if (!entry) throw new Error(`emptyAnswerForm: unknown category ${key}`);
+  const { spec } = entry;
+  const line = emptyLine(key, spec, countWithin, servingRadiusMiles(key));
+  if (spec.essential) return { state: "none-within", line };
+  return { state: spec.emptyKind === "map" ? "empty-map" : "empty", line };
+}
+
 function emptyLine(
   key: NearbyCategory,
   spec: CategorySpec,
@@ -1072,14 +1129,7 @@ async function buildCategory(
   // serve to five miles — a driver uses the chargers in
   // reach, not only the ones inside the list radius.
   // Every other category serves the list radius.
-  const radius =
-    key === "ev-chargers"
-      ? EV_CHARGER_RADIUS_MILES
-      : key === "schools-secondary"
-        ? SECONDARY_RADIUS_MILES
-        : key === "sixth-forms"
-          ? SIXTH_FORM_RADIUS_MILES
-          : RADIUS_MILES;
+  const radius = servingRadiusMiles(key);
   const within = await source.pointsWithin(key, latitude, longitude, radius);
   const measured = within
     .map((point) => ({

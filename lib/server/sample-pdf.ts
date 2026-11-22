@@ -1,6 +1,7 @@
 import { chromium } from "@playwright/test";
 
 import { sampleReportPdfFileName, sampleReportPdfFooterHtml } from "../report-pdf";
+import { reportFooterFontCss } from "./footer-font";
 
 // The sample report's PDF generator (plan step M8.8):
 // the sample, printed. Where the bought twin
@@ -53,6 +54,7 @@ export function samplePrintUrl(origin?: string): string {
 }
 
 async function printSampleReportPdf(origin?: string): Promise<GeneratedSamplePdf> {
+  const footerFont = await reportFooterFontCss();
   const browser = await chromium.launch();
   try {
     const page = await browser.newPage();
@@ -63,7 +65,7 @@ async function printSampleReportPdf(origin?: string): Promise<GeneratedSamplePdf
       printBackground: true,
       displayHeaderFooter: true,
       headerTemplate: "<span></span>",
-      footerTemplate: sampleReportPdfFooterHtml(),
+      footerTemplate: sampleReportPdfFooterHtml(footerFont),
       margin: { top: "16mm", bottom: "18mm", left: "14mm", right: "14mm" },
     });
     return { fileName: sampleReportPdfFileName(), bytes: new Uint8Array(pdf) };

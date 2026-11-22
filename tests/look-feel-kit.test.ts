@@ -400,11 +400,12 @@ describe("unified chrome (founder ruling, 18 Nov 2026)", () => {
     expect(css).not.toContain(".site-header--content");
     expect(css).not.toContain(".site-footer--content");
     // The bottom row pushes its only item to the extreme
-    // right, and the sources line is set very small —
-    // 0.625rem against the footer body's 0.78125rem.
+    // right, and the sources line is set at the site's
+    // small-print measure — 0.62rem (BUG-165; the BUG-128
+    // measure) against the footer body's 0.78125rem.
     expect(css).toContain(".site-footer__bottom");
     expect(css).toContain("justify-content: flex-end");
-    expect(css).toMatch(/\.site-footer__sources \{[^}]*font-size: 0\.625rem/);
+    expect(css).toMatch(/\.site-footer__sources \{[^}]*font-size: 0\.62rem/);
     expect(css).toMatch(/\.site-footer__sources \{[^}]*text-align: right/);
   });
 

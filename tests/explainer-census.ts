@@ -1330,6 +1330,13 @@ export const FIGURE_PATH_PATTERNS: FigurePathPattern[] = [
   p("crime\\.crime\\.perHead\\.per1000", "crime.per-head"),
   p("crime\\.crime\\.englandFigure\\.englandPer1000", "crime.england-comparison"),
   p("crime\\.crime\\.englandFigure\\.multiple", "crime.england-comparison"),
+  // The short projection's calibration pair as numbers
+  // (BUG-163): the same two figures rows 70–71's lines
+  // state, projected in numeric form so the shortlist
+  // card's crime cell derives the pill verdict's band —
+  // they ride the lines that state them.
+  p("short\\.sections\\.crime\\.per1000", "short.crime-per-head"),
+  p("short\\.sections\\.crime\\.englandPer1000", "short.crime-england-comparison"),
   // Flood figures
   p("flood\\.flood\\.layers\\[\\]\\.proximity\\[\\]\\.miles", "flood.proximity-miles"),
   // Area figures — heritage / nature

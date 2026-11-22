@@ -15,6 +15,12 @@ import { useState } from "react";
 // stays out of the browser's module graph), the answer
 // line replaces the button's invitation once the send
 // is answered, and a failed send re-arms the button.
+// BUG-146 (founder finding, 22 Nov 2026): the FAILED
+// answer wears the site's failure treatment — the
+// BUG-132 consent error's tinted box — and announces
+// itself as an alert; it rendered as plain black text
+// before, indistinguishable from the sent answer. The
+// sent answer keeps its plain dress.
 export default function SuccessResend({
   orderRef,
   label,
@@ -27,7 +33,7 @@ export default function SuccessResend({
   failedLine: string;
 }) {
   const [busy, setBusy] = useState(false);
-  const [answer, setAnswer] = useState<string | null>(null);
+  const [answer, setAnswer] = useState<{ kind: "sent" | "failed"; line: string } | null>(null);
 
   async function onResend() {
     if (busy) return;
@@ -40,9 +46,13 @@ export default function SuccessResend({
         body: JSON.stringify({ order: orderRef }),
       });
       const data = (await response.json().catch(() => null)) as { sent?: boolean } | null;
-      setAnswer(response.ok && data?.sent ? sentLine : failedLine);
+      setAnswer(
+        response.ok && data?.sent
+          ? { kind: "sent", line: sentLine }
+          : { kind: "failed", line: failedLine },
+      );
     } catch {
-      setAnswer(failedLine);
+      setAnswer({ kind: "failed", line: failedLine });
     } finally {
       setBusy(false);
     }
@@ -53,11 +63,19 @@ export default function SuccessResend({
       <button type="button" className="btn btn--forest" onClick={onResend} disabled={busy}>
         {label}
       </button>
-      {answer && (
-        <p className="report-success__resend-answer" role="status">
-          {answer}
-        </p>
-      )}
+      {answer &&
+        (answer.kind === "failed" ? (
+          <p
+            className="report-success__resend-answer report-success__resend-answer--failed"
+            role="alert"
+          >
+            {answer.line}
+          </p>
+        ) : (
+          <p className="report-success__resend-answer" role="status">
+            {answer.line}
+          </p>
+        ))}
     </div>
   );
 }

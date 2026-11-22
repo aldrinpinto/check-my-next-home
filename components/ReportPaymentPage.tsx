@@ -28,13 +28,13 @@ import { fireJourneyEvent } from "./JourneyBeacon";
 // never in this page's DOM: the only inputs this page
 // owns are the delivery email and the consent tick-box
 // (the step's Check, pinned by
-// tests/report-payment.test.ts). The flow on the page,
-// in the 17 Nov 2026 ruling's reading order: the buyer
-// reads the honesty area — the Option A line with its
-// Terms link, the price and the refund line — and
-// ticks the digital-content consent (M9.5), gives the
-// delivery email, and pays. A shape-valid email WITH
-// the tick standing
+// tests/report-payment.test.ts). The flow on the page:
+// the buyer ticks the digital-content consent (M9.5)
+// — the consent block stands first in its card since
+// BUG-145 (founder, 22 Nov 2026), with the Option A
+// line and the price below it as small print and the
+// bold price line — gives the delivery email, and
+// pays. A shape-valid email WITH the tick standing
 // starts a payment on the server (POST
 // /api/payments/intent — the server re-resolves the
 // home, the translator sets the amount, and the email
@@ -374,12 +374,15 @@ export default function ReportPaymentPage({
       ) : (
         <>
           <section className="report-door__card report-payment__honesty">
-            <p className="report-payment__honesty-line">
-              {view.termsLineLead}
-              <a href={view.termsHref}>{view.termsLinkLabel}</a>.
-            </p>
-            <p className="report-payment__honesty-price">{view.honestyPriceLine}</p>
-            <p className="report-payment__honesty-refund">{view.refundLine}</p>
+            {/* BUG-145 (founder, 22 Nov 2026, as
+                amended): the consent tick stands FIRST
+                in the block; below it, as small print,
+                the one line naming what the report is
+                with its Terms link, then the bold price
+                line. The refund line is removed from
+                the block entirely — it stands in the
+                Terms. BUG-132's consent error still
+                answers directly under the tick line. */}
             <label
               className={`report-payment__consent${consentError ? " report-payment__consent--attention" : ""}`}
             >
@@ -402,6 +405,11 @@ export default function ReportPaymentPage({
                 {PAYMENT_CONSENT_ERROR_LINE}
               </p>
             )}
+            <p className="report-payment__honesty-line">
+              {view.termsLineLead}
+              <a href={view.termsHref}>{view.termsLinkLabel}</a>.
+            </p>
+            <p className="report-payment__honesty-price">{view.honestyPriceLine}</p>
           </section>
 
           <div className="field report-payment__email">

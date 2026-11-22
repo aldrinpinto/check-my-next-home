@@ -34,11 +34,12 @@ import {
   SELECTIVE_LIST_SIZE,
   SELECTIVE_SEARCH_MILES,
   SIXTH_FORM_RADIUS_MILES,
+  reportListSizeFor,
   type NearbyCategory,
 } from "./nearby";
 import type { CategoryAnswer, NearbyBundle, NearbyPlace } from "./nearby";
 import { HOW_WE_CHECK_PATH, REPORT_PRICE_LABEL } from "./site";
-import type { ShortBundle, ShortPolygonLayer, ShortSections } from "./short-bundle";
+import type { ShortBundle, ShortFlood, ShortPolygonLayer, ShortSections } from "./short-bundle";
 import type { SoldPricesBundle } from "./sold-prices";
 
 // The free results page's derivations (plan step M7.4).
@@ -257,13 +258,43 @@ export function reportLinkable(rung: number): boolean {
 
 // ------------------------------------------------------------------
 // Truncation lines (ruling 2): the design's exact wording,
-// N = the served within-2-miles count minus the number
-// shown, per group. A group showing its full served list
-// carries no line.
+// per group. A group showing its full served list carries
+// no line. OBS-012 (structural remedy, adopted 22 Nov
+// 2026): the numeral is capped AT THIS SEAM against the
+// one serving table — N = min(filed count, the report's
+// depth for the category) minus the number shown — so no
+// call site can quote a number the report does not give.
+// (The pre-remedy formula named the raw filed total; the
+// REGRESSION-DEEP-DIVE records that it was born uncapped
+// and never capped until this stack.)
 // ------------------------------------------------------------------
+
+// The composition boundary's sentence discipline
+// (BUG-088, extended by HCR-08 / NB-08 in the BUG-153 /
+// BUG-155 stacks): brain lines are composed as fragments
+// (they sit mid-sentence on other surfaces), so a line
+// that stands alone on this page takes the report's own
+// treatment — lib/report.ts's sentenceLine — applied
+// ONCE, in the normalisation pass at the end of
+// buildResultsView, never per-line in the brains.
+// sentenceStart capitalises only; sentenceLine also
+// assures the full stop.
+export function sentenceStart(text: string): string {
+  return text.length > 0 ? text.charAt(0).toUpperCase() + text.slice(1) : text;
+}
+
+export function sentenceLine(text: string): string {
+  const composed = sentenceStart(text);
+  return /[.!?]$/.test(composed) ? composed : `${composed}.`;
+}
 
 export interface TruncationView {
   n: number;
+  // The served total the lead counts towards (OBS-012):
+  // the filed count capped at the report's depth for the
+  // category — the schools detail's "All T" names this,
+  // never the raw filed total.
+  total: number;
   // The row's lead, in the Master's truncRow form (parity
   // fix batch, 18 Nov 2026): "Plus 3 more primary schools"
   // — the price is the row's own chip, never part of the
@@ -282,13 +313,16 @@ export function truncationFor(
   shown: number,
   groupLabel: string,
   linkable: boolean,
+  category: string,
   href: string = REPORT_ROUTE,
   detail: string | null = null,
 ): TruncationView | null {
-  const n = countWithin - shown;
+  const total = Math.min(countWithin, reportListSizeFor(category));
+  const n = total - shown;
   if (n <= 0) return null;
   return {
     n,
+    total,
     lead: `Plus ${n} more ${groupLabel}`,
     detail,
     href: linkable ? href : null,
@@ -468,7 +502,8 @@ export const NEARBY_CATEGORIES: Record<string, CategoryPresentation> = {
   vets: { heading: "Vets", groupLabel: "vets", display: 1, family: "everyday" },
   "pet-shops": { heading: "Pet shops", groupLabel: "pet shops", display: 1, family: "everyday" },
   "pet-boarding": {
-    heading: "Pet boarding & kennels",
+    // BUG-149(3) (22 Nov 2026): the one settled label.
+    heading: "Pet boarding (kennels & catteries)",
     groupLabel: "pet boarding places",
     display: 1,
     family: "everyday",
@@ -663,6 +698,7 @@ export function placeGroupView(
         shown.length,
         presentation.groupLabel,
         linkable,
+        category.category,
         href,
         truncationDetail,
       ),
@@ -699,21 +735,15 @@ export function placeGroupView(
   return { ...base, line: category.line };
 }
 
-// ------------------------------------------------------------------
-// The catchment honesty block (M6.23 sweep, B5 split — built
-// here and at M8.1): a fixed hand-written block. It states
-// that we hold no catchment boundaries and cannot say
-// whether this home is in or out for any school, and points
-// at the GOV.UK school admissions route — the real answer
-// lives with the council and the school. (The sweep's
-// "each listed school's own website as filed" cannot render
-// at this step: the frozen nearby brain serves no website
-// field at headline depth — see the build note.)
-// ------------------------------------------------------------------
-
-export const CATCHMENT_BLOCK_HEADING = "School places & catchments";
-export const CATCHMENT_BLOCK_LINE =
-  "We hold no catchment boundaries, so we cannot say whether this home is in or out for any school. The real answer lives with the council and the school — check the school's own admissions pages and your council's school admissions information before you rely on a place.";
+// The catchment honesty block that stood here (M6.23)
+// is RETIRED (FC-06, BUG-154, founder ruling 22 Nov
+// 2026): its substance stands verbatim in the page's
+// closing disclaimers, and the sample's Family Checks
+// tab never carried the block. The catchment honesty
+// itself is untouched — it lives in the disclaimers and
+// in the report's Section 10. The block's LINK constant
+// survives: the report's Section 10 and the outside-
+// links list still carry it beside the disclaimer.
 export const CATCHMENT_LINK = {
   label: "School admissions on GOV.UK",
   url: "https://www.gov.uk/schools-admissions",
@@ -725,6 +755,16 @@ export const CATCHMENT_LINK = {
 
 export type SectionBlock =
   | { type: "line"; text: string }
+  // An explainer or coverage line in the small-print
+  // dress (NB-01 / HCR-19, BUG-155/BUG-153): the sample's
+  // .fineprint form — small, muted, line-free, standing
+  // after the data it explains.
+  | { type: "small-line"; text: string }
+  // A findings list (BUG-156, the BUG-136..142 bullet
+  // treatment extended to this page): one fact per item,
+  // an optional bold lead-in per item (the census
+  // headlines' labelled form), no line of its own.
+  | { type: "list"; items: { lead?: string; text: string }[] }
   | { type: "subheading"; text: string }
   | { type: "upsell"; lead: string; detail: string | null }
   | { type: "notice"; variant: "warning" | "stale" | "gap"; text: string }
@@ -744,9 +784,19 @@ export type SectionBlock =
       type: "tagged-line";
       lead?: string;
       texts: string[];
+      // Findings bullets under the row's headline text
+      // (BUG-156 / HCR-18): fact lines take bullets as one
+      // list beneath the prose headline, never stacked
+      // prose.
+      bullets?: string[];
       fineprint?: string | null;
       tag?: string;
       tagTone?: "a" | "g" | "grey";
+      // A distance chip at the row's right, in the place
+      // rows' dress (HCR-05: the brownfield row's restored
+      // pill — colour by the concern family, nearness is
+      // the concern).
+      miles?: { text: string; band: DistanceBand };
     }
   // The flood verdict row (parity fix batch, item 25): a
   // bold check name, its verdict-led text, the CHECK badge,
@@ -777,7 +827,7 @@ export type SectionBlock =
   // flood roll-up) and paired comparison bars (crime
   // calibration). Only district views carry these.
   | { type: "table"; rows: { label: string; value: string; detail?: string | null }[] }
-  | { type: "deciles"; counts: number[] }
+  | { type: "deciles"; counts: number[]; partial?: boolean }
   | {
       type: "stackbar";
       segments: {
@@ -793,13 +843,47 @@ export type SectionBlock =
   // .infobox dress for the flood roll-up's "How the
   // roll-up is built" box. District views only.
   | { type: "pills"; items: string[] }
-  | { type: "infobox"; text: string };
+  | { type: "infobox"; text: string; lead?: string | null }
+  // Sample 28 forms (BUG-160 as corrected by the
+  // wider-area audit, WA-01..15): the district row (bold
+  // lead, small detail beneath, dashed rule under — the
+  // district page's fact form, never bullets), the crime
+  // comparison panel, the flood card grid, the warnings
+  // strip and the honesty bandbox. District views only.
+  | { type: "row"; lead: string; detail?: string | null; value?: string | null }
+  | {
+      type: "bar-compare";
+      heading: string;
+      rows: { label: string; text: string; pctOfMax: number; england?: boolean }[];
+      note?: string | null;
+    }
+  | {
+      type: "flood-grid";
+      cards: {
+        title: string;
+        sub: string;
+        segments: {
+          label: string;
+          pct: number;
+          tone: "high" | "medium" | "low" | "very-low" | "none";
+        }[];
+        definitions?: string | null;
+        narrative?: { lead: string; text: string } | null;
+      }[];
+    }
+  | { type: "warn-strip"; line: string; areas: string[] }
+  | { type: "bandbox"; lead: string; text: string };
 
 export interface ResultsSectionView {
   key: string;
   heading: string;
   blocks: SectionBlock[];
   sourceLine: string | null;
+  // Sample 28's two-tier section head (WA-01): the
+  // numbered small label, the serif section title and
+  // the grain pill. District views only — home sections
+  // leave it unset and keep the one-tier heading.
+  districtHead?: { label: string; title: string; grain?: string | null } | null;
 }
 
 export interface ResultsTabView {
@@ -811,22 +895,37 @@ export interface ResultsTabView {
 // ------------------------------------------------------------------
 // "About these checks" links (M7.12, results side): one
 // link per check to its /check/ page, derived from the
-// sections the view actually carries — the expander at the
-// foot of the results page is the ONLY home for these
+// sections the view actually carries — the pill strip at
+// the foot of the results page is the ONLY home for these
 // links (no per-section link lines anywhere). Labels are
 // the check pages' own names from lib/check-pages.ts,
 // never a second hard-coded copy. Sections with no check
-// page (census, parks, shops, food, leisure, visits,
-// worship & libraries) contribute nothing; the Costs
-// section carries five checks in its subsections (council
-// tax, EPC, EV, broadband, mobile), and air-noise carries
-// two (air quality and noise).
+// page (parks, shops, food, leisure, visits, worship &
+// libraries) contribute nothing; the Costs section
+// carries five checks in its subsections (council tax,
+// EPC, EV, broadband, mobile), and air-noise carries two
+// (air quality and noise).
+//
+// NB-09, settled in BUG-143's pill rebuild (22 Nov
+// 2026): the census section has no check page of its
+// own, but the sample's list carries it — "The
+// neighbourhood in numbers", the section's own heading
+// — pointing at the How-we-check hub, where its card
+// stands. The district view's hard-coded list already
+// carries exactly this entry; the derived list now
+// does too (SECTION_HUB_LINKS below).
 // ------------------------------------------------------------------
+
+// Sections whose About link is the How-we-check hub
+// rather than a check page, labelled with the section's
+// own heading (NB-09).
+export const SECTION_HUB_LINKS: Record<string, string> = {
+  census: "The neighbourhood in numbers",
+};
 
 export const SECTION_CHECK_LINKS: Record<string, string[]> = {
   "schools-primary": ["/check/schools"],
   "schools-secondary": ["/check/schools"],
-  catchment: ["/check/schools"],
   nurseries: ["/check/family-essentials"],
   pets: ["/check/family-essentials"],
   crime: ["/check/crime"],
@@ -865,11 +964,19 @@ export interface CheckLink {
 
 // Tab order, then section order, then the mapping's own
 // order; duplicates collapse to their first occurrence.
+// A section's hub link (NB-09) dedupes by href AND
+// label, the district list's own rule: the hub is one
+// page several sections may name differently.
 export function checkLinksForTabs(tabs: ResultsTabView[]): CheckLink[] {
   const seen = new Set<string>();
   const links: CheckLink[] = [];
   for (const tab of tabs) {
     for (const section of tab.sections) {
+      const hubLabel = SECTION_HUB_LINKS[section.key];
+      if (hubLabel && !seen.has(`${HOW_WE_CHECK_PATH}|${hubLabel}`)) {
+        seen.add(`${HOW_WE_CHECK_PATH}|${hubLabel}`);
+        links.push({ label: hubLabel, href: HOW_WE_CHECK_PATH });
+      }
       for (const href of SECTION_CHECK_LINKS[section.key] ?? []) {
         if (seen.has(href)) continue;
         seen.add(href);
@@ -896,7 +1003,7 @@ export const RESULTS_TABS: { id: string; label: string; sections: string[] }[] =
   {
     id: "family",
     label: "Family Checks",
-    sections: ["schools-primary", "schools-secondary", "catchment", "nurseries", "pets"],
+    sections: ["schools-primary", "schools-secondary", "nurseries", "pets"],
   },
   {
     id: "neighbourhood",
@@ -995,11 +1102,100 @@ export function pillText(pill: SummaryPill): string {
   return `${pill.label} · ${pill.figure}${pill.mark ? ` ${pill.mark}` : ""}`;
 }
 
-const milesPill = (label: string, family: DistanceFamily, miles: number): SummaryPill => ({
+// BUG-151 (founder ruling, 22 Nov 2026): a pill's colour
+// is wired to its VERDICT, on every factor — a concerning
+// fact paints amber or red, a good fact paints green, and
+// no factor keeps the renderer's default pale green while
+// standing concerning (the pre-fix state: the non-distance
+// factors carried band null, which the kit renders green,
+// and the distance factors' family bands disagreed with
+// their verdict thresholds — a vet at 1.2 miles read
+// "good" on an orange chip). Distance factors therefore
+// take their chip from the verdict, not the family band;
+// the family bands still govern the place ROWS, where
+// distance itself is the fact.
+const verdictBand = (verdict: PillVerdict, concerning: DistanceBand = "red"): DistanceBand =>
+  verdict === "concerning" ? concerning : "green";
+
+const verdictMilesPill = (label: string, verdict: PillVerdict, miles: number): SummaryPill => ({
   label,
   figure: `${formatMiles(miles)} mi`,
-  band: distanceBand(family, miles),
+  band: verdictBand(verdict),
 });
+
+// The flood pill's band, as one export (BUG-163): the
+// shortlist table colours its flood cell by the same
+// verdict the pill takes, so the two surfaces can never
+// disagree about what a flood fact means. The logic is
+// summaryPills' own, lifted whole: concerning when any
+// served likelihood layer is Low or worse (the worst
+// band paints orange at Low, red above it), good only
+// when both checks serve Very low, and the planning
+// zone heard over the likelihood (BUG-151 ruling 3) —
+// Zone 3 red on its own, Zone 2 amber where the
+// likelihood does not already say worse. Null where the
+// pill itself would not speak: nothing served, no band
+// and no zone, or a single Very low that proves nothing
+// about the other check.
+export function floodPillBand(flood: ShortFlood): DistanceBand | null {
+  if (flood.state !== "served") return null;
+  const bands = flood.layers
+    .filter((layer) => layer.layer === "rofrs" || layer.layer === "rofsw")
+    .map((layer) => floodBandOf(layer))
+    .filter((band): band is string => band !== null);
+  const zone = flood.layers.find((layer) => layer.layer === "flood_zone");
+  const zoneLabel = zone && zone.pointState === "inside" ? (zone.coveringLabel ?? null) : null;
+  let verdict: PillVerdict = "neither";
+  let band: DistanceBand | null = null;
+  if (bands.length > 0) {
+    const rank = (value: string) =>
+      value === "High" ? 3 : value === "Medium" ? 2 : value === "Low" ? 1 : 0;
+    const worst = bands.reduce((a, b) => (rank(a) >= rank(b) ? a : b));
+    if (bands.some((value) => value !== "Very low")) verdict = "concerning";
+    else if (bands.length === 2) verdict = "good";
+    if (verdict === "concerning") band = worst === "Low" ? "orange" : "red";
+    else if (verdict === "good") band = "green";
+  }
+  if (zoneLabel === "Flood Zone 3") band = "red";
+  else if (zoneLabel === "Flood Zone 2" && verdict !== "concerning") band = "orange";
+  return band;
+}
+
+// The crime pill's band, as one export (BUG-163): the
+// graduated England-rate verdict (BUG-151 ruling 2) over
+// the calibration pair — the local rate per 1,000
+// residents against the England figure for the same
+// months. Below the England figure paints green; above
+// it by up to a quarter paints orange; more than a
+// quarter above paints red. Null where the pill itself
+// would not speak: either figure missing (a
+// pre-calibration artefact), or the two exactly equal.
+export function crimePillBand(per1000: number | null, england: number | null): DistanceBand | null {
+  if (per1000 == null || england == null || per1000 === england) return null;
+  if (per1000 < england) return "green";
+  return per1000 > england * 1.25 ? "red" : "orange";
+}
+
+// The air quality pill's band, as one export (BUG-164):
+// concerning — any pollutant over its UK legal limit
+// (NO2 40, PM2.5 20, PM10 40) — paints red; good — all
+// three at or under the WHO 2021 guidelines (10/5/15) —
+// paints green; a served set between the two yardsticks
+// is neither, and the pill does not speak, so the band
+// is null, as it is wherever the modelled values are not
+// all filed.
+export function airPillBand(air: {
+  state: string;
+  no2: number | null;
+  pm25: number | null;
+  pm10: number | null;
+}): DistanceBand | null {
+  if (air.state !== "served" || air.no2 === null || air.pm25 === null || air.pm10 === null)
+    return null;
+  if (air.no2 > 40 || air.pm25 > 20 || air.pm10 > 40) return "red";
+  if (air.no2 <= 10 && air.pm25 <= 5 && air.pm10 <= 15) return "green";
+  return null;
+}
 
 // D75 pill system (fold-in build, superseding pill logic
 // E2): FIVE pills. Concerning facts first in priority
@@ -1007,10 +1203,13 @@ const milesPill = (label: string, family: DistanceFamily, miles: number): Summar
 // in priority order; fewer qualifying facts means fewer
 // pills; a fact is concerning/good only across its real
 // threshold, and "neither" facts never take a pill. The
-// twelve factors in priority order: Flood, Crime, Schools
-// (merged), A&E, Air quality, Noise, Deprivation, EPC,
-// Vet, Broadband, Train station, Nurseries. Grammar-school
-// distance and leisure/parks/shops are NOT pill-eligible.
+// twelve factors in priority order: Flood, Crime, Air
+// quality, Schools (merged), A&E, Noise, Deprivation,
+// EPC, Vet, Broadband, Train station, Nurseries.
+// (BUG-164, founder ruling 22 Nov 2026: Air quality's
+// rank moves to immediately after Crime; it stood fifth,
+// after A&E, until then.) Grammar-school distance and
+// leisure/parks/shops are NOT pill-eligible.
 type PillVerdict = "concerning" | "good" | "neither";
 interface PillFactor {
   pill: SummaryPill;
@@ -1115,6 +1314,18 @@ export function summaryPills(input: SummaryPillsInput): SummaryPill[] | null {
         .filter((layer) => layer.layer === "rofrs" || layer.layer === "rofsw")
         .map((layer) => floodBandOf(layer))
         .filter((band): band is string => band !== null);
+      // BUG-151 ruling 3: the pill hears the PLANNING
+      // ZONE. The likelihood layers are drawn with the
+      // defences counted; the zone map is drawn as if
+      // they were not there — a home inside Flood Zone 3
+      // is a concerning fact however low the likelihood
+      // bands read, and the pill may not stand a plain
+      // green "Very low" over it. Zone 3 paints red on
+      // its own figure; Zone 2 is concerning at amber
+      // where the likelihood bands do not already say
+      // worse.
+      const zone = sections.flood.layers.find((layer) => layer.layer === "flood_zone");
+      const zoneLabel = zone && zone.pointState === "inside" ? (zone.coveringLabel ?? null) : null;
       if (bands.length > 0) {
         const rank = (band: string) =>
           band === "High" ? 3 : band === "Medium" ? 2 : band === "Low" ? 1 : 0;
@@ -1123,27 +1334,69 @@ export function summaryPills(input: SummaryPillsInput): SummaryPill[] | null {
         else if (bands.length === 2) verdict = "good";
         figure = worst;
       }
+      if (zoneLabel === "Flood Zone 3") {
+        verdict = "concerning";
+        figure = zoneLabel;
+      } else if (zoneLabel === "Flood Zone 2" && verdict !== "concerning") {
+        verdict = "concerning";
+        figure = zoneLabel;
+      }
     }
-    if (figure) add(verdict, { label: "Flood", figure, band: null });
+    // The band is floodPillBand's — the one computation
+    // the shortlist table also colours by (BUG-163).
+    if (figure) add(verdict, { label: "Flood", figure, band: floodPillBand(sections.flood) });
   }
 
   // 2 Crime — concerning above the England per-1,000
-  // figure; good below it.
+  // figure; good below it. BUG-151 ruling 2: the single
+  // binary line graduates — above the England figure by
+  // up to a quarter paints amber ("Above England
+  // average"); more than a quarter above paints red
+  // ("Well above England average").
   {
     const served = crime.kind === "crime" && crime.crime.state === "served" ? crime.crime : null;
     const per1000 = served?.perHead?.per1000 ?? null;
     const england = served?.englandFigure?.englandPer1000 ?? null;
     if (per1000 !== null && england !== null && per1000 !== england) {
       const concerning = per1000 > england;
+      const wellAbove = concerning && per1000 > england * 1.25;
       add(concerning ? "concerning" : "good", {
         label: "Crime",
-        figure: concerning ? "Above England average" : "Below England average",
-        band: null,
+        figure: concerning
+          ? wellAbove
+            ? "Well above England average"
+            : "Above England average"
+          : "Below England average",
+        // The band is crimePillBand's — the one
+        // computation the shortlist table also colours
+        // by (BUG-163).
+        band: crimePillBand(per1000, england),
       });
     }
   }
 
-  // 3 Schools (primary + secondary MERGED) — concerning if
+  // 3 Air quality — good if NO2, PM2.5 and PM10 ALL at or
+  // under WHO 2021 (10/5/15); concerning if any breaks its
+  // UK legal limit (NO2 40, PM2.5 20, PM10 40). BUG-164
+  // (founder ruling, 22 Nov 2026): Air's priority rank
+  // moves to immediately after Crime — it fills ahead of
+  // the merged Schools pill, A&E and everything below
+  // Crime; the concerning-first selection is unchanged,
+  // and the band is airPillBand's, the one computation
+  // the shortlist table also colours by.
+  {
+    const air = areaSections?.air;
+    const band = air ? airPillBand(air) : null;
+    if (air && band) {
+      add(band === "red" ? "concerning" : "good", {
+        label: "Air quality",
+        figure: band === "red" ? "Above a UK legal limit" : "Within WHO guidelines",
+        band,
+      });
+    }
+  }
+
+  // 4 Schools (primary + secondary MERGED) — concerning if
   // nearest primary >1 mi OR nearest secondary >1.5 mi;
   // good only if primary <=0.5 AND secondary <=1.
   {
@@ -1169,34 +1422,12 @@ export function summaryPills(input: SummaryPillsInput): SummaryPill[] | null {
     }
   }
 
-  // 4 A&E — concerning >7 mi; good <=5 mi.
+  // 5 A&E — concerning >7 mi; good <=5 mi.
   {
     const ae = nearestOf(categoryOf(nearby, "ae"));
     if (ae) {
       const verdict: PillVerdict = ae.miles > 7 ? "concerning" : ae.miles <= 5 ? "good" : "neither";
-      add(verdict, milesPill("A&E", "hospital", ae.miles));
-    }
-  }
-
-  // 5 Air quality — good if NO2, PM2.5 and PM10 ALL at or
-  // under WHO 2021 (10/5/15); concerning if any breaks its
-  // UK legal limit (NO2 40, PM2.5 20, PM10 40).
-  {
-    const air = areaSections?.air;
-    if (
-      air &&
-      air.state === "served" &&
-      air.no2 !== null &&
-      air.pm25 !== null &&
-      air.pm10 !== null
-    ) {
-      const concerning = air.no2 > 40 || air.pm25 > 20 || air.pm10 > 40;
-      const good = !concerning && air.no2 <= 10 && air.pm25 <= 5 && air.pm10 <= 15;
-      add(concerning ? "concerning" : good ? "good" : "neither", {
-        label: "Air quality",
-        figure: concerning ? "Above a UK legal limit" : "Within WHO guidelines",
-        band: null,
-      });
+      add(verdict, verdictMilesPill("A&E", verdict, ae.miles));
     }
   }
 
@@ -1238,7 +1469,7 @@ export function summaryPills(input: SummaryPillsInput): SummaryPill[] | null {
       add(concerning ? "concerning" : good ? "good" : "neither", {
         label: "Noise",
         figure: concerning ? "Noisy" : "Quiet",
-        band: null,
+        band: concerning ? "orange" : "green",
       });
     }
   }
@@ -1249,7 +1480,14 @@ export function summaryPills(input: SummaryPillsInput): SummaryPill[] | null {
     const decile = areaSections?.imd?.state === "served" ? areaSections.imd.decile : null;
     if (decile !== null && decile !== undefined) {
       const verdict: PillVerdict = decile >= 8 ? "good" : decile <= 3 ? "concerning" : "neither";
-      add(verdict, { label: "Deprivation", figure: `${decile} of 10`, band: null });
+      add(verdict, {
+        label: "Deprivation",
+        figure: `${decile} of 10`,
+        // BUG-151: the concerning band graduates with the
+        // decile — the two most deprived tenths paint red,
+        // the third amber.
+        band: verdict === "concerning" ? (decile <= 2 ? "red" : "orange") : "green",
+      });
     }
   }
 
@@ -1260,7 +1498,12 @@ export function summaryPills(input: SummaryPillsInput): SummaryPill[] | null {
     if (band) {
       const verdict: PillVerdict =
         band === "A" || band === "B" ? "good" : band === "C" ? "neither" : "concerning";
-      add(verdict, { label: "EPC", figure: band, band: null });
+      add(verdict, {
+        label: "EPC",
+        figure: band,
+        // BUG-151: D paints amber; E and below paint red.
+        band: verdict === "concerning" ? (band === "D" ? "orange" : "red") : "green",
+      });
     }
   }
 
@@ -1283,7 +1526,11 @@ export function summaryPills(input: SummaryPillsInput): SummaryPill[] | null {
     if (vet && vet.miles <= RADIUS_MILES) {
       const verdict: PillVerdict =
         vet.miles > 5 ? "concerning" : vet.miles <= 2 ? "good" : "neither";
-      add(verdict, milesPill("Vet", "everyday", vet.miles));
+      // BUG-151: the latent mismatch closes here — a vet
+      // at 1.2 miles is "good" by verdict, and its chip
+      // now paints the verdict's green, not the everyday
+      // family band's orange.
+      add(verdict, verdictMilesPill("Vet", verdict, vet.miles));
     }
   }
 
@@ -1299,13 +1546,13 @@ export function summaryPills(input: SummaryPillsInput): SummaryPill[] | null {
       add(concerning ? "concerning" : good ? "good" : "neither", {
         label: "Broadband",
         figure: concerning ? "No superfast" : "Full fibre available",
-        band: null,
+        band: concerning ? "red" : "green",
       });
     } else if (
       sections.broadband.gigabitCapablePct !== null &&
       sections.broadband.gigabitCapablePct > 0
     ) {
-      add("good", { label: "Broadband", figure: "Full fibre available", band: null });
+      add("good", { label: "Broadband", figure: "Full fibre available", band: "green" });
     }
   }
 
@@ -1315,7 +1562,7 @@ export function summaryPills(input: SummaryPillsInput): SummaryPill[] | null {
     if (station) {
       const verdict: PillVerdict =
         station.miles > 3 ? "concerning" : station.miles <= 1 ? "good" : "neither";
-      add(verdict, milesPill("Train station", "everyday", station.miles));
+      add(verdict, verdictMilesPill("Train station", verdict, station.miles));
     }
   }
 
@@ -1325,7 +1572,7 @@ export function summaryPills(input: SummaryPillsInput): SummaryPill[] | null {
     if (nursery) {
       const verdict: PillVerdict =
         nursery.miles > 1 ? "concerning" : nursery.miles <= 0.5 ? "good" : "neither";
-      add(verdict, milesPill("Nurseries", "school", nursery.miles));
+      add(verdict, verdictMilesPill("Nurseries", verdict, nursery.miles));
     }
   }
 
@@ -1439,8 +1686,15 @@ export const BUY_BAR_LINE =
 export const BUY_BAR_MYSTERY_LINE =
   "Every report comes with a mystery extra, on us — it arrives in your email with your report.";
 export const BUY_BAR_MYSTERY_EYEBROW = "A mystery extra";
+// HCR-03 (BUG-153, founder ruling): corrected
+// sample→product — the report draws location maps for
+// the flood-zone and surface-water checks only; the
+// rivers & sea check has none, so "for each check" is
+// out and the mapped layers are named instead. The
+// Master conforms; the door and payment pages read this
+// same constant.
 export const FLOOD_UPSELL_LEAD =
-  "Plus the flood findings in full, with a location map for each check";
+  "Plus the flood findings in full, with location maps for the flood zones and surface water";
 export const FLOOD_UPSELL_DETAIL =
   "The defences near this home, and how the picture changes in the years ahead.";
 // D77(c) absence/failure copy, pinned.
@@ -1543,8 +1797,9 @@ function linesSection(
   heading: string,
   blocks: SectionBlock[],
   sourceLine: string | null = null,
+  districtHead: ResultsSectionView["districtHead"] = null,
 ): ResultsSectionView {
-  return { key, heading, blocks, sourceLine };
+  return { key, heading, blocks, sourceLine, districtHead };
 }
 
 // The beyond-nearest radius guard (BEYOND_NEAREST_RADIUS_MILES,
@@ -1613,72 +1868,161 @@ export function buildResultsView(input: ResultsInput): ResultsView {
     if (lead) section.blocks.push({ type: "upsell", lead, detail });
     return section;
   };
+  // A section's strip, in the Master's form: the group's
+  // own section plus the one plain or merged truncRow the
+  // section declares (the placesUpsell form, kept).
   const placesUpsell = (
     key: string,
     table: Record<string, CategoryPresentation>,
     lead: string | null,
     detail: string | null,
-  ): ResultsSectionView => withUpsell(suppressTruncation(group(key, table)), lead, detail);
+  ): ResultsSectionView => withUpsell(group(key, table), lead, detail);
   // A schools group's truncation detail (parity fix
   // batch, item 14): the Master's truncRow is ONE row —
   // the count lead and the detail together (the pre-batch
   // page carried the count row AND a separate upsell panel
-  // for the same group). The detail names the full count,
-  // as the sample's does.
+  // for the same group). OBS-012: the detail names the
+  // total AS CAPPED at the seam (truncation.total) — the
+  // sample's "All 5" form, true at any density (WN-09:
+  // the pre-fix detail named the raw filed total, "All
+  // 61" where the report serves five).
   const schoolsUpsell = (key: string, detailTail: string): ResultsSectionView => {
     const section = group(key, FAMILY_CATEGORIES);
     const first = section.blocks[0];
     if (first && first.type === "places" && first.group.truncation) {
-      const category = categories.get(key);
-      const total = category?.countWithin ?? 0;
+      const total = first.group.truncation.total;
       first.group.truncation.detail = `All ${total}, with their Ofsted ratings and inspection dates${detailTail}.`;
     }
     return section;
   };
-  // Suppress a group's own count truncation where the
-  // section's single "plus more" row already speaks for
-  // the group (item 14: exactly one truncation upsell per
-  // truncated group — the Master's sections carry the one
-  // plain or merged truncRow, never both forms).
-  const suppressTruncation = (section: ResultsSectionView): ResultsSectionView => {
-    for (const block of section.blocks) {
-      if (block.type === "places") block.group.truncation = null;
+  // OBS-012 (structural remedy): suppression is a
+  // per-SECTION declaration, applied here as one closing
+  // pass — not an opt-out at each call site (the item-14
+  // suppressTruncation wrappers retire with this stack;
+  // the deep dive records that the opt-out form is what
+  // let seven groups keep their raw count lines). The
+  // declaration: a section that carries its own upsell
+  // block has declared its strip, and no group ABOVE the
+  // strip also speaks — the strip speaks for the groups
+  // it follows. Groups below a strip stand under their
+  // own subheadings as their own sub-parts and keep
+  // their capped strips (the Pets section's boarding and
+  // pet-shops strips, under the vets strip, are the
+  // standing case). On the What's Nearby tab a section
+  // with no declared strip carries none at all (the
+  // closing combined strip speaks for the tab's tail
+  // groups, as the sample's does). What survives is
+  // exactly the sample's strip set: the schools rows
+  // (their own sections, capped at the seam), the
+  // nurseries merged row, the pets sub-strips, and every
+  // section's declared upsell.
+  const declareSectionStrips = (tab: ResultsTabView): void => {
+    for (const section of tab.sections) {
+      const above: { group: PlaceGroupView }[] = [];
+      let declared = false;
+      for (const block of section.blocks) {
+        if (block.type === "upsell") {
+          declared = true;
+          break;
+        }
+        if (block.type === "places") above.push(block);
+      }
+      if (declared) {
+        for (const block of above) block.group.truncation = null;
+      } else if (tab.id === "nearby") {
+        for (const block of section.blocks) {
+          if (block.type === "places") block.group.truncation = null;
+        }
+      }
     }
-    return section;
+  };
+  // The composition boundary's sentence pass (HCR-08 /
+  // NB-08): every standalone line this view renders from
+  // a brain line takes the report's sentence-casing, once,
+  // here — line blocks, tagged-line texts and bullets,
+  // notices, and place groups' ruled lines. Composed
+  // lines already capitalised pass through untouched;
+  // row details (parts of a composed line, some ruled
+  // "as filed") are not standalone lines and stay as
+  // composed.
+  const sentencePass = (tab: ResultsTabView): void => {
+    for (const section of tab.sections) {
+      for (const block of section.blocks) {
+        if (block.type === "line" || block.type === "small-line")
+          block.text = sentenceStart(block.text);
+        else if (block.type === "list")
+          block.items = block.items.map((item) => ({ ...item, text: sentenceStart(item.text) }));
+        else if (block.type === "notice") block.text = sentenceStart(block.text);
+        else if (block.type === "tagged-line") {
+          block.texts = block.texts.map(sentenceStart);
+          if (block.bullets) block.bullets = block.bullets.map(sentenceStart);
+        } else if (block.type === "places" && block.group.line)
+          block.group.line = sentenceStart(block.group.line);
+      }
+    }
   };
 
   // --- Family Checks --------------------------------------
   const familySections: ResultsSectionView[] = [];
   familySections.push(schoolsUpsell("schools-primary", ""));
   familySections.push(schoolsUpsell("schools-secondary", ", and sixth-form provision"));
-  // The catchment honesty block and the served school
-  // deadlines line ride together: both are England / Wales
-  // schools-admin content, present exactly when the brain
-  // serves a deadlines line (never for Scotland / NI).
-  const deadlines = nearby?.schoolDeadlines ?? null;
-  if (deadlines) {
-    familySections.push(
-      linesSection("catchment", CATCHMENT_BLOCK_HEADING, [
-        { type: "line", text: CATCHMENT_BLOCK_LINE },
-        { type: "link", label: CATCHMENT_LINK.label, url: CATCHMENT_LINK.url },
-        { type: "line", text: deadlines.line },
-      ]),
-    );
+  // FC-05 (BUG-154): the selective schools stand in their
+  // OWN section, headed "Selective schools", after the
+  // secondary group — the sample's form. The grammar list
+  // is lifted out of the secondary group (which keeps its
+  // rows and its strip) into a group of its own carrying
+  // only the grammar rows and the BUG-140 count line. The
+  // section stands only where selective schools serve.
+  {
+    const secondary = familySections[familySections.length - 1];
+    const first = secondary.blocks[0];
+    if (first && first.type === "places" && first.group.grammarSchools.length > 0) {
+      const grammarGroup: PlaceGroupView = {
+        ...first.group,
+        rows: [],
+        line: null,
+        truncation: null,
+      };
+      first.group.grammar = null;
+      first.group.grammarSchools = [];
+      first.group.grammarCountLine = null;
+      familySections.push(
+        linesSection("selective", "Selective schools", [{ type: "places", group: grammarGroup }]),
+      );
+    }
   }
+  // FC-06 (BUG-154, founder ruling 22 Nov 2026): the
+  // catchment block is RETIRED — it restated, in fuller
+  // prose, the catchment and deadline substance the page
+  // already carries verbatim in its closing disclaimers,
+  // and the sample's tab never carried it. The block, its
+  // constants and the deadlines line it rode on are gone;
+  // the disclaimers stand as the single statement.
   {
     const nurseries = group("nurseries", FAMILY_CATEGORIES);
     const category = categories.get("nurseries");
     if (category && category.state === "within") {
       // The merged truncRow (item 14): the Master's
-      // nurseries row carries the "plus more" lead and the
-      // full-list detail as ONE row, replacing both the
-      // group's count row and the old separate panel.
+      // nurseries row carries the "plus more" lead and its
+      // detail as ONE row, replacing both the group's count
+      // row and the old separate panel. BUG-152 ruling: the
+      // detail names the NEAREST set — the report serves
+      // the nearest three, and "the full list" was one of
+      // the three false wordings corrected sample→product.
       const first = nurseries.blocks[0];
       if (first && first.type === "places") {
         first.group.truncation = {
-          n: Math.max(0, category.countWithin - first.group.rows.length),
+          // The seam's cap applies here too (OBS-012):
+          // the merged row's count is min(filed, report
+          // depth) − shown, never the raw filed count.
+          n: Math.max(
+            0,
+            Math.min(category.countWithin, reportListSizeFor("nurseries")) -
+              first.group.rows.length,
+          ),
+          total: Math.min(category.countWithin, reportListSizeFor("nurseries")),
           lead: "Plus more nurseries & pre-schools",
-          detail: "The full list of nurseries and pre-schools near this home.",
+          detail: "The nearest nurseries and pre-schools to this home, with their details.",
           href: linkable ? reportHref : null,
         };
       }
@@ -1686,34 +2030,51 @@ export function buildResultsView(input: ResultsInput): ResultsView {
     familySections.push(nurseries);
   }
   // Pets (D76): vet, pet shops and pet boarding in one
-  // section, the boarding as a subsection.
+  // section, each kind under its own subheading (FC-03).
   {
     const blocks: SectionBlock[] = [];
-    const vets = suppressTruncation(group("vets", NEARBY_CATEGORIES));
+    const vets = group("vets", NEARBY_CATEGORIES);
     blocks.push(...vets.blocks);
     const vetCategory = categories.get("vets");
     if (vetCategory && vetCategory.state === "within")
       blocks.push({
         type: "upsell",
-        lead: "Plus dog-walking areas, pet shops & more vets",
+        // FC-01 (BUG-154): the lead names only what the
+        // report serves — vets, pet shops, pet boarding.
+        // "Dog-walking areas" promised a class of content
+        // the product does not hold anywhere; it is out,
+        // and the Master conforms.
+        lead: "Plus pet shops & more vets",
         detail: null,
       });
-    blocks.push({ type: "subheading", text: "Pet boarding — kennels & catteries" });
+    blocks.push({ type: "subheading", text: "Pet boarding (kennels & catteries)" });
     blocks.push(...group("pet-boarding", NEARBY_CATEGORIES).blocks);
+    // FC-03: pet shops take their own subheading (the
+    // report's own sub-heading for the kind), so their
+    // rows can no longer read as boarding rows.
+    blocks.push({ type: "subheading", text: "Pet shops" });
     blocks.push(...group("pet-shops", NEARBY_CATEGORIES).blocks);
     familySections.push(linesSection("pets", "Pets", blocks));
   }
 
   // --- The Neighbourhood ----------------------------------
   const neighbourhoodSections: ResultsSectionView[] = [];
-  // The census headlines block (D77(e)): four labelled
-  // lines composed from the served Census tables + the IMD
-  // decile, with the finalized small print.
+  // The census headlines block (D77(e)): the labelled
+  // facts composed from the served Census tables + the
+  // IMD decile, with the finalized small print. BUG-156 /
+  // NB-02 / NB-03 (BUG-155): the headlines take the
+  // bullet treatment — one fact per bullet under the
+  // sample's bold lead-ins, split line by line per the
+  // audit's inventory (the pre-fix form packed five and
+  // four facts into single prose sentences and flattened
+  // the lead-ins away). The coverage line stays prose, in
+  // the small-print dress (NB-01), after the data.
   {
     const blocks: SectionBlock[] = [];
     const census = areaSections?.census;
     const imd = areaSections?.imd;
     if (census && census.state === "served") {
+      const items: { lead?: string; text: string }[] = [];
       const table = (code: string) => census.tables.find((t) => t.code === code);
       const rowPct = (code: string, label: string) =>
         table(code)?.rows.find((r) => r.label === label)?.pct ?? null;
@@ -1728,11 +2089,18 @@ export function buildResultsView(input: ResultsInput): ResultsView {
         mortgage !== null &&
         social !== null &&
         priv !== null
-      )
-        blocks.push({
-          type: "line",
-          text: `Owning and renting — ${Math.round(owned / 10)} in 10 households own their home: ${Math.round(outright)}% outright and ${Math.round(mortgage)}% with a mortgage. ${Math.round(social)}% rent from a social landlord, ${Math.round(priv)}% rent privately.`,
-        });
+      ) {
+        items.push(
+          {
+            lead: "Owning and renting",
+            text: `${Math.round(owned / 10)} in 10 households own their home.`,
+          },
+          { text: `${Math.round(outright)}% own outright.` },
+          { text: `${Math.round(mortgage)}% own with a mortgage.` },
+          { text: `${Math.round(social)}% rent from a social landlord.` },
+          { text: `${Math.round(priv)}% rent privately.` },
+        );
+      }
       const ethnic = table("ts021");
       const groups = [...(ethnic?.groups ?? [])].sort((a, b) => b.count - a.count);
       const white = groups.find((g) => g.label === "White");
@@ -1752,11 +2120,25 @@ export function buildResultsView(input: ResultsInput): ResultsView {
             ? `${Math.floor(census.medianAge.value)}½`
             : String(census.medianAge.value)
         : null;
-      if (white && others.length === 2 && ageText)
-        blocks.push({
-          type: "line",
-          text: `The people here — The typical age is ${ageText}. ${Math.round(white.pct)} in 100 residents are White; the next largest groups are ${shortGroup(others[0].label)} (${others[0].pct} in 100) and ${shortGroup(others[1].label)} (${others[1].pct} in 100).`,
-        });
+      // NB-11: a partially filed ethnic table serves the
+      // people line in a reduced named form rather than
+      // vanishing silently — the age stands alone, or
+      // with however many of the group facts are filed.
+      if (ageText) {
+        const people: { lead?: string; text: string }[] = [
+          { lead: "The people here", text: `The typical age is ${ageText}.` },
+        ];
+        if (white) people.push({ text: `${Math.round(white.pct)} in 100 residents are White.` });
+        if (white && others.length === 2)
+          people.push({
+            text: `The next largest groups are ${shortGroup(others[0].label)} (${others[0].pct} in 100) and ${shortGroup(others[1].label)} (${others[1].pct} in 100).`,
+          });
+        else if (white && others.length === 1)
+          people.push({
+            text: `The next largest group is ${shortGroup(others[0].label)} (${others[0].pct} in 100).`,
+          });
+        items.push(...people);
+      }
       const accom = table("ts044");
       if (accom) {
         const detSemi = accom.rows
@@ -1766,26 +2148,50 @@ export function buildResultsView(input: ResultsInput): ResultsView {
           .filter((r) => /flat/i.test(r.label))
           .reduce((sum, r) => sum + r.pct, 0);
         if (detSemi > 0 && flat > 0)
-          blocks.push({
-            type: "line",
-            text: `The homes themselves — Nearly ${Math.round(detSemi / 10)} in 10 are detached or semi-detached houses; about 1 in ${Math.round(100 / flat)} is a flat.`,
-          });
+          items.push(
+            {
+              lead: "The homes themselves",
+              text: `Nearly ${Math.round(detSemi / 10)} in 10 are detached or semi-detached houses.`,
+            },
+            { text: `About 1 in ${Math.round(100 / flat)} is a flat.` },
+          );
       }
+      // NB-07: deprivation is served in its position in
+      // EVERY state — the named line the report serves
+      // (its own sentence form) — never a silent vanishing
+      // under small print that still asserts the coverage.
       if (imd && imd.state === "served" && imd.decile !== null)
-        blocks.push({
-          type: "line",
-          text: `Deprivation — This postcode's immediate area sits in decile ${imd.decile} of 10, where 10 is the least deprived in England.`,
+        items.push({
+          lead: "Deprivation",
+          text: `This postcode's immediate area sits in decile ${imd.decile} of 10, where 10 is the least deprived in England.`,
         });
-      if (census.residentsTotal)
+      else if (imd && imd.line) items.push({ lead: "Deprivation", text: sentenceLine(imd.line) });
+      if (items.length > 0) blocks.push({ type: "list", items });
+      if (census.residentsTotal) {
+        // The decile clause stands only when the decile
+        // line stands (NB-07); the median-age clause is
+        // the report's own caption words (NB-12).
+        const decileClause =
+          imd && imd.state === "served" && imd.decile !== null
+            ? " The deprivation decile covers the immediate area."
+            : "";
         blocks.push({
-          type: "line",
-          text: `Census 2021 figures cover the wider area around this home — about ${(Math.round(census.residentsTotal / 100) * 100).toLocaleString("en-GB")} residents. The deprivation decile covers the immediate area. Facts as published, in the Census's own words — no scores.`,
+          type: "small-line",
+          text: `Census 2021 figures cover the wider area around this home — about ${(Math.round(census.residentsTotal / 100) * 100).toLocaleString("en-GB")} residents.${decileClause} Facts as published, in the Census's own words — no scores. The typical age is calculated from the Census's single years of age.`,
         });
+      }
+      // NB-15: the strip's table count is composed from
+      // the tables actually served — six is the full
+      // filing's form; a partial filing drops the numeral
+      // claim rather than promising tables not held.
+      const tableCount = census.tables.length;
       blocks.push({
         type: "upsell",
         lead: "Plus the full Census picture for this area",
         detail:
-          "Six tables as published — age, ethnic group, religion, type of home, bedrooms and tenure, every count and percentage.",
+          tableCount >= 6
+            ? "Six tables as published — age, ethnic group, religion, type of home, bedrooms and tenure, every count and percentage."
+            : "The Census tables as published for this area — every count and percentage.",
       });
       neighbourhoodSections.push(
         linesSection("census", "The neighbourhood in numbers", blocks, census.sourceLine),
@@ -1793,7 +2199,12 @@ export function buildResultsView(input: ResultsInput): ResultsView {
     } else {
       blocks.push({
         type: "line",
-        text: census?.line ?? "Census 2021 figures are not filed for this area.",
+        // NB-14: the brain's fragment takes the full
+        // sentence form here, as the district view's
+        // equivalent state carries.
+        text: census?.line
+          ? sentenceLine(census.line)
+          : "Census 2021 figures are not filed for this area.",
       });
       neighbourhoodSections.push(linesSection("census", "The neighbourhood in numbers", blocks));
     }
@@ -1817,23 +2228,39 @@ export function buildResultsView(input: ResultsInput): ResultsView {
       if (per1000 !== null && england !== null && england > 0) {
         const pct = Math.round(Math.abs(1 - per1000 / england) * 100);
         const direction = per1000 < england ? "below" : per1000 > england ? "above" : "at";
+        // BUG-156 / NB-03: the crime facts take the
+        // report's own list form (BUG-078's split) — the
+        // total as one bullet, the rate as its own, the
+        // England figure as a labelled third. One decimal,
+        // always (parity fix batch, item 9): the pair
+        // states both figures in the same form — "51.7"
+        // and "94.5" — never a stripped whole ("94") and
+        // never a raw float. The streets sentence is an
+        // explainer: prose, in the small-print dress,
+        // after the data (NB-01).
         blocks.push({
-          type: "line",
-          text:
-            direction === "at"
-              ? `${crimeSection.total.toLocaleString("en-GB")} crimes recorded in the last 12 months — about the same as the England average.`
-              : `${crimeSection.total.toLocaleString("en-GB")} crimes recorded in the last 12 months — about ${pct}% ${direction} the England average.`,
+          type: "list",
+          items: [
+            {
+              text:
+                direction === "at"
+                  ? `${crimeSection.total.toLocaleString("en-GB")} crimes recorded in the last 12 months — about the same as the England average.`
+                  : `${crimeSection.total.toLocaleString("en-GB")} crimes recorded in the last 12 months — about ${pct}% ${direction} the England average.`,
+            },
+            {
+              text: `${per1000 === 0 ? "0" : per1000.toFixed(1)} recorded crimes for every 1,000 residents here.`,
+            },
+            {
+              // The report's own labelled form: the
+              // label carries its colon, as Section 4's
+              // "Across England:" bullet stands.
+              lead: "Across England:",
+              text: `${england === 0 ? "0" : england.toFixed(1)} recorded crimes for every 1,000 residents.`,
+            },
+          ],
         });
         blocks.push({
-          type: "line",
-          // One decimal, always (parity fix batch, item 9):
-          // the pair states both figures in the same form —
-          // "51.7" and "94.5" — never a stripped whole
-          // ("94") and never a raw float.
-          text: `That's ${per1000 === 0 ? "0" : per1000.toFixed(1)} recorded crimes for every 1,000 residents here. Across England, the figure is ${england === 0 ? "0" : england.toFixed(1)}.`,
-        });
-        blocks.push({
-          type: "line",
+          type: "small-line",
           text: "Incidents are recorded against nearby streets, not against individual houses.",
         });
       } else {
@@ -1875,8 +2302,16 @@ export function buildResultsView(input: ResultsInput): ResultsView {
       blocks.push({
         type: "tagged-line",
         lead: "Air quality",
-        texts: [
-          `Nitrogen dioxide (NO2) ${airFull.no2.toFixed(2)} µg/m³ a year; PM2.5 ${airFull.pm25.toFixed(2)} µg/m³; PM10 ${airFull.pm10.toFixed(2)} µg/m³.`,
+        texts: [],
+        // BUG-156 (NB audit §5.5, items 11–12, on the
+        // BUG-142 precedent): the three pollutant figures
+        // take one bullet each under the row's lead, as
+        // the report's Section 4 bullets its air lines —
+        // not one semicolon-joined sentence.
+        bullets: [
+          `Nitrogen dioxide (NO2) ${airFull.no2.toFixed(2)} µg/m³ a year.`,
+          `PM2.5 ${airFull.pm25.toFixed(2)} µg/m³.`,
+          `PM10 ${airFull.pm10.toFixed(2)} µg/m³.`,
         ],
         fineprint: `Defra modelled background for this postcode, ${airFull.year}. This is a modelled estimate, not a measurement at this address.`,
         tag: "MODELLED",
@@ -1897,7 +2332,15 @@ export function buildResultsView(input: ResultsInput): ResultsView {
           blocks.push({
             type: "tagged-line",
             lead: "Noise",
-            texts: [single],
+            texts: [],
+            // BUG-156 (NB §5.5 item 12): one bullet per
+            // source — the joined line's own clauses,
+            // each standing as its own sentence, as the
+            // report serves noise per source.
+            bullets: single
+              .replace(/\.$/, "")
+              .split("; ")
+              .map((clause) => `${sentenceStart(clause)}.`),
             fineprint: "Defra modelled bands.",
             tag: "MODELLED",
             tagTone: "grey",
@@ -1989,8 +2432,11 @@ export function buildResultsView(input: ResultsInput): ResultsView {
             tenure ? tenure.toLowerCase() : null,
             last.newBuild ? "new build" : null,
           ].filter((part): part is string => part !== null);
+          // HCR-19: the not-a-valuation explainer wears
+          // the small-print dress, as the sample wears
+          // this whole line small — never body size.
           blocks.push({
-            type: "line",
+            type: "small-line",
             text: `${parts.join(", ")}. These figures describe recorded sales only — they are not a valuation of this home.`,
           });
         }
@@ -2001,8 +2447,10 @@ export function buildResultsView(input: ResultsInput): ResultsView {
             label: "Last sale of this home",
             value: `${formatPounds(sold.ownLastSale.price)} — ${formatFiledDate(sold.ownLastSale.date)}`,
           });
-        if (sold.median.state === "served" && sold.median.value !== null)
-          tiles.push({ label: "Postcode median", value: formatPounds(sold.median.value) });
+        // HCR-12: no "Postcode median" tile — the median
+        // line directly beneath stated the same figure a
+        // second time; the line carries figure, count and
+        // span, and stands alone.
         if (tiles.length > 0) blocks.push({ type: "tiles", tiles });
         if (sold.ownLine) blocks.push({ type: "line", text: sold.ownLine });
       }
@@ -2049,8 +2497,14 @@ export function buildResultsView(input: ResultsInput): ResultsView {
       }
       blocks.push({
         type: "upsell",
-        lead: "Plus the full sale-by-sale table & sold prices nearby",
-        detail: "The median, the range and every sale counted.",
+        // HCR-02 (BUG-153, founder ruling): corrected
+        // sample→product — Section 2's table is capped at
+        // the 10 most recent category A sales, so "full"
+        // and "the range" (a figure Section 2 never
+        // states) are out; the strip states what the
+        // report gives. The Master conforms.
+        lead: "Plus the sale-by-sale table & sold prices nearby",
+        detail: "The median, the count, and the 10 most recent sales in a table.",
       });
       homeSections.push(linesSection("sold-prices", "Sold history", blocks, sold.sourceLine));
     } else {
@@ -2151,25 +2605,53 @@ export function buildResultsView(input: ResultsInput): ResultsView {
       if (epc.line) blocks.push({ type: "line", text: epc.line });
       if (certCosts) blocks.push({ type: "line", text: certCosts.line });
     }
-    blocks.push({ type: "subheading", text: "EV charging" });
+    // HCR-07 (BUG-153): EV charging and Broadband &
+    // mobile are ROWS among the Costs rows, as the sample
+    // draws them — the two subheadings the sample doesn't
+    // draw are gone. The EV group's own count line is
+    // retired by the section's strip declaration (the
+    // OBS-012 pass): the sample's EV row stands alone.
     blocks.push(...group("ev-chargers", NEARBY_CATEGORIES).blocks);
-    blocks.push({ type: "subheading", text: "Broadband & mobile" });
     const broadband = sections.broadband;
-    // D-1 (M7.11, founder adopted 18 Nov 2026): the
-    // sample's caveat rides on the broadband line itself,
-    // so the postcode share can never be misread as a
-    // promise about this home's package.
-    if (broadband.line)
-      blocks.push({ type: "line", text: `${broadband.line} — ${BROADBAND_CAVEAT}` });
-    if (areaSections?.mobile?.line) blocks.push({ type: "line", text: areaSections.mobile.line });
-    if (!broadband.line && !areaSections?.mobile?.line)
-      blocks.push({ type: "line", text: "Broadband answers are not covered for this postcode." });
-    blocks.push({
-      type: "upsell",
-      lead: "Plus every council tax band and the full EPC certificate detail",
-      detail:
-        "Bands A to H for this council, a year and a month each — plus the certificate's construction, improvements, typical savings and solar figures.",
-    });
+    // The sample's broadband row: the broadband fact and
+    // the mobile fact joined in one row under the
+    // COVERAGE badge (HCR-07 — the badge the product had
+    // dropped). D-1 (M7.11, founder adopted 18 Nov
+    // 2026): the caveat rides on the broadband line
+    // itself, so the postcode share can never be misread
+    // as a promise about this home's package.
+    {
+      const texts: string[] = [];
+      if (broadband.line) texts.push(`${broadband.line} — ${BROADBAND_CAVEAT}`);
+      if (areaSections?.mobile?.line) texts.push(areaSections.mobile.line);
+      if (texts.length > 0)
+        blocks.push({
+          type: "tagged-line",
+          lead: "Broadband & mobile",
+          texts,
+          tag: "COVERAGE",
+          tagTone: "grey",
+        });
+      else
+        blocks.push({ type: "line", text: "Broadband answers are not covered for this postcode." });
+    }
+    // HCR-11: the strip's EPC promise is gated on a
+    // certificate being filed for the home — beside a
+    // fallback EPC row, "the full EPC certificate detail"
+    // promises what no report can give for this home.
+    if (cert)
+      blocks.push({
+        type: "upsell",
+        lead: "Plus every council tax band and the full EPC certificate detail",
+        detail:
+          "Bands A to H for this council, a year and a month each — plus the certificate's construction, improvements, typical savings and solar figures.",
+      });
+    else
+      blocks.push({
+        type: "upsell",
+        lead: "Plus every council tax band in full",
+        detail: "Bands A to H for this council, a year and a month each.",
+      });
     const sourceLine =
       area.kind === "area-bundle" ? (area.sections.councilTax?.sourceLine ?? null) : null;
     homeSections.push(linesSection("costs", "Costs", blocks, sourceLine));
@@ -2180,14 +2662,15 @@ export function buildResultsView(input: ResultsInput): ResultsView {
   // its band and the band's own definition; the
   // no-warnings sentence rides inside the rivers row when
   // no warning is in force. Live warnings, when any are
-  // in force, keep their block above the rows. The
-  // pre-batch form led with the timestamped warnings
-  // block in every state and the layers' dataset-wording
-  // lines. The flood-zone layer does not render on this
-  // page (the sample carries the two risk checks); its
-  // fact stays at report depth.
+  // in force, keep their block above the rows. HCR-04
+  // (BUG-153, with BUG-151 ruling 3): the Rivers & sea
+  // row also carries the PLANNING ZONE fact, in the
+  // sample's clause form — the brain's own zone sentence,
+  // sentence-cased — so a home inside Flood Zone 3 never
+  // reads as a bare "Very low" on this tab either.
   {
     const blocks: SectionBlock[] = [];
+    let floodServed = false;
     if (flood.kind === "flood" && flood.flood.state === "served") {
       const live = flood.flood.liveWarnings;
       if (live && live.state === "warnings") blocks.push(floodWarningsBlock(live));
@@ -2195,6 +2678,9 @@ export function buildResultsView(input: ResultsInput): ResultsView {
         blocks.push({ type: "line", text: live.line });
       const shortFlood = sections.flood;
       if (shortFlood.state === "served") {
+        floodServed = true;
+        const zoneLayer = shortFlood.layers.find((entry) => entry.layer === "flood_zone");
+        const zoneClause = zoneLayer ? sentenceLine(zoneLayer.line) : null;
         const verdictFor = (layerKind: "rofrs" | "rofsw", name: string): SectionBlock | null => {
           const layer = shortFlood.layers.find((entry) => entry.layer === layerKind);
           if (!layer) return null;
@@ -2209,6 +2695,7 @@ export function buildResultsView(input: ResultsInput): ResultsView {
           } else {
             text = layer.line;
           }
+          if (layerKind === "rofrs" && zoneClause) text = `${text} ${zoneClause}`;
           return {
             type: "verdict",
             name,
@@ -2230,7 +2717,11 @@ export function buildResultsView(input: ResultsInput): ResultsView {
     }
     if (blocks.length === 0)
       blocks.push({ type: "line", text: "Flood answers are not covered for this postcode." });
-    blocks.push({ type: "upsell", lead: FLOOD_UPSELL_LEAD, detail: FLOOD_UPSELL_DETAIL });
+    // HCR-11: the strip stands only where flood findings
+    // actually serve — beside a not-covered line it would
+    // promise findings "in full" that do not exist.
+    if (floodServed)
+      blocks.push({ type: "upsell", lead: FLOOD_UPSELL_LEAD, detail: FLOOD_UPSELL_DETAIL });
     homeSections.push(linesSection("flood", "Flood", blocks));
   }
   // Planning, protection & ownership (D76): constraints,
@@ -2276,42 +2767,79 @@ export function buildResultsView(input: ResultsInput): ResultsView {
           );
         else if (layer.beyondLine && layer.state !== "inside") extraTexts.push(layer.beyondLine);
       }
+      // HCR-18 (BUG-156 bullet treatment): the joined
+      // facts stay prose as the row's headline; the
+      // absence and beyond-nearest lines take bullets
+      // beneath it — not four findings stacked as running
+      // prose. HCR-05: the brownfield line leaves this
+      // row entirely — it stands as its own row below.
       const texts: string[] = [];
       if (facts.length > 0) texts.push(facts.join(" • "));
-      texts.push(...extraTexts);
-      texts.push(constraints.brownfield.line);
-      if (
-        constraints.brownfield.beyondLine &&
-        constraints.brownfield.nearest &&
-        constraints.brownfield.countWithin === 0
-      )
-        texts.push(
-          `The nearest recorded brownfield site is ${constraints.brownfield.nearest.label}, ${formatMiles(constraints.brownfield.nearest.miles)} miles away.`,
-        );
-      else if (constraints.brownfield.beyondLine) texts.push(constraints.brownfield.beyondLine);
       blocks.push({
         type: "tagged-line",
         lead: "Planning constraints",
         texts,
+        bullets: extraTexts.length > 0 ? extraTexts : undefined,
         tag: "FACTS",
         tagTone: "grey",
       });
     }
     {
+      // HCR-05 (BUG-153): brownfield's own row, restored —
+      // the count, the named nearest, and its inverted
+      // distance pill (BUG-126: nearness is the concern,
+      // the "concern" family). In the none-within state
+      // the nearest the brain names is the beyond nearest,
+      // carried by the short bundle in the same slot.
+      const brownfield = constraints.brownfield;
+      const texts: string[] = [brownfield.line];
+      let miles: { text: string; band: DistanceBand } | undefined;
+      if (brownfield.nearest) {
+        if ((brownfield.countWithin ?? 0) > 0) {
+          texts.push(
+            `The nearest recorded brownfield site is ${brownfield.nearest.label}, ${formatMiles(brownfield.nearest.miles)} miles away.`,
+          );
+          miles = {
+            text: `${formatMiles(brownfield.nearest.miles)} mi`,
+            band: distanceBand("concern", brownfield.nearest.miles),
+          };
+        } else if (brownfield.beyondLine) {
+          texts.push(
+            `The nearest recorded brownfield site is ${brownfield.nearest.label}, ${formatMiles(brownfield.nearest.miles)} miles away.`,
+          );
+        }
+      } else if (brownfield.beyondLine) texts.push(brownfield.beyondLine);
+      blocks.push({
+        type: "tagged-line",
+        lead: "Brownfield land",
+        texts,
+        tag: "FACTS",
+        tagTone: "grey",
+        miles,
+      });
+    }
+    {
       const nature = sections.nature;
-      const texts: string[] = [];
+      // HCR-18 / HCR-10 (BUG-156): the three fact lines
+      // take bullets as one list — designations (kinds
+      // named, in the designations line the brain
+      // serves), woodland, habitat — with any
+      // beyond-nearest facts following as further
+      // bullets; the fineprint stands after the list,
+      // line-free.
+      const bullets: string[] = [];
       const placesText = nature.designationsLine
         ? `${nature.placesLine} — ${nature.designationsLine}`
         : nature.placesLine;
-      texts.push(placesText);
+      bullets.push(placesText);
       const nearestPlace = nature.nearestPlace;
       if (nature.beyondLine && nearestPlace && nearestPlace.name)
-        texts.push(
+        bullets.push(
           beyondNearestLine("designated nature site", nearestPlace.name, nearestPlace.miles),
         );
-      else if (nature.beyondLine) texts.push(nature.beyondLine);
+      else if (nature.beyondLine) bullets.push(nature.beyondLine);
       const woodlandFact = polygonFact(nature.ancientWoodland);
-      texts.push(
+      bullets.push(
         woodlandFact
           ? `Ancient woodland: ${woodlandFact.charAt(0).toLowerCase()}${woodlandFact.slice(1)}`
           : nature.ancientWoodland.line,
@@ -2323,14 +2851,15 @@ export function buildResultsView(input: ResultsInput): ResultsView {
         woodlandNearest.name &&
         nature.ancientWoodland.state !== "inside"
       )
-        texts.push(
+        bullets.push(
           beyondNearestLine("ancient woodland", woodlandNearest.name, woodlandNearest.miles),
         );
-      texts.push(nature.priorityHabitat.line);
+      bullets.push(nature.priorityHabitat.line);
       blocks.push({
         type: "tagged-line",
         lead: "Nature designations",
-        texts,
+        texts: [],
+        bullets,
         fineprint: nature.coverageLine ?? "In the datasets checked.",
         tag: "FACTS",
         tagTone: "grey",
@@ -2340,20 +2869,39 @@ export function buildResultsView(input: ResultsInput): ResultsView {
       const heritage = sections.heritage;
       const texts: string[] = [heritage.listed.line];
       const listedNearest = heritage.listed.nearest;
-      if (heritage.listed.beyondLine && listedNearest && listedNearest.name)
+      // HCR-06 (BUG-153): the nearest is named in BOTH
+      // states — the within list's first entry where any
+      // stand within 2 miles (the bundle already files
+      // it; the pre-fix composition gated the name on
+      // the none-within beyond line, so the common state
+      // named none).
+      if (listedNearest && listedNearest.name)
         texts.push(
           `The nearest listed building is ${listedNearest.name} (Grade ${listedNearest.grade}), ${formatMiles(listedNearest.miles)} miles away.`,
         );
       else if (heritage.listed.beyondLine) texts.push(heritage.listed.beyondLine);
       if (heritage.atPoint.state === "recorded") texts.push(heritage.atPoint.line);
       else if (heritage.atPoint.state === "needs-exact-home") texts.push(heritage.atPoint.reason);
-      blocks.push({
-        type: "tagged-line",
-        lead: "Listed building & heritage",
-        texts,
-        tag: "FACTS",
-        tagTone: "grey",
-      });
+      // HCR-18: two or more fact lines bullet as one
+      // list; a single line stands as the row's text.
+      blocks.push(
+        texts.length >= 2
+          ? {
+              type: "tagged-line",
+              lead: "Listed building & heritage",
+              texts: [],
+              bullets: texts,
+              tag: "FACTS",
+              tagTone: "grey",
+            }
+          : {
+              type: "tagged-line",
+              lead: "Listed building & heritage",
+              texts,
+              tag: "FACTS",
+              tagTone: "grey",
+            },
+      );
     }
     const sourceLine: string | null = constraints.conservationArea.sourceLine;
     // The hand-off is read from the short bundle's pick
@@ -2372,7 +2920,17 @@ export function buildResultsView(input: ResultsInput): ResultsView {
         texts: [planning.line],
       });
       if (planning.link)
-        blocks.push({ type: "link", label: planning.link.label, url: planning.link.url });
+        // HCR-09 (BUG-153): this page's link label is the
+        // sample's — "Check planning applications near
+        // this home". The override stands HERE, at this
+        // composition only: the shared bundle label
+        // (lib/area-bundle.ts) is the report's too, and
+        // the report keeps its own.
+        blocks.push({
+          type: "link",
+          label: "Check planning applications near this home",
+          url: planning.link.url,
+        });
     }
     if (areaSections?.companyOwnership) {
       const ownership = areaSections.companyOwnership as {
@@ -2413,11 +2971,12 @@ export function buildResultsView(input: ResultsInput): ResultsView {
   const nearbySections: ResultsSectionView[] = [];
   {
     const blocks: SectionBlock[] = [];
-    // The GP group's own count row is suppressed (item
-    // 14): the section's one plain truncRow below speaks
-    // for the health groups together, as the Master's
-    // Health section carries the one row.
-    blocks.push(...suppressTruncation(group("gp", FAMILY_CATEGORIES)).blocks);
+    // The GP group's own count row is cleared by the
+    // section's strip declaration (OBS-012): the
+    // section's one plain truncRow below speaks for the
+    // health groups together, as the Master's Health
+    // section carries the one row.
+    blocks.push(...group("gp", FAMILY_CATEGORIES).blocks);
     blocks.push(...group("dentist", FAMILY_CATEGORIES).blocks);
     blocks.push(...group("pharmacy", FAMILY_CATEGORIES).blocks);
     blocks.push({ type: "upsell", lead: "Plus more GPs & dentists", detail: null });
@@ -2435,8 +2994,9 @@ export function buildResultsView(input: ResultsInput): ResultsView {
     // hospitals independently. The A&E group leads (it is
     // the section's headline fact); the maternity group is
     // suppressed when its lead place IS the A&E lead
-    // place. Item 14: the A&E group's count row is also
-    // suppressed — the section's merged truncRow below is
+    // place. The A&E group's count row is likewise
+    // cleared by the section's strip declaration
+    // (OBS-012) — the section's merged truncRow below is
     // its one upsell.
     const aeCategory = categories.get("ae");
     const maternityCategory = categories.get("maternity");
@@ -2445,14 +3005,17 @@ export function buildResultsView(input: ResultsInput): ResultsView {
     const aeLead = leadName(aeCategory);
     const maternityDuplicatesAe =
       aeLead !== null && maternityCategory !== undefined && leadName(maternityCategory) === aeLead;
-    blocks.push(...suppressTruncation(group("ae", FAMILY_CATEGORIES)).blocks);
+    blocks.push(...group("ae", FAMILY_CATEGORIES).blocks);
     if (!maternityDuplicatesAe) blocks.push(...group("maternity", FAMILY_CATEGORIES).blocks);
     if (!gated.has("ae"))
       blocks.push({
         type: "upsell",
         lead: "Plus maternity, community hospital & more hospitals",
+        // BUG-152 ruling: "Every one near this home" was
+        // one of the three false wordings — the report
+        // serves the NEAREST entries; the detail says so.
         detail:
-          "Every one near this home — maternity with its own rating, and the next-nearest A&E as a fallback.",
+          "The nearest maternity unit with its own rating, and the next-nearest A&E as a fallback.",
       });
     nearbySections.push(linesSection("hospitals", "Hospitals", blocks));
   }
@@ -2481,14 +3044,18 @@ export function buildResultsView(input: ResultsInput): ResultsView {
   nearbySections.push(group("places-to-visit", NEARBY_CATEGORIES));
   {
     const blocks: SectionBlock[] = [];
-    // Item 14: the two groups' own count rows are
-    // suppressed — the section's one plain truncRow below
-    // speaks for the combined lists, as the Master's does.
-    blocks.push(...suppressTruncation(group("places-of-worship", NEARBY_CATEGORIES)).blocks);
-    blocks.push(...suppressTruncation(group("libraries", NEARBY_CATEGORIES)).blocks);
+    // The two groups' own count rows are cleared by the
+    // section's strip declaration (OBS-012) — the
+    // section's one plain truncRow below speaks for the
+    // combined lists, as the Master's does. BUG-152
+    // ruling: "the full … lists" was a false wording —
+    // the report serves the nearest entries with
+    // distances; the lead drops "full".
+    blocks.push(...group("places-of-worship", NEARBY_CATEGORIES).blocks);
+    blocks.push(...group("libraries", NEARBY_CATEGORIES).blocks);
     blocks.push({
       type: "upsell",
-      lead: "Plus the full Food & drink, Leisure, Places to visit, worship & library lists",
+      lead: "Plus the Food & drink, Leisure, Places to visit, worship & library lists",
       detail: null,
     });
     nearbySections.push(linesSection("worship-libraries", "Places of worship & libraries", blocks));
@@ -2500,6 +3067,15 @@ export function buildResultsView(input: ResultsInput): ResultsView {
     { id: "home", label: "Home, Costs & Risks", sections: homeSections },
     { id: "nearby", label: "What's Nearby", sections: nearbySections },
   ];
+
+  // The two closing passes (OBS-012 + HCR-08/NB-08):
+  // strip declarations first (they only remove blocks'
+  // truncations), then the sentence pass over what
+  // stands.
+  for (const tab of tabs) {
+    declareSectionStrips(tab);
+    sentencePass(tab);
+  }
 
   return {
     pills: effectiveNearby
@@ -2678,14 +3254,30 @@ function districtAirValue(value: number): string {
 function districtCensusSection(bundle: DistrictServed): ResultsSectionView {
   const census = bundle.sections.census;
   const outward = bundle.outward;
+  const head = {
+    label: "2 · People",
+    title: "The neighbourhood in numbers",
+    grain: "Census 2021 · District",
+  };
   if (census.state !== "served") {
-    return linesSection("census", "The neighbourhood in numbers", [
-      {
-        type: "line",
-        text: census.line ?? "Census 2021 figures are not filed for this district's areas yet.",
-      },
-    ]);
+    return linesSection(
+      "census",
+      "The neighbourhood in numbers",
+      [
+        {
+          type: "line",
+          text: census.line ?? "Census 2021 figures are not filed for this district's areas yet.",
+        },
+      ],
+      null,
+      head,
+    );
   }
+  // Sample 28's row form (WA-03, as corrected): each
+  // census headline is a row — bold lead, the facts as
+  // its small detail — never a bullet. The words are
+  // unchanged, only split at the lead.
+  const rows: SectionBlock[] = [];
   const blocks: SectionBlock[] = [];
   if (census.ageYears) {
     let under18 = 0;
@@ -2700,10 +3292,11 @@ function districtCensusSection(bundle: DistrictServed): ResultsSectionView {
     });
     if (ageTotal > 0) {
       const share = (n: number) => Math.round((n / ageTotal) * 100);
-      blocks.push({
-        type: "line",
-        text:
-          `Age mix — Under 18: ${share(under18)}% · 18–64: ${share(workingAge)}% · ` +
+      rows.push({
+        type: "row",
+        lead: "Age mix",
+        detail:
+          `Under 18: ${share(under18)}% · 18–64: ${share(workingAge)}% · ` +
           `65 and over: ${share(over65)}%.` +
           (census.medianAge != null
             ? ` The typical (median) age is ${districtAgeText(census.medianAge.value)}.`
@@ -2724,10 +3317,11 @@ function districtCensusSection(bundle: DistrictServed): ResultsSectionView {
     census.residentsTotal != null &&
     census.householdsTotal > 0
   ) {
-    blocks.push({
-      type: "line",
-      text:
-        `Households — ${districtCount(census.householdsTotal)} households and ` +
+    rows.push({
+      type: "row",
+      lead: "Households",
+      detail:
+        `${districtCount(census.householdsTotal)} households and ` +
         `${districtCount(census.residentsTotal)} residents across ` +
         (censusPartial
           ? `the ${districtCount(census.msoaCount)} of the district's ` +
@@ -2748,10 +3342,11 @@ function districtCensusSection(bundle: DistrictServed): ResultsSectionView {
   const privateRented = tenureRow("Private rented");
   const socialPct = census.socialRented?.pct ?? tenureRow("Social rented")?.pct;
   if (owned && outright && mortgage && socialPct != null && privateRented) {
-    blocks.push({
-      type: "line",
-      text:
-        `Owning and renting — ${Math.round(owned.pct / 10)} in 10 households across ` +
+    rows.push({
+      type: "row",
+      lead: "Owning and renting",
+      detail:
+        `${Math.round(owned.pct / 10)} in 10 households across ` +
         `${outward} own their home: ${Math.round(outright.pct)}% outright and ` +
         `${Math.round(mortgage.pct)}% with a mortgage. ${Math.round(socialPct)}% rent ` +
         `from a social landlord, ${Math.round(privateRented.pct)}% rent privately.`,
@@ -2763,10 +3358,11 @@ function districtCensusSection(bundle: DistrictServed): ResultsSectionView {
     .filter((group) => group.label !== "White")
     .sort((a, b) => b.pct - a.pct);
   if (white && otherGroups.length >= 2) {
-    blocks.push({
-      type: "line",
-      text:
-        `The people here — ${Math.round(white.pct)} in 100 residents are White; the ` +
+    rows.push({
+      type: "row",
+      lead: "The people here",
+      detail:
+        `${Math.round(white.pct)} in 100 residents are White; the ` +
         `next largest groups are ${districtShortGroup(otherGroups[0].label)} ` +
         `(${Math.round(otherGroups[0].pct)} in 100) and ` +
         `${districtShortGroup(otherGroups[1].label)} (${Math.round(otherGroups[1].pct)} in 100).`,
@@ -2797,9 +3393,10 @@ function districtCensusSection(bundle: DistrictServed): ResultsSectionView {
     }
     if (notStated) parts.push(`Not stated: ${Math.round(notStated.pct)}%`);
     if (parts.length > 0) {
-      blocks.push({ type: "line", text: `Religion — ${parts.join(" · ")}.` });
+      rows.push({ type: "row", lead: "Religion", detail: `${parts.join(" · ")}.` });
     }
   }
+  blocks.push(...rows);
   // The homes-themselves headline (the ts044 summary) is
   // retired (audit item 7): the sample carries Family
   // make-up in its place — one-person households,
@@ -2811,8 +3408,11 @@ function districtCensusSection(bundle: DistrictServed): ResultsSectionView {
   // simply goes; ts044 stays in the bundle's depth
   // tables. Recorded in docs/frontend-design-pass.md as
   // blocked on a household-composition filing.
+  // The coverage line wears the small-print dress after
+  // the facts it describes (BUG-160, as NB-01 on the home
+  // tabs).
   blocks.push({
-    type: "line",
+    type: "small-line",
     text: censusPartial
       ? `Census 2021 figures summed across the ${districtCount(census.msoaCount)} of the ` +
         `district's ${districtCount(bundle.head.msoaCount)} Census areas filed so far. ` +
@@ -2820,65 +3420,98 @@ function districtCensusSection(bundle: DistrictServed): ResultsSectionView {
       : `Census 2021 figures summed across the ${census.msoaCount} Census areas this ` +
         `district's postcodes fall in. Facts as published, in the Census's own words — no scores.`,
   });
-  return linesSection("census", "The neighbourhood in numbers", blocks, census.sourceLine);
+  return linesSection("census", "The neighbourhood in numbers", blocks, census.sourceLine, head);
 }
 
 function districtCrimeSection(bundle: DistrictServed): ResultsSectionView {
   const crime = bundle.sections.crime;
   const outward = bundle.outward;
+  const head = { label: "3 · Safety", title: "Crime", grain: "Last 12 months · District" };
   if (crime.state !== "served" || crime.total == null || crime.per1000 == null) {
-    return linesSection("crime", "Crime", [
-      {
-        type: "line",
-        text: crime.line ?? "Crime is not filed for this district yet.",
-      },
-    ]);
+    return linesSection(
+      "crime",
+      "Crime",
+      [
+        {
+          type: "line",
+          text: crime.line ?? "Crime is not filed for this district yet.",
+        },
+      ],
+      null,
+      head,
+    );
   }
+  // Sample 28's tile contents (WA-07): the counts, the
+  // two rates, and the window itself as a tile — the
+  // window's span in the sample's short-month form.
   const tiles: { label: string; value: string }[] = [
-    { label: "Recorded crimes — latest 12 months", value: districtCount(crime.total) },
-    { label: `Per 1,000 residents — ${outward}`, value: crime.per1000.toFixed(1) },
+    { label: "recorded crimes in 12 months", value: districtCount(crime.total) },
+    { label: `per 1,000 residents — ${outward}`, value: crime.per1000.toFixed(1) },
   ];
   if (crime.england) {
-    tiles.push({
-      label: "Per 1,000 residents — England",
-      value: crime.england.englandPer1000.toFixed(1),
-    });
+    tiles.push({ label: "per 1,000 — England", value: crime.england.englandPer1000.toFixed(1) });
+  }
+  if (crime.windowLine) {
+    const span = crime.windowLine
+      .split(" to ")
+      .map((part) => {
+        const [month, year] = part.split(" ");
+        return month && year ? `${month.slice(0, 3)} ${year}` : part;
+      })
+      .join(" – ");
+    tiles.push({ label: span, value: "12 mo" });
   }
   const blocks: SectionBlock[] = [{ type: "tiles", tiles }];
   if (crime.england) {
+    // WA-08: the comparison panel — heading, label over
+    // track, England in brass, the calibration note
+    // inside the panel.
     const max = Math.max(crime.per1000, crime.england.englandPer1000);
     blocks.push({
-      type: "bars",
+      type: "bar-compare",
+      heading: "Rate per 1,000 residents",
       rows: [
         {
           label: outward,
-          text: `${crime.per1000.toFixed(1)} per 1,000 residents`,
+          text: `${outward} — ${crime.per1000.toFixed(1)}`,
           pctOfMax: max > 0 ? (crime.per1000 / max) * 100 : 0,
         },
         {
           label: "England",
-          text: `${crime.england.englandPer1000.toFixed(1)} per 1,000 residents`,
+          text: `England — ${crime.england.englandPer1000.toFixed(1)}`,
           pctOfMax: max > 0 ? (crime.england.englandPer1000 / max) * 100 : 0,
+          england: true,
         },
       ],
+      note: crime.england.line,
     });
-    blocks.push({ type: "line", text: crime.england.line });
   }
-  if (crime.windowLine) {
-    blocks.push({ type: "line", text: `Recorded in the 12 months ${crime.windowLine}.` });
+  // WA-15: the categories as rows, the tail folded into
+  // "All other categories" as Sample 28 draws them.
+  const named = crime.categories.slice(0, 5);
+  for (const category of named) {
+    blocks.push({ type: "row", lead: category.label, value: districtCount(category.count) });
   }
-  blocks.push({ type: "subheading", text: "By category" });
-  blocks.push({
-    type: "table",
-    rows: crime.categories.map((category) => ({
-      label: category.label,
-      value: districtCount(category.count),
-    })),
-  });
-  return linesSection("crime", "Crime", blocks, crime.sourceLine);
+  if (crime.categories.length > named.length) {
+    const rest = crime.categories.slice(named.length);
+    blocks.push({
+      type: "row",
+      lead: "All other categories",
+      value: districtCount(rest.reduce((sum, category) => sum + category.count, 0)),
+    });
+  }
+  return linesSection("crime", "Crime", blocks, crime.sourceLine, head);
 }
 
-function districtFloodBandBlocks(block: DistrictFloodBlock): SectionBlock[] {
+// WA-05/WA-06: one flood layer's card — serif title,
+// the share sub-line, the stackbar, its legend (the
+// shares live in the legend now, keeping the product's
+// honest "No band published" segment), the band
+// definitions as small print inside the card.
+function districtFloodCard(
+  block: DistrictFloodBlock,
+  outward: string,
+): Extract<SectionBlock, { type: "flood-grid" }>["cards"][number] {
   const tones: Record<string, "high" | "medium" | "low" | "very-low" | "none"> = {
     High: "high",
     Medium: "medium",
@@ -2886,74 +3519,82 @@ function districtFloodBandBlocks(block: DistrictFloodBlock): SectionBlock[] {
     "Very low": "very-low",
     "No band published": "none",
   };
-  const blocks: SectionBlock[] = [
-    { type: "subheading", text: block.title },
-    {
-      type: "stackbar",
-      segments: block.buckets.map((bucket) => ({
-        label: bucket.label,
-        pct: bucket.pct,
-        tone: tones[bucket.label] ?? "none",
-      })),
-    },
-    {
-      type: "line",
-      text:
-        block.buckets.map((bucket) => `${bucket.label} ${bucket.pct}%`).join(" · ") +
-        ` — shares of the ${districtCount(block.counted)} postcodes counted.`,
-    },
-  ];
   const definitions = block.buckets.filter((bucket) => bucket.definition != null);
-  if (definitions.length > 0) {
-    blocks.push({
-      type: "line",
-      text: definitions.map((bucket) => `${bucket.label}: ${bucket.definition}`).join(". ") + ".",
-    });
-  }
-  return blocks;
+  return {
+    title: block.title,
+    sub: `Share of ${outward} postcodes in a mapped flood band`,
+    segments: block.buckets.map((bucket) => ({
+      label: bucket.label,
+      pct: bucket.pct,
+      tone: tones[bucket.label] ?? "none",
+    })),
+    definitions:
+      definitions.length > 0
+        ? definitions.map((bucket) => `${bucket.label}: ${bucket.definition}`).join(". ") + "."
+        : null,
+    narrative: null,
+  };
 }
 
 function districtFloodSection(bundle: DistrictServed): ResultsSectionView {
   const flood = bundle.sections.flood;
   const outward = bundle.outward;
+  const head = {
+    label: "10 · Flood — District roll-up",
+    title: `Flood risk across ${outward}`,
+    grain: "Share of postcodes · District",
+  };
   if (flood.state !== "served") {
-    return linesSection("flood", "Flood", [
-      { type: "line", text: flood.line ?? "Flood answers are not filed for this district yet." },
-    ]);
+    return linesSection(
+      "flood",
+      "Flood",
+      [{ type: "line", text: flood.line ?? "Flood answers are not filed for this district yet." }],
+      null,
+      head,
+    );
   }
   const blocks: SectionBlock[] = [];
   if (flood.warnings.state === "unavailable") {
+    // WA-12: the strip form is for the served states;
+    // the unavailable state keeps its notice (the
+    // audit leaves its form open).
     blocks.push({ type: "notice", variant: "gap", text: flood.warnings.line });
   } else {
-    blocks.push({ type: "line", text: flood.warnings.line });
-    for (const area of flood.warnings.areas) {
-      blocks.push({ type: "line", text: `${area.severity} — ${area.description}` });
-    }
+    blocks.push({
+      type: "warn-strip",
+      line: flood.warnings.line,
+      areas: flood.warnings.areas.map((area) => `${area.severity} — ${area.description}`),
+    });
   }
+  // WA-05: the two layers as cards in one grid. The
+  // rivers & sea card carries the sample's per-card
+  // narrative, filled from the only corridor names the
+  // filed data holds: the watercourses of the filed
+  // flood defences within the standard 2-mile serving
+  // radius. The surface water card carries none — no
+  // filed data names where surface water pools in a
+  // district.
+  const cards: Extract<SectionBlock, { type: "flood-grid" }>["cards"] = [];
   if (flood.riversSea) {
-    blocks.push(...districtFloodBandBlocks(flood.riversSea));
-  } else if (flood.riversSeaNotCoveredLine) {
+    const card = districtFloodCard(flood.riversSea, outward);
+    if (flood.watercourses.length > 0) {
+      card.narrative = {
+        lead: `Where it touches ${outward}:`,
+        text: `flood defences are recorded along the ${districtJoinNames(flood.watercourses)} within 2 miles of the district's postcodes.`,
+      };
+    }
+    cards.push(card);
+  }
+  if (flood.surfaceWater) cards.push(districtFloodCard(flood.surfaceWater, outward));
+  if (cards.length > 0) blocks.push({ type: "flood-grid", cards });
+  if (!flood.riversSea && flood.riversSeaNotCoveredLine) {
     // The layer is filed but does not cover this district
     // (audit item 14): its own not-filed line stands in
-    // its block's place — never a computed share.
+    // its card's place — never a computed share.
     blocks.push({ type: "line", text: flood.riversSeaNotCoveredLine });
   }
-  if (flood.watercourses.length > 0) {
-    // The sample's per-block narrative (audit item 10),
-    // in the rivers & sea block's position, filled from
-    // the only corridor names the filed data holds: the
-    // watercourses of the filed flood defences within
-    // the standard 2-mile serving radius. The surface
-    // water block carries no such narrative — no filed
-    // data names where surface water pools in a district
-    // (the sample names low-lying settlements from local
-    // knowledge the product does not hold), so that block
-    // keeps its plainer form. Recorded in
-    // docs/frontend-design-pass.md.
-    blocks.push({
-      type: "line",
-      text: `Where it touches ${outward}: flood defences are recorded along the ${districtJoinNames(flood.watercourses)} within 2 miles of the district's postcodes.`,
-    });
+  if (!flood.surfaceWater && flood.surfaceWaterNotCoveredLine) {
+    blocks.push({ type: "line", text: flood.surfaceWaterNotCoveredLine });
   }
   if (flood.zones) {
     blocks.push({
@@ -2964,32 +3605,31 @@ function districtFloodSection(bundle: DistrictServed): ResultsSectionView {
         `and ${flood.zones.zone2Pct}% in Flood Zone 2.`,
     });
   }
-  if (flood.surfaceWater) {
-    blocks.push(...districtFloodBandBlocks(flood.surfaceWater));
-  } else if (flood.surfaceWaterNotCoveredLine) {
-    blocks.push({ type: "line", text: flood.surfaceWaterNotCoveredLine });
-  }
   blocks.push({
-    type: "line",
+    type: "small-line",
     text: `Counted over the ${districtCount(flood.countedPostcodes)} English postcodes filed in the district — each postcode's point read against the Environment Agency's published maps.`,
   });
   // The sample's method box (audit item 10), in the
   // product's own honest terms: the product counts
   // postcode points (the sample's dummy text counts
   // homes), and the no-single-verdict reasoning is the
-  // product's standing rule, not sample colour.
+  // product's standing rule, not sample colour. WA-14:
+  // the box's lead stands bold, split at its colon.
   blocks.push({
     type: "infobox",
+    lead: "How the roll-up is built:",
     text:
-      `How the roll-up is built: a one-home check looks up that home's own point. ` +
+      `a one-home check looks up that home's own point. ` +
       `The district roll-up reads every postcode point filed in ${outward} against both ` +
       `Environment Agency flood maps, counts each postcode once per map, and publishes ` +
       `the shares above. Same source maps, one extra counting step — and no single ` +
       `district flood verdict, because the split share informs where a single figure ` +
       `would mislead.`,
   });
-  blocks.push({ type: "line", text: flood.honestyLine });
-  return linesSection("flood", "Flood", blocks);
+  // WA-14: the honesty line in the sample's bandbox,
+  // under the sample's standing lead.
+  blocks.push({ type: "bandbox", lead: "The standing honesty line:", text: flood.honestyLine });
+  return linesSection("flood", "Flood", blocks, null, head);
 }
 
 // Council tax and Connectivity are their own sections
@@ -3007,13 +3647,13 @@ function districtCouncilTaxSection(bundle: DistrictServed): ResultsSectionView {
       text: "Council tax is not filed for this district's councils yet.",
     });
   }
+  // WA-03: Sample 28's row form — the council as the
+  // bold lead, its Band D line as the small detail.
   for (const council of tax.councils) {
     blocks.push({
-      type: "tagged-line",
+      type: "row",
       lead: council.authorityName,
-      texts: [
-        `Band D ${districtPence(council.bandDAreaAveragePence)} a year — the council's average Band D for ${council.taxYear}${council.parishAveraged ? ", parish precepts averaged in" : ""}.`,
-      ],
+      detail: `Band D ${districtPence(council.bandDAreaAveragePence)} a year — the council's average Band D for ${council.taxYear}${council.parishAveraged ? ", parish precepts averaged in" : ""}.`,
     });
   }
   for (const name of tax.unfiledCouncils) {
@@ -3022,13 +3662,33 @@ function districtCouncilTaxSection(bundle: DistrictServed): ResultsSectionView {
       text: `${name} — its council tax charges are not filed yet.`,
     });
   }
-  return linesSection("council-tax", "Council tax", blocks);
+  // The serif title counts the district's councils, in
+  // the sample's form ("Two councils"); small counts
+  // spelled, larger counted.
+  const councilCount = tax.councils.length + tax.unfiledCouncils.length;
+  const countWord =
+    councilCount === 1
+      ? "One"
+      : councilCount === 2
+        ? "Two"
+        : councilCount === 3
+          ? "Three"
+          : districtCount(councilCount);
+  return linesSection("council-tax", "Council tax", blocks, null, {
+    label: "6 · Council tax",
+    title:
+      councilCount > 0 ? `${countWord} council${councilCount === 1 ? "" : "s"}` : "Council tax",
+    grain: null,
+  });
 }
 
 function districtConnectivitySection(bundle: DistrictServed): ResultsSectionView {
   const connectivity = bundle.sections.connectivity;
   const outward = bundle.outward;
   const blocks: SectionBlock[] = [];
+  // WA-03: Sample 28's rows — the measure as the bold
+  // lead, its share as the small detail; the averaging
+  // basis as small print after the rows.
   if (connectivity.state !== "served" || connectivity.broadband == null) {
     blocks.push({
       type: "line",
@@ -3036,13 +3696,18 @@ function districtConnectivitySection(bundle: DistrictServed): ResultsSectionView
     });
   } else {
     blocks.push({
-      type: "tagged-line",
-      lead: "Broadband",
-      texts: [
-        `Gigabit-capable: ${connectivity.broadband.gigabitMeanPct}% of premises on average.`,
-        `Superfast (30 Mbps or more): ${connectivity.broadband.superfastMeanPct}% of premises on average.`,
-      ],
-      fineprint: `Each figure is the average of each postcode's own filed share, across the ${districtCount(connectivity.broadband.postcodesCounted)} ${outward} postcodes with a filed answer (${connectivity.broadband.snapshot}).`,
+      type: "row",
+      lead: "Gigabit-capable",
+      detail: `${connectivity.broadband.gigabitMeanPct}% of premises on average`,
+    });
+    blocks.push({
+      type: "row",
+      lead: "Superfast (30 Mbps or more)",
+      detail: `${connectivity.broadband.superfastMeanPct}% of premises on average`,
+    });
+    blocks.push({
+      type: "small-line",
+      text: `Each figure is the average of each postcode's own filed share, across the ${districtCount(connectivity.broadband.postcodesCounted)} ${outward} postcodes with a filed answer (${connectivity.broadband.snapshot}).`,
     });
   }
   if (connectivity.state !== "served" || connectivity.mobile == null) {
@@ -3053,15 +3718,20 @@ function districtConnectivitySection(bundle: DistrictServed): ResultsSectionView
   } else {
     for (const area of connectivity.mobile.areas) {
       blocks.push({
-        type: "line",
-        text:
+        type: "row",
+        lead: area.lauaName,
+        detail:
           area.fourGOutdoorAtLeastOnePct != null
-            ? `${area.lauaName} — 4G outdoors from at least one network covers ${area.fourGOutdoorAtLeastOnePct}% of the area.`
-            : `${area.lauaName} — Ofcom does not publish a 4G outdoor figure for this area.`,
+            ? `4G outdoors from at least one network covers ${area.fourGOutdoorAtLeastOnePct}% of the area`
+            : "Ofcom does not publish a 4G outdoor figure for this area",
       });
     }
   }
-  return linesSection("connectivity", "Connectivity", blocks, connectivity.sourceLine);
+  return linesSection("connectivity", "Connectivity", blocks, connectivity.sourceLine, {
+    label: "7 · Connectivity",
+    title: "Broadband & mobile",
+    grain: null,
+  });
 }
 
 export function buildDistrictResultsView(bundle: DistrictServed): ResultsView {
@@ -3069,16 +3739,19 @@ export function buildDistrictResultsView(bundle: DistrictServed): ResultsView {
 
   const districtTiles: { label: string; value: string }[] = [];
   if (sections.district.homes != null) {
-    districtTiles.push({ label: "Homes", value: districtCount(sections.district.homes) });
+    districtTiles.push({
+      label: "homes (addresses)",
+      value: districtCount(sections.district.homes),
+    });
   }
   if (sections.district.residents != null) {
     districtTiles.push({
-      label: "Residents",
+      label: "residents",
       value: districtCount(sections.district.residents),
     });
   }
-  districtTiles.push({ label: "Live postcodes", value: districtCount(head.postcodeCount) });
-  districtTiles.push({ label: "Small areas (LSOAs)", value: districtCount(head.lsoaCount) });
+  districtTiles.push({ label: "live postcodes", value: districtCount(head.postcodeCount) });
+  districtTiles.push({ label: "small areas (LSOAs)", value: districtCount(head.lsoaCount) });
   const districtBlocks: SectionBlock[] = [];
   if (sections.district.settlements.length > 0) {
     // The settlements as the sample's clean pills
@@ -3105,14 +3778,17 @@ export function buildDistrictResultsView(bundle: DistrictServed): ResultsView {
     sections.deprivation.state === "served"
       ? [
           {
+            // Sample 28's order (WA-09): the explainer
+            // stands BEFORE the strip, at body size — it
+            // limits what the strip claims, so it never
+            // shrinks to small print. Coverage (fix batch,
+            // 19 Nov 2026 — BUG-016): the spread counts
+            // the FILED small areas; while any of the
+            // district's small areas (the head's LSOA
+            // count) are unfiled, the line names the
+            // coverage instead of presenting the filed
+            // subset as the district's whole spread.
             type: "line",
-            // Coverage (fix batch, 19 Nov 2026 —
-            // BUG-016): the spread counts the FILED
-            // small areas; while any of the district's
-            // small areas (the head's LSOA count) are
-            // unfiled, the line names the coverage
-            // instead of presenting the filed subset as
-            // the district's whole spread.
             text:
               `England splits every small area into ten bands (deciles) — 1 is among the ` +
               `most deprived in England, 10 among the least. Here is where ` +
@@ -3122,7 +3798,11 @@ export function buildDistrictResultsView(bundle: DistrictServed): ResultsView {
                 : `${outward}'s ${districtCount(sections.deprivation.areasCounted)} small areas`) +
               ` fall. Shown as a spread, never collapsed into one number.`,
           },
-          { type: "deciles", counts: sections.deprivation.counts },
+          {
+            type: "deciles",
+            counts: sections.deprivation.counts,
+            partial: sections.deprivation.areasCounted < head.lsoaCount,
+          },
         ]
       : [
           {
@@ -3140,18 +3820,37 @@ export function buildDistrictResultsView(bundle: DistrictServed): ResultsView {
       text: "No sales are filed for this district's postcodes yet.",
     });
   } else {
+    // WA-07: Sample 28's tiles — the median, the count,
+    // and the span as its own tile (the span's length
+    // derived from the served from/to dates, its dates
+    // as the tile's description).
     const soldTiles: { label: string; value: string; sub?: string | null }[] = [];
     if (sections.soldPrices.median != null) {
       soldTiles.push({
-        label: "Median sold price",
+        label: "median sold price",
         value: formatPounds(sections.soldPrices.median),
       });
     }
     soldTiles.push({
-      label: "Sales counted",
+      label: "sales counted",
       value: districtCount(sections.soldPrices.count),
-      sub: sections.soldPrices.spanLine,
     });
+    if (sections.soldPrices.fromDate && sections.soldPrices.toDate) {
+      const from = new Date(`${sections.soldPrices.fromDate}T00:00:00Z`);
+      const to = new Date(`${sections.soldPrices.toDate}T00:00:00Z`);
+      const months = Math.max(
+        1,
+        (to.getUTCFullYear() - from.getUTCFullYear()) * 12 +
+          (to.getUTCMonth() - from.getUTCMonth()),
+      );
+      soldTiles.push({
+        label: (sections.soldPrices.spanLine ?? "").replace(" to ", " – "),
+        value:
+          months >= 18
+            ? `${Math.round(months / 12)} year${Math.round(months / 12) === 1 ? "" : "s"}`
+            : `${months} month${months === 1 ? "" : "s"}`,
+      });
+    }
     soldBlocks.push({ type: "tiles", tiles: soldTiles });
     if (sections.soldPrices.median == null && sections.soldPrices.count > 0) {
       soldBlocks.push({
@@ -3160,7 +3859,8 @@ export function buildDistrictResultsView(bundle: DistrictServed): ResultsView {
       });
     }
     if (sections.soldPrices.types.length > 0) {
-      soldBlocks.push({ type: "subheading", text: "By house type" });
+      // Sample 28 draws the types directly under the
+      // tiles — no subheading stands over its rows.
       soldBlocks.push({
         type: "table",
         rows: sections.soldPrices.types.map((typeRow) => ({
@@ -3185,6 +3885,8 @@ export function buildDistrictResultsView(bundle: DistrictServed): ResultsView {
     // form stands.
     if (sections.soldPrices.postcodesCovered < head.postcodeCount) {
       soldBlocks.push({
+        // A line that LIMITS a figure keeps body size
+        // (wider-area audit item 13) — never small print.
         type: "line",
         text:
           `Sales are filed for ${districtCount(sections.soldPrices.postcodesCovered)} of the ` +
@@ -3210,43 +3912,45 @@ export function buildDistrictResultsView(bundle: DistrictServed): ResultsView {
       type: "line",
       text: `${districtCount(sections.schools.counted)} schools are filed inside ${outward}.`,
     });
-    const phaseTiles = [
+    // WA-15: the phases as rows — bold label, the count
+    // at the right — in Sample 28's form, the grammar
+    // count riding as its own row (its "selective, test
+    // entry" nature as the row's detail; at zero the
+    // sample's "0 in CM3" count form).
+    const phases = [
       { label: "Primary", count: sections.schools.primary },
       { label: "Secondary", count: sections.schools.secondary },
       { label: "All-through", count: sections.schools.allThrough },
       { label: "16 plus", count: sections.schools.post16 },
       { label: "Other", count: sections.schools.otherPhase },
     ].filter((phase) => phase.count > 0);
-    if (phaseTiles.length > 0) {
+    for (const phase of phases) {
       schoolsBlocks.push({
-        type: "tiles",
-        tiles: phaseTiles.map((phase) => ({
-          label: phase.label,
-          value: districtCount(phase.count),
-        })),
+        type: "row",
+        lead: phase.label,
+        value: districtCount(phase.count),
       });
     }
     schoolsBlocks.push({
-      type: "line",
-      text:
-        sections.schools.grammar > 0
-          ? `Grammar schools (selective, test entry): ${districtCount(sections.schools.grammar)} in the district.`
-          : `No grammar school is filed inside ${outward}.`,
+      type: "row",
+      lead: "Grammar schools",
+      detail: sections.schools.grammar > 0 ? "selective, test entry" : null,
+      value:
+        sections.schools.grammar > 0 ? districtCount(sections.schools.grammar) : `0 in ${outward}`,
     });
-    if (sections.schools.ofsted.length > 0) {
-      schoolsBlocks.push({ type: "subheading", text: "Ofsted grades" });
-      schoolsBlocks.push({
-        type: "table",
-        rows: sections.schools.ofsted.map((row) => ({
-          label: row.rating,
-          value: districtCount(row.count),
-        })),
-      });
-    }
-    if (sections.schools.notYetInspected > 0) {
+    // WA-15: Ofsted as ONE body line — the grades in the
+    // sample's order of words, the not-yet-inspected
+    // count folded into the same line.
+    if (sections.schools.ofsted.length > 0 || sections.schools.notYetInspected > 0) {
+      const parts = sections.schools.ofsted.map(
+        (row) => `${row.rating} ${districtCount(row.count)}`,
+      );
+      if (sections.schools.notYetInspected > 0) {
+        parts.push(`Not yet inspected ${districtCount(sections.schools.notYetInspected)}`);
+      }
       schoolsBlocks.push({
         type: "line",
-        text: `Not yet inspected: ${districtCount(sections.schools.notYetInspected)}.`,
+        text: `Ofsted (of those inspected): ${parts.join(" · ")}.`,
       });
     }
   }
@@ -3274,7 +3978,7 @@ export function buildDistrictResultsView(bundle: DistrictServed): ResultsView {
       });
     }
     everydayBlocks.push({
-      type: "line",
+      type: "small-line",
       text: "GPs, dentists and pharmacies are counted by their filed postcodes inside the district; stations are counted by their nearest filed postcode.",
     });
   }
@@ -3304,15 +4008,16 @@ export function buildDistrictResultsView(bundle: DistrictServed): ResultsView {
           },
         ]
       : [
-          {
-            type: "tagged-line",
-            lead: "Air quality — modelled",
-            texts: airRanges,
-            tag: "MODELLED",
-            tagTone: "grey",
-          },
+          // Sample 28's form (WA-03): the ranges as one
+          // body-text paragraph — no subheading, no
+          // bullets on the district page — and the basis
+          // as small print after it.
           {
             type: "line",
+            text: `Across ${outward}'s modelled 1 km squares: ${airRanges.join(" · ")}.`,
+          },
+          {
+            type: "small-line",
             text: `The range across the ${districtCount(sections.air.squaresCounted)} modelled 1 km squares the district's postcodes fall in${sections.air.year != null ? `, ${sections.air.year}` : ""}. Modelled — not a measurement at any one home.`,
           },
         ];
@@ -3321,7 +4026,13 @@ export function buildDistrictResultsView(bundle: DistrictServed): ResultsView {
     {
       id: "family",
       label: "Family Checks",
-      sections: [linesSection("schools", "Schools", schoolsBlocks, sections.schools.sourceLine)],
+      sections: [
+        linesSection("schools", "Schools", schoolsBlocks, sections.schools.sourceLine, {
+          label: "8 · Schools",
+          title: "In the district",
+          grain: null,
+        }),
+      ],
     },
     {
       id: "neighbourhood",
@@ -3332,6 +4043,11 @@ export function buildDistrictResultsView(bundle: DistrictServed): ResultsView {
           "The district itself",
           districtBlocks,
           sections.district.sourceLine,
+          {
+            label: "1 · The place",
+            title: "The district itself",
+            grain: `Across ${outward} as a whole`,
+          },
         ),
         districtCensusSection(bundle),
         districtCrimeSection(bundle),
@@ -3340,15 +4056,28 @@ export function buildDistrictResultsView(bundle: DistrictServed): ResultsView {
           "Deprivation",
           deprivationBlocks,
           sections.deprivation.sourceLine,
+          {
+            label: "5 · Deprivation",
+            title: `How ${outward}'s small areas spread`,
+            grain: "Spread · No score",
+          },
         ),
-        linesSection("air", "Air quality", airBlocks, sections.air.sourceLine),
+        linesSection("air", "Air quality", airBlocks, sections.air.sourceLine, {
+          label: "11 · Air",
+          title: "Air quality — a range",
+          grain: "Modelled · District range",
+        }),
       ],
     },
     {
       id: "home",
       label: "Home, Costs & Risks",
       sections: [
-        linesSection("sold-prices", "Sold prices", soldBlocks, sections.soldPrices.sourceLine),
+        linesSection("sold-prices", "Sold prices", soldBlocks, sections.soldPrices.sourceLine, {
+          label: "4 · Prices",
+          title: "Sold prices",
+          grain: "District-wide · Not a valuation",
+        }),
         districtCouncilTaxSection(bundle),
         districtConnectivitySection(bundle),
         districtFloodSection(bundle),
@@ -3357,7 +4086,13 @@ export function buildDistrictResultsView(bundle: DistrictServed): ResultsView {
     {
       id: "nearby",
       label: "What's Nearby",
-      sections: [linesSection("everyday", "Everyday counts", everydayBlocks)],
+      sections: [
+        linesSection("everyday", "Everyday counts", everydayBlocks, null, {
+          label: "9 · Everyday",
+          title: `Counts in ${outward}`,
+          grain: null,
+        }),
+      ],
     },
   ];
 

@@ -123,9 +123,18 @@ function escapeHtml(value: string): string {
 // fills the pageNumber/totalPages spans itself; the
 // template must carry its own styling (it renders
 // outside the page's CSS), in the report's muted ink.
-export function reportPdfFooterHtml(view: ReportView, postcode: string): string {
+// BUG-149(1) (22 Nov 2026): the template also carries
+// the report's own DM Sans, inlined by the server
+// caller as a <style> @font-face data URI
+// (lib/server/report-pdf.ts's reportFooterFontCss) —
+// naming the family alone fell back to a system sans,
+// because the footer renders outside the page whose
+// CSS carries the fonts. Without the style the footer
+// still renders, in the fallback stack.
+export function reportPdfFooterHtml(view: ReportView, postcode: string, fontStyle = ""): string {
   const address = escapeHtml(reportPdfFooterAddress(view, postcode));
   return (
+    fontStyle +
     `<div style="width: 100%; padding: 0 14mm; display: flex; ` +
     `justify-content: space-between; align-items: baseline; ` +
     `font-family: 'DM Sans', Arial, sans-serif; font-size: 8pt; color: #5c6b60; ` +
@@ -172,9 +181,10 @@ export function reportPrintUrl(href: string): string {
 export const SAMPLE_REPORT_PDF_PATH = "/sample-report.pdf";
 
 // The dummy home's identity, in the forms the cover and
-// the file name carry — the same strings the sample
-// page's masthead carries (components/SampleReport.tsx,
-// pinned by tests/sample-report.test.ts).
+// the file name carry — the same strings the generated
+// sample's masthead carries after anonymisation
+// (lib/sample-report.ts's SAMPLE_FICTION, pinned by
+// tests/sample-report.test.ts).
 const SAMPLE_HOME_TITLE = "12 Willow Close";
 const SAMPLE_HOME_ADDRESS = "Millbrook, Kingsford, Kent MB3 4QX";
 const SAMPLE_HOME_POSTCODE = "MB3 4QX";
@@ -210,7 +220,7 @@ export function sampleReportPdfCover(): SampleReportPdfCover {
     title: `Sample report — ${SAMPLE_HOME_TITLE}`,
     addressLine: SAMPLE_HOME_ADDRESS,
     exampleLine:
-      "The home in this sample is an invented example, with invented figures; the document that follows shows the format every detailed report follows.",
+      "The home in this sample is an invented example; its facts are drawn from real checks of real homes, combined section by section and anonymised; the document that follows shows the format every detailed report follows.",
   };
 }
 
@@ -219,9 +229,10 @@ export function sampleReportPdfCover(): SampleReportPdfCover {
 // address names the document a sample before it names
 // the home, so every printed page carries the marking,
 // not only the cover.
-export function sampleReportPdfFooterHtml(): string {
+export function sampleReportPdfFooterHtml(fontStyle = ""): string {
   const address = escapeHtml(`Sample report — ${SAMPLE_HOME_TITLE} · ${SAMPLE_HOME_POSTCODE}`);
   return (
+    fontStyle +
     `<div style="width: 100%; padding: 0 14mm; display: flex; ` +
     `justify-content: space-between; align-items: baseline; ` +
     `font-family: 'DM Sans', Arial, sans-serif; font-size: 8pt; color: #5c6b60; ` +

@@ -6,6 +6,7 @@ import {
   EMPTY_PICKER_LINE,
   PICKER_EXPLAINER,
   PICKER_SELECT_PROMPT,
+  PICKER_TITLE,
   PICK_FALLBACK_FLAG,
   homeRoute,
 } from "../lib/journey";
@@ -106,6 +107,10 @@ export default function HomeList({
   return (
     <div className="picker">
       <h2>{heading}</h2>
+      {/* BUG-150 (22 Nov 2026): the picker carries its
+          own title — the founder's words — above the
+          explainer, which now wears small print. */}
+      <h3 className="picker__title">{PICKER_TITLE}</h3>
       <p className="picker__explainer">{PICKER_EXPLAINER}</p>
       <div className="field picker__field">
         <select

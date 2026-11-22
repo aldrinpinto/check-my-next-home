@@ -153,19 +153,20 @@ async function openDistrict(page: Page) {
 // The checking screen, pinned at a settled beat. The
 // screen's five groups complete in row order, each gated
 // on its own parts (lib/journey.ts's assembly): schools
-// and health read the nearby part; safety reads flood
-// AND area; costs and history read area alone. Holding
-// the area part at the network therefore freezes the
-// screen at one exact, data-derived beat forever: two
-// groups complete with their finding lines, safety the
-// active row, costs and history waiting, the seal at
-// two of five segments and the step line reading
-// "2 of 5". Nothing on the screen can move from there —
-// the timer is the floor, the data is the gate, and the
-// data never comes. (The BUG-033 spec's held-response
-// mechanism, held for the whole test instead of
-// released: the browser context closes with the request
-// still pending.)
+// and health read the nearby part; costs and history
+// read area alone; safety — last in the feed since
+// BUG-144 — reads flood AND crime. Holding the area part
+// at the network therefore freezes the screen at one
+// exact, data-derived beat forever: two groups complete
+// with their finding lines, costs the active row,
+// history and safety waiting, the seal at two of five
+// segments and the step line reading "2 of 5". Nothing
+// on the screen can move from there — the timer is the
+// floor, the data is the gate, and the data never
+// comes. (The BUG-033 spec's held-response mechanism,
+// held for the whole test instead of released: the
+// browser context closes with the request still
+// pending.)
 async function reachHeldCheckingScreen(page: Page) {
   await page.route(
     /\/api\/check\/area\?/,
@@ -176,7 +177,7 @@ async function reachHeldCheckingScreen(page: Page) {
       }),
   );
   await page.goto("/search/home?postcode=CM3+2JT");
-  await expect(page.locator('[data-row="safety"]')).toHaveAttribute("data-state", "active", {
+  await expect(page.locator('[data-row="costs"]')).toHaveAttribute("data-state", "active", {
     timeout: 30_000,
   });
   await expect(page.locator(".checking__stepline b")).toHaveText("2 of 5");
@@ -209,6 +210,7 @@ function specCard(overrides: Partial<ShortlistCard> & { id: string }): Shortlist
       nursery: line("no nursery filed near"),
       flood: { kind: "pointer" },
       crime: { kind: "pointer" },
+      air: line("NO2 8.15 µg/m³ a year · PM2.5 7.12 µg/m³ · PM10 12.55 µg/m³"),
       gp: { kind: "distance", name: "Birkdale Surgery", miles: 1.9 },
       ae: { kind: "distance", name: "Broomfield Hospital", miles: 5.89 },
       station: { kind: "distance", name: "Chelmsford", miles: 2.31 },
@@ -320,7 +322,9 @@ test.describe("visual guard — core set", () => {
 
   test("the Chelmsford place page, desktop", { tag: "@smoke" }, async ({ page }) => {
     await page.goto("/search?place=Chelmsford");
-    await expect(page.locator(".picker__count")).toBeVisible();
+    // WA-10: the place page wears Sample 29's dress —
+    // its rows list is the readiness marker now.
+    await expect(page.locator(".district-place__list")).toBeVisible();
     await shoot(page, "place.png", true);
   });
 
@@ -378,7 +382,9 @@ test.describe("visual guard — regression", () => {
   test("the Chelmsford place page, phone", { tag: "@regression" }, async ({ page }) => {
     await page.setViewportSize(PHONE);
     await page.goto("/search?place=Chelmsford");
-    await expect(page.locator(".picker__count")).toBeVisible();
+    // WA-10: the place page wears Sample 29's dress —
+    // its rows list is the readiness marker now.
+    await expect(page.locator(".district-place__list")).toBeVisible();
     await shoot(page, "place-phone.png", true);
   });
 

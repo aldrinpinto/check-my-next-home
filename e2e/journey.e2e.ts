@@ -172,7 +172,7 @@ test.describe("checker journey — regression", () => {
     async ({ page }) => {
       // The founder-chosen checking design (19 Nov 2026;
       // the D73 mechanics stand): group completion is
-      // driven by the three part calls' real settlements,
+      // driven by the four part calls' real settlements,
       // paced ~720ms apart, and each row completes with a
       // FINDING line derived from the served data — never a
       // bare "Done". Hold the brain calls so the screen is
@@ -190,19 +190,22 @@ test.describe("checker journey — regression", () => {
       await expect(page.locator(".checking .page-title")).toHaveText("Your check is under way");
       const rows = page.locator(".checking__row");
       await expect(rows).toHaveCount(5);
+      // BUG-144: Safety & surroundings stands last in
+      // the feed (its parts fire first — see the
+      // assembly in lib/journey.ts).
       await expect(page.locator(".checking__row-label")).toHaveText([
         "Schools & nurseries",
         "Health & the everyday",
-        "Safety & surroundings",
         "Costs & connections",
         "Past sales & prices",
+        "Safety & surroundings",
       ]);
       await expect(page.locator(".checking__row-source")).toHaveText([
         "Ofsted",
         "NHS & local data",
-        "Police.uk · Environment Agency",
         "Council & providers",
         "HM Land Registry",
+        "Police.uk · Environment Agency",
       ]);
       await expect(page.locator(".checking__intro")).toHaveText(
         "We present the facts — the decision is yours.",
@@ -404,15 +407,17 @@ test.describe("checker journey — regression", () => {
       );
       // The bridge (founder fix batch, 19 Nov 2026)
       // carries the Final Sample Master's own dress: a
-      // light section with a postcode-only field and the
-      // sample's button — the labelled full search block
-      // it replaced is gone from this page.
-      await expect(page.locator(".district-bridge__input")).toHaveAttribute(
+      // light section and the district's named-area
+      // links. BUG-147 (22 Nov 2026): its search is the
+      // standard PostcodeBox now — the plain
+      // postcode-only form that stood here dead-ended
+      // on anything it could not resolve.
+      await expect(page.locator(".district-bridge .postcode-box input")).toHaveAttribute(
         "placeholder",
         "Enter a postcode, street or town — e.g. SW1A 1AA",
       );
       await expect(
-        page.locator(".district-bridge").getByRole("button", { name: "Check this home →" }),
+        page.locator(".district-bridge").getByRole("button", { name: "Check this home" }),
       ).toBeVisible();
 
       await searchFromHome(page, "ZZ1 1ZZ");
@@ -690,7 +695,7 @@ test.describe("checker journey — regression", () => {
       // (D44(5)(ii)'s row-marking, restored): fail the flood
       // part outright and the safety group completes
       // unavailable, its line carrying the flood failure
-      // beside the area part's real crime finding — while
+      // beside the crime part's real crime finding — while
       // the check still completes, the results open on the
       // home, and the journey never lands on the whole-check
       // failure state. The nearby and area parts are held

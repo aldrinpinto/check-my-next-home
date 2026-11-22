@@ -72,7 +72,12 @@ describe("payment page — the view (Sample 9)", () => {
     expect(view.contentsHeading).toBe("What the detailed report adds");
     expect(view.contents).toEqual([
       { lead: "The breakdowns behind every headline", rest: null },
-      { lead: "The flood findings in full", rest: ", with a location map for each check" },
+      // Re-pinned (HCR-03, BUG-153): the tail names the
+      // mapped layers, as the results strip now does.
+      {
+        lead: "The flood findings in full",
+        rest: ", with location maps for the flood zones and surface water",
+      },
       { lead: "The fuller EPC detail", rest: null },
       { lead: "Questions to ask the seller", rest: null },
       { lead: "One dated, print-ready document", rest: null },
@@ -138,7 +143,7 @@ describe("payment page — the view (Sample 9)", () => {
 // is refused — is tests/payment-intent.test.ts and
 // tests/payments.test.ts.
 describe("payment page — the honest pre-payment screen (M9.5, T-PAY-06)", () => {
-  it("carries the honesty area in its Option A form: the one line verbatim with its Terms link, the price restated, the refund line", () => {
+  it("carries the honesty area in its Option A form: the one line verbatim with its Terms link, the price restated — and no refund line (BUG-145 amendment)", () => {
     const view = buildReportPaymentView(HOME);
     expect(view.termsLineLead).toBe(PAYMENT_TERMS_LINE_LEAD);
     expect(PAYMENT_TERMS_LINE_LEAD).toBe(
@@ -156,7 +161,12 @@ describe("payment page — the honest pre-payment screen (M9.5, T-PAY-06)", () =
     expect(PAYMENT_HONESTY_PRICE_LINE).toBe(
       "£4.99 — one payment, no subscription, nothing further to pay.",
     );
-    expect(view.refundLine).toBe(PAYMENT_REFUND_LINE);
+    // BUG-145 (as amended, founder 22 Nov 2026): the
+    // refund line is removed from the payment block
+    // entirely — the view no longer carries it. The
+    // constant stands for the success surface's
+    // failed state, still the Terms sentence verbatim.
+    expect("refundLine" in view).toBe(false);
     expect(PAYMENT_REFUND_LINE).toBe(
       "If we cannot deliver your report, we refund the £4.99 in full, to the card you paid with — you do not need to ask.",
     );
@@ -194,11 +204,11 @@ describe("payment page — the honest pre-payment screen (M9.5, T-PAY-06)", () =
     expect(termsText).toContain(PAYMENT_REFUND_LINE);
   });
 
-  it("carries the tick-box label verbatim from the plan, and never names the gift", () => {
+  it("carries the tick-box label in the founder's BUG-145 wording, and never names the gift", () => {
     const view = buildReportPaymentView(HOME);
     expect(view.consentLabel).toBe(PAYMENT_CONSENT_LABEL);
     expect(PAYMENT_CONSENT_LABEL).toBe(
-      "Make my report now — I understand I lose the 14-day change-of-mind right once it is delivered.",
+      "Make my report now — I understand the 14-day change-of-mind right ends when it's delivered.",
     );
     // D21: the gift is a surprise until the delivery
     // email — no honest-screen content may name it.
@@ -206,18 +216,24 @@ describe("payment page — the honest pre-payment screen (M9.5, T-PAY-06)", () =
     expect(text).not.toContain("gift");
   });
 
-  it("renders the honesty area and tick above the email block, in the ruling's reading order", () => {
+  it("renders the tick first in its block, the small print below it, above the email block (BUG-145)", () => {
     const html = renderPaid();
     const lineAt = html.indexOf(PAYMENT_TERMS_LINE_LEAD);
     const priceAt = html.indexOf(PAYMENT_HONESTY_PRICE_LINE);
-    const refundAt = html.indexOf(PAYMENT_REFUND_LINE);
-    const tickAt = html.indexOf(PAYMENT_CONSENT_LABEL);
+    // The BUG-145 label carries an apostrophe, which
+    // the server renderer escapes — search in the
+    // rendered form.
+    const tickAt = html.indexOf(PAYMENT_CONSENT_LABEL.replaceAll("'", "&#x27;"));
     const emailAt = html.indexOf("Email address for delivery");
-    expect(lineAt).toBeGreaterThan(-1);
+    expect(tickAt).toBeGreaterThan(-1);
+    expect(lineAt).toBeGreaterThan(tickAt);
     expect(priceAt).toBeGreaterThan(lineAt);
-    expect(refundAt).toBeGreaterThan(priceAt);
-    expect(tickAt).toBeGreaterThan(refundAt);
-    expect(emailAt).toBeGreaterThan(tickAt);
+    expect(emailAt).toBeGreaterThan(priceAt);
+    // BUG-145 (as amended): the refund line stands
+    // nowhere on the payment page — it lives in the
+    // Terms (and on the success surface's failed
+    // state), not in this block.
+    expect(html).not.toContain(PAYMENT_REFUND_LINE.replaceAll("'", "&#x27;"));
     // BUG-133 (payment-flow parity stack, 22 Nov
     // 2026): the mystery tease no longer stands below
     // the email block — it stands directly under the
@@ -318,7 +334,7 @@ describe("payment page — the rendered page (the step's Check, rendered half)",
     expect(html).toContain("What the detailed report adds");
     expect(html).toContain("<strong>The breakdowns behind every headline</strong>");
     expect(html).toContain(
-      "<strong>The flood findings in full</strong>, with a location map for each check",
+      "<strong>The flood findings in full</strong>, with location maps for the flood zones and surface water",
     );
     expect(html).toContain(PAYMENT_TERMS_LINE_LEAD);
     expect(html).toContain(`<a href="${PAYMENT_TERMS_HREF}">${PAYMENT_TERMS_LINK_LABEL}</a>.`);

@@ -238,32 +238,25 @@ test.describe("SEO pages — regression", () => {
 
 test.describe("sample report honesty — regression", () => {
   test(
-    "T-WEB-06: the sample is watermarked, banners its invented home, and its flood pictures are labelled as hand-drawn sample maps",
+    "T-WEB-06: the sample is watermarked, banners its invented home, and names no real home",
     { tag: "@regression" },
     async ({ page }) => {
       // M7.15 follow-up, gap-check item 4c: T-WEB-06's
-      // served-page assertions. Until now this file proved
-      // only the route's served metadata (the PAGE_SEO loop
-      // above); the honesty behaviours themselves — the
-      // watermark, the invented-example banner, the honest
-      // picture labelling — had no browser-level spec. The
-      // forms asserted are the served ones
-      // (components/SampleReport.tsx, Master view 7 as
-      // transposed in the parity batch): the watermark is
-      // one overlay carrying eight SAMPLE marks over the
-      // document. M8.3 conform: the sample's Section 7
-      // pictures are no longer "not flood maps" location
-      // panels — they are hand-drawn flood maps in the
-      // built product's dress, and the honesty labelling
-      // now says exactly that (the intro's disclosure and
-      // the intro's hand-drawn line are asserted).
+      // served-page assertions — the watermark, the
+      // invented-example banner, the fiction home.
+      // BUG-159: the sample is now the generated report
+      // (assembled per section from the golden homes,
+      // anonymised), so the banner discloses the
+      // combination, the flood pictures are the pipeline's
+      // own maps, and the leak guard is asserted at
+      // browser level: no contributing home is named.
       await page.goto("/sample-report");
 
       // The banner: the SAMPLE pill and the invented-
       // example paragraph, verbatim.
       await expect(page.locator(".sample-pill")).toHaveText("SAMPLE");
       await expect(page.locator(".sample-banner")).toContainText(
-        "This is a sample report, so you can see exactly what a detailed report looks like before you ever pay for one. The home in this sample is an invented example, with invented figures; the document below follows the format every detailed report follows.",
+        "This is a sample report, so you can see exactly what a detailed report looks like before you ever pay for one. The home in this sample is an invented example — its facts are drawn from real checks of real homes, combined section by section and anonymised — and the document below follows the format every detailed report follows.",
       );
 
       // The watermark: eight SAMPLE marks over the page.
@@ -275,13 +268,23 @@ test.describe("sample report honesty — regression", () => {
       await expect(page.locator("h1")).toHaveText("12 Willow Close");
       await expect(page.locator("main")).toContainText("Millbrook, Kingsford, Kent MB3 4QX");
 
-      // The honest picture labelling (M8.3 conform): the
-      // intro names them flood maps and discloses they are
-      // hand-drawn for the sample.
-      await expect(page.locator("main")).toContainText("Flood maps.");
-      await expect(page.locator("main")).toContainText(
-        "hand-drawn for this sample in the same form as a real report's flood maps",
-      );
+      // The leak guard at browser level: the generated
+      // document is the pipeline's own (its Flood risk
+      // section stands) and no contributing home's
+      // identity appears.
+      await expect(page.locator("main")).toContainText("Flood risk");
+      await expect(page.locator("main")).not.toContainText("Birkdale Rise");
+      // The founder's suppression ruling (22 Nov 2026):
+      // the bare street name appears nowhere either, in
+      // any case form — a banned-named entry (a dentist
+      // trading as "Birkdale Dental") is dropped from the
+      // sample's lists whole, never renamed.
+      await expect(page.locator("main")).not.toContainText("Birkdale");
+      await expect(page.locator("main")).not.toContainText("birkdale");
+      await expect(page.locator("main")).not.toContainText("CM3 2JT");
+      await expect(page.locator("main")).not.toContainText("E16 1AS");
+      await expect(page.locator("main")).not.toContainText("E16 1GN");
+      await expect(page.locator("main")).not.toContainText("KT17 1FH");
     },
   );
 });

@@ -49,11 +49,10 @@ const CREAM_RGB = "rgb(253, 248, 232)";
 const TAB_ORDER = ["Family Checks", "The Neighbourhood", "Home, Costs & Risks", "What's Nearby"];
 
 // The sample report page's sections in order: the
-// short version, then the report format's ten. The
-// fourth title is the sample page's own ("Health, air
-// & crime") — the recorded carve-out against the live
-// report's v12 title stands; this asserts the page as
-// it is published.
+// short version, then the report format's ten. Since
+// BUG-159 the sample IS the generated report, so these
+// are the report builder's own titles, asserted as
+// published.
 const REPORT_SECTION_ORDER = [
   "The short version",
   "Price & this home",

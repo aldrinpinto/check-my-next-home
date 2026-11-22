@@ -47,7 +47,15 @@ import { REPORT_PRICE_LABEL } from "./site";
 // price line at all), moved the mystery tease to
 // directly under the lede (BUG-133), and gave the
 // consent tick its Required tag and its own error
-// line (BUG-132). The tick is captured
+// line (BUG-132). BUG-145 (founder, 22 Nov 2026, as
+// amended) then re-formed the block itself: the
+// consent tick stands FIRST, in the founder's own
+// re-dictated words; below it, as small print, the
+// one line naming what the report is with its Terms
+// link, then the bold price line; the refund line is
+// removed from the block entirely (it stands in the
+// Terms, and on the success surface's failed state).
+// The tick is captured
 // with the payment itself — tick and timestamp ride in
 // the payment's metadata (lib/server/payments.ts), so
 // M9.10's order record can read the consent back
@@ -76,7 +84,6 @@ export interface ReportPaymentView {
   termsLinkLabel: string;
   termsHref: string;
   honestyPriceLine: string;
-  refundLine: string;
   consentLabel: string;
   emailLabel: string;
   emailHelp: string;
@@ -100,7 +107,13 @@ export const PAYMENT_LEDE =
 // drift is recorded in M9.4's prep (deviation 2).
 export const PAYMENT_CONTENTS: PaymentContentLine[] = [
   { lead: "The breakdowns behind every headline", rest: null },
-  { lead: "The flood findings in full", rest: ", with a location map for each check" },
+  // HCR-03 (BUG-153): the same correction as the results
+  // strip — maps exist for the flood zones and surface
+  // water only, never "for each check".
+  {
+    lead: "The flood findings in full",
+    rest: ", with location maps for the flood zones and surface water",
+  },
   { lead: "The fuller EPC detail", rest: null },
   { lead: "Questions to ask the seller", rest: null },
   { lead: "One dated, print-ready document", rest: null },
@@ -132,21 +145,30 @@ export const PAYMENT_TERMS_LINE = `${PAYMENT_TERMS_LINE_LEAD}${PAYMENT_TERMS_LIN
 // label below the point where consent is given.
 export const PAYMENT_HONESTY_PRICE_LINE = `${REPORT_PRICE_LABEL} — one payment, no subscription, nothing further to pay.`;
 
-// The refund reassurance (founder ruling, M9.5 prep
-// item 2: IN) — the Terms page's own sentence, verbatim
-// (the Refunds card in lib/site-pages.ts); a test pins
-// the two copies equal so they can never drift apart.
+// The refund reassurance — the Terms page's own
+// sentence, verbatim (the Refunds card in
+// lib/site-pages.ts); a test pins the two copies equal
+// so they can never drift apart. It stood on this
+// page's payment block until BUG-145's amendment
+// (founder, 22 Nov 2026): the line is REMOVED from the
+// payment block entirely — the promise itself is
+// unchanged and stands in the Terms. The constant now
+// serves only the success surface's failed state
+// (lib/report-success.ts), where the same sentence
+// answers a fulfilment failure.
 export const PAYMENT_REFUND_LINE =
   "If we cannot deliver your report, we refund the £4.99 in full, to the card you paid with — you do not need to ask.";
 
-// The digital-content tick-box's label, verbatim from
-// the plan's M9.5 step text — locked, never reworded.
-// The tick is the buyer's agreement that the report is
-// made and delivered straight away and that the usual
-// 14-day change-of-mind right is lost once it is
-// delivered (test T-PAY-06).
+// The digital-content tick-box's label. The M9.5 plan
+// text's wording stood until the founder re-dictated
+// the block (BUG-145, 22 Nov 2026): the tick now leads
+// the block and carries his exact words. The tick is
+// the buyer's agreement that the report is made and
+// delivered straight away and that the usual 14-day
+// change-of-mind right ends once it is delivered
+// (test T-PAY-06).
 export const PAYMENT_CONSENT_LABEL =
-  "Make my report now — I understand I lose the 14-day change-of-mind right once it is delivered.";
+  "Make my report now — I understand the 14-day change-of-mind right ends when it's delivered.";
 
 // The consent error (BUG-132, payment-flow parity
 // stack, 22 Nov 2026): shown directly under the tick
@@ -217,7 +239,6 @@ export function buildReportPaymentView(identity: ReportDoorIdentity): ReportPaym
     termsLinkLabel: PAYMENT_TERMS_LINK_LABEL,
     termsHref: PAYMENT_TERMS_HREF,
     honestyPriceLine: PAYMENT_HONESTY_PRICE_LINE,
-    refundLine: PAYMENT_REFUND_LINE,
     consentLabel: PAYMENT_CONSENT_LABEL,
     emailLabel: PAYMENT_EMAIL_LABEL,
     emailHelp: PAYMENT_EMAIL_HELP,

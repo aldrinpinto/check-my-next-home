@@ -160,6 +160,7 @@ function specCard(overrides: Partial<ShortlistCard> & { id: string }): Shortlist
       nursery: line("no nursery filed near"),
       flood: { kind: "pointer" },
       crime: { kind: "pointer" },
+      air: line("NO2 8.15 µg/m³ a year · PM2.5 7.12 µg/m³ · PM10 12.55 µg/m³"),
       gp: { kind: "distance", name: "Birkdale Surgery", miles: 1.9 },
       ae: { kind: "distance", name: "Broomfield Hospital", miles: 5.89 },
       station: { kind: "distance", name: "Chelmsford", miles: 2.31 },
@@ -439,7 +440,7 @@ test.describe("phone-first — 360×740 (T-WEB-01)", () => {
   );
 
   test(
-    "the rung-3 district page: nothing scrolls sideways; no shortlist control in the head and the bridge's input holds its phone form (F2/F3)",
+    "the rung-3 district page: nothing scrolls sideways; no shortlist control in the head and the bridge's box holds its phone form (F2/F3)",
     { tag: "@regression" },
     async ({ page }) => {
       await page.goto("/search?outward=E16");
@@ -455,13 +456,16 @@ test.describe("phone-first — 360×740 (T-WEB-01)", () => {
       // the bridge is the only forward path on this page.
       await expect(page.locator("[data-shortlist-toggle]")).toHaveCount(0);
       // The bridge replaced the unlock banner as the
-      // forward path; its postcode input keeps the 16px
-      // phone form. The district page legitimately carries
-      // tables (sold types, crime categories, council
-      // tax), so the no-table check does not apply here —
-      // the tables must fit the screen instead, which the
-      // sideways-scroll check below covers.
-      const bridgeInput = page.locator(".district-bridge__input");
+      // forward path; its search box keeps the 16px
+      // phone form (BUG-147: the standard PostcodeBox
+      // stands here now, the same box the landing's F3
+      // check rides on). The district page legitimately
+      // carries tables (sold types, crime categories,
+      // council tax), so the no-table check does not
+      // apply here — the tables must fit the screen
+      // instead, which the sideways-scroll check below
+      // covers.
+      const bridgeInput = page.locator(".district-bridge .postcode-box input");
       const fontSize = await bridgeInput.evaluate((element) => getComputedStyle(element).fontSize);
       expect(fontSize, "the bridge's postcode input computes to 16px").toBe("16px");
       await expectNoSidewaysScroll(page);

@@ -38,6 +38,7 @@
 import type { ComposedEmail } from "../download";
 import { GIFT_SUPPORT_EMAIL } from "../gift";
 import { SITE_NAME } from "../site";
+import { envValue } from "./env";
 
 export type ReportMailResult = { sent: true } | { sent: false; reason: string };
 
@@ -132,13 +133,17 @@ export function createCaptureReportMailer(config: {
 // environment, in this order: the harness's capture
 // seam, then a configured Resend, then unconfigured.
 export function getReportMailer(): ReportMailer {
-  const captureUrl = process.env.REPORT_MAILER_CAPTURE_URL;
+  // Every name reads through envValue (BUG-148): a
+  // name the compose file passes empty counts as
+  // unset, so the FROM fallback engages instead of
+  // sending with an empty From.
+  const captureUrl = envValue("REPORT_MAILER_CAPTURE_URL");
   if (captureUrl) return createCaptureReportMailer({ captureUrl });
-  const { RESEND_API_KEY: apiKey } = process.env;
+  const apiKey = envValue("RESEND_API_KEY");
   if (apiKey) {
     return createResendReportMailer({
       apiKey,
-      from: process.env.REPORT_DELIVERY_FROM ?? REPORT_EMAIL_FROM,
+      from: envValue("REPORT_DELIVERY_FROM") ?? REPORT_EMAIL_FROM,
     });
   }
   return createUnconfiguredReportMailer();

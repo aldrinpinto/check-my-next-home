@@ -220,6 +220,30 @@ function Block({ block }: { block: ReportBlock }) {
           ))}
         </div>
       );
+    case "epc-chart":
+      // BUG-158: the sample report's band chart, drawn
+      // from the served certificate — the .epc dress is
+      // the sample's own (bar colours, stepping widths,
+      // the outlined "here" bar, the range at the right),
+      // shared by the on-screen view and the printed PDF
+      // twin, which is this same component printed.
+      return (
+        <div className="epc" role="img" aria-label={block.ariaLabel}>
+          {block.bars.map((bar) => (
+            <div
+              key={bar.band}
+              className={bar.here ? "here" : undefined}
+              style={{
+                background: bar.colour,
+                width: `${bar.widthPct}%`,
+                ...(bar.darkText ? { color: "#333" } : {}),
+              }}
+            >
+              {bar.label} <span>{bar.range}</span>
+            </div>
+          ))}
+        </div>
+      );
     case "dotPlot":
       return <DotPlot plot={block.plot} />;
     case "floodMap":

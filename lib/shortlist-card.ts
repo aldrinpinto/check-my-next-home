@@ -1,7 +1,15 @@
 import type { AddressResolution } from "./address";
+import type { AreaBundle } from "./area-bundle";
 import { homeKeyOf } from "./bundle-cache";
 import type { CategoryAnswer, NearbyBundle } from "./nearby";
-import { floodBandOf, formatMiles, resultsScopeLabel } from "./results";
+import {
+  airPillBand,
+  crimePillBand,
+  floodBandOf,
+  floodPillBand,
+  formatMiles,
+  resultsScopeLabel,
+} from "./results";
 import type { ShortBundle, ShortCrime, ShortFlood } from "./short-bundle";
 import {
   NOT_COVERED_LINE,
@@ -55,6 +63,14 @@ export interface ShortlistCardInput {
   // a rung-1 call without them assembles nothing.
   nearby?: NearbyBundle;
   sold?: SoldPricesBundle;
+  // The full area bundle, for the Air quality cell
+  // (BUG-164): the pill verdict derives from the full air
+  // section's three modelled values, which the short
+  // projection does not carry — so the cell reads the
+  // same section the page's pill read. Optional so older
+  // callers assemble as before; without it the air cell
+  // falls back to the short projection's headline line.
+  area?: AreaBundle;
   short: ShortBundle;
   // The identity the card's onward links carry, when it is
   // not the home key: a transient resolve token for a
@@ -102,11 +118,20 @@ function floodCell(flood: ShortFlood): ShortlistCell {
   const surfaceWater = flood.layers.find((layer) => layer.layer === "rofsw");
   const riversSeaBand = riversSea ? floodBandOf(riversSea) : null;
   const surfaceWaterBand = surfaceWater ? floodBandOf(surfaceWater) : null;
-  if (riversSeaBand !== null && surfaceWaterBand !== null)
+  if (riversSeaBand !== null && surfaceWaterBand !== null) {
+    // BUG-163: the cell also carries the pill verdict's
+    // band (floodPillBand — the likelihood verdict with
+    // the planning zone heard, BUG-151 ruling 3), so the
+    // table colours the value exactly as the pill colours
+    // its figure. Null where the pill itself would not
+    // speak, and the cell then stands plain.
+    const band = floodPillBand(flood);
     return {
       kind: "line",
       text: `Rivers & sea: ${riversSeaBand} · Surface water: ${surfaceWaterBand}`,
+      ...(band ? { band } : {}),
     };
+  }
   const bandless = [riversSea, surfaceWater].find(
     (layer) => layer !== undefined && floodBandOf(layer) === null,
   );
@@ -116,10 +141,54 @@ function floodCell(flood: ShortFlood): ShortlistCell {
 // The crime cell (the same ruling): the 12-month count as
 // served, in the sample's form ("330 crimes"). The named
 // states (not filed, not covered) carry the brain's own
-// reason verbatim.
+// reason verbatim. BUG-163: the cell also carries the
+// pill verdict's band where the calibration pair honestly
+// produces it (crimePillBand over the projected
+// per1000 / englandPer1000). A pre-calibration snapshot
+// carries no pair — the band is null and the cell stays
+// plain; no threshold is ever faked on the raw count.
 function crimeCell(crime: ShortCrime): ShortlistCell {
   if (crime.state !== "served") return { kind: "line", text: crime.reason };
-  return { kind: "line", text: `${crime.total.toLocaleString("en-GB")} crimes` };
+  const band = crimePillBand(crime.per1000, crime.englandPer1000);
+  return {
+    kind: "line",
+    text: `${crime.total.toLocaleString("en-GB")} crimes`,
+    ...(band ? { band } : {}),
+  };
+}
+
+// The Air quality cell (BUG-164): composed from the same
+// air section the pill verdict derives from — the full
+// area bundle's modelled values, in the product's own
+// presentation (the results section's bullet forms,
+// joined on one line) — and coloured by the pill's own
+// band (airPillBand) wherever that verdict speaks. A
+// served set between the two yardsticks carries no band
+// and stands plain; an unfiled section carries its own
+// named line — the table's existing not-served treatment.
+// Where no area bundle reaches assembly (an older
+// caller), the cell falls back to the short projection's
+// headline line, plain: the projection carries no values
+// to compose from.
+function airCell(input: ShortlistCardInput): ShortlistCell {
+  const { area, short } = input;
+  if (area && (area.rung === 1 || area.rung === 2)) {
+    const air = area.sections.air;
+    if (air.state === "served" && air.no2 !== null && air.pm25 !== null && air.pm10 !== null) {
+      const band = airPillBand(air);
+      return {
+        kind: "line",
+        text: `NO2 ${air.no2.toFixed(2)} µg/m³ a year · PM2.5 ${air.pm25.toFixed(2)} µg/m³ · PM10 ${air.pm10.toFixed(2)} µg/m³`,
+        ...(band ? { band } : {}),
+      };
+    }
+    return { kind: "line", text: air.line ?? NOT_COVERED_LINE };
+  }
+  if (short.kind === "short-bundle") {
+    const air = short.sections.air;
+    return { kind: "line", text: air?.headlineFigure?.line ?? air?.line ?? NOT_COVERED_LINE };
+  }
+  return { kind: "line", text: NOT_COVERED_LINE };
 }
 
 function rung1Card(input: ShortlistCardInput): ShortlistCard | null {
@@ -178,6 +247,7 @@ function rung1Card(input: ShortlistCardInput): ShortlistCard | null {
     nursery: distanceCell(categoryOf(nearby, "nurseries")),
     flood: floodCell(short.sections.flood),
     crime: crimeCell(short.sections.crime),
+    air: airCell(input),
     gp: distanceCell(categoryOf(nearby, "gp")),
     ae: distanceCell(categoryOf(nearby, "ae")),
     station: distanceCell(categoryOf(nearby, "station")),
@@ -229,6 +299,7 @@ function rung3Card(input: ShortlistCardInput): ShortlistCard | null {
       nursery: reason("nearby"),
       flood: reason("flood"),
       crime: reason("crime"),
+      air: reason("air"),
       gp: reason("nearby"),
       ae: reason("nearby"),
       station: reason("nearby"),

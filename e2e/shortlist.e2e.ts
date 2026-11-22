@@ -70,6 +70,7 @@ function specCard(overrides: Partial<ShortlistCard> & { id: string }): Shortlist
       nursery: line("no nursery filed near"),
       flood: { kind: "pointer" },
       crime: { kind: "pointer" },
+      air: line("NO2 8.15 µg/m³ a year · PM2.5 7.12 µg/m³ · PM10 12.55 µg/m³"),
       gp: { kind: "distance", name: "Birkdale Surgery", miles: 1.9 },
       ae: { kind: "distance", name: "Broomfield Hospital", miles: 5.89 },
       station: { kind: "distance", name: "Chelmsford", miles: 2.31 },
@@ -282,14 +283,20 @@ test.describe("shortlist — regression", () => {
       );
       const primaryRow = compare.locator('.compare-table [data-compare-row="primary"]');
       await expect(primaryRow.locator("td").first()).toContainText("Birkdale Primary School");
-      // Item 43 (parity fix batch): comparison miles are
-      // the Master's plain bold Forest text after a "·" —
-      // no tinted distance pill (the .place-row__miles--*
-      // classes are gone from comparison cells).
+      // Item 43 (parity fix batch) set the comparison
+      // miles as plain bold Forest text; BUG-163 (founder
+      // ruling, 22 Nov 2026) supersedes it: the miles take
+      // the reports' colour coding in the pills' figure
+      // dress — Birkdale's primary at 0.42 mi is the
+      // school band's green — while the rows the product
+      // never colours (GP) keep the plain .compare-mi form.
       await expect(primaryRow.locator("td").first()).toContainText(
         "Birkdale Primary School · 0.4 mi",
       );
-      await expect(primaryRow.locator(".compare-mi").first()).toHaveText("0.4 mi");
+      await expect(primaryRow.locator(".pill__figure--green").first()).toHaveText("0.4 mi");
+      await expect(
+        compare.locator('.compare-table [data-compare-row="gp"] .compare-mi').first(),
+      ).toHaveText("1.9 mi");
       // Legacy pointer cells still render their pointer;
       // the real cells render their lines.
       for (const rowKey of ["flood", "crime"]) {

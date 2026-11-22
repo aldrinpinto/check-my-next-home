@@ -9,6 +9,7 @@ import {
   type GuideContent,
 } from "../lib/check-pages";
 import BreadcrumbLd from "./BreadcrumbLd";
+import ReportBand from "./ReportBand";
 import SearchBlock from "./SearchBlock";
 
 // M7.8 — the content-page template: the check pages and the
@@ -109,6 +110,10 @@ export function CheckPageView({ page }: { page: CheckPageContent }) {
             { label: `Guide: ${guide.name}`, href: page.guide },
           ]}
         />
+        {/* BUG-149(4) (22 Nov 2026): the sample-report
+            band — the homepage's strip — stands on the
+            check pages too, above the search block. */}
+        <ReportBand />
         <SearchBlock />
       </div>
     </main>
@@ -155,6 +160,9 @@ export function GuidesHubView() {
             );
           })}
         </div>
+        {/* BUG-149(4): the sample-report band, as on the
+            check pages and the homepage. */}
+        <ReportBand />
         <SearchBlock />
       </div>
     </main>
@@ -178,6 +186,9 @@ export function GuidePageView({ guide }: { guide: GuideContent }) {
             href: path,
           }))}
         />
+        {/* BUG-149(4): the sample-report band, as on the
+            check pages and the homepage. */}
+        <ReportBand />
         <SearchBlock />
       </div>
     </main>

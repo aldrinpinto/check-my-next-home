@@ -29,7 +29,12 @@ import {
   storeReportPdf,
 } from "../lib/server/report-pdf";
 import { generateSampleReportPdf, samplePrintUrl } from "../lib/server/sample-pdf";
-import SampleReportPrintPage from "../app/sample-report/print/page";
+import SampleReportPrintDocument from "../components/SampleReportPrintDocument";
+import {
+  anonymiseSampleView,
+  suppressSampleNames,
+  type SampleHomeIdentity,
+} from "../lib/sample-report";
 import { createLocalReportPdfStore } from "../lib/server/report-storage";
 import type { SoldPricesBundle } from "../lib/sold-prices";
 import { floodServed, input } from "./fixtures/report-inputs";
@@ -310,6 +315,13 @@ describe("report-pdf — the file name, the key, the cover, the footer", () => {
     expect(html).toContain("Facts, not scores");
     expect(html).toContain('<span class="pageNumber"></span>');
     expect(html).toContain('<span class="totalPages"></span>');
+  });
+
+  it("the footer carries the caller's inlined DM Sans style at its head (BUG-149(1))", () => {
+    const style = "<style>@font-face { font-family: 'DM Sans'; }</style>";
+    const html = reportPdfFooterHtml(birkdaleView, "CM3 2JT", style);
+    expect(html.startsWith(style)).toBe(true);
+    expect(html).toContain("font-family: 'DM Sans', Arial, sans-serif");
   });
 
   it("printed URLs: the site's own paths gain its address; external URLs stand", () => {
@@ -740,6 +752,36 @@ describe("report-pdf — the render proof (the two golden reports, printed)", ()
 // The sample report's PDF (M8.8)
 // ------------------------------------------------------------------
 
+// BUG-159: the sample's view in these tests is the
+// generated report for the Birkdale-shaped fixture,
+// anonymised with the fixture's identity — the same
+// composition the route serves, the founder's name
+// suppression (22 Nov 2026) included.
+const SAMPLE_FIXTURE_IDENTITY: SampleHomeIdentity = {
+  label: "19 Birkdale Rise",
+  street: "Birkdale Rise",
+  postcode: "CM3 2JT",
+  certificateNumbers: ["0000-0000-0000-0000-0001"],
+  ownSales: [{ price: 588995, dateIso: "2023-06-15" }],
+};
+
+function sampleView(): ReportView {
+  const fixture = input();
+  const bundles = suppressSampleNames(
+    {
+      nearby: fixture.nearby,
+      flood: fixture.flood,
+      area: fixture.area,
+      sold: fixture.sold,
+      crime: fixture.crime,
+    },
+    [SAMPLE_FIXTURE_IDENTITY],
+  );
+  return anonymiseSampleView(buildReportView({ ...fixture, ...bundles }), [
+    SAMPLE_FIXTURE_IDENTITY,
+  ]);
+}
+
 describe("the sample report's PDF (M8.8)", () => {
   it("the file name is descriptive: the brand, the word Sample, the example home", () => {
     expect(sampleReportPdfFileName()).toBe(
@@ -780,6 +822,11 @@ describe("the sample report's PDF (M8.8)", () => {
     expect(html).toContain('<span class="totalPages"></span>');
   });
 
+  it("the sample footer carries the caller's inlined DM Sans style at its head (BUG-149(1))", () => {
+    const style = "<style>@font-face { font-family: 'DM Sans'; }</style>";
+    expect(sampleReportPdfFooterHtml(style).startsWith(style)).toBe(true);
+  });
+
   it("the download disposition carries the descriptive name, UTF-8 and ASCII forms", () => {
     const disposition = sampleReportPdfContentDisposition();
     expect(disposition.startsWith("attachment; ")).toBe(true);
@@ -797,9 +844,14 @@ describe("the sample report's PDF (M8.8)", () => {
     // Component (app/sample-report/print) — a route
     // handler's graph cannot render markup to a string in
     // this setup, so the composition is pinned here as a
-    // render, the way the sample page's own tests pin it.
-    const html = renderToStaticMarkup(createElement(SampleReportPrintPage));
-    expect(html).toContain('<main class="site-pages">');
+    // render of its document component, fed the anonymised
+    // generated view the way the route feeds it.
+    const html = renderToStaticMarkup(
+      createElement(SampleReportPrintDocument, { view: sampleView() }),
+    );
+    // The route wraps this composition in the site-pages
+    // main; the composition itself opens with its wrapper.
+    expect(html).toContain('<div class="sample-print-doc">');
     const coverAt = html.indexOf('class="rpt-cover"');
     const docAt = html.indexOf('class="report-wrap"');
     expect(coverAt).toBeGreaterThan(-1);
@@ -814,12 +866,13 @@ describe("the sample report's PDF (M8.8)", () => {
     expect(cover).toContain("Sample report — 12 Willow Close");
     expect(cover).toContain("Millbrook, Kingsford, Kent MB3 4QX");
     expect(cover).toContain("invented example");
-    // And the document that follows is the sample page's
-    // own — its banner and its dummy home, not a bought
-    // report's view.
+    // And the document that follows is the sample's own
+    // composition — the banner over the generated,
+    // anonymised report view (BUG-159).
     expect(html).toContain("This is a sample report");
     expect(html).toContain("12 Willow Close");
     expect(html).not.toContain("Birkdale");
+    expect(html).not.toContain("birkdale");
     // The generator prints the print view, at the app's
     // own address unless an origin is handed to it.
     expect(samplePrintUrl("http://127.0.0.1:4321")).toBe(
@@ -838,7 +891,9 @@ describe("the sample report's PDF (M8.8)", () => {
     // the twin's standalone print CSS (the app itself
     // serves the same stylesheet with the page).
     const css = await reportPrintCss();
-    const body = renderToStaticMarkup(createElement(SampleReportPrintPage));
+    const body = renderToStaticMarkup(
+      createElement(SampleReportPrintDocument, { view: sampleView() }),
+    );
     const document =
       `<!doctype html>\n<html lang="en-GB"><head><meta charset="utf-8">` +
       `<title>Sample report — print view</title><style>${css}</style></head>` +
@@ -883,8 +938,21 @@ describe("the sample report's PDF (M8.8)", () => {
         expect(squashed[i]).toContain(squash("Facts, not scores"));
       });
 
-      // The whole file names no real home.
-      expect(squashed.join(" ")).not.toContain(squash("Birkdale"));
+      // The whole file names no real home (BUG-159's
+      // leak guard, over the printed text): no
+      // contributing home's address, postcode,
+      // certificate number or own-sale figures — and,
+      // since the founder's suppression ruling (22 Nov
+      // 2026), not the bare street name either, in any
+      // case form (squash lowercases): a banned-named
+      // entry is dropped from the sample's lists whole,
+      // never renamed (see tests/sample-report.test.ts).
+      const whole = squashed.join(" ");
+      expect(whole).not.toContain(squash("Birkdale"));
+      expect(whole).not.toContain(squash("CM3 2JT"));
+      expect(whole).not.toContain(squash("0000-0000-0000-0000-0001"));
+      expect(whole).not.toContain(squash("588,995"));
+      expect(whole).not.toContain(squash("15 June 2023"));
     } finally {
       server.close();
     }

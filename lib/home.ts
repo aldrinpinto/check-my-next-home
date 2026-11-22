@@ -237,9 +237,12 @@ export const HOME_HOW_IT_WORKS_STEPS = [
 // Deep Forest band (founder follow-on to D70, 17 Nov 2026),
 // verbatim from the sample. The CTA points at the sample
 // report (SAMPLE_REPORT_PATH below), as the sample's does.
+// BUG-166 (founder ruling, 22 Nov 2026): the band line is
+// the founder's approved replacement text, verbatim — the
+// Final Sample Master is conformed to it separately.
 export const HOME_REPORT_BAND_HEADING = "The detailed report";
 export const HOME_REPORT_BAND_LINE =
-  "Everything the listing doesn't tell you, in one document: full school lists, month-by-month crime, genuine flood maps, sold prices nearby, the cost-of-ownership breakdown, planning applications by name, and questions to ask the seller — all sourced, all dated.";
+  "Listings show you the house. The detailed report shows you everything around it: full school lists, crime month by month, flood maps, sold prices nearby, the running costs, planning applications by name, and the neighbourhood itself — who lives there, the age mix, who owns and who rents. Plus the questions to ask the seller before you commit. All from named official sources, all dated — facts, not scores.";
 export const HOME_REPORT_BAND_CTA = "See a sample report";
 export const HOME_REPORT_BAND_PRICE = "£4.99";
 export const HOME_REPORT_BAND_PRICE_LINES = ["per home · one-off", "no subscription"] as const;

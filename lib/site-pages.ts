@@ -5,8 +5,8 @@
 // are theirs, carried here as constants so the pages render
 // from one source and the wording can never drift between
 // the sample and the site. (The Sample report, view 7, is a
-// document, not prose constants: it is transcribed as
-// components/SampleReport.tsx.)
+// document, not prose constants: since BUG-159 it is the
+// generated report, anonymised — lib/sample-report.ts.)
 //
 // Because this copy is the founder-finalised samples'
 // verbatim text — including their ruled negations ("No
@@ -25,6 +25,12 @@ export const HOW_WE_CHECK_INTRO =
   "This page walks through each check in turn: what it shows, where it comes from, and how the figure is put together. Nothing here is estimated, modelled by us, or filled in by guesswork — if a source does not cover a home, the check says so.";
 
 export type HowWeCheckCard = {
+  // BUG-157 (founder ruling, 22 Nov 2026): the icon is a
+  // KEY into the drawn set in components/HowWeCheckIcon
+  // — every card's tile draws a glyph of its own subject
+  // (shield for Crime, pin for What's nearby, £ coin for
+  // Costs), replacing the abstract typographic glyphs
+  // (£ § ≈ Aa + % ∿ ¤ ¶ ⌂ ◎) the tiles carried before.
   icon: string;
   heading: string;
   source: string;
@@ -35,7 +41,7 @@ export type HowWeCheckCard = {
 
 export const HOW_WE_CHECK_CARDS: HowWeCheckCard[] = [
   {
-    icon: "£",
+    icon: "sold-prices",
     heading: "Sold prices",
     source: "Source · HM Land Registry",
     paragraphs: [
@@ -46,7 +52,7 @@ export const HOW_WE_CHECK_CARDS: HowWeCheckCard[] = [
       "where we show a typical price, it is the median — the middle sale — and we only show one when there are five or more sales to draw on. Fewer than that, and we list the sales themselves instead. Sold prices describe recorded sales only. They are a record of what was paid, never a valuation of the home you are looking at.",
   },
   {
-    icon: "§",
+    icon: "crime",
     heading: "Crime",
     source: "Source · Police.uk",
     paragraphs: [
@@ -57,7 +63,7 @@ export const HOW_WE_CHECK_CARDS: HowWeCheckCard[] = [
       "alongside the count, we set the rate per 1,000 residents next to the same rate for England as a whole, built from Census populations — so a busy town centre and a quiet village are compared fairly. One thing worth knowing: incidents are recorded against streets, not houses, so a pin on a street is where an incident was recorded, not necessarily the exact spot it happened.",
   },
   {
-    icon: "≈",
+    icon: "flood",
     heading: "Flood",
     source: "Source · Environment Agency",
     paragraphs: [
@@ -68,7 +74,7 @@ export const HOW_WE_CHECK_CARDS: HowWeCheckCard[] = [
       "the maps come from the Agency's published data. Live flood warnings are different: they are fetched at the moment of the check, shown as they stand right then, and never stored — a warning is about today, not about the home's history.",
   },
   {
-    icon: "Aa",
+    icon: "schools",
     heading: "Schools & nurseries",
     source: "Source · DfE & Ofsted",
     paragraphs: [
@@ -79,7 +85,7 @@ export const HOW_WE_CHECK_CARDS: HowWeCheckCard[] = [
       "straight from the two registers, unchanged. We do not combine outcomes, average them, or turn them into a judgement of our own.",
   },
   {
-    icon: "+",
+    icon: "health",
     heading: "Health",
     source: "Source · NHS & CQC",
     paragraphs: [
@@ -90,7 +96,7 @@ export const HOW_WE_CHECK_CARDS: HowWeCheckCard[] = [
       "from the NHS service listings and the CQC's own published ratings — we list and we quote; we do not assess care ourselves.",
   },
   {
-    icon: "%",
+    icon: "neighbourhood",
     heading: "The neighbourhood in numbers",
     source: "Source · ONS Census 2021 · MHCLG",
     paragraphs: [
@@ -105,7 +111,7 @@ export const HOW_WE_CHECK_CARDS: HowWeCheckCard[] = [
     // added to the Final Sample Master's view 4 first, and
     // this constant conforms the product to it — the words
     // are the Master's, verbatim, as with the other nine.
-    icon: "∿",
+    icon: "air-noise",
     heading: "Air quality & noise",
     source: "Source · Defra",
     paragraphs: [
@@ -116,7 +122,7 @@ export const HOW_WE_CHECK_CARDS: HowWeCheckCard[] = [
       "both are modelled, not measured. The air figures are Defra's modelled background concentrations for the square; the noise bands come from Defra's strategic noise mapping, modelled across the area. Neither is a reading taken at the home itself, and the check never turns them into a verdict on how a home will sound.",
   },
   {
-    icon: "¤",
+    icon: "costs",
     heading: "Costs",
     source: "Source · MHCLG · EPC register · Ofcom",
     paragraphs: [
@@ -127,7 +133,7 @@ export const HOW_WE_CHECK_CARDS: HowWeCheckCard[] = [
       "each figure is the published one for that home or that council, shown with its source. Where a home has no EPC on the register, the check says so rather than estimating one.",
   },
   {
-    icon: "¶",
+    icon: "planning",
     heading: "Planning, protection & ownership",
     source: "Source · planning.data.gov.uk & others",
     paragraphs: [
@@ -138,7 +144,23 @@ export const HOW_WE_CHECK_CARDS: HowWeCheckCard[] = [
       "planning applications. There is no national dataset of them, so we do not pretend otherwise — the check hands you to the council's own planning register, where applications near the home can be seen in full.",
   },
   {
-    icon: "◎",
+    // BUG-149(5) (22 Nov 2026): the building-safety
+    // check stood in the check pages with no card on
+    // this hub. The card follows the other cards'
+    // pattern; its facts are the check page's own
+    // (lib/check-pages.ts, /check/building-safety).
+    icon: "building-safety",
+    heading: "Building safety",
+    source: "Source · First-tier Tribunal · Building Safety Regulator",
+    paragraphs: [
+      "Two official records speak to a building's safety history. The first is the building-safety decisions the First-tier Tribunal (Property Chamber) has published — remediation orders and remediation contribution orders under the Building Safety Act 2022 — matched to the home's postcode where a decision names it. The second is the Building Safety Regulator's register of high-rise residential buildings in England, which covers buildings of 18 metres or 7 storeys and above; the tribunal's orders reach buildings of 11 metres and above.",
+    ],
+    howLabel: "One honest gap:",
+    howText:
+      "neither record can say whether a building has cladding, and publication is selective — the tribunal publishes only some of its decisions. An empty answer is a statement about the record, not about the building, and for the register the check hands you to the official search rather than asserting anything from it.",
+  },
+  {
+    icon: "nearby",
     heading: "What's nearby",
     source: "Source · OpenStreetMap · OS Greenspace",
     paragraphs: [

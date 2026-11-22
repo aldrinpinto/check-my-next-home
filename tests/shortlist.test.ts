@@ -7,9 +7,11 @@ import { describe, expect, it } from "vitest";
 import ShortlistButton from "../components/ShortlistButton";
 import SiteHeader from "../components/SiteHeader";
 import type { AddressResolution } from "../lib/address";
+import type { AreaBundle } from "../lib/area-bundle";
 import { homeKeyOf } from "../lib/bundle-cache";
 import type { CategoryAnswer, NearbyBundle, NearbyCategory } from "../lib/nearby";
 import {
+  AIR_NOT_SAVED_LINE,
   COMPARISON_ROWS,
   NOT_COVERED_LINE,
   SEE_THIS_HOMES_CHECK,
@@ -24,6 +26,7 @@ import {
   addCardToRecord,
   buildComparison,
   cardLastSaleLine,
+  comparisonCellBand,
   comparisonSaleLine,
   emptyShortlistRecord,
   isCardSaved,
@@ -438,6 +441,7 @@ describe("the comparison's construction", () => {
     expect(view.rows.map((row) => row.label)).toEqual([
       "Flood",
       "Crime — 12-month total",
+      "Air quality",
       "Nearest primary",
       "Nearest secondary",
       "Grammar school nearby",
@@ -540,10 +544,13 @@ describe("card assembly", () => {
     // (rofrs "no-band-published", rofsw
     // "below-lowest-band") are the Very-low case, exactly
     // as on the results page; the crime line is the served
-    // 12-month count.
+    // 12-month count. BUG-163: the flood cell also carries
+    // the pill verdict's band — both layers Very low is
+    // the pill's good, green.
     expect(card?.comparison.flood).toEqual({
       kind: "line",
       text: "Rivers & sea: Very low · Surface water: Very low",
+      band: "green",
     });
     expect(card?.comparison.crime).toEqual({ kind: "line", text: "330 crimes" });
     expect(card?.comparison.councilTax).toEqual({
@@ -599,9 +606,12 @@ describe("card assembly", () => {
         crime: { ...CRIME_330, total: 1956 },
       }),
     });
+    // BUG-163: a Low layer is the pill's concerning at
+    // orange — the cell carries that band.
     expect(card?.comparison.flood).toEqual({
       kind: "line",
       text: "Rivers & sea: Very low · Surface water: Low",
+      band: "orange",
     });
     expect(card?.comparison.crime).toEqual({ kind: "line", text: "1,956 crimes" });
   });
@@ -742,6 +752,7 @@ describe("card assembly", () => {
         crime: { state: "unavailable", reason: "crime counts need an exact postcode" },
         nearby: { state: "unavailable", reason: "distances need an exact postcode" },
         flood: { state: "unavailable", reason: "flood answers need an exact postcode" },
+        air: { state: "unavailable", reason: "air quality needs an exact postcode" },
         councilTax: { state: "unavailable", reason: "council tax needs an exact postcode" },
       },
     } as unknown as ShortBundle;
@@ -762,10 +773,187 @@ describe("card assembly", () => {
       kind: "line",
       text: "flood answers need an exact postcode",
     });
+    expect(card?.comparison.air).toEqual({
+      kind: "line",
+      text: "air quality needs an exact postcode",
+    });
     expect(card?.comparison.councilTax).toEqual({
       kind: "line",
       text: "council tax needs an exact postcode",
     });
+  });
+});
+
+// ------------------------------------------------------------------
+// The comparison's colour coding (BUG-163) and the Air
+// quality row (BUG-164) — founder rulings, 22 Nov 2026
+// ------------------------------------------------------------------
+
+describe("the comparison's colour coding (BUG-163)", () => {
+  const distance = (miles: number): ShortlistCell => ({ kind: "distance", name: "Place", miles });
+
+  it("takes the pill family bands for the distance rows", () => {
+    // Primary by the school band: 0.42 mi is inside the
+    // green mile.
+    expect(comparisonCellBand("primary", "school", distance(0.42))).toBe("green");
+    // Station and vet by the everyday band: 0.6 mi and
+    // 1.2 mi both stand past the green half-mile, inside
+    // the orange mile-and-a-half.
+    expect(comparisonCellBand("station", "everyday", distance(0.6))).toBe("orange");
+    expect(comparisonCellBand("vet", "everyday", distance(1.2))).toBe("orange");
+    // A&E by the hospital band: 5.9 mi is past the green
+    // five miles, inside the orange ten.
+    expect(comparisonCellBand("ae", "hospital", distance(5.9))).toBe("orange");
+    // Nursery by the school band, past two miles: red.
+    expect(comparisonCellBand("nursery", "school", distance(2.4))).toBe("red");
+  });
+
+  it("leaves the never-coloured facts plain", () => {
+    // GP carries an everyday family in the row table, but
+    // the product never colours a GP distance anywhere.
+    expect(comparisonCellBand("gp", "everyday", distance(0.3))).toBeNull();
+    // Council tax is a plain line, band or none.
+    expect(
+      comparisonCellBand("councilTax", null, cell("Band D averages £2,280.36 a year")),
+    ).toBeNull();
+    // A family-less distance row never colours.
+    expect(comparisonCellBand("grammar", null, distance(0.4))).toBeNull();
+    // A legacy pointer never colours.
+    expect(comparisonCellBand("flood", null, { kind: "pointer" })).toBeNull();
+  });
+
+  it("carries a line cell's verdict band through, and no band where assembly derived none", () => {
+    expect(
+      comparisonCellBand("crime", null, { kind: "line", text: "10,722 crimes", band: "red" }),
+    ).toBe("red");
+    expect(comparisonCellBand("crime", null, { kind: "line", text: "330 crimes" })).toBeNull();
+  });
+
+  it("assembly bands the crime cell red for a home more than a quarter above the England rate", () => {
+    const card = buildShortlistCard({
+      resolution: birkdale,
+      nearby: birkdaleNearby(),
+      sold: soldWith([]),
+      short: shortWith(TAX_SERVED, {
+        crime: { ...CRIME_330, total: 10722, per1000: 122.5, englandPer1000: 94.5 },
+      }),
+    });
+    expect(card?.comparison.crime).toEqual({
+      kind: "line",
+      text: "10,722 crimes",
+      band: "red",
+    });
+  });
+
+  it("assembly leaves the crime cell plain where the snapshot carries no calibration pair", () => {
+    // CRIME_330 is the pre-calibration shape (its rate
+    // lines are null): no verdict can honestly be
+    // produced, so no band is set — never a threshold
+    // faked on the raw count.
+    const card = buildShortlistCard({
+      resolution: birkdale,
+      nearby: birkdaleNearby(),
+      sold: soldWith([]),
+      short: shortWith(TAX_SERVED),
+    });
+    expect(card?.comparison.crime).toEqual({ kind: "line", text: "330 crimes" });
+  });
+});
+
+describe("the Air quality row (BUG-164)", () => {
+  function areaWithAir(air: Record<string, unknown>): AreaBundle {
+    return {
+      rung: 1,
+      kind: "area-bundle",
+      postcode: "CM3 2JT",
+      sections: { air },
+    } as unknown as AreaBundle;
+  }
+
+  function cardWithAir(air: Record<string, unknown>) {
+    return buildShortlistCard({
+      resolution: birkdale,
+      nearby: birkdaleNearby(),
+      sold: soldWith([]),
+      short: shortWith(TAX_SERVED),
+      area: areaWithAir(air),
+    });
+  }
+
+  it("composes the modelled values and bands the cell red for concerning air", () => {
+    const card = cardWithAir({
+      state: "served",
+      line: null,
+      year: 2024,
+      no2: 45.2,
+      pm25: 12,
+      pm10: 20,
+    });
+    expect(card?.comparison.air).toEqual({
+      kind: "line",
+      text: "NO2 45.20 µg/m³ a year · PM2.5 12.00 µg/m³ · PM10 20.00 µg/m³",
+      band: "red",
+    });
+  });
+
+  it("bands the cell green where all three values meet the WHO guidelines", () => {
+    const card = cardWithAir({
+      state: "served",
+      line: null,
+      year: 2024,
+      no2: 8,
+      pm25: 4,
+      pm10: 12,
+    });
+    expect(card?.comparison.air).toEqual({
+      kind: "line",
+      text: "NO2 8.00 µg/m³ a year · PM2.5 4.00 µg/m³ · PM10 12.00 µg/m³",
+      band: "green",
+    });
+  });
+
+  it("stands plain where the served values sit between the yardsticks", () => {
+    const card = cardWithAir({
+      state: "served",
+      line: null,
+      year: 2024,
+      no2: 8.15,
+      pm25: 7.12,
+      pm10: 12.55,
+    });
+    expect(card?.comparison.air).toEqual({
+      kind: "line",
+      text: "NO2 8.15 µg/m³ a year · PM2.5 7.12 µg/m³ · PM10 12.55 µg/m³",
+    });
+  });
+
+  it("carries the section's own named line, plain, where no air square is filed", () => {
+    const card = cardWithAir({
+      state: "not-filed",
+      line: "no modelled air quality square is filed for this point",
+      year: null,
+      no2: null,
+      pm25: null,
+      pm10: null,
+    });
+    expect(card?.comparison.air).toEqual({
+      kind: "line",
+      text: "no modelled air quality square is filed for this point",
+    });
+  });
+
+  it("a card saved before the row existed survives parsing, and its air row serves the not-saved line", () => {
+    const legacy = makeCard("legacy");
+    delete (legacy.comparison as Record<string, unknown>).air;
+    const parsed = parseShortlistRecord(serializeShortlistRecord({ v: 1, cards: [legacy] }));
+    // The card is kept, and the stored record is not
+    // rewritten — the gap stays a gap in the snapshot.
+    expect(parsed.cards).toHaveLength(1);
+    expect("air" in parsed.cards[0].comparison).toBe(false);
+    const view = buildComparison(parsed.cards);
+    expect(view.rows.find((row) => row.key === "air")?.cells).toEqual([
+      { kind: "line", text: AIR_NOT_SAVED_LINE },
+    ]);
   });
 });
 
@@ -835,17 +1023,14 @@ describe("the sample-parity forms (views 14–16)", () => {
   it("gives the empty state the sample's search card, and only the empty state", () => {
     expect(island).toContain('className="shortlist-search-card"');
     expect(island).toContain("<h2>Check a home</h2>");
-    // Item 41 (parity fix batch): the card's form is the
-    // sample's PLAIN form — a text input and a brass submit,
-    // no PostcodeBox (no suggestions, no picker behaviour).
-    expect(island).toContain('className="shortlist-search-form"');
-    expect(island).toContain('action="/search"');
-    expect(island).toContain('name="postcode"');
-    // The field carries the one shared placeholder
-    // constant (founder ruling, 19 Nov 2026); its text is
-    // pinned in tests/home-page.test.ts.
-    expect(island).toContain("placeholder={POSTCODE_BOX_PLACEHOLDER}");
-    expect(island).toContain("Check this home");
+    // Item 41 (parity fix batch) built the sample's
+    // PLAIN form here; BUG-147 (founder finding,
+    // 22 Nov 2026) retired it — the plain form
+    // dead-ended on anything it could not resolve.
+    // The card now carries the standard PostcodeBox.
+    expect(island).toContain("<PostcodeBox bare />");
+    expect(island).not.toContain("shortlist-search-form");
+    expect(island).not.toContain('action="/search"');
     // The card sits in the empty branch: it is written
     // after the empty section opens and before the ready
     // return's head.
@@ -862,10 +1047,9 @@ describe("the sample-parity forms (views 14–16)", () => {
     expect(card).toContain("padding: 1.6rem 1.7rem");
     expect(card).toContain("max-width: 640px");
     expect(card).toContain("margin-top: 1.8rem");
-    // The sample's row measures, inside this card only.
-    expect(css).toMatch(/\.shortlist-search-form input \{[^}]*min-height: 52px/);
-    expect(css).toMatch(/\.shortlist-search-form input \{[^}]*border-radius: 10px/);
-    expect(css).toMatch(/\.shortlist-search-form__button \{[^}]*min-height: 52px/);
+    // The plain form's CSS rules retired with it.
+    expect(css).not.toMatch(/\.shortlist-search-form \{/);
+    expect(css).not.toMatch(/\.shortlist-search-form input/);
   });
 
   it("runs the three-across cards at the frame's full width", () => {

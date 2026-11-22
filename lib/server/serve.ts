@@ -27,7 +27,7 @@ import { buildCrimeBundle, createCrimeSource } from "../crime";
 import { createDistrictSource, createDistrictWarningSource } from "../district";
 import { buildDistrictBundleCached, createDistrictCache } from "../district-cache";
 import { buildFloodBundle, createFloodSource } from "../flood";
-import { buildNearbyBundle, createNearbySource, REPORT_SCHOOL_LIST_SIZE } from "../nearby";
+import { buildNearbyBundle, createNearbySource, reportListSizeFor } from "../nearby";
 import { buildShortBundle } from "../short-bundle";
 import {
   journeyDestination,
@@ -289,9 +289,10 @@ export function resolutionNotCovered(resolution: AddressResolution): boolean {
   return isNotCoveredNation(nationOfLsoa(resolution.directory.lsoaCode));
 }
 
-// The checking screen's three brain calls. Each returns the
-// served bundle(s) its rows derive from; the route handlers
-// turn them into row states through lib/journey.ts.
+// The checking screen's brain calls — one per part the
+// screen fires. Each returns the served bundle(s) its
+// rows derive from; the route handlers turn them into
+// row states through lib/journey.ts.
 export async function checkNearby(resolution: AddressResolution) {
   const brains = createCachedBrains(getDbPool());
   return brains.buildNearbyBundle(resolution);
@@ -302,15 +303,29 @@ export async function checkFlood(resolution: AddressResolution) {
   return brains.buildFloodBundle(resolution);
 }
 
+// The crime part (BUG-144): the crime bundle, plus the
+// area bundle the safety line's air rider derives from.
+// The two build in parallel, and the area bundle is the
+// cached build the area part below also reads — the
+// crime half of the safety group no longer waits on
+// sold prices or the costs/history derivation.
+export async function checkCrime(resolution: AddressResolution) {
+  const brains = createCachedBrains(getDbPool());
+  const [crime, area] = await Promise.all([
+    brains.buildCrimeBundle(resolution),
+    brains.buildAreaBundle(resolution),
+  ]);
+  return { crime, area };
+}
+
 export async function checkArea(resolution: AddressResolution) {
   const db = getDbPool();
   const brains = createCachedBrains(db);
-  const [area, sold, crime] = await Promise.all([
+  const [area, sold] = await Promise.all([
     brains.buildAreaBundle(resolution),
     buildSoldPricesBundle(resolution, createSoldPricesSource(db)),
-    brains.buildCrimeBundle(resolution),
   ]);
-  return { area, sold, crime };
+  return { area, sold };
 }
 
 // Every bundle, for the not-covered page (ruling 4): each
@@ -346,7 +361,11 @@ export async function checkReport(resolution: AddressResolution) {
   const brains = createCachedBrains(db);
   const [nearby, flood, area, sold, crime] = await Promise.all([
     buildNearbyBundle(resolution, createNearbySource(db), {
-      schoolListSize: REPORT_SCHOOL_LIST_SIZE,
+      // OBS-012: the report's school depth is read from
+      // the one serving table (reportListSizeFor), the
+      // same table the results page's truncation seam
+      // caps its numerals against.
+      schoolListSize: reportListSizeFor("schools-primary"),
     }),
     brains.buildFloodBundle(resolution),
     brains.buildAreaBundle(resolution),

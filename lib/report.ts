@@ -515,6 +515,27 @@ export type ReportBlock =
   | { type: "noteLink"; text: string; label: string; href: string }
   | { type: "map"; map: ReportMapModel }
   | { type: "floodMap"; map: ReportFloodMapModel }
+  // The EPC band chart (BUG-158): the rating scale as
+  // the sample report draws it — one bar per band in the
+  // scale's own colours, widths stepping down, the
+  // home's band outlined and labelled "X — this home,
+  // N", each bar's score range at its right. Composed
+  // whole here (the renderer maps and decides nothing,
+  // as with the bars block): the bars drawn, their
+  // colours, widths and labels all stand in this model.
+  | {
+      type: "epc-chart";
+      ariaLabel: string;
+      bars: {
+        band: string;
+        label: string;
+        range: string;
+        colour: string;
+        widthPct: number;
+        darkText: boolean;
+        here: boolean;
+      }[];
+    }
   | { type: "links"; links: { label: string; href: string }[] };
 
 export interface ReportSectionView {
@@ -2972,7 +2993,10 @@ function transportRows(key: NearbyCategory, answer: CategoryAnswer): ReportRow[]
 const PET_SUBHEADINGS: Partial<Record<NearbyCategory, string>> = {
   vets: "Vets",
   "pet-shops": "Pet shops",
-  "pet-boarding": "Pet boarding",
+  // BUG-149(3) (22 Nov 2026): the one settled label,
+  // everywhere it composes — report, results heading
+  // and results subheading alike.
+  "pet-boarding": "Pet boarding (kennels & catteries)",
 };
 
 function section5(input: ReportInput): ReportSectionView {
@@ -3132,6 +3156,55 @@ function censusAgeCard(census: CensusSection): ReportBlock | null {
   };
 }
 
+// The solar distinguisher (BUG-149(2), 22 Nov 2026):
+// one small-print line after the solar figures — the
+// potential is the location's sun, not panels fitted
+// to this home.
+export const SOLAR_PANELS_NOTE =
+  "Solar potential is about the sun this location gets — it does not mean this home has panels fitted.";
+
+// The EPC band scale as the sample report draws it
+// (BUG-158): bands A–E, the register's colours, widths
+// stepping down the scale, each band's score range. The
+// sample draws five bands; a home rated F or G extends
+// the drawn set to reach its own band (the scale
+// continues in the register's colours and the same
+// width step) — the home's band is always drawn, always
+// the outlined one.
+export const EPC_CHART_SCALE: {
+  band: string;
+  range: string;
+  colour: string;
+  widthPct: number;
+  darkText: boolean;
+}[] = [
+  { band: "A", range: "92+", colour: "#00A651", widthPct: 46, darkText: false },
+  { band: "B", range: "81–91", colour: "#19B459", widthPct: 58, darkText: false },
+  { band: "C", range: "69–80", colour: "#8DCE46", widthPct: 66, darkText: false },
+  { band: "D", range: "55–68", colour: "#E3C700", widthPct: 74, darkText: true },
+  { band: "E", range: "39–54", colour: "#F0A35E", widthPct: 82, darkText: false },
+  { band: "F", range: "21–38", colour: "#EB6A2C", widthPct: 90, darkText: false },
+  { band: "G", range: "1–20", colour: "#D92323", widthPct: 98, darkText: false },
+];
+
+export function epcChartBlock(band: string, score: number): ReportBlock {
+  const homeIndex = EPC_CHART_SCALE.findIndex((entry) => entry.band === band);
+  const drawn = EPC_CHART_SCALE.slice(0, Math.max(5, homeIndex + 1));
+  return {
+    type: "epc-chart",
+    ariaLabel: `Energy rating scale, with this home at Band ${band}, score ${score}`,
+    bars: drawn.map((entry) => ({
+      band: entry.band,
+      label: entry.band === band ? `${entry.band} — this home, ${score}` : entry.band,
+      range: entry.range,
+      colour: entry.colour,
+      widthPct: entry.widthPct,
+      darkText: entry.darkText,
+      here: entry.band === band,
+    })),
+  };
+}
+
 function section7(input: ReportInput): ReportSectionView {
   const blocks: ReportBlock[] = [];
   const sections = areaSections(input);
@@ -3279,6 +3352,17 @@ function section7(input: ReportInput): ReportSectionView {
           });
         }
         if (c.ratingLine) blocks.push({ type: "note", text: c.ratingLine });
+        // BUG-158: the band chart stands at the head of
+        // the certificate's facts, where the sample
+        // report places it — after the rating line and
+        // the certificate's details, before the estimated
+        // costs. Until this stack the chart existed only
+        // as the sample's static drawing; generated
+        // reports (the on-screen view and the printed
+        // PDF twin, one renderer) never drew it. Each
+        // certificate's block carries its own chart, from
+        // its own served band and score.
+        blocks.push(epcChartBlock(c.band, c.rating));
       } else if (c.ratingLine) {
         blocks.push({ type: "line", text: c.ratingLine });
       }
@@ -3440,6 +3524,12 @@ function section7(input: ReportInput): ReportSectionView {
     if (solar.line) blocks.push({ type: "line", text: solar.line });
     if (solar.basisLine) blocks.push({ type: "line", text: solar.basisLine });
   }
+  // BUG-149(2) (22 Nov 2026): the distinguisher, as
+  // small print after the figures — the block is easily
+  // misread as saying the home has panels. The brain's
+  // own explainer carries the modelling basis; this one
+  // line carries only the distinction.
+  blocks.push({ type: "note", text: SOLAR_PANELS_NOTE });
 
   // EV charging, in the format's grouped form. Its two
   // halves are layer-3 headings under "EV charging"

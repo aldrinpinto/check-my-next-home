@@ -126,4 +126,28 @@ describe("the unconfigured implementation and the factory", () => {
       getReportMailer().sendDeliveryEmail({ to: DOWNLOAD_BUYER, email: EMAIL }),
     ).resolves.toEqual({ sent: false, reason: "send-failed" });
   });
+
+  it("treats an empty or blank REPORT_DELIVERY_FROM as unset — the fallback From sends (BUG-148)", async () => {
+    // The compose file passes the name as ${NAME:-}:
+    // unplaced, it arrives present but empty, and the
+    // old ?? fallback never engaged — the send went
+    // out with an empty From and the sender refused
+    // it. Through the factory, both the empty and the
+    // blank form must send from the fallback.
+    vi.stubEnv("RESEND_API_KEY", resendFixture);
+    vi.stubEnv("REPORT_MAILER_CAPTURE_URL", "");
+    const calls: FetchCall[] = [];
+    vi.stubGlobal("fetch", recordingFetch(calls));
+    try {
+      for (const blank of ["", "   "]) {
+        vi.stubEnv("REPORT_DELIVERY_FROM", blank);
+        await expect(
+          getReportMailer().sendDeliveryEmail({ to: DOWNLOAD_BUYER, email: EMAIL }),
+        ).resolves.toEqual({ sent: true });
+      }
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(calls.map((c) => c.body.from)).toEqual([REPORT_EMAIL_FROM, REPORT_EMAIL_FROM]);
+  });
 });

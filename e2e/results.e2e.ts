@@ -12,8 +12,8 @@ import { expect, test } from "./fixtures";
 // D9 short form appears verbatim beside the
 // results. Regression: the rung-3 wider-area page, refresh
 // and Back, the flood-warnings forms, the D39 calibration
-// pair, the noise states, the catchment block and deadlines
-// line, rung 2's label with the home list at its head,
+// pair, the noise states, the retired catchment block's
+// absence (FC-06), rung 2's label with the home list at its head,
 // and the nations. No Regression spec is promoted to
 // Smoke (D68 clause 7).
 //
@@ -37,8 +37,8 @@ import { expect, test } from "./fixtures";
 //   results leg of D68's critical journey, and the
 //   Regression specs discharge M7.4's own adopted scope
 //   (the district page's form, refresh/Back, flood
-//   warnings, the crime guard, air & noise, catchment
-//   honesty, the rung-2 labels, Cardiff).
+//   warnings, the crime guard, air & noise, the retired
+//   catchment block's absence, the rung-2 labels, Cardiff).
 
 const DISCLAIMER_SHORT_FORM =
   "We present official data as it is published, with its source and date. We do not score, rate or recommend homes or areas.";
@@ -357,17 +357,22 @@ test.describe("results page — regression", () => {
   );
 
   test(
-    "the catchment honesty block and the served school deadlines line render as supplied (Birkdale)",
+    "the catchment block is retired (FC-06): its substance stands in the closing disclaimer alone (Birkdale)",
     { tag: "@regression" },
     async ({ page }) => {
       await page.goto("/search/home?postcode=CM3+2JT");
       await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
-      const catchment = page.locator('[data-section="catchment"]');
-      await expect(catchment).toContainText("We hold no catchment boundaries");
-      await expect(catchment).toContainText("School application deadlines in England:");
-      await expect(
-        catchment.getByRole("link", { name: "School admissions on GOV.UK" }),
-      ).toHaveAttribute("href", "https://www.gov.uk/schools-admissions");
+      // FC-06 (BUG-154): no catchment section stands on
+      // the Family tab — the closing disclaimer is the
+      // single statement of the catchment and deadline
+      // substance.
+      await expect(page.locator('[data-section="catchment"]')).toHaveCount(0);
+      await expect(page.locator(".results-disclaimer-closing")).toContainText(
+        "School places are never promised and catchments are not guaranteed",
+      );
+      await expect(page.locator(".results-disclaimer-closing")).toContainText(
+        "apply by 31 Oct (secondary) / 15 Jan (primary)",
+      );
     },
   );
 
@@ -436,9 +441,9 @@ test.describe("results page — regression", () => {
       // through the same page.
       await page.goto("/search/home?postcode=CF11+8AA");
       await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
-      await expect(page.locator('[data-section="catchment"]')).toContainText(
-        "School application deadlines in Wales",
-      );
+      // FC-06 (BUG-154): the catchment block is retired
+      // in Wales too — no catchment section stands.
+      await expect(page.locator('[data-section="catchment"]')).toHaveCount(0);
       await openTab(page, "The Neighbourhood");
       await expect(page.locator('[data-section="air-noise"]')).toContainText("not covered");
       const crimeText = await page.locator('[data-section="crime"]').innerText();

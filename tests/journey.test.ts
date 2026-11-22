@@ -30,6 +30,7 @@ import {
   OWNERSHIP_NOT_PART_LINE,
   PICKER_EXPLAINER,
   PICKER_SELECT_PROMPT,
+  PICKER_TITLE,
   SEARCH_ROUTE,
   TURNSTILE_BLOCK_LINE,
   UNPLACED_NOTICE_LINE,
@@ -52,6 +53,7 @@ import {
   postcodeNotFoundLine,
   postcodeRoute,
   rowFailureLine,
+  safetyCheckingSegments,
   scopeLabelFor,
   streetChoiceCountLine,
   streetChoiceRoute,
@@ -257,33 +259,38 @@ describe("pinned journey copy", () => {
     // and facts line; the live line's fixed sentences, the
     // seal caption and the step-line words are pinned too.
     expect(CHECKING_ROWS).toHaveLength(5);
+    // BUG-144: Safety & surroundings stands last in
+    // the feed — its computation is triggered first
+    // (the flood and crime parts fire ahead of the
+    // others), so its data should be ready by the
+    // time the feed reaches it.
     expect(CHECKING_ROWS.map((row) => row.label)).toEqual([
       "Schools & nurseries",
       "Health & the everyday",
-      "Safety & surroundings",
       "Costs & connections",
       "Past sales & prices",
+      "Safety & surroundings",
     ]);
     expect(CHECKING_ROWS.map((row) => row.source)).toEqual([
       "Ofsted",
       "NHS & local data",
-      "Police.uk · Environment Agency",
       "Council & providers",
       "HM Land Registry",
+      "Police.uk · Environment Agency",
     ]);
     expect(CHECKING_ROWS.map((row) => row.doing)).toEqual([
       "Checking Ofsted ratings near this home…",
       "Finding GP, dentist, pharmacy, shops and stations…",
-      "Counting recorded crime and checking flood maps…",
       "Looking up council tax, energy, broadband and mobile…",
       "Pulling recorded sale prices for this postcode…",
+      "Counting recorded crime and checking flood maps…",
     ]);
     expect(CHECKING_ROWS.map((row) => row.ticker)).toEqual([
       "Now checking schools & nurseries near this home…",
       "Now finding the GP, dentist, pharmacy and station…",
-      "Now checking crime, flood maps and air quality…",
       "Now looking up council tax, broadband and mobile…",
       "Now pulling recorded sale prices from the Land Registry…",
+      "Now checking crime, flood maps and air quality…",
     ]);
     expect(CHECKING_START_LINE).toBe("Starting your check…");
     expect(CHECKING_READY_TICKER).toBe("Your check is ready — five areas, every figure sourced.");
@@ -303,6 +310,7 @@ describe("pinned journey copy", () => {
       "Flood risk and school places can differ from one house to the next — pick your exact house for its own check.",
     );
     expect(PICKER_SELECT_PROMPT).toBe("Choose your exact house");
+    expect(PICKER_TITLE).toBe("Pick a home");
     // The picker's confirm label and postcode-level link
     // retired with the page (18 Nov 2026): the home picker
     // lives on the postcode check — since the founder's
@@ -669,7 +677,7 @@ describe("checking group derivation — the flood part (safety segments)", () =>
   });
 });
 
-describe("checking group derivation — the area part (safety, costs, history)", () => {
+describe("checking group derivation — the crime part (safety) and the area part (costs, history)", () => {
   const areaServed = {
     rung: 1,
     kind: "area-bundle",
@@ -724,15 +732,19 @@ describe("checking group derivation — the area part (safety, costs, history)",
   } as unknown as CrimeBundle;
 
   it("composes the drawn findings for the served Birkdale-shaped case", () => {
-    const groups = areaCheckingGroups(areaServed, soldServed, crimeServed);
-    expect(groups.safetyCrime).toEqual({
+    const groups = areaCheckingGroups(areaServed, soldServed);
+    // BUG-144: the safety segments derive from the
+    // crime part's own function now — the crime bundle
+    // no longer rides the area part.
+    const safety = safetyCheckingSegments(crimeServed, areaServed);
+    expect(safety.crime).toEqual({
       text: "330 recorded crimes in the last 12 months",
       prefix: "Police.uk",
       named: false,
     });
     // A served air answer contributes no segment (the
     // drawn finding carries crime and flood).
-    expect(groups.safetyAir).toBeNull();
+    expect(safety.air).toBeNull();
     expect(groups.costs).toEqual({
       state: "done",
       line: "Council & providers — Council tax Band D average £2,108.55; gigabit-capable broadband (at least 1 Gbit/s) is available to 100% of premises in this postcode",
@@ -759,7 +771,7 @@ describe("checking group derivation — the area part (safety, costs, history)",
         reason: "Sold prices are still being gathered for this postcode.",
       },
     } as unknown as SoldPricesBundle;
-    const groups = areaCheckingGroups(areaServed, soldUnavailable, crimeServed);
+    const groups = areaCheckingGroups(areaServed, soldUnavailable);
     expect(groups.history).toEqual({
       state: "unavailable",
       line: "Sold prices are still being gathered for this postcode.",
@@ -789,7 +801,7 @@ describe("checking group derivation — the area part (safety, costs, history)",
       },
       ownHistory: [],
     } as unknown as SoldPricesBundle;
-    const groups = areaCheckingGroups(areaServed, soldBoth, crimeServed);
+    const groups = areaCheckingGroups(areaServed, soldBoth);
     expect(groups.history).toEqual({
       state: "done",
       line: "HM Land Registry — 29 recorded sales in this postcode",
@@ -815,7 +827,7 @@ describe("checking group derivation — the area part (safety, costs, history)",
       },
       ownHistory: [],
     } as unknown as SoldPricesBundle;
-    const groups = areaCheckingGroups(areaServed, soldBOnly, crimeServed);
+    const groups = areaCheckingGroups(areaServed, soldBOnly);
     expect(groups.history).toEqual({
       state: "done",
       line: "HM Land Registry — no recorded sales in this postcode count toward a median",
@@ -856,7 +868,7 @@ describe("checking group derivation — the area part (safety, costs, history)",
         },
       },
     } as unknown as AreaBundle;
-    const groups = areaCheckingGroups(areaRung2, soldServed, crimeServed);
+    const groups = areaCheckingGroups(areaRung2, soldServed);
     expect(groups.costs).toEqual({
       state: "done",
       line: "Council & providers — Council tax Band D average £2,145.00 a year; gigabit-capable broadband is available at this postcode",
@@ -872,7 +884,7 @@ describe("checking group derivation — the area part (safety, costs, history)",
       recordedCount: 0,
       stateLine: "No sale recorded for this postcode since 1995",
     } as unknown as SoldPricesBundle;
-    const groups = areaCheckingGroups(areaServed, soldNone, crimeServed);
+    const groups = areaCheckingGroups(areaServed, soldNone);
     expect(groups.history).toEqual({
       state: "done",
       line: "No sale recorded for this postcode since 1995",
@@ -891,12 +903,13 @@ describe("checking group derivation — the area part (safety, costs, history)",
       kind: "crime",
       crime: { state: "not-filed", reason: "Crime counts are not filed for this postcode yet." },
     } as unknown as CrimeBundle;
-    const groups = areaCheckingGroups(areaServed, soldNotCovered, crimeNotFiled);
+    const groups = areaCheckingGroups(areaServed, soldNotCovered);
     expect(groups.history).toEqual({
       state: "unavailable",
       line: "Sold prices cover England and Wales only.",
     });
-    expect(groups.safetyCrime).toEqual({
+    const safety = safetyCheckingSegments(crimeNotFiled, areaServed);
+    expect(safety.crime).toEqual({
       text: "Crime counts are not filed for this postcode yet.",
       prefix: "Police.uk",
       named: true,
@@ -924,7 +937,7 @@ describe("checking group derivation — the area part (safety, costs, history)",
         air: { state: "served", headlineFigure: { pollutant: "NO2", value: 8.15, line: "x" } },
       },
     } as unknown as AreaBundle;
-    const groups = areaCheckingGroups(areaNamed, soldServed, crimeServed);
+    const groups = areaCheckingGroups(areaNamed, soldServed);
     expect(groups.costs.state).toBe("unavailable");
     expect(groups.costs.line).toBe(
       "Council & providers — this council's council tax charges are not filed yet — most councils are filed in the spring pass, and until then no figure can be given; gigabit-capable broadband (at least 1 Gbit/s) is available to 100% of premises in this postcode; the energy register is not filed for this postcode yet, so no energy answer can be given yet",
@@ -943,8 +956,8 @@ describe("checking group derivation — the area part (safety, costs, history)",
         air: { state: "not-filed", line: "no modelled air quality square is filed for this point" },
       },
     } as unknown as AreaBundle;
-    const groups = areaCheckingGroups(areaAirNamed, soldServed, crimeServed);
-    expect(groups.safetyAir).toEqual({
+    const safety = safetyCheckingSegments(crimeServed, areaAirNamed);
+    expect(safety.air).toEqual({
       text: "no modelled air quality square is filed for this point",
       prefix: "Defra",
       named: true,
@@ -967,17 +980,22 @@ describe("checking outcomes assembly", () => {
     ok: true as const,
     value: [{ text: "flood risk very low", prefix: "Environment Agency", named: false }],
   };
+  // BUG-144: the crime segment and its air rider arrive
+  // on their own part now, not inside the area part.
+  const crimeOk = {
+    ok: true as const,
+    value: {
+      crime: {
+        text: "330 recorded crimes in the last 12 months",
+        prefix: "Police.uk",
+        named: false,
+      },
+      air: null,
+    },
+  };
   const areaOk = {
     ok: true as const,
     value: {
-      safety: {
-        crime: {
-          text: "330 recorded crimes in the last 12 months",
-          prefix: "Police.uk",
-          named: false,
-        },
-        air: null,
-      },
       groups: {
         costs: {
           state: "done" as const,
@@ -992,7 +1010,12 @@ describe("checking outcomes assembly", () => {
   };
 
   it("interleaves the safety segments crime, flood, air and passes the groups through", () => {
-    const outcomes = assembleCheckingOutcomes({ nearby: nearbyOk, flood: floodOk, area: areaOk });
+    const outcomes = assembleCheckingOutcomes({
+      nearby: nearbyOk,
+      flood: floodOk,
+      crime: crimeOk,
+      area: areaOk,
+    });
     expect(outcomes.safety).toEqual({
       state: "done",
       line: "Police.uk — 330 recorded crimes in the last 12 months; Environment Agency — flood risk very low",
@@ -1013,6 +1036,7 @@ describe("checking outcomes assembly", () => {
     const outcomes = assembleCheckingOutcomes({
       nearby: { ok: false },
       flood: { ok: false },
+      crime: crimeOk,
       area: areaOk,
     });
     expect(outcomes.schools).toEqual({
@@ -1025,10 +1049,11 @@ describe("checking outcomes assembly", () => {
     });
   });
 
-  it("marks the whole safety group failed-named when the area part fails", () => {
+  it("marks the whole safety group failed-named when the crime part fails (BUG-144: the crime part, not the area part)", () => {
     const outcomes = assembleCheckingOutcomes({
       nearby: nearbyOk,
       flood: floodOk,
+      crime: { ok: false },
       area: { ok: false },
     });
     expect(outcomes.costs).toEqual({
@@ -1038,6 +1063,23 @@ describe("checking outcomes assembly", () => {
     expect(outcomes.safety).toEqual({
       state: "unavailable",
       line: "Police.uk — Crime and air quality couldn't be checked just now; Environment Agency — flood risk very low",
+    });
+  });
+
+  it("completes safety from flood and crime alone — an area failure no longer touches it (BUG-144)", () => {
+    const outcomes = assembleCheckingOutcomes({
+      nearby: nearbyOk,
+      flood: floodOk,
+      crime: crimeOk,
+      area: { ok: false },
+    });
+    expect(outcomes.safety).toEqual({
+      state: "done",
+      line: "Police.uk — 330 recorded crimes in the last 12 months; Environment Agency — flood risk very low",
+    });
+    expect(outcomes.history).toEqual({
+      state: "failed",
+      line: "Past sales & prices couldn't be checked just now — the rest of the check still opens.",
     });
   });
 });
@@ -1068,52 +1110,52 @@ describe("checking part wire contract (the /api/check shapes)", () => {
     postcode: "EH1 1AD",
     flood: { state: "not-covered", reason: "Flood data covers England only." },
   } as unknown as FloodBundle);
-  const areaGroups = areaCheckingGroups(
-    {
-      rung: 1,
-      kind: "area-bundle",
-      postcode: "CM3 2JT",
-      sections: {
-        councilTax: {
-          state: "served",
-          line: "Braintree District Council's average Band D council tax for 2026/27 is £2,108.55 — an area average, not this home's bill",
-          bandDAverageLabel: "£2,108.55",
-        },
-        broadband: {
-          state: "served",
-          line: "gigabit-capable broadband (at least 1 Gbit/s) is available to 100% of premises in this postcode",
-        },
-        epc: { state: "served", headlineBand: "B" },
-        air: {
-          state: "served",
-          headlineFigure: {
-            pollutant: "NO2",
-            value: 8.15,
-            line: "modelled NO2 8.15 µg/m³ (annual mean, 2024)",
-          },
-        },
-      },
-    } as unknown as AreaBundle,
-    {
-      rung: 2,
-      kind: "sold-prices",
-      postcode: "CM1 6ER",
-      loadState: "loaded-none",
-      recordedCount: 0,
-      stateLine: "No sale recorded for this postcode since 1995",
-    } as unknown as SoldPricesBundle,
-    {
-      rung: 1,
-      kind: "crime",
-      crime: {
+  const wireAreaBundle = {
+    rung: 1,
+    kind: "area-bundle",
+    postcode: "CM3 2JT",
+    sections: {
+      councilTax: {
         state: "served",
-        totalLine:
-          "330 recorded crimes within 1 mile of this postcode, October 2025 to September 2026",
+        line: "Braintree District Council's average Band D council tax for 2026/27 is £2,108.55 — an area average, not this home's bill",
+        bandDAverageLabel: "£2,108.55",
       },
-    } as unknown as CrimeBundle,
-  );
+      broadband: {
+        state: "served",
+        line: "gigabit-capable broadband (at least 1 Gbit/s) is available to 100% of premises in this postcode",
+      },
+      epc: { state: "served", headlineBand: "B" },
+      air: {
+        state: "served",
+        headlineFigure: {
+          pollutant: "NO2",
+          value: 8.15,
+          line: "modelled NO2 8.15 µg/m³ (annual mean, 2024)",
+        },
+      },
+    },
+  } as unknown as AreaBundle;
+  const wireCrimeBundle = {
+    rung: 1,
+    kind: "crime",
+    crime: {
+      state: "served",
+      totalLine:
+        "330 recorded crimes within 1 mile of this postcode, October 2025 to September 2026",
+    },
+  } as unknown as CrimeBundle;
+  const areaGroups = areaCheckingGroups(wireAreaBundle, {
+    rung: 2,
+    kind: "sold-prices",
+    postcode: "CM1 6ER",
+    loadState: "loaded-none",
+    recordedCount: 0,
+    stateLine: "No sale recorded for this postcode since 1995",
+  } as unknown as SoldPricesBundle);
+  // BUG-144: the crime part's body is the safety
+  // segments object itself — {crime, air}.
+  const crimeBody = safetyCheckingSegments(wireCrimeBundle, wireAreaBundle);
   const areaBody = {
-    safety: { crime: areaGroups.safetyCrime, air: areaGroups.safetyAir },
     groups: { costs: areaGroups.costs, history: areaGroups.history },
   };
   const overTheWire = (body: unknown): unknown => JSON.parse(JSON.stringify(body));
@@ -1121,6 +1163,7 @@ describe("checking part wire contract (the /api/check shapes)", () => {
   it("accepts each part's body in the shape the route serves it", () => {
     expect(parseCheckingPartValue("nearby", overTheWire(nearbyBody))).toEqual(nearbyBody);
     expect(parseCheckingPartValue("flood", overTheWire(floodBody))).toEqual(floodBody);
+    expect(parseCheckingPartValue("crime", overTheWire(crimeBody))).toEqual(crimeBody);
     expect(parseCheckingPartValue("area", overTheWire(areaBody))).toEqual(areaBody);
   });
 
@@ -1128,6 +1171,7 @@ describe("checking part wire contract (the /api/check shapes)", () => {
     const outcomes = assembleCheckingOutcomes({
       nearby: { ok: true, value: parseCheckingPartValue("nearby", overTheWire(nearbyBody))! },
       flood: { ok: true, value: parseCheckingPartValue("flood", overTheWire(floodBody))! },
+      crime: { ok: true, value: parseCheckingPartValue("crime", overTheWire(crimeBody))! },
       area: { ok: true, value: parseCheckingPartValue("area", overTheWire(areaBody))! },
     });
     for (const key of ["schools", "health", "safety", "costs", "history"] as const) {
@@ -1143,14 +1187,20 @@ describe("checking part wire contract (the /api/check shapes)", () => {
     expect(parseCheckingPartValue("flood", overTheWire({ safety: floodBody }))).toBeNull();
   });
 
-  it("rejects a nearby body missing a group, and an area body missing its crime segment", () => {
+  it("rejects a nearby body missing a group, a crime body missing its segment, and the pre-BUG-144 area shape", () => {
     expect(
       parseCheckingPartValue("nearby", overTheWire({ schools: nearbyBody.schools })),
     ).toBeNull();
+    expect(parseCheckingPartValue("crime", overTheWire({ air: null }))).toBeNull();
+    // The area body as it stood before BUG-144 — the
+    // safety object riding inside it — is no longer
+    // the contract: the safety segments travel on the
+    // crime part, and an area body still carrying them
+    // (with no groups) is rejected.
     expect(
       parseCheckingPartValue(
         "area",
-        overTheWire({ safety: { air: null }, groups: areaBody.groups }),
+        overTheWire({ safety: { crime: crimeBody.crime, air: null } }),
       ),
     ).toBeNull();
   });

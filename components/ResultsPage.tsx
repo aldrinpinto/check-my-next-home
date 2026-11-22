@@ -5,7 +5,6 @@ import {
   type ResultsView,
   type SectionBlock,
 } from "../lib/results";
-import { POSTCODE_BOX_PLACEHOLDER } from "../lib/home";
 import type { ShortlistCard } from "../lib/shortlist";
 import {
   DISCLAIMER_CLOSING_BLOCK,
@@ -16,6 +15,7 @@ import {
 } from "../lib/site";
 import Calculators from "./Calculators";
 import { Notice, SummaryPill } from "./kit";
+import PostcodeBox from "./PostcodeBox";
 import ReportLink from "./ReportLink";
 import ShortlistButton from "./ShortlistButton";
 import Tabs from "./Tabs";
@@ -31,12 +31,14 @@ import Tabs from "./Tabs";
 // slim line directly under it (only when a warning is
 // active; the D42 failure line travels with it), the D9
 // short form verbatim beside the results (D66), the three
-// tabs in their fixed order, and the Final Design's closing
-// disclaimer block at the very bottom. Below the tabs sit
-// the buy bar, the calculators (absent on the wider-area
-// view, M7.10 G2) and the collapsed "About these checks"
-// expander (M7.12) — the only home for the per-check links,
-// derived in lib/results.ts from the sections carried. The page opens
+// tabs in their fixed order, and — directly under the
+// tabs since BUG-143 — the Final Design's closing
+// disclaimer block. Below it sit the buy bar, the
+// calculators (absent on the wider-area view, M7.10 G2)
+// and, last on the page, the "About these checks" pill
+// strip (M7.12; a pull-down until BUG-143) — the only
+// home for the per-check links, derived in lib/results.ts
+// from the sections carried. The page opens
 // expanded; the website has no collapsed form, and tab
 // state stays out of the URL — the Tabs block always opens
 // on the first tab, Family Checks.
@@ -102,16 +104,21 @@ function PlaceGroup({ group }: { group: PlaceGroupView }) {
       {group.grammarSchools.length > 0 && (
         // BUG-108: the grammar block names EVERY selective
         // secondary within the grammar search, nearest
-        // first, each with its distance — one starred row
-        // per school in the Master's form.
+        // first, each with its distance. FC-04 (BUG-154):
+        // the row wears the sample's exact form — the
+        // school's name alone (the star glyph and the
+        // "Grammar schools — " prefix are out), the small
+        // "Entry by test." line restored under the name,
+        // and the badge in the sample's grey.
         <div className="place-group__grammar">
           <ul className="place-list">
             {group.grammarSchools.map((school) => (
               <li className="place-row place-row--grammar" key={school.name}>
                 <span className="place-row__main">
-                  <span className="place-row__name">★ Grammar schools — {school.name}</span>
+                  <span className="place-row__name">{school.name}</span>
+                  <span className="place-row__detail">Entry by test.</span>
                 </span>
-                <span className="badge badge--grammar">SELECTIVE — TEST ENTRY</span>
+                <span className="badge badge--grey">SELECTIVE — TEST ENTRY</span>
                 <span className={`place-row__miles place-row__miles--${school.band}`}>
                   {school.milesText}
                 </span>
@@ -165,10 +172,40 @@ function UpsellRow({
   );
 }
 
-function Block({ block, reportHref }: { block: SectionBlock; reportHref: string | null }) {
+function Block({
+  block,
+  reportHref,
+  district = false,
+}: {
+  block: SectionBlock;
+  reportHref: string | null;
+  district?: boolean;
+}) {
   switch (block.type) {
     case "line":
       return <p className="results-line">{block.text}</p>;
+    case "small-line":
+      // The small-print dress (NB-01 / HCR-19): small,
+      // muted, no line of its own.
+      return <p className="results-small-line">{block.text}</p>;
+    case "list":
+      // The bullet treatment (BUG-156): one fact per
+      // item, an optional bold lead-in, the site's tick
+      // bullet — no line of its own.
+      return (
+        <ul className="results-list">
+          {block.items.map((item) => (
+            <li className="results-list__item" key={item.text}>
+              {item.lead && (
+                <strong className="results-list__lead">
+                  {item.lead.endsWith(":") ? `${item.lead} ` : `${item.lead} — `}
+                </strong>
+              )}
+              {item.text}
+            </li>
+          ))}
+        </ul>
+      );
     case "subheading":
       return <h4 className="results-subheading">{block.text}</h4>;
     case "upsell":
@@ -192,6 +229,24 @@ function Block({ block, reportHref }: { block: SectionBlock; reportHref: string 
         </p>
       );
     case "tiles":
+      // WA-07: on the district page the tiles wear
+      // Sample 28's form — the heavy sans value over a
+      // sentence-case descriptive sublabel, no uppercase
+      // label. The description is the tile's sub where
+      // one rides, else its label (district compositions
+      // carry the description in the label).
+      if (district) {
+        return (
+          <ul className="district-tiles">
+            {block.tiles.map((tile) => (
+              <li className="district-tile" key={tile.label}>
+                <span className="district-tile__value">{tile.value}</span>
+                <span className="district-tile__sub">{tile.sub ?? tile.label}</span>
+              </li>
+            ))}
+          </ul>
+        );
+      }
       return (
         <ul className="results-tiles">
           {block.tiles.map((tile) => (
@@ -205,7 +260,12 @@ function Block({ block, reportHref }: { block: SectionBlock; reportHref: string 
       );
     case "tagged-line":
       // The Master's .row form: bold lead, small texts,
-      // fineprint, badge at the right.
+      // fineprint, badge at the right. BUG-156: a row
+      // whose facts take the bullet treatment renders
+      // them as a list under the lead (HCR-18), and a
+      // row carrying a distance chip (the brownfield
+      // row, HCR-05) renders it beside the badge in the
+      // place rows' chip dress.
       return (
         <div className="results-row">
           <div className="results-row__main">
@@ -215,8 +275,22 @@ function Block({ block, reportHref }: { block: SectionBlock; reportHref: string 
                 {text}
               </span>
             ))}
+            {block.bullets && block.bullets.length > 0 && (
+              <ul className="results-list results-list--row">
+                {block.bullets.map((bullet) => (
+                  <li className="results-list__item" key={bullet}>
+                    {bullet}
+                  </li>
+                ))}
+              </ul>
+            )}
             {block.fineprint && <span className="results-row__fineprint">{block.fineprint}</span>}
           </div>
+          {block.miles && (
+            <span className={`place-row__miles place-row__miles--${block.miles.band}`}>
+              {block.miles.text}
+            </span>
+          )}
           {block.tag && (
             <span className={`badge badge--${block.tagTone ?? "grey"}`}>{block.tag}</span>
           )}
@@ -274,6 +348,11 @@ function Block({ block, reportHref }: { block: SectionBlock; reportHref: string 
         </div>
       );
     case "deciles":
+      // WA-09: Sample 28's reading order — the colour
+      // block, the decile number bold beneath it (the
+      // figure), the area count small beneath that (the
+      // detail). Under partial filing a zero reads "·":
+      // none filed in that decile SO FAR is not none.
       return (
         <div
           className="deciles"
@@ -281,11 +360,127 @@ function Block({ block, reportHref }: { block: SectionBlock; reportHref: string 
           aria-label="Small areas counted in each deprivation decile, 1 to 10"
         >
           {block.counts.map((count, index) => (
-            <div className="decile" key={index} data-empty={count === 0 || undefined}>
-              <span className="decile__count">{count > 0 ? count : "·"}</span>
+            <div className="decile" key={index}>
+              <span className="decile__block" />
               <span className="decile__num">{index + 1}</span>
+              <span className="decile__count">
+                {block.partial && count === 0
+                  ? "·"
+                  : index === 0
+                    ? `${count} area${count === 1 ? "" : "s"}`
+                    : count}
+              </span>
             </div>
           ))}
+        </div>
+      );
+    case "row":
+      // Sample 28's .row (WA-03): bold lead, small
+      // detail beneath, the count at the right, a dashed
+      // rule under — between entries only (the CSS drops
+      // it under a section's last row).
+      return (
+        <div className="district-row">
+          <span className="district-row__main">
+            <span className="district-row__lead">{block.lead}</span>
+            {block.detail && <span className="district-row__detail">{block.detail}</span>}
+          </span>
+          {block.value && <span className="district-row__value">{block.value}</span>}
+        </div>
+      );
+    case "bar-compare":
+      // WA-08: the crime comparison panel — cream
+      // ground, the heading bold in Deep Forest, the
+      // label above each track, England in brass, the
+      // calibration note inside the panel.
+      return (
+        <div className="bar-compare">
+          <p className="bar-compare__heading">{block.heading}</p>
+          {block.rows.map((row) => (
+            <div key={row.label}>
+              <p className="bar-compare__label">{row.text}</p>
+              <div className="bar-compare__track">
+                <span
+                  className={`bar-compare__fill${row.england ? " bar-compare__fill--england" : ""}`}
+                  style={{ width: `${Math.max(0, Math.min(100, row.pctOfMax))}%` }}
+                />
+              </div>
+            </div>
+          ))}
+          {block.note && <p className="bar-compare__note">{block.note}</p>}
+        </div>
+      );
+    case "flood-grid":
+      // WA-05/WA-06: the two flood layers as cards —
+      // serif title, share sub-line, the stackbar, and
+      // the legend carrying every share.
+      return (
+        <div className="flood-grid">
+          {block.cards.map((card) => (
+            <div className="flood-card" key={card.title}>
+              <h4 className="flood-card__title">{card.title}</h4>
+              <p className="flood-card__sub">{card.sub}</p>
+              <div
+                className="stackbar"
+                role="img"
+                aria-label={card.segments
+                  .map((segment) => `${segment.label} ${segment.pct}%`)
+                  .join(", ")}
+              >
+                {card.segments
+                  .filter((segment) => segment.pct > 0)
+                  .map((segment) => (
+                    <span
+                      className={`stackbar__seg stackbar__seg--${segment.tone}`}
+                      key={segment.label}
+                      style={{ width: `${segment.pct}%` }}
+                    />
+                  ))}
+              </div>
+              <ul className="flood-legend">
+                {card.segments.map((segment) => (
+                  <li key={segment.label}>
+                    <span className={`flood-legend__dot flood-legend__dot--${segment.tone}`} />
+                    {segment.label} {segment.pct}%
+                  </li>
+                ))}
+              </ul>
+              {card.narrative && (
+                <p className="flood-card__narrative">
+                  <strong>{card.narrative.lead}</strong> {card.narrative.text}
+                </p>
+              )}
+              {card.definitions && <p className="results-small-line">{card.definitions}</p>}
+            </div>
+          ))}
+        </div>
+      );
+    case "warn-strip":
+      // WA-12: the live-warnings strip — green ground,
+      // the status dot, the served line bold.
+      return (
+        <div className="warn-strip">
+          <span className="warn-strip__dot" aria-hidden="true">
+            ●
+          </span>
+          <div className="warn-strip__main">
+            <p className="warn-strip__line">{block.line}</p>
+            {block.areas.map((area) => (
+              <p className="warn-strip__area" key={area}>
+                {area}
+              </p>
+            ))}
+          </div>
+        </div>
+      );
+    case "bandbox":
+      // WA-14: the honesty line's amber box, under its
+      // standing lead.
+      return (
+        <div className="bandbox">
+          <p>
+            <strong>{block.lead}</strong> {block.text}
+          </p>
         </div>
       );
     case "stackbar":
@@ -338,10 +533,13 @@ function Block({ block, reportHref }: { block: SectionBlock; reportHref: string 
       );
     case "infobox":
       // The sample's .infobox dress: the flood roll-up's
-      // method box.
+      // method box. WA-14: its lead stands bold.
       return (
         <div className="infobox">
-          <p>{block.text}</p>
+          <p>
+            {block.lead && <strong>{block.lead} </strong>}
+            {block.text}
+          </p>
         </div>
       );
   }
@@ -351,10 +549,12 @@ function Section({
   section,
   warningsState,
   reportHref,
+  district = false,
 }: {
   section: ResultsSectionView;
   warningsState?: string | null;
   reportHref: string | null;
+  district?: boolean;
 }) {
   return (
     <section
@@ -362,15 +562,41 @@ function Section({
       data-section={section.key}
       data-warnings-state={section.key === "flood" ? (warningsState ?? undefined) : undefined}
     >
-      <h3 className="results-section__heading">{section.heading}</h3>
+      {district && section.districtHead ? (
+        // WA-01: Sample 28's two-tier head — the numbered
+        // label (NO line above it: the district page's
+        // sections are separated by whitespace, not the
+        // home rulebook's rule), the serif title, the
+        // grain pill at the right.
+        <>
+          <h3 className="district-sect">{section.districtHead.label}</h3>
+          <div className="district-sect-head2">
+            <span className="district-sect-title">{section.districtHead.title}</span>
+            {section.districtHead.grain && (
+              <span className="district-grain">{section.districtHead.grain}</span>
+            )}
+          </div>
+        </>
+      ) : (
+        <h3 className="results-section__heading">{section.heading}</h3>
+      )}
       {section.blocks.map((block, index) => (
-        <Block key={index} block={block} reportHref={reportHref} />
+        <Block key={index} block={block} reportHref={reportHref} district={district} />
       ))}
-      {/* Item 15 (parity fix batch): the per-section source
-          lines no longer render on the results page — the
-          Master carries none; sources live on the check
-          pages and in the report. The view still carries
-          section.sourceLine for those surfaces. */}
+      {district && section.sourceLine ? (
+        // WA-04: the district page restores its per-section
+        // source lines in Sample 28's .source form (the
+        // home pages' item-15 retirement stands — the
+        // Master carries none there).
+        <p className="district-source">Source: {section.sourceLine}</p>
+      ) : (
+        // Item 15 (parity fix batch): the per-section source
+        // lines no longer render on the HOME results page —
+        // the Master carries none; sources live on the check
+        // pages and in the report. The view still carries
+        // section.sourceLine for those surfaces.
+        <></>
+      )}
     </section>
   );
 }
@@ -387,8 +613,15 @@ export default function ResultsPage({
   // Rung 2 and the not-covered branch pass none.
   shortlistCard?: ShortlistCard | null;
 }) {
+  // The district (wider-area) view is the one carrying a
+  // bridge; it wears Sample 28's own dress (BUG-160 as
+  // corrected by the wider-area audit): the two-tier
+  // section heads, the .source lines, the boxed
+  // disclaimers panel at the foot, and no D9 short form
+  // (Sample 28 does not draw one).
+  const district = view.bridge != null;
   return (
-    <div className="results">
+    <div className={district ? "results results--district" : "results"}>
       {view.pills && (
         <div className="results-strip" aria-label="The short version">
           {view.pills.map((pill) => (
@@ -428,7 +661,7 @@ export default function ResultsPage({
           check line), and the Master's stylesheet still
           carries this class's dress. The closing block
           at the foot is a separate instance, untouched. */}
-      <p className="results-disclaimer-short">{DISCLAIMER_SHORT_FORM}</p>
+      {!district && <p className="results-disclaimer-short">{DISCLAIMER_SHORT_FORM}</p>}
       <Tabs
         ariaLabel="Your check, in four parts"
         tabs={view.tabs.map((tab) => ({
@@ -442,38 +675,44 @@ export default function ResultsPage({
                   section={section}
                   warningsState={view.floodWarningsState}
                   reportHref={view.reportHref}
+                  district={district}
                 />
               ))}
             </div>
           ),
         }))}
       />
+      {/* BUG-143 (founder ruling, 22 Nov 2026): the
+          closing disclaimer strip stands directly under
+          the results it qualifies — it stood at the very
+          foot of the page until this stack, below the
+          calculators and the About block, where it read
+          as out of place. The district page instead
+          closes in Sample 28's order — bridge, About
+          strip, then the boxed disclaimers panel (WA-11)
+          rendered after the check pills below. */}
+      {!district && (
+        <p className="results-disclaimer-closing">
+          {DISCLAIMER_CLOSING_BLOCK} <a href={HOW_WE_CHECK_PATH}>{DISCLAIMER_CLOSING_LINK_LABEL}</a>
+          .
+        </p>
+      )}
       {view.bridge && (
         <div className="district-bridge">
           <h2 className="district-bridge__heading">{view.bridge.heading}</h2>
           <p className="district-bridge__line">{view.bridge.line}</p>
-          {/* The bridge in the sample's dress (founder fix
-              batch, 19 Nov 2026 — audit item 5): a light
-              section with a plain postcode-only form — no
-              search box machinery, no Turnstile (the GET
-              lands on /search, which resolves server-side
-              exactly as a typed URL does) — and the
-              district's named-area postcode links. */}
-          <form className="district-bridge__form" action="/search" method="get">
-            <label className="visually-hidden" htmlFor="district-bridge-postcode">
-              Full postcode
-            </label>
-            <input
-              className="district-bridge__input"
-              id="district-bridge-postcode"
-              name="postcode"
-              placeholder={POSTCODE_BOX_PLACEHOLDER}
-              autoComplete="postal-code"
-            />
-            <button className="btn btn--primary" type="submit">
-              Check this home →
-            </button>
-          </form>
+          {/* The bridge's search (founder fix batch,
+              19 Nov 2026 — audit item 5 — then BUG-147,
+              founder finding 22 Nov 2026): the plain
+              postcode-only form that stood here dead-ended
+              on anything it could not resolve (a district
+              typed into it went nowhere). The bridge now
+              carries the standard PostcodeBox (D72
+              hybrid) — suggestions, the pick flow and
+              the routing every other surface has — and
+              the district's named-area postcode links
+              below it. */}
+          <PostcodeBox bare />
           {view.bridge.links.length > 0 && (
             <div className="district-bridge__links">
               {view.bridge.links.map((link) => (
@@ -511,24 +750,43 @@ export default function ResultsPage({
         />
       )}
       {view.checkLinks.length > 0 && (
-        <details className="about-checks">
-          <summary>About these checks</summary>
-          <ul className="about-checks__list">
+        // BUG-143 (founder ruling, 22 Nov 2026): the
+        // pull-down is gone — it read as a static card,
+        // or an empty box closed. The check links stand
+        // as little clickable pills in one closing strip,
+        // the page's last furniture. The links themselves
+        // stay: they are the doorway to the check pages
+        // and carry the site's internal linking.
+        <nav className="check-pills" aria-label="About these checks">
+          <h2 className="check-pills__heading">About these checks</h2>
+          <ul className="check-pills__list">
             {view.checkLinks.map((link) => (
               // Keyed by href AND label (founder fix batch):
               // the district view's eleven legitimately
               // repeat an href (three sections share the
               // How-we-check page) under different labels.
               <li key={`${link.href}|${link.label}`}>
-                <a href={link.href}>{link.label}</a>
+                <a className="check-pills__pill" href={link.href}>
+                  {link.label}
+                </a>
               </li>
             ))}
           </ul>
-        </details>
+        </nav>
       )}
-      <p className="results-disclaimer-closing">
-        {DISCLAIMER_CLOSING_BLOCK} <a href={HOW_WE_CHECK_PATH}>{DISCLAIMER_CLOSING_LINK_LABEL}</a>.
-      </p>
+      {district && (
+        // WA-11: the district page closes with Sample
+        // 28's boxed disclaimers panel — the same closing
+        // words, wearing the panel's dress under its
+        // "Disclaimers" head.
+        <div className="district-disclaimers">
+          <h4>Disclaimers</h4>
+          <p>
+            {DISCLAIMER_CLOSING_BLOCK}{" "}
+            <a href={HOW_WE_CHECK_PATH}>{DISCLAIMER_CLOSING_LINK_LABEL}</a>.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
