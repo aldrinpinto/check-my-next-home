@@ -8,6 +8,7 @@ import {
   buildReportPaymentView,
   liveStartedPayment,
   paymentElementKey,
+  PAYMENT_CONSENT_ERROR_LINE,
   PAYMENT_CONSENT_LABEL,
   PAYMENT_EMAIL_ERROR,
   PAYMENT_EMAIL_HELP,
@@ -76,7 +77,11 @@ describe("payment page — the view (Sample 9)", () => {
       { lead: "Questions to ask the seller", rest: null },
       { lead: "One dated, print-ready document", rest: null },
     ]);
-    expect(view.priceLine).toBe("One payment. No subscription, nothing further to pay.");
+    // BUG-131 (payment-flow parity stack, 22 Nov
+    // 2026): the view no longer carries a price line
+    // at all — the honesty block is the page's single
+    // money statement. The rendered absence is pinned
+    // in the structure test below.
     expect(view.payLabel).toBe("Pay £4.99");
   });
 
@@ -208,30 +213,53 @@ describe("payment page — the honest pre-payment screen (M9.5, T-PAY-06)", () =
     const refundAt = html.indexOf(PAYMENT_REFUND_LINE);
     const tickAt = html.indexOf(PAYMENT_CONSENT_LABEL);
     const emailAt = html.indexOf("Email address for delivery");
-    const teaseAt = html.indexOf(BUY_BAR_MYSTERY_LINE);
     expect(lineAt).toBeGreaterThan(-1);
     expect(priceAt).toBeGreaterThan(lineAt);
     expect(refundAt).toBeGreaterThan(priceAt);
     expect(tickAt).toBeGreaterThan(refundAt);
     expect(emailAt).toBeGreaterThan(tickAt);
-    expect(teaseAt).toBeGreaterThan(emailAt);
+    // BUG-133 (payment-flow parity stack, 22 Nov
+    // 2026): the mystery tease no longer stands below
+    // the email block — it stands directly under the
+    // page intro, above the contents card.
+    const headingAt = html.indexOf("The detailed report for 19 Birkdale Rise");
+    const teaseAt = html.indexOf(BUY_BAR_MYSTERY_LINE);
+    const contentsAt = html.indexOf("What the detailed report adds");
+    expect(teaseAt).toBeGreaterThan(headingAt);
+    expect(contentsAt).toBeGreaterThan(teaseAt);
     // The line's Terms link is real: the label stands
     // inside an anchor on /terms, the full stop after
     // it — the composed line, exactly as ruled.
     expect(html).toContain(`<a href="${PAYMENT_TERMS_HREF}">${PAYMENT_TERMS_LINK_LABEL}</a>.`);
   });
 
-  it("renders the tick-box unticked, and the start button disabled while it stands unticked", () => {
+  it("renders the tick-box unticked, and the start button in its disabled dress while it stands unticked", () => {
     const html = renderPaid();
     const box = html.match(/<input[^>]*id="payment-consent"[^>]*>/);
     expect(box).not.toBeNull();
     expect(box?.[0]).toContain('type="checkbox"');
     expect(box?.[0]).not.toContain("checked");
-    // Unticked = cannot pay: the only Pay button the
-    // pre-payment state renders stands disabled.
+    // BUG-132 (payment-flow parity stack, 22 Nov
+    // 2026): the button is no longer hard-disabled
+    // while unticked — it wears the disabled dress
+    // (aria-disabled, no disabled attribute) so an
+    // attempt can be answered with the consent error
+    // under the tick line instead of silence. Unticked
+    // still = cannot pay: the start effect requires
+    // the consent to stand (pinned by the
+    // liveStartedPayment proofs below and the intent
+    // route's own tests).
     const startButton = html.match(/<button[^>]*class="btn btn--brass report-payment__pay"[^>]*>/);
     expect(startButton).not.toBeNull();
-    expect(startButton?.[0]).toContain("disabled");
+    expect(startButton?.[0]).toContain('aria-disabled="true"');
+    expect(startButton?.[0]).not.toMatch(/(?:^|\s)disabled(?:\s|=|>)/);
+    // The consent error line is the pinned new copy
+    // (it renders only on an unticked attempt, a
+    // client-side state the static render cannot
+    // reach; its wording is pinned here).
+    expect(PAYMENT_CONSENT_ERROR_LINE).toBe(
+      "Tick this box to continue — it confirms you understand the report is made for you straight away, and that the 14-day change-of-mind right ends once it is delivered.",
+    );
   });
 
   it("a started payment lives only while its email and its consent still stand", () => {
@@ -279,8 +307,12 @@ describe("payment page — the honest pre-payment screen (M9.5, T-PAY-06)", () =
 });
 
 describe("payment page — the rendered page (the step's Check, rendered half)", () => {
-  it("renders the page's structure: heading, lede, contents, honesty area, email block, tease, card panel, Pay button", () => {
+  it("renders the page's structure: heading, lede, tease, contents, honesty area, email block, card panel, Pay button", () => {
     const html = renderPaid();
+    // BUG-131: the one-payment line is gone from the
+    // page altogether — the honesty block's own £4.99
+    // line is the single money statement.
+    expect(html).not.toContain("One payment. No subscription, nothing further to pay.");
     expect(html).toContain("The detailed report for 19 Birkdale Rise");
     expect(html).toContain("Hatfield Peverel, CM3 2JT");
     expect(html).toContain("What the detailed report adds");

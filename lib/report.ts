@@ -37,6 +37,7 @@ import {
   type ServedFloodWarning,
 } from "./flood";
 import { formatFiledDate, formatMiles, formatPounds, nationOfLsoa } from "./journey";
+import { SELECTIVE_LIST_SIZE, SELECTIVE_SEARCH_MILES } from "./nearby";
 import type { CategoryAnswer, NearbyBundle, NearbyCategory, NearbyPlace } from "./nearby";
 import { nationOfPostcode } from "./nation";
 import {
@@ -504,6 +505,14 @@ export type ReportBlock =
   | { type: "questions"; items: { title: string; text: string }[] }
   | { type: "note"; text: string }
   | { type: "lineLink"; text: string; label: string; href: string }
+  // A link standing in the small-print dress (the note
+  // style's size), where the line it belongs to is
+  // furniture rather than a finding — the mortgage
+  // block's official rates link (BUG-137). Rendered in
+  // the note's classes with the anchor inside; like
+  // lineLink, its label is a composed constant and the
+  // capitalisation/sentence passes leave it untouched.
+  | { type: "noteLink"; text: string; label: string; href: string }
   | { type: "map"; map: ReportMapModel }
   | { type: "floodMap"; map: ReportFloodMapModel }
   | { type: "links"; links: { label: string; href: string }[] };
@@ -2095,9 +2104,17 @@ function section3(input: ReportInput): ReportSectionView {
   );
   if (unlistedSelective.length > 0) {
     blocks.push({ type: "sub", text: "Selective schools" });
+    // BUG-140 (founder ruling 22 Nov 2026): the list
+    // shows the nearest five — in London the full
+    // 10-mile set runs to eight and more and crowds
+    // the section — and where it is cut, a count line
+    // after the rows states the true total within the
+    // grammar search, so the cap never reads as the
+    // whole picture. At five or fewer the list simply
+    // shows them all and no count line stands.
     blocks.push({
       type: "rows",
-      rows: unlistedSelective.map((selective) => ({
+      rows: unlistedSelective.slice(0, SELECTIVE_LIST_SIZE).map((selective) => ({
         name: selective.name,
         detail: null,
         tag: "Grammar school",
@@ -2108,6 +2125,12 @@ function section3(input: ReportInput): ReportSectionView {
         bullets: ["Entry by test."],
       })),
     });
+    if (unlistedSelective.length > SELECTIVE_LIST_SIZE) {
+      blocks.push({
+        type: "line",
+        text: `There are ${count(selectiveSchools.length)} selective schools within ${SELECTIVE_SEARCH_MILES} miles of ${input.resolution.rung === 1 ? "this home" : "this postcode"} — the ${SELECTIVE_LIST_SIZE} nearest of those not already listed above are shown.`,
+      });
+    }
   }
   // The catchment honesty block no longer stands here
   // (BUG-050(ii)): the sample carries the school-places
@@ -2591,17 +2614,32 @@ function section4(input: ReportInput): ReportSectionView {
   if (sections) {
     const zones = sections.chargingZones;
     blocks.push({ type: "sub", text: "Clean air zones & driving charges" });
-    blocks.push({ type: "line", text: zones.line });
     if (zones.scheme) {
-      if (zones.scheme.carsLine) blocks.push({ type: "line", text: zones.scheme.carsLine });
-      if (zones.scheme.classLine) blocks.push({ type: "line", text: zones.scheme.classLine });
-      if (zones.scheme.dateLine) blocks.push({ type: "line", text: zones.scheme.dateLine });
+      // BUG-142 (founder ruling 22 Nov 2026): inside a
+      // zone, the block's statement lines — the inside
+      // statement, the scheme's own lines and the
+      // charges-began line, in their standing order —
+      // print as one bulleted list, not a stack of
+      // paragraphs. The checker link keeps its own line
+      // below the list, and the basis note stays small
+      // print. Outside or not covered, the state line
+      // stands alone as prose, as every absence state
+      // in the report does.
+      const statements = [
+        zones.line,
+        zones.scheme.carsLine,
+        zones.scheme.classLine,
+        zones.scheme.dateLine,
+      ].filter((line): line is string => typeof line === "string" && line !== "");
+      if (statements.length > 0) blocks.push({ type: "list", items: statements });
       blocks.push({
         type: "lineLink",
         text: "",
         label: zones.scheme.checkerLabel,
         href: zones.scheme.checkerUrl,
       });
+    } else {
+      blocks.push({ type: "line", text: zones.line });
     }
     if (zones.basisLine) blocks.push({ type: "note", text: zones.basisLine });
   }
@@ -3149,38 +3187,35 @@ function section7(input: ReportInput): ReportSectionView {
       type: "line",
       text: `Worked on this home's last recorded sale price — ${formatPounds(price)} on ${formatFiledDate(lastSale.date)} — on the standard assumptions: a ${MORTGAGE_DEFAULT_DEPOSIT_PCT}% deposit, a ${MORTGAGE_DEFAULT_TERM_YEARS}-year term and a ${MORTGAGE_DEFAULT_RATE_PCT}% interest rate.`,
     });
-    if (mortgage.sentence) blocks.push({ type: "line", text: mortgage.sentence });
+    // BUG-137 (founder ruling 22 Nov 2026): the two
+    // worked findings — the loan/monthly-payment line
+    // and the stamp duty line (or the named nation line
+    // standing in its place) — print as one bulleted
+    // list; the basis line above stays the lead-in
+    // prose. The official rates link below the list
+    // takes the small-print dress (a noteLink): it is
+    // furniture, not a finding, and no longer stands
+    // at body size.
+    const mortgageFindings: string[] = [];
+    if (mortgage.sentence) mortgageFindings.push(mortgage.sentence);
     const nation = nationOfLsoa(
       "directory" in input.resolution ? input.resolution.directory.lsoaCode : null,
     );
+    let ratesLink: { label: string; href: string };
     if (nation === "scotland") {
-      blocks.push({ type: "line", text: sentenceLine(SCOTLAND_TAX_LINE) });
-      blocks.push({
-        type: "lineLink",
-        text: "",
-        label: SCOTLAND_TAX_LINK.label,
-        href: SCOTLAND_TAX_LINK.url,
-      });
+      mortgageFindings.push(sentenceLine(SCOTLAND_TAX_LINE));
+      ratesLink = { label: SCOTLAND_TAX_LINK.label, href: SCOTLAND_TAX_LINK.url };
     } else if (nation === "wales") {
-      blocks.push({ type: "line", text: sentenceLine(WALES_TAX_LINE) });
-      blocks.push({
-        type: "lineLink",
-        text: "",
-        label: WALES_TAX_LINK.label,
-        href: WALES_TAX_LINK.url,
-      });
+      mortgageFindings.push(sentenceLine(WALES_TAX_LINE));
+      ratesLink = { label: WALES_TAX_LINK.label, href: WALES_TAX_LINK.url };
     } else {
-      blocks.push({
-        type: "line",
-        text: `Stamp duty on that price would be ${formatPounds(stampDuty(price, "moving"))} at the standard rates for a buyer moving from their own home.`,
-      });
-      blocks.push({
-        type: "lineLink",
-        text: "",
-        label: STAMP_DUTY_RATES_LINE,
-        href: STAMP_DUTY_RATES_URL,
-      });
+      mortgageFindings.push(
+        `Stamp duty on that price would be ${formatPounds(stampDuty(price, "moving"))} at the standard rates for a buyer moving from their own home.`,
+      );
+      ratesLink = { label: STAMP_DUTY_RATES_LINE, href: STAMP_DUTY_RATES_URL };
     }
+    if (mortgageFindings.length > 0) blocks.push({ type: "list", items: mortgageFindings });
+    blocks.push({ type: "noteLink", text: "", label: ratesLink.label, href: ratesLink.href });
     blocks.push({
       type: "note",
       text: "Illustration only — rates change, and this is not advice and not a verdict on what you can afford.",
@@ -3435,23 +3470,37 @@ function section7(input: ReportInput): ReportSectionView {
   // beneath the headline stands in the report alone.
   const broadband = sections.broadband;
   blocks.push({ type: "sub", text: "Broadband" });
-  if (broadband.line) blocks.push({ type: "line", text: broadband.line });
-  // The threshold lines beneath the gigabit headline
-  // print as a bulleted list (BUG-122, founder ruling
-  // 22 Nov 2026): superfast and ultrafast, each the
-  // share of premises in this postcode, as served. The
-  // "300 Mbit/s or more" line no longer stands here —
-  // it duplicates the band table's fastest row, and the
-  // gigabit headline above already carries the
-  // technology story. No line separates full fibre from
-  // the other gigabit-capable technologies, because the
-  // data does not (the section's explainer, in Section
-  // 10's sources, says so) — no full-fibre claim is made.
+  // The threshold lines print as a bulleted list
+  // (BUG-122, founder ruling 22 Nov 2026): superfast
+  // and ultrafast, each the share of premises in this
+  // postcode, as served — and the gigabit-capable line
+  // heads the same list as its first item (BUG-138):
+  // it stood above the list as a plain paragraph,
+  // reading as a stray headline over its own bullets.
+  // Where no threshold lines serve (the not-filed
+  // state), the gigabit line keeps its standalone form
+  // — it is then the block's state line, not a finding
+  // among findings. The "300 Mbit/s or more" line no
+  // longer stands here — it duplicates the band
+  // table's fastest row, and the gigabit item above
+  // already carries the technology story. No line
+  // separates full fibre from the other
+  // gigabit-capable technologies, because the data
+  // does not (the section's explainer, in Section 10's
+  // sources, says so) — no full-fibre claim is made.
   const thresholdLines = [broadband.superfastLine, broadband.ultrafast100Line].filter(
     (line): line is string => typeof line === "string",
   );
-  if (thresholdLines.length > 0)
-    blocks.push({ type: "list", items: thresholdLines.map((line) => sentenceLine(line)) });
+  if (thresholdLines.length > 0) {
+    blocks.push({
+      type: "list",
+      items: [broadband.line, ...thresholdLines]
+        .filter((line): line is string => typeof line === "string")
+        .map((line) => sentenceLine(line)),
+    });
+  } else if (broadband.line) {
+    blocks.push({ type: "line", text: broadband.line });
+  }
   // ONE small-print line above the band table ties the
   // three systems together (BUG-122): the bands split
   // the same premises and add to 100%, superfast is the
@@ -4065,7 +4114,9 @@ function section6(input: ReportInput): ReportSectionView {
   // with it: exactly as published with the source date,
   // a neutral label, no colour, score or verdict, and
   // never in the short version, the headlines or the
-  // pills — plain lines here and nowhere else. (The block
+  // pills — the one bulleted list here and nowhere else
+  // (the list form is BUG-136's; the guardrails are
+  // unchanged). (The block
   // stood at the end of Section 4 until the print-check
   // regrouping, item 14; its bases stay explained in the
   // report — no check page covers benefits, and item 20's
@@ -4086,29 +4137,39 @@ function section6(input: ReportInput): ReportSectionView {
       text: `These counts are for the small area this home sits in — its Lower Layer Super Output Area (LSOA). The area holds ${count(benefits.bases.residents)} residents and ${count(benefits.bases.households)} households (Census 2021).`,
     });
   }
+  // The series' answers stand as one bulleted list
+  // (BUG-136, founder ruling 22 Nov 2026): each served
+  // figure a bullet, in series order — the block was
+  // the one findings list in the report printing as
+  // plain paragraphs. In the not-filed state the same
+  // list carries the series' absence lines instead:
+  // the findings list in its absence form (BUG-142).
+  // The framing above stays prose — it introduces the
+  // list; it is not a finding. A served series whose
+  // bases are missing keeps its brain line, as a
+  // bullet among the rest.
+  const benefitFindings: string[] = [];
   for (const series of benefits.series) {
     if (series.state === "served" && series.count !== null && benefits.bases) {
       const month = series.monthLabel ? ` in ${series.monthLabel}` : "";
       if (series.series === "claimant_count") {
-        blocks.push({
-          type: "line",
-          text: `The Claimant Count (claimants of unemployment-related benefits): ${count(series.count)} of ${count(benefits.bases.residents)} residents${month}${series.pctLine ? ` — ${series.pctLine}` : ""}.`,
-        });
+        benefitFindings.push(
+          `The Claimant Count (claimants of unemployment-related benefits): ${count(series.count)} of ${count(benefits.bases.residents)} residents${month}${series.pctLine ? ` — ${series.pctLine}` : ""}.`,
+        );
       } else if (series.series === "uc_people") {
-        blocks.push({
-          type: "line",
-          text: `People on Universal Credit: ${count(series.count)} of ${count(benefits.bases.residents)} residents${month}.`,
-        });
+        benefitFindings.push(
+          `People on Universal Credit: ${count(series.count)} of ${count(benefits.bases.residents)} residents${month}.`,
+        );
       } else {
-        blocks.push({
-          type: "line",
-          text: `Households on Universal Credit: ${count(series.count)} of ${count(benefits.bases.households)} households${month}.`,
-        });
+        benefitFindings.push(
+          `Households on Universal Credit: ${count(series.count)} of ${count(benefits.bases.households)} households${month}.`,
+        );
       }
     } else if (series.line) {
-      blocks.push({ type: "line", text: series.line });
+      benefitFindings.push(series.line);
     }
   }
+  if (benefitFindings.length > 0) blocks.push({ type: "list", items: benefitFindings });
 
   // Clean air zones and planning applications no longer
   // stand in this section (follow-up stack): the zones

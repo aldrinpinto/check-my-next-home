@@ -395,6 +395,22 @@ describe("report — Section 7 additions (M8.10): broadband & mobile depth", () 
     );
     expect(gigabitAt).toBeGreaterThanOrEqual(0);
     expect(superfastAt).toBeGreaterThan(gigabitAt);
+    // BUG-138: the gigabit line heads the threshold
+    // list as its first item — all three threshold
+    // lines, one list — and no longer stands as a
+    // plain line above it.
+    const thresholdList = section7(built).blocks.find(
+      (b) => b.type === "list" && b.items.some((item) => item.includes("Superfast broadband")),
+    );
+    if (!thresholdList || thresholdList.type !== "list")
+      throw new Error("expected the threshold list");
+    expect(thresholdList.items).toEqual([
+      "BROADBAND-LINE: gigabit-capable broadband is available at this postcode.",
+      "Superfast broadband (at least 30 Mbit/s) is available to 97.9% of premises in this postcode.",
+      "Ultrafast broadband (at least 100 Mbit/s) is available to 91.5% of premises in this postcode.",
+    ]);
+    const plainLines = section7(built).blocks.flatMap((b) => (b.type === "line" ? [b.text] : []));
+    expect(plainLines.some((t) => t.includes("BROADBAND-LINE"))).toBe(false);
     expect(ultra100At).toBeGreaterThan(superfastAt);
     expect(tieAt).toBeGreaterThan(ultra100At);
     expect(unclassifiedAt).toBeGreaterThan(tieAt);
@@ -633,13 +649,45 @@ describe("report — Section 7 additions (M8.10): mortgage & stamp duty", () => 
     expect(s7).toContain(
       "Stamp duty on that price would be £19,450 at the standard rates for a buyer moving from their own home.",
     );
-    const link = section7(view).blocks.find((b) => b.type === "lineLink");
-    if (!link || link.type !== "lineLink") throw new Error("expected the GOV.UK rates link");
+    // BUG-137 re-pin: the rates link stood as a
+    // body-size lineLink until 22 Nov 2026; the
+    // founder ruled it small print, so it is now the
+    // block's noteLink — label and destination
+    // unchanged.
+    const link = section7(view).blocks.find((b) => b.type === "noteLink");
+    if (!link || link.type !== "noteLink") throw new Error("expected the GOV.UK rates link");
     expect(link.label).toBe("England & Northern Ireland rates from 1 April 2025 — GOV.UK");
     expect(link.href).toBe("https://www.gov.uk/stamp-duty-land-tax");
     expect(s7).toContain(
       "Illustration only — rates change, and this is not advice and not a verdict on what you can afford.",
     );
+  });
+
+  it("the two worked findings print as one bulleted list under the prose basis line (BUG-137)", () => {
+    const blocks = section7(view).blocks;
+    const subAt = blocks.findIndex((b) => b.type === "sub" && b.text === "Mortgage & stamp duty");
+    expect(subAt).toBeGreaterThanOrEqual(0);
+    // The basis line stays a prose line, directly
+    // under the heading.
+    const basis = blocks[subAt + 1];
+    if (!basis || basis.type !== "line") throw new Error("expected the basis prose line");
+    expect(basis.text).toContain("Worked on this home's last recorded sale price");
+    // The findings stand as one list of two, in
+    // standing order.
+    const list = blocks[subAt + 2];
+    if (!list || list.type !== "list") throw new Error("expected the findings list");
+    expect(list.items).toEqual([
+      "On a loan of £441,746 (£588,995 price less £147,249 deposit) at 4.5% over 25 years: £2,455 a month, repayment.",
+      "Stamp duty on that price would be £19,450 at the standard rates for a buyer moving from their own home.",
+    ]);
+    // The small-print rates link follows the list.
+    const link = blocks[subAt + 3];
+    if (!link || link.type !== "noteLink") throw new Error("expected the rates noteLink");
+    // Neither finding stands as a plain line anywhere
+    // in the section.
+    const lineTexts = blocks.flatMap((b) => (b.type === "line" ? [b.text] : []));
+    expect(lineTexts.some((t) => t.includes("a month, repayment"))).toBe(false);
+    expect(lineTexts.some((t) => t.includes("Stamp duty on that price"))).toBe(false);
   });
 
   it("the section's monthly figures are never summed into a combined total", () => {

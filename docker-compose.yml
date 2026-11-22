@@ -74,6 +74,21 @@ services:
       PAYMENT_TEST_WEBHOOK_SECRET: ${PAYMENT_TEST_WEBHOOK_SECRET:-}
       PAYMENT_TEST_PUBLISHABLE_KEY: ${PAYMENT_TEST_PUBLISHABLE_KEY:-}
       TEST_BUYER_EMAILS: ${TEST_BUYER_EMAILS:-}
+      # The mail configuration (K11's key + one FROM name
+      # per sender — the EM-14 wiring fix, 22 Nov 2026:
+      # without these lines the app container carried no
+      # mail config at all and every in-app send answered
+      # not-configured). REPORT_DELIVERY_FROM and
+      # ALERT_EMAIL_TO have defaults in the code, so
+      # their lines may stay empty; the other FROM names
+      # have none — an unplaced one leaves only its own
+      # send unconfigured.
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      REPORT_DELIVERY_FROM: ${REPORT_DELIVERY_FROM:-}
+      GIFT_CONFIRMATION_FROM: ${GIFT_CONFIRMATION_FROM:-}
+      CONTACT_NOTIFICATION_FROM: ${CONTACT_NOTIFICATION_FROM:-}
+      CONTACT_ACKNOWLEDGEMENT_FROM: ${CONTACT_ACKNOWLEDGEMENT_FROM:-}
+      ALERT_EMAIL_TO: ${ALERT_EMAIL_TO:-}
     ports:
       - "127.0.0.1:3000:3000"
 

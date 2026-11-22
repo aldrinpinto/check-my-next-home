@@ -133,6 +133,14 @@ function recordingMailer(
       order.push("notify");
       return result.sent ? { sent: true } : { sent: false, reason: result.reason ?? "failed" };
     },
+    // The acknowledgement rides silently in these
+    // notification-focused cases (its own flow cases
+    // stand in the GAP-1 describe below): it answers
+    // sent and records nothing, so the orders and log
+    // counts pinned here stay the notification's alone.
+    async sendContactAcknowledgement() {
+      return { sent: true };
+    },
   };
 }
 
@@ -185,6 +193,9 @@ describe("the submit flow's order and honesty (lib/server/contact.ts)", () => {
           async sendContactNotification() {
             throw new Error("boom");
           },
+          async sendContactAcknowledgement() {
+            return { sent: true };
+          },
         },
         log: () => {},
       },
@@ -211,6 +222,134 @@ describe("the submit flow's order and honesty (lib/server/contact.ts)", () => {
     expect(order).toEqual(["store"]);
     expect(logs).toHaveLength(1);
     expect(logs[0]).toContain("nothing was received");
+  });
+});
+
+describe("the acknowledgement in the submit flow (GAP-1)", () => {
+  function twoSendMailer(
+    order: string[],
+    results: {
+      notification: { sent: boolean; reason?: string };
+      acknowledgement: { sent: boolean; reason?: string };
+    },
+  ): ContactMailer {
+    const answer = (r: { sent: boolean; reason?: string }) =>
+      r.sent ? { sent: true as const } : { sent: false as const, reason: r.reason ?? "failed" };
+    return {
+      async sendContactNotification() {
+        order.push("notify");
+        return answer(results.notification);
+      },
+      async sendContactAcknowledgement() {
+        order.push("acknowledge");
+        return answer(results.acknowledgement);
+      },
+    };
+  }
+
+  it("runs store, notify, acknowledge — in that order — and the outcome stays the notification's", async () => {
+    const order: string[] = [];
+    const store = createMemoryContactStore();
+    const insert = store.insert.bind(store);
+    store.insert = async (input) => {
+      order.push("store");
+      return insert(input);
+    };
+    const outcome = await submitContactMessage(
+      {
+        store,
+        mailer: twoSendMailer(order, {
+          notification: { sent: true },
+          acknowledgement: { sent: true },
+        }),
+        log: () => {},
+      },
+      VALID,
+    );
+    expect(order).toEqual(["store", "notify", "acknowledge"]);
+    expect(outcome).toEqual({ kind: "stored", notification: "sent" });
+  });
+
+  it("the acknowledgement is attempted even when the notification failed — the sends are independent", async () => {
+    const order: string[] = [];
+    const outcome = await submitContactMessage(
+      {
+        store: createMemoryContactStore(),
+        mailer: twoSendMailer(order, {
+          notification: { sent: false, reason: "not-configured" },
+          acknowledgement: { sent: true },
+        }),
+        log: () => {},
+      },
+      VALID,
+    );
+    expect(order).toEqual(["notify", "acknowledge"]);
+    expect(outcome).toEqual({ kind: "stored", notification: "failed" });
+  });
+
+  it("a failed acknowledgement changes nothing for the visitor — it is logged, without the visitor's words", async () => {
+    const logs: string[] = [];
+    const outcome = await submitContactMessage(
+      {
+        store: createMemoryContactStore(),
+        mailer: twoSendMailer([], {
+          notification: { sent: true },
+          acknowledgement: { sent: false, reason: "not-configured" },
+        }),
+        log: (line) => logs.push(line),
+      },
+      VALID,
+    );
+    expect(outcome).toEqual({ kind: "stored", notification: "sent" });
+    expect(logs).toHaveLength(1);
+    expect(logs[0]).toContain("acknowledgement failed (not-configured)");
+    expect(logs[0]).not.toContain(VALID.email);
+    expect(logs[0]).not.toContain(VALID.message);
+  });
+
+  it("a throwing acknowledgement is a logged failure, never a failed receipt", async () => {
+    const logs: string[] = [];
+    const outcome = await submitContactMessage(
+      {
+        store: createMemoryContactStore(),
+        mailer: {
+          async sendContactNotification() {
+            return { sent: true };
+          },
+          async sendContactAcknowledgement() {
+            throw new Error("boom");
+          },
+        },
+        log: (line) => logs.push(line),
+      },
+      VALID,
+    );
+    expect(outcome).toEqual({ kind: "stored", notification: "sent" });
+    expect(logs).toHaveLength(1);
+    expect(logs[0]).toContain("acknowledgement failed (send-failed)");
+  });
+
+  it("a storage failure calls neither send — nothing was received, so nothing is acknowledged", async () => {
+    const order: string[] = [];
+    const store: ContactStore = {
+      async insert() {
+        order.push("store");
+        throw new Error("db down");
+      },
+    };
+    const outcome = await submitContactMessage(
+      {
+        store,
+        mailer: twoSendMailer(order, {
+          notification: { sent: true },
+          acknowledgement: { sent: true },
+        }),
+        log: () => {},
+      },
+      VALID,
+    );
+    expect(outcome).toEqual({ kind: "storage-failed" });
+    expect(order).toEqual(["store"]);
   });
 });
 

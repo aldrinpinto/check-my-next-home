@@ -2,7 +2,7 @@
 // M7.8 — the Sample report page (Final Sample Master view
 // 7): the detailed report's web preview, in the finalised
 // sample's format — the SAMPLE banner and watermark, the
-// masthead, the short version and all nine sections.
+// masthead, the short version and all ten sections.
 // Anonymised 18 Nov 2026 (founder ruling): the worked
 // example is an invented home with invented figures
 // throughout, so no real home or locality appears on
@@ -13,11 +13,19 @@
 // transposed from the Final Sample Master. The format,
 // sections and structure are the sample's; only the
 // example's identity and figures are dummy. The two
-// flood-map pictures in Section 7 are hand-drawn for the
+// flood-map pictures in Section 8 are hand-drawn for the
 // invented example in the built product's own dress
 // (M8.3's conform), not maps of a real place (the
 // sample's original map images depicted a real locality
-// and are no longer used here).
+// and are no longer used here). Ten-section conform
+// (founder ruling, 22 Nov 2026): the page carries the
+// report's ten sections — Section 6 is The neighbourhood
+// (the Census and benefits blocks only), clean air zones
+// & driving charges stand in Section 4 with the air
+// content (BUG-118), planning applications stand in
+// Section 7 directly after Planning constraints & land
+// (BUG-125), and Section 10's How-we-check list names
+// the building-safety page (BUG-128).
 export default function SampleReport() {
   return (
     <div className="report-wrap">
@@ -104,8 +112,9 @@ export default function SampleReport() {
                   Northfield Academy <strong>1.9 miles</strong>.
                 </li>
                 <li>
-                  Millbrook Grammar School, Kingsford, <strong>6.1 miles</strong> — selective, entry
-                  by test.
+                  Selective schools within 10 miles: Millbrook Grammar School, Kingsford,{" "}
+                  <strong>6.1 miles</strong>; Kingsford County High School for Girls,{" "}
+                  <strong>7.1 miles</strong> — entry by test.
                 </li>
               </ul>
             </div>
@@ -362,6 +371,98 @@ export default function SampleReport() {
               visible. This home's sale, the brass dot, sits on the median line.
             </p>
           </div>
+          <h3 className="rpt-sub">Recent recorded sales in this postcode</h3>
+          <table>
+            <tr>
+              <th>Address</th>
+              <th>Sale date</th>
+              <th className="num">Sale price</th>
+              <th>Type</th>
+              <th>Tenure</th>
+              <th>New build</th>
+            </tr>
+            <tr>
+              <td>14 Willow Close</td>
+              <td>20 Jul 2026</td>
+              <td className="num">£465,000</td>
+              <td>Detached</td>
+              <td>Freehold</td>
+              <td>No</td>
+            </tr>
+            <tr>
+              <td>7 Meadow Way</td>
+              <td>3 Jun 2026</td>
+              <td className="num">£389,950</td>
+              <td>Semi-detached</td>
+              <td>Freehold</td>
+              <td>No</td>
+            </tr>
+            <tr>
+              <td>22 Orchard End</td>
+              <td>18 Mar 2026</td>
+              <td className="num">£512,000</td>
+              <td>Detached</td>
+              <td>Freehold</td>
+              <td>No</td>
+            </tr>
+            <tr>
+              <td>3 Willow Close</td>
+              <td>9 Dec 2025</td>
+              <td className="num">£438,000</td>
+              <td>Detached</td>
+              <td>Freehold</td>
+              <td>No</td>
+            </tr>
+            <tr>
+              <td>11 Riverton Road</td>
+              <td>27 Aug 2025</td>
+              <td className="num">£356,000</td>
+              <td>Terraced</td>
+              <td>Freehold</td>
+              <td>No</td>
+            </tr>
+            <tr>
+              <td>Flat 2, 5 Riverton Road</td>
+              <td>14 May 2025</td>
+              <td className="num">£355,000</td>
+              <td>Flat</td>
+              <td>Leasehold</td>
+              <td>No</td>
+            </tr>
+            <tr>
+              <td>18 Meadow Way</td>
+              <td>2 Feb 2025</td>
+              <td className="num">£402,500</td>
+              <td>Semi-detached</td>
+              <td>Freehold</td>
+              <td>No</td>
+            </tr>
+            <tr>
+              <td>9 Orchard End</td>
+              <td>21 Oct 2024</td>
+              <td className="num">£475,000</td>
+              <td>Detached</td>
+              <td>Freehold</td>
+              <td>Yes</td>
+            </tr>
+            <tr>
+              <td>26 Willow Close</td>
+              <td>30 Jun 2023</td>
+              <td className="num">£449,950</td>
+              <td>Detached</td>
+              <td>Freehold</td>
+              <td>No</td>
+            </tr>
+            <tr className="hl">
+              <td>12 Willow Close</td>
+              <td>22 Mar 2022</td>
+              <td className="num">£425,000</td>
+              <td>Detached</td>
+              <td>Freehold</td>
+              <td>Yes</td>
+            </tr>
+          </table>
+          <p className="rpt-small">HM Land Registry Price Paid — file edition 2026-08-01</p>
         </section>
         <section className="rpt-section">
           <div className="rpt-secHead">
@@ -442,27 +543,6 @@ export default function SampleReport() {
             </div>
             <span className="dist">1.9 mi</span>
           </div>
-          <div className="rpt-row hl">
-            <div className="rmain">
-              <span className="rname">Millbrook Grammar School (MGS), Kingsford</span>{" "}
-              <span className="tag star">★ Grammar</span>
-              <div className="rpt-detail">
-                Selective boys' grammar · Entry by entrance test (11+) — a place is never based on
-                distance alone.
-              </div>
-            </div>
-            <span className="dist">6.1 mi</span>
-          </div>
-          <div className="rpt-row hl">
-            <div className="rmain">
-              <span className="rname">Kingsford County High School for Girls</span>{" "}
-              <span className="tag star">★ Grammar</span>
-              <div className="rpt-detail">
-                Selective girls' grammar · Entry by entrance test (11+).
-              </div>
-            </div>
-            <span className="dist">7.1 mi</span>
-          </div>
           <div className="rpt-row">
             <div className="rmain">
               <span className="rname">The Rivers Academy, Riverton</span>
@@ -471,6 +551,23 @@ export default function SampleReport() {
               </div>
             </div>
             <span className="dist">7.4 mi</span>
+          </div>
+          <h3 className="rpt-sub">Selective schools</h3>
+          <div className="rpt-row hl">
+            <div className="rmain">
+              <span className="rname">Millbrook Grammar School (MGS), Kingsford</span>{" "}
+              <span className="tag star">★ Grammar</span>
+              <div className="rpt-detail">Entry by test.</div>
+            </div>
+            <span className="dist">6.1 mi</span>
+          </div>
+          <div className="rpt-row hl">
+            <div className="rmain">
+              <span className="rname">Kingsford County High School for Girls</span>{" "}
+              <span className="tag star">★ Grammar</span>
+              <div className="rpt-detail">Entry by test.</div>
+            </div>
+            <span className="dist">7.1 mi</span>
           </div>
           <h3 className="rpt-sub">Sixth-form provision</h3>
           <ul className="rpt-tight">
@@ -644,6 +741,10 @@ export default function SampleReport() {
             </div>
             <span className="badge">No coverage</span>
           </div>
+          <h3 className="rpt-sub">Industrial sites</h3>
+          <p>Industrial sites: none recorded within 10 miles.</p>
+          <h3 className="rpt-sub">Clean air zones &amp; driving charges</h3>
+          <p>This home is outside every charging zone.</p>
           <h3 className="rpt-sub">Crime — last 12 months</h3>
           <ul className="rpt-tight">
             <li>
@@ -969,20 +1070,6 @@ export default function SampleReport() {
               total.
             </p>
           </div>
-          <h3 className="rpt-sub">Benefits — the wider area</h3>
-          <ul className="rpt-tight">
-            <li>
-              <strong>Claimant count, September 2026:</strong> 15 people — 1.6%.
-            </li>
-            <li>
-              <strong>Universal Credit, May 2026:</strong> 117 people.
-            </li>
-            <li>
-              <strong>Universal Credit households, April 2026:</strong> 105 households.
-            </li>
-          </ul>
-          <h3 className="rpt-sub">Charging zones</h3>
-          <p>This home is outside every charging zone.</p>
         </section>
         <section className="rpt-section">
           <div className="rpt-secHead">
@@ -1132,297 +1219,12 @@ export default function SampleReport() {
             </div>
             <span className="badge">From the door</span>
           </div>
-          <h3 className="rpt-sub">Industrial sites</h3>
-          <p>Industrial sites: none recorded within the served area.</p>
         </section>
         <section className="rpt-section">
           <div className="rpt-secHead">
             <span className="rpt-secNum">6</span>
-            <h2>Home, costs &amp; risks</h2>
+            <h2>The neighbourhood</h2>
           </div>
-          <h3 className="rpt-sub">Council tax — Millbrook District</h3>
-          <p>
-            This home is in <strong>Band D</strong>:{" "}
-            <strong>£2,145.00 a year, which is £178.75 a month</strong>. The full A–H table below is{" "}
-            <strong>derived</strong> from the Band D figure by the statutory ratios, and is labelled
-            as derived.{" "}
-            <a href="https://www.gov.uk/pay-council-tax" target="_blank" rel="noopener">
-              Millbrook council tax guide 2026/27
-            </a>
-          </p>
-          <table>
-            <tr>
-              <th>Band</th>
-              <th>Ratio to D</th>
-              <th className="num">Per year (derived)</th>
-              <th className="num">Per month (derived)</th>
-            </tr>
-            <tr>
-              <td>A</td>
-              <td>6/9</td>
-              <td className="num">£1,430.00</td>
-              <td className="num">£119.17</td>
-            </tr>
-            <tr>
-              <td>B</td>
-              <td>7/9</td>
-              <td className="num">£1,668.33</td>
-              <td className="num">£139.03</td>
-            </tr>
-            <tr>
-              <td>C</td>
-              <td>8/9</td>
-              <td className="num">£1,906.67</td>
-              <td className="num">£158.89</td>
-            </tr>
-            <tr className="hl">
-              <td>D — this home</td>
-              <td>9/9</td>
-              <td className="num">£2,145.00</td>
-              <td className="num">£178.75</td>
-            </tr>
-            <tr>
-              <td>E</td>
-              <td>11/9</td>
-              <td className="num">£2,621.67</td>
-              <td className="num">£218.47</td>
-            </tr>
-            <tr>
-              <td>F</td>
-              <td>13/9</td>
-              <td className="num">£3,098.33</td>
-              <td className="num">£258.19</td>
-            </tr>
-            <tr>
-              <td>G</td>
-              <td>15/9</td>
-              <td className="num">£3,575.00</td>
-              <td className="num">£297.92</td>
-            </tr>
-            <tr>
-              <td>H</td>
-              <td>18/9</td>
-              <td className="num">£4,290.00</td>
-              <td className="num">£357.50</td>
-            </tr>
-          </table>
-          <p className="rpt-small">
-            Derived table: every band except D is calculated from the Band D figure (£2,145.00)
-            using the statutory council tax ratios shown. Band D itself is the filed figure for this
-            home's council.
-          </p>
-          <h3 className="rpt-sub">Energy — this home's certificate</h3>
-          <div className="rpt-row">
-            <div className="rmain">
-              <span className="rname">Energy rating: Band B — score 82 out of 100</span>
-              <div className="rpt-detail">
-                Potential rating A (91) · Certificate 0000-0000-0000-0000-0000 · Registered 9 May
-                2022 · Floor area 118 m² ·{" "}
-                <a
-                  href="https://find-energy-certificate.service.gov.uk/energy-certificate/0000-0000-0000-0000-0000"
-                  target="_blank"
-                  rel="noopener"
-                >
-                  View the certificate on GOV.UK
-                </a>
-              </div>
-            </div>
-            <span className="badge g">EPC B · 82</span>
-          </div>
-          <div className="epc" aria-label="Energy rating scale, with this home at Band B, score 82">
-            <div style={{ background: "#00A651", width: "46%" }}>
-              A <span>92+</span>
-            </div>
-            <div style={{ background: "#19B459", width: "58%" }} className="here">
-              B — this home, 82 <span>81–91</span>
-            </div>
-            <div style={{ background: "#8DCE46", width: "66%" }}>
-              C <span>69–80</span>
-            </div>
-            <div style={{ background: "#E3C700", width: "74%", color: "#333" }}>
-              D <span>55–68</span>
-            </div>
-            <div style={{ background: "#F0A35E", width: "82%" }}>
-              E <span>39–54</span>
-            </div>
-          </div>
-          <ul className="rpt-tight">
-            <li>
-              Estimated energy costs: <strong>£489 a year (£40.75 a month)</strong> now;{" "}
-              <strong>£455 a year (£37.92 a month)</strong> at the certificate's potential rating.
-            </li>
-            <li>Heating need 4,705 kWh a year; hot water 2,153 kWh a year.</li>
-            <li>CO₂ emissions: 1.9 tonnes a year, against a 6-tonne average household.</li>
-            <li>Primary energy use: 76 kWh per m² a year.</li>
-            <li>
-              Construction detail on the certificate: low-energy lighting throughout; waste-water
-              heat recovery fitted.
-            </li>
-            <li>
-              Improvement measures on the certificate: completing the steps it suggests would save
-              about <strong>£34 a year</strong> in typical savings and lift the rating from B (82)
-              to A (91).
-            </li>
-          </ul>
-          <h3 className="rpt-sub">Energy certificates in this postcode</h3>
-          <ul className="rpt-tight">
-            <li>
-              <strong>42 certificates</strong> are held for this postcode.
-            </li>
-            <li>
-              <strong>38 predicted</strong> certificates — all predicted at Band B.
-            </li>
-            <li>
-              <strong>4 assessed</strong> certificates — Band C: 1; Band D: 3.
-            </li>
-          </ul>
-          <h3 className="rpt-sub">Solar — location modelling</h3>
-          <div className="rpt-row">
-            <div className="rmain">
-              <span className="rname">Modelled solar yield for this location</span>
-              <div className="rpt-detail">
-                Location modelling for this part of Kent gives{" "}
-                <strong>1,057.65 kWh per kWp per year</strong>. This is a modelled figure for the
-                location, before this roof's direction, pitch and shading are taken into account.
-                The certificate's own solar fields are not held for this report, so no solar figure
-                is taken from the certificate.
-              </div>
-            </div>
-            <span className="badge">Modelled</span>
-          </div>
-          <div className="evGroup">
-            <h4 className="evTitle">EV charging</h4>
-            <h5 className="evSub">At home</h5>
-            <div className="rpt-row">
-              <div className="rmain">
-                <span className="rname">Home charge point</span>
-                <div className="rpt-detail">
-                  A detached home with its own driveway can take a home charge point, subject to the
-                  usual installation checks.
-                </div>
-              </div>
-            </div>
-            <h5 className="evSub">Public chargers</h5>
-            <div className="rpt-row">
-              <div className="rmain">
-                <span className="rname">Roam Charging, Station Road, Northbrook</span>
-                <div className="rpt-detail">
-                  The nearest public charger found. No public charger was found at Millbrook station
-                  itself (0.6 miles away) in the sources checked — the nearest public chargers are
-                  in Northbrook, listed here in distance order.
-                </div>
-              </div>
-              <span className="dist">1.8 mi</span>
-            </div>
-            <div className="rpt-row">
-              <div className="rmain">
-                <span className="rname">BP Pulse, Northbrook Leisure Centre</span>
-                <div className="rpt-detail">
-                  Riverside Lane, Northbrook · Public charging at the leisure centre.
-                </div>
-              </div>
-              <span className="dist">1.9 mi</span>
-            </div>
-            <div className="rpt-row">
-              <div className="rmain">
-                <span className="rname">Pod Point, Lidl</span>
-                <div className="rpt-detail">
-                  Bridge Street, Northbrook · Public charging in the Lidl car park.
-                </div>
-              </div>
-              <span className="dist">2.0 mi</span>
-            </div>
-          </div>
-          <h3 className="rpt-sub">Broadband</h3>
-          <div className="rpt-row">
-            <div className="rmain">
-              <span className="rname">Full fibre available</span>
-              <div className="rpt-detail">
-                Full fibre is available at this home, and premises in this postcode are
-                gigabit-capable at <strong>100%</strong> of premises (Ofcom Connected Nations,
-                January 2026 snapshot).
-              </div>
-            </div>
-          </div>
-          <h3 className="rpt-sub">Mobile coverage</h3>
-          <p>
-            Mobile coverage for this area is published at council-area grain, so it is described at
-            that grain in this report rather than as a figure for this postcode.
-          </p>
-          <h3 className="rpt-sub">Building safety</h3>
-          <div className="rpt-row">
-            <div className="rmain">
-              <span className="rname">Tribunal decisions</span>
-              <div className="rpt-detail">
-                No tribunal decisions were found for this home's building. The building safety
-                register can be checked directly for this building's record.
-              </div>
-            </div>
-          </div>
-          <h3 className="rpt-sub">Planning, land &amp; heritage</h3>
-          <div className="rpt-row">
-            <div className="rmain">
-              <span className="rname">Planning applications</span>
-              <div className="rpt-detail">
-                Planning applications near this home are held by{" "}
-                <strong>Millbrook District Council</strong> on its own planning register — start
-                from the{" "}
-                <a
-                  href="https://www.gov.uk/planning-permission-england-wales"
-                  target="_blank"
-                  rel="noopener"
-                >
-                  GOV.UK planning permission pages
-                </a>
-                , which lead to the council's register.
-              </div>
-            </div>
-          </div>
-          <div className="rpt-row">
-            <div className="rmain">
-              <span className="rname">Planning constraints</span>
-              <div className="rpt-detail">
-                This home is <strong>not in a conservation area</strong> and{" "}
-                <strong>not in the green belt</strong>, and it sits{" "}
-                <strong>inside the Millbrook built-up area</strong>. On Article 4 directions:{" "}
-                <i>
-                  “Article 4 directions are not published by this council to the national dataset,
-                  so no finding can be made from the data — the answer lives on the council's own
-                  planning register.”
-                </i>
-              </div>
-            </div>
-          </div>
-          <div className="rpt-row">
-            <div className="rmain">
-              <span className="rname">Nature designations</span>
-              <div className="rpt-detail">
-                <strong>No SSSI, Ramsar, SAC or SPA designation is mapped at this postcode</strong>{" "}
-                in the datasets checked. The River Bourne and River Mill valleys nearby are the
-                local wildlife corridors.
-              </div>
-            </div>
-          </div>
-          <div className="rpt-row">
-            <div className="rmain">
-              <span className="rname">Listed buildings &amp; heritage</span>
-              <div className="rpt-detail">
-                There are <strong>102 listed buildings within 2 miles</strong> of this home. The
-                nearest is <strong>Rose Cottage, Grade II, 0.2 miles</strong> away.
-              </div>
-            </div>
-            <span className="dist">0.2 mi</span>
-          </div>
-          <h3 className="rpt-sub">Company ownership</h3>
-          <p>This home is not owned by a company.</p>
-          <p className="rpt-small">
-            This check runs against HM Land Registry's company-ownership datasets — for UK companies
-            and for overseas companies — as filed in their current monthly edition. Those datasets
-            lag the register itself, so a very recent change of owner may not show yet. Had a
-            company owned this home, this report would name it here, with its company number, its
-            country of incorporation where overseas, its Companies House status, and the title
-            number.
-          </p>
           <h3 className="rpt-sub">The area in numbers — Census 2021</h3>
           <ul className="rpt-tight">
             <li>
@@ -1690,10 +1492,523 @@ export default function SampleReport() {
               </p>
             </div>
           </div>
+          <h3 className="rpt-sub">Benefits — the wider area</h3>
+          <ul className="rpt-tight">
+            <li>
+              <strong>Claimant count, September 2026:</strong> 15 people — 1.6%.
+            </li>
+            <li>
+              <strong>Universal Credit, May 2026:</strong> 117 people.
+            </li>
+            <li>
+              <strong>Universal Credit households, April 2026:</strong> 105 households.
+            </li>
+          </ul>
         </section>
         <section className="rpt-section">
           <div className="rpt-secHead">
             <span className="rpt-secNum">7</span>
+            <h2>Home, costs &amp; risks</h2>
+          </div>
+          <h3 className="rpt-sub">Council tax</h3>
+          <p>
+            Millbrook District Council's average Band D council tax for 2026/27 is £2,145.00 — an
+            area average, not this home's bill.
+          </p>
+          <table>
+            <tr>
+              <th>Band</th>
+              <th className="num">A year</th>
+              <th className="num">A month</th>
+            </tr>
+            <tr>
+              <td>A</td>
+              <td className="num">£1,430.00</td>
+              <td className="num">£119.17</td>
+            </tr>
+            <tr>
+              <td>B</td>
+              <td className="num">£1,668.33</td>
+              <td className="num">£139.03</td>
+            </tr>
+            <tr>
+              <td>C</td>
+              <td className="num">£1,906.67</td>
+              <td className="num">£158.89</td>
+            </tr>
+            <tr>
+              <td>D</td>
+              <td className="num">£2,145.00</td>
+              <td className="num">£178.75</td>
+            </tr>
+            <tr>
+              <td>E</td>
+              <td className="num">£2,621.67</td>
+              <td className="num">£218.47</td>
+            </tr>
+            <tr>
+              <td>F</td>
+              <td className="num">£3,098.33</td>
+              <td className="num">£258.19</td>
+            </tr>
+            <tr>
+              <td>G</td>
+              <td className="num">£3,575.00</td>
+              <td className="num">£297.92</td>
+            </tr>
+            <tr>
+              <td>H</td>
+              <td className="num">£4,290.00</td>
+              <td className="num">£357.50</td>
+            </tr>
+          </table>
+          <p className="rpt-small">
+            The other bands are set from Band D by fixed statutory ratios — each band's charge is a
+            set number of ninths of the Band D charge.
+          </p>
+          <p>
+            Millbrook District Council's average Band D council tax spread evenly over 12 months is
+            £178.75 a month — the council's scale, not this home's bill.
+          </p>
+          <h3 className="rpt-sub">Mortgage &amp; stamp duty</h3>
+          <p>
+            Worked on this home's last recorded sale price — £425,000 on 22 March 2022 — on the
+            standard assumptions: a 25% deposit, a 25-year term and a 4.5% interest rate.
+          </p>
+          <ul className="rpt-tight">
+            <li>
+              On a loan of £318,750 (£425,000 price less £106,250 deposit) at 4.5% over 25 years:
+              £1,772 a month, repayment.
+            </li>
+            <li>
+              Stamp duty on that price would be £11,250 at the standard rates for a buyer moving
+              from their own home.
+            </li>
+          </ul>
+          <p className="rpt-small">
+            <a href="https://www.gov.uk/stamp-duty-land-tax" target="_blank" rel="noopener">
+              England &amp; Northern Ireland rates from 1 April 2025 — GOV.UK
+            </a>
+          </p>
+          <p className="rpt-small">
+            Illustration only — rates change, and this is not advice and not a verdict on what you
+            can afford.
+          </p>
+          <h3 className="rpt-sub">Energy — this home's certificate</h3>
+          <div className="rpt-row">
+            <div className="rmain">
+              <span className="rname">Energy rating: Band B — score 82 out of 100</span>
+              <div className="rpt-detail">
+                Potential rating A (91) · Certificate 0000-0000-0000-0000-0000 · Registered 9 May
+                2022 · Floor area 118 m² ·{" "}
+                <a
+                  href="https://find-energy-certificate.service.gov.uk/energy-certificate/0000-0000-0000-0000-0000"
+                  target="_blank"
+                  rel="noopener"
+                >
+                  View the certificate on GOV.UK
+                </a>
+              </div>
+            </div>
+            <span className="badge g">EPC B · 82</span>
+          </div>
+          <div className="epc" aria-label="Energy rating scale, with this home at Band B, score 82">
+            <div style={{ background: "#00A651", width: "46%" }}>
+              A <span>92+</span>
+            </div>
+            <div style={{ background: "#19B459", width: "58%" }} className="here">
+              B — this home, 82 <span>81–91</span>
+            </div>
+            <div style={{ background: "#8DCE46", width: "66%" }}>
+              C <span>69–80</span>
+            </div>
+            <div style={{ background: "#E3C700", width: "74%", color: "#333" }}>
+              D <span>55–68</span>
+            </div>
+            <div style={{ background: "#F0A35E", width: "82%" }}>
+              E <span>39–54</span>
+            </div>
+          </div>
+          <ul className="rpt-tight">
+            <li>
+              Estimated energy costs: <strong>£489 a year (£40.75 a month)</strong> now;{" "}
+              <strong>£455 a year (£37.92 a month)</strong> at the certificate's potential rating.
+            </li>
+            <li>Heating need 4,705 kWh a year; hot water 2,153 kWh a year.</li>
+            <li>CO₂ emissions: 1.9 tonnes a year, against a 6-tonne average household.</li>
+            <li>Primary energy use: 76 kWh per m² a year.</li>
+          </ul>
+          <h4 className="rpt-sub">Suggested improvements</h4>
+          <p>
+            The certificate's suggested improvements, in the register's order — the register's
+            modelled steps for this home, not advice.
+          </p>
+          <h5 className="rpt-sub3">1 — Solar water heating</h5>
+          <p>
+            Typical saving £21 a year · indicative cost £4,000 to £6,000 · energy rating after this
+            step 85 · environmental rating after this step 88.
+          </p>
+          <h5 className="rpt-sub3">2 — Solar photovoltaic panels, 2.5 kWp</h5>
+          <p>
+            Typical saving £13 a year · indicative cost £5,000 to £8,000 · energy rating after this
+            step 91 · environmental rating after this step 94.
+          </p>
+          <p>
+            After all 2 steps, the register's model gives an energy rating of 91 and an
+            environmental rating of 94.
+          </p>
+          <h3 className="rpt-sub">Construction</h3>
+          <p>
+            The certificate's own description of this home's construction, recorded at the
+            assessment; on an existing-home (RdSAP) certificate '(assumed)' means the assessor could
+            not inspect that part and recorded the standard assumption for a home of its kind.
+          </p>
+          <ul className="rpt-tight">
+            <li>Walls: Cavity wall, filled cavity, U-value 0.30 W/m²K</li>
+            <li>Roofs: Pitched, 300 mm loft insulation</li>
+            <li>Floors: Solid, insulated (assumed)</li>
+            <li>Windows: Fully double glazed</li>
+            <li>Lighting: Low energy lighting in all fixed outlets</li>
+            <li>Main heating: Boiler and radiators, mains gas</li>
+            <li>Hot water: From main system</li>
+          </ul>
+          <p>
+            The U-value in a description is the register's measure of how fast heat passes through
+            that part of the home, in watts per square metre for each degree of temperature
+            difference — lower lets less heat escape.
+          </p>
+          <h3 className="rpt-sub">Energy certificates in this postcode</h3>
+          <ul className="rpt-tight">
+            <li>
+              <strong>42 certificates</strong> are held for this postcode.
+            </li>
+            <li>
+              <strong>38 predicted</strong> certificates — all predicted at Band B.
+            </li>
+            <li>
+              <strong>4 assessed</strong> certificates — Band C: 1; Band D: 3.
+            </li>
+          </ul>
+          <h3 className="rpt-sub">Solar — location modelling</h3>
+          <div className="rpt-row">
+            <div className="rmain">
+              <span className="rname">Modelled solar yield for this location</span>
+              <div className="rpt-detail">
+                Location modelling for this part of Kent gives{" "}
+                <strong>1,057.65 kWh per kWp per year</strong>. This is a modelled figure for the
+                location, before this roof's direction, pitch and shading are taken into account.
+                The certificate's own solar fields are not held for this report, so no solar figure
+                is taken from the certificate.
+              </div>
+            </div>
+            <span className="badge">Modelled</span>
+          </div>
+          <div className="evGroup">
+            <h4 className="evTitle">EV charging</h4>
+            <h5 className="evSub">At home</h5>
+            <div className="rpt-row">
+              <div className="rmain">
+                <span className="rname">Home charge point</span>
+                <div className="rpt-detail">
+                  A detached home with its own driveway can take a home charge point, subject to the
+                  usual installation checks.
+                </div>
+              </div>
+            </div>
+            <h5 className="evSub">Public chargers</h5>
+            <div className="rpt-row">
+              <div className="rmain">
+                <span className="rname">Roam Charging, Station Road, Northbrook</span>
+                <div className="rpt-detail">
+                  The nearest public charger found. No public charger was found at Millbrook station
+                  itself (0.6 miles away) in the sources checked — the nearest public chargers are
+                  in Northbrook, listed here in distance order.
+                </div>
+              </div>
+              <span className="dist">1.8 mi</span>
+            </div>
+            <div className="rpt-row">
+              <div className="rmain">
+                <span className="rname">BP Pulse, Northbrook Leisure Centre</span>
+                <div className="rpt-detail">
+                  Riverside Lane, Northbrook · Public charging at the leisure centre.
+                </div>
+              </div>
+              <span className="dist">1.9 mi</span>
+            </div>
+            <div className="rpt-row">
+              <div className="rmain">
+                <span className="rname">Pod Point, Lidl</span>
+                <div className="rpt-detail">
+                  Bridge Street, Northbrook · Public charging in the Lidl car park.
+                </div>
+              </div>
+              <span className="dist">2.0 mi</span>
+            </div>
+            <div className="rpt-row">
+              <div className="rmain">
+                <span className="rname">Osprey Charging, Northbrook Retail Park</span>
+                <div className="rpt-detail">
+                  Northbrook Retail Park · Public charging at the retail park.
+                </div>
+              </div>
+              <span className="dist">2.6 mi</span>
+            </div>
+            <div className="rpt-row">
+              <div className="rmain">
+                <span className="rname">InstaVolt, Riverton Road Services</span>
+                <div className="rpt-detail">Riverton Road · Public rapid charging.</div>
+              </div>
+              <span className="dist">3.4 mi</span>
+            </div>
+          </div>
+          <h3 className="rpt-sub">Broadband</h3>
+          <ul className="rpt-tight">
+            <li>
+              Gigabit-capable broadband (at least 1 Gbit/s) is available to 100% of premises in this
+              postcode.
+            </li>
+            <li>
+              Superfast broadband (at least 30 Mbit/s) is available to 99% of premises in this
+              postcode.
+            </li>
+            <li>
+              Ultrafast broadband (at least 100 Mbit/s) is available to 98% of premises in this
+              postcode.
+            </li>
+          </ul>
+          <p className="rpt-small">
+            The bands in the table below split the same premises between them and add up to 100% —
+            superfast, at least 30 Mbit/s, is the two fastest bands added together. The gigabit
+            figure is counted by network technology, not taken from the table.
+          </p>
+          <table>
+            <tr>
+              <th>Maximum predicted download speed</th>
+              <th className="num">Share of premises</th>
+            </tr>
+            <tr>
+              <td>under 2 Mbit/s</td>
+              <td className="num">0%</td>
+            </tr>
+            <tr>
+              <td>2 to 5 Mbit/s</td>
+              <td className="num">0%</td>
+            </tr>
+            <tr>
+              <td>5 to 10 Mbit/s</td>
+              <td className="num">0%</td>
+            </tr>
+            <tr>
+              <td>10 to 30 Mbit/s</td>
+              <td className="num">0%</td>
+            </tr>
+            <tr>
+              <td>30 to 300 Mbit/s</td>
+              <td className="num">2%</td>
+            </tr>
+            <tr>
+              <td>300 Mbit/s or more</td>
+              <td className="num">97%</td>
+            </tr>
+          </table>
+          <p className="rpt-small">
+            1% of premises in this postcode could not be matched to a provider record with a
+            predicted speed, so they appear in no speed band.
+          </p>
+          <h3 className="rpt-sub">Mobile coverage</h3>
+          <p>
+            Mobile coverage for this area is published at council-area grain, so it is described at
+            that grain in this report rather than as a figure for this postcode.
+          </p>
+          <ul className="rpt-tight">
+            <li>
+              Voice calls — At least one mobile network is modelled to have outdoor coverage at 100%
+              of premises in Millbrook District Council.
+            </li>
+            <li>
+              Voice calls — All four mobile networks are modelled to have outdoor coverage at 98% of
+              premises in Millbrook District Council.
+            </li>
+            <li>
+              4G data — At least one mobile network is modelled to have outdoor coverage at 99% of
+              premises in Millbrook District Council.
+            </li>
+            <li>
+              4G data — All four mobile networks are modelled to have outdoor coverage at 92% of
+              premises in Millbrook District Council.
+            </li>
+            <li>
+              4G data — At least one mobile network is modelled to have indoor coverage at 87% of
+              premises in Millbrook District Council.
+            </li>
+            <li>
+              4G data — All four mobile networks are modelled to have indoor coverage at 64% of
+              premises in Millbrook District Council.
+            </li>
+            <li>
+              5G data — At least one mobile network is modelled to have outdoor coverage at 78% of
+              premises in Millbrook District Council.
+            </li>
+            <li>
+              5G data — All four mobile networks are modelled to have outdoor coverage at 41% of
+              premises in Millbrook District Council.
+            </li>
+          </ul>
+          <h3 className="rpt-sub">Planning constraints &amp; land</h3>
+          <ul className="rpt-tight">
+            <li>
+              No conservation area is filed near this point — conservation areas are supplied by
+              councils and coverage here is sparse, so this is not a proven none.
+            </li>
+            <li>
+              Article 4 directions are not published by this council to the national dataset, so no
+              finding can be made from the data — the answer lives on the council's own planning
+              register.
+            </li>
+            <li>No green belt covers this postcode point in the national data.</li>
+            <li>The postcode point falls inside the Millbrook built-up area.</li>
+          </ul>
+          <p className="rpt-small">
+            An Article 4 direction removes the usual permitted development rights in an area, so
+            changes that would normally need no permission need planning permission instead.
+          </p>
+          <p className="rpt-small">
+            Constraints are the designations already in force over this home and its plot.
+          </p>
+          <h3 className="rpt-sub">Planning applications</h3>
+          <div className="rpt-row">
+            <div className="rmain">
+              <span className="rname">Planning applications</span>
+              <div className="rpt-detail">
+                Planning applications near this home are held by{" "}
+                <strong>Millbrook District Council</strong> on its own planning register — start
+                from the{" "}
+                <a
+                  href="https://www.gov.uk/planning-permission-england-wales"
+                  target="_blank"
+                  rel="noopener"
+                >
+                  GOV.UK planning permission pages
+                </a>
+                , which lead to the council's register.
+              </div>
+            </div>
+          </div>
+          <p className="rpt-small">
+            Applications are proposals other people have made to the council near this home.
+          </p>
+          <h3 className="rpt-sub">Brownfield land</h3>
+          <p>2 recorded brownfield sites within 5 miles of the postcode point.</p>
+          <div className="rpt-row">
+            <div className="rmain">
+              <span className="rname">Former Millbrook Depot, Station Road</span>
+              <div className="rpt-detail">The register records the site at 1.4 hectares.</div>
+              <div className="rpt-detail">
+                The register records its planning permission status as permissioned.
+              </div>
+              <div className="rpt-detail">
+                The register publishes 40 to 55 net dwellings for the site.
+              </div>
+            </div>
+            <span className="dist">0.7 mi</span>
+          </div>
+          <div className="rpt-row">
+            <div className="rmain">
+              <span className="rname">Land at Riverton Road</span>
+              <div className="rpt-detail">The register records the site at 0.6 hectares.</div>
+              <div className="rpt-detail">
+                The register records its planning permission status as not permissioned.
+              </div>
+              <div className="rpt-detail">
+                The register publishes 18 net dwellings for the site.
+              </div>
+            </div>
+            <span className="dist">1.6 mi</span>
+          </div>
+          <p className="rpt-small">
+            Brownfield land is land that has been built on before, registered by the council as
+            suitable for redevelopment.
+          </p>
+          <h3 className="rpt-sub">Listed buildings &amp; heritage</h3>
+          <p>102 listed buildings within 2 miles of the postcode point.</p>
+          <div className="rpt-row">
+            <div className="rmain">
+              <span className="rname">Rose Cottage</span>
+              <div className="rpt-detail">Grade II listed building.</div>
+            </div>
+            <span className="dist">0.2 mi</span>
+          </div>
+          <div className="rpt-row">
+            <div className="rmain">
+              <span className="rname">Millbrook Old School House</span>
+              <div className="rpt-detail">Grade II listed building.</div>
+            </div>
+            <span className="dist">0.4 mi</span>
+          </div>
+          <div className="rpt-row">
+            <div className="rmain">
+              <span className="rname">The Old Mill</span>
+              <div className="rpt-detail">Grade II* listed building.</div>
+            </div>
+            <span className="dist">0.6 mi</span>
+          </div>
+          <ul className="rpt-tight">
+            <li>No scheduled monument covers this postcode point in the national data.</li>
+            <li>No world heritage site covers this postcode point in the national data.</li>
+            <li>No registered battlefield covers this postcode point in the national data.</li>
+            <li>No protected wreck site covers this postcode point in the national data.</li>
+            <li>
+              No world heritage site buffer zone covers this postcode point in the national data.
+            </li>
+          </ul>
+          <p className="rpt-small">
+            The registered park and garden data is not filed yet, so no registered park and garden
+            answer can be given yet.
+          </p>
+          <p className="rpt-small">
+            A listed building is on the national list for special architectural or historic
+            interest, protected by law — changing or demolishing it needs special consent from the
+            council.
+          </p>
+          <h3 className="rpt-sub">Building safety</h3>
+          <p>No published building-safety orders naming this postcode, as at 14 November 2026.</p>
+          <p className="rpt-small">
+            The full account of what these records can and cannot show stands on the{" "}
+            <a href="/check/building-safety">Building safety check</a> page.
+          </p>
+          <h3 className="rpt-sub">Nature &amp; protected areas</h3>
+          <p>
+            No SSSI, Ramsar, SAC or SPA designated site is mapped at or within 2 miles of this
+            postcode point in the datasets checked.
+          </p>
+          <ul className="rpt-tight">
+            <li>No ancient woodland recorded in the inventory near this postcode point.</li>
+            <li>
+              The River Bourne and River Mill valleys nearby are the local wildlife corridors.
+            </li>
+          </ul>
+          <p className="rpt-small">
+            The Ancient Woodland Inventory is a provisional inventory, being revised county by
+            county — small woods can be missing from it.
+          </p>
+          <p className="rpt-small">
+            Designations are as mapped in the datasets checked for this report.
+          </p>
+          <h3 className="rpt-sub">Company ownership</h3>
+          <p>This home is not owned by a company.</p>
+          <p className="rpt-small">
+            This check runs against HM Land Registry's company-ownership datasets — for UK companies
+            and for overseas companies — as filed in their current monthly edition. Those datasets
+            lag the register itself, so a very recent change of owner may not show yet. Had a
+            company owned this home, this report would name it here, with its company number, its
+            country of incorporation where overseas, its Companies House status, and the title
+            number.
+          </p>
+        </section>
+        <section className="rpt-section">
+          <div className="rpt-secHead">
+            <span className="rpt-secNum">8</span>
             <h2>Flood risk</h2>
           </div>
           <p className="rpt-intro">
@@ -1948,7 +2263,7 @@ export default function SampleReport() {
         </section>
         <section className="rpt-section">
           <div className="rpt-secHead">
-            <span className="rpt-secNum">8</span>
+            <span className="rpt-secNum">9</span>
             <h2>Questions to ask the seller</h2>
           </div>
           <p className="rpt-intro">
@@ -1986,7 +2301,7 @@ export default function SampleReport() {
         </section>
         <section className="rpt-section rpt-final">
           <div className="rpt-secHead">
-            <span className="rpt-secNum">9</span>
+            <span className="rpt-secNum">10</span>
             <h2>Sources, notes &amp; disclaimers</h2>
           </div>
           <h3>Sources &amp; dates — everything checked on 10 November 2026</h3>
@@ -2027,8 +2342,9 @@ export default function SampleReport() {
             </li>
             <li>
               <strong>EV chargers</strong> — operator listings for Roam Charging (Station Road,
-              Northbrook), BP Pulse (Northbrook Leisure Centre, Riverside Lane) and Pod Point (Lidl,
-              Bridge Street, Northbrook); distances are straight-line from this postcode, calculated
+              Northbrook), BP Pulse (Northbrook Leisure Centre, Riverside Lane), Pod Point (Lidl,
+              Bridge Street, Northbrook), Osprey Charging (Northbrook Retail Park) and InstaVolt
+              (Riverton Road Services); distances are straight-line from this postcode, calculated
               from each charger's published location, using the same method as every other distance
               in this report.
             </li>
@@ -2045,9 +2361,9 @@ export default function SampleReport() {
               its cohort of 171; no KS5 figures are carried.
             </li>
             <li>
-              <strong>Flood check</strong> — findings in Section 7 are from checking Environment
+              <strong>Flood check</strong> — findings in Section 8 are from checking Environment
               Agency flood data (River Bourne / River Brain flood areas; flood-zone and
-              surface-water data via the Planning Data platform). The pictures in Section 7 are
+              surface-water data via the Planning Data platform). The pictures in Section 8 are
               drawn in a real report from the Environment Agency shapes and the OpenStreetMap street
               lines held for the home's own area. Check flood risk, including the actual flood maps,
               at the{" "}
@@ -2065,8 +2381,9 @@ export default function SampleReport() {
               <a href="https://www.gov.uk/pay-council-tax" target="_blank" rel="noopener">
                 Millbrook District Council tax guide 2026/27
               </a>
-              . Band D for this home is £2,145.00 a year (£178.75 a month). The A–H table in Section
-              6 is derived from that Band D figure by the statutory ratios and is labelled as
+              . Millbrook District Council's average Band D council tax for 2026/27 is £2,145.00 a
+              year — an area average, not this home's own band or bill. The A–H table in Section 7
+              is derived from that average Band D figure by the statutory ratios and is labelled as
               derived wherever it appears.
             </li>
             <li>
@@ -2103,7 +2420,7 @@ export default function SampleReport() {
               <strong>Air, noise, broadband &amp; benefits</strong> — Defra modelled background air
               quality, 2024 (Section 4), with UK legal limits and WHO 2021 guidelines as yardsticks;
               modelled noise bands (Section 4); Ofcom Connected Nations, January 2026 snapshot
-              (Section 6); claimant count and Universal Credit figures via Nomis (Section 4).
+              (Section 7); claimant count and Universal Credit figures via Nomis (Section 6).
             </li>
           </ul>
           <h3>How to read this report</h3>
@@ -2122,7 +2439,7 @@ export default function SampleReport() {
             <li>
               <strong>Modelled figures</strong> — air quality, noise and solar potential are
               modelled estimates for the area, clearly labelled as modelled wherever they appear.
-              They are not measurements taken at this address. The solar figure in Section 6 is
+              They are not measurements taken at this address. The solar figure in Section 7 is
               location modelling only; the certificate's own solar fields are not held.
             </li>
             <li>
@@ -2150,6 +2467,24 @@ export default function SampleReport() {
               the council's own planning register.
             </li>
           </ul>
+          <h3>How we check</h3>
+          <p className="rpt-small rpt-chartNote">
+            How we check: <a href="/check/sold-prices">Sold prices check</a> ·{" "}
+            <a href="/check/epc">EPC check</a> ·{" "}
+            <a href="/check/council-tax-band">Council tax check</a> ·{" "}
+            <a href="/check/flood-risk">Flood risk check</a> ·{" "}
+            <a href="/check/schools">Schools check</a> ·{" "}
+            <a href="/check/family-essentials">Family essentials check</a> ·{" "}
+            <a href="/check/air-quality">Air quality check</a> ·{" "}
+            <a href="/check/noise">Noise check</a> · <a href="/check/crime">Crime check</a> ·{" "}
+            <a href="/check/public-transport">Public transport check</a> ·{" "}
+            <a href="/check/solar-potential">Solar yield check</a> ·{" "}
+            <a href="/check/ev-charging">EV charging check</a> ·{" "}
+            <a href="/check/broadband">Broadband check</a> ·{" "}
+            <a href="/check/mobile-coverage">Mobile coverage check</a> ·{" "}
+            <a href="/check/planning-constraints">Planning constraints check</a> ·{" "}
+            <a href="/check/building-safety">Building safety check</a>
+          </p>
           <h3>Disclaimers</h3>
           <ul>
             <li>

@@ -31,6 +31,8 @@ import {
   DISTANCE_BASIS_LABEL,
   RADIUS_MILES,
   SECONDARY_RADIUS_MILES,
+  SELECTIVE_LIST_SIZE,
+  SELECTIVE_SEARCH_MILES,
   SIXTH_FORM_RADIUS_MILES,
   type NearbyCategory,
 } from "./nearby";
@@ -334,7 +336,12 @@ export interface PlaceGroupView {
   // grammar search, nearest first — the list form the
   // grammar row renders from; grammar above stays the
   // nearest entry for single-fact consumers.
+  // BUG-140: the rendered list caps at the nearest
+  // five (SELECTIVE_LIST_SIZE); grammarCountLine
+  // states the true total where the cap cuts, and is
+  // null wherever the whole set shows.
   grammarSchools: { name: string; milesText: string; band: DistanceBand }[];
+  grammarCountLine: string | null;
 }
 
 interface CategoryPresentation {
@@ -607,6 +614,22 @@ export function placeGroupView(
   href: string = REPORT_ROUTE,
   truncationDetail: string | null = null,
 ): PlaceGroupView {
+  // BUG-140: the selective set this group carries —
+  // the brain's full list where it serves, else the
+  // nearest alone — capped for display at the nearest
+  // five, with the count line composed beside the cap.
+  const selectiveSet =
+    category.category === "schools-secondary"
+      ? category.selectiveSchools && category.selectiveSchools.length > 0
+        ? category.selectiveSchools
+        : category.nearestSelective
+          ? [category.nearestSelective]
+          : []
+      : [];
+  const grammarCountLine =
+    selectiveSet.length > SELECTIVE_LIST_SIZE
+      ? `There are ${selectiveSet.length} selective schools within ${SELECTIVE_SEARCH_MILES} miles — the ${SELECTIVE_LIST_SIZE} nearest are shown.`
+      : null;
   const base: PlaceGroupView = {
     key: category.category,
     heading: presentation.heading,
@@ -623,19 +646,12 @@ export function placeGroupView(
             band: distanceBand("school", category.nearestSelective.miles),
           }
         : null,
-    grammarSchools:
-      category.category === "schools-secondary"
-        ? (category.selectiveSchools && category.selectiveSchools.length > 0
-            ? category.selectiveSchools
-            : category.nearestSelective
-              ? [category.nearestSelective]
-              : []
-          ).map((school) => ({
-            name: school.name,
-            milesText: `${formatMiles(school.miles)} mi`,
-            band: distanceBand("school", school.miles),
-          }))
-        : [],
+    grammarSchools: selectiveSet.slice(0, SELECTIVE_LIST_SIZE).map((school) => ({
+      name: school.name,
+      milesText: `${formatMiles(school.miles)} mi`,
+      band: distanceBand("school", school.miles),
+    })),
+    grammarCountLine,
   };
   if (category.state === "within") {
     const shown = category.places.slice(0, presentation.display);

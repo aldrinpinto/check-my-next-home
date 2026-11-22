@@ -70,7 +70,7 @@ export default function ReportWindowPage({
   return (
     <main className="journey-page report-door report-window">
       <h1>{view.heading}</h1>
-      {view.subline && <p className="type-lead">{view.subline}</p>}
+      {view.subline && <p className="type-lead report-door__subline">{view.subline}</p>}
       <p className="type-lead report-payment__lede">{view.lede}</p>
 
       <section className="report-door__card">

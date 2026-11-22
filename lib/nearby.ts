@@ -165,6 +165,17 @@ export const RADIUS_MILES = 2;
 // the selective fact serves its absence, as before.
 export const SELECTIVE_SEARCH_MILES = 10;
 
+// The selective list's display cap (BUG-140, founder
+// ruling 22 Nov 2026): the brain serves EVERY selective
+// secondary within the grammar search (BUG-108) — the
+// count lines need the true total — and the two
+// compositions (the report's Selective schools list and
+// the results page's grammar block) show the nearest
+// five, with a count line stating the total. The
+// BUG-123 chargers precedent: a named list caps at
+// five, and the total stands beside it.
+export const SELECTIVE_LIST_SIZE = 5;
+
 // The distance sanity bound (BUG-106, slimmed Road A):
 // a "nearest" fact further away than this is not a
 // nearest a family can use — it is an artefact of a

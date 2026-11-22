@@ -19,7 +19,7 @@
     {
       "url": "https://www.gov.uk/stamp-duty-land-tax",
       "label": "Stamp Duty Land Tax — GOV.UK",
-      "shownOn": ["the results page calculators"]
+      "shownOn": ["the results page calculators", "the sample report"]
     },
     {
       "url": "https://revenue.scot/taxes/land-buildings-transaction-tax/residential-property",
@@ -98,12 +98,12 @@
       "shownOn": ["the sample report"]
     },
     {
-      "url": "https://www.gov.uk/pay-council-tax",
+      "url": "https://www.gov.uk/planning-permission-england-wales",
       "label": "",
       "shownOn": ["the sample report"]
     },
     {
-      "url": "https://www.gov.uk/planning-permission-england-wales",
+      "url": "https://www.gov.uk/pay-council-tax",
       "label": "",
       "shownOn": ["the sample report"]
     }

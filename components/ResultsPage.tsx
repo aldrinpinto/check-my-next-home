@@ -118,6 +118,12 @@ function PlaceGroup({ group }: { group: PlaceGroupView }) {
               </li>
             ))}
           </ul>
+          {group.grammarCountLine && (
+            // BUG-140: where the cap cuts the grammar
+            // list, the count line states the true total
+            // under the rows shown.
+            <p className="results-line">{group.grammarCountLine}</p>
+          )}
         </div>
       )}
     </div>

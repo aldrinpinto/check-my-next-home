@@ -50,6 +50,11 @@ describe("the confirmation email (view 21)", () => {
     expect(sent.html).toContain(GIFT_CONFIRM_FALLBACK);
     expect(sent.html).toContain(CONFIRM_URL);
     expect(sent.html).toContain(GIFT_CONFIRM_IGNORE);
+    // View 21's dress (BUG-134): the button in forest,
+    // the bare link standing in its pale box.
+    expect(sent.html).toContain("background-color:#2F5D3E");
+    expect(sent.html).toContain("background-color:#FBF7E9");
+    expect(sent.html).toContain(`href="${CONFIRM_URL}"`);
     // The text body carries the same words around the
     // bare link (the fallback label belongs to the
     // button's presentation; the link itself stands).

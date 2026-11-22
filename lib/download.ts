@@ -53,6 +53,14 @@
 //     paid-only part (decision D21's named tests pin
 //     exactly that, in tests/report-delivery.test.ts).
 
+import {
+  EMAIL_SANS,
+  EMAIL_SERIF,
+  designedEmailHtml,
+  emailFooterHtml,
+  emailSignOffRowHtml,
+  mailtoLineHtml,
+} from "./email-shell";
 import { CONTACT_EMAIL_ADDRESS } from "./site-pages";
 import { SITE_NAME, SITE_URL } from "./site";
 
@@ -272,6 +280,26 @@ export interface ComposedEmail {
   html: string;
 }
 
+// The HTML parts' designed dress (Master views 11 and
+// 34; BUG-134) stands in lib/email-shell.ts — the table
+// skeleton, the font stacks, the footer furniture —
+// factored out at the GAP-1 build so the Contact
+// acknowledgement wears the same shell. Both emails
+// below render through it; their rendered output is
+// the BUG-134 output, byte for byte.
+
+// The footer furniture both emails share (views 11
+// and 34 draw the same two lines): the questions line
+// with its address standing as a mailto link, over the
+// name-and-domain line.
+function emailFootHtml(linkStyle: string, wrapStyle: string): string {
+  return emailFooterHtml({
+    linesHtml: mailtoLineHtml(DOWNLOAD_EMAIL_QUESTIONS_LINE, CONTACT_EMAIL_ADDRESS, linkStyle),
+    footerLine: DOWNLOAD_EMAIL_FOOTER_LINE,
+    wrapStyle,
+  });
+}
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -314,12 +342,19 @@ export function deliveryEmail(input: {
     "",
     afterLink,
   ];
-  const htmlParts = [
-    `<p><strong>${escapeHtml(heading)}</strong></p>`,
-    `<p>${DOWNLOAD_EMAIL_GREETING}</p>`,
-    `<p>${escapeHtml(intro)}</p>`,
-    `<p><a href="${escapeHtml(input.downloadUrl)}">${DOWNLOAD_EMAIL_LINK_LINE}</a></p>`,
-    `<p>${escapeHtml(afterLink)}</p>`,
+  // View 11's drawn dress: a cream sheet on a white
+  // ground, the forest-deep brand band, the report
+  // link as a full-width brass button, the line under
+  // it centred small print, the gift block (paid only)
+  // as a bordered white card, then the sign-off and
+  // the hairline footer.
+  const bodyP = `font-size:15.5px;line-height:1.65;margin:0 0 15px;`;
+  const contentHtml = [
+    `<h2 style="font-family:${EMAIL_SERIF};font-size:24px;font-weight:600;color:#1E402C;margin:0 0 12px;line-height:1.3;">${escapeHtml(heading)}</h2>`,
+    `<p style="${bodyP}">${DOWNLOAD_EMAIL_GREETING}</p>`,
+    `<p style="${bodyP}">${escapeHtml(intro)}</p>`,
+    `<a href="${escapeHtml(input.downloadUrl)}" style="display:block;text-align:center;background-color:#C29A3B;color:#FFFFFF;text-decoration:none;font-weight:700;font-size:16.5px;padding:15px 20px;border-radius:11px;margin:20px 0 14px;">${DOWNLOAD_EMAIL_LINK_LINE}</a>`,
+    `<p style="font-size:13.5px;color:#4A5548;line-height:1.6;text-align:center;margin:10px 0 4px;">${escapeHtml(afterLink)}</p>`,
   ];
   if (input.giftClaimUrl) {
     textParts.push(
@@ -334,12 +369,20 @@ export function deliveryEmail(input: {
       "",
       DOWNLOAD_GIFT_TERMS,
     );
-    htmlParts.push(
-      `<p><strong>${DOWNLOAD_GIFT_HEADING}</strong></p>`,
-      `<p>${DOWNLOAD_GIFT_LINE}</p>`,
-      `<p>${DOWNLOAD_GIFT_BODY}</p>`,
-      `<p><a href="${escapeHtml(input.giftClaimUrl)}">${escapeHtml(input.giftClaimUrl)}</a></p>`,
-      `<p>${DOWNLOAD_GIFT_TERMS}</p>`,
+    // The sample draws the gift link's text without
+    // its scheme; the href keeps the full claim URL,
+    // and the text part above keeps it whole too.
+    const giftDisplayUrl = input.giftClaimUrl.replace(/^https?:\/\//, "");
+    contentHtml.push(
+      `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#FFFFFF;border:1.5px solid #C29A3B;border-radius:12px;margin:26px 0 8px;">`,
+      `<tr><td style="padding:22px 24px 20px;">`,
+      `<span style="display:inline-block;background-color:#E4CF9A;color:#1E402C;font-size:12px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;padding:4px 11px;border-radius:999px;margin-bottom:11px;">${DOWNLOAD_GIFT_HEADING}</span>`,
+      `<h3 style="font-family:${EMAIL_SERIF};font-size:20px;font-weight:600;color:#1E402C;margin:0 0 9px;line-height:1.3;">${DOWNLOAD_GIFT_LINE}</h3>`,
+      `<p style="font-size:15px;line-height:1.65;margin:0 0 12px;">${DOWNLOAD_GIFT_BODY}</p>`,
+      `<a href="${escapeHtml(input.giftClaimUrl)}" style="display:block;background-color:#FBF3D9;border:1px dashed #C29A3B;border-radius:9px;padding:12px 14px;font-size:14px;word-break:break-all;color:#2F5D3E;font-weight:600;text-decoration:none;text-align:center;margin-bottom:12px;">${escapeHtml(giftDisplayUrl)}</a>`,
+      `<p style="font-size:13.5px;color:#4A5548;line-height:1.6;margin:0;">${DOWNLOAD_GIFT_TERMS}</p>`,
+      `</td></tr>`,
+      `</table>`,
     );
   }
   textParts.push(
@@ -351,12 +394,15 @@ export function deliveryEmail(input: {
     "",
     DOWNLOAD_EMAIL_FOOTER_LINE,
   );
-  htmlParts.push(
-    `<p>${DOWNLOAD_EMAIL_SIGN_OFF}<br>${DOWNLOAD_EMAIL_TEAM_LINE}</p>`,
-    `<p>${escapeHtml(DOWNLOAD_EMAIL_QUESTIONS_LINE)}</p>`,
-    `<p>${escapeHtml(DOWNLOAD_EMAIL_FOOTER_LINE)}</p>`,
-  );
-  return { subject, text: textParts.join("\n"), html: htmlParts.join("\n") };
+  const html = designedEmailHtml({
+    contentHtml,
+    signOffHtml: emailSignOffRowHtml(DOWNLOAD_EMAIL_SIGN_OFF, DOWNLOAD_EMAIL_TEAM_LINE),
+    footerHtml: emailFootHtml(
+      "color:#4A5548;font-weight:600;",
+      "border-top:1px solid #E3DCC4;margin-top:18px;padding:16px 0 22px;font-size:13px;color:#4A5548;line-height:1.6;",
+    ),
+  });
+  return { subject, text: textParts.join("\n"), html };
 }
 
 // View 34 — the re-issue email: the delivery email's
@@ -393,15 +439,34 @@ export function reissueEmail(input: {
     "",
     DOWNLOAD_EMAIL_FOOTER_LINE,
   ].join("\n");
+  // View 34 draws this email in its own lighter dress
+  // — not view 11's band and brass: a white sheet in a
+  // bordered frame, the wordmark as a serif line over
+  // a hairline ("Next Home" in brass), the link as a
+  // forest button standing in the text, the opens line
+  // as small print, then the sign-off and the same
+  // hairline footer (BUG-134 follows the sample).
+  const bodyP = `font-size:16px;line-height:1.65;color:#4A5546;margin:0 0 16px;`;
   const html = [
-    `<p>${DOWNLOAD_EMAIL_GREETING}</p>`,
-    `<p>${escapeHtml(intro)}</p>`,
-    `<p><a href="${escapeHtml(input.downloadUrl)}">${DOWNLOAD_EMAIL_LINK_LINE}</a></p>`,
-    `<p>${DOWNLOAD_EMAIL_OPENS_LINE}</p>`,
-    `<p>${escapeHtml(linkLife)}</p>`,
-    `<p>${DOWNLOAD_EMAIL_SIGN_OFF}<br>${DOWNLOAD_EMAIL_TEAM_LINE}</p>`,
-    `<p>${escapeHtml(DOWNLOAD_EMAIL_QUESTIONS_LINE)}</p>`,
-    `<p>${escapeHtml(DOWNLOAD_EMAIL_FOOTER_LINE)}</p>`,
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0;padding:0;background-color:#FFFFFF;">`,
+    `<tr><td align="center" style="padding:10px 12px 18px;">`,
+    `<table role="presentation" width="660" cellpadding="0" cellspacing="0" style="width:100%;max-width:660px;background-color:#FFFFFF;border:1px solid #E3DCC4;border-radius:16px;font-family:${EMAIL_SANS};color:#22301F;">`,
+    `<tr><td style="padding:10px 22px 26px;">`,
+    `<div style="font-family:${EMAIL_SERIF};font-size:22px;font-weight:700;color:#1E402C;border-top:1px solid #E3DCC4;padding-top:18px;margin-bottom:14px;">Check My <span style="color:#C29A3B;">Next Home</span></div>`,
+    `<p style="${bodyP}">${DOWNLOAD_EMAIL_GREETING}</p>`,
+    `<p style="${bodyP}">${escapeHtml(intro)}</p>`,
+    `<a href="${escapeHtml(input.downloadUrl)}" style="display:inline-block;background-color:#2F5D3E;color:#FFFFFF;text-decoration:none;font-weight:700;font-size:15.5px;border-radius:12px;padding:13px 22px;margin:2px 0 8px;">${DOWNLOAD_EMAIL_LINK_LINE}</a>`,
+    `<p style="font-size:14px;color:#7A7E6E;line-height:1.65;margin:0 0 16px;">${DOWNLOAD_EMAIL_OPENS_LINE}</p>`,
+    `<p style="${bodyP}">${escapeHtml(linkLife)}</p>`,
+    `<p style="font-size:16px;line-height:1.6;color:#4A5546;margin:20px 0 0;">${DOWNLOAD_EMAIL_SIGN_OFF}<br><strong>${DOWNLOAD_EMAIL_TEAM_LINE}</strong></p>`,
+    emailFootHtml(
+      "color:#7A7E6E;font-weight:600;",
+      "border-top:1px solid #E3DCC4;margin-top:18px;padding-top:14px;font-size:13.5px;line-height:1.6;color:#7A7E6E;",
+    ),
+    `</td></tr>`,
+    `</table>`,
+    `</td></tr>`,
+    `</table>`,
   ].join("\n");
   return { subject, text, html };
 }

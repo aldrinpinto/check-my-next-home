@@ -269,6 +269,21 @@ export const CONTACT_SEND_FAILED_LINE =
 // The notification email's subject, composed by the
 // mailer as "<this> from <the visitor's name>".
 export const CONTACT_NOTIFICATION_SUBJECT = "Website contact message";
+// The acknowledgement email's words (GAP-1; founder
+// ruling 22 Nov 2026 — the sender gets an email too)
+// are Sample 38 of the Final Sample Master, approved
+// by the founder on 22 Nov 2026 and held verbatim
+// here: subject, heading, and the two body lines (the
+// first carries CONTACT_THANKS' own beats and the
+// two-working-days promise the page makes on screen).
+// The greeting, sign-off and footer furniture are the
+// download emails' shared lines in lib/download.ts.
+export const CONTACT_ACKNOWLEDGEMENT_SUBJECT = "We've got your message";
+export const CONTACT_ACKNOWLEDGEMENT_HEADING = "Thank you for writing to us";
+export const CONTACT_ACKNOWLEDGEMENT_BODY =
+  "Thank you for writing to us — we've got your message. It's with a real person, and we'll reply within two working days.";
+export const CONTACT_ACKNOWLEDGEMENT_CLOSING_LINE =
+  "You don't need to do anything else — this email is just to let you know your message arrived safely.";
 
 export const PRIVACY_EYEBROW = "Privacy policy";
 export const PRIVACY_H1 = "Privacy policy";

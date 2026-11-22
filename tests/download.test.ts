@@ -158,7 +158,11 @@ describe("the delivery email (view 11)", () => {
       "Thank you for checking 12 Willow Close, Millbrook MB3 4QX with us. Your detailed report is ready — all ten sections, with the breakdowns, the flood findings and location maps, the fuller energy detail, and the questions to ask the seller.",
     );
     expect(email.text).toContain(`Read your report (PDF): ${DOWNLOAD_URL}`);
-    expect(email.html).toContain(`<a href="${DOWNLOAD_URL}">Read your report (PDF)</a>`);
+    // The HTML part wears view 11's designed shell
+    // (BUG-134): the anchor carries the button's inline
+    // dress, so href and label are pinned separately.
+    expect(email.html).toContain(`href="${DOWNLOAD_URL}"`);
+    expect(email.html).toContain(`>Read your report (PDF)</a>`);
     expect(email.text).toContain(
       "It opens as a PDF in your browser — you can save or print it from there. The link is just for you, so keep this email.",
     );
@@ -169,6 +173,29 @@ describe("the delivery email (view 11)", () => {
     expect(email.text).toContain("Check My Next Home · checkmynexthome.co.uk");
   });
 
+  it("wears the sample's shell in HTML: brand band, brass button, footer (BUG-134)", () => {
+    const email = deliveryEmail({ ...base, giftClaimUrl: null });
+    // The forest-deep header band with the wordmark,
+    // "Next Home" in brass-pale.
+    expect(email.html).toContain("background-color:#1E402C");
+    expect(email.html).toContain(`Check My <span style="color:#E4CF9A;">Next Home</span>`);
+    // The cream sheet in the sample's measure.
+    expect(email.html).toContain("background-color:#FDF8E8");
+    expect(email.html).toContain("max-width:600px");
+    // The report link as the full-width brass button.
+    expect(email.html).toContain("background-color:#C29A3B");
+    // The centred small print under the button.
+    expect(email.html).toContain("text-align:center");
+    // The hairline footer's contact line, its address
+    // standing as a mailto link, over the name line.
+    expect(email.html).toContain("border-top:1px solid #E3DCC4");
+    expect(email.html).toContain(`href="mailto:contact@checkmynexthome.co.uk"`);
+    expect(email.html).toContain("Check My Next Home · checkmynexthome.co.uk");
+    // The gifted variant (no gift URL) wears the same
+    // shell with no gift card.
+    expect(email.html).not.toContain("border:1.5px solid #C29A3B");
+  });
+
   it("carries the gift block, with its words, only when a gift URL is passed", () => {
     const withGift = deliveryEmail({ ...base, giftClaimUrl: GIFT_URL });
     expect(withGift.text).toContain(DOWNLOAD_GIFT_HEADING);
@@ -176,9 +203,20 @@ describe("the delivery email (view 11)", () => {
     expect(withGift.text).toContain(DOWNLOAD_GIFT_BODY);
     expect(withGift.text).toContain(GIFT_URL);
     expect(withGift.text).toContain(DOWNLOAD_GIFT_TERMS);
-    // Exactly one gift link in each body.
+    // Exactly one gift link in each body. The text part
+    // carries the full URL once; in the HTML the full
+    // URL stands once, as the gift box link's href —
+    // view 11 draws the link's text without its scheme
+    // (BUG-134), pinned below.
     expect(withGift.text.split(GIFT_URL)).toHaveLength(2);
-    expect(withGift.html.split(GIFT_URL)).toHaveLength(3); // href + link text
+    expect(withGift.html.split(GIFT_URL)).toHaveLength(2); // the href alone
+    // The gift card: brass border, the eyebrow pill,
+    // and the dashed pale box whose text is the
+    // scheme-stripped claim URL.
+    expect(withGift.html).toContain("border:1.5px solid #C29A3B");
+    expect(withGift.html).toContain("background-color:#E4CF9A");
+    expect(withGift.html).toContain("border:1px dashed #C29A3B");
+    expect(withGift.html).toContain(`>${GIFT_URL.replace("https://", "")}</a>`);
 
     const without = deliveryEmail({ ...base, giftClaimUrl: null });
     expect(without.text).not.toContain("A gift, from us");
@@ -209,5 +247,25 @@ describe("the re-issue email (view 34)", () => {
     expect(email.text).not.toContain("A gift, from us");
     expect(email.text).not.toContain("/gift/");
     expect(email.html).not.toContain("/gift/");
+  });
+
+  it("wears view 34's own shell in HTML: serif brand line, forest button (BUG-134)", () => {
+    const email = reissueEmail({
+      homeTitle: DOWNLOAD_HOME_TITLE,
+      homeAddressLine: DOWNLOAD_HOME_ADDRESS_LINE,
+      downloadUrl: DOWNLOAD_URL,
+    });
+    // The wordmark as a serif line, "Next Home" in
+    // brass — not view 11's forest-deep band.
+    expect(email.html).toContain(`Check My <span style="color:#C29A3B;">Next Home</span>`);
+    expect(email.html).not.toContain("background-color:#1E402C");
+    // The link as the forest button, on the download URL.
+    expect(email.html).toContain("background-color:#2F5D3E");
+    expect(email.html).toContain(`href="${DOWNLOAD_URL}"`);
+    expect(email.html).toContain(`>Read your report (PDF)</a>`);
+    // The shared hairline footer, contact address linked.
+    expect(email.html).toContain("border-top:1px solid #E3DCC4");
+    expect(email.html).toContain(`href="mailto:contact@checkmynexthome.co.uk"`);
+    expect(email.html).toContain("Check My Next Home · checkmynexthome.co.uk");
   });
 });

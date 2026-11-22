@@ -8,6 +8,7 @@ import { isEmailShape, normaliseEmail } from "../lib/gift";
 import {
   liveStartedPayment,
   paymentElementKey,
+  PAYMENT_CONSENT_ERROR_LINE,
   PAYMENT_DECLINED_FALLBACK_LINE,
   PAYMENT_HOME_NOT_FOUND_LINE,
   PAYMENT_START_FAILED_LINE,
@@ -164,6 +165,12 @@ export default function ReportPaymentPage({
 }) {
   const [email, setEmail] = useState("");
   const [emailError, setEmailError] = useState(false);
+  // BUG-132: the consent error — set when the buyer
+  // tries to pay with the tick standing unticked,
+  // cleared the moment the box is ticked. Until this
+  // stack the Pay button simply stood disabled and
+  // never said why.
+  const [consentError, setConsentError] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   // The digital-content consent (M9.5): the ISO moment
   // the buyer ticked the box, or null while it stands
@@ -297,12 +304,23 @@ export default function ReportPaymentPage({
     // Ticking stamps the consent with its moment;
     // unticking withdraws it — and with it, through the
     // derivation above, any payment it had started.
+    // Ticking also clears the consent error (BUG-132).
     setConsentAt(checked ? new Date().toISOString() : null);
+    if (checked) setConsentError(false);
   }
 
   function onStartClick() {
     if (!emailValid) {
       setEmailError(true);
+      return;
+    }
+    if (consentAt === null) {
+      // BUG-132: an attempt without the tick is answered
+      // where the tick stands — the message under the
+      // tick line, and the tick outlined. No payment
+      // starts: the start effect still requires the
+      // consent to stand.
+      setConsentError(true);
       return;
     }
     if (!publishableKey) {
@@ -320,8 +338,19 @@ export default function ReportPaymentPage({
   return (
     <main className="journey-page report-door report-payment">
       <h1>{view.heading}</h1>
-      {view.subline && <p className="type-lead">{view.subline}</p>}
+      {view.subline && <p className="type-lead report-door__subline">{view.subline}</p>}
       <p className="type-lead report-payment__lede">{view.lede}</p>
+
+      {/* BUG-133: the mystery tease stands directly
+          under the intro, above the contents card — in
+          the first screenful, where a tease belongs. It
+          stood below the email block until this stack. */}
+      {!paid && (
+        <div className="report-payment__tease">
+          <span className="buy-bar__mystery-eyebrow">{view.teaseEyebrow}</span>
+          <p className="report-payment__tease-line">{view.teaseLine}</p>
+        </div>
+      )}
 
       <section className="report-door__card">
         <h2>{view.contentsHeading}</h2>
@@ -333,7 +362,9 @@ export default function ReportPaymentPage({
             </li>
           ))}
         </ul>
-        <p className="report-door__price">{view.priceLine}</p>
+        {/* BUG-131: no one-payment line closes this
+            card — the honesty block below is the single
+            money statement on the page. */}
       </section>
 
       {paid ? (
@@ -349,17 +380,28 @@ export default function ReportPaymentPage({
             </p>
             <p className="report-payment__honesty-price">{view.honestyPriceLine}</p>
             <p className="report-payment__honesty-refund">{view.refundLine}</p>
-            <label className="report-payment__consent">
+            <label
+              className={`report-payment__consent${consentError ? " report-payment__consent--attention" : ""}`}
+            >
               <input
                 className="report-payment__consent-box"
                 id="payment-consent"
                 name="consent"
                 type="checkbox"
                 checked={consentAt !== null}
+                aria-describedby={consentError ? "payment-consent-error" : undefined}
                 onChange={(event) => onConsentChange(event.target.checked)}
               />
               <span>{view.consentLabel}</span>
+              {/* BUG-132: the tick is marked required in
+                  the email field's own visual language. */}
+              <span className="report-payment__req">Required</span>
             </label>
+            {consentError && (
+              <p className="report-payment__consent-error" id="payment-consent-error" role="alert">
+                {PAYMENT_CONSENT_ERROR_LINE}
+              </p>
+            )}
           </section>
 
           <div className="field report-payment__email">
@@ -397,11 +439,6 @@ export default function ReportPaymentPage({
             )}
           </div>
 
-          <div className="report-payment__tease">
-            <span className="buy-bar__mystery-eyebrow">{view.teaseEyebrow}</span>
-            <p className="report-payment__tease-line">{view.teaseLine}</p>
-          </div>
-
           <section className="report-payment__panel">
             <div className="report-payment__panel-head">
               <span className="report-payment__panel-title">{view.cardTitle}</span>
@@ -417,7 +454,32 @@ export default function ReportPaymentPage({
             {activeIntent && stripePromise ? (
               <Elements
                 stripe={stripePromise}
-                options={{ clientSecret: activeIntent.clientSecret }}
+                options={{
+                  clientSecret: activeIntent.clientSecret,
+                  // PF-13: the element is dressed in the
+                  // page's own livery — Sample 9's drawn
+                  // fields (labels #3C4257 at 13.5px/500,
+                  // inputs on #CBD2DC at 8px radius) over
+                  // the page's text face — instead of the
+                  // provider's unthemed default.
+                  appearance: {
+                    theme: "stripe",
+                    variables: {
+                      fontFamily:
+                        '"DM Sans", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+                      colorPrimary: "#2f5d3e",
+                      colorText: "#30313d",
+                      borderRadius: "8px",
+                    },
+                    rules: {
+                      ".Label": { color: "#3c4257", fontSize: "13.5px", fontWeight: "500" },
+                      ".Input": {
+                        border: "1px solid #cbd2dc",
+                        boxShadow: "0 1px 2px rgba(16, 24, 40, 0.05)",
+                      },
+                    },
+                  },
+                }}
               >
                 <PaySection
                   view={view}
@@ -445,11 +507,18 @@ export default function ReportPaymentPage({
                     then this page's DOM holds no card field
                     of any kind. */}
                 <div data-payment-element-mount />
+                {/* BUG-132: the button is NOT disabled
+                    while the tick stands unticked — it
+                    wears the disabled dress (aria-disabled)
+                    so an attempt can be answered with the
+                    consent error instead of silence. No
+                    payment can start unticked either way:
+                    the start effect requires the consent. */}
                 <button
                   type="button"
                   className="btn btn--brass report-payment__pay"
                   onClick={onStartClick}
-                  disabled={consentAt === null}
+                  aria-disabled={consentAt === null || undefined}
                 >
                   {view.payLabel}
                 </button>

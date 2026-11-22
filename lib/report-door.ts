@@ -115,7 +115,11 @@ export const REPORT_DOOR_PRICE_LINE = "One payment. No subscription, nothing fur
 // The holding state's one plain state line (R5(4)):
 // reports are coming in the next stage, the £4.99 is the
 // normal price, and the free check stays free in full.
-export const REPORT_DOOR_HOLDING_STATE_LINE = `The detailed report is coming in the next stage. It will cost ${REPORT_PRICE_LABEL} — one payment — and the free check stays free in full.`;
+// Trimmed at the payment-flow parity stack (22 Nov
+// 2026, repetition R-5): the card's own price line
+// directly above already says "one payment", so the
+// state line no longer repeats it.
+export const REPORT_DOOR_HOLDING_STATE_LINE = `The detailed report is coming in the next stage. It will cost ${REPORT_PRICE_LABEL}, and the free check stays free in full.`;
 
 export function buildReportDoorView(identity: ReportDoorIdentity): ReportDoorView {
   // The state seam (REPORT_DOOR_STATE): this builder is

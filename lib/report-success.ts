@@ -125,10 +125,17 @@ export interface ReportSuccessView {
 export const SUCCESS_BADGE_PAID = "Payment received — thank you";
 export const SUCCESS_HEADING_READY = "Your report is ready";
 export const SUCCESS_HEADING_PREPARING = "Your report is being prepared";
+// Softened at the payment-flow parity stack (22 Nov
+// 2026, repetitions R-6/R-7): the lede no longer
+// announces the email — the email card below carries
+// that fact (and the re-send), and the mystery strip
+// points at the same email; the sample said it three
+// times over. Sample 10 is conformed in the same
+// stack.
 export const SUCCESS_LEDE_READY =
-  "Your detailed report for this home is finished. You can read it on screen right now, and the PDF is on its way to your inbox for keeping.";
+  "Your detailed report for this home is finished. You can read it on screen right now, and the PDF is yours to keep.";
 export const SUCCESS_LEDE_PREPARING =
-  "We're putting your detailed report together now. This page will show it as soon as it's ready — and the PDF is coming to your inbox for keeping.";
+  "We're putting your detailed report together now. This page will show it as soon as it's ready.";
 // Sample 10's card line, composed from the ten-section
 // set (see the header): the sections in their order,
 // in the sample's compressed style.

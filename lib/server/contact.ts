@@ -16,11 +16,20 @@
 //   2. NOTIFICATION SECOND. The notification email to
 //      the contact inbox (lib/server/contact-mailer.ts)
 //      is attempted only after a successful store. Its
-//      failure — unconfigured mailer included, the play
-//      server's standing state — is logged server-side
-//      and changes nothing for the visitor: the message
-//      was received, so the thanks stands.
-//   3. A STORAGE FAILURE is the one honest failure the
+//      failure — unconfigured mailer included — is
+//      logged server-side and changes nothing for the
+//      visitor: the message was received, so the thanks
+//      stands.
+//   3. ACKNOWLEDGEMENT THIRD (GAP-1; founder ruling
+//      22 Nov 2026). The acknowledgement email back to
+//      the sender is attempted after the notification,
+//      independently of its outcome — the two sends
+//      carry different FROM names and either can be
+//      configured without the other. Its failure is
+//      logged and changes nothing, on the
+//      notification's own discipline: the thanks the
+//      visitor saw already made this email's promise.
+//   4. A STORAGE FAILURE is the one honest failure the
 //      visitor sees: the outcome is storage-failed, the
 //      mailer is never called, and the route answers
 //      with the designed failure state — nothing was
@@ -77,9 +86,10 @@ function errorName(error: unknown): string {
   return error instanceof Error ? error.name : "unknown-error";
 }
 
-// Store, then notify — the ruling's order, executed
-// once per valid submission. Every failure is a value
-// on the outcome; nothing here throws.
+// Store, then notify, then acknowledge — the ruling's
+// order, executed once per valid submission. Every
+// failure is a value on the outcome; nothing here
+// throws.
 export async function submitContactMessage(
   deps: { store: ContactStore; mailer: ContactMailer; log?: ContactLog },
   input: ContactInput,
@@ -101,6 +111,13 @@ export async function submitContactMessage(
   } catch {
     notification = "failed";
     log("contact: notification failed (send-failed) — message is stored");
+  }
+
+  try {
+    const result = await deps.mailer.sendContactAcknowledgement(input);
+    if (!result.sent) log(`contact: acknowledgement failed (${result.reason}) — message is stored`);
+  } catch {
+    log("contact: acknowledgement failed (send-failed) — message is stored");
   }
   return { kind: "stored", notification };
 }

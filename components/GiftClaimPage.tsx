@@ -55,16 +55,20 @@ import PostcodeBox from "./PostcodeBox";
 // form, restored by the conform pass of 19 Nov 2026),
 // and the search block — heading, line, and the site's
 // bare postcode box — that the claimed, used, expired
-// and not-recognised screens carry. Two ruled departures
-// from the samples' drawing, both recorded in the
-// step's build note: the claim form is the kit's
-// standard field block (the plan's fold-in — label,
-// input and inline error stacked, the button below),
-// not the sample's side-by-side row; and heading levels
-// follow the product's page discipline (the card's
-// heading is the page's h1, the search heading its h2),
-// where the sample's card sits under a shelf heading of
-// its own.
+// and not-recognised screens carry. The claim form is
+// the kit's standard field block in markup, dressed as
+// the sample's side-by-side field row in globals.css
+// (the payment-flow parity stack, 22 Nov 2026, PF-26 —
+// the founder reversed the fold-in departure the step
+// first built with: the row stands on wide screens and
+// stacks at narrow widths). One ruled departure from
+// the samples' drawing stands, recorded in the step's
+// build note and kept by the same ruling (PF-29):
+// heading levels follow the product's page discipline
+// (the card's heading is the page's h1, the search
+// heading its h2), where the sample's card sits under
+// a shelf heading of its own — and the search block
+// keeps the site's bare postcode box.
 //
 // Copy is lib/gift.ts's constants — the samples'
 // verbatim text. The sample's shelf notes ("In this

@@ -718,6 +718,68 @@ describe("results — place groups", () => {
     expect(JSON.stringify(group)).not.toContain("destinations");
   });
 
+  it("the grammar list caps at the nearest five with the true total stated (BUG-140)", () => {
+    const selectiveSchools = [
+      { name: "Selective One", miles: 5.5 },
+      { name: "Selective Two", miles: 6 },
+      { name: "Selective Three", miles: 7 },
+      { name: "Selective Four", miles: 8 },
+      { name: "Selective Five", miles: 9 },
+      { name: "Selective Six", miles: 9.5 },
+      { name: "Selective Seven", miles: 10 },
+    ];
+    const presentation = {
+      heading: "Secondary schools",
+      groupLabel: "secondary schools",
+      display: 2,
+      family: "school" as const,
+    };
+    const capped = placeGroupView(
+      category({
+        category: "schools-secondary",
+        state: "within",
+        places: [],
+        countWithin: 0,
+        selectiveSchools,
+        nearestSelective: selectiveSchools[0],
+        nearestSelectiveLine: null,
+      }),
+      presentation,
+      true,
+    );
+    expect(capped.grammarSchools.map((s) => s.name)).toEqual([
+      "Selective One",
+      "Selective Two",
+      "Selective Three",
+      "Selective Four",
+      "Selective Five",
+    ]);
+    expect(capped.grammarCountLine).toBe(
+      "There are 7 selective schools within 10 miles — the 5 nearest are shown.",
+    );
+    // The single-fact grammar entry still names the
+    // nearest, cap or no cap.
+    expect(capped.grammar?.name).toBe("Selective One");
+
+    // At five or fewer the whole set shows and no
+    // count line stands.
+    const uncapped = placeGroupView(
+      category({
+        category: "schools-secondary",
+        state: "within",
+        places: [],
+        countWithin: 0,
+        selectiveSchools: selectiveSchools.slice(0, 3),
+        nearestSelective: selectiveSchools[0],
+        nearestSelectiveLine: null,
+      }),
+      presentation,
+      true,
+    );
+    expect(uncapped.grammarSchools).toHaveLength(3);
+    expect(uncapped.grammarCountLine).toBeNull();
+  });
+
   it("none-within essential groups render the ruled line plus the beyond row", () => {
     const ae = (baseNearby as Extract<NearbyBundle, { kind: "distances" }>).categories.find(
       (c) => c.category === "ae",

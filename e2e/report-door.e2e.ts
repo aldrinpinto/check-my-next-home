@@ -95,8 +95,15 @@ test.describe("report door — regression", () => {
       await expect(page.locator(".report-door__card").first()).toContainText(
         "Plus the flood findings in full, with a location map for each check",
       );
-      await expect(page.locator(".report-door__price")).toHaveText(
-        "One payment. No subscription, nothing further to pay.",
+      // BUG-131 (payment-flow parity stack, 22 Nov
+      // 2026): the one-payment price line is gone from
+      // the payment page — the honesty block below is
+      // the single money statement. (The door's holding
+      // state keeps its own price line; this is the
+      // paid state.)
+      await expect(page.locator(".report-door__price")).toHaveCount(0);
+      await expect(page.locator(".report-payment__honesty")).toContainText(
+        "The detailed report costs £4.99 — one payment, no subscription, nothing further to pay.",
       );
       // The paid state's own furniture (M9.4/M9.5): the
       // honesty block with the consent tick, and the
@@ -108,6 +115,19 @@ test.describe("report door — regression", () => {
       await expect(page.locator("#payment-consent")).toBeVisible();
       await expect(page.locator("#payment-consent")).not.toBeChecked();
       await expect(page.locator("input")).toHaveCount(2);
+      // BUG-132: an unticked attempt to pay is answered
+      // under the tick line. A valid email goes in
+      // first (the email check answers before the tick
+      // check); the consent error then stands, and
+      // ticking the box clears it.
+      await page.locator("#payment-email").fill("buyer@example.co.uk");
+      await page.locator(".report-payment__pay").click();
+      await expect(page.locator(".report-payment__consent-error")).toBeVisible();
+      await expect(page.locator(".report-payment__consent-error")).toContainText(
+        "Tick this box to continue",
+      );
+      await page.locator("#payment-consent").check();
+      await expect(page.locator(".report-payment__consent-error")).toHaveCount(0);
     },
   );
 

@@ -16,7 +16,7 @@ export default function ReportDoorPage({ view }: { view: ReportDoorView }) {
     // in the payment sample's 640px wrap.
     <main className="journey-page report-door">
       <h1>{view.heading}</h1>
-      {view.subline && <p className="type-lead">{view.subline}</p>}
+      {view.subline && <p className="type-lead report-door__subline">{view.subline}</p>}
       <section className="report-door__card">
         <h2>{view.contentsHeading}</h2>
         <ul className="report-door__list">

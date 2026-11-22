@@ -369,6 +369,25 @@ describe("report-pdf — the print document", () => {
     expect(screen).toContain(".rpt-printUrl");
   });
 
+  it("the print stylesheet keeps the furniture-carrying heading blocks whole (BUG-141)", async () => {
+    const css = await readFile(join(process.cwd(), "app", "globals.css"), "utf8");
+    const print = css.slice(css.indexOf("\n@media print"));
+    // Pagination itself is beyond a unit test's sight —
+    // what can be pinned is the rule's presence: a print
+    // rule whose selector carries the class and whose
+    // body keeps the block inside one page. The numbered
+    // section title (badge + title together), the badge
+    // bound into the same unit, and the layer-2 heading
+    // with its rule.
+    const keepsWhole = (selector: string) =>
+      print
+        .split("}")
+        .some((rule) => rule.includes(selector) && rule.includes("break-inside: avoid"));
+    expect(keepsWhole(".rpt-secHead")).toBe(true);
+    expect(keepsWhole(".rpt-secNum")).toBe(true);
+    expect(keepsWhole(".rpt-sub")).toBe(true);
+  });
+
   it("the standalone print CSS inlines the self-hosted fonts as data URIs", async () => {
     const css = await reportPrintCss();
     expect(css).toContain("data:font/woff2;base64,");

@@ -1,4 +1,5 @@
 import type { ReportPaymentFailedView } from "../lib/report-payment-failed";
+import PostcodeBox from "./PostcodeBox";
 
 // The payment-failed page (plan step M9.7; Final
 // Sample Master, Sample 12): a mechanical renderer of
@@ -30,28 +31,28 @@ export default function ReportPaymentFailedPage({ view }: { view: ReportPaymentF
             <li key={reason}>{reason}</li>
           ))}
         </ul>
-        <p>{view.stillLine}</p>
       </section>
+
+      {/* PF-22 (payment-flow parity stack, 22 Nov 2026):
+          the still line stands below the reasons card as
+          its own paragraph, as Sample 12 sets it — not
+          as the card's last line. */}
+      <p className="report-failed__still">{view.stillLine}</p>
 
       <section className="report-door__card">
         <h2>{view.checkAnotherHeading}</h2>
-        <p>{view.checkAnotherLine}</p>
-        <form action="/search" method="get" className="report-success__search">
-          <label className="report-success__sr" htmlFor="failed-postcode">
-            Postcode
-          </label>
-          <input
-            className="field__input"
-            id="failed-postcode"
-            name="postcode"
-            type="text"
-            autoComplete="postal-code"
-            placeholder="Enter a postcode, street or town — e.g. SW1A 1AA"
-          />
-          <button type="submit" className="btn btn--brass">
-            Check this home
-          </button>
-        </form>
+        <p className="report-door__card-line">{view.checkAnotherLine}</p>
+        {/* BUG-139 (22 Nov 2026): the one postcode box,
+            wired as the landing page wires it — the
+            hand-rolled /search form that stood here was
+            the success surface's BUG-135 fault on its
+            twin: no suggestions as you type and no pick
+            flow for a visitor whose payment just failed.
+            The card, its heading and its line are
+            unchanged; the old form's PF-18 dress is
+            mapped onto the box's markup in
+            app/globals.css. */}
+        <PostcodeBox bare />
       </section>
 
       <p className="journey-actions report-failed__links">

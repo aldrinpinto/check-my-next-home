@@ -557,6 +557,157 @@ describe("report — Section 6 the neighbourhood", () => {
     expect(JSON.stringify(view.shortVersion)).not.toContain("Claimant Count");
   });
 
+  it("benefits findings print as one bulleted list under the prose framing (BUG-136); the absence lines bullet the same way (BUG-142)", () => {
+    const area = areaWith();
+    if (area.kind !== "area-bundle") throw new Error("expected an area bundle");
+    const benefits = area.sections.benefits;
+    const claimant = benefits.series[0];
+    benefits.series = [
+      claimant,
+      {
+        ...claimant,
+        series: "uc_people",
+        label: "people on Universal Credit",
+        monthLabel: "May 2026",
+        count: 117,
+        pct: null,
+        pctLine: null,
+        line: "people on Universal Credit: 117 in May 2026",
+      },
+      {
+        ...claimant,
+        series: "uc_households",
+        label: "households on Universal Credit",
+        monthLabel: "April 2026",
+        count: 105,
+        pct: null,
+        pctLine: null,
+        line: "households on Universal Credit: 105 in April 2026",
+      },
+    ];
+    const built = buildReportView(input({ area }));
+    const s6 = built.sections[5];
+    const subAt = s6.blocks.findIndex(
+      (b) => b.type === "sub" && b.text === "Benefits — the wider area",
+    );
+    expect(subAt).toBeGreaterThanOrEqual(0);
+    const slice = s6.blocks.slice(subAt + 1);
+    const list = slice.find((b) => b.type === "list");
+    if (!list || list.type !== "list") throw new Error("expected the benefits list");
+    expect(list.items).toEqual([
+      "The Claimant Count (claimants of unemployment-related benefits): 15 of 940 residents in September 2026.",
+      "People on Universal Credit: 117 of 940 residents in May 2026.",
+      "Households on Universal Credit: 105 of 890 households in April 2026.",
+    ]);
+    // The LSOA framing stands as prose directly
+    // before the list — it introduces the findings;
+    // it is not one of them.
+    const listAt = slice.indexOf(list);
+    const framing = slice[listAt - 1];
+    if (!framing || framing.type !== "line") throw new Error("expected the framing prose line");
+    expect(framing.text).toContain("Lower Layer Super Output Area (LSOA)");
+    // No finding stands as a plain line.
+    const lineTexts = slice.flatMap((b) => (b.type === "line" ? [b.text] : []));
+    expect(lineTexts.some((t) => t.includes("Universal Credit:"))).toBe(false);
+
+    // The not-filed state: the summary absence line
+    // stays prose, and the three series' absence
+    // lines are the same list in its absence form.
+    const absentArea = areaWith();
+    if (absentArea.kind !== "area-bundle") throw new Error("expected an area bundle");
+    const absent = absentArea.sections.benefits;
+    const base = absent.series[0];
+    absent.line = "benefit counts are not filed for this area";
+    absent.series = [
+      {
+        ...base,
+        state: "not-filed",
+        count: null,
+        pctLine: null,
+        line: "the Claimant Count (the count of claimants of unemployment-related benefits) is not filed for this area",
+      },
+      {
+        ...base,
+        series: "uc_people",
+        state: "not-filed",
+        count: null,
+        pctLine: null,
+        line: "people on Universal Credit is not filed for this area",
+      },
+      {
+        ...base,
+        series: "uc_households",
+        state: "not-published-for-this-area",
+        count: null,
+        pctLine: null,
+        line: "households on Universal Credit is not published for this area",
+      },
+    ];
+    const absentBuilt = buildReportView(input({ area: absentArea }));
+    const absentSlice = absentBuilt.sections[5].blocks.slice(
+      absentBuilt.sections[5].blocks.findIndex(
+        (b) => b.type === "sub" && b.text === "Benefits — the wider area",
+      ) + 1,
+    );
+    const absentList = absentSlice.find((b) => b.type === "list");
+    if (!absentList || absentList.type !== "list")
+      throw new Error("expected the benefits absence list");
+    expect(absentList.items).toEqual([
+      "The Claimant Count (the count of claimants of unemployment-related benefits) is not filed for this area.",
+      "People on Universal Credit is not filed for this area.",
+      "Households on Universal Credit is not published for this area.",
+    ]);
+    const absentLines = absentSlice.flatMap((b) => (b.type === "line" ? [b.text] : []));
+    expect(absentLines).toContain("Benefit counts are not filed for this area.");
+  });
+
+  it("inside a charging zone the statement lines print as one bulleted list, the checker link on its own line (BUG-142)", () => {
+    const area = areaWith();
+    if (area.kind !== "area-bundle") throw new Error("expected an area bundle");
+    area.sections.chargingZones = {
+      ...area.sections.chargingZones,
+      state: "inside",
+      line: "This postcode point is inside the London Ultra Low Emission Zone (ULEZ).",
+      scheme: {
+        name: "London Ultra Low Emission Zone (ULEZ)",
+        operator: "Transport for London",
+        family: "ulez",
+        class: null,
+        classLine:
+          "Transport for London runs the zone. It applies to cars, motorcycles, vans, minibuses, buses, coaches and heavy goods vehicles that do not meet its emission standards.",
+        carsLine: null,
+        dateLine: "Charges in this zone, at this boundary, began on 29 August 2023.",
+        checkerUrl: "https://tfl.gov.uk/modes/driving/check-your-vehicle/",
+        checkerLabel: "Check a vehicle with TfL",
+      },
+    };
+    const built = buildReportView(input({ area }));
+    const s4 = built.sections[3];
+    const subAt = s4.blocks.findIndex(
+      (b) => b.type === "sub" && b.text === "Clean air zones & driving charges",
+    );
+    expect(subAt).toBeGreaterThanOrEqual(0);
+    const list = s4.blocks[subAt + 1];
+    if (!list || list.type !== "list") throw new Error("expected the charging-zone list");
+    expect(list.items).toEqual([
+      "This postcode point is inside the London Ultra Low Emission Zone (ULEZ).",
+      "Transport for London runs the zone. It applies to cars, motorcycles, vans, minibuses, buses, coaches and heavy goods vehicles that do not meet its emission standards.",
+      "Charges in this zone, at this boundary, began on 29 August 2023.",
+    ]);
+    const link = s4.blocks[subAt + 2];
+    if (!link || link.type !== "lineLink") throw new Error("expected the checker link line");
+    expect(link.label).toBe("Check a vehicle with TfL");
+    // Outside a zone, the state line stands alone as
+    // prose (the base view's own form).
+    const outsideSubAt = view.sections[3].blocks.findIndex(
+      (b) => b.type === "sub" && b.text === "Clean air zones & driving charges",
+    );
+    const outsideLine = view.sections[3].blocks[outsideSubAt + 1];
+    if (!outsideLine || outsideLine.type !== "line")
+      throw new Error("expected the outside state line");
+    expect(outsideLine.text).toContain("Not inside any Clean Air Zone");
+  });
+
   it("charging zones render in Section 4 with the air content, under their own label with no charge amount (o) (BUG-118)", () => {
     // Renamed in the second pass (BUG-085 item 1); moved
     // from this section into Section 4 in the follow-up
@@ -2066,6 +2217,90 @@ describe("report — the print-check batch (founder's PDF print check, 21 Nov 20
       .flatMap((b) => (b.type === "rows" ? b.rows : []))
       .find((r) => r.name.includes("Broomfield"));
     expect(aeRow?.distBand).toBe("orange");
+  });
+
+  it("the Selective schools list caps at the nearest five with the true total stated (BUG-140)", () => {
+    const selective = [
+      { name: "Selective One", miles: 5.5 },
+      { name: "Selective Two", miles: 6 },
+      { name: "Selective Three", miles: 7 },
+      { name: "Selective Four", miles: 8 },
+      { name: "Selective Five", miles: 9 },
+      { name: "Selective Six", miles: 9.5 },
+      { name: "Selective Seven", miles: 10 },
+    ];
+    const capped = buildReportView(
+      input({
+        nearby: nearbyWith({
+          "schools-secondary": category({
+            category: "schools-secondary",
+            label: "secondary schools",
+            state: "within",
+            places: [
+              {
+                name: "Maltings Academy",
+                miles: 1.8,
+                detail: "Ages 11–18",
+                latitude: 51.79,
+                longitude: 0.62,
+              },
+            ],
+            countWithin: 1,
+            selectiveSchools: selective,
+            nearestSelective: selective[0],
+          }),
+        }),
+      }),
+    );
+    const s3 = capped.sections[2];
+    const subAt = s3.blocks.findIndex((b) => b.type === "sub" && b.text === "Selective schools");
+    expect(subAt).toBeGreaterThanOrEqual(0);
+    const rows = s3.blocks[subAt + 1];
+    if (!rows || rows.type !== "rows") throw new Error("expected the selective rows");
+    expect(rows.rows.map((r) => r.name)).toEqual([
+      "Selective One",
+      "Selective Two",
+      "Selective Three",
+      "Selective Four",
+      "Selective Five",
+    ]);
+    const countLine = s3.blocks[subAt + 2];
+    if (!countLine || countLine.type !== "line") throw new Error("expected the count line");
+    expect(countLine.text).toBe(
+      "There are 7 selective schools within 10 miles of this home — the 5 nearest of those not already listed above are shown.",
+    );
+
+    // At five or fewer the whole set shows and no
+    // count line stands.
+    const uncapped = buildReportView(
+      input({
+        nearby: nearbyWith({
+          "schools-secondary": category({
+            category: "schools-secondary",
+            label: "secondary schools",
+            state: "within",
+            places: [
+              {
+                name: "Maltings Academy",
+                miles: 1.8,
+                detail: "Ages 11–18",
+                latitude: 51.79,
+                longitude: 0.62,
+              },
+            ],
+            countWithin: 1,
+            selectiveSchools: selective.slice(0, 3),
+            nearestSelective: selective[0],
+          }),
+        }),
+      }),
+    );
+    const s3u = uncapped.sections[2];
+    const subAtU = s3u.blocks.findIndex((b) => b.type === "sub" && b.text === "Selective schools");
+    const rowsU = s3u.blocks[subAtU + 1];
+    if (!rowsU || rowsU.type !== "rows") throw new Error("expected the selective rows");
+    expect(rowsU.rows).toHaveLength(3);
+    expect(JSON.stringify(s3u)).not.toContain("selective schools within 10 miles");
   });
 
   it("transport entries carry their kind, and a same-name bus-stop pair prints as one entry for both directions (items 12 and 13)", () => {

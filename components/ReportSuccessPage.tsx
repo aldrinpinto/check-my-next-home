@@ -1,4 +1,5 @@
 import type { ReportSuccessView } from "../lib/report-success";
+import PostcodeBox from "./PostcodeBox";
 import SuccessRefresher from "./SuccessRefresher";
 import SuccessResend from "./SuccessResend";
 
@@ -40,34 +41,55 @@ export default function ReportSuccessPage({ view }: { view: ReportSuccessView })
 
       {view.sectionsLine && view.viewHref && (
         <section className="report-door__card">
-          <p className="report-success__sections">{view.sectionsLine}</p>
-          <p className="journey-actions">
-            <a className="btn btn--forest" href={view.viewHref}>
-              {view.viewLabel}
-            </a>
-          </p>
+          {/* PF-15 (payment-flow parity stack, 22 Nov
+              2026): Sample 10's report preview — the mock
+              cover beside the sections line and the View
+              button. The cover is a drawing, not a
+              document: brand, title, ruled lines and the
+              brass bar, as the sample draws them. */}
+          <div className="report-success__preview">
+            <div className="report-success__thumb" aria-hidden="true">
+              <div className="rt-brand">Check My Next Home</div>
+              <div className="rt-title">
+                Detailed report
+                <br />
+                {view.homeSubject}
+              </div>
+              <div className="rt-line" />
+              <div className="rt-line" />
+              <div className="rt-line short" />
+              <div className="rt-bar" />
+              <div className="rt-line" />
+              <div className="rt-line short" />
+            </div>
+            <div className="report-success__preview-text">
+              <p className="report-success__sections">{view.sectionsLine}</p>
+              <p className="journey-actions">
+                <a className="btn btn--forest" href={view.viewHref}>
+                  {view.viewLabel}
+                </a>
+              </p>
+            </div>
+          </div>
         </section>
       )}
 
       <section className="report-door__card">
         <h2>Check another home</h2>
-        <p>The headlines are always free — check the next home you&apos;re considering.</p>
-        <form action="/search" method="get" className="report-success__search">
-          <label className="report-success__sr" htmlFor="success-postcode">
-            Postcode
-          </label>
-          <input
-            className="field__input"
-            id="success-postcode"
-            name="postcode"
-            type="text"
-            autoComplete="postal-code"
-            placeholder="Enter a postcode, street or town — e.g. SW1A 1AA"
-          />
-          <button type="submit" className="btn btn--brass">
-            Check this home
-          </button>
-        </form>
+        <p className="report-door__card-line">
+          The headlines are always free — check the next home you&apos;re considering.
+        </p>
+        {/* BUG-135 (founder-found live, 22 Nov 2026):
+            the one postcode box, wired as the landing
+            page wires it — the hand-rolled /search form
+            that stood here offered no suggestions as
+            you type and no pick flow, where every other
+            entry surface (landing, gift claim, error
+            page, shortlist) carries this box. The card,
+            its heading and its line are unchanged; the
+            old form's PF-18 dress is mapped onto the
+            box's markup in app/globals.css. */}
+        <PostcodeBox bare />
       </section>
 
       {(view.refundLine || view.failedGiftLine || view.failedRetryLine) && (
@@ -85,7 +107,7 @@ export default function ReportSuccessPage({ view }: { view: ReportSuccessView })
       {view.emailHeading && (
         <section className="report-door__card">
           <h2>{view.emailHeading}</h2>
-          <p>
+          <p className="report-door__card-line">
             {view.emailLead}
             <strong>{view.email}</strong>
             {view.emailTail}

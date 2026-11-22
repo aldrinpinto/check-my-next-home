@@ -13,11 +13,8 @@
 //   - Resend — the real send, used when the environment
 //     carries the key and the from address. Resend is
 //     the project's sender (D8; the Privacy policy names
-//     it); the report delivery email's full template
-//     machinery is M8.6's, and this email's minimal
-//     dress is conformed there. Until the environment
-//     is configured, this implementation is simply
-//     never selected.
+//     it). Until the environment is configured, this
+//     implementation is simply never selected.
 //   - Unconfigured — answers not-configured. The shell
 //     on an unconfigured server can show every state
 //     but cannot complete a claim, and says so through
@@ -34,8 +31,8 @@
 // The email's words are lib/gift.ts's GIFT_CONFIRM_*
 // constants — founder-approved on 19 Nov 2026 and pinned
 // by the Master as view 21 (Gift claim — Confirmation
-// email); minimal and functional in dress until M8.6's
-// template machinery conforms it.
+// email); its HTML dress is view 21's own, conformed at
+// BUG-134 (see confirmationBodies below).
 
 import {
   GIFT_CONFIRM_BUTTON,
@@ -60,16 +57,39 @@ export interface GiftMailer {
   }): Promise<GiftMailResult>;
 }
 
+// View 21's drawn dress for the HTML part (BUG-134):
+// Sample 21 arranges this email differently from the
+// delivery email — no brand band, no footer furniture;
+// the body stands in a white bordered frame as plain
+// paragraphs, the confirmation as a forest button
+// standing in the text, and the bare link in a pale
+// box under its fallback line. Email-safe construction
+// throughout: a table skeleton, every style inline.
+// The text part is untouched. The site name's closing
+// line (composed copy both parts already carried) is
+// kept, in the sample's meta grey.
+const CONFIRM_SANS_STACK = `'Public Sans', Arial, Helvetica, sans-serif`;
+
 function confirmationBodies(confirmUrl: string): { text: string; html: string } {
   const text = [GIFT_CONFIRM_INTRO, "", confirmUrl, "", GIFT_CONFIRM_IGNORE, "", SITE_NAME].join(
     "\n",
   );
+  const bodyP = `font-size:16px;line-height:1.65;color:#4A5546;margin:0 0 16px;`;
   const html = [
-    `<p>${GIFT_CONFIRM_INTRO}</p>`,
-    `<p><a href="${confirmUrl}">${GIFT_CONFIRM_BUTTON}</a></p>`,
-    `<p>${GIFT_CONFIRM_FALLBACK}<br>${confirmUrl}</p>`,
-    `<p>${GIFT_CONFIRM_IGNORE}</p>`,
-    `<p>${SITE_NAME}</p>`,
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0;padding:0;background-color:#FFFFFF;">`,
+    `<tr><td align="center" style="padding:10px 12px 18px;">`,
+    `<table role="presentation" width="660" cellpadding="0" cellspacing="0" style="width:100%;max-width:660px;background-color:#FFFFFF;border:1px solid #E3DCC4;border-radius:16px;font-family:${CONFIRM_SANS_STACK};color:#22301F;">`,
+    `<tr><td style="padding:20px 22px 24px;">`,
+    `<p style="${bodyP}">${GIFT_CONFIRM_INTRO}</p>`,
+    `<a href="${confirmUrl}" style="display:inline-block;background-color:#2F5D3E;color:#FFFFFF;text-decoration:none;font-weight:700;font-size:15.5px;border-radius:12px;padding:13px 22px;margin:2px 0 20px;">${GIFT_CONFIRM_BUTTON}</a>`,
+    `<p style="${bodyP}">${GIFT_CONFIRM_FALLBACK}</p>`,
+    `<span style="display:block;background-color:#FBF7E9;border:1px solid #E3DCC4;border-radius:10px;padding:11px 13px;font-size:13.5px;line-height:1.55;word-break:break-all;color:#2F5D3E;margin:0 0 16px;">${confirmUrl}</span>`,
+    `<p style="${bodyP}">${GIFT_CONFIRM_IGNORE}</p>`,
+    `<p style="font-size:13.5px;line-height:1.6;color:#7A7E6E;margin:0;">${SITE_NAME}</p>`,
+    `</td></tr>`,
+    `</table>`,
+    `</td></tr>`,
+    `</table>`,
   ].join("\n");
   return { text, html };
 }

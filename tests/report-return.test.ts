@@ -180,6 +180,14 @@ describe("the payment-failed view — Sample 12, verbatim (M9.7, gap 1)", () => 
     expect(html).toContain("← Back to your free check — it's still saved");
     expect(html).toContain("/search/home?postcode=CM3+2JT&home=19%7C%7CBIRKDALE+RISE");
     expect(html).toContain("Check another home");
+    // BUG-139: the check-another card carries the one
+    // postcode box — the success surface's BUG-135
+    // treatment on its twin — not the hand-rolled
+    // /search form that stood here (no suggestions, no
+    // pick flow).
+    expect(html).toContain("postcode-box postcode-box--bare");
+    expect(html).not.toContain("failed-postcode");
+    expect(html).not.toContain('action="/search"');
     expect(html).toContain("See your shortlist");
   });
 });

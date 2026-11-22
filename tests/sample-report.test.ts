@@ -76,7 +76,7 @@ describe("the served sample report (anonymised example home)", () => {
   it("uses no map image of a real place — the flood-map pictures are hand-drawn in the built dress (M8.3)", () => {
     expect(html).not.toContain("/sample-report/flood-map");
     expect(html).not.toContain("<img");
-    // The M8.3 conform: the sample's Section 7 pictures are
+    // The M8.3 conform: the sample's Section 8 pictures are
     // hand-drawn flood maps in the report's own form — the
     // built titles, the attribution line, the clear-case
     // captions — not the retired "not flood maps" panels.
@@ -96,6 +96,7 @@ describe("the served sample report (anonymised example home)", () => {
       "<h2>Schools &amp; nurseries</h2>",
       "<h2>Health, air &amp; crime</h2>",
       "<h2>What&#x27;s nearby</h2>",
+      "<h2>The neighbourhood</h2>",
       "<h2>Home, costs &amp; risks</h2>",
       "<h2>Flood risk</h2>",
       "<h2>Questions to ask the seller</h2>",

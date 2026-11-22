@@ -3384,34 +3384,109 @@ a.picker__row {
    report adds, the one-payment line and the state line.
    D9 (parity fix stack, 18 Nov 2026): the door centres in
    the payment sample's 640px wrap, and the card takes its
-   dress — white, radius 14px. */
+   dress — white, radius 14px.
+
+   Payment-flow parity stack (22 Nov 2026): the whole
+   flow — door, payment page, success, payment-failed,
+   window — is re-dressed on the Final Sample Master's
+   own values (the .payment-scope rules of Samples 9,
+   10 and 12), scoped to the flow's class family: every
+   flow main carries .report-door. Values the kit's
+   tokens already carry at the same value ride the
+   tokens; the rest stand as the samples' own numbers. */
 .report-door {
   max-width: 640px;
 }
 
+/* The flow's page title (PF-02): Sample 9's
+   h1.page-title — Newsreader 34px at 600 in forest
+   deep, not the kit's fluid h1. */
+.report-door h1 {
+  font-size: 2.125rem;
+  font-weight: 600;
+  line-height: 1.18;
+  color: var(--cmnh-forest-deep);
+  margin: 0 0 0.5rem;
+}
+
+/* The home line under the title (PF-03): 16.5px in
+   the softened ink; on the success and failed
+   surfaces its strong stands in forest. */
+.report-door__subline,
+.report-success__home {
+  font-size: 1.03125rem;
+  line-height: 1.5;
+  color: #4a5548;
+  margin: 0 0 1.375rem;
+}
+
+.report-success__home strong {
+  color: var(--cmnh-forest);
+  font-weight: 700;
+}
+
+/* The flow's card (PF-06): the sample's card — white,
+   the warm line, 14px radius, 24px by 26px padding,
+   and the gap to the next block carried as its own
+   bottom margin. */
 .report-door__card {
-  border: 1px solid var(--colour-tile-line);
+  border: 1px solid #e3dcc4;
   border-radius: var(--radius-panel);
   background: var(--cmnh-white);
-  padding: var(--space-4);
-  margin-top: var(--space-4);
+  padding: 1.5rem 1.625rem;
+  margin: 0 0 1.375rem;
 }
 
+/* Card headings (PF-01): Newsreader 21px at 600 in
+   forest deep. */
 .report-door__card h2 {
-  margin-top: 0;
+  font-size: 1.3125rem;
+  font-weight: 600;
+  color: var(--cmnh-forest-deep);
+  margin: 0 0 0.875rem;
 }
 
+/* The contents list (PF-04): no bullets — each item
+   carries the sample's brass tick, drawn with borders
+   as the sample draws it; the bold leads stand in
+   forest deep. The door's and window's sentence items
+   take the same form under the same heading (PF-31). */
 .report-door__list {
+  list-style: none;
   margin: 0;
-  padding-left: 1.2em;
+  padding: 0;
 }
 
 .report-door__list li {
-  margin-bottom: var(--space-1);
+  position: relative;
+  padding: 0.4375rem 0 0.4375rem 1.875rem;
+  font-size: 0.96875rem;
+  line-height: 1.55;
 }
 
+.report-door__list li::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 13px;
+  width: 14px;
+  height: 8px;
+  border-left: 3px solid var(--cmnh-brass);
+  border-bottom: 3px solid var(--cmnh-brass);
+  transform: rotate(-45deg);
+}
+
+.report-door__list li strong {
+  color: var(--cmnh-forest-deep);
+}
+
+/* The door's one-payment line in the sample's
+   price-note dress (PF-05): 14.5px, regular weight,
+   the softened ink. The payment page no longer
+   carries the line at all (BUG-131). */
 .report-door__price {
-  font-weight: 700;
+  font-size: 0.90625rem;
+  color: #4a5548;
   margin: var(--space-3) 0 0;
 }
 
@@ -3419,17 +3494,32 @@ a.picker__row {
   margin: var(--space-2) 0 0;
 }
 
+/* The plain card paragraph — the check-another line
+   and the success email paragraph: the sample's
+   15.5px at 1.65, no bottom margin of its own. */
+.report-door__card-line {
+  font-size: 0.96875rem;
+  line-height: 1.65;
+  margin: 0;
+}
+
 /* The payment page (M9.4; Final Sample Master, Sample 9):
    the door's paid state, in the door's own 640px wrap and
    card dress. The email block wears the kit's field
-   classes; the card panel is the sample's stripe-panel —
-   a bordered white panel whose head carries the panel
-   title and the Powered by line. The provider's card
-   fields render inside its own iframes within the panel;
+   classes under the sample's field dress (PF-08); the
+   card panel is the sample's stripe-panel — a bordered
+   white panel whose head carries the panel title and
+   the Powered by line. The provider's card fields
+   render inside its own iframes within the panel;
    nothing card-shaped is styled here, because no card
    field is ours. */
+
+/* The lede (PF-03): 16.5px at 1.6, the gap below it
+   carried as its own bottom margin. */
 .report-payment__lede {
-  margin-top: var(--space-3);
+  font-size: 1.03125rem;
+  line-height: 1.6;
+  margin: 0 0 1.5rem;
 }
 
 /* The honesty area (M9.5, in the founder's Option A
@@ -3437,82 +3527,159 @@ a.picker__row {
    above the email block in the 17 Nov reading order —
    the one line with its Terms link, the price
    restated, the refund line, and the digital-content
-   tick-box the Pay button waits on. */
-.report-payment__honesty {
-  margin-top: var(--space-5);
-}
-
+   tick-box the Pay button waits on. Its rhythm is the
+   sample's (PF-12): 15.5px lines at 1.6, the gaps the
+   sample's inline styles set, the consent label in
+   regular weight. */
 .report-payment__honesty-line {
-  margin-top: 0;
+  font-size: 0.96875rem;
+  line-height: 1.6;
+  margin: 0 0 0.625rem;
 }
 
 .report-payment__honesty-price {
+  font-size: 1rem;
+  line-height: 1.55;
   font-weight: 700;
-  margin: var(--space-3) 0 0;
+  margin: 0 0 0.625rem;
 }
 
 .report-payment__honesty-refund {
-  margin: var(--space-2) 0 0;
+  font-size: 0.96875rem;
+  line-height: 1.6;
+  margin: 0 0 1.125rem;
 }
 
 .report-payment__consent {
   display: flex;
   align-items: flex-start;
   gap: var(--space-2);
-  margin-top: var(--space-4);
-  font-weight: 600;
+  font-size: 0.96875rem;
+  line-height: 1.55;
   cursor: pointer;
 }
 
 .report-payment__consent-box {
   flex: none;
-  width: 1.2rem;
-  height: 1.2rem;
-  margin-top: 0.15rem;
+  width: 1.25rem;
+  height: 1.25rem;
+  margin-top: 2px;
   accent-color: var(--cmnh-forest);
 }
 
+/* The consent error (BUG-132): Sample 9's form-error
+   dress, standing directly under the tick line; while
+   it stands, the tick itself is outlined as the thing
+   needing attention. */
+.report-payment__consent--attention .report-payment__consent-box {
+  outline: 2px solid var(--colour-error);
+  outline-offset: 2px;
+}
+
+.report-payment__consent-error {
+  background: #fbeee3;
+  border: 1px solid #e3b98f;
+  color: #7a4416;
+  border-radius: 10px;
+  padding: 11px 14px;
+  font-size: 0.90625rem;
+  line-height: 1.55;
+  margin: 0.875rem 0 0;
+}
+
+/* The email block's field dress (PF-08): the sample's
+   label, help and input — a soft 1.5px line, 10px
+   radius, 48px tall — over the kit's field classes.
+   The window page's identical block takes the same
+   dress through the same class. */
 .report-payment__email {
-  margin-top: var(--space-5);
+  margin: 0;
 }
 
+.report-payment__email .field__label {
+  font-size: 0.90625rem;
+  font-weight: 700;
+  color: var(--cmnh-forest-deep);
+  margin-bottom: 7px;
+}
+
+.report-payment__email .field__hint {
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: #4a5548;
+  margin-bottom: 10px;
+}
+
+.report-payment__email .field__input {
+  border: 1.5px solid #c9c2a6;
+  border-radius: 10px;
+  min-height: 48px;
+  padding: 11px 14px;
+  background: var(--cmnh-white);
+}
+
+.report-payment__email .field__input:focus {
+  border-color: var(--cmnh-forest);
+}
+
+/* The Required tag (PF-09): Sample 9's req-tag — the
+   cream-soft brass pill. The email field's tag and
+   the consent tick's (BUG-132) share it. */
 .report-payment__req {
-  font-size: 0.72rem;
-  font-weight: 900;
-  letter-spacing: 0.08em;
+  display: inline-block;
+  background: #fbf3d9;
+  border: 1px solid var(--cmnh-brass-pale);
+  color: #9a7a28;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--colour-muted);
-  border: 1px solid var(--colour-tile-line);
+  padding: 2px 8px;
   border-radius: 999px;
-  padding: 0.1rem 0.5rem;
   margin-left: var(--space-2);
-  vertical-align: middle;
+  vertical-align: 2px;
 }
 
-/* The mystery tease strip (D21 as amended): the warm
-   band, the small-caps eyebrow (the buy bar's eyebrow
-   class, reused) and the line in the serif face — the
-   same dress as the buy bar's strip, on this page. */
+/* The mystery tease strip (D21 as amended; PF-10):
+   Sample 9's tease-strip dress — the deeper warm
+   band, the brass-dark eyebrow, and the line as a
+   small serif headline at 22px/600. The buy bar's
+   own strip keeps its own dress; only the eyebrow
+   class is shared, and it is re-dressed here inside
+   the strip. */
 .report-payment__tease {
-  margin-top: var(--space-5);
-  background: var(--colour-band);
-  border: 1px solid var(--colour-band-line);
+  background: #f6ebc6;
+  border: 1px solid var(--cmnh-brass-pale);
   border-radius: var(--radius-panel);
-  padding: var(--space-4);
+  padding: 18px 24px 20px;
+  margin: 0 0 1.375rem;
+}
+
+.report-payment__tease .buy-bar__mystery-eyebrow {
+  font-size: 0.71875rem;
+  font-weight: 700;
+  color: #9a7a28;
+  margin-bottom: 7px;
 }
 
 .report-payment__tease-line {
-  margin: var(--space-1) 0 0;
+  margin: 0;
   font-family: var(--font-family-display);
-  font-size: var(--font-size-lead);
+  font-size: 1.375rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--cmnh-forest-deep);
 }
 
+/* The card panel (PF-07): the sample's stripe-panel —
+   its padding, its serif panel title, and the Powered
+   by line at 12.5px with Stripe in forest. */
 .report-payment__panel {
-  margin-top: var(--space-5);
-  border: 1px solid var(--colour-tile-line);
+  margin-top: 1.5rem;
+  border: 1px solid #e3dcc4;
   border-radius: var(--radius-panel);
   background: var(--cmnh-white);
-  padding: var(--space-4);
+  padding: 22px 24px 8px;
 }
 
 .report-payment__panel-head {
@@ -3520,30 +3687,89 @@ a.picker__row {
   justify-content: space-between;
   align-items: baseline;
   gap: var(--space-3);
+  flex-wrap: wrap;
   margin-bottom: var(--space-4);
 }
 
 .report-payment__panel-title {
-  font-weight: 700;
+  font-family: var(--font-family-display);
+  font-size: 1.1875rem;
+  font-weight: 600;
+  color: var(--cmnh-forest-deep);
 }
 
 .report-payment__panel-powered {
-  color: var(--colour-muted);
-  font-size: 0.9rem;
+  color: #4a5548;
+  font-size: 0.78125rem;
+}
+
+.report-payment__panel-powered strong {
+  color: var(--cmnh-forest);
+  font-weight: 700;
+}
+
+/* The flow's brass button (PF-11): Sample 9's
+   .btn-brass — 54px tall, 17px at 700, 12px radius,
+   the brass-dark bottom edge that the press takes
+   away. It dresses the Pay buttons and the
+   check-another search submits alike, everywhere the
+   flow's mains carry them. */
+.report-door .btn--brass {
+  min-height: 54px;
+  padding: 14px 22px;
+  border: none;
+  border-radius: 12px;
+  font-size: 1.0625rem;
+  font-weight: 700;
+  background: var(--cmnh-brass);
+  color: var(--cmnh-white);
+  box-shadow: 0 3px 0 #9a7a28;
+}
+
+.report-door .btn--brass:hover {
+  background: #b28d33;
+}
+
+.report-door .btn--brass:active {
+  transform: translateY(2px);
+  box-shadow: none;
+}
+
+.report-door .btn--brass[disabled]:hover,
+.report-door .btn--brass[aria-disabled="true"]:hover {
+  background: var(--cmnh-brass);
+}
+
+/* The flow's forest button (PF-18): Sample 10's
+   .btn-forest — the success surface's View button
+   and the buyer re-send. */
+.report-door .btn--forest {
+  min-height: 50px;
+  padding: 12px 24px;
+  border: none;
+  border-radius: 12px;
+  font-size: 1rem;
+  font-weight: 700;
+  background: var(--cmnh-forest);
+  color: var(--cmnh-white);
+}
+
+.report-door .btn--forest:hover {
+  background: var(--cmnh-forest-deep);
 }
 
 .report-payment__pay {
   width: 100%;
-  margin-top: var(--space-4);
-  min-height: 48px;
-  font-size: 0.98rem;
-  font-weight: 700;
+  margin-top: 18px;
 }
 
+/* The closing smallprint (PF-11): 13px, centred. */
 .report-payment__smallprint {
-  margin: var(--space-3) 0 0;
-  color: var(--colour-muted);
-  font-size: 0.9rem;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: #4a5548;
+  text-align: center;
+  margin: 14px 4px 0;
 }
 
 .report-payment__taken {
@@ -3553,47 +3779,150 @@ a.picker__row {
 
 /* The success surface (M9.6; Final Sample Master,
    Sample 10): the door's wrap and card dress, with the
-   sample's own furniture — the ready badge as a small
-   pill in the brand's ok colours, the home line under
-   the title, the gift-applied banner in the same ok
-   dress, and the check-another search row. */
+   sample's own furniture. */
+
+/* The ready badge (PF-16): Sample 10's cream-and-brass
+   pill, its tick standing inside a forest circle. (The
+   greens it wore until this stack were fallback values
+   of two tokens nothing defines.) */
 .report-success__badge {
-  display: inline-block;
-  margin: 0 0 var(--space-3);
-  padding: 0.3rem 0.8rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0 0 18px;
+  padding: 8px 15px;
   border-radius: 999px;
-  background: var(--colour-ok-bg, #edf4ec);
-  border: 1px solid var(--colour-ok-line, #bfd8be);
+  background: #fbf3d9;
+  border: 1px solid var(--cmnh-brass-pale);
+  color: var(--cmnh-forest-deep);
   font-weight: 700;
+  font-size: 0.875rem;
 }
 
+.report-success__badge > span {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--cmnh-forest);
+  color: var(--cmnh-white);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  flex: none;
+}
+
+/* The gift-applied banner (PF-17, founder ruling
+   22 Nov 2026): kept — a gifted buyer is told the
+   gift was applied — and dressed in the flow's
+   cream-and-brass family, no green. */
 .report-success__gift-banner {
-  margin: 0 0 var(--space-4);
+  margin: 0 0 1.375rem;
   padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-panel);
-  background: var(--colour-ok-bg, #edf4ec);
-  border: 1px solid var(--colour-ok-line, #bfd8be);
+  background: #fbf3d9;
+  border: 1px solid var(--cmnh-brass-pale);
+  color: var(--cmnh-forest-deep);
   font-weight: 600;
 }
 
-.report-success__home {
-  font-size: var(--font-size-lead);
-  margin: var(--space-2) 0 0;
+/* The report preview (PF-15): Sample 10's card — the
+   mock cover beside the sections line and the View
+   button. The cover is a drawing: the brand line, the
+   report's title, ruled text lines and a brass bar on
+   a bordered, shadowed mini page. */
+.report-success__preview {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.report-success__thumb {
+  width: 104px;
+  flex: none;
+  border: 1px solid #e3dcc4;
+  border-radius: 6px;
+  background: linear-gradient(180deg, #fff 0%, var(--cmnh-cream) 100%);
+  padding: 12px 11px 14px;
+  box-shadow: 0 4px 12px rgba(30, 64, 44, 0.1);
+}
+
+.report-success__thumb .rt-brand {
+  font-family: var(--font-family-display);
+  font-size: 8.5px;
+  font-weight: 700;
+  color: var(--cmnh-forest);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.report-success__thumb .rt-title {
+  font-family: var(--font-family-display);
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--cmnh-forest-deep);
+  line-height: 1.3;
+  margin-bottom: 8px;
+}
+
+.report-success__thumb .rt-line {
+  height: 4px;
+  border-radius: 2px;
+  background: #e7e0c8;
+  margin-bottom: 5px;
+}
+
+.report-success__thumb .rt-line.short {
+  width: 62%;
+}
+
+.report-success__thumb .rt-bar {
+  height: 7px;
+  border-radius: 3px;
+  background: var(--cmnh-brass-pale);
+  margin: 9px 0 4px;
+}
+
+.report-success__preview-text {
+  flex: 1 1 240px;
 }
 
 .report-success__sections {
-  margin-top: 0;
+  font-size: 0.96875rem;
+  line-height: 1.6;
+  margin: 0 0 14px;
 }
 
+.report-success__preview-text .journey-actions {
+  margin: 0;
+}
+
+/* The check-another search row (PF-18): the sample's
+   row — 12px gap, the input flexing from 260px on the
+   soft field dress (PF-08's values). */
 .report-success__search {
   display: flex;
-  gap: var(--space-2);
+  gap: 12px;
   flex-wrap: wrap;
-  margin-top: var(--space-3);
+  margin-top: 18px;
+  align-items: stretch;
 }
 
 .report-success__search .field__input {
-  flex: 1 1 240px;
+  flex: 1 1 260px;
+  width: auto;
+  min-width: 0;
+  border: 1.5px solid #c9c2a6;
+  border-radius: 10px;
+  min-height: 48px;
+  padding: 11px 14px;
+  background: var(--cmnh-white);
+}
+
+.report-success__search .field__input:focus {
+  border-color: var(--cmnh-forest);
 }
 
 .report-success__sr {
@@ -3603,6 +3932,81 @@ a.picker__row {
   overflow: hidden;
   clip: rect(0 0 0 0);
   white-space: nowrap;
+}
+
+/* BUG-135 (22 Nov 2026): the success surface's
+   check-another card now carries the one postcode box
+   (components/PostcodeBox, bare) in place of its
+   hand-rolled form. (The .report-success__search rules
+   above then dressed the failed surface's own form;
+   BUG-139 below took that form too, so no surface
+   renders them now — they stand retained regardless.)
+   The PF-18 row the form wore is
+   mapped onto the box's markup here, so the rendered
+   row is the one the parity stack produced: the hero
+   measure cap lifted (the error card's precedent),
+   the form's 18px stand-off, the 12px row gap, and
+   the input flexing from 260px on the soft field
+   dress at the size the form's field rendered. The
+   brass submit keeps the door's PF-11 dress, whose
+   own note already names the check-another submit as
+   one of its own; it outranks the bare box's button
+   rule by source order, as it did the form's button. */
+.report-success .postcode-box--bare {
+  max-width: none;
+  margin-top: 18px;
+}
+
+.report-success .postcode-box__row {
+  gap: 12px;
+}
+
+.report-success .postcode-box__row .field__input {
+  flex: 1 1 260px;
+  border: 1.5px solid #c9c2a6;
+  border-radius: 10px;
+  min-height: 48px;
+  padding: 11px 14px;
+  font-size: 1rem;
+  background: var(--cmnh-white);
+}
+
+.report-success .postcode-box__row .field__input:focus {
+  border-color: var(--cmnh-forest);
+}
+
+/* BUG-139 (22 Nov 2026): the failed surface's
+   check-another card takes the same treatment as its
+   twin above — the one postcode box in place of the
+   hand-rolled form it shared the __search dress with.
+   The PF-18 row is mapped onto the box's markup under
+   this surface's own scope, value for value with the
+   success mapping: the measure cap lifted, the form's
+   18px stand-off, the 12px row gap, and the input
+   flexing from 260px on the soft field dress. The
+   brass submit keeps the door's PF-11 dress by source
+   order, as it did the form's button. */
+.report-failed .postcode-box--bare {
+  max-width: none;
+  margin-top: 18px;
+}
+
+.report-failed .postcode-box__row {
+  gap: 12px;
+}
+
+.report-failed .postcode-box__row .field__input {
+  flex: 1 1 260px;
+  border: 1.5px solid #c9c2a6;
+  border-radius: 10px;
+  min-height: 48px;
+  padding: 11px 14px;
+  font-size: 1rem;
+  background: var(--cmnh-white);
+}
+
+.report-failed .postcode-box__row .field__input:focus {
+  border-color: var(--cmnh-forest);
 }
 
 /* M9.7's additions to the post-payment surfaces: the
@@ -3627,19 +4031,69 @@ a.picker__row {
   font-weight: 600;
 }
 
+/* The failed surface's reasons (PF-21): Sample 12's
+   list — no bullets, each reason carrying a small
+   brass dot. */
 .report-failed__reasons {
-  margin: 0 0 var(--space-4);
-  padding-left: var(--space-5);
+  list-style: none;
+  margin: 0;
+  padding: 0;
 }
 
-.report-failed__reasons li + li {
-  margin-top: var(--space-2);
+.report-failed__reasons li {
+  position: relative;
+  padding: 6px 0 6px 26px;
+  font-size: 0.96875rem;
+  line-height: 1.6;
+}
+
+.report-failed__reasons li::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 15px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--cmnh-brass);
+}
+
+/* The still line (PF-22): its own paragraph below
+   the reasons card. */
+.report-failed__still {
+  font-size: 0.96875rem;
+  line-height: 1.65;
+  margin: 0 0 20px;
 }
 
 .report-failed__links {
   display: flex;
   gap: var(--space-5);
   flex-wrap: wrap;
+}
+
+/* The flow's trailing link rows (PF-19/PF-23/PF-32):
+   Sample 10 and Sample 12 both set their links as a
+   wrapping flex row in forest at 15.5px/600 — applied
+   to the flow mains' own link rows (the door's back
+   link, the failed surface's, the window's). Rows
+   inside cards keep their card dress. */
+.report-door > .journey-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 26px;
+  margin-top: 26px;
+}
+
+.report-door > .journey-actions a {
+  font-size: 0.96875rem;
+  font-weight: 600;
+  color: var(--cmnh-forest);
+  text-decoration: none;
+}
+
+.report-door > .journey-actions a:hover {
+  text-decoration: underline;
 }
 
 /* The comparison table (D70 R5/D17): the design's
@@ -4311,138 +4765,228 @@ a.picker__row {
 }
 
 /* Gift claim flow (M7.13, decision D21; Master views
-   17–23) — the claim card and its states. The card sits
-   in an 820px wrap inside the pages measure (the
-   Privacy wrap's precedent); the furniture is the
-   samples': the centred icon badge in its four forms,
-   the claimed card's pill chip, the fine print, and
-   the in-card search block under its divider. The
-   claim form is the kit's standard field block (the
-   plan's fold-in): label, input and inline error
-   stacked, the button below — full-width on a phone,
-   where the sample's side-by-side row would crush the
-   field under every target size the house rules set. */
+   17–27) — the claim card and its states, conformed
+   to the samples' own dress by the payment-flow
+   parity stack (22 Nov 2026, PF-24..PF-30): the card
+   in a 660px wrap, left-aligned on white with the
+   samples' padding, 20px radius and soft shadow; the
+   icon badge a 52px rounded square in the samples'
+   tone pairs; the claim form as the sample's
+   side-by-side field row — the founder reversed the
+   fold-in departure the step first built with
+   (PF-26), the row stacking at narrow widths; the
+   refusal box and the alert in the samples' error
+   family; the claimed chip in the samples' green.
+   Two ruled departures stand (PF-29): the in-card
+   search block keeps the site's bare postcode box,
+   and heading levels follow the product's page
+   discipline. */
 .gift-page .gift-wrap {
-  max-width: 820px;
+  max-width: 660px;
 }
 .gift-page .gift-card {
   margin-top: 1.8rem;
-  text-align: center;
+  text-align: left;
+  background: #fff;
+  border: 1px solid #e3dcc4;
+  border-radius: 20px;
+  padding: 34px 32px 30px;
+  box-shadow: 0 8px 28px rgba(30, 64, 44, 0.07);
 }
+/* The card's type (PF-27): the samples' 30px serif
+   heading at 600, body at 16.5px/1.65 in the samples'
+   softened ink, strongs in the deep ink. */
 .gift-page .gift-card h1 {
-  font-size: 1.65rem;
-  margin-bottom: 0.55rem;
+  font-size: 1.875rem;
+  font-weight: 600;
+  line-height: 1.18;
+  color: #1c2b1e;
+  margin: 0 0 12px;
 }
 .gift-page .gift-card p {
-  margin-left: auto;
-  margin-right: auto;
+  font-size: 1.03125rem;
+  line-height: 1.65;
+  color: #4a5546;
+  margin: 0 0 16px;
+}
+.gift-page .gift-card p strong {
+  color: #22301f;
 }
 .gift-page .gift-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  margin-bottom: 1rem;
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  margin-bottom: 20px;
 }
 .gift-page .gift-badge--gift {
-  background: var(--sp-brass-pale);
-  color: var(--sp-deep);
+  background: #f3ead0;
+  color: #8a6d1f;
 }
 .gift-page .gift-badge--ok {
-  background: var(--sp-wash);
+  background: #edf4ec;
   color: var(--sp-forest);
 }
 .gift-page .gift-badge--neutral {
-  background: var(--sp-cream);
-  color: var(--sp-muted);
+  background: #eff0e8;
+  color: #5a6353;
 }
 .gift-page .gift-badge--warn {
-  background: #f6e3c2;
-  color: #8a5a12;
+  background: #fdf0ec;
+  color: #7a2e1d;
 }
-.gift-page .gift-chip {
+/* The claimed chip (PF-29): the samples' green —
+   #edf4ec on #bfd8be, #2e4a2c text at 14px/600. */
+.gift-page .gift-card .gift-chip {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
-  background: var(--sp-wash);
-  border: 1px solid var(--sp-forest);
+  background: #edf4ec;
+  border: 1px solid #bfd8be;
   border-radius: 999px;
-  padding: 0.45rem 1rem;
+  padding: 8px 14px;
   font-weight: 600;
-  color: var(--sp-deep);
-  font-size: 0.94rem;
-  margin-bottom: 1rem;
+  color: #2e4a2c;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  margin: 0 0 20px;
 }
+/* The claim form as the sample's field row (PF-26):
+   the kit's field block dissolves into the form's
+   flex row — the label takes its own line, the input
+   flexes beside the button, and the error message,
+   the fine print and the helper take their own lines
+   below. The row wraps to a stack at narrow widths. */
 .gift-page .gift-card form {
-  display: grid;
-  gap: 1rem;
-  max-width: 520px;
-  margin: 1.4rem auto 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-start;
+  margin: 1.4rem 0 0;
   text-align: left;
+}
+.gift-page .gift-card form .field {
+  display: contents;
+}
+.gift-page .gift-card form .field__label {
+  flex: 1 1 100%;
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: #22301f;
+  margin: 0;
+}
+.gift-page .gift-card form .field__input {
+  flex: 1 1 240px;
+  width: auto;
+  min-width: 0;
+  border: 1.5px solid #cfc7a6;
+  border-radius: 12px;
+  padding: 12px 14px;
+  min-height: 48px;
+  background: #fffefb;
+}
+.gift-page .gift-card form .field__input:focus {
+  border-color: var(--sp-forest);
+}
+.gift-page .gift-card form .field__input[aria-invalid="true"] {
+  border-color: #c96a4e;
+}
+.gift-page .gift-card form .field__message {
+  flex: 1 1 100%;
+  margin: 0;
 }
 .gift-page .gift-card form .btn {
-  justify-self: start;
+  border-radius: 12px;
+  padding: 12px 20px;
+  font-size: 0.96875rem;
+  font-weight: 700;
   min-height: 48px;
 }
-.gift-page .gift-fine-print,
-.gift-page .gift-helper {
-  font-size: 0.9rem;
-  color: var(--sp-muted);
+/* The fine print and the helper (PF-30): 13.5px in
+   the muted ink, each spanning the card's full width
+   under the form row. */
+.gift-page .gift-card .gift-fine-print,
+.gift-page .gift-card .gift-helper {
+  flex: 1 1 100%;
+  font-size: 0.84375rem;
+  line-height: 1.6;
+  color: #7a7e6e;
+  margin: 14px 0 0;
   text-align: left;
 }
-.gift-page .gift-alert {
-  background: #fbeae9;
-  border: 1px solid var(--cmnh-error);
+/* The send-failure line, in the samples' error
+   family (PF-28's dialect). The triple class outranks
+   the card's own paragraph rule. */
+.gift-page .gift-card .gift-alert {
+  background: #fdf0ec;
+  border: 1px solid #ebc6b8;
   border-radius: 12px;
-  padding: 0.9rem 1.1rem;
-  color: var(--cmnh-error);
-  font-weight: 600;
-  max-width: 520px;
-  margin: 1.2rem auto 0;
+  padding: 12px 14px;
+  color: #7a2e1d;
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  margin: 1.2rem 0 0;
   text-align: left;
 }
 /* The refusal screens' message box (Master views 23
-   and 24): heading and body inside the error-tinted
-   box, no badge — the samples' own form for Texts 3
-   and 4, restored by the conform pass of 19 Nov 2026.
-   Same box dialect as .gift-alert; the heading keeps
-   the page's h1 at message size. */
+   and 24; PF-28): heading and body inside the
+   samples' error-tinted box, no badge — the box
+   spanning the card, its heading and body in the
+   family's own reds. */
 .gift-page .gift-message {
-  background: #fbeae9;
-  border: 1px solid var(--cmnh-error);
-  border-radius: 12px;
-  padding: 1.1rem 1.2rem;
-  max-width: 520px;
-  margin: 0 auto;
+  background: #fdf0ec;
+  border: 1px solid #ebc6b8;
+  border-radius: 14px;
+  padding: 20px 20px 6px;
+  margin: 0 0 20px;
   text-align: left;
 }
 .gift-page .gift-message h1 {
-  font-size: 1.3rem;
-  color: var(--cmnh-error);
-  margin-bottom: 0.4rem;
+  font-size: 1.625rem;
+  color: #5f2113;
+  margin: 0 0 10px;
 }
 .gift-page .gift-message p {
-  margin: 0;
+  font-size: 1rem;
+  line-height: 1.6;
+  color: #5f3a30;
+  margin: 0 0 14px;
 }
 .gift-page .gift-divider {
   border: none;
-  border-top: 1px solid var(--sp-line);
-  margin: 1.8rem 0 1.4rem;
+  border-top: 1px solid #e3dcc4;
+  margin: 24px 0 20px;
 }
-.gift-page .gift-search-heading {
-  font-size: 1.35rem;
-  margin-bottom: 0.4rem;
+.gift-page .gift-card .gift-search-heading {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #1c2b1e;
+  margin: 0 0 6px;
 }
-.gift-page .gift-search-line {
-  color: #3d4a40;
-  margin-bottom: 1rem;
+.gift-page .gift-card .gift-search-line {
+  font-size: 0.90625rem;
+  line-height: 1.55;
+  color: #4a5546;
+  margin: 0 0 14px;
 }
 .gift-page .gift-card .postcode-box {
   text-align: left;
   max-width: 520px;
   margin: 0 auto;
+}
+/* The gift card at phone widths (the samples' own
+   step): the tighter padding and the smaller heading.
+   The doubled class outranks the site-pages' own
+   phone padding rule for cards. */
+@media (max-width: 560px) {
+  .gift-page .gift-card.gift-card {
+    padding: 26px 20px 24px;
+  }
+  .gift-page .gift-card h1 {
+    font-size: 1.625rem;
+  }
 }
 
 /* Download links (M8.6, Key K16; Master views 32–33)
@@ -5716,6 +6260,21 @@ a.picker__row {
   .site-pages .rpt-tldr .grp h3 {
     break-after: avoid;
     page-break-after: avoid;
+  }
+  /* A heading block that carries furniture never
+     splits across a page either (BUG-141, 22 Nov
+     2026): at the Section 7 title the number badge was
+     cut in half — its top at one page's foot, the rest
+     with the title at the next page's head. The whole
+     title block keeps together and moves to the next
+     page whole, the badge bound into the same unit;
+     the layer-2 heading keeps whole with its rule the
+     same way. */
+  .site-pages .rpt-secHead,
+  .site-pages .rpt-secNum,
+  .site-pages .rpt-sub {
+    break-inside: avoid;
+    page-break-inside: avoid;
   }
   .site-pages .rpt-doc p,
   .site-pages .rpt-doc li {

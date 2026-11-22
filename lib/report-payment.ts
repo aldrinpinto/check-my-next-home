@@ -1,9 +1,5 @@
 import { BUY_BAR_MYSTERY_EYEBROW, BUY_BAR_MYSTERY_LINE } from "./results";
-import {
-  REPORT_DOOR_CONTENTS_HEADING,
-  REPORT_DOOR_PRICE_LINE,
-  type ReportDoorIdentity,
-} from "./report-door";
+import { REPORT_DOOR_CONTENTS_HEADING, type ReportDoorIdentity } from "./report-door";
 import { REPORT_PRICE_LABEL } from "./site";
 
 // The payment page's view (plan steps M9.4 and M9.5;
@@ -22,8 +18,7 @@ import { REPORT_PRICE_LABEL } from "./site";
 // anywhere in our pages — the card fields live inside
 // the provider's own iframes). Everything else follows
 // the sample: the heading form, the lede, the contents
-// card with the Master's own list, the one-payment
-// line, the email block's exact label, help and error
+// card with the Master's own list, the email block's exact label, help and error
 // lines, the mystery tease (permitted here — one of its
 // two places, lib/results.ts), the card panel's head,
 // the Pay button and the closing line.
@@ -45,7 +40,14 @@ import { REPORT_PRICE_LABEL } from "./site";
 // carries the full wording. Sample 9 rightly drew
 // neither (the step's content postdates the sample);
 // the Master was conformed in the same builds. The
-// tick is captured
+// payment-flow parity stack (22 Nov 2026) then took
+// the one-payment line OUT of the contents card
+// (BUG-131: the honesty block below is the single
+// money statement — the view no longer carries a
+// price line at all), moved the mystery tease to
+// directly under the lede (BUG-133), and gave the
+// consent tick its Required tag and its own error
+// line (BUG-132). The tick is captured
 // with the payment itself — tick and timestamp ride in
 // the payment's metadata (lib/server/payments.ts), so
 // M9.10's order record can read the consent back
@@ -70,7 +72,6 @@ export interface ReportPaymentView {
   lede: string;
   contentsHeading: string;
   contents: PaymentContentLine[];
-  priceLine: string;
   termsLineLead: string;
   termsLinkLabel: string;
   termsHref: string;
@@ -147,6 +148,16 @@ export const PAYMENT_REFUND_LINE =
 export const PAYMENT_CONSENT_LABEL =
   "Make my report now — I understand I lose the 14-day change-of-mind right once it is delivered.";
 
+// The consent error (BUG-132, payment-flow parity
+// stack, 22 Nov 2026): shown directly under the tick
+// line when the buyer tries to pay without ticking —
+// the disabled button alone never said why. New copy,
+// composed in the site's plain voice for the founder's
+// review: it names the action and ties it to what the
+// tick means, in the tick label's own terms.
+export const PAYMENT_CONSENT_ERROR_LINE =
+  "Tick this box to continue — it confirms you understand the report is made for you straight away, and that the 14-day change-of-mind right ends once it is delivered.";
+
 // Sample 9's email block, verbatim: the label (its
 // "Required" tag is rendered by the component), the
 // help line under it, the placeholder and the one
@@ -202,7 +213,6 @@ export function buildReportPaymentView(identity: ReportDoorIdentity): ReportPaym
     lede: PAYMENT_LEDE,
     contentsHeading: REPORT_DOOR_CONTENTS_HEADING,
     contents: PAYMENT_CONTENTS,
-    priceLine: REPORT_DOOR_PRICE_LINE,
     termsLineLead: PAYMENT_TERMS_LINE_LEAD,
     termsLinkLabel: PAYMENT_TERMS_LINK_LABEL,
     termsHref: PAYMENT_TERMS_HREF,

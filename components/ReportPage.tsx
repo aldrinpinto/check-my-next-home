@@ -269,6 +269,19 @@ function Block({ block }: { block: ReportBlock }) {
           </a>
         </p>
       );
+    case "noteLink":
+      // The small-print link (BUG-137): the note's own
+      // classes carry the genuine small-print size; the
+      // anchor inside stays a working link, opening in
+      // a new tab like every lineLink.
+      return (
+        <p className="rpt-small rpt-chartNote">
+          {block.text ? `${block.text} ` : null}
+          <a href={block.href} target="_blank" rel="noopener">
+            {block.label}
+          </a>
+        </p>
+      );
     case "links":
       return (
         <p className="rpt-small rpt-chartNote">
