@@ -149,7 +149,7 @@ test.describe("results page — smoke", () => {
       await expect(page.locator('[data-section="sold-prices"]')).toContainText("£588,995");
       await expect(page.locator('[data-section="costs"]')).toContainText("£2,280.34");
       await expect(page.locator('[data-section="costs"]')).toContainText("£190.03 a month");
-      await expect(page.locator('[data-section="costs"]')).toContainText("gigabit");
+      await expect(page.locator('[data-section="costs"]')).toContainText("Gigabit");
     },
   );
 
