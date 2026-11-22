@@ -245,12 +245,18 @@ export function buildReportPaymentView(identity: ReportDoorIdentity): ReportPaym
 // (M9.6, the test lane): the card element initialises
 // from the SAME key set that created the payment, or
 // its confirmation would be spoken to the wrong
-// account.
+// account. M9.7 adds the payment's own id: it is the
+// order's reference — the success surface's key, and
+// the reference the return landing's address carries
+// (the confirm call's return_url names it, so a
+// bank-approval detour returns to the order's own
+// landing whatever the provider appends).
 export interface StartedPayment {
   clientSecret: string;
   email: string;
   consentAt: string;
   publishableKey: string | null;
+  intentId: string;
 }
 
 // The key the card element initialises from: the

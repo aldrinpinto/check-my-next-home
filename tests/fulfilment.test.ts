@@ -331,3 +331,71 @@ describe("the fulfilment worker — claim to delivered report", () => {
     });
   });
 });
+
+describe("the claim store — the retake and the mail flag (M9.7)", () => {
+  it("reclaimFailed resets a FAILED claim to claimed, keeping its attempts and its last error", async () => {
+    const { claims, service } = serviceHarness({ buildPdfFails: true });
+    await claims.claim({
+      ref: "gift_fail_1",
+      kind: "gifted",
+      email: "friend@example.co.uk",
+      postcode: POSTCODE,
+      homeKey: HOME_KEY,
+      giftToken: "gift_fail_1",
+    });
+    await service.runPending();
+    await service.runPending();
+    await service.runPending();
+    expect(claims.claims.get("gift_fail_1")).toEqual(
+      expect.objectContaining({ status: "failed", attempts: 3, lastError: "printer down" }),
+    );
+
+    await expect(claims.reclaimFailed("gift_fail_1")).resolves.toBe(true);
+    // Back in the worker's queue — with the failure's
+    // record intact on the row, not wiped by the retake.
+    expect(claims.claims.get("gift_fail_1")).toEqual(
+      expect.objectContaining({ status: "claimed", attempts: 3, lastError: "printer down" }),
+    );
+    const pending = await claims.pending(10);
+    expect(pending.map((claim) => claim.ref)).toContain("gift_fail_1");
+  });
+
+  it("reclaimFailed answers false and changes nothing for a claim in any other state, or none", async () => {
+    const { claims } = serviceHarness();
+    await claims.claim({
+      ref: "pi_live_1",
+      kind: "paid",
+      email: EMAIL,
+      postcode: POSTCODE,
+      homeKey: HOME_KEY,
+    });
+    await expect(claims.reclaimFailed("pi_live_1")).resolves.toBe(false);
+    expect(claims.claims.get("pi_live_1")?.status).toBe("claimed");
+    await expect(claims.reclaimFailed("no_such_ref")).resolves.toBe(false);
+  });
+
+  it("markMailSent moves a fulfilled claim's flag to true — and no other claim's", async () => {
+    const { claims } = serviceHarness();
+    await claims.claim({
+      ref: "pi_done_1",
+      kind: "paid",
+      email: EMAIL,
+      postcode: POSTCODE,
+      homeKey: HOME_KEY,
+    });
+    await claims.markFulfilled("pi_done_1", { deliveryId: "delivery_1", mailSent: false });
+    expect(claims.claims.get("pi_done_1")?.mailSent).toBe(false);
+    await claims.markMailSent("pi_done_1");
+    expect(claims.claims.get("pi_done_1")?.mailSent).toBe(true);
+
+    await claims.claim({
+      ref: "pi_waiting_1",
+      kind: "paid",
+      email: EMAIL,
+      postcode: POSTCODE,
+      homeKey: HOME_KEY,
+    });
+    await claims.markMailSent("pi_waiting_1");
+    expect(claims.claims.get("pi_waiting_1")?.mailSent).toBeNull();
+  });
+});

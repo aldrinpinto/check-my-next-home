@@ -24,6 +24,14 @@
 // metadata, where the order record reads it back
 // (test T-PAY-06).
 //
+// M9.7 adds the seam's own nation gate and the failed
+// gift claim's retake: the nation the resolver computed
+// rides the resolved-home answer, a held nation's start
+// is refused before gift recognition and before any
+// creation (gap 6, ruling R2), and a gifted claim that
+// already stands FAILED is reset for the worker when
+// its buyer returns (gap 4, ruling R3).
+//
 // M9.6 adds two things beside the creation:
 //   - THE TEST LANE: the router answers the lane for
 //     the delivery email (allowlisted testers create
@@ -45,12 +53,21 @@
 //     never for a client-sent address.
 
 import { isEmailShape, normaliseEmail } from "../gift";
+import { isNotCoveredNation, type Nation } from "../journey";
 import type { PaymentsRouter, ReportPaymentConsent } from "./payments";
 
 // What the resolver answers: the home's canonical
 // identity as the serve layer resolved it — never the
-// client's strings.
-export type ResolvedPaymentHome = { postcode: string; homeKey: string | null };
+// client's strings. M9.7 adds the nation, read by the
+// resolver from the SAME evidence the door reads (the
+// directory's filed area code for the postcode, via
+// the brains' own detector), so this seam and the door
+// can never disagree about which nation a home is in.
+export type ResolvedPaymentHome = {
+  postcode: string;
+  homeKey: string | null;
+  nation: Nation;
+};
 
 export type PaymentResolver = (
   postcode: string,
@@ -66,7 +83,13 @@ export type StartReportPaymentResult =
   | {
       ok: false;
       reason:
-        "bad-request" | "email" | "consent" | "home-not-found" | "not-configured" | "unavailable";
+        | "bad-request"
+        | "email"
+        | "consent"
+        | "home-not-found"
+        | "held-nation"
+        | "not-configured"
+        | "unavailable";
     };
 
 // An ISO 8601 timestamp of the form the page sends
@@ -102,6 +125,13 @@ export interface StartReportPaymentDeps {
     homeKey: string | null;
     giftToken: string;
   }) => Promise<boolean>;
+  // The failed gift claim's retake (M9.7, gap 4 —
+  // ruling R3): where the gifted claim already stands
+  // but stands FAILED, reset it so the worker tries
+  // again (the claim store's reclaimFailed, keyed by
+  // the gift token). Optional like the pair above; the
+  // route always wires it.
+  reclaimFailedGifted?: (ref: string) => Promise<boolean>;
 }
 
 export async function startReportPayment(
@@ -146,6 +176,20 @@ export async function startReportPayment(
   }
   if (!resolved) return { ok: false, reason: "home-not-found" };
 
+  // The nation hold, at the seam itself (M9.7, gap 6 —
+  // ruling R2): the door page and the report view gate
+  // Scotland and Northern Ireland by nation, and until
+  // this step this route did not — a crafted start
+  // naming a resolved Scottish home could create, and
+  // on confirmation fulfil, the exact paid report the
+  // founder's Road B ruling holds until the nation
+  // milestone. The refusal stands BEFORE gift
+  // recognition and before any payment is created, so
+  // a held nation's start creates nothing anywhere.
+  if (isNotCoveredNation(resolved.nation)) {
+    return { ok: false, reason: "held-nation" };
+  }
+
   // Gift recognition, before any charge: a bound,
   // unredeemed gift makes this order a gifted
   // fulfilment — no payment is created, and the gift
@@ -158,8 +202,9 @@ export async function startReportPayment(
       return { ok: false, reason: "unavailable" };
     }
     if (gift) {
+      let took: boolean;
       try {
-        await deps.claimGifted({
+        took = await deps.claimGifted({
           ref: gift.token,
           email,
           postcode: resolved.postcode,
@@ -168,6 +213,22 @@ export async function startReportPayment(
         });
       } catch {
         return { ok: false, reason: "unavailable" };
+      }
+      // The claim already stood. Where it stands FAILED,
+      // the buyer has come back — and the gift was never
+      // consumed, so the failed claim is retaken and the
+      // worker tries again (gap 4, ruling R3). Best
+      // effort by design: the gifted answer does not
+      // depend on the retake, and a claim in any other
+      // state is left exactly as it stands.
+      if (!took && deps.reclaimFailedGifted) {
+        try {
+          await deps.reclaimFailedGifted(gift.token);
+        } catch {
+          // The claim's state is what it is; the buyer
+          // still belongs on the success surface, which
+          // reads that state and tells the truth about it.
+        }
       }
       return { ok: true, gifted: true, ref: gift.token };
     }

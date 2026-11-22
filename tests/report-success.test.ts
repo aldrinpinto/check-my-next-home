@@ -3,12 +3,20 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import ReportSuccessPage from "../components/ReportSuccessPage";
+import { PAYMENT_REFUND_LINE } from "../lib/report-payment";
 import type { ReportDoorIdentity } from "../lib/report-door";
 import {
   buildReportSuccessView,
   GIFT_APPLIED_BANNER_LINE,
   SUCCESS_BADGE_PAID,
+  SUCCESS_EMAIL_HEADING_UNSENT,
+  SUCCESS_FAILED_FACT,
+  SUCCESS_FAILED_FACT_PAID,
+  SUCCESS_FAILED_GIFT_LINE,
+  SUCCESS_FAILED_RETRY_LINE,
+  SUCCESS_HEADING_FAILED,
   SUCCESS_MYSTERY_LINE,
+  SUCCESS_RESEND_LABEL,
   SUCCESS_SECTIONS_LINE,
 } from "../lib/report-success";
 
@@ -90,9 +98,123 @@ describe("buildReportSuccessView", () => {
   });
 });
 
+describe("buildReportSuccessView — the failed state and the email truth (M9.7)", () => {
+  it("a FAILED paid view states the plain fact and carries the Terms refund sentence, verbatim", () => {
+    const view = buildReportSuccessView({
+      state: "failed",
+      kind: "paid",
+      identity: HOME,
+      email: EMAIL,
+    });
+    expect(view.heading).toBe(SUCCESS_HEADING_FAILED);
+    expect(view.lede).toBe(SUCCESS_FAILED_FACT_PAID);
+    // The refund words are the Terms page's own
+    // sentence — the constant the payment page also
+    // carries, pinned equal to the Terms text in
+    // tests/report-payment.test.ts — and nothing
+    // stronger: the mechanics are M9.8's.
+    expect(view.refundLine).toBe(PAYMENT_REFUND_LINE);
+    // No email card, no report card, no mystery strip,
+    // no re-send: nothing is coming, and the surface
+    // does not pretend otherwise. The state is not
+    // "preparing", so the page's auto-reload — mounted
+    // only in that state — does not run.
+    expect(view.emailHeading).toBeNull();
+    expect(view.emailLead).toBeNull();
+    expect(view.emailTail).toBeNull();
+    expect(view.sectionsLine).toBeNull();
+    expect(view.viewHref).toBeNull();
+    expect(view.mysteryLine).toBeNull();
+    expect(view.resendRef).toBeNull();
+    expect(view.state).toBe("failed");
+  });
+
+  it("a FAILED gifted view carries the unconsumed-gift line and no money words", () => {
+    const view = buildReportSuccessView({
+      state: "failed",
+      kind: "gifted",
+      identity: HOME,
+      email: EMAIL,
+    });
+    expect(view.heading).toBe(SUCCESS_HEADING_FAILED);
+    expect(view.lede).toBe(SUCCESS_FAILED_FACT);
+    expect(view.lede).not.toContain("£");
+    expect(view.refundLine).toBeNull();
+    expect(view.failedGiftLine).toBe(SUCCESS_FAILED_GIFT_LINE);
+    expect(view.failedRetryLine).toBeNull();
+    expect(view.giftBannerLine).toBeNull();
+  });
+
+  it("a FAILED free view carries the road back and no money words", () => {
+    const view = buildReportSuccessView({
+      state: "failed",
+      kind: "free",
+      identity: HOME,
+      email: EMAIL,
+    });
+    expect(view.lede).toBe(SUCCESS_FAILED_FACT);
+    expect(view.refundLine).toBeNull();
+    expect(view.failedGiftLine).toBeNull();
+    expect(view.failedRetryLine).toBe(SUCCESS_FAILED_RETRY_LINE);
+  });
+
+  it("a READY view whose delivery email did not send stops claiming it did — and offers the re-send", () => {
+    const view = buildReportSuccessView({
+      state: "ready",
+      kind: "paid",
+      identity: HOME,
+      email: EMAIL,
+      mailSent: false,
+      orderRef: "pi_1",
+    });
+    expect(view.emailHeading).toBe(SUCCESS_EMAIL_HEADING_UNSENT);
+    expect(view.emailLead).not.toContain("We've sent");
+    expect(view.emailTail).toContain("didn't go out");
+    expect(view.resendRef).toBe("pi_1");
+    expect(view.resendLabel).toBe(SUCCESS_RESEND_LABEL);
+    // The report itself is unaffected: ready is ready.
+    expect(view.sectionsLine).toBe(SUCCESS_SECTIONS_LINE);
+    expect(view.viewHref).not.toBeNull();
+  });
+
+  it("a READY view with the email sent keeps the sample's words; the re-send still stands", () => {
+    const view = buildReportSuccessView({
+      state: "ready",
+      kind: "paid",
+      identity: HOME,
+      email: EMAIL,
+      mailSent: true,
+      orderRef: "pi_1",
+    });
+    expect(view.emailLead).toContain("We've sent");
+    expect(view.resendRef).toBe("pi_1");
+  });
+
+  it("the failed surface renders its lines — and no email card", () => {
+    const html = text(
+      renderToStaticMarkup(
+        createElement(ReportSuccessPage, {
+          view: buildReportSuccessView({
+            state: "failed",
+            kind: "paid",
+            identity: HOME,
+            email: EMAIL,
+          }),
+        }),
+      ),
+    );
+    expect(html).toContain(SUCCESS_HEADING_FAILED);
+    expect(html).toContain("19 Birkdale Rise");
+    expect(html).toContain(SUCCESS_FAILED_FACT_PAID);
+    expect(html).toContain(PAYMENT_REFUND_LINE);
+    expect(html).not.toContain("Your report by email");
+    expect(html).not.toContain("We've sent");
+  });
+});
+
 describe("the success surface — viewing only (named test (k))", () => {
-  it("renders no download affordance and no share affordance, in either state", () => {
-    for (const state of ["ready", "preparing"] as const) {
+  it("renders no download affordance and no share affordance, in any state", () => {
+    for (const state of ["ready", "preparing", "failed"] as const) {
       const html = text(
         renderToStaticMarkup(
           createElement(ReportSuccessPage, {

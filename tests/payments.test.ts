@@ -171,6 +171,13 @@ function contractSuite(
         ok: true,
         intentId: created.intentId,
         status: expect.any(String),
+        // M9.7: the read-back carries the payment's
+        // metadata too — the order-state reading decides
+        // from it. The exact bag is implementation
+        // territory (the stub holds none, the fake
+        // composes the creation's), pinned exactly in
+        // the fake's own suite below.
+        metadata: expect.any(Object),
       });
     });
 
@@ -402,6 +409,17 @@ describe("payments translator — the fake's own promises", () => {
       ok: true,
       intentId: "pi_fake_1",
       status: "succeeded",
+      // The metadata the creation carried, read back
+      // whole (M9.7): the order-state reading names the
+      // order's home and delivery email from exactly
+      // this bag.
+      metadata: {
+        email: EMAIL,
+        postcode: POSTCODE,
+        home_key: HOME_KEY,
+        consent_tick: "true",
+        consent_timestamp: CONSENT.timestamp,
+      },
     });
     await expect(fake.intentStatus("pi_fake_99")).resolves.toEqual({
       ok: false,
@@ -483,6 +501,59 @@ describe("payments translator — the test lane (M9.6)", () => {
     // payment, but the order is STILL a test order.
     expect(withoutSet.laneFor(TESTER)).toBe("live");
     expect(withoutSet.isTestOrder(TESTER)).toBe(true);
+  });
+
+  it("reads a payment back through the router: whichever lane set holds it answers (M9.7)", async () => {
+    const live = createFakePayments();
+    const test = createFakePayments();
+    const router = createPaymentsRouter({
+      live: laneSet(live, "pk_live"),
+      test: laneSet(test, "pk_test"),
+      testEmails: [TESTER],
+    });
+    const liveCreated = await live.createReportIntent({
+      email: EMAIL,
+      postcode: POSTCODE,
+      homeKey: HOME_KEY,
+      consent: CONSENT,
+    });
+    // A throwaway first: both fakes number their
+    // payments from pi_fake_1, and the fall-through
+    // below needs an id the live set does NOT hold.
+    await test.createReportIntent({
+      email: TESTER,
+      postcode: POSTCODE,
+      homeKey: HOME_KEY,
+      consent: CONSENT,
+      testOrder: true,
+    });
+    const testCreated = await test.createReportIntent({
+      email: TESTER,
+      postcode: POSTCODE,
+      homeKey: HOME_KEY,
+      consent: CONSENT,
+      testOrder: true,
+    });
+    if (!liveCreated.ok || !testCreated.ok) throw new Error("creation failed");
+    // The live set's payment answers from the live set…
+    const liveStatus = await router.intentStatus(liveCreated.intentId);
+    expect(liveStatus.ok).toBe(true);
+    if (liveStatus.ok) expect(liveStatus.metadata.email).toBe(EMAIL);
+    // …and a payment only the test set holds falls
+    // through to it — the success surface reads a
+    // tester's order exactly as it reads a buyer's.
+    const testStatus = await router.intentStatus(testCreated.intentId);
+    expect(testStatus.ok).toBe(true);
+    if (testStatus.ok) {
+      expect(testStatus.metadata.email).toBe(TESTER);
+      expect(testStatus.metadata.test).toBe("true");
+    }
+    // A payment neither set holds: the default set's
+    // failure stands.
+    await expect(router.intentStatus("pi_fake_99")).resolves.toEqual({
+      ok: false,
+      reason: "unknown-intent",
+    });
   });
 
   it("reads the TEST flag back from a verified event's metadata", async () => {

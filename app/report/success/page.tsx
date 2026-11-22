@@ -2,39 +2,46 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import ReportSuccessPage from "../../../components/ReportSuccessPage";
-import { displayText } from "../../../lib/address";
-import { homeKeyOf } from "../../../lib/bundle-cache";
-import type { ReportDoorIdentity } from "../../../lib/report-door";
 import { buildReportSuccessView } from "../../../lib/report-success";
-import { resultsScopeLabel } from "../../../lib/results";
 import { pageMetadata } from "../../../lib/seo";
 import { getDbPool } from "../../../lib/server/db";
 import { createDbFulfilmentClaimStore } from "../../../lib/server/fulfilment";
-import { resolutionForRoute } from "../../../lib/server/serve";
+import { readOrderState } from "../../../lib/server/order-state";
+import { getPaymentsRouter } from "../../../lib/server/payments";
+import { identityForOrder } from "../../../lib/server/report-identity";
 
-// The success surface's route (plan step M9.6; Sample
-// 10): /report/success?order=<the fulfilment claim's
-// reference>. The page reads the claim SERVER-SIDE and
-// renders by its state — "preparing" while the worker
-// composes, the full surface once the claim stands
-// fulfilled. The claim reference is the only key: a
-// payment id, a gift token or a free-window id, each
-// unguessable in its own right.
+// The success surface's route (plan steps M9.6 and
+// M9.7; Sample 10): /report/success?order=<the order's
+// reference>. The page reads the order's state
+// SERVER-SIDE through the one order-state reading
+// (lib/server/order-state.ts — claim first, then the
+// payment itself) and renders by it:
 //
-// A reference with no claim behind it — a stale tab, a
-// typed URL, a revisit after the trail has gone —
-// falls back to the report door, never to an error
-// page (the prep's pin). The surface is viewing-only:
-// the report itself is read through /report/view, and
-// the PDF only ever through the delivery email's
-// signed link (named test (k) pins the absence of any
-// download or share affordance).
+//   - a claim standing fulfilled renders the full
+//     surface; standing claimed, the preparing frame;
+//     standing FAILED, the failed state (M9.7, gap 3) —
+//     the plain fact and, for a paid claim, the Terms
+//     Refunds sentence, with the preparing frame's
+//     auto-reload stopped;
+//   - a payment with no claim yet that stands
+//     succeeded or processing renders the preparing
+//     frame (M9.7, gap 2): the buyer confirmed seconds
+//     ahead of the "paid" message that makes the claim,
+//     and is never bounced to the payment page, where a
+//     second payment could be taken for the same home;
+//   - a reference with neither a claim nor one of our
+//     payments behind it — a stale tab, a typed URL, a
+//     revisit after the trail has gone — falls back to
+//     the report door, never to an error page (the M9.6
+//     pin, kept).
 //
-// A claim the worker has exhausted ("failed") still
-// renders the preparing frame at this step: the
-// failure journeys are M9.7's surfaces to build, and
-// the buyer's durable copy — the delivery record and
-// the support path — does not depend on this page.
+// The reference is the only key: a payment id, a gift
+// token or a free-window id, each unguessable in its
+// own right. The surface is viewing-only: the report
+// itself is read through /report/view, and the PDF
+// only ever through the delivery email's signed link
+// (named test (k) pins the absence of any download or
+// share affordance).
 
 export const metadata: Metadata = pageMetadata({
   title: "Your report | Check My Next Home",
@@ -45,41 +52,6 @@ export const metadata: Metadata = pageMetadata({
 
 export const dynamic = "force-dynamic";
 
-// The door's identity ladder, in this page's terms:
-// name the claim's home the way the door names it, from
-// the serve layer's resolution — never from the claim's
-// own strings alone, and never a guessed home.
-async function identityFor(postcode: string, homeKey: string | null): Promise<ReportDoorIdentity> {
-  try {
-    let resolution = await resolutionForRoute(postcode, homeKey);
-    if (!resolution && homeKey) {
-      resolution = await resolutionForRoute(postcode, null);
-    }
-    if (!resolution) return { kind: "postcode", postcode, subline: null };
-    if (resolution.rung === 1) {
-      const address = resolution.address;
-      const locality = address.locality ? displayText(address.locality) : null;
-      return {
-        kind: "home",
-        subject: address.label,
-        subline: locality ? `${locality}, ${address.postcode}` : address.postcode,
-        postcode: address.postcode,
-        homeKey: homeKeyOf(resolution),
-      };
-    }
-    if (resolution.rung === 2) {
-      return {
-        kind: "postcode",
-        postcode: resolution.directory.postcode,
-        subline: resultsScopeLabel(resolution),
-      };
-    }
-    return { kind: "postcode", postcode, subline: null };
-  } catch {
-    return { kind: "postcode", postcode, subline: null };
-  }
-}
-
 export default async function ReportSuccessRoute({
   searchParams,
 }: {
@@ -89,15 +61,34 @@ export default async function ReportSuccessRoute({
   const ref = params.order ?? null;
   if (!ref) redirect("/report");
   const claims = createDbFulfilmentClaimStore(getDbPool());
-  const claim = await claims.getByRef(ref).catch(() => null);
-  if (!claim) redirect("/report");
+  const reading = await readOrderState({ claims, payments: getPaymentsRouter() }, ref);
 
-  const identity = await identityFor(claim.postcode, claim.homeKey);
-  const view = buildReportSuccessView({
-    state: claim.status === "fulfilled" ? "ready" : "preparing",
-    kind: claim.kind,
-    identity,
-    email: claim.email,
-  });
-  return <ReportSuccessPage view={view} />;
+  if (reading.kind === "claim") {
+    const claim = reading.claim;
+    const identity = await identityForOrder(claim.postcode, claim.homeKey);
+    const view = buildReportSuccessView({
+      state:
+        claim.status === "fulfilled" ? "ready" : claim.status === "failed" ? "failed" : "preparing",
+      kind: claim.kind,
+      identity,
+      email: claim.email,
+      mailSent: claim.mailSent,
+      orderRef: ref,
+    });
+    return <ReportSuccessPage view={view} />;
+  }
+
+  if (reading.kind === "payment" && reading.state === "preparing") {
+    const identity = await identityForOrder(reading.postcode, reading.homeKey);
+    const view = buildReportSuccessView({
+      state: "preparing",
+      kind: "paid",
+      identity,
+      email: reading.email,
+      orderRef: ref,
+    });
+    return <ReportSuccessPage view={view} />;
+  }
+
+  redirect("/report");
 }

@@ -3605,6 +3605,43 @@ a.picker__row {
   white-space: nowrap;
 }
 
+/* M9.7's additions to the post-payment surfaces: the
+   failed state's lines on the success surface, the
+   buyer re-send's row and answer, and Sample 12's
+   furniture — its reasons list and its two-link row —
+   all in the door's own dress, no new look. */
+.report-success__failed-line {
+  margin: 0;
+}
+
+.report-success__failed-line + .report-success__failed-line {
+  margin-top: var(--space-3);
+}
+
+.report-success__resend {
+  margin-top: var(--space-4);
+}
+
+.report-success__resend-answer {
+  margin: var(--space-3) 0 0;
+  font-weight: 600;
+}
+
+.report-failed__reasons {
+  margin: 0 0 var(--space-4);
+  padding-left: var(--space-5);
+}
+
+.report-failed__reasons li + li {
+  margin-top: var(--space-2);
+}
+
+.report-failed__links {
+  display: flex;
+  gap: var(--space-5);
+  flex-wrap: wrap;
+}
+
 /* The comparison table (D70 R5/D17): the design's
    shared-label form — the first column names each check
    once, one column per home, values aligned, a report

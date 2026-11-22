@@ -117,6 +117,24 @@ export interface FulfilmentClaimStore {
   // transient failure retries on a later worker run, a
   // persistent one stops and stays reasoned about.
   recordFailure(ref: string, input: { error: string; maxAttempts: number }): Promise<void>;
+  // Retake a claim that stands FAILED (M9.7, gap 4 —
+  // ruling R3): the claim returns to "claimed" so the
+  // worker tries again, and its attempts and last error
+  // STAY on the row — the record of the failure is not
+  // wiped by the retake. Answers true where this call
+  // reset a failed claim; a claim in any other state,
+  // or none, answers false and changes nothing. Only
+  // the gift road calls this (the door's gift
+  // recognition, where the gift was never consumed);
+  // a paid claim has no equivalent road by design.
+  reclaimFailed(ref: string): Promise<boolean>;
+  // The delivery email stands sent after all (M9.7,
+  // gap 5): a buyer re-send of the standing delivery's
+  // email succeeded, so the claim's mail_sent — which
+  // the success surface reads to tell the truth about
+  // the email — follows the fact. Only a fulfilled
+  // claim's flag can move, and only to true.
+  markMailSent(ref: string): Promise<void>;
 }
 
 // A free-window claim's reference: no payment and no
@@ -229,6 +247,26 @@ export function createDbFulfilmentClaimStore(db: {
         [ref, input.error, input.maxAttempts],
       );
     },
+
+    async reclaimFailed(ref) {
+      const { rows } = await db.query(
+        `UPDATE fulfilment_claims
+            SET status = 'claimed'
+          WHERE ref = $1 AND status = 'failed'
+          RETURNING ref`,
+        [ref],
+      );
+      return rows.length > 0;
+    },
+
+    async markMailSent(ref) {
+      await db.query(
+        `UPDATE fulfilment_claims
+            SET mail_sent = true
+          WHERE ref = $1 AND status = 'fulfilled'`,
+        [ref],
+      );
+    },
   };
 }
 
@@ -285,6 +323,17 @@ export function createMemoryFulfilmentClaimStore(): FulfilmentClaimStore & {
       claim.attempts += 1;
       claim.lastError = input.error;
       if (claim.attempts >= input.maxAttempts) claim.status = "failed";
+    },
+    async reclaimFailed(ref) {
+      const claim = claims.get(ref);
+      if (!claim || claim.status !== "failed") return false;
+      claim.status = "claimed";
+      return true;
+    },
+    async markMailSent(ref) {
+      const claim = claims.get(ref);
+      if (!claim || claim.status !== "fulfilled") return;
+      claim.mailSent = true;
     },
   };
 }

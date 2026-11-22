@@ -113,6 +113,28 @@ export interface ReportDeliveryService {
     origin: string;
     now?: Date;
   }): Promise<ReissueOutcome>;
+  // Send a standing delivery's email again (M9.7, gap
+  // 5 — the buyer re-send behind the success surface):
+  // the SAME delivery email as the first send — same
+  // home, same gift offer where the delivery carries
+  // one — to the address the delivery stands under.
+  // The signed link is re-minted over the SAME
+  // delivery id (the token is a signature, not a stored
+  // record — the store gains nothing), no new delivery
+  // is recorded and no new gift issued: the one gift
+  // this delivery carries rides again, exactly as it
+  // stood. Answers null where no such delivery stands;
+  // the mailer's own answer otherwise. Distinct from
+  // reissueDownloadLink by design: re-issue answers an
+  // EXPIRED link with a fresh token and the re-issue
+  // email, entered from the download page; this answers
+  // an email that never arrived, from the order's own
+  // success surface, keyed by the order.
+  resendDeliveryEmail(input: {
+    deliveryId: string;
+    origin: string;
+    now?: Date;
+  }): Promise<ReportMailResult | null>;
 }
 
 export function createReportDeliveryService(deps: ReportDeliveryDeps): ReportDeliveryService {
@@ -176,6 +198,22 @@ export function createReportDeliveryService(deps: ReportDeliveryDeps): ReportDel
       });
       const mail = await deps.mailer.sendReissueEmail({ to: delivery.email, email });
       return { kind: "answered", sent: mail.sent };
+    },
+
+    async resendDeliveryEmail(input) {
+      const now = input.now ?? new Date();
+      const delivery = await deps.deliveries.getById(input.deliveryId);
+      if (!delivery) return null;
+      const { token } = deps.signer.mint(delivery.id, now);
+      const email = deliveryEmail({
+        homeTitle: delivery.homeTitle,
+        homeAddressLine: delivery.homeAddressLine,
+        downloadUrl: `${input.origin}${downloadPath(token)}`,
+        giftClaimUrl: delivery.giftToken
+          ? `${input.origin}${giftClaimPath(delivery.giftToken)}`
+          : null,
+      });
+      return deps.mailer.sendDeliveryEmail({ to: delivery.email, email });
     },
   };
 }

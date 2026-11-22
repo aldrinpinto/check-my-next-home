@@ -27,6 +27,22 @@
 // is deliberately no second, compiled copy of the
 // fulfilment path for this script to drift from.
 //
+// THE ENTRY'S SHAPE (BUG-107, found at the M9.6
+// deploy): the run lives inside main() and the module
+// runs it ONLY when the file is executed directly —
+// never on import. The first cut's top-level await
+// died under tsx before anything ran: the repo carries
+// no "type": "module", so tsx transforms this entry to
+// CommonJS, whose output format has no top-level
+// await. The wrap costs nothing and the guard test
+// (tests/fulfil-reports-entry.test.ts) holds both
+// halves: importing this module is side-effect-free,
+// and the direct invocation starts like a normal
+// program. The worker wiring itself is imported
+// dynamically inside main() for the same reason — an
+// import of this module must not drag the PDF
+// machinery (react-dom/server and all) behind it.
+//
 // Usage: npx -y tsx scripts/fulfil-reports.ts [--limit N]
 // Environment: the server's own .env.local / .env
 // (DATABASE_URL, the signing secret, the mailer and
@@ -35,9 +51,8 @@
 // email's links (default the site's own URL).
 
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-
-import { getFulfilmentService } from "../lib/server/fulfilment-worker";
+import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 function loadEnvLocal() {
   for (const name of [".env.local", ".env"]) {
@@ -52,14 +67,35 @@ function loadEnvLocal() {
   }
 }
 
-loadEnvLocal();
+export async function main(argv: string[] = process.argv.slice(2)): Promise<number> {
+  loadEnvLocal();
 
-const limitArg = process.argv.indexOf("--limit");
-const limit = limitArg >= 0 ? Number.parseInt(process.argv[limitArg + 1] ?? "10", 10) : 10;
+  const limitArg = argv.indexOf("--limit");
+  const limit = limitArg >= 0 ? Number.parseInt(argv[limitArg + 1] ?? "10", 10) : 10;
 
-const service = getFulfilmentService();
-const result = await service.runPending(Number.isFinite(limit) && limit > 0 ? limit : 10);
-console.log(
-  `fulfil-reports: processed ${result.processed}, fulfilled ${result.fulfilled}, failed ${result.failed}`,
-);
-process.exit(0);
+  const { getFulfilmentService } = await import("../lib/server/fulfilment-worker");
+  const service = getFulfilmentService();
+  const result = await service.runPending(Number.isFinite(limit) && limit > 0 ? limit : 10);
+  console.log(
+    `fulfil-reports: processed ${result.processed}, fulfilled ${result.fulfilled}, failed ${result.failed}`,
+  );
+  return 0;
+}
+
+// Executed directly (the cron line, the timer, a hand
+// run) the module runs its pass; imported (a test, a
+// tool) it does nothing at all.
+const invokedDirectly =
+  process.argv[1] !== undefined && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
+
+if (invokedDirectly) {
+  main().then(
+    (code) => process.exit(code),
+    (error: unknown) => {
+      console.error(
+        `fulfil-reports: ${error instanceof Error ? error.message : "the worker run failed"}`,
+      );
+      process.exit(1);
+    },
+  );
+}

@@ -31,6 +31,7 @@ import { startReportPayment, type PaymentResolver } from "../lib/server/payment-
 const HOME: PaymentResolver = async () => ({
   postcode: "CM3 2JT",
   homeKey: "19||BIRKDALE RISE",
+  nation: "england",
 });
 
 const CONSENT = { ticked: true, timestamp: "2026-11-22T00:40:00.000Z" };
@@ -93,7 +94,7 @@ describe("startReportPayment", () => {
     const seen: [string, string | null][] = [];
     const resolve: PaymentResolver = async (postcode, homeKey) => {
       seen.push([postcode, homeKey]);
-      return { postcode: "CM3 2JT", homeKey: "19||BIRKDALE RISE" };
+      return { postcode: "CM3 2JT", homeKey: "19||BIRKDALE RISE", nation: "england" };
     };
     await startReportPayment(
       { payments: routerFor(createFakePayments()), resolve },
@@ -112,7 +113,7 @@ describe("startReportPayment", () => {
     const result = await startReportPayment(
       {
         payments: routerFor(fake),
-        resolve: async () => ({ postcode: "CM3 2JT", homeKey: null }),
+        resolve: async () => ({ postcode: "CM3 2JT", homeKey: null, nation: "england" }),
       },
       { postcode: "CM3 2JT", email: "buyer@example.co.uk", consent: CONSENT },
     );
@@ -302,5 +303,79 @@ describe("startReportPayment — gift recognition (M9.6)", () => {
     );
     expect(result.ok).toBe(true);
     expect(fake.created).toHaveLength(1);
+  });
+});
+
+describe("startReportPayment — the nation gate and the failed gift claim (M9.7)", () => {
+  it("refuses a held nation's start before gift recognition and before any creation — nothing is created anywhere", async () => {
+    for (const nation of ["scotland", "northern-ireland"] as const) {
+      const fake = createFakePayments();
+      let giftConsulted = false;
+      const result = await startReportPayment(
+        {
+          payments: routerFor(fake),
+          resolve: async () => ({
+            postcode: "DG16 5JB",
+            homeKey: "1||SARK COTTAGE",
+            nation,
+          }),
+          giftFor: async () => {
+            giftConsulted = true;
+            return { token: "gift-tok" };
+          },
+          claimGifted: async () => {
+            throw new Error("must not be called");
+          },
+        },
+        { postcode: "DG16 5JB", email: "buyer@example.co.uk", consent: CONSENT },
+      );
+      expect(result).toEqual({ ok: false, reason: "held-nation" });
+      expect(fake.created).toHaveLength(0);
+      expect(giftConsulted).toBe(false);
+    }
+  });
+
+  it("a returning gift buyer whose claim stands FAILED retakes it — the worker retries (R3)", async () => {
+    const fake = createFakePayments();
+    const reclaimed: string[] = [];
+    const result = await startReportPayment(
+      {
+        payments: routerFor(fake),
+        resolve: HOME,
+        giftFor: async () => ({ token: "gift-tok" }),
+        // The claim already stands (claim() answers
+        // false) — the failed case is what the retake
+        // answers.
+        claimGifted: async () => false,
+        reclaimFailedGifted: async (ref) => {
+          reclaimed.push(ref);
+          return true;
+        },
+      },
+      { postcode: "CM3 2JT", email: "friend@example.co.uk", consent: CONSENT },
+    );
+    expect(result).toEqual({ ok: true, gifted: true, ref: "gift-tok" });
+    expect(reclaimed).toEqual(["gift-tok"]);
+    expect(fake.created).toHaveLength(0);
+  });
+
+  it("a fresh gifted claim (claim answers true) triggers no retake", async () => {
+    const fake = createFakePayments();
+    let retakeCalled = false;
+    const result = await startReportPayment(
+      {
+        payments: routerFor(fake),
+        resolve: HOME,
+        giftFor: async () => ({ token: "gift-tok" }),
+        claimGifted: async () => true,
+        reclaimFailedGifted: async () => {
+          retakeCalled = true;
+          return true;
+        },
+      },
+      { postcode: "CM3 2JT", email: "friend@example.co.uk", consent: CONSENT },
+    );
+    expect(result).toEqual({ ok: true, gifted: true, ref: "gift-tok" });
+    expect(retakeCalled).toBe(false);
   });
 });

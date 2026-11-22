@@ -43,8 +43,16 @@ import { fireJourneyEvent } from "./JourneyBeacon";
 // provider. Unticked, no payment can start and neither
 // button can fire a confirmation (test T-PAY-06). A
 // decline is answered inline, in Sample 9's error-line
-// pattern (the standalone Payment failed page is
-// M9.7's).
+// pattern.
+//
+// M9.7 hands the provider the return address: the
+// confirm call carries return_url — /report/return
+// naming this order — so a payment that leaves the
+// page (the bank-approval detour) comes back to the
+// order's own landing, which reads the order's true
+// state server-side and routes from it: paid, to the
+// success surface; not paid, to Sample 12's page
+// (lib/report-payment-failed.ts), rendered verbatim.
 //
 // M9.6 completes the page's own wiring: the intent
 // answer carries the LANE's publishable key (the test
@@ -81,10 +89,18 @@ function stripePromiseFor(key: string): Promise<Stripe | null> {
 function PaySection({
   view,
   consented,
+  orderRef,
   onPaid,
 }: {
   view: ReportPaymentView;
   consented: boolean;
+  // The started payment's own id — the order's
+  // reference (M9.7): the confirm call's return_url
+  // names it, so a payment that leaves the page (the
+  // bank-approval detour) returns to the order's own
+  // landing, which reads the order's true state and
+  // routes from it.
+  orderRef: string | null;
   onPaid: () => void;
 }) {
   const stripe = useStripe();
@@ -97,7 +113,14 @@ function PaySection({
     if (!stripe || !elements || busy || !consented) return;
     setBusy(true);
     setError(null);
-    const result = await stripe.confirmPayment({ elements, redirect: "if_required" });
+    const returnUrl = orderRef
+      ? `${window.location.origin}/report/return?order=${encodeURIComponent(orderRef)}`
+      : `${window.location.origin}/report/return`;
+    const result = await stripe.confirmPayment({
+      elements,
+      confirmParams: { return_url: returnUrl },
+      redirect: "if_required",
+    });
     if (result.error) {
       // The provider's buyer-facing wording, or our own
       // fallback line — never a raw error object.
@@ -247,6 +270,7 @@ export default function ReportPaymentPage({
             email: normalised,
             consentAt,
             publishableKey: data.publishableKey ?? null,
+            intentId: data.intentId ?? "",
           });
           // The funnel's second step: a payment stands
           // started for this page (M9.6, Amendment B).
@@ -398,6 +422,7 @@ export default function ReportPaymentPage({
                 <PaySection
                   view={view}
                   consented={consentAt !== null}
+                  orderRef={activeIntent.intentId || null}
                   onPaid={() => {
                     setPaid(true);
                     // The success surface reads the

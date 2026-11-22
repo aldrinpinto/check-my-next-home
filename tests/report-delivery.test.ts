@@ -220,7 +220,70 @@ describe("re-issue", () => {
     const freshToken = mail.email.text.match(/\/report\/download\/(\S+)/)?.[1];
     expect(h.signer.verify(freshToken!, aYearOn).kind).toBe("ok");
   });
+});
 
+describe("resendDeliveryEmail — the buyer re-send (M9.7, gap 5)", () => {
+  it("sends the standing delivery's own email again: same delivery, same gift, nothing new created", async () => {
+    const h = harness();
+    const outcome = await h.service.deliverReport(deliverInput("paid"));
+    expect(h.issueCalls()).toBe(1);
+    h.sent.length = 0;
+
+    const result = await h.service.resendDeliveryEmail({
+      deliveryId: outcome.delivery.id,
+      origin: DOWNLOAD_ORIGIN,
+      now: DOWNLOAD_NOW,
+    });
+    expect(result).toEqual({ sent: true });
+    // One email, the DELIVERY email (not the re-issue
+    // email), to the delivery's own address…
+    expect(h.sent).toHaveLength(1);
+    const mail = h.sent[0]!;
+    expect(mail.kind).toBe("delivery");
+    expect(mail.to).toBe(DOWNLOAD_BUYER);
+    // …carrying the gift this delivery already carries
+    // — the same token, exactly once — and a live link
+    // over the SAME delivery id. No new gift was issued
+    // (the count stands at one) and no new delivery was
+    // recorded: the store still answers only the
+    // original record under its id.
+    const url = giftUrlOf(outcome.delivery.giftToken!);
+    expect(mail.email.text.split(url)).toHaveLength(2);
+    expect(h.issueCalls()).toBe(1);
+    const token = mail.email.text.match(/\/report\/download\/(\S+)/)?.[1];
+    expect(token?.split(".")[0]).toBe(outcome.delivery.id);
+    expect(h.signer.verify(token!, DOWNLOAD_NOW).kind).toBe("ok");
+    expect(await h.deliveries.getById(outcome.delivery.id)).toEqual(outcome.delivery);
+  });
+
+  it("a free delivery's re-send carries no gift block, exactly as its first send did not", async () => {
+    const h = harness();
+    const outcome = await h.service.deliverReport(deliverInput("free"));
+    h.sent.length = 0;
+    const result = await h.service.resendDeliveryEmail({
+      deliveryId: outcome.delivery.id,
+      origin: DOWNLOAD_ORIGIN,
+      now: DOWNLOAD_NOW,
+    });
+    expect(result).toEqual({ sent: true });
+    expect(h.sent).toHaveLength(1);
+    expect(h.sent[0]!.email.text).not.toContain("/gift/");
+  });
+
+  it("answers null for a delivery that does not stand — and sends nothing", async () => {
+    const h = harness();
+    await expect(
+      h.service.resendDeliveryEmail({
+        deliveryId: "delivery_unknown",
+        origin: DOWNLOAD_ORIGIN,
+        now: DOWNLOAD_NOW,
+      }),
+    ).resolves.toBeNull();
+    expect(h.sent).toHaveLength(0);
+  });
+});
+
+describe("reissueDownloadLink — the standing pins", () => {
   it("refuses a tampered link outright — no answer, no email", async () => {
     const h = harness();
     const outcome = await h.service.deliverReport(deliverInput("paid"));

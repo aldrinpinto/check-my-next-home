@@ -1,5 +1,5 @@
 // POST /api/payments/intent — start a report payment
-// (plan steps M9.4, M9.5 and M9.6). A thin adapter over
+// (plan steps M9.4, M9.5, M9.6 and M9.7). A thin adapter over
 // the factored seam (lib/server/payment-intent.ts): the
 // browser posts the postcode, the home key, the
 // delivery email and the digital-content consent
@@ -29,6 +29,8 @@
 import { NextResponse } from "next/server";
 
 import { homeKeyOf } from "../../../../lib/bundle-cache";
+import { nationOfLsoa } from "../../../../lib/journey";
+import { REPORT_DOOR_HOLDING_STATE_LINE } from "../../../../lib/report-door";
 import {
   PAYMENT_HOME_NOT_FOUND_LINE,
   PAYMENT_START_FAILED_LINE,
@@ -65,7 +67,11 @@ const RATE_WINDOW_MS = 60_000;
 // terms — the door page's own ladder, including its
 // stale-key fallback (a key the directory no longer
 // holds falls back to the postcode's form, never a
-// guessed home).
+// guessed home). M9.7: the nation rides the answer,
+// read from the directory's filed area code by the
+// brains' own detector — the identical evidence the
+// door page reads, so the seam's nation gate (gap 6)
+// and the door can never disagree.
 async function resolvePaymentHome(
   postcode: string,
   homeKey: string | null,
@@ -76,10 +82,18 @@ async function resolvePaymentHome(
   }
   if (!resolution) return null;
   if (resolution.rung === 1) {
-    return { postcode: resolution.address.postcode, homeKey: homeKeyOf(resolution) };
+    return {
+      postcode: resolution.address.postcode,
+      homeKey: homeKeyOf(resolution),
+      nation: nationOfLsoa(resolution.directory.lsoaCode),
+    };
   }
   if (resolution.rung === 2) {
-    return { postcode: resolution.directory.postcode, homeKey: null };
+    return {
+      postcode: resolution.directory.postcode,
+      homeKey: null,
+      nation: nationOfLsoa(resolution.directory.lsoaCode),
+    };
   }
   return null;
 }
@@ -89,6 +103,7 @@ const STATUS_BY_REASON = {
   email: 400,
   consent: 400,
   "home-not-found": 404,
+  "held-nation": 403,
   "not-configured": 503,
   unavailable: 502,
 } as const;
@@ -133,6 +148,7 @@ export async function POST(request: Request) {
           homeKey: input.homeKey,
           giftToken: input.giftToken,
         }),
+      reclaimFailedGifted: (ref) => claims.reclaimFailed(ref),
     },
     body,
   );
@@ -143,7 +159,12 @@ export async function POST(request: Request) {
         message:
           result.reason === "home-not-found"
             ? PAYMENT_HOME_NOT_FOUND_LINE
-            : PAYMENT_START_FAILED_LINE,
+            : result.reason === "held-nation"
+              ? // The holding state's own line: the
+                // refusal speaks exactly as the door the
+                // buyer was held at speaks.
+                REPORT_DOOR_HOLDING_STATE_LINE
+              : PAYMENT_START_FAILED_LINE,
       },
       { status: STATUS_BY_REASON[result.reason] },
     );

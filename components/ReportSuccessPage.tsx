@@ -1,5 +1,6 @@
 import type { ReportSuccessView } from "../lib/report-success";
 import SuccessRefresher from "./SuccessRefresher";
+import SuccessResend from "./SuccessResend";
 
 // The success surface (plan step M9.6; Final Sample
 // Master, Sample 10): a mechanical renderer of
@@ -69,14 +70,36 @@ export default function ReportSuccessPage({ view }: { view: ReportSuccessView })
         </form>
       </section>
 
-      <section className="report-door__card">
-        <h2>{view.emailHeading}</h2>
-        <p>
-          {view.emailLead}
-          <strong>{view.email}</strong>
-          {view.emailTail}
-        </p>
-      </section>
+      {(view.refundLine || view.failedGiftLine || view.failedRetryLine) && (
+        <section className="report-door__card">
+          {view.refundLine && <p className="report-success__failed-line">{view.refundLine}</p>}
+          {view.failedGiftLine && (
+            <p className="report-success__failed-line">{view.failedGiftLine}</p>
+          )}
+          {view.failedRetryLine && (
+            <p className="report-success__failed-line">{view.failedRetryLine}</p>
+          )}
+        </section>
+      )}
+
+      {view.emailHeading && (
+        <section className="report-door__card">
+          <h2>{view.emailHeading}</h2>
+          <p>
+            {view.emailLead}
+            <strong>{view.email}</strong>
+            {view.emailTail}
+          </p>
+          {view.resendRef && view.resendLabel && view.resendSentLine && view.resendFailedLine && (
+            <SuccessResend
+              orderRef={view.resendRef}
+              label={view.resendLabel}
+              sentLine={view.resendSentLine}
+              failedLine={view.resendFailedLine}
+            />
+          )}
+        </section>
+      )}
 
       {view.mysteryLine && (
         <div className="report-payment__tease">

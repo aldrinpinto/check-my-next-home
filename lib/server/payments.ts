@@ -21,7 +21,10 @@
 //     metadata, where M9.6's webhook path reads them
 //     back to deliver the report and M9.10's order
 //     record reads the consent from (test T-PAY-06).
-//   - intentStatus — read a payment's status back.
+//   - intentStatus — read a payment's status and
+//     metadata back (the metadata half is M9.7's: the
+//     order-state reading behind the post-payment
+//     surfaces).
 //   - verifyWebhookEvent — verify a webhook delivery's
 //     signature and read the event (M9.4 builds the
 //     verification; the receiver route that acts on
@@ -85,7 +88,20 @@ export type CreateIntentResult =
   | { ok: false; reason: string };
 
 export type IntentStatusResult =
-  { ok: true; intentId: string; status: string } | { ok: false; reason: string };
+  | {
+      ok: true;
+      intentId: string;
+      status: string;
+      // The payment's metadata, read back with its
+      // status (M9.7): the order-state reading behind
+      // the success surface and the payment return
+      // landing decides from these whether a payment
+      // with no fulfilment claim yet is OURS — and
+      // names its home and delivery email from them —
+      // never from anything a client sent.
+      metadata: Record<string, string>;
+    }
+  | { ok: false; reason: string };
 
 export type WebhookEventResult =
   | {
@@ -170,6 +186,19 @@ export function createUnconfiguredPayments(): Payments {
 // stated structurally so tests can stand a recording stub
 // in for it. The real client satisfies far more than
 // this; nothing outside this file touches it.
+// A provider metadata bag, in this seam's terms: only
+// its string entries exist — the rest of the product
+// reads metadata as strings or not at all.
+function stringMetadata(raw: unknown): Record<string, string> {
+  const metadata: Record<string, string> = {};
+  if (typeof raw === "object" && raw !== null) {
+    for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+      if (typeof value === "string") metadata[key] = value;
+    }
+  }
+  return metadata;
+}
+
 export interface StripeClientSlice {
   paymentIntents: {
     create(params: Record<string, unknown>): Promise<{
@@ -177,7 +206,11 @@ export interface StripeClientSlice {
       client_secret: string | null;
       status: string;
     }>;
-    retrieve(id: string): Promise<{ id: string; status: string }>;
+    retrieve(id: string): Promise<{
+      id: string;
+      status: string;
+      metadata?: Record<string, unknown>;
+    }>;
   };
   webhooks: {
     constructEvent(
@@ -231,7 +264,12 @@ export function createStripePayments(config: {
     async intentStatus(intentId) {
       try {
         const intent = await client.paymentIntents.retrieve(intentId);
-        return { ok: true, intentId: intent.id, status: intent.status };
+        return {
+          ok: true,
+          intentId: intent.id,
+          status: intent.status,
+          metadata: stringMetadata(intent.metadata),
+        };
       } catch {
         return { ok: false, reason: "provider-error" };
       }
@@ -247,20 +285,12 @@ export function createStripePayments(config: {
           config.webhookSecret,
         );
         const object = event.data.object ?? {};
-        const rawMetadata =
-          typeof object.metadata === "object" && object.metadata !== null
-            ? (object.metadata as Record<string, unknown>)
-            : {};
-        const metadata: Record<string, string> = {};
-        for (const [key, value] of Object.entries(rawMetadata)) {
-          if (typeof value === "string") metadata[key] = value;
-        }
         return {
           ok: true,
           type: event.type,
           intentId: typeof object.id === "string" ? object.id : null,
           status: typeof object.status === "string" ? object.status : null,
-          metadata,
+          metadata: stringMetadata(object.metadata),
           livemode: typeof event.livemode === "boolean" ? event.livemode : null,
         };
       } catch {
@@ -351,7 +381,18 @@ export function createFakePayments(config?: { webhookSecret?: string }): FakePay
     async intentStatus(intentId) {
       const record = created.find((entry) => entry.intentId === intentId);
       if (!record) return { ok: false, reason: "unknown-intent" };
-      return { ok: true, intentId, status: record.status };
+      // The metadata the creation carried, composed the
+      // way the adapter composes it — the read-back
+      // exercises the same promises the seam makes.
+      const metadata: Record<string, string> = {
+        [PAYMENT_METADATA_EMAIL]: record.email,
+        [PAYMENT_METADATA_POSTCODE]: record.postcode,
+        [PAYMENT_METADATA_CONSENT_TICK]: record.consentTick ? "true" : "false",
+        [PAYMENT_METADATA_CONSENT_TIMESTAMP]: record.consentTimestamp,
+      };
+      if (record.homeKey) metadata[PAYMENT_METADATA_HOME_KEY] = record.homeKey;
+      if (record.testOrder) metadata[PAYMENT_METADATA_TEST] = "true";
+      return { ok: true, intentId, status: record.status, metadata };
     },
     verifyWebhookEvent(input) {
       const parts = new Map(
@@ -378,20 +419,12 @@ export function createFakePayments(config?: { webhookSecret?: string }): FakePay
           data?: { object?: Record<string, unknown> };
         };
         const object = event.data?.object ?? {};
-        const rawMetadata =
-          typeof object.metadata === "object" && object.metadata !== null
-            ? (object.metadata as Record<string, unknown>)
-            : {};
-        const metadata: Record<string, string> = {};
-        for (const [key, value] of Object.entries(rawMetadata)) {
-          if (typeof value === "string") metadata[key] = value;
-        }
         return {
           ok: true,
           type: typeof event.type === "string" ? event.type : "",
           intentId: typeof object.id === "string" ? object.id : null,
           status: typeof object.status === "string" ? object.status : null,
-          metadata,
+          metadata: stringMetadata(object.metadata),
           livemode: typeof event.livemode === "boolean" ? event.livemode : null,
         };
       } catch {
@@ -464,6 +497,13 @@ export interface PaymentsRouter {
   isTestOrder(email: string): boolean;
   forLane(lane: PaymentLane): Payments;
   publishableKeyFor(lane: PaymentLane): string | null;
+  // Read a payment back (M9.7's order-state reading):
+  // whichever lane set holds it answers — a payment
+  // lives under exactly one set's keys, and the other
+  // set's read fails, so the first ok answer is the
+  // payment's own set talking. Where neither answers,
+  // the default set's failure stands.
+  intentStatus(intentId: string): Promise<IntentStatusResult>;
   // Verify a webhook, selecting the secret by the
   // event's mode once both secrets exist (see the
   // header's test-lane note).
@@ -518,6 +558,12 @@ export function createPaymentsRouter(config: {
       return lane === "test" && config.test
         ? config.test.publishableKey
         : config.live.publishableKey;
+    },
+    async intentStatus(intentId) {
+      const live = await config.live.payments.intentStatus(intentId);
+      if (live.ok || !config.test) return live;
+      const test = await config.test.payments.intentStatus(intentId);
+      return test.ok ? test : live;
     },
     verifyWebhookEvent(input) {
       // Once both secrets exist, the event's own mode

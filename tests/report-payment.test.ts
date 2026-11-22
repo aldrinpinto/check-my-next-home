@@ -240,6 +240,7 @@ describe("payment page — the honest pre-payment screen (M9.5, T-PAY-06)", () =
       email: "buyer@example.co.uk",
       consentAt: "2026-11-22T00:40:00.000Z",
       publishableKey: "pk_default",
+      intentId: "pi_1",
     };
     const standing = { emailValid: true, email: "buyer@example.co.uk" };
     expect(liveStartedPayment(started, { ...standing, consentAt: started.consentAt })).toBe(
@@ -340,6 +341,7 @@ describe("the payment element's key — the test lane (M9.6)", () => {
       email: "tester@example.co.uk",
       consentAt: "2026-11-22T00:40:00.000Z",
       publishableKey: "pk_test_lane",
+      intentId: "pi_1",
     };
     // The element initialises from the set that created
     // the payment — a test-lane payment under the test
