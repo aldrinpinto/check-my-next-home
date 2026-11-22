@@ -1266,6 +1266,7 @@ export const FIGURE_PATH_PATTERNS: FigurePathPattern[] = [
   p("nearby\\.categories\\[\\]\\.countWithin", "nearby.count-within"),
   p("nearby\\.categories\\[\\]\\.beyondNearest\\.miles", "nearby.distance-miles"),
   p("nearby\\.categories\\[\\]\\.nearestSelective\\.miles", "nearby.nearest-selective"),
+  p("nearby\\.categories\\[\\]\\.selectiveSchools\\[\\]\\.miles", "nearby.nearest-selective"),
   p("nearby\\.categories\\[\\]\\.nearestSelectiveLine", "nearby.nearest-selective"),
   p("nearby\\.categories\\[\\]\\.places\\[\\]\\.cqcRating\\.rating", "nearby.cqc-rating"),
   // Industrial sites (M6.32): the site's distance on the

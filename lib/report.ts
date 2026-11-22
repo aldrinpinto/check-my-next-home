@@ -38,6 +38,7 @@ import {
 } from "./flood";
 import { formatFiledDate, formatMiles, formatPounds, nationOfLsoa } from "./journey";
 import type { CategoryAnswer, NearbyBundle, NearbyCategory, NearbyPlace } from "./nearby";
+import { nationOfPostcode } from "./nation";
 import { CATCHMENT_LINK, distanceBand, reportRoute, type DistanceBand } from "./results";
 import { REPORT_DOOR_STATE, type ReportDoorState } from "./site";
 import type { ServedSale, SoldPricesBundle } from "./sold-prices";
@@ -774,7 +775,7 @@ function stateLine(answer: CategoryAnswer): ReportBlock | null {
   if (answer.state === "empty" || answer.state === "empty-map" || answer.state === "none-within") {
     const text =
       answer.state === "none-within" && answer.beyondNearest
-        ? `None within ${answer.category === "ev-chargers" ? 5 : 2} miles — nearest is ${answer.beyondNearest.name}, ${formatMiles(answer.beyondNearest.miles)} miles away.`
+        ? `None within ${answer.category === "ev-chargers" || answer.category === "schools-secondary" || answer.category === "sixth-forms" ? 5 : 2} miles — nearest is ${answer.beyondNearest.name}, ${formatMiles(answer.beyondNearest.miles)} miles away.`
         : sentenceLine(answer.line);
     return { type: "boldLine", text };
   }
@@ -782,11 +783,26 @@ function stateLine(answer: CategoryAnswer): ReportBlock | null {
 }
 
 function section(number: number, title: string, blocks: ReportBlock[]): ReportSectionView {
-  // No check-link row closes a section (BUG-052): the
-  // sample report carries its How-we-check links only in
-  // Section 10, and so does the product — section10 builds
-  // the one list from REPORT_SECTION_CHECK_LINKS itself.
-  return { number, title, blocks };
+  // BUG-114 (founder ruling 22 Nov 2026, superseding
+  // BUG-052 for this point): a small-print "How we check"
+  // link line closes each section, naming that section's
+  // own page(s) from REPORT_SECTION_CHECK_LINKS — the
+  // links block renders exactly that small-print form.
+  // Section 10's list stays as the complete index.
+  // Sections with no mapped pages (9 and 10) gain no line.
+  const hrefs = REPORT_SECTION_CHECK_LINKS[number] ?? [];
+  if (hrefs.length === 0) return { number, title, blocks };
+  return {
+    number,
+    title,
+    blocks: [
+      ...blocks,
+      {
+        type: "links" as const,
+        links: hrefs.map((href) => ({ label: CHECK_PAGES[href].name, href })),
+      },
+    ],
+  };
 }
 
 // The rung-1/2 payload extractions. The report route only
@@ -1020,13 +1036,15 @@ function buildShortVersion(
             seg("."),
           ]
         : null,
-    secondaryAnswer?.nearestSelective
+    secondaryAnswer && (secondaryAnswer.selectiveSchools ?? []).length > 0
       ? [
-          seg(`${secondaryAnswer.nearestSelective.name}, `),
-          boldSeg(`${formatMiles(secondaryAnswer.nearestSelective.miles)} miles`),
-          // The selective school's label, in the report's
-          // highlighted (bold) form, keeping the
-          // entry-by-test fact (item 7).
+          // BUG-108: every selective secondary within the
+          // grammar search, nearest first, each with its
+          // distance.
+          ...(secondaryAnswer.selectiveSchools ?? []).flatMap((school, index) => [
+            seg(index === 0 ? `${school.name}, ` : `; ${school.name}, `),
+            boldSeg(`${formatMiles(school.miles)} miles`),
+          ]),
           seg(" — "),
           boldSeg("Grammar school"),
           seg(", entry by test."),
@@ -2052,27 +2070,30 @@ function section3(input: ReportInput): ReportSectionView {
   // carries none). Where it is already among the listed
   // schools, its own row above carries the same facts
   // and no second entry stands.
-  if (secondary?.nearestSelective) {
-    const selective = secondary.nearestSelective;
-    const listed = secondary.places.some((place) => place.name === selective.name);
-    if (!listed) {
-      blocks.push({ type: "sub", text: "Nearest selective school" });
-      blocks.push({
-        type: "rows",
-        rows: [
-          {
-            name: selective.name,
-            detail: null,
-            tag: "Grammar school",
-            tagStar: true,
-            dist: `${formatMiles(selective.miles)} mi`,
-            distBand: distanceBand("school", selective.miles),
-            extra: [],
-            bullets: ["Entry by test."],
-          },
-        ],
-      });
-    }
+  // BUG-108: every selective secondary within the
+  // grammar search that is not already a listed row
+  // stands as its own entry, nearest first.
+  const selectiveSchools =
+    secondary?.selectiveSchools ??
+    (secondary?.nearestSelective ? [secondary.nearestSelective] : []);
+  const unlistedSelective = selectiveSchools.filter(
+    (school) => !secondary?.places.some((place) => place.name === school.name),
+  );
+  if (unlistedSelective.length > 0) {
+    blocks.push({ type: "sub", text: "Selective schools" });
+    blocks.push({
+      type: "rows",
+      rows: unlistedSelective.map((selective) => ({
+        name: selective.name,
+        detail: null,
+        tag: "Grammar school",
+        tagStar: true,
+        dist: `${formatMiles(selective.miles)} mi`,
+        distBand: distanceBand("school", selective.miles),
+        extra: [],
+        bullets: ["Entry by test."],
+      })),
+    });
   }
   // The catchment honesty block no longer stands here
   // (BUG-050(ii)): the sample carries the school-places
@@ -2212,6 +2233,13 @@ function buildCategoryBars(served: ServedCrime): ReportBlock {
 // not a level: it stays plain, with no colour and no
 // position words. Both yardsticks are explained on the
 // noise How-we-check page, which Section 10 links.
+// BUG-112's context, given once for the whole noise
+// table: Defra publishes strategic noise in bands only —
+// no exact decibel figure exists in the source, and none
+// is ever invented here.
+export const NOISE_BAND_CONTEXT_LINE =
+  "Defra models noise in bands, so each band above is the modelled range for this postcode point — the source publishes bands only, never an exact decibel figure.";
+
 const NOISE_WHO_GUIDELINES: Record<string, { day: number; night: number }> = {
   road: { day: 53, night: 45 },
   rail: { day: 54, night: 44 },
@@ -2239,19 +2267,22 @@ function noisePosition(
 ): { tone: "green" | "red"; words: string } {
   const defra = when === "day" ? 55 : 50;
   const tone = span.hi <= defra ? ("green" as const) : ("red" as const);
-  const defraPart =
-    span.hi <= defra
-      ? `below the Defra ${when} threshold of ${defra} dB`
-      : `at or above the Defra ${when} threshold of ${defra} dB`;
+  // BUG-112: the small print no longer restates the band
+  // as a Defra threshold sentence — the band in the cell
+  // IS the value. The small print gives the band's
+  // position against the WHO guideline only; the
+  // bands-are-modelled context stands once, in the
+  // table's caption (NOISE_BAND_CONTEXT_LINE). Colour
+  // still follows the Defra threshold alone.
   const who = NOISE_WHO_GUIDELINES[sourceKind]?.[when];
-  if (who === undefined) return { tone, words: sentence(defraPart) };
+  if (who === undefined) return { tone, words: "" };
   const whoPart =
     span.hi <= who
       ? `below the WHO guideline of ${who} dB`
       : span.lo >= who
         ? `at or above the WHO guideline of ${who} dB`
         : `spanning the WHO guideline of ${who} dB`;
-  return { tone, words: sentence(`${defraPart}; ${whoPart}`) };
+  return { tone, words: sentence(whoPart) };
 }
 
 // The regulated industrial sites (BUG-081): the block
@@ -2516,7 +2547,7 @@ function section4(input: ReportInput): ReportSectionView {
           band.dayBand ?? "—",
           band.nightBand ?? "—",
         ]),
-        caption: noise.explainer,
+        caption: NOISE_BAND_CONTEXT_LINE,
         cellTones: positions.map((position) => [
           null,
           position.day?.tone ?? null,
@@ -3695,7 +3726,14 @@ function section6(input: ReportInput): ReportSectionView {
   }
   const directory =
     input.resolution.rung === 1 || input.resolution.rung === 2 ? input.resolution.directory : null;
-  if (directory && (directory.ward || directory.council)) {
+  // BUG-106: a Scotland/NI home is never labelled with
+  // the filed English council/ward/LSOA as if local —
+  // border postcodes file English area labels from their
+  // centre point (Gretna: "Ward: Longtown · Council:
+  // Cumberland"). The block serves its not-covered line
+  // instead (below, after the intro list).
+  const directoryNation = directory ? nationOfPostcode(directory.postcode) : null;
+  if (directory && !directoryNation && (directory.ward || directory.council)) {
     const parts = [
       directory.ward ? `Ward: ${displayText(directory.ward)}` : null,
       directory.council ? `Council: ${displayText(directory.council)}` : null,
@@ -3704,6 +3742,12 @@ function section6(input: ReportInput): ReportSectionView {
     censusIntro.push([boldSeg("Classification:"), seg(` ${parts.join(" · ")}.`)]);
   }
   if (censusIntro.length > 0) blocks.push({ type: "richList", items: censusIntro });
+  if (directoryNation) {
+    blocks.push({
+      type: "line",
+      text: `Area classification is not covered for this home in ${directoryNation === "scotland" ? "Scotland" : "Northern Ireland"} — the area labels filed for this postcode point are England's, so no council, ward or small-area label is shown as this home's own.`,
+    });
+  }
   if (imd.state !== "served" && imd.line)
     blocks.push({ type: "line", text: sentenceLine(imd.line) });
   if (imd.state === "served" && imd.domains.length > 0) {

@@ -920,6 +920,12 @@ export async function buildNearbyBundleCached(
         typeof secondary === "object" &&
         secondary !== null &&
         "nearestSelectiveLine" in secondary &&
+        // The BUG-108 contract: the secondary answer
+        // carries selectiveSchools (the list form of
+        // the selective fact) — an entry written before
+        // the stack serves the single-nearest shape and
+        // degrades to a recompute (the BUG-096 rule).
+        Array.isArray((secondary as { selectiveSchools?: unknown }).selectiveSchools) &&
         typeof maternity === "object" &&
         maternity !== null &&
         typeof sixthForms === "object" &&

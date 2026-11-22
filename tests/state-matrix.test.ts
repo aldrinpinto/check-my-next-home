@@ -575,12 +575,14 @@ describe("matrix — nearby", () => {
 
     const noneSource = new MatrixNearbySource();
     filedEverywhere(noneSource);
-    noneSource.nearest.set("sixth-forms", northOf(ENG_DIR, "Far College", 3.208));
+    // BUG-110: the sixth-forms radius is five miles, so
+    // the beyond name stands beyond five.
+    noneSource.nearest.set("sixth-forms", northOf(ENG_DIR, "Far College", 6.208));
     const none = await categoryOf(noneSource, "sixth-forms");
     expect(none.answer.state).toBe("none-within");
     expect(none.answer.beyondNearest?.name).toBe("Far College");
-    expect(none.answer.beyondNearest?.miles).toBeCloseTo(3.208, 1);
-    expect(none.answer.line).toContain("none within 2 miles — nearest is Far College");
+    expect(none.answer.beyondNearest?.miles).toBeCloseTo(6.208, 1);
+    expect(none.answer.line).toContain("none within 5 miles — nearest is Far College");
 
     const unfiledSource = new MatrixNearbySource();
     filedEverywhere(unfiledSource);

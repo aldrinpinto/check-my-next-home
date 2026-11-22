@@ -99,28 +99,24 @@ function PlaceGroup({ group }: { group: PlaceGroupView }) {
             </span>
           </p>
         ))}
-      {group.grammar && (
-        // The grammar block (fix batch, 19 Nov 2026 —
-        // BUG-022): the sample draws the nearest selective
-        // school as a STANDALONE block after the Secondary
-        // group's plus row — not as a badged row inside
-        // the group's list, where this render used to put
-        // it (before the truncation row). The block keeps
-        // the Master's starred row form with its SELECTIVE
-        // — TEST ENTRY badge (item 12); only its place in
-        // the section changes: last, after the plus row,
-        // in its own block.
+      {group.grammarSchools.length > 0 && (
+        // BUG-108: the grammar block names EVERY selective
+        // secondary within the grammar search, nearest
+        // first, each with its distance — one starred row
+        // per school in the Master's form.
         <div className="place-group__grammar">
           <ul className="place-list">
-            <li className="place-row place-row--grammar">
-              <span className="place-row__main">
-                <span className="place-row__name">★ Grammar schools — {group.grammar.name}</span>
-              </span>
-              <span className="badge badge--grammar">SELECTIVE — TEST ENTRY</span>
-              <span className={`place-row__miles place-row__miles--${group.grammar.band}`}>
-                {group.grammar.milesText}
-              </span>
-            </li>
+            {group.grammarSchools.map((school) => (
+              <li className="place-row place-row--grammar" key={school.name}>
+                <span className="place-row__main">
+                  <span className="place-row__name">★ Grammar schools — {school.name}</span>
+                </span>
+                <span className="badge badge--grammar">SELECTIVE — TEST ENTRY</span>
+                <span className={`place-row__miles place-row__miles--${school.band}`}>
+                  {school.milesText}
+                </span>
+              </li>
+            ))}
           </ul>
         </div>
       )}

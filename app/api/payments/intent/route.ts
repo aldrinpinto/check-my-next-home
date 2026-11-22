@@ -30,6 +30,7 @@ import { NextResponse } from "next/server";
 
 import { homeKeyOf } from "../../../../lib/bundle-cache";
 import { nationOfLsoa } from "../../../../lib/journey";
+import { nationOfPostcode } from "../../../../lib/nation";
 import { REPORT_DOOR_HOLDING_STATE_LINE } from "../../../../lib/report-door";
 import {
   PAYMENT_HOME_NOT_FOUND_LINE,
@@ -85,14 +86,18 @@ async function resolvePaymentHome(
     return {
       postcode: resolution.address.postcode,
       homeKey: homeKeyOf(resolution),
-      nation: nationOfLsoa(resolution.directory.lsoaCode),
+      nation:
+        nationOfPostcode(resolution.directory.postcode) ??
+        nationOfLsoa(resolution.directory.lsoaCode),
     };
   }
   if (resolution.rung === 2) {
     return {
       postcode: resolution.directory.postcode,
       homeKey: null,
-      nation: nationOfLsoa(resolution.directory.lsoaCode),
+      nation:
+        nationOfPostcode(resolution.directory.postcode) ??
+        nationOfLsoa(resolution.directory.lsoaCode),
     };
   }
   return null;

@@ -4,6 +4,7 @@ import ReportWindowPage from "../../components/ReportWindowPage";
 import { displayText } from "../../lib/address";
 import { homeKeyOf } from "../../lib/bundle-cache";
 import { nationOfLsoa, type Nation } from "../../lib/journey";
+import { nationOfPostcode } from "../../lib/nation";
 import {
   buildReportDoorView,
   buildReportWindowView,
@@ -75,9 +76,13 @@ async function identityFor(
     // resolution that names the home carries it. A
     // wider-area resolution names no single postcode's
     // directory and carries no nation.
-    const nation =
+    // BUG-106: the postcode area outranks the filed
+    // small-area code for the door — a border postcode
+    // (DG16) files an English small area but is Scottish.
+    const nation: Nation =
       resolution.rung === 1 || resolution.rung === 2
-        ? nationOfLsoa(resolution.directory.lsoaCode)
+        ? (nationOfPostcode(resolution.directory.postcode) ??
+          nationOfLsoa(resolution.directory.lsoaCode))
         : "unknown";
     if (resolution.rung === 1) {
       const address = resolution.address;
@@ -148,7 +153,9 @@ export default async function ReportPage({
   if (doorState === "window") {
     return (
       <ReportWindowPage
-        view={buildReportWindowView(identity)}
+        view={buildReportWindowView(identity, {
+          freeNation: nation === "scotland" || nation === "northern-ireland",
+        })}
         postcode={postcode}
         homeKey={identity.kind === "home" ? identity.homeKey : null}
       />

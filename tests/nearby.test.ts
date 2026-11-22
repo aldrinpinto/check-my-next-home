@@ -894,7 +894,7 @@ const fakeSource: NearbyDataSource = {
     let bestMiles = Infinity;
     for (const p of pool) {
       const d = haversineMiles(latitude, longitude, p.latitude, p.longitude);
-      if (category === "sixth-forms" && d <= RADIUS_MILES) continue;
+      if (category === "sixth-forms" && d <= 5) continue; // BUG-110: beyond pool starts beyond the 5-mile list radius
       if (d < bestMiles) {
         bestMiles = d;
         best = p;
@@ -1106,7 +1106,13 @@ describe("nearby bundle — 19 Birkdale Rise, CM3 2JT", () => {
       ["Hatfield Peverel St Andrew's Junior School", 0.289],
       ["Chipping Hill Primary School", 1.291],
     ]);
-    expect(top(bundle, "schools-secondary")).toEqual([["Lift Maltings", 1.884]]);
+    // Re-pinned (BUG-109): the secondary list radius is
+    // five miles, so the two further secondaries serve.
+    expect(top(bundle, "schools-secondary")).toEqual([
+      ["Lift Maltings", 1.884],
+      ["Lift New Rickstones", 3.212],
+      ["Plume School", 4.488],
+    ]);
     expect(category(bundle, "schools-secondary").nearestSelective).toBeNull();
     expect(top(bundle, "supermarket")).toEqual([
       ["The Co-operative Food", 0.258],
@@ -1207,14 +1213,14 @@ describe("nearby bundle — 6 Exeter Road, E16 1GN", () => {
     expect(top(bundle, "dentist")[0]).toEqual(["APPLEBY CENTRE", 0.265]);
   });
 
-  it("serves schools: 13 secondaries within 2 miles, none selective among them; the grammar search finds Bexley Grammar beyond the radius", async () => {
+  it("serves schools: 17 secondaries within 5 miles (BUG-109), none selective among them; the grammar search finds Bexley Grammar beyond the radius", async () => {
     const bundle = await bundleFor("E16 1GN");
     expect(top(bundle, "schools-secondary")).toEqual([
       ["Rokeby School", 0.333],
       ["Royal Docks Academy", 0.66],
       ["Cumberland Community School", 0.696],
     ]);
-    expect(category(bundle, "schools-secondary").countWithin).toBe(13);
+    expect(category(bundle, "schools-secondary").countWithin).toBe(17);
     // Re-pinned (parity fix batch, item 12): the grammar
     // fact now searches the wider grammar radius (10 mi)
     // when no selective school is within the list — the
@@ -1491,11 +1497,15 @@ describe("nearby bundle — Hilgay, CB6 1EH", () => {
     // real nearest schools are fixed in the golden matrix from
     // the nationally-filed M6.2 rehearsal — the gap the prep
     // flagged, closed by assertion there.
+    // Re-pinned (BUG-106 distance sanity): the fixture's
+    // nearest filed schools stand beyond the 25-mile
+    // sanity bound, so neither school answer names one —
+    // the honest absence line serves instead.
     for (const key of ["schools-primary", "schools-secondary"]) {
       const c = category(bundle, key);
       expect(c.state).toBe("none-within");
       expect(c.places).toEqual([]);
-      expect(c.beyondNearest).not.toBeNull();
+      expect(c.beyondNearest).toBeNull();
     }
     // Two Greenspace centres file within 2 miles, neither named:
     // the parks line says so rather than inventing a name.
@@ -1646,26 +1656,33 @@ describe("nearby bundle — sixth forms (M6.33, D51/D64)", () => {
       latitude: 51.45649902018651,
       longitude: 0.10705184745984281,
     });
+    // Re-pinned (BUG-110): the sixth-forms radius is
+    // five miles, so the beyond line names five.
     expect(cat.line).toBe(
-      "none within 2 miles — nearest is Bexley Grammar School, 5.484 miles away (straight-line distance from the postcode point)",
+      "none within 5 miles — nearest is Bexley Grammar School, 5.484 miles away (straight-line distance from the postcode point)",
     );
   });
 
   it("Birkdale: the category's beyond name is the flagged secondary, not a within-selection row", async () => {
     const bundle = await bundleFor("19 Birkdale Rise, CM3 2JT");
     const secondary = category(bundle, "schools-secondary");
-    expect(secondary.places.map((p) => [p.name, p.sixthForm])).toEqual([["Lift Maltings", false]]);
+    // Re-pinned (BUG-109): the secondary list serves to
+    // five miles, so three secondaries stand.
+    expect(secondary.places.map((p) => [p.name, p.sixthForm])).toEqual([
+      ["Lift Maltings", false],
+      ["Lift New Rickstones", true],
+      ["Plume School", true],
+    ]);
     const cat = category(bundle, "sixth-forms");
+    // Re-pinned (BUG-110): the sixth-forms list radius
+    // is five miles and the beyond pool starts beyond
+    // it — the flagged secondaries at 3.2 and 4.5 miles
+    // are inside the radius now (they serve in the
+    // secondary list, and the within selection never
+    // repeats flagged secondaries), so the category
+    // takes its honest none-within path at five miles.
     expect(cat.state).toBe("none-within");
     expect(cat.countWithin).toBe(0);
-    expect(cat.beyondNearest).toEqual({
-      name: "Lift New Rickstones",
-      miles: 3.212,
-      latitude: 51.81838703713575,
-      longitude: 0.6355027735756688,
-    });
-    expect(cat.line).toBe(
-      "none within 2 miles — nearest is Lift New Rickstones, 3.212 miles away (straight-line distance from the postcode point)",
-    );
+    expect(cat.places).toEqual([]);
   });
 });

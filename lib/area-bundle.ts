@@ -11,6 +11,7 @@ import {
 } from "./address";
 import { improvementName } from "./epc-improvements";
 import { DISTANCE_BASIS_LABEL, RADIUS_MILES, haversineMiles } from "./nearby";
+import { nationOfPostcode } from "./nation";
 import { COMPANY_OWNERSHIP_ENABLED } from "./site";
 
 // Constraints & area bundle (plan step M6.6, decision D26).
@@ -5587,7 +5588,22 @@ export async function buildAreaBundle(
     };
 
   const { latitude, longitude, postcode } = resolution.directory;
-  const nation = nationOf(resolution.directory.lsoaCode);
+  // BUG-106: for Scotland/NI the postcode area outranks
+  // the filed small-area code — a border postcode's
+  // centre point can fall in England (Gretna DG16 files
+  // an English LSOA, council and ward), and every
+  // England-only section in this bundle must serve its
+  // not-covered state for such a home, never the English
+  // area's figures as if local. England & Wales homes
+  // are untouched: the postcode detector returns null
+  // for them and the small-area reading governs as
+  // before.
+  const nation: Nation =
+    nationOfPostcode(resolution.directory.postcode) === "scotland"
+      ? "scotland"
+      : nationOfPostcode(resolution.directory.postcode) === "northern-ireland"
+        ? "northern-ireland"
+        : nationOf(resolution.directory.lsoaCode);
 
   const [
     conservationAreaFacts,
@@ -5703,7 +5719,18 @@ export async function buildAreaBundle(
       councilTax: buildCouncilTax(councilTaxFacts, nation),
       // The hand-off reads no source: it derives from the
       // resolution's directory row and nation alone.
-      planningApplications: buildPlanningApplications(resolution.directory.council, nation),
+      planningApplications: buildPlanningApplications(
+        // A border stray's filed council is an English
+        // council (Gretna files Cumberland) — never named
+        // as the home's own. A genuine Scotland/NI home
+        // (its filed small area agrees with its postcode)
+        // keeps its own council's name, as before.
+        nationOfPostcode(resolution.directory.postcode) &&
+          nationOf(resolution.directory.lsoaCode) === "england"
+          ? null
+          : resolution.directory.council,
+        nation,
+      ),
       buildingSafety: buildBuildingSafety(resolution, tribunalFactsValue, nation),
       census: buildCensus(censusFacts, resolution.directory.msoaCode, nation),
       imd: buildImd(imdFacts, resolution.directory.lsoaCode, nation),

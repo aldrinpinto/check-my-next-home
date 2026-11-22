@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import ReportPage from "../../../components/ReportPage";
 import { nationOfLsoa } from "../../../lib/journey";
+import { nationOfPostcode } from "../../../lib/nation";
 import { buildReportView, reportViewGate } from "../../../lib/report";
 import { effectiveReportDoorState } from "../../../lib/report-door";
 import { reportRoute } from "../../../lib/results";
@@ -65,11 +66,10 @@ export default async function ReportViewPage({
     postcode,
     homeKey,
     effectiveReportDoorState(
-      nationOfLsoa(
-        resolution && (resolution.rung === 1 || resolution.rung === 2)
-          ? resolution.directory.lsoaCode
-          : null,
-      ),
+      resolution && (resolution.rung === 1 || resolution.rung === 2)
+        ? (nationOfPostcode(resolution.directory.postcode) ??
+            nationOfLsoa(resolution.directory.lsoaCode))
+        : nationOfLsoa(null),
     ),
   );
   if (gate.action === "door") redirect(gate.href);

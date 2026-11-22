@@ -319,8 +319,11 @@ describe("report — Section 1 additions (M8.9): the company-owner block", () =>
     // the block and the explainer closes the section.
     const subAt = s1.blocks.findIndex((b) => b.type === "sub" && b.text === "Company ownership");
     expect(subAt).toBeGreaterThanOrEqual(0);
+    // BUG-114: the section now closes with its How-we-check
+    // link line; the company explainer note stands before it.
     const lastBlock = s1.blocks[s1.blocks.length - 1];
-    expect(lastBlock.type).toBe("note");
+    expect(lastBlock.type).toBe("links");
+    expect(s1.blocks[s1.blocks.length - 2]?.type).toBe("note");
   });
 
   it("flag on, the clean No: the dated No line and the explainer's caveats, no proprietor detail", () => {

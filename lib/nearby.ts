@@ -1,4 +1,5 @@
 import type { AddressQueryable, AddressResolution } from "./address";
+import { nationOfPostcode } from "./nation";
 import { INDUSTRIAL_SITES_ENABLED } from "./site";
 
 // Distances and What's Nearby (plan step M6.2, decision D22).
@@ -164,6 +165,36 @@ export const RADIUS_MILES = 2;
 // the selective fact serves its absence, as before.
 export const SELECTIVE_SEARCH_MILES = 10;
 
+// The distance sanity bound (BUG-106, slimmed Road A):
+// a "nearest" fact further away than this is not a
+// nearest a family can use — it is an artefact of a
+// thin filing — so the brain serves its honest absence
+// line instead of naming it. Matches the journey's
+// beyond-nearest radius (BUG-002's family).
+export const NEAREST_SANITY_MILES = 25;
+
+// The categories whose filed data is England (& Wales)
+// only (BUG-106): for a Scotland or Northern Ireland
+// home these serve their not-covered state, never an
+// English fact dressed as the home's own. The What's
+// Nearby map categories (OpenStreetMap, global) and the
+// pet categories are NOT gated — that source covers
+// Scotland and NI as it covers England.
+export const NATION_GATED_CATEGORIES: ReadonlySet<NearbyCategory> = new Set([
+  "schools-primary",
+  "schools-secondary",
+  "sixth-forms",
+  "nurseries",
+  "gp",
+  "dentist",
+  "pharmacy",
+  "ae",
+  "maternity",
+  "station",
+  "bus-stop",
+  "ev-chargers",
+]);
+
 // The wider serving radii (second-pass batch, BUG-081 /
 // BUG-093 / BUG-079): three answers deliberately reach
 // past the 2-mile list radius, each because the thing it
@@ -175,7 +206,14 @@ export const SELECTIVE_SEARCH_MILES = 10;
 // below is a practical cap far beyond any plausible
 // nearest pair, not a stated radius: no served line
 // names it).
-export const INDUSTRIAL_SITES_RADIUS_MILES = 5;
+export const INDUSTRIAL_SITES_RADIUS_MILES = 10;
+// The scoped list radii (BUG-109 / BUG-110, founder
+// rulings 22 Nov 2026): the general secondary list and
+// the sixth-forms list serve to five miles — area facts
+// a family travels for — while primaries and every other
+// category keep the 2-mile list radius.
+export const SECONDARY_RADIUS_MILES = 5;
+export const SIXTH_FORM_RADIUS_MILES = 5;
 export const EV_CHARGER_RADIUS_MILES = 5;
 export const PET_SEARCH_MILES = 50;
 export const PET_LIST_SIZE = 2;
@@ -476,7 +514,8 @@ export type NearbyPlace = {
   destinations?: PlaceDestinations;
 };
 
-export type CategoryState = "within" | "none-within" | "empty-map" | "empty" | "not-filed";
+export type CategoryState =
+  "within" | "none-within" | "empty-map" | "empty" | "not-filed" | "not-covered";
 
 export type CategoryAnswer = {
   category: NearbyCategory;
@@ -504,6 +543,12 @@ export type CategoryAnswer = {
   // within the radius, as a per-school fact (never an area
   // inference); null when none files there.
   nearestSelective?: { name: string; miles: number } | null;
+  // schools-secondary only (BUG-108): EVERY selective
+  // secondary within SELECTIVE_SEARCH_MILES, nearest
+  // first, each with its distance — the list form of the
+  // fact nearestSelective has always carried singly.
+  // Present (possibly empty) on every secondary answer.
+  selectiveSchools?: { name: string; miles: number }[];
   // schools-secondary only (M6.18, decision D37): the
   // selective fact's own gloss, served beside it — a family
   // cannot tell from the word alone that "selective" means
@@ -727,8 +772,8 @@ function industrialSitesBlock(
     thresholdLine: `Each substance also shows the reporting threshold for ${year} — the level at or above which a quantity must be reported. A substance reported below its threshold was still released; below the reporting threshold is not a measurement of zero.`,
     line:
       sites.length > 0
-        ? "The regulated industrial sites recorded within five miles of this postcode point are listed below, nearest first."
-        : `No regulated industrial site in the Environment Agency's Pollution Inventory for ${year} is recorded within five miles of this postcode point.`,
+        ? "The regulated industrial sites recorded within ten miles of this postcode point are listed below, nearest first."
+        : `No regulated industrial site in the Environment Agency's Pollution Inventory for ${year} is recorded within ten miles of this postcode point.`,
     sites,
   };
 }
@@ -843,13 +888,13 @@ function emptyLine(
   radius: number = RADIUS_MILES,
 ): string {
   if (spec.emptyKind === "map")
-    return `no ${spec.label} recorded within ${RADIUS_MILES} miles on the map data we hold — a gap in the map is not proof that none exists`;
+    return `no ${spec.label} recorded within ${radius} miles on the map data we hold — a gap in the map is not proof that none exists`;
   if (spec.emptyKind === "register")
-    return `no nursery within ${RADIUS_MILES} miles of the postcode point in the childcare register we hold`;
+    return `no nursery within ${radius} miles of the postcode point in the childcare register we hold`;
   if (key === "parks")
     return countWithin > 0
-      ? `no named greenspace site within ${RADIUS_MILES} miles of the postcode point`
-      : `no greenspace site within ${RADIUS_MILES} miles of the postcode point`;
+      ? `no named greenspace site within ${radius} miles of the postcode point`
+      : `no greenspace site within ${radius} miles of the postcode point`;
   return `no ${spec.label} within ${radius} miles of the postcode point`;
 }
 
@@ -951,7 +996,31 @@ async function buildCategory(
   source: NearbyDataSource,
   destinationsRelease: DestinationsReleaseFacts,
   listSize: number = LIST_SIZE,
+  postcodeNation: "scotland" | "northern-ireland" | null = null,
 ): Promise<CategoryAnswer> {
+  // The nation gate (BUG-106, slimmed Road A): a
+  // Scotland or Northern Ireland home never receives an
+  // England-only register's fact as its own — the gated
+  // categories serve their honest not-covered state.
+  if (postcodeNation && NATION_GATED_CATEGORIES.has(key)) {
+    const nationLabel = postcodeNation === "scotland" ? "Scotland" : "Northern Ireland";
+    const answer: CategoryAnswer = {
+      category: key,
+      label: spec.label,
+      basisLabel: DISTANCE_BASIS_LABEL,
+      state: "not-covered",
+      places: [],
+      countWithin: 0,
+      beyondNearest: null,
+      line: `the ${spec.label} data filed covers England and Wales only, so no ${spec.label} answer can be given for this home in ${nationLabel} yet`,
+    };
+    if (key === "schools-secondary") {
+      answer.nearestSelective = null;
+      answer.nearestSelectiveLine = null;
+      answer.selectiveSchools = [];
+    }
+    return answer;
+  }
   // The filed-count guard (D30, the flood form): absence
   // is only ever computed against a proven filing. A
   // category whose table holds nothing — its loader has
@@ -971,6 +1040,7 @@ async function buildCategory(
     if (key === "schools-secondary") {
       answer.nearestSelective = null;
       answer.nearestSelectiveLine = null;
+      answer.selectiveSchools = [];
     }
     return answer;
   }
@@ -978,7 +1048,14 @@ async function buildCategory(
   // serve to five miles — a driver uses the chargers in
   // reach, not only the ones inside the list radius.
   // Every other category serves the list radius.
-  const radius = key === "ev-chargers" ? EV_CHARGER_RADIUS_MILES : RADIUS_MILES;
+  const radius =
+    key === "ev-chargers"
+      ? EV_CHARGER_RADIUS_MILES
+      : key === "schools-secondary"
+        ? SECONDARY_RADIUS_MILES
+        : key === "sixth-forms"
+          ? SIXTH_FORM_RADIUS_MILES
+          : RADIUS_MILES;
   const within = await source.pointsWithin(key, latitude, longitude, radius);
   const measured = within
     .map((point) => ({
@@ -1060,41 +1137,43 @@ async function buildCategory(
     line: null,
   };
   if (key === "schools-secondary") {
-    const selective = named.find((m) => m.point.selective === true);
-    if (selective) {
-      answer.nearestSelective = {
-        name: selective.point.name as string,
-        miles: round3(selective.raw),
-      };
-      answer.nearestSelectiveLine = `the nearest selective secondary school is ${selective.point.name as string} — selective means admission by entrance test`;
-    } else {
-      // The grammar fact does not stop at the 2-mile list
-      // radius (parity fix batch, 18 Nov 2026): a grammar
-      // school is a destination families travel to — the
-      // golden truth is KEGS at 6.1 miles from the Birkdale
-      // home — so where no selective school sits within the
-      // list, the nearest within the wider grammar search
-      // serves instead, measured on the same haversine.
-      // Beyond the search, the fact is honestly absent.
-      const wider = await source.pointsWithin(key, latitude, longitude, SELECTIVE_SEARCH_MILES);
-      let best: { name: string; miles: number } | null = null;
-      for (const point of wider) {
-        if (point.selective !== true || point.name === null || point.name === "") continue;
-        const miles = haversineMiles(latitude, longitude, point.latitude, point.longitude);
-        if (miles <= RADIUS_MILES || miles > SELECTIVE_SEARCH_MILES) continue;
-        if (!best || miles < best.miles) best = { name: point.name, miles };
-      }
-      answer.nearestSelective = best ? { name: best.name, miles: round3(best.miles) } : null;
-      answer.nearestSelectiveLine = best
-        ? `the nearest selective secondary school is ${best.name} — selective means admission by entrance test`
-        : null;
+    // BUG-108: EVERY selective secondary within the
+    // grammar search serves, nearest first, each with
+    // its distance — not only the nearest.
+    const byName = new Map<string, { name: string; miles: number }>();
+    for (const m of named) {
+      if (m.point.selective === true)
+        byName.set(m.point.name as string, { name: m.point.name as string, miles: round3(m.raw) });
     }
+    const wider = await source.pointsWithin(key, latitude, longitude, SELECTIVE_SEARCH_MILES);
+    for (const point of wider) {
+      if (point.selective !== true || point.name === null || point.name === "") continue;
+      const miles = haversineMiles(latitude, longitude, point.latitude, point.longitude);
+      if (miles > SELECTIVE_SEARCH_MILES) continue;
+      if (!byName.has(point.name))
+        byName.set(point.name, { name: point.name, miles: round3(miles) });
+    }
+    const selectiveList = [...byName.values()].sort(
+      (a, b) => a.miles - b.miles || a.name.localeCompare(b.name),
+    );
+    answer.selectiveSchools = selectiveList;
+    const best = selectiveList[0] ?? null;
+    answer.nearestSelective = best;
+    answer.nearestSelectiveLine = best
+      ? `the nearest selective secondary school is ${best.name} — selective means admission by entrance test`
+      : null;
   }
   if (places.length > 0) return answer;
   if (spec.essential) {
     answer.state = "none-within";
     const nearest = await source.nearestPoint(key, latitude, longitude);
-    if (nearest && nearest.name !== null && nearest.name !== "") {
+    if (
+      nearest &&
+      nearest.name !== null &&
+      nearest.name !== "" &&
+      haversineMiles(latitude, longitude, nearest.latitude, nearest.longitude) <=
+        NEAREST_SANITY_MILES
+    ) {
       const miles = round3(
         haversineMiles(latitude, longitude, nearest.latitude, nearest.longitude),
       );
@@ -1151,6 +1230,7 @@ export async function buildNearbyBundle(
       distances: { state: "unavailable", reason: "distances need an exact postcode" },
     };
   const { latitude, longitude } = resolution.directory;
+  const postcodeNation = nationOfPostcode(resolution.directory.postcode);
   const categories: CategoryAnswer[] = [];
   // The destinations release facts (M6.34) are read once
   // per bundle and composed against the secondary
@@ -1168,6 +1248,7 @@ export async function buildNearbyBundle(
         key === "schools-primary" || key === "schools-secondary"
           ? (options.schoolListSize ?? LIST_SIZE)
           : LIST_SIZE,
+        postcodeNation,
       ),
     );
   const bundle: Extract<NearbyBundle, { kind: "distances" }> = {
@@ -1586,7 +1667,9 @@ export function createNearbySource(db: AddressQueryable): NearbyDataSource {
       for (const row of result.rows) {
         const point = toPoint(row);
         const miles = haversineMiles(latitude, longitude, point.latitude, point.longitude);
-        if (beyondOnly && miles <= RADIUS_MILES) continue;
+        // BUG-110: the beyond pool starts beyond the
+        // category's own list radius — five miles now.
+        if (beyondOnly && miles <= SIXTH_FORM_RADIUS_MILES) continue;
         if (miles < bestMiles) {
           bestMiles = miles;
           best = point;

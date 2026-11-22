@@ -279,12 +279,14 @@ describe("report — Section 3 schools", () => {
   });
 
   it("the selective line serves beside the secondary list", () => {
-    // Second pass (BUG-070): the nearest selective
-    // school stands as a full entry — its own sub, the
-    // school's name and its entry-by-test bullet — not
-    // as the brain's bare selective line.
+    // Second pass (BUG-070): the selective school stands
+    // as a full entry — its own sub, the school's name
+    // and its entry-by-test bullet — not as the brain's
+    // bare selective line. BUG-108: the sub names the
+    // selective schools (every one within 10 miles
+    // serves, nearest first).
     const s3 = sectionText(view, 3);
-    expect(s3).toContain("Nearest selective school");
+    expect(s3).toContain("Selective schools");
     expect(s3).toContain("King Edward VI Grammar School");
     expect(s3).toContain("Entry by test.");
     expect(s3).not.toContain("selective means admission by entrance test");
@@ -710,11 +712,20 @@ describe("report — Section 10 and the closing notes", () => {
     expect(REPORT_DISCLAIMER_D9).toContain("what it means for your decision is your own judgement");
   });
 
-  it("names the check explanations (the M7.12 discharge) — in Section 10 only (BUG-052)", () => {
+  it("names the check explanations (the M7.12 discharge) — per-section lines (BUG-114) and the Section 10 index", () => {
     expect(s9).toContain("/check/flood-risk");
     expect(s9).toContain("/check/schools");
-    for (const section of view.sections.slice(0, 9))
-      expect(JSON.stringify(section)).not.toContain("/check/");
+    // BUG-114 (superseding BUG-052 for this point): each
+    // section closes with its own small-print How-we-check
+    // line naming its page(s); Section 10's list stays.
+    for (const section of view.sections.slice(0, 8)) {
+      const text = JSON.stringify(section);
+      expect(text).toContain("/check/");
+    }
+    const s3Text = sectionText(view, 3);
+    expect(s3Text).toContain("/check/schools");
+    // Section 9 has no mapped pages and gains no line.
+    expect(JSON.stringify(view.sections[8])).not.toContain("/check/");
   });
 
   it("collects the sources as composed bullets, naming what was checked (BUG-051)", () => {

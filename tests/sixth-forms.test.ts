@@ -128,7 +128,7 @@ class FakeSource implements NearbyDataSource {
     let bestMiles = Infinity;
     for (const r of pool) {
       const d = haversineMiles(latitude, longitude, r.latitude, r.longitude);
-      if (category === "sixth-forms" && d <= RADIUS_MILES) continue;
+      if (category === "sixth-forms" && d <= 5) continue; // BUG-110: beyond the 5-mile list radius
       if (d < bestMiles) {
         bestMiles = d;
         best = r;
@@ -294,16 +294,19 @@ const EXCLUDED_ROWS: Row[] = [
     flag: HAS,
   }),
 ];
+// BUG-110: the list radius is five miles now, so the
+// "distant" rows stand beyond five to keep exercising
+// the beyond pool.
 const DISTANT_FLAGGED_SECONDARY = row({
   name: "Distant Flagged Secondary",
-  miles: 2.6,
+  miles: 6.2,
   phase: "Secondary",
   type: "Academy converter",
   flag: HAS,
 });
 const DISTANT_COLLEGE = row({
   name: "Distant College",
-  miles: 3.4,
+  miles: 7.4,
   phase: "16 plus",
   type: "Further education",
   flag: NOT_APPLICABLE,
@@ -448,7 +451,7 @@ describe("sixth forms — the beyond name (M6.33, D64 ruling 4)", () => {
       longitude: DISTANT_FLAGGED_SECONDARY.longitude,
     });
     expect(cat.line).toBe(
-      `none within 2 miles — nearest is Distant Flagged Secondary, ${milesOf(DISTANT_FLAGGED_SECONDARY)} miles away (straight-line distance from the postcode point)`,
+      `none within 5 miles — nearest is Distant Flagged Secondary, ${milesOf(DISTANT_FLAGGED_SECONDARY)} miles away (straight-line distance from the postcode point)`,
     );
   });
 
@@ -499,7 +502,7 @@ describe("sixth forms — the beyond name (M6.33, D64 ruling 4)", () => {
     expect(cat.countWithin).toBe(1);
     expect(cat.places).toEqual([]);
     expect(cat.beyondNearest).toBeNull();
-    expect(cat.line).toBe("no sixth forms and colleges within 2 miles of the postcode point");
+    expect(cat.line).toBe("no sixth forms and colleges within 5 miles of the postcode point");
   });
 });
 

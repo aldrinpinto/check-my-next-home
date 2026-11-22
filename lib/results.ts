@@ -27,7 +27,13 @@ import {
 // They are re-exported here so this module's existing
 // importers are untouched.
 export { floodBandOf, formatFiledDate, formatMiles, formatPounds };
-import { DISTANCE_BASIS_LABEL, RADIUS_MILES } from "./nearby";
+import {
+  DISTANCE_BASIS_LABEL,
+  RADIUS_MILES,
+  SECONDARY_RADIUS_MILES,
+  SIXTH_FORM_RADIUS_MILES,
+  type NearbyCategory,
+} from "./nearby";
 import type { CategoryAnswer, NearbyBundle, NearbyPlace } from "./nearby";
 import { HOW_WE_CHECK_PATH, REPORT_PRICE_LABEL } from "./site";
 import type { ShortBundle, ShortPolygonLayer, ShortSections } from "./short-bundle";
@@ -313,6 +319,11 @@ export interface PlaceGroupView {
   // badge. Null where no selective school serves (the
   // brain's fact, out to its grammar search radius).
   grammar: { name: string; milesText: string; band: DistanceBand } | null;
+  // BUG-108: every selective secondary within the
+  // grammar search, nearest first — the list form the
+  // grammar row renders from; grammar above stays the
+  // nearest entry for single-fact consumers.
+  grammarSchools: { name: string; milesText: string; band: DistanceBand }[];
 }
 
 interface CategoryPresentation {
@@ -558,8 +569,22 @@ function placeRow(
 // the parts here keeps the brain's line, and with it
 // the bundle contract pins and the golden replay,
 // exactly where they stand.
-export function noneWithinBeyondLine(name: string, miles: number): string {
-  return `none within ${RADIUS_MILES} miles — nearest is ${name}, ${formatMiles(miles)} miles away (${DISTANCE_BASIS_LABEL})`;
+// The list radius a category serves (BUG-109/BUG-110):
+// secondaries and sixth forms serve to five miles,
+// everything else to the list radius.
+export function categoryRadiusMiles(category: NearbyCategory): number {
+  if (category === "schools-secondary") return SECONDARY_RADIUS_MILES;
+  if (category === "sixth-forms") return SIXTH_FORM_RADIUS_MILES;
+  if (category === "ev-chargers") return 5;
+  return RADIUS_MILES;
+}
+
+export function noneWithinBeyondLine(
+  name: string,
+  miles: number,
+  radiusMiles: number = RADIUS_MILES,
+): string {
+  return `none within ${radiusMiles} miles — nearest is ${name}, ${formatMiles(miles)} miles away (${DISTANCE_BASIS_LABEL})`;
 }
 
 export function placeGroupView(
@@ -585,6 +610,19 @@ export function placeGroupView(
             band: distanceBand("school", category.nearestSelective.miles),
           }
         : null,
+    grammarSchools:
+      category.category === "schools-secondary"
+        ? (category.selectiveSchools && category.selectiveSchools.length > 0
+            ? category.selectiveSchools
+            : category.nearestSelective
+              ? [category.nearestSelective]
+              : []
+          ).map((school) => ({
+            name: school.name,
+            milesText: `${formatMiles(school.miles)} mi`,
+            band: distanceBand("school", school.miles),
+          }))
+        : [],
   };
   if (category.state === "within") {
     const shown = category.places.slice(0, presentation.display);
@@ -609,7 +647,11 @@ export function placeGroupView(
     // brain's three-decimal form verbatim.
     return {
       ...base,
-      line: noneWithinBeyondLine(category.beyondNearest.name, category.beyondNearest.miles),
+      line: noneWithinBeyondLine(
+        category.beyondNearest.name,
+        category.beyondNearest.miles,
+        categoryRadiusMiles(category.category),
+      ),
       rows: [
         placeRow(
           {

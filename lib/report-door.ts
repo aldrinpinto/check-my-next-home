@@ -58,8 +58,25 @@ export function effectiveReportDoorState(
   nation: Nation,
   state: ReportDoorState = REPORT_DOOR_STATE,
 ): ReportDoorState {
-  return isNotCoveredNation(nation) ? "holding" : state;
+  // BUG-106 stack (interim-free door): Scotland and
+  // Northern Ireland are served the detailed report
+  // FREE until Scotland flips to paid at M14 — the
+  // nation hold is replaced by the free (window)
+  // fulfilment path: no payment page, no charge, the
+  // delivery email captured mandatorily, fulfilment
+  // riding the existing window/claim machinery. A free
+  // nation delivery is kind "free", never "paid", so no
+  // gift issues from it (D21 unchanged).
+  return isNotCoveredNation(nation) ? "window" : state;
 }
+
+// The free-nation window wording: a Scotland/NI home is
+// not in a launch window — its report is free because
+// of where it is, until Scotland's paid opening at M14.
+export const REPORT_FREE_NATION_STATE_LINE =
+  "The detailed report is free for homes in Scotland and Northern Ireland. The free check stays free in full.";
+export const REPORT_FREE_NATION_LEDE =
+  "You've seen the headlines for this home, free. The detailed report for homes in Scotland and Northern Ireland is free too — give us the email to send it to, and it's on its way.";
 
 export interface ReportDoorView {
   heading: string;
@@ -202,13 +219,16 @@ export const REPORT_WINDOW_EMAIL_ERROR =
   "That email address doesn't look quite right — check it and try again, so your report reaches you.";
 export const REPORT_WINDOW_BUTTON_LABEL = "Send my free report";
 
-export function buildReportWindowView(identity: ReportDoorIdentity): ReportWindowView {
+export function buildReportWindowView(
+  identity: ReportDoorIdentity,
+  options: { freeNation?: boolean } = {},
+): ReportWindowView {
   const base = {
     subline: null as string | null,
-    lede: REPORT_WINDOW_LEDE,
+    lede: options.freeNation ? REPORT_FREE_NATION_LEDE : REPORT_WINDOW_LEDE,
     contentsHeading: REPORT_DOOR_CONTENTS_HEADING,
     contents: REPORT_DOOR_CONTENTS,
-    stateLine: REPORT_DOOR_WINDOW_STATE_LINE,
+    stateLine: options.freeNation ? REPORT_FREE_NATION_STATE_LINE : REPORT_DOOR_WINDOW_STATE_LINE,
     emailLabel: REPORT_WINDOW_EMAIL_LABEL,
     emailHelp: REPORT_WINDOW_EMAIL_HELP,
     emailPlaceholder: REPORT_WINDOW_EMAIL_PLACEHOLDER,

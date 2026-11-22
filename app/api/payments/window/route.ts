@@ -26,6 +26,7 @@ import {
   PAYMENT_HOME_NOT_FOUND_LINE,
   WINDOW_START_FAILED_LINE,
 } from "../../../../lib/report-payment";
+import { isScotlandOrNorthernIrelandPostcode } from "../../../../lib/nation";
 import { REPORT_DOOR_STATE } from "../../../../lib/site";
 import { getDbPool } from "../../../../lib/server/db";
 import { createDbFulfilmentClaimStore, newFreeClaimRef } from "../../../../lib/server/fulfilment";
@@ -43,9 +44,6 @@ const RATE_LIMIT = 10;
 const RATE_WINDOW_MS = 60_000;
 
 export async function POST(request: Request) {
-  if (REPORT_DOOR_STATE !== "window") {
-    return NextResponse.json({ error: "not-available" }, { status: 404 });
-  }
   const caller =
     request.headers.get("cf-connecting-ip") ?? request.headers.get("x-forwarded-for") ?? "unknown";
   if (!rateLimitOk(`payment-window:${caller}`, RATE_LIMIT, RATE_WINDOW_MS)) {
@@ -95,6 +93,21 @@ export async function POST(request: Request) {
       { error: "home-not-found", message: PAYMENT_HOME_NOT_FOUND_LINE },
       { status: 404 },
     );
+  }
+  // The route answers in the window state — and, since
+  // the BUG-106 stack, for a Scotland or Northern
+  // Ireland home in ANY door state: those nations are
+  // served the report free (the interim-free door), and
+  // this route is their fulfilment route, guarded by
+  // the same house rate limiter above. An England &
+  // Wales home outside the window state is refused, as
+  // before. The claim kind is "free" — never "paid" —
+  // so no gift issues from a nation delivery.
+  const freeNation = isScotlandOrNorthernIrelandPostcode(
+    resolution.rung === 1 ? resolution.address.postcode : resolution.directory.postcode,
+  );
+  if (REPORT_DOOR_STATE !== "window" && !freeNation) {
+    return NextResponse.json({ error: "not-available" }, { status: 404 });
   }
   const postcode =
     resolution.rung === 1 ? resolution.address.postcode : resolution.directory.postcode;

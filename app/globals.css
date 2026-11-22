@@ -4694,16 +4694,25 @@ a.picker__row {
   margin: 4px 0 10px;
 }
 .site-pages .rpt-sub {
-  font-size: 0.8rem;
+  /* BUG-111: sub-section labels are true headings —
+     bold, forest, uppercase, letterspaced, sized ABOVE
+     the item names (.rname, 0.94rem semibold), opening
+     under a hairline with clear space so a new
+     sub-section visibly starts. */
+  font-size: 1.05rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--sp-forest);
-  margin: 18px 0 6px;
+  margin: 26px 0 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--sp-line);
   font-family: inherit;
 }
 .site-pages .rpt-sub:first-of-type {
   margin-top: 10px;
+  padding-top: 0;
+  border-top: 0;
 }
 /* What's Nearby's group headings carry clear separation
    and weight (print-check item 11): the section is a run
@@ -4787,7 +4796,11 @@ a.picker__row {
   min-width: 0;
 }
 .site-pages .rpt-row .rname {
-  font-weight: 700;
+  /* BUG-111: item names step DOWN a size and a weight
+     (semibold) so they read as entries under their
+     sub-section heading. */
+  font-size: 0.94rem;
+  font-weight: 600;
   color: var(--sp-deep);
 }
 .site-pages .rpt-detail {

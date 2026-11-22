@@ -199,14 +199,14 @@ describe("report door — the nation hold (Road B, M9.6)", () => {
     homeKey: "5||DONEGALL SQUARE",
   };
 
-  it("Scotland and Northern Ireland hold at holding in every checked-in state", () => {
+  it("Scotland and Northern Ireland are served free (window) in every checked-in state — the BUG-106 interim-free door", () => {
     for (const nation of ["scotland", "northern-ireland"] as const) {
-      expect(effectiveReportDoorState(nation, "paid")).toBe("holding");
-      expect(effectiveReportDoorState(nation, "window")).toBe("holding");
-      expect(effectiveReportDoorState(nation, "holding")).toBe("holding");
+      expect(effectiveReportDoorState(nation, "paid")).toBe("window");
+      expect(effectiveReportDoorState(nation, "window")).toBe("window");
+      expect(effectiveReportDoorState(nation, "holding")).toBe("window");
       // The default is the checked-in state itself —
-      // which stands at "paid" — and the hold still wins.
-      expect(effectiveReportDoorState(nation)).toBe("holding");
+      // which stands at "paid" — and the free door wins.
+      expect(effectiveReportDoorState(nation)).toBe("window");
     }
   });
 
@@ -243,14 +243,12 @@ describe("report door — the nation hold (Road B, M9.6)", () => {
     expect(html).not.toContain("launch window");
   });
 
-  it("the view gate follows the same effective state: a held nation's report stays behind the door", () => {
+  it("the view gate follows the same effective state: a free nation's report serves (BUG-106 interim-free door)", () => {
     expect(reportViewGate("EH2 2PF", null, effectiveReportDoorState("scotland"))).toEqual({
-      action: "door",
-      href: "/report?postcode=EH2+2PF",
+      action: "serve",
     });
     expect(reportViewGate("BT1 5GS", null, effectiveReportDoorState("northern-ireland"))).toEqual({
-      action: "door",
-      href: "/report?postcode=BT1+5GS",
+      action: "serve",
     });
     expect(reportViewGate("CM3 2JT", null, effectiveReportDoorState("england"))).toEqual({
       action: "serve",
