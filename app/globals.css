@@ -3432,6 +3432,46 @@ a.picker__row {
   margin-top: var(--space-3);
 }
 
+/* The honesty area (M9.5, in the founder's Option A
+   form, 22 Nov 2026): the door's card dress, standing
+   above the email block in the 17 Nov reading order —
+   the one line with its Terms link, the price
+   restated, the refund line, and the digital-content
+   tick-box the Pay button waits on. */
+.report-payment__honesty {
+  margin-top: var(--space-5);
+}
+
+.report-payment__honesty-line {
+  margin-top: 0;
+}
+
+.report-payment__honesty-price {
+  font-weight: 700;
+  margin: var(--space-3) 0 0;
+}
+
+.report-payment__honesty-refund {
+  margin: var(--space-2) 0 0;
+}
+
+.report-payment__consent {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.report-payment__consent-box {
+  flex: none;
+  width: 1.2rem;
+  height: 1.2rem;
+  margin-top: 0.15rem;
+  accent-color: var(--cmnh-forest);
+}
+
 .report-payment__email {
   margin-top: var(--space-5);
 }

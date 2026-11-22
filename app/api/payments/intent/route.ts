@@ -1,8 +1,10 @@
 // POST /api/payments/intent — start a report payment
-// (plan step M9.4). A thin adapter over the factored
-// seam (lib/server/payment-intent.ts): the browser
-// posts the postcode, the home key and the delivery
-// email; the server re-resolves the home itself and
+// (plan steps M9.4 and M9.5). A thin adapter over the
+// factored seam (lib/server/payment-intent.ts): the
+// browser posts the postcode, the home key, the
+// delivery email and the digital-content consent
+// (tick + timestamp, M9.5 — a request without it is
+// refused); the server re-resolves the home itself and
 // the translator (lib/server/payments.ts) creates the
 // payment for the one price. The answer is the client
 // secret the embedded card element confirms against —
@@ -57,13 +59,14 @@ async function resolvePaymentHome(
 const STATUS_BY_REASON = {
   "bad-request": 400,
   email: 400,
+  consent: 400,
   "home-not-found": 404,
   "not-configured": 503,
   unavailable: 502,
 } as const;
 
 export async function POST(request: Request) {
-  let body: { postcode?: unknown; homeKey?: unknown; email?: unknown };
+  let body: { postcode?: unknown; homeKey?: unknown; email?: unknown; consent?: unknown };
   try {
     body = (await request.json()) as typeof body;
   } catch {

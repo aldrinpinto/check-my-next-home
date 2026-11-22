@@ -6,35 +6,54 @@ import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-
 
 import { isEmailShape, normaliseEmail } from "../lib/gift";
 import {
+  liveStartedPayment,
   PAYMENT_DECLINED_FALLBACK_LINE,
   PAYMENT_HOME_NOT_FOUND_LINE,
   PAYMENT_START_FAILED_LINE,
   PAYMENT_TAKEN_LINE,
   type ReportPaymentView,
+  type StartedPayment,
 } from "../lib/report-payment";
 
-// The payment page (plan step M9.4; Final Sample Master,
-// Sample 9). The report door's paid state: built in
-// full here, rendered by /report only when M9.6 flips
-// the door with fulfilment behind it.
+// The payment page (plan steps M9.4 and M9.5; Final
+// Sample Master, Sample 9). The report door's paid
+// state: built in full here, rendered by /report only
+// when M9.6 flips the door with fulfilment behind it.
 //
 // The card fields are the payment company's embedded
 // element — they live inside its cross-origin iframes,
-// never in this page's DOM: the only input this page
-// owns is the delivery email (the step's Check, pinned
-// by tests/report-payment.test.ts). The flow on the
-// page: a shape-valid email starts a payment on the
-// server (POST /api/payments/intent — the server
-// re-resolves the home and the translator sets the
-// amount; the email rides in the payment's metadata),
-// the element mounts against that payment's client
-// secret, and Pay confirms with the provider. A decline
-// is answered inline, in Sample 9's error-line pattern
-// (the standalone Payment failed page is M9.7's); a
-// confirmation shows the interim taken line until
-// M9.6 builds Sample 10's success surface.
+// never in this page's DOM: the only inputs this page
+// owns are the delivery email and the consent tick-box
+// (the step's Check, pinned by
+// tests/report-payment.test.ts). The flow on the page,
+// in the 17 Nov 2026 ruling's reading order: the buyer
+// reads the honesty area — the Option A line with its
+// Terms link, the price and the refund line — and
+// ticks the digital-content consent (M9.5), gives the
+// delivery email, and pays. A shape-valid email WITH
+// the tick standing
+// starts a payment on the server (POST
+// /api/payments/intent — the server re-resolves the
+// home, the translator sets the amount, and the email
+// and the consent tick + timestamp ride in the
+// payment's metadata), the element mounts against that
+// payment's client secret, and Pay confirms with the
+// provider. Unticked, no payment can start and neither
+// button can fire a confirmation (test T-PAY-06). A
+// decline is answered inline, in Sample 9's error-line
+// pattern (the standalone Payment failed page is
+// M9.7's); a confirmation shows the interim taken line
+// until M9.6 builds Sample 10's success surface.
 
-function PaySection({ view, onPaid }: { view: ReportPaymentView; onPaid: () => void }) {
+function PaySection({
+  view,
+  consented,
+  onPaid,
+}: {
+  view: ReportPaymentView;
+  consented: boolean;
+  onPaid: () => void;
+}) {
   const stripe = useStripe();
   const elements = useElements();
   const [error, setError] = useState<string | null>(null);
@@ -42,7 +61,7 @@ function PaySection({ view, onPaid }: { view: ReportPaymentView; onPaid: () => v
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
-    if (!stripe || !elements || busy) return;
+    if (!stripe || !elements || busy || !consented) return;
     setBusy(true);
     setError(null);
     const result = await stripe.confirmPayment({ elements, redirect: "if_required" });
@@ -67,7 +86,7 @@ function PaySection({ view, onPaid }: { view: ReportPaymentView; onPaid: () => v
       <button
         type="submit"
         className="btn btn--brass report-payment__pay"
-        disabled={!stripe || busy}
+        disabled={!stripe || busy || !consented}
       >
         {view.payLabel}
       </button>
@@ -90,7 +109,13 @@ export default function ReportPaymentPage({
   const [email, setEmail] = useState("");
   const [emailError, setEmailError] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-  const [intent, setIntent] = useState<{ clientSecret: string; forEmail: string } | null>(null);
+  // The digital-content consent (M9.5): the ISO moment
+  // the buyer ticked the box, or null while it stands
+  // unticked. The timestamp is captured at the tick
+  // itself — it is the consent's own time, carried into
+  // the payment's metadata, not a time invented later.
+  const [consentAt, setConsentAt] = useState<string | null>(null);
+  const [started, setStarted] = useState<StartedPayment | null>(null);
   const [paid, setPaid] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const creatingFor = useRef<string | null>(null);
@@ -104,31 +129,45 @@ export default function ReportPaymentPage({
   const normalised = normaliseEmail(email);
   const emailValid = isEmailShape(normalised);
 
-  // The payment that belongs to the address now standing:
-  // an intent created for any other address (or while the
-  // address is misshapen) simply does not count — editing
-  // the email retires the old payment, whose metadata
-  // carries the first address, without any state surgery.
-  const activeIntent = !paid && emailValid && intent?.forEmail === normalised ? intent : null;
+  // The payment that belongs to the page as it now
+  // stands: a payment started for any other address, or
+  // under a consent that no longer stands, simply does
+  // not count — unticking the box or editing the email
+  // retires the old payment without any state surgery
+  // (liveStartedPayment, lib/report-payment.ts).
+  const activeIntent = paid
+    ? null
+    : liveStartedPayment(started, { emailValid, email: normalised, consentAt });
 
-  // A shape-valid email starts its payment on the server;
-  // the answer lands in state from the fetch, never
-  // synchronously. A failed start leaves the notice
-  // standing and the start button as the retry.
+  // A shape-valid email with the tick standing starts
+  // its payment on the server; the answer lands in
+  // state from the fetch, never synchronously. A failed
+  // start leaves the notice standing and the start
+  // button as the retry.
   useEffect(() => {
-    if (paid || !emailValid) {
+    if (paid || !emailValid || consentAt === null) {
       creatingFor.current = null;
       return;
     }
-    if (intent?.forEmail === normalised || creatingFor.current === normalised) return;
-    creatingFor.current = normalised;
+    if (
+      liveStartedPayment(started, { emailValid, email: normalised, consentAt }) ||
+      creatingFor.current === `${normalised}|${consentAt}`
+    ) {
+      return;
+    }
+    creatingFor.current = `${normalised}|${consentAt}`;
     let live = true;
     (async () => {
       try {
         const response = await fetch("/api/payments/intent", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ postcode, homeKey, email: normalised }),
+          body: JSON.stringify({
+            postcode,
+            homeKey,
+            email: normalised,
+            consent: { ticked: true, timestamp: consentAt },
+          }),
         });
         const data = (await response.json().catch(() => null)) as {
           clientSecret?: string;
@@ -137,7 +176,7 @@ export default function ReportPaymentPage({
         if (!live) return;
         if (response.ok && data?.clientSecret) {
           setNotice(null);
-          setIntent({ clientSecret: data.clientSecret, forEmail: normalised });
+          setStarted({ clientSecret: data.clientSecret, email: normalised, consentAt });
         } else {
           setNotice(
             data?.error === "home-not-found"
@@ -148,13 +187,20 @@ export default function ReportPaymentPage({
       } catch {
         if (live) setNotice(PAYMENT_START_FAILED_LINE);
       } finally {
-        if (creatingFor.current === normalised) creatingFor.current = null;
+        if (creatingFor.current === `${normalised}|${consentAt}`) creatingFor.current = null;
       }
     })();
     return () => {
       live = false;
     };
-  }, [emailValid, normalised, intent, paid, postcode, homeKey, attempt]);
+  }, [emailValid, normalised, started, consentAt, paid, postcode, homeKey, attempt]);
+
+  function onConsentChange(checked: boolean) {
+    // Ticking stamps the consent with its moment;
+    // unticking withdraws it — and with it, through the
+    // derivation above, any payment it had started.
+    setConsentAt(checked ? new Date().toISOString() : null);
+  }
 
   function onStartClick() {
     if (!emailValid) {
@@ -165,10 +211,11 @@ export default function ReportPaymentPage({
       setNotice(PAYMENT_START_FAILED_LINE);
       return;
     }
-    // A valid address starts its payment through the
-    // effect above; the button is the affordance for a
-    // buyer whose card panel has not mounted yet — and
-    // the retry when a start has failed.
+    // A valid address with the tick standing starts its
+    // payment through the effect above; the button is
+    // the affordance for a buyer whose card panel has
+    // not mounted yet — and the retry when a start has
+    // failed.
     setAttempt((value) => value + 1);
   }
 
@@ -197,6 +244,26 @@ export default function ReportPaymentPage({
         </p>
       ) : (
         <>
+          <section className="report-door__card report-payment__honesty">
+            <p className="report-payment__honesty-line">
+              {view.termsLineLead}
+              <a href={view.termsHref}>{view.termsLinkLabel}</a>.
+            </p>
+            <p className="report-payment__honesty-price">{view.honestyPriceLine}</p>
+            <p className="report-payment__honesty-refund">{view.refundLine}</p>
+            <label className="report-payment__consent">
+              <input
+                className="report-payment__consent-box"
+                id="payment-consent"
+                name="consent"
+                type="checkbox"
+                checked={consentAt !== null}
+                onChange={(event) => onConsentChange(event.target.checked)}
+              />
+              <span>{view.consentLabel}</span>
+            </label>
+          </section>
+
           <div className="field report-payment__email">
             <label className="field__label" htmlFor="payment-email">
               {view.emailLabel} <span className="report-payment__req">Required</span>
@@ -254,7 +321,11 @@ export default function ReportPaymentPage({
                 stripe={stripePromise}
                 options={{ clientSecret: activeIntent.clientSecret }}
               >
-                <PaySection view={view} onPaid={() => setPaid(true)} />
+                <PaySection
+                  view={view}
+                  consented={consentAt !== null}
+                  onPaid={() => setPaid(true)}
+                />
               </Elements>
             ) : (
               <>
@@ -268,6 +339,7 @@ export default function ReportPaymentPage({
                   type="button"
                   className="btn btn--brass report-payment__pay"
                   onClick={onStartClick}
+                  disabled={consentAt === null}
                 >
                   {view.payLabel}
                 </button>

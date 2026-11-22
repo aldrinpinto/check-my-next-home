@@ -15,9 +15,12 @@
 // the payment journey needs:
 //   - createReportIntent — start a payment for the one
 //     report price (REPORT_PRICE_PENCE, lib/site.ts),
-//     carrying the delivery email and the home's identity
-//     in the payment's metadata, where M9.6's webhook
-//     path reads them back to deliver the report.
+//     carrying the delivery email, the home's identity
+//     and the buyer's digital-content consent (tick +
+//     timestamp, plan step M9.5) in the payment's
+//     metadata, where M9.6's webhook path reads them
+//     back to deliver the report and M9.10's order
+//     record reads the consent from (test T-PAY-06).
 //   - intentStatus — read a payment's status back.
 //   - verifyWebhookEvent — verify a webhook delivery's
 //     signature and read the event (M9.4 builds the
@@ -65,11 +68,23 @@ export type WebhookEventResult =
     }
   | { ok: false; reason: string };
 
+// The buyer's digital-content consent (plan step
+// M9.5): the tick itself and the ISO timestamp of the
+// moment it was given on the payment page. It travels
+// with the payment — never only in the browser — so
+// the consent is provable afterwards from the order
+// record (T-PAY-06).
+export interface ReportPaymentConsent {
+  ticked: boolean;
+  timestamp: string;
+}
+
 export interface Payments {
   createReportIntent(input: {
     email: string;
     postcode: string;
     homeKey: string | null;
+    consent: ReportPaymentConsent;
   }): Promise<CreateIntentResult>;
   intentStatus(intentId: string): Promise<IntentStatusResult>;
   verifyWebhookEvent(input: { payload: string; signature: string }): WebhookEventResult;
@@ -82,6 +97,8 @@ export interface Payments {
 export const PAYMENT_METADATA_EMAIL = "email";
 export const PAYMENT_METADATA_POSTCODE = "postcode";
 export const PAYMENT_METADATA_HOME_KEY = "home_key";
+export const PAYMENT_METADATA_CONSENT_TICK = "consent_tick";
+export const PAYMENT_METADATA_CONSENT_TIMESTAMP = "consent_timestamp";
 
 // The one currency the report is sold in.
 export const PAYMENT_CURRENCY = "gbp";
@@ -138,6 +155,8 @@ export function createStripePayments(config: {
         const metadata: Record<string, string> = {
           [PAYMENT_METADATA_EMAIL]: input.email,
           [PAYMENT_METADATA_POSTCODE]: input.postcode,
+          [PAYMENT_METADATA_CONSENT_TICK]: input.consent.ticked ? "true" : "false",
+          [PAYMENT_METADATA_CONSENT_TIMESTAMP]: input.consent.timestamp,
         };
         if (input.homeKey) metadata[PAYMENT_METADATA_HOME_KEY] = input.homeKey;
         const intent = await client.paymentIntents.create({
@@ -214,6 +233,8 @@ export interface FakePayments extends Payments {
     email: string;
     postcode: string;
     homeKey: string | null;
+    consentTick: boolean;
+    consentTimestamp: string;
     amount: number;
     currency: string;
     status: string;
@@ -257,6 +278,8 @@ export function createFakePayments(config?: { webhookSecret?: string }): FakePay
         email: input.email,
         postcode: input.postcode,
         homeKey: input.homeKey,
+        consentTick: input.consent.ticked,
+        consentTimestamp: input.consent.timestamp,
         amount: REPORT_PRICE_PENCE,
         currency: PAYMENT_CURRENCY,
         status: "requires_confirmation",

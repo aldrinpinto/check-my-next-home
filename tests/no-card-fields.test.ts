@@ -13,8 +13,9 @@ import { describe, expect, it } from "vitest";
 // Name on card) are a picture of that element, and the
 // tokens that would build them for real are banned
 // here by name. (The rendered half of the Check — the
-// email field is the only input in the payment page's
-// own DOM — is tests/report-payment.test.ts.)
+// email field and the consent tick-box (M9.5) are the
+// only inputs in the payment page's own DOM — is
+// tests/report-payment.test.ts.)
 
 const BANNED_TOKENS = [
   "cc-number",

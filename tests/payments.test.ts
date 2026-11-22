@@ -15,16 +15,20 @@ import {
   type StripeClientSlice,
 } from "../lib/server/payments";
 
-// M9.4 — the payments translator (lib/server/payments.ts):
-// the seam's contract, proven against the fake and
-// against the Stripe adapter. The adapter's intent calls
-// run against a recording stub of the provider's client
-// (no network, no key); its webhook verification runs
-// against the REAL provider package — signature
-// verification is local cryptography, proven with the
-// provider's documented test-header generator and with
-// a header built by hand from the documented scheme
-// (an HMAC-SHA256 of "<timestamp>.<payload>").
+// M9.4/M9.5 — the payments translator
+// (lib/server/payments.ts): the seam's contract, proven
+// against the fake and against the Stripe adapter. The
+// adapter's intent calls run against a recording stub
+// of the provider's client (no network, no key); its
+// webhook verification runs against the REAL provider
+// package — signature verification is local
+// cryptography, proven with the provider's documented
+// test-header generator and with a header built by hand
+// from the documented scheme (an HMAC-SHA256 of
+// "<timestamp>.<payload>"). M9.5's consent (tick +
+// timestamp) rides through the same contract: created
+// with the intent, carried in its metadata, read back
+// from the verified event (T-PAY-06).
 //
 // No real key value appears anywhere in this suite: the
 // keys below are throwaway strings, and the sandbox
@@ -35,6 +39,7 @@ const EMAIL = "buyer@example.co.uk";
 const POSTCODE = "CM3 2JT";
 const HOME_KEY = "19||BIRKDALE RISE";
 const WEBHOOK_SECRET = "whsec_throwaway_test_secret";
+const CONSENT = { ticked: true, timestamp: "2026-11-22T00:40:00.000Z" };
 
 function succeededPayload(intentId: string): string {
   return JSON.stringify({
@@ -43,7 +48,13 @@ function succeededPayload(intentId: string): string {
       object: {
         id: intentId,
         status: "succeeded",
-        metadata: { email: EMAIL, postcode: POSTCODE, home_key: HOME_KEY },
+        metadata: {
+          email: EMAIL,
+          postcode: POSTCODE,
+          home_key: HOME_KEY,
+          consent_tick: "true",
+          consent_timestamp: CONSENT.timestamp,
+        },
       },
     },
   });
@@ -83,7 +94,12 @@ describe("payments translator — the unconfigured seam", () => {
   it("answers not-configured on every method, never throws", async () => {
     const payments = createUnconfiguredPayments();
     await expect(
-      payments.createReportIntent({ email: EMAIL, postcode: POSTCODE, homeKey: HOME_KEY }),
+      payments.createReportIntent({
+        email: EMAIL,
+        postcode: POSTCODE,
+        homeKey: HOME_KEY,
+        consent: CONSENT,
+      }),
     ).resolves.toEqual({ ok: false, reason: "not-configured" });
     await expect(payments.intentStatus("pi_anything")).resolves.toEqual({
       ok: false,
@@ -145,6 +161,7 @@ function contractSuite(
         email: EMAIL,
         postcode: POSTCODE,
         homeKey: HOME_KEY,
+        consent: CONSENT,
       });
       expect(created.ok).toBe(true);
       if (!created.ok) return;
@@ -163,6 +180,7 @@ function contractSuite(
         email: EMAIL,
         postcode: POSTCODE,
         homeKey: HOME_KEY,
+        consent: CONSENT,
       });
       if (!created.ok) throw new Error("creation failed inside the contract");
       const payload = succeededPayload(created.intentId);
@@ -172,7 +190,13 @@ function contractSuite(
         type: "payment_intent.succeeded",
         intentId: created.intentId,
         status: "succeeded",
-        metadata: { email: EMAIL, postcode: POSTCODE, home_key: HOME_KEY },
+        metadata: {
+          email: EMAIL,
+          postcode: POSTCODE,
+          home_key: HOME_KEY,
+          consent_tick: "true",
+          consent_timestamp: CONSENT.timestamp,
+        },
       });
     });
 
@@ -233,6 +257,7 @@ describe("payments translator — the Stripe adapter's half of the contract", ()
       email: EMAIL,
       postcode: POSTCODE,
       homeKey: HOME_KEY,
+      consent: CONSENT,
     });
     expect(result).toEqual({
       ok: true,
@@ -245,7 +270,13 @@ describe("payments translator — the Stripe adapter's half of the contract", ()
       amount: REPORT_PRICE_PENCE,
       currency: PAYMENT_CURRENCY,
       receipt_email: EMAIL,
-      metadata: { email: EMAIL, postcode: POSTCODE, home_key: HOME_KEY },
+      metadata: {
+        email: EMAIL,
+        postcode: POSTCODE,
+        home_key: HOME_KEY,
+        consent_tick: "true",
+        consent_timestamp: CONSENT.timestamp,
+      },
     });
     expect(REPORT_PRICE_PENCE).toBe(499);
     expect(PAYMENT_CURRENCY).toBe("gbp");
@@ -258,8 +289,18 @@ describe("payments translator — the Stripe adapter's half of the contract", ()
       webhookSecret: WEBHOOK_SECRET,
       client,
     });
-    await payments.createReportIntent({ email: EMAIL, postcode: POSTCODE, homeKey: null });
-    expect(created[0]?.metadata).toEqual({ email: EMAIL, postcode: POSTCODE });
+    await payments.createReportIntent({
+      email: EMAIL,
+      postcode: POSTCODE,
+      homeKey: null,
+      consent: CONSENT,
+    });
+    expect(created[0]?.metadata).toEqual({
+      email: EMAIL,
+      postcode: POSTCODE,
+      consent_tick: "true",
+      consent_timestamp: CONSENT.timestamp,
+    });
   });
 
   it("maps a provider failure to a reason code — the provider's own words never escape", async () => {
@@ -287,6 +328,7 @@ describe("payments translator — the Stripe adapter's half of the contract", ()
       email: EMAIL,
       postcode: POSTCODE,
       homeKey: HOME_KEY,
+      consent: CONSENT,
     });
     expect(created).toEqual({ ok: false, reason: "provider-error" });
     await expect(payments.intentStatus("pi_stub_1")).resolves.toEqual({
@@ -332,15 +374,22 @@ describe("payments translator — the Stripe adapter's half of the contract", ()
 });
 
 describe("payments translator — the fake's own promises", () => {
-  it("records every creation with the one price, for the contract's other readers", async () => {
+  it("records every creation with the one price and the consent it was given, for the contract's other readers", async () => {
     const fake = createFakePayments();
-    await fake.createReportIntent({ email: EMAIL, postcode: POSTCODE, homeKey: HOME_KEY });
+    await fake.createReportIntent({
+      email: EMAIL,
+      postcode: POSTCODE,
+      homeKey: HOME_KEY,
+      consent: CONSENT,
+    });
     expect(fake.created).toEqual([
       {
         intentId: "pi_fake_1",
         email: EMAIL,
         postcode: POSTCODE,
         homeKey: HOME_KEY,
+        consentTick: true,
+        consentTimestamp: CONSENT.timestamp,
         amount: REPORT_PRICE_PENCE,
         currency: PAYMENT_CURRENCY,
         status: "requires_confirmation",

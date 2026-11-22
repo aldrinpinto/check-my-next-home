@@ -6,22 +6,35 @@ import ReportPaymentPage from "../components/ReportPaymentPage";
 import type { ReportDoorIdentity } from "../lib/report-door";
 import {
   buildReportPaymentView,
+  liveStartedPayment,
+  PAYMENT_CONSENT_LABEL,
   PAYMENT_EMAIL_ERROR,
   PAYMENT_EMAIL_HELP,
   PAYMENT_EMAIL_LABEL,
   PAYMENT_EMAIL_PLACEHOLDER,
+  PAYMENT_HONESTY_PRICE_LINE,
+  PAYMENT_REFUND_LINE,
+  PAYMENT_TERMS_HREF,
+  PAYMENT_TERMS_LINE,
+  PAYMENT_TERMS_LINE_LEAD,
+  PAYMENT_TERMS_LINK_LABEL,
+  type StartedPayment,
 } from "../lib/report-payment";
 import { BUY_BAR_MYSTERY_EYEBROW, BUY_BAR_MYSTERY_LINE } from "../lib/results";
+import { TERMS_CARDS } from "../lib/site-pages";
 
-// M9.4 — the payment page (Final Sample Master, Sample
-// 9), proven in its forced state: the door stays
+// M9.4/M9.5 — the payment page (Final Sample Master,
+// Sample 9), proven in its forced state: the door stays
 // "holding" until M9.6, so the paid view is built and
 // rendered directly here, the M8.9 company block's
 // pattern. The page's copy is the Master's; its card
-// panel mounts the provider's element; and the step's
-// Check is pinned in its rendered half here — the email
-// field is the ONLY input in our own DOM (the source
-// half is tests/no-card-fields.test.ts).
+// panel mounts the provider's element; M9.4's Check is
+// pinned in its rendered half here — the email field
+// and the consent tick-box (M9.5) are the ONLY inputs
+// in our own DOM (the source half is
+// tests/no-card-fields.test.ts). M9.5's Check is
+// T-PAY-06, pinned below and in
+// tests/payment-intent.test.ts.
 
 const HOME: ReportDoorIdentity = {
   kind: "home",
@@ -104,18 +117,166 @@ describe("payment page — the view (Sample 9)", () => {
     expect(generic.subline).toBeNull();
   });
 
-  it("carries no M9.5 or M9.6 content: no tick-box, no consent, no success surface", () => {
+  it("carries no M9.6 content: no success surface", () => {
     const view = buildReportPaymentView(HOME);
     const text = JSON.stringify(view).toLowerCase();
-    expect(text).not.toContain("tick");
-    expect(text).not.toContain("consent");
-    expect(text).not.toContain("i agree");
     expect(text).not.toContain("payment received");
   });
 });
 
+// T-PAY-06 — digital-content consent (plan step M9.5):
+// cannot pay with the tick-box unticked; the tick +
+// timestamp are recorded with the order. The page half
+// is pinned here; the capture half — the consent rides
+// into the payment's metadata and a consentless start
+// is refused — is tests/payment-intent.test.ts and
+// tests/payments.test.ts.
+describe("payment page — the honest pre-payment screen (M9.5, T-PAY-06)", () => {
+  it("carries the honesty area in its Option A form: the one line verbatim with its Terms link, the price restated, the refund line", () => {
+    const view = buildReportPaymentView(HOME);
+    expect(view.termsLineLead).toBe(PAYMENT_TERMS_LINE_LEAD);
+    expect(PAYMENT_TERMS_LINE_LEAD).toBe(
+      "The report is information from official sources — not advice. By paying, you agree to our ",
+    );
+    expect(view.termsLinkLabel).toBe(PAYMENT_TERMS_LINK_LABEL);
+    expect(PAYMENT_TERMS_LINK_LABEL).toBe("Terms of service");
+    expect(view.termsHref).toBe(PAYMENT_TERMS_HREF);
+    expect(PAYMENT_TERMS_HREF).toBe("/terms");
+    // The composed line: lead, link label, full stop.
+    expect(PAYMENT_TERMS_LINE).toBe(
+      "The report is information from official sources — not advice. By paying, you agree to our Terms of service.",
+    );
+    expect(view.honestyPriceLine).toBe(PAYMENT_HONESTY_PRICE_LINE);
+    expect(PAYMENT_HONESTY_PRICE_LINE).toBe(
+      "£4.99 — one payment, no subscription, nothing further to pay.",
+    );
+    expect(view.refundLine).toBe(PAYMENT_REFUND_LINE);
+    expect(PAYMENT_REFUND_LINE).toBe(
+      "If we cannot deliver your report, we refund the £4.99 in full, to the card you paid with — you do not need to ask.",
+    );
+  });
+
+  it("no longer carries the as-built M9.5 block: no 'What the report is not' heading, none of the four not-lines", () => {
+    // The Option A ruling (22 Nov 2026) retired the
+    // heading and the not-lines from the page's copy —
+    // in the view and in the rendered page alike. (The
+    // Terms page keeps its own "What the report is
+    // not" card; that is lib/site-pages.ts, not this
+    // page, and is pinned by tests/terms.test.ts.)
+    const view = buildReportPaymentView(HOME);
+    const text = JSON.stringify(view);
+    const html = renderPaid();
+    const retired = [
+      "What the report is not",
+      "The report is information, not advice — official data as published, with its source and date.",
+      "We do not score, rate or recommend homes or areas, and we do not interpret the data for you.",
+      "It is not a survey, not a valuation, and not a substitute for your solicitor's searches and enquiries.",
+      "It does not tell you whether to buy a home — that judgement is yours.",
+    ];
+    for (const line of retired) {
+      expect(text).not.toContain(line);
+      // React's server renderer escapes apostrophes in
+      // text (&#x27;) — assert in the rendered form.
+      expect(html).not.toContain(line.replaceAll("'", "&#x27;"));
+    }
+  });
+
+  it("the refund line is the Terms page's own sentence — the two copies can never drift", () => {
+    const termsText = TERMS_CARDS.flatMap((card) => card.blocks)
+      .map((block) => (block.kind === "p" ? block.text : block.items.join("\n")))
+      .join("\n");
+    expect(termsText).toContain(PAYMENT_REFUND_LINE);
+  });
+
+  it("carries the tick-box label verbatim from the plan, and never names the gift", () => {
+    const view = buildReportPaymentView(HOME);
+    expect(view.consentLabel).toBe(PAYMENT_CONSENT_LABEL);
+    expect(PAYMENT_CONSENT_LABEL).toBe(
+      "Make my report now — I understand I lose the 14-day change-of-mind right once it is delivered.",
+    );
+    // D21: the gift is a surprise until the delivery
+    // email — no honest-screen content may name it.
+    const text = JSON.stringify(view).toLowerCase();
+    expect(text).not.toContain("gift");
+  });
+
+  it("renders the honesty area and tick above the email block, in the ruling's reading order", () => {
+    const html = renderPaid();
+    const lineAt = html.indexOf(PAYMENT_TERMS_LINE_LEAD);
+    const priceAt = html.indexOf(PAYMENT_HONESTY_PRICE_LINE);
+    const refundAt = html.indexOf(PAYMENT_REFUND_LINE);
+    const tickAt = html.indexOf(PAYMENT_CONSENT_LABEL);
+    const emailAt = html.indexOf("Email address for delivery");
+    const teaseAt = html.indexOf(BUY_BAR_MYSTERY_LINE);
+    expect(lineAt).toBeGreaterThan(-1);
+    expect(priceAt).toBeGreaterThan(lineAt);
+    expect(refundAt).toBeGreaterThan(priceAt);
+    expect(tickAt).toBeGreaterThan(refundAt);
+    expect(emailAt).toBeGreaterThan(tickAt);
+    expect(teaseAt).toBeGreaterThan(emailAt);
+    // The line's Terms link is real: the label stands
+    // inside an anchor on /terms, the full stop after
+    // it — the composed line, exactly as ruled.
+    expect(html).toContain(`<a href="${PAYMENT_TERMS_HREF}">${PAYMENT_TERMS_LINK_LABEL}</a>.`);
+  });
+
+  it("renders the tick-box unticked, and the start button disabled while it stands unticked", () => {
+    const html = renderPaid();
+    const box = html.match(/<input[^>]*id="payment-consent"[^>]*>/);
+    expect(box).not.toBeNull();
+    expect(box?.[0]).toContain('type="checkbox"');
+    expect(box?.[0]).not.toContain("checked");
+    // Unticked = cannot pay: the only Pay button the
+    // pre-payment state renders stands disabled.
+    const startButton = html.match(/<button[^>]*class="btn btn--brass report-payment__pay"[^>]*>/);
+    expect(startButton).not.toBeNull();
+    expect(startButton?.[0]).toContain("disabled");
+  });
+
+  it("a started payment lives only while its email and its consent still stand", () => {
+    const started: StartedPayment = {
+      clientSecret: "pi_1_secret_x",
+      email: "buyer@example.co.uk",
+      consentAt: "2026-11-22T00:40:00.000Z",
+    };
+    const standing = { emailValid: true, email: "buyer@example.co.uk" };
+    expect(liveStartedPayment(started, { ...standing, consentAt: started.consentAt })).toBe(
+      started,
+    );
+    // Unticked: the payment is retired — nothing
+    // confirmable stands.
+    expect(liveStartedPayment(started, { ...standing, consentAt: null })).toBeNull();
+    // Re-ticked: a new consent, a new moment — the old
+    // payment was created under a consent that no
+    // longer stands.
+    expect(
+      liveStartedPayment(started, { ...standing, consentAt: "2026-11-22T00:41:00.000Z" }),
+    ).toBeNull();
+    // Email edited after ticking: the old payment is
+    // retired; the replacement is created from the
+    // consent as it stands.
+    expect(
+      liveStartedPayment(started, {
+        emailValid: true,
+        email: "other@example.co.uk",
+        consentAt: started.consentAt,
+      }),
+    ).toBeNull();
+    // A misshapen email retires it too, and nothing
+    // started is nothing live.
+    expect(
+      liveStartedPayment(started, {
+        emailValid: false,
+        email: "buyer@example.co.uk",
+        consentAt: started.consentAt,
+      }),
+    ).toBeNull();
+    expect(liveStartedPayment(null, { ...standing, consentAt: started.consentAt })).toBeNull();
+  });
+});
+
 describe("payment page — the rendered page (the step's Check, rendered half)", () => {
-  it("renders Sample 9's structure: heading, lede, contents, email block, tease, card panel, Pay button", () => {
+  it("renders the page's structure: heading, lede, contents, honesty area, email block, tease, card panel, Pay button", () => {
     const html = renderPaid();
     expect(html).toContain("The detailed report for 19 Birkdale Rise");
     expect(html).toContain("Hatfield Peverel, CM3 2JT");
@@ -124,6 +285,8 @@ describe("payment page — the rendered page (the step's Check, rendered half)",
     expect(html).toContain(
       "<strong>The flood findings in full</strong>, with a location map for each check",
     );
+    expect(html).toContain(PAYMENT_TERMS_LINE_LEAD);
+    expect(html).toContain(`<a href="${PAYMENT_TERMS_HREF}">${PAYMENT_TERMS_LINK_LABEL}</a>.`);
     expect(html).toContain("Email address for delivery");
     expect(html).toContain("Required");
     expect(html).toContain(PAYMENT_EMAIL_HELP);
@@ -136,14 +299,17 @@ describe("payment page — the rendered page (the step's Check, rendered half)",
     );
   });
 
-  it("the email field is the ONLY input in our own DOM — the card element is a mount point, not fields", () => {
+  it("the email field and the consent tick-box are the ONLY inputs in our own DOM — the card element is a mount point, not fields", () => {
     const html = renderPaid();
     const inputs = html.match(/<input/g) ?? [];
-    expect(inputs).toHaveLength(1);
+    expect(inputs).toHaveLength(2);
     expect(html).toContain('id="payment-email"');
     expect(html).toContain('name="email"');
     expect(html).toContain('type="email"');
     expect(html).toContain('autoComplete="email"');
+    expect(html).toContain('id="payment-consent"');
+    expect(html).toContain('name="consent"');
+    expect(html).toContain('type="checkbox"');
     // The provider's element mounts here; its card
     // fields live inside its own cross-origin iframes,
     // never in this markup.
