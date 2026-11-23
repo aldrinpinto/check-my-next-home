@@ -54,8 +54,17 @@
 // and fails the run on any other shape.
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  createWriteStream,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import pg from "pg";
@@ -208,22 +217,31 @@ function readWkb(view, offset) {
 // The file read: the filed columns plus the BNG lines.
 // ------------------------------------------------------------------
 
-export function readDefencesFile(gpkgPath) {
+// The file read streams (BUG-187): rows are yielded one at
+// a time off the SQLite cursor, each with its parsed BNG
+// lines, so a filing run never holds the whole register in
+// memory. readDefencesFile collects the stream — the shape
+// the tests and the golden helpers consume at fixture
+// scale.
+export function* iterateDefencesFile(gpkgPath) {
   const db = new DatabaseSync(gpkgPath, { readOnly: true });
   try {
-    return db
-      .prepare(
-        `SELECT asset_id, asset_name, asset_sub_type, protection_type,
-                asset_maintainer, asset_operator, current_condition,
-                design_sop, design_sop_dqf, current_sop,
-                water_course_name, last_inspection_date, shape
-           FROM "${LAYER}"`,
-      )
-      .all()
-      .map((row) => ({ ...row, lines: parseGpkgGeometry(row.shape).coordinates }));
+    const statement = db.prepare(
+      `SELECT asset_id, asset_name, asset_sub_type, protection_type,
+              asset_maintainer, asset_operator, current_condition,
+              design_sop, design_sop_dqf, current_sop,
+              water_course_name, last_inspection_date, shape
+         FROM "${LAYER}"`,
+    );
+    for (const row of statement.iterate())
+      yield { ...row, lines: parseGpkgGeometry(row.shape).coordinates };
   } finally {
     db.close();
   }
+}
+
+export function readDefencesFile(gpkgPath) {
+  return [...iterateDefencesFile(gpkgPath)];
 }
 
 // ------------------------------------------------------------------
@@ -278,51 +296,52 @@ function lineToWkt(lines) {
   return `MULTILINESTRING(${parts.join(", ")})`;
 }
 
-// Validate the contract and transform raw rows into filed
-// rows. Throws — filing nothing — on the first breach.
+// Validate the contract and transform one raw row into a
+// filed row. Throws — filing nothing — on the first breach.
+// processRows is the batch form the tests consume; a filing
+// run transforms row by row as the read streams (BUG-187),
+// through this same function.
+export function processRow(row) {
+  const maintainer = requireVocabulary(
+    "asset_maintainer",
+    trimmed(row.asset_maintainer),
+    MAINTAINER_VOCABULARY,
+  );
+  const operator = requireVocabulary(
+    "asset_operator",
+    trimmed(row.asset_operator),
+    OPERATOR_VOCABULARY,
+  );
+  const subType = requireVocabulary(
+    "asset_sub_type",
+    trimmed(row.asset_sub_type),
+    SUB_TYPE_VOCABULARY,
+  );
+  const condition =
+    row.current_condition === null || row.current_condition === undefined
+      ? null
+      : requireVocabulary("current_condition", String(row.current_condition), CONDITION_VOCABULARY);
+  if (row.asset_id === null || row.asset_id === undefined || String(row.asset_id) === "")
+    throw new Error("a feature carries no asset_id — the file's shape changed");
+  return {
+    assetId: String(row.asset_id),
+    assetName: row.asset_name ?? null,
+    assetSubType: subType,
+    protectionType: row.protection_type ?? null,
+    assetMaintainer: maintainer,
+    assetOperator: operator,
+    currentCondition: condition,
+    designSop: row.design_sop ?? null,
+    designSopDqf: row.design_sop_dqf ?? null,
+    currentSop: row.current_sop ?? null,
+    waterCourseName: row.water_course_name ?? null,
+    lastInspectionDate: parseInspectionDate(row.last_inspection_date),
+    wkt: lineToWkt(row.lines),
+  };
+}
+
 export function processRows(rows) {
-  return rows.map((row) => {
-    const maintainer = requireVocabulary(
-      "asset_maintainer",
-      trimmed(row.asset_maintainer),
-      MAINTAINER_VOCABULARY,
-    );
-    const operator = requireVocabulary(
-      "asset_operator",
-      trimmed(row.asset_operator),
-      OPERATOR_VOCABULARY,
-    );
-    const subType = requireVocabulary(
-      "asset_sub_type",
-      trimmed(row.asset_sub_type),
-      SUB_TYPE_VOCABULARY,
-    );
-    const condition =
-      row.current_condition === null || row.current_condition === undefined
-        ? null
-        : requireVocabulary(
-            "current_condition",
-            String(row.current_condition),
-            CONDITION_VOCABULARY,
-          );
-    if (row.asset_id === null || row.asset_id === undefined || String(row.asset_id) === "")
-      throw new Error("a feature carries no asset_id — the file's shape changed");
-    return {
-      assetId: String(row.asset_id),
-      assetName: row.asset_name ?? null,
-      assetSubType: subType,
-      protectionType: row.protection_type ?? null,
-      assetMaintainer: maintainer,
-      assetOperator: operator,
-      currentCondition: condition,
-      designSop: row.design_sop ?? null,
-      designSopDqf: row.design_sop_dqf ?? null,
-      currentSop: row.current_sop ?? null,
-      waterCourseName: row.water_course_name ?? null,
-      lastInspectionDate: parseInspectionDate(row.last_inspection_date),
-      wkt: lineToWkt(row.lines),
-    };
-  });
+  return rows.map((row) => processRow(row));
 }
 
 // ------------------------------------------------------------------
@@ -342,32 +361,64 @@ function segmentDistance(px, py, ax, ay, bx, by) {
   return Math.hypot(ax + t * dx - px, ay + t * dy - py);
 }
 
-export function homeStats(rows) {
-  return GOLDEN_HOMES.map((home) => {
+// The per-home statistics accumulate in one pass
+// (BUG-187): offer() each raw row as the read streams and
+// only the three homes' counts and nearest defences are
+// retained — the same figures homeStats computes over a
+// whole in-memory read, which remains as the batch form.
+export function createHomeStats() {
+  const acc = GOLDEN_HOMES.map((home) => {
     const [hx, hy] = toBng(home.lng, home.lat);
-    let count = 0;
-    let nearest = null;
-    for (const row of rows) {
-      let best = Infinity;
-      for (const line of row.lines)
-        for (let i = 0; i + 1 < line.length; i++)
-          best = Math.min(
-            best,
-            segmentDistance(hx, hy, line[i][0], line[i][1], line[i + 1][0], line[i + 1][1]),
-          );
-      if (best <= RADIUS_M) {
-        count += 1;
-        if (!nearest || best < nearest.metres)
-          nearest = {
-            assetId: String(row.asset_id),
-            subType: row.asset_sub_type,
-            watercourse: row.water_course_name,
-            metres: best,
-          };
-      }
-    }
-    return { ...home, count, nearest };
+    return {
+      home,
+      hx,
+      hy,
+      count: 0,
+      nearest:
+        /** @type {null | { assetId: string, subType: unknown, watercourse: unknown, metres: number }} */ (
+          null
+        ),
+    };
   });
+  return {
+    offer(row) {
+      for (const stat of acc) {
+        let best = Infinity;
+        for (const line of row.lines)
+          for (let i = 0; i + 1 < line.length; i++)
+            best = Math.min(
+              best,
+              segmentDistance(
+                stat.hx,
+                stat.hy,
+                line[i][0],
+                line[i][1],
+                line[i + 1][0],
+                line[i + 1][1],
+              ),
+            );
+        if (best <= RADIUS_M) {
+          stat.count += 1;
+          if (!stat.nearest || best < stat.nearest.metres)
+            stat.nearest = {
+              assetId: String(row.asset_id),
+              subType: row.asset_sub_type,
+              watercourse: row.water_course_name,
+              metres: best,
+            };
+        }
+      }
+    },
+    result() {
+      return acc.map(({ home, count, nearest }) => ({ ...home, count, nearest }));
+    },
+  };
+}
+
+export function homeStats(rows) {
+  const acc = createHomeStats();
+  for (const row of rows) acc.offer(row);
+  return acc.result();
 }
 
 // The locked expectations (the prep's verified reads over
@@ -391,8 +442,8 @@ const GOLDEN_EXPECTED = {
   },
 };
 
-export function checkGoldens(rows) {
-  for (const stat of homeStats(rows)) {
+function assertGoldenStats(stats) {
+  for (const stat of stats) {
     const want = GOLDEN_EXPECTED[stat.key];
     const fail = (msg) => {
       throw new Error(`golden check failed for ${stat.postcode}: ${msg}`);
@@ -412,13 +463,25 @@ export function checkGoldens(rows) {
   }
 }
 
+export function checkGoldens(rows) {
+  assertGoldenStats(homeStats(rows));
+}
+
 // ------------------------------------------------------------------
 // Filing: the staged single-edition swap.
 // ------------------------------------------------------------------
 
-export async function fileDefences(client, rows, edition) {
-  await client.query("BEGIN");
+// The staged swap, fed as a stream (BUG-187): the filer
+// opens the transaction and the staging table, addRow
+// buffers filed rows into bounded multi-row inserts (100 at
+// a time — the one-shot filer inserted row by row), and
+// finish runs the staged count, the swap and the invalid
+// count exactly as before. fileDefences keeps the one-shot
+// shape over the same filer, so the two paths file identical
+// stage content by construction.
+export async function createDefencesFiler(client, edition) {
   try {
+    await client.query("BEGIN");
     await client.query(`
       CREATE TEMP TABLE flood_defences_stage (
         asset_id text, asset_name text, asset_sub_type text,
@@ -428,15 +491,21 @@ export async function fileDefences(client, rows, edition) {
         last_inspection_date date, wkt text
       ) ON COMMIT DROP
     `);
-    const insert = `
-      INSERT INTO flood_defences_stage (
-        asset_id, asset_name, asset_sub_type, protection_type,
-        asset_maintainer, asset_operator, current_condition,
-        design_sop, design_sop_dqf, current_sop, water_course_name,
-        last_inspection_date, wkt
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`;
-    for (const row of rows) {
-      await client.query(insert, [
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  }
+  const pending = [];
+  async function flush() {
+    if (pending.length === 0) return;
+    const values = [];
+    const params = [];
+    pending.forEach((row, i) => {
+      const base = i * 13;
+      values.push(
+        `($${base + 1},$${base + 2},$${base + 3},$${base + 4},$${base + 5},$${base + 6},$${base + 7},$${base + 8},$${base + 9},$${base + 10},$${base + 11},$${base + 12},$${base + 13})`,
+      );
+      params.push(
         row.assetId,
         row.assetName,
         row.assetSubType,
@@ -450,39 +519,72 @@ export async function fileDefences(client, rows, edition) {
         row.waterCourseName,
         row.lastInspectionDate,
         row.wkt,
-      ]);
-    }
-    const staged = await client.query("SELECT count(*)::int AS n FROM flood_defences_stage");
-    if (staged.rows[0].n !== rows.length)
-      throw new Error(`staged ${staged.rows[0].n} of ${rows.length} defences — refusing to swap`);
-    await client.query("DELETE FROM flood_defences");
+      );
+    });
     await client.query(
       `
-      INSERT INTO flood_defences (
+      INSERT INTO flood_defences_stage (
         asset_id, asset_name, asset_sub_type, protection_type,
         asset_maintainer, asset_operator, current_condition,
         design_sop, design_sop_dqf, current_sop, water_course_name,
-        last_inspection_date, geom, source_name, source_date
-      )
-      SELECT asset_id, asset_name, asset_sub_type, protection_type,
-             asset_maintainer, asset_operator, current_condition,
-             design_sop, design_sop_dqf, current_sop, water_course_name,
-             last_inspection_date,
-             ST_GeomFromText(wkt, 4326)::geometry(MultiLineString, 4326),
-             $1, $2
-        FROM flood_defences_stage
-    `,
-      [SOURCE_NAME, edition],
+        last_inspection_date, wkt
+      ) VALUES ${values.join(",")}`,
+      params,
     );
-    // Lines file as published (no ST_MakeValid — see the
-    // header); invalid lines are counted, never dropped.
-    const invalid = await client.query(
-      "SELECT count(*)::int AS n FROM flood_defences WHERE geom IS NOT NULL AND NOT ST_IsValid(geom)",
-    );
-    await client.query("COMMIT");
-    return invalid.rows[0].n;
+    pending.length = 0;
+  }
+  return {
+    async addRow(row) {
+      pending.push(row);
+      if (pending.length >= 100) await flush();
+    },
+    async finish(expectedCount) {
+      await flush();
+      const staged = await client.query("SELECT count(*)::int AS n FROM flood_defences_stage");
+      if (staged.rows[0].n !== expectedCount)
+        throw new Error(
+          `staged ${staged.rows[0].n} of ${expectedCount} defences — refusing to swap`,
+        );
+      await client.query("DELETE FROM flood_defences");
+      await client.query(
+        `
+        INSERT INTO flood_defences (
+          asset_id, asset_name, asset_sub_type, protection_type,
+          asset_maintainer, asset_operator, current_condition,
+          design_sop, design_sop_dqf, current_sop, water_course_name,
+          last_inspection_date, geom, source_name, source_date
+        )
+        SELECT asset_id, asset_name, asset_sub_type, protection_type,
+               asset_maintainer, asset_operator, current_condition,
+               design_sop, design_sop_dqf, current_sop, water_course_name,
+               last_inspection_date,
+               ST_GeomFromText(wkt, 4326)::geometry(MultiLineString, 4326),
+               $1, $2
+          FROM flood_defences_stage
+      `,
+        [SOURCE_NAME, edition],
+      );
+      // Lines file as published (no ST_MakeValid — see the
+      // header); invalid lines are counted, never dropped.
+      const invalid = await client.query(
+        "SELECT count(*)::int AS n FROM flood_defences WHERE geom IS NOT NULL AND NOT ST_IsValid(geom)",
+      );
+      await client.query("COMMIT");
+      return invalid.rows[0].n;
+    },
+    async abort() {
+      await client.query("ROLLBACK").catch(() => {});
+    },
+  };
+}
+
+export async function fileDefences(client, rows, edition) {
+  const filer = await createDefencesFiler(client, edition);
+  try {
+    for (const row of rows) await filer.addRow(row);
+    return await filer.finish(rows.length);
   } catch (error) {
-    await client.query("ROLLBACK");
+    await filer.abort();
     throw error;
   }
 }
@@ -533,7 +635,9 @@ async function fetchLive() {
   const zipPath = join(WORKDIR, "aims.zip");
   const response = await fetch(DOWNLOAD_URL);
   if (!response.ok) throw new Error(`HTTP ${response.status} for the AIMS GeoPackage download`);
-  writeFileSync(zipPath, Buffer.from(await response.arrayBuffer()));
+  // The zip streams to disk (BUG-187) — the whole payload is
+  // never buffered in memory on its way through.
+  await pipeline(Readable.fromWeb(response.body), createWriteStream(zipPath));
   const edition = await zipMemberDate(zipPath);
   if (!edition)
     throw new Error(
@@ -565,47 +669,73 @@ async function main() {
   const fixtureDir = fileIndex >= 0 ? args[fileIndex + 1] : null;
 
   const { gpkgPath, edition } = fixtureDir ? readFixture(fixtureDir) : await fetchLive();
-  const raw = readDefencesFile(gpkgPath);
-  if (!fixtureDir && (raw.length < BAND_LOW || raw.length > BAND_HIGH))
-    throw new Error(
-      `read ${raw.length} features — outside the ±10% sanity band (${BAND_LOW}–${BAND_HIGH}) ` +
-        `around the ${SNAPSHOT} of the 13 Nov 2026 build; refusing to file`,
-    );
-  checkGoldens(raw);
-  const rows = processRows(raw);
 
-  const goldenSummary = homeStats(raw)
-    .map((s) => {
-      const miles = (s.nearest.metres / 1609.344).toFixed(3);
-      return `${s.postcode.split(" ")[0]} ${s.count} within 2 miles (nearest ${s.nearest.subType}, ${s.nearest.watercourse}, ${miles} mi)`;
-    })
-    .join(" · ");
-
-  if (verifyOnly) {
-    return {
-      summary:
-        `${ITEM} · ${SOURCE_NAME} · edition ${edition} · ${rows.length} features verified, nothing filed ` +
-        `— golden homes OK: ${goldenSummary}`,
-    };
+  // One streaming pass (BUG-187): each row is read off the
+  // file cursor, offered to the golden statistics and
+  // transformed; a filing run stages it straight into the
+  // transaction, so the whole register is never held in
+  // memory. A filing run therefore opens the database
+  // before the pass — without DATABASE_URL it fails before
+  // reading instead of after it.
+  let pool = null;
+  let client = null;
+  let filer = null;
+  if (!verifyOnly) {
+    const connectionString = process.env.DATABASE_URL;
+    if (!connectionString) throw new Error("DATABASE_URL is not set");
+    pool = new pg.Pool({ connectionString });
+    client = await pool.connect();
+    try {
+      filer = await createDefencesFiler(client, edition);
+    } catch (error) {
+      client.release();
+      await pool.end();
+      throw error;
+    }
   }
 
-  const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) throw new Error("DATABASE_URL is not set");
-  const pool = new pg.Pool({ connectionString });
   try {
-    const client = await pool.connect();
-    try {
-      const invalidCount = await fileDefences(client, rows, edition);
+    const stats = createHomeStats();
+    let read = 0;
+    for (const raw of iterateDefencesFile(gpkgPath)) {
+      read += 1;
+      stats.offer(raw);
+      const filedRow = processRow(raw);
+      if (filer) await filer.addRow(filedRow);
+    }
+    if (!fixtureDir && (read < BAND_LOW || read > BAND_HIGH))
+      throw new Error(
+        `read ${read} features — outside the ±10% sanity band (${BAND_LOW}–${BAND_HIGH}) ` +
+          `around the ${SNAPSHOT} of the 13 Nov 2026 build; refusing to file`,
+      );
+    const homeResults = stats.result();
+    assertGoldenStats(homeResults);
+    const goldenSummary = homeResults
+      .map((s) => {
+        const miles = (s.nearest.metres / 1609.344).toFixed(3);
+        return `${s.postcode.split(" ")[0]} ${s.count} within 2 miles (nearest ${s.nearest.subType}, ${s.nearest.watercourse}, ${miles} mi)`;
+      })
+      .join(" · ");
+
+    if (verifyOnly) {
       return {
         summary:
-          `${ITEM} · ${SOURCE_NAME} · edition ${edition} · ${rows.length} features filed ` +
-          `(${invalidCount} invalid lines filed as published) — golden homes OK: ${goldenSummary}`,
+          `${ITEM} · ${SOURCE_NAME} · edition ${edition} · ${read} features verified, nothing filed ` +
+          `— golden homes OK: ${goldenSummary}`,
       };
-    } finally {
-      client.release();
     }
+    const invalidCount = await filer.finish(read);
+    return {
+      summary:
+        `${ITEM} · ${SOURCE_NAME} · edition ${edition} · ${read} features filed ` +
+        `(${invalidCount} invalid lines filed as published) — golden homes OK: ${goldenSummary}`,
+    };
+  } catch (error) {
+    if (filer) await filer.abort();
+    throw error;
   } finally {
-    await pool.end();
+    if (client) client.release();
+    if (pool) await pool.end();
   }
 }
 

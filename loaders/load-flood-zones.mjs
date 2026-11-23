@@ -82,6 +82,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { createGoldenSift, createTotals } from "./flood-stream.mjs";
 
 const ITEMS_URL =
   "https://environment.data.gov.uk/geoservices/datasets/04532375-a198-476e-985e-0579a0a11b47/ogc/features/v1/collections/Flood_Zones_2_3_Rivers_and_Sea/items";
@@ -416,34 +417,52 @@ async function fetchZonesPage(startIndex, expected, read, delaysMs = RETRY_DELAY
 // it, and the read must reconcile exactly or file nothing.
 // Pages are processed as they land, so the raw GeoJSON of a
 // page is released before the next arrives.
-export async function readLive({ delaysMs = RETRY_DELAYS_MS } = {}) {
+//
+// Streaming (BUG-187, loaders/flood-stream.mjs): with an
+// onItems sink, each page's processed items are handed to
+// the sink as they land and only the golden candidates are
+// retained (the returned items); the totals accumulate as
+// scalars either way. Without a sink the read returns every
+// item, as it always did — the shape the paging tests pin.
+export async function readLive({ delaysMs = RETRY_DELAYS_MS, onItems = null } = {}) {
   const first = await fetchJson(`${ITEMS_URL}?limit=1&f=json`, "the flood zones count");
   const expected = first.numberMatched;
   if (!Number.isInteger(expected) || expected <= 0)
     throw new Error("contract failure: the zones items response carries no numberMatched");
   const edition = await fetchEdition();
+  const totals = createTotals(VOCAB);
+  const sift = onItems ? createGoldenSift(HOMES) : null;
   const items = [];
-  const perLabel = Object.fromEntries(VOCAB.map((label) => [label, 0]));
-  let geoless = 0;
-  let read = 0;
   let startIndex = 0;
-  while (read < expected) {
-    const page = await fetchZonesPage(startIndex, expected, read, delaysMs);
+  while (totals.read < expected) {
+    const page = await fetchZonesPage(startIndex, expected, totals.read, delaysMs);
     const batch = page.features;
     const processed = processFeatures(batch);
-    items.push(...processed.items);
-    geoless += processed.geoless;
-    for (const label of VOCAB) perLabel[label] += processed.perLabel[label];
-    read += batch.length;
+    totals.addBatch(processed, batch.length);
+    if (onItems) {
+      for (const item of processed.items) sift.offer(item);
+      await onItems(processed.items, edition);
+    } else {
+      items.push(...processed.items);
+    }
     startIndex += batch.length;
   }
-  return { items, geoless, perLabel, read, expected, edition, captured: null };
+  return {
+    items: onItems ? sift.items : items,
+    filed: totals.filed,
+    geoless: totals.geoless,
+    perLabel: totals.perLabel,
+    read: totals.read,
+    expected,
+    edition,
+    captured: null,
+  };
 }
 
 // A fixture file too large for one connector push is held as
 // numbered parts (<stem>-1.geojson, <stem>-2.geojson, ...)
 // whose feature arrays concatenate to the capture, in order.
-async function readFixtureFeatures(fixtureDir, fileName) {
+async function fixturePartNames(fixtureDir, fileName) {
   const stem = fileName.replace(/\.geojson$/, "");
   const entries = await readdir(fixtureDir);
   const partNames = entries
@@ -451,25 +470,42 @@ async function readFixtureFeatures(fixtureDir, fileName) {
     .sort();
   const names = entries.includes(fileName) ? [fileName] : partNames;
   if (names.length === 0) throw new Error(`contract failure: no fixture file for ${fileName}`);
-  const features = [];
-  for (const name of names) {
-    const body = JSON.parse(await readFile(join(fixtureDir, name), "utf8"));
-    features.push(...(body.features ?? []));
-  }
-  return features;
+  return names;
 }
 
-async function readFixture(fixtureDir) {
+// The fixture read streams like the live read (BUG-187):
+// one part at a time is parsed, processed and handed to the
+// sink, then released — the parts' feature arrays are never
+// concatenated in memory. The totals and the golden sift
+// are the same as the live read's.
+export async function readFixture(fixtureDir, { onItems = null } = {}) {
   const stamp = JSON.parse(await readFile(join(fixtureDir, "fixture.json"), "utf8"));
   if (!stamp.edition)
     throw new Error("contract failure: the flood zones fixture carries no edition stamp");
-  const raw = await readFixtureFeatures(fixtureDir, "flood-zones.geojson");
-  if (raw.length === 0) throw new Error("contract failure: the flood zones fixture is empty");
-  const processed = processFeatures(raw);
+  const names = await fixturePartNames(fixtureDir, "flood-zones.geojson");
+  const totals = createTotals(VOCAB);
+  const sift = onItems ? createGoldenSift(HOMES) : null;
+  const items = [];
+  for (const name of names) {
+    const body = JSON.parse(await readFile(join(fixtureDir, name), "utf8"));
+    const features = body.features ?? [];
+    const processed = processFeatures(features);
+    totals.addBatch(processed, features.length);
+    if (onItems) {
+      for (const item of processed.items) sift.offer(item);
+      await onItems(processed.items, stamp.edition);
+    } else {
+      items.push(...processed.items);
+    }
+  }
+  if (totals.read === 0) throw new Error("contract failure: the flood zones fixture is empty");
   return {
-    ...processed,
-    read: raw.length,
-    expected: raw.length,
+    items: onItems ? sift.items : items,
+    filed: totals.filed,
+    geoless: totals.geoless,
+    perLabel: totals.perLabel,
+    read: totals.read,
+    expected: totals.read,
     edition: stamp.edition,
     captured: stamp.captured ?? null,
   };
@@ -477,7 +513,7 @@ async function readFixture(fixtureDir) {
 
 // --- golden checks ---------------------------------------------------
 
-function checkGolden(processed) {
+export function checkGolden(processed) {
   const fails = [];
   const expect = (condition, message) => {
     if (!condition) fails.push(message);
@@ -555,14 +591,20 @@ function checkGolden(processed) {
 
 // --- filing ------------------------------------------------------------
 
-// Stage, count, repair, swap — one transaction. The staged
-// shapes are counted (source count == staged == filed), the
-// topologically invalid ones are counted BEFORE repair so
-// the log line can carry the number (L4), and the swap files
-// ST_MakeValid output only: a filed shape that is still
-// invalid, or was emptied by repair, fails the run and rolls
-// everything back.
-async function fileItems(items, edition) {
+// Stage, count, repair, swap — one transaction, fed as a
+// stream (BUG-187). beginFiling opens the transaction and
+// the staging table; stageItems converts each batch to WKT
+// and inserts it in the house chunks (25 rows / 4 MB), so
+// neither the item set nor its WKT copy is ever held whole;
+// finishFiling runs the counts and the swap exactly as the
+// one-shot filer did. The staged shapes are counted (source
+// count == staged == filed), the topologically invalid ones
+// are counted BEFORE repair so the log line can carry the
+// number (L4), and the swap files ST_MakeValid output only:
+// a filed shape that is still invalid, or was emptied by
+// repair, fails the run and rolls everything back — as does
+// any failure mid-stream, via abortFiling.
+async function beginFiling() {
   const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
   await client.connect();
   try {
@@ -574,75 +616,98 @@ async function fileItems(items, edition) {
          loaded_at timestamptz NOT NULL DEFAULT now()
        ) ON COMMIT DROP`,
     );
-    const rows = items.map((item) => ({
-      wkt: polygonsToWkt(item.polygons),
-      label: item.label,
-      detail: item.detail,
-    }));
-    let at = 0;
-    while (at < rows.length) {
-      const chunk = [];
-      let bytes = 0;
-      while (at < rows.length && chunk.length < 25 && bytes < 4_000_000) {
-        chunk.push(rows[at]);
-        bytes += rows[at].wkt.length;
-        at += 1;
-      }
-      const values = [];
-      const params = [];
-      chunk.forEach((row, i) => {
-        const base = i * 7;
-        values.push(
-          `($${base + 1},$${base + 2},ST_GeomFromText($${base + 3}, 4326),$${base + 4},$${base + 5},$${base + 6},$${base + 7})`,
-        );
-        params.push(LAYER_TYPE, row.label, row.wkt, edition, row.detail, SOURCE_NAME, edition);
-      });
-      await client.query(
-        `INSERT INTO flood_stage (layer_type, risk_label, geom, layer_date, detail, source_name, source_date)
-         VALUES ${values.join(",")}`,
-        params,
-      );
-    }
-    const staged = await client.query("SELECT count(*)::int AS n FROM flood_stage");
-    if (staged.rows[0].n !== items.length)
-      throw new Error("the staged shape count does not match — rolling back");
-    const invalidStaged = await client.query(
-      "SELECT count(*)::int AS n FROM flood_stage WHERE NOT ST_IsValid(geom)",
-    );
-    const invalidCount = invalidStaged.rows[0].n;
-    await client.query("DELETE FROM flood_layers WHERE layer_type = $1", [LAYER_TYPE]);
-    await client.query(
-      `INSERT INTO flood_layers (layer_type, risk_label, geom, layer_date, detail, source_name, source_date, loaded_at)
-       SELECT layer_type, risk_label, ST_Multi(ST_CollectionExtract(ST_MakeValid(geom), 3)), layer_date, detail, source_name, source_date, loaded_at FROM flood_stage`,
-    );
-    const filedCount = await client.query(
-      "SELECT count(*)::int AS n FROM flood_layers WHERE layer_type = $1",
-      [LAYER_TYPE],
-    );
-    if (filedCount.rows[0].n !== items.length)
-      throw new Error("the filed shape count does not match — rolling back");
-    const emptied = await client.query(
-      "SELECT count(*)::int AS n FROM flood_layers WHERE layer_type = $1 AND ST_IsEmpty(geom)",
-      [LAYER_TYPE],
-    );
-    if (emptied.rows[0].n !== 0)
-      throw new Error(
-        `${emptied.rows[0].n} shapes were emptied by validity repair — rolling back (L4: never drop silently)`,
-      );
-    const invalidFiled = await client.query(
-      "SELECT count(*)::int AS n FROM flood_layers WHERE layer_type = $1 AND NOT ST_IsValid(geom)",
-      [LAYER_TYPE],
-    );
-    if (invalidFiled.rows[0].n !== 0)
-      throw new Error(`${invalidFiled.rows[0].n} filed shapes are invalid — rolling back`);
-    await client.query("COMMIT");
-    return invalidCount;
   } catch (error) {
     await client.query("ROLLBACK").catch(() => {});
+    await client.end().catch(() => {});
     throw error;
-  } finally {
-    await client.end();
   }
+  const pending = [];
+  let pendingBytes = 0;
+  async function flushPending() {
+    if (pending.length === 0) return;
+    const values = [];
+    const params = [];
+    pending.forEach((row, i) => {
+      const base = i * 7;
+      values.push(
+        `($${base + 1},$${base + 2},ST_GeomFromText($${base + 3}, 4326),$${base + 4},$${base + 5},$${base + 6},$${base + 7})`,
+      );
+      params.push(
+        LAYER_TYPE,
+        row.label,
+        row.wkt,
+        row.edition,
+        row.detail,
+        SOURCE_NAME,
+        row.edition,
+      );
+    });
+    await client.query(
+      `INSERT INTO flood_stage (layer_type, risk_label, geom, layer_date, detail, source_name, source_date)
+       VALUES ${values.join(",")}`,
+      params,
+    );
+    pending.length = 0;
+    pendingBytes = 0;
+  }
+  return {
+    async stageItems(items, edition) {
+      for (const item of items) {
+        const wkt = polygonsToWkt(item.polygons);
+        pending.push({ wkt, label: item.label, detail: item.detail, edition });
+        pendingBytes += wkt.length;
+        if (pending.length >= 25 || pendingBytes >= 4_000_000) await flushPending();
+      }
+    },
+    async finishFiling(expectedCount) {
+      try {
+        await flushPending();
+        const staged = await client.query("SELECT count(*)::int AS n FROM flood_stage");
+        if (staged.rows[0].n !== expectedCount)
+          throw new Error("the staged shape count does not match — rolling back");
+        const invalidStaged = await client.query(
+          "SELECT count(*)::int AS n FROM flood_stage WHERE NOT ST_IsValid(geom)",
+        );
+        const invalidCount = invalidStaged.rows[0].n;
+        await client.query("DELETE FROM flood_layers WHERE layer_type = $1", [LAYER_TYPE]);
+        await client.query(
+          `INSERT INTO flood_layers (layer_type, risk_label, geom, layer_date, detail, source_name, source_date, loaded_at)
+           SELECT layer_type, risk_label, ST_Multi(ST_CollectionExtract(ST_MakeValid(geom), 3)), layer_date, detail, source_name, source_date, loaded_at FROM flood_stage`,
+        );
+        const filedCount = await client.query(
+          "SELECT count(*)::int AS n FROM flood_layers WHERE layer_type = $1",
+          [LAYER_TYPE],
+        );
+        if (filedCount.rows[0].n !== expectedCount)
+          throw new Error("the filed shape count does not match — rolling back");
+        const emptied = await client.query(
+          "SELECT count(*)::int AS n FROM flood_layers WHERE layer_type = $1 AND ST_IsEmpty(geom)",
+          [LAYER_TYPE],
+        );
+        if (emptied.rows[0].n !== 0)
+          throw new Error(
+            `${emptied.rows[0].n} shapes were emptied by validity repair — rolling back (L4: never drop silently)`,
+          );
+        const invalidFiled = await client.query(
+          "SELECT count(*)::int AS n FROM flood_layers WHERE layer_type = $1 AND NOT ST_IsValid(geom)",
+          [LAYER_TYPE],
+        );
+        if (invalidFiled.rows[0].n !== 0)
+          throw new Error(`${invalidFiled.rows[0].n} filed shapes are invalid — rolling back`);
+        await client.query("COMMIT");
+        return invalidCount;
+      } catch (error) {
+        await client.query("ROLLBACK").catch(() => {});
+        throw error;
+      } finally {
+        await client.end();
+      }
+    },
+    async abortFiling() {
+      await client.query("ROLLBACK").catch(() => {});
+      await client.end().catch(() => {});
+    },
+  };
 }
 
 async function main() {
@@ -653,29 +718,52 @@ async function main() {
   const fixtureMode = fileAt !== -1;
   const fixtureDir = fixtureMode ? args[fileAt + 1] : null;
 
-  const processed = fixtureMode ? await readFixture(fixtureDir) : await readLive();
-
-  if (!fixtureMode) {
-    const lo = Math.floor(SNAPSHOT * 0.9);
-    const hi = Math.ceil(SNAPSHOT * 1.1);
-    if (processed.read < lo || processed.read > hi)
-      throw new Error(
-        `sanity failure: ${processed.read} flood zone features is outside the expected band (${lo}–${hi}, the 12 Nov 2026 snapshot ±10%)`,
-      );
+  // A filing run streams the read into the staging
+  // transaction as it lands (BUG-187), so the database check
+  // moves ahead of the read: without DATABASE_URL a filing
+  // run now fails before fetching instead of after it.
+  // Verify-only never opens the database.
+  let filer = null;
+  if (!verifyOnly) {
+    if (!process.env.DATABASE_URL)
+      throw new Error("DATABASE_URL is not set — filing requires a database");
+    filer = await beginFiling();
   }
-  if (processed.read !== processed.expected)
-    throw new Error(
-      `flood zones: read ${processed.read} features but the service count is ${processed.expected} — nothing filed`,
-    );
-  if (processed.items.length + processed.geoless !== processed.read)
-    throw new Error("flood zones: the processed counts do not reconcile — nothing filed");
-  checkGolden(processed);
+
+  let processed;
+  try {
+    const onItems = async (items, edition) => {
+      if (filer) await filer.stageItems(items, edition);
+    };
+    processed = fixtureMode
+      ? await readFixture(fixtureDir, { onItems })
+      : await readLive({ onItems });
+
+    if (!fixtureMode) {
+      const lo = Math.floor(SNAPSHOT * 0.9);
+      const hi = Math.ceil(SNAPSHOT * 1.1);
+      if (processed.read < lo || processed.read > hi)
+        throw new Error(
+          `sanity failure: ${processed.read} flood zone features is outside the expected band (${lo}–${hi}, the 12 Nov 2026 snapshot ±10%)`,
+        );
+    }
+    if (processed.read !== processed.expected)
+      throw new Error(
+        `flood zones: read ${processed.read} features but the service count is ${processed.expected} — nothing filed`,
+      );
+    if (processed.filed + processed.geoless !== processed.read)
+      throw new Error("flood zones: the processed counts do not reconcile — nothing filed");
+    checkGolden(processed);
+  } catch (error) {
+    if (filer) await filer.abortFiling();
+    throw error;
+  }
 
   const perLabel = VOCAB.map((label) => `${label} ${processed.perLabel[label]}`).join(" · ");
   const summary = () =>
     `load-flood-zones · Environment Agency Flood Map for Planning zones · edition ${processed.edition}` +
     (processed.captured ? ` (fixture captured ${processed.captured})` : "") +
-    ` · ${processed.items.length} features filed (${processed.read} read · ${perLabel} · ${processed.geoless} without geometry counted)`;
+    ` · ${processed.filed} features filed (${processed.read} read · ${perLabel} · ${processed.geoless} without geometry counted)`;
 
   if (verifyOnly) {
     console.log(
@@ -683,10 +771,10 @@ async function main() {
     );
     return;
   }
-  if (!process.env.DATABASE_URL)
-    throw new Error("DATABASE_URL is not set — filing requires a database");
 
-  const invalidCount = await fileItems(processed.items, processed.edition);
+  const activeFiler = filer;
+  filer = null;
+  const invalidCount = await activeFiler.finishFiling(processed.filed);
   console.log(
     `${summary()} · ${invalidCount} invalid geometries made valid · golden homes OK · ${Math.round((Date.now() - startedAt) / 1000)}s`,
   );
