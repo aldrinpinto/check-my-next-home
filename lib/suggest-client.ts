@@ -67,11 +67,19 @@ export const SUGGEST_CLIENT_MIN_CHARS = 3;
 
 // The /api/suggest payload, as the route serves it
 // (the contract pinned by tests/entry-point.test.ts).
+// The coordinator itself reads only the groups; the
+// BUG-185 fields ride the same payload through to
+// the component, which owns the wider-list row: the
+// settled postcode the panel lists, when the answer
+// is one postcode's own list, and whether the kill
+// switch lets the row be offered.
 export interface SuggestPayload {
   groups?: {
     label: string;
     items: { label: string; href: string | null; place?: string }[];
   }[];
+  postcodeList?: { postcode: string };
+  supplementEnabled?: boolean;
 }
 
 // The fetch the coordinator drives: the component

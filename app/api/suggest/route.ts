@@ -56,6 +56,7 @@ import { NextResponse } from "next/server";
 
 import { getDbPool } from "../../../lib/server/db";
 import { logEntry, newRequestId } from "../../../lib/server/entry-log";
+import { postioSupplementEnabled } from "../../../lib/server/hybrid";
 import { rateLimitOk } from "../../../lib/server/rate-limit";
 import { createBoundedSuggestionSource, suggestionsFor } from "../../../lib/server/suggestions";
 
@@ -83,7 +84,19 @@ export async function GET(request: Request) {
     // its scan running against the shared pool.
     const bounded = await createBoundedSuggestionSource(getDbPool(), request.signal);
     try {
-      const { groups } = await suggestionsFor(q, bounded.source, req);
+      const { groups, postcodeList } = await suggestionsFor(q, bounded.source, req);
+      // BUG-185: when the answer is one postcode's own list,
+      // the response also names that postcode and whether
+      // the wider-list row may be offered (the kill switch,
+      // read per request so flipping the env needs no
+      // rebuild). The groups contract above is unchanged.
+      if (postcodeList) {
+        return NextResponse.json({
+          groups,
+          postcodeList,
+          supplementEnabled: postioSupplementEnabled(),
+        });
+      }
       return NextResponse.json({ groups });
     } finally {
       await bounded.close();

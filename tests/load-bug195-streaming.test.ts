@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  checkGolden as checkAqmaGolden,
   createFeatureProcessor as createAqmaProcessor,
   processFeatures as processAqmaFeatures,
   readFixture as readAqmaFixture,
@@ -106,6 +107,22 @@ describe("built-up areas — streamed processing equals the collecting form", ()
     expect(batches.flat()).toEqual(processBuaFeatures(features).filed);
     expect(read.filed).toBe(processBuaFeatures(features).filed.length);
   });
+
+  it("the read's sifted candidates hold the golden areas (BUG-199)", async () => {
+    // main() judges the golden points over read.items — the
+    // sifted set — not over the sink's full set. The sift
+    // speaks the flood loaders' flat polygon form; this
+    // loader's nested pairs must reach it with their own
+    // bbox, or it retains nothing and the golden checks
+    // fail on an empty set (the CI fixture pass, 23 Nov
+    // 2026). The four pinned areas must survive the sift.
+    const read = await readBuaFixture(join(FIXTURES, "built-up-areas"), {});
+    const codes = read.items.map((f: { code: string }) => f.code);
+    expect(codes).toContain("E63011486"); // Hatfield Peverel
+    expect(codes).toContain("E63012003"); // Newham
+    expect(codes).toContain("E63012408"); // Ewell
+    expect(codes).toContain("E63012364"); // Bath
+  });
 });
 
 describe("AQMA — streamed processing equals the collecting form", () => {
@@ -135,6 +152,20 @@ describe("AQMA — streamed processing equals the collecting form", () => {
     expect(batches.flat()).toEqual(processAqmaFeatures(features).filed);
     expect(editions.every((e) => e === read.edition)).toBe(true);
     expect(read.filed).toBe(processAqmaFeatures(features).filed.length);
+  });
+
+  it("the golden checks pass over the read's sifted candidates (BUG-199)", async () => {
+    // main() runs checkGolden over read.items — the sifted
+    // set. The sift speaks the flood loaders' flat polygon
+    // form; this loader's nested pairs must reach it with
+    // their own bbox, or it retains nothing and the golden
+    // checks fail on an empty set (the CI fixture pass,
+    // 23 Nov 2026) while the collecting judgement passes.
+    const read = await readAqmaFixture(join(FIXTURES, "aqma"), {});
+    expect(read.items.length).toBeGreaterThan(0);
+    expect(() => checkAqmaGolden({ filed: read.items })).not.toThrow();
+    // The same judgement over the collecting form agrees.
+    expect(() => checkAqmaGolden({ filed: processAqmaFeatures(features).filed })).not.toThrow();
   });
 });
 

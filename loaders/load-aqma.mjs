@@ -223,6 +223,37 @@ function polygonsToWkt(polygons) {
   return `MULTIPOLYGON (${polygons.map(polygon).join(",")})`;
 }
 
+// The bounding box of this loader's polygon form —
+// polygons -> rings -> [lng, lat] pairs — in the golden
+// sift's [x0, y0, x1, y1] shape. The sift's own
+// bboxOfPolygons speaks the flood loaders' flat form
+// (rings as Float64Array x,y pairs); fed this loader's
+// nested pairs it reads arrays as coordinates, every
+// comparison misses, and the box comes out infinite —
+// the sift then retains nothing and the golden checks
+// fail on an empty candidate set (BUG-199, the CI
+// fixture pass of 23 Nov 2026). The sift's contract
+// takes an item's own bbox when it carries one, so the
+// read offers each item with its box computed here, in
+// the form this loader actually holds.
+function bboxOfNested(polygons) {
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (const polygon of polygons)
+    for (const ring of polygon)
+      for (const pair of ring) {
+        const x = pair[0];
+        const y = pair[1];
+        if (x < x0) x0 = x;
+        if (y < y0) y0 = y;
+        if (x > x1) x1 = x;
+        if (y > y1) y1 = y;
+      }
+  return [x0, y0, x1, y1];
+}
+
 // The per-feature filing contract (prep check 3): every
 // breach throws, so a failed run files nothing. The
 // coverage contract (band + floors) is separate —
@@ -403,7 +434,7 @@ async function driveRead(batches, onItems, edition) {
   const sift = createGoldenSift(HOMES);
   for await (const features of batches) {
     const items = processor.processBatch(features);
-    for (const item of items) sift.offer(item);
+    for (const item of items) sift.offer({ ...item, bbox: bboxOfNested(item.polygons) });
     if (onItems) await onItems(items, edition);
   }
   return {
