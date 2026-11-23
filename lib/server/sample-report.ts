@@ -13,6 +13,7 @@ import {
   anonymiseSampleView,
   mergeSampleBundles,
   sampleReportInput,
+  sampleReportNowFromEnv,
   suppressSampleNames,
   type SampleCandidate,
   type SampleHomeIdentity,
@@ -91,7 +92,15 @@ async function generateSampleReportView(): Promise<ReportView> {
   // even inside a genuine place name.
   const suppressed = suppressSampleNames(merged.bundles, identities);
   const view = buildReportView(
-    sampleReportInput(primary, { bundles: suppressed, sources: merged.sources }, new Date()),
+    sampleReportInput(
+      primary,
+      { bundles: suppressed, sources: merged.sources },
+      // The sample's composed moment: the real one, unless
+      // the harness's SAMPLE_REPORT_NOW seam pins it (the
+      // visual guard's day-independence — see
+      // lib/sample-report.ts).
+      sampleReportNowFromEnv(process.env),
+    ),
   );
   return anonymiseSampleView(view, identities);
 }

@@ -61,6 +61,13 @@ import { expect, test } from "./fixtures";
 //     is present (see shoot()). Masking is the
 //     screenshot's own mechanism; no product code hides
 //     anything for these specs.
+//   - The sample report's Report date is the harness's
+//     pinned day, not the serving day: the sample is a
+//     real generated report (BUG-159), so unpinned its
+//     masthead date rots the photograph daily (CI #308).
+//     playwright.config.ts sets SAMPLE_REPORT_NOW to
+//     the baselines' capture day (22 Nov 2026); the
+//     page is otherwise photographed and asserted whole.
 //   - Full-page photographs where the page is the unit
 //     (landing, district, place, shortlist, gift, error,
 //     the content pages, the checking screen — one

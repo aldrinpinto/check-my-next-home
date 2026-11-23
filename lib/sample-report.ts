@@ -733,3 +733,23 @@ export function sampleReportInput(
     now,
   };
 }
+
+// The sample's "now" — the moment its Report date (the
+// masthead strip and Section 10's checked-on line) is
+// composed from. The real generation serves the current
+// moment. The override is a test seam (the
+// soldPricesLoadWaitMsFromEnv pattern): the server-config
+// env SAMPLE_REPORT_NOW, when it carries a parseable
+// date, replaces the moment at generation — the E2E
+// harness pins it to the visual guard's baseline capture
+// day, so the sample-report photographs hold on any
+// calendar day (CI #308: unpinned, the masthead date is
+// the serving day and the photograph rots daily).
+// TEST-ONLY: production never sets it, and an unset or
+// unparsable value leaves the real moment standing.
+export function sampleReportNowFromEnv(env: Record<string, string | undefined>): Date {
+  const raw = env.SAMPLE_REPORT_NOW;
+  if (raw === undefined) return new Date();
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+}

@@ -45,6 +45,23 @@ process.env.E2E_GIFT_MAILER_SEAMS = "1";
 // environment, like the seams above.
 process.env.E2E_COLD_POOL = "1";
 
+// The sample report's date pin (CI #308 fix, 23 Nov
+// 2026): the sample is a real generated report
+// (BUG-159), and its masthead Report date composes from
+// the serving day — the visual guard's sample-report
+// baselines were captured on 22 Nov 2026 and carry that
+// date, so an unpinned harness fails the photograph on
+// every later day with nothing having changed. The pin
+// rides to the app through serve-e2e's environment,
+// like the seams above, and the app honours it only for
+// the sample's composition (lib/sample-report.ts's
+// sampleReportNowFromEnv). Production never sets it —
+// visitors keep the real date. Midday UTC on the
+// capture day, so the Europe/London rendering is the
+// captured "22 November 2026" whatever day the run —
+// or a deliberate re-capture — happens on.
+process.env.SAMPLE_REPORT_NOW = "2026-11-22T12:00:00.000Z";
+
 // The Playwright harness (stood up at M7.1 alongside the
 // look & feel kit). Specs live in e2e/ and are named
 // *.e2e.ts so Vitest — whose default patterns match
