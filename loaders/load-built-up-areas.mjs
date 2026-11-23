@@ -36,10 +36,25 @@
 //
 // Distances in the golden checks are to the nearest polygon
 // edge on the longitude-scaled plane, the house basis.
+//
+// BUG-195 (23 Nov 2026): the read used to accumulate every
+// fetched page into one features array and hold the whole
+// processed set (full polygon geometry for all 7,775 areas)
+// in memory while the filer sliced it. The read now streams
+// in the BUG-187 flood shape: each page is processed as it
+// lands and handed to the staging inserter, the run retains
+// only the totals and the golden candidates (the flood
+// sift), and the filing stays the same single-transaction
+// stage-and-swap — the swap's atomicity is the contract
+// (a failed run leaves the last good filing serving), so
+// the intake streams into the staging table inside that
+// transaction rather than committing in chunks.
 
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { createGoldenSift } from "./flood-stream.mjs";
 
 const SERVICE_URL =
   "https://services1.arcgis.com/ESMARspQHYMw9BZ9/arcgis/rest/services/main_ONS_BUA_2024_EW_V2/FeatureServer/0/query";
@@ -107,50 +122,85 @@ function polygonsToWkt(polygons) {
   return `MULTIPOLYGON (${polygons.map(polygon).join(",")})`;
 }
 
-function processFeatures(features) {
+// The per-batch processor (BUG-195): the read hands it one
+// page — or one page-sized slice of the fixture — at a time.
+// It validates and dedupes across batches (the seen set is
+// the run's dedupe index: 7,775 short codes, keys only,
+// never rows), counts the geometry-less, and returns each
+// batch's filed items. The malformed / unnamed / duplicate
+// count is judged at finish(), over the whole read, exactly
+// as the one-shot form judged it — the same total, the same
+// message, nothing filed.
+export function createFeatureProcessor() {
+  let total = 0;
   let geoless = 0;
   let invalid = 0;
-  const filed = [];
+  let filedCount = 0;
   const seen = new Set();
-  for (const feature of features) {
-    let polygons = null;
-    try {
-      polygons = geojsonPolygons(feature.geometry);
-    } catch {
-      invalid += 1;
-      continue;
-    }
-    if (polygons === null) {
-      geoless += 1;
-      continue;
-    }
-    const code = (feature.properties?.BUA24CD ?? "").trim();
-    const name = (feature.properties?.BUA24NM ?? "").trim();
-    if (code === "" || name === "") {
-      invalid += 1;
-      continue;
-    }
-    if (seen.has(code)) {
-      invalid += 1;
-      continue;
-    }
-    seen.add(code);
-    filed.push({ code, name, polygons });
-  }
-  if (invalid > 0)
-    throw new Error(
-      `built-up areas: ${invalid} features are malformed, unnamed or duplicated — contract failure, nothing filed`,
-    );
-  return { total: features.length, geoless, filed };
+  return {
+    processBatch(features) {
+      total += features.length;
+      const items = [];
+      for (const feature of features) {
+        let polygons = null;
+        try {
+          polygons = geojsonPolygons(feature.geometry);
+        } catch {
+          invalid += 1;
+          continue;
+        }
+        if (polygons === null) {
+          geoless += 1;
+          continue;
+        }
+        const code = (feature.properties?.BUA24CD ?? "").trim();
+        const name = (feature.properties?.BUA24NM ?? "").trim();
+        if (code === "" || name === "") {
+          invalid += 1;
+          continue;
+        }
+        if (seen.has(code)) {
+          invalid += 1;
+          continue;
+        }
+        seen.add(code);
+        filedCount += 1;
+        items.push({ code, name, polygons });
+      }
+      return items;
+    },
+    finish() {
+      if (invalid > 0)
+        throw new Error(
+          `built-up areas: ${invalid} features are malformed, unnamed or duplicated — contract failure, nothing filed`,
+        );
+      return { total, geoless, filed: filedCount };
+    },
+  };
 }
 
-function checkGolden(processed) {
+// The collecting form over the processor: the whole feature
+// set in, the whole filed set out — the shape this step was
+// built with, kept for small inputs and tests. The filing
+// run streams (readLive / readFixture with a sink).
+export function processFeatures(features) {
+  const processor = createFeatureProcessor();
+  const filed = processor.processBatch(features);
+  const totals = processor.finish();
+  return { total: totals.total, geoless: totals.geoless, filed };
+}
+
+// The golden checks run over the sifted candidates (the
+// flood-stream sift): every assertion here is a containment
+// at a golden point, and a containing polygon's bounding
+// box holds the point — distance zero, always retained.
+function checkGolden(filed) {
   const fails = [];
   const expect = (condition, message) => {
     if (!condition) fails.push(message);
   };
   for (const [postcode, home] of Object.entries(HOMES)) {
-    const inside = processed.filed.filter((f) => polygonsContain(f.polygons, home.lng, home.lat));
+    const inside = filed.filter((f) => polygonsContain(f.polygons, home.lng, home.lat));
     const expected = EXPECTED_INSIDE[postcode];
     expect(
       inside.length === 1 && inside[0].code === expected.code && inside[0].name === expected.name,
@@ -159,7 +209,7 @@ function checkGolden(processed) {
       }`,
     );
   }
-  const bath = processed.filed.filter((f) => polygonsContain(f.polygons, BATH.lng, BATH.lat));
+  const bath = filed.filter((f) => polygonsContain(f.polygons, BATH.lng, BATH.lat));
   expect(
     bath.length === 1 && bath[0].name === "Bath",
     `the Bath witness point should fall inside the Bath built-up area, got ${bath.map((f) => f.name).join(", ") || "no area"}`,
@@ -167,64 +217,74 @@ function checkGolden(processed) {
   if (fails.length > 0) throw new Error(`golden checks failed:\n - ${fails.join("\n - ")}`);
 }
 
-async function fetchAllFeatures() {
-  const features = [];
-  for (let offset = 0; ; offset += PAGE_SIZE) {
-    const params = new URLSearchParams({
-      where: "1=1",
-      outFields: "BUA24CD,BUA24NM,BUA24NMW",
-      outSR: "4326",
-      f: "geojson",
-      resultOffset: String(offset),
-      resultRecordCount: String(PAGE_SIZE),
-      orderByFields: "BUA24CD",
-      geometryPrecision: "6",
-    });
-    const response = await fetch(`${SERVICE_URL}?${params}`);
-    if (!response.ok) throw new Error(`HTTP ${response.status} for the built-up areas download`);
-    const page = await response.json();
-    const batch = page.features ?? [];
-    features.push(...batch);
-    if (batch.length < PAGE_SIZE) break;
+// The golden points the sift retains candidates for: the
+// three homes and the Bath witness.
+const SIFT_HOMES = { ...HOMES, BATH };
+
+// The streaming read driver (BUG-195, the BUG-187 shape):
+// batches of raw features arrive one at a time; each is
+// processed and handed to the sink (the staging inserter
+// in a filing run) as it lands, offered to the golden sift,
+// and released. What the run retains is the totals and the
+// sifted candidates — never the dataset.
+async function driveRead(batches, onItems) {
+  const processor = createFeatureProcessor();
+  const sift = createGoldenSift(SIFT_HOMES);
+  for await (const features of batches) {
+    const items = processor.processBatch(features);
+    for (const item of items) sift.offer(item);
+    if (onItems) await onItems(items);
   }
-  return features;
+  const totals = processor.finish();
+  return { ...totals, items: sift.items };
 }
 
-async function main() {
-  const startedAt = Date.now();
-  const args = process.argv.slice(2);
-  const verifyOnly = args.includes("--verify-only");
-  const fileAt = args.indexOf("--file");
-  const fixtureMode = fileAt !== -1;
-  const fixtureDir = fixtureMode ? args[fileAt + 1] : null;
-
-  let features;
-  if (fixtureMode) {
-    const text = await readFile(join(fixtureDir, "built-up-areas.geojson"), "utf8");
-    features = JSON.parse(text).features ?? [];
-  } else {
-    features = await fetchAllFeatures();
+export async function readLive({ onItems = null } = {}) {
+  async function* pages() {
+    for (let offset = 0; ; offset += PAGE_SIZE) {
+      const params = new URLSearchParams({
+        where: "1=1",
+        outFields: "BUA24CD,BUA24NM,BUA24NMW",
+        outSR: "4326",
+        f: "geojson",
+        resultOffset: String(offset),
+        resultRecordCount: String(PAGE_SIZE),
+        orderByFields: "BUA24CD",
+        geometryPrecision: "6",
+      });
+      const response = await fetch(`${SERVICE_URL}?${params}`);
+      if (!response.ok) throw new Error(`HTTP ${response.status} for the built-up areas download`);
+      const page = await response.json();
+      const batch = page.features ?? [];
+      yield batch;
+      if (batch.length < PAGE_SIZE) break;
+    }
   }
+  return driveRead(pages(), onItems);
+}
 
-  const processed = processFeatures(features);
-  if (!fixtureMode && (processed.filed.length < 7000 || processed.filed.length > 8500))
-    throw new Error(
-      `sanity failure: ${processed.filed.length} built-up areas is outside the expected band for the December 2024 edition (7,775 as published)`,
-    );
-  checkGolden(processed);
-
-  const summary = () =>
-    `load-built-up-areas · ONS Built Up Areas (December 2024) Boundaries EW BGG (V2) · ` +
-    `${processed.filed.length} areas filed (${processed.total} features in file · ${processed.geoless} without geometry counted) · ` +
-    `golden points inside Hatfield Peverel, Newham and Ewell`;
-
-  if (verifyOnly) {
-    console.log(`${summary()} · golden homes OK (verify only, nothing filed)`);
-    return;
+export async function readFixture(fixtureDir, { onItems = null } = {}) {
+  const text = await readFile(join(fixtureDir, "built-up-areas.geojson"), "utf8");
+  const features = JSON.parse(text).features ?? [];
+  async function* slices() {
+    for (let at = 0; at < features.length; at += PAGE_SIZE)
+      yield features.slice(at, at + PAGE_SIZE);
   }
-  if (!process.env.DATABASE_URL)
-    throw new Error("DATABASE_URL is not set — filing requires a database");
+  return driveRead(slices(), onItems);
+}
 
+// --- filing ------------------------------------------------------------
+
+// Stage, count, swap — one transaction, fed as a stream
+// (BUG-195, the flood shape). beginFiling opens the
+// transaction and the staging table; stageItems converts
+// each batch to WKT and inserts it in the house chunks of
+// 10 rows, so neither the item set nor its WKT copy is ever
+// held whole; finishFiling runs the counts and the swap
+// exactly as the one-shot filer did. Any failure mid-stream
+// rolls the whole load back via abortFiling — the swap's
+// atomicity is the contract.
+async function beginFiling() {
   const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
   await client.connect();
   try {
@@ -237,21 +297,28 @@ async function main() {
          loaded_at timestamptz NOT NULL DEFAULT now()
        ) ON COMMIT DROP`,
     );
-    const CHUNK = 10;
-    for (let at = 0; at < processed.filed.length; at += CHUNK) {
-      const chunk = processed.filed.slice(at, at + CHUNK);
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    await client.end().catch(() => {});
+    throw error;
+  }
+  const CHUNK = 10;
+  const pending = [];
+  async function flushPending(flushTail = false) {
+    while (pending.length >= CHUNK || (flushTail && pending.length > 0)) {
+      const chunk = pending.splice(0, Math.min(CHUNK, pending.length));
       const values = [];
       const params = [];
-      chunk.forEach((item, i) => {
+      chunk.forEach((row, i) => {
         const base = i * 9;
         values.push(
           `($${base + 1},$${base + 2},ST_Multi(ST_GeomFromText($${base + 3}, 4326)),$${base + 4},$${base + 5},$${base + 6},$${base + 7},$${base + 8},$${base + 9})`,
         );
         params.push(
           "built_up_area",
-          item.name,
-          polygonsToWkt(item.polygons),
-          item.code,
+          row.name,
+          row.wkt,
+          row.code,
           null,
           null,
           null,
@@ -265,30 +332,100 @@ async function main() {
         params,
       );
     }
-    const staged = await client.query("SELECT count(*)::int AS n FROM planning_stage");
-    if (staged.rows[0].n !== processed.filed.length)
-      throw new Error("the staged area count does not match — rolling back");
-    await client.query("DELETE FROM planning_layers WHERE constraint_type = 'built_up_area'");
-    await client.query(
-      `INSERT INTO planning_layers (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at)
-       SELECT constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at FROM planning_stage`,
-    );
-    const filedCount = await client.query(
-      "SELECT count(*)::int AS n FROM planning_layers WHERE constraint_type = 'built_up_area'",
-    );
-    if (filedCount.rows[0].n !== processed.filed.length)
-      throw new Error("the filed area count does not match — rolling back");
-    await client.query("COMMIT");
-  } catch (error) {
-    await client.query("ROLLBACK").catch(() => {});
-    throw error;
-  } finally {
-    await client.end();
   }
+  return {
+    async stageItems(items) {
+      for (const item of items) {
+        pending.push({ name: item.name, wkt: polygonsToWkt(item.polygons), code: item.code });
+        if (pending.length >= CHUNK) await flushPending();
+      }
+    },
+    async finishFiling(expectedCount) {
+      try {
+        await flushPending(true);
+        const staged = await client.query("SELECT count(*)::int AS n FROM planning_stage");
+        if (staged.rows[0].n !== expectedCount)
+          throw new Error("the staged area count does not match — rolling back");
+        await client.query("DELETE FROM planning_layers WHERE constraint_type = 'built_up_area'");
+        await client.query(
+          `INSERT INTO planning_layers (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at)
+           SELECT constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at FROM planning_stage`,
+        );
+        const filedCount = await client.query(
+          "SELECT count(*)::int AS n FROM planning_layers WHERE constraint_type = 'built_up_area'",
+        );
+        if (filedCount.rows[0].n !== expectedCount)
+          throw new Error("the filed area count does not match — rolling back");
+        await client.query("COMMIT");
+      } catch (error) {
+        await client.query("ROLLBACK").catch(() => {});
+        throw error;
+      } finally {
+        await client.end();
+      }
+    },
+    async abortFiling() {
+      await client.query("ROLLBACK").catch(() => {});
+      await client.end().catch(() => {});
+    },
+  };
+}
+
+async function main() {
+  const startedAt = Date.now();
+  const args = process.argv.slice(2);
+  const verifyOnly = args.includes("--verify-only");
+  const fileAt = args.indexOf("--file");
+  const fixtureMode = fileAt !== -1;
+  const fixtureDir = fixtureMode ? args[fileAt + 1] : null;
+
+  // A filing run streams the read into the staging
+  // transaction as it lands (BUG-195), so the database check
+  // moves ahead of the read: without DATABASE_URL a filing
+  // run now fails before fetching instead of after it.
+  // Verify-only never opens the database.
+  let filer = null;
+  if (!verifyOnly) {
+    if (!process.env.DATABASE_URL)
+      throw new Error("DATABASE_URL is not set — filing requires a database");
+    filer = await beginFiling();
+  }
+
+  let processed;
+  try {
+    const onItems = filer ? (items) => filer.stageItems(items) : null;
+    processed = fixtureMode
+      ? await readFixture(fixtureDir, { onItems })
+      : await readLive({ onItems });
+    if (!fixtureMode && (processed.filed < 7000 || processed.filed > 8500))
+      throw new Error(
+        `sanity failure: ${processed.filed} built-up areas is outside the expected band for the December 2024 edition (7,775 as published)`,
+      );
+    checkGolden(processed.items);
+  } catch (error) {
+    if (filer) await filer.abortFiling();
+    throw error;
+  }
+
+  const summary = () =>
+    `load-built-up-areas · ONS Built Up Areas (December 2024) Boundaries EW BGG (V2) · ` +
+    `${processed.filed} areas filed (${processed.total} features in file · ${processed.geoless} without geometry counted) · ` +
+    `golden points inside Hatfield Peverel, Newham and Ewell`;
+
+  if (verifyOnly) {
+    console.log(`${summary()} · golden homes OK (verify only, nothing filed)`);
+    return;
+  }
+
+  const activeFiler = filer;
+  filer = null;
+  await activeFiler.finishFiling(processed.filed);
   console.log(`${summary()} · golden homes OK · ${Math.round((Date.now() - startedAt) / 1000)}s`);
 }
 
-main().catch((error) => {
-  console.error(`load-built-up-areas FAILED: ${error.message}`);
-  process.exitCode = 1;
-});
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    console.error(`load-built-up-areas FAILED: ${error.message}`);
+    process.exitCode = 1;
+  });
+}

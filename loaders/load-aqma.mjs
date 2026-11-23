@@ -81,6 +81,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { createGoldenSift } from "./flood-stream.mjs";
 
 const SERVICE_BASE =
   "https://ukair.maps.rcdo.co.uk/ukairserver/rest/services/AQMA/aqma_boundaries/MapServer";
@@ -227,46 +228,82 @@ function polygonsToWkt(polygons) {
 // coverage contract (band + floors) is separate —
 // checkCoverage — because it judges the edition as a
 // whole and applies to live filings only.
-export function processFeatures(features) {
-  const filed = [];
+//
+// BUG-195 (23 Nov 2026): the read used to accumulate every
+// fetched page into one features array and hold the whole
+// processed set in memory. The processor below is the
+// per-batch form: the read hands it one page at a time, it
+// validates and dedupes across pages (the seen set is the
+// run's dedupe index — AQMA_REF keys only, never rows),
+// tallies the nations as scalars, and returns each page's
+// filed items for the sink. processFeatures is the
+// collecting form over it, kept for the shape the step was
+// built with; the filing run streams (readLive /
+// readFixture with a sink, the golden sift, and the
+// staging transaction — the BUG-187 flood shape). The
+// single-edition swap's atomicity is unchanged: staging
+// rides inside the one transaction and any failure rolls
+// the whole load back.
+export function createFeatureProcessor() {
   const seen = new Set();
   const perNation = { E: 0, W: 0, S: 0, N: 0 };
-  for (const feature of features) {
-    const props = feature.properties ?? {};
-    const ref = props.AQMA_REF;
-    if (!Number.isInteger(ref))
-      throw new Error(`an AQMA feature carries no integer AQMA_REF — contract failure`);
-    if (seen.has(ref))
-      throw new Error(`AQMA_REF ${ref} appears twice in the file — contract failure`);
-    seen.add(ref);
-    const name = (props.TITLE ?? "").trim();
-    const authority = (props.LOCAL_AUTH ?? "").trim();
-    if (name === "" || authority === "")
-      throw new Error(`AQMA_REF ${ref} has a blank TITLE or LOCAL_AUTH — contract failure`);
-    const pollutants = [];
-    for (const code of POLLUTANT_CODES) {
-      const flag = props[code];
-      if (flag !== 0 && flag !== 1)
-        throw new Error(
-          `AQMA_REF ${ref} carries ${code} = ${JSON.stringify(flag)} — outside the flag vocabulary {0, 1}`,
-        );
-      if (flag === 1) pollutants.push(code);
-    }
-    if (pollutants.length === 0)
-      throw new Error(`AQMA_REF ${ref} declares no pollutant — contract failure`);
-    const nation = nationOf(props.LA_ONS_ID);
-    let polygons = null;
-    try {
-      polygons = geojsonPolygons(feature.geometry);
-    } catch (error) {
-      throw new Error(`AQMA_REF ${ref}: ${error.message}`);
-    }
-    if (polygons === null)
-      throw new Error(`AQMA_REF ${ref} carries no geometry — contract failure`);
-    perNation[nation] += 1;
-    filed.push({ ref, name, authority, pollutants, nation, polygons });
-  }
-  return { total: features.length, filed, perNation };
+  let total = 0;
+  let filedCount = 0;
+  return {
+    perNation,
+    total: () => total,
+    filedCount: () => filedCount,
+    processBatch(features) {
+      total += features.length;
+      const filed = [];
+      for (const feature of features) {
+        const props = feature.properties ?? {};
+        const ref = props.AQMA_REF;
+        if (!Number.isInteger(ref))
+          throw new Error(`an AQMA feature carries no integer AQMA_REF — contract failure`);
+        if (seen.has(ref))
+          throw new Error(`AQMA_REF ${ref} appears twice in the file — contract failure`);
+        seen.add(ref);
+        const name = (props.TITLE ?? "").trim();
+        const authority = (props.LOCAL_AUTH ?? "").trim();
+        if (name === "" || authority === "")
+          throw new Error(`AQMA_REF ${ref} has a blank TITLE or LOCAL_AUTH — contract failure`);
+        const pollutants = [];
+        for (const code of POLLUTANT_CODES) {
+          const flag = props[code];
+          if (flag !== 0 && flag !== 1)
+            throw new Error(
+              `AQMA_REF ${ref} carries ${code} = ${JSON.stringify(flag)} — outside the flag vocabulary {0, 1}`,
+            );
+          if (flag === 1) pollutants.push(code);
+        }
+        if (pollutants.length === 0)
+          throw new Error(`AQMA_REF ${ref} declares no pollutant — contract failure`);
+        const nation = nationOf(props.LA_ONS_ID);
+        let polygons = null;
+        try {
+          polygons = geojsonPolygons(feature.geometry);
+        } catch (error) {
+          throw new Error(`AQMA_REF ${ref}: ${error.message}`);
+        }
+        if (polygons === null)
+          throw new Error(`AQMA_REF ${ref} carries no geometry — contract failure`);
+        perNation[nation] += 1;
+        filedCount += 1;
+        filed.push({ ref, name, authority, pollutants, nation, polygons });
+      }
+      return filed;
+    },
+  };
+}
+
+// The collecting form over the processor: the whole feature
+// set in, the whole filed set out — the shape this step was
+// built with, kept for small inputs and tests.
+export function processFeatures(features) {
+  const processor = createFeatureProcessor();
+  const filed = processor.processBatch(features);
+  return { total: processor.total(), filed, perNation: processor.perNation };
 }
 
 // The coverage contract (prep check 1): the edition as
@@ -274,15 +311,20 @@ export function processFeatures(features) {
 // nation's floor. Live filings only — a fixture is a
 // cut, judged by the golden checks instead.
 export function checkCoverage(processed) {
-  const n = processed.filed.length;
+  checkCoverageCounts(processed.filed.length, processed.perNation);
+}
+
+// The same contract over the streamed read's scalars: the
+// filed count and the per-nation tallies, no filed set.
+function checkCoverageCounts(n, perNation) {
   if (n < BAND_LOW || n > BAND_HIGH)
     throw new Error(
       `coverage failure: ${n} AQMA areas is outside the band ${BAND_LOW}–${BAND_HIGH} (±10% of the ${SNAPSHOT} snapshot) — nothing filed`,
     );
   for (const [letter, floor] of Object.entries(NATION_FLOORS)) {
-    if (processed.perNation[letter] < floor)
+    if (perNation[letter] < floor)
       throw new Error(
-        `coverage failure: ${NATION_NAMES[letter]} files ${processed.perNation[letter]} areas, below its floor of ${floor} — an edition that drops a nation fails the filing rather than serving false absences; nothing filed`,
+        `coverage failure: ${NATION_NAMES[letter]} files ${perNation[letter]} areas, below its floor of ${floor} — an edition that drops a nation fails the filing rather than serving false absences; nothing filed`,
       );
   }
 }
@@ -345,66 +387,84 @@ async function fetchJson(url, what) {
   return body;
 }
 
-async function fetchAllFeatures() {
-  const features = [];
-  for (let offset = 0; ; offset += PAGE_SIZE) {
-    const params = new URLSearchParams({
-      where: "1=1",
-      outFields: "*",
-      outSR: "4326",
-      f: "geojson",
-      resultOffset: String(offset),
-      resultRecordCount: String(PAGE_SIZE),
-      orderByFields: "AQMA_REF",
-      geometryPrecision: "6",
-    });
-    const page = await fetchJson(`${QUERY_URL}?${params}`, "the AQMA boundaries download");
-    const batch = page.features ?? [];
-    features.push(...batch);
-    if (batch.length < PAGE_SIZE) break;
+// The streaming read driver (BUG-195, the BUG-187 shape):
+// batches of raw features arrive one at a time; each is
+// processed and handed to the sink (the staging inserter
+// in a filing run) as it lands, offered to the golden
+// sift, and released. The golden checks run over the
+// sifted candidates — complete for every assertion they
+// make: Exeter's containment is a distance of zero,
+// Minerva's pinned nearest is ~0.93 miles, and Birkdale's
+// assertion is that nothing comes within 2 miles, all
+// inside the sift's 2-mile window. What the run retains
+// is the totals and the sift.
+async function driveRead(batches, onItems, edition) {
+  const processor = createFeatureProcessor();
+  const sift = createGoldenSift(HOMES);
+  for await (const features of batches) {
+    const items = processor.processBatch(features);
+    for (const item of items) sift.offer(item);
+    if (onItems) await onItems(items, edition);
   }
-  return features;
+  return {
+    total: processor.total(),
+    filed: processor.filedCount(),
+    perNation: processor.perNation,
+    items: sift.items,
+  };
 }
 
-async function main() {
-  const startedAt = Date.now();
-  const args = process.argv.slice(2);
-  const verifyOnly = args.includes("--verify-only");
-  const fileAt = args.indexOf("--file");
-  const fixtureMode = fileAt !== -1;
-  const fixtureDir = fixtureMode ? args[fileAt + 1] : null;
-
-  let features;
-  let edition;
-  if (fixtureMode) {
-    const meta = JSON.parse(await readFile(join(fixtureDir, "service.json"), "utf8"));
-    edition = parseEdition(meta);
-    const text = await readFile(join(fixtureDir, "aqma.geojson"), "utf8");
-    features = JSON.parse(text).features ?? [];
-  } else {
-    const meta = await fetchJson(SERVICE_META_URL, "the AQMA service metadata");
-    edition = parseEdition(meta);
-    features = await fetchAllFeatures();
+export async function readLive({ onItems = null } = {}) {
+  const meta = await fetchJson(SERVICE_META_URL, "the AQMA service metadata");
+  const edition = parseEdition(meta);
+  async function* pages() {
+    for (let offset = 0; ; offset += PAGE_SIZE) {
+      const params = new URLSearchParams({
+        where: "1=1",
+        outFields: "*",
+        outSR: "4326",
+        f: "geojson",
+        resultOffset: String(offset),
+        resultRecordCount: String(PAGE_SIZE),
+        orderByFields: "AQMA_REF",
+        geometryPrecision: "6",
+      });
+      const page = await fetchJson(`${QUERY_URL}?${params}`, "the AQMA boundaries download");
+      const batch = page.features ?? [];
+      yield batch;
+      if (batch.length < PAGE_SIZE) break;
+    }
   }
+  const processed = await driveRead(pages(), onItems, edition);
+  return { ...processed, edition };
+}
 
-  const processed = processFeatures(features);
-  if (!fixtureMode) checkCoverage(processed);
-  checkGolden(processed);
-
-  const nationSummary = Object.entries(processed.perNation)
-    .map(([letter, n]) => `${NATION_NAMES[letter]} ${n}`)
-    .join(" · ");
-  const summary = () =>
-    `load-aqma · ${SOURCE_NAME} · edition ${edition} · ` +
-    `${processed.filed.length} areas filed (${nationSummary})`;
-
-  if (verifyOnly) {
-    console.log(`${summary()} · golden homes OK (verify only, nothing filed)`);
-    return;
+export async function readFixture(fixtureDir, { onItems = null } = {}) {
+  const meta = JSON.parse(await readFile(join(fixtureDir, "service.json"), "utf8"));
+  const edition = parseEdition(meta);
+  const text = await readFile(join(fixtureDir, "aqma.geojson"), "utf8");
+  const features = JSON.parse(text).features ?? [];
+  async function* slices() {
+    for (let at = 0; at < features.length; at += PAGE_SIZE)
+      yield features.slice(at, at + PAGE_SIZE);
   }
-  if (!process.env.DATABASE_URL)
-    throw new Error("DATABASE_URL is not set — filing requires a database");
+  const processed = await driveRead(slices(), onItems, edition);
+  return { ...processed, edition };
+}
 
+// --- filing ------------------------------------------------------------
+
+// Stage, count, swap — one transaction, fed as a stream
+// (BUG-195, the flood shape). beginFiling opens the
+// transaction and the staging table; stageItems converts
+// each batch to WKT and inserts it in the house chunks of
+// 10 rows; finishFiling runs the counts and the swap
+// exactly as the one-shot filer did. The single-edition
+// swap: the whole aqma layer is replaced in this
+// transaction, so a revoked area disappears at this
+// filing and a failed run leaves the last good filing
+// serving untouched.
+async function beginFiling() {
   const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
   await client.connect();
   try {
@@ -417,26 +477,33 @@ async function main() {
          loaded_at timestamptz NOT NULL DEFAULT now()
        ) ON COMMIT DROP`,
     );
-    const CHUNK = 10;
-    for (let at = 0; at < processed.filed.length; at += CHUNK) {
-      const chunk = processed.filed.slice(at, at + CHUNK);
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    await client.end().catch(() => {});
+    throw error;
+  }
+  const CHUNK = 10;
+  const pending = [];
+  async function flushPending(flushTail = false) {
+    while (pending.length >= CHUNK || (flushTail && pending.length > 0)) {
+      const chunk = pending.splice(0, Math.min(CHUNK, pending.length));
       const values = [];
       const params = [];
-      chunk.forEach((item, i) => {
+      chunk.forEach((row, i) => {
         const base = i * 9;
         values.push(
           `($${base + 1},$${base + 2},ST_Multi(ST_GeomFromText($${base + 3}, 4326)),$${base + 4},$${base + 5},$${base + 6},$${base + 7},$${base + 8},$${base + 9})`,
         );
         params.push(
           "aqma",
-          item.name,
-          polygonsToWkt(item.polygons),
-          String(item.ref),
-          item.authority,
+          row.name,
+          row.wkt,
+          String(row.ref),
+          row.authority,
           null,
-          item.pollutants.join("; "),
+          row.pollutants.join("; "),
           SOURCE_NAME,
-          edition,
+          row.edition,
         );
       });
       await client.query(
@@ -445,30 +512,101 @@ async function main() {
         params,
       );
     }
-    const staged = await client.query("SELECT count(*)::int AS n FROM planning_stage");
-    if (staged.rows[0].n !== processed.filed.length)
-      throw new Error("the staged area count does not match — rolling back");
-    // The single-edition swap: the whole aqma layer is
-    // replaced in this transaction, so a revoked area
-    // disappears at this filing and a failed run leaves
-    // the last good filing serving untouched.
-    await client.query("DELETE FROM planning_layers WHERE constraint_type = 'aqma'");
-    await client.query(
-      `INSERT INTO planning_layers (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at)
-       SELECT constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at FROM planning_stage`,
-    );
-    const filedCount = await client.query(
-      "SELECT count(*)::int AS n FROM planning_layers WHERE constraint_type = 'aqma'",
-    );
-    if (filedCount.rows[0].n !== processed.filed.length)
-      throw new Error("the filed area count does not match — rolling back");
-    await client.query("COMMIT");
-  } catch (error) {
-    await client.query("ROLLBACK").catch(() => {});
-    throw error;
-  } finally {
-    await client.end();
   }
+  return {
+    async stageItems(items, edition) {
+      for (const item of items) {
+        pending.push({
+          name: item.name,
+          wkt: polygonsToWkt(item.polygons),
+          ref: item.ref,
+          authority: item.authority,
+          pollutants: item.pollutants,
+          edition,
+        });
+        if (pending.length >= CHUNK) await flushPending();
+      }
+    },
+    async finishFiling(expectedCount) {
+      try {
+        await flushPending(true);
+        const staged = await client.query("SELECT count(*)::int AS n FROM planning_stage");
+        if (staged.rows[0].n !== expectedCount)
+          throw new Error("the staged area count does not match — rolling back");
+        await client.query("DELETE FROM planning_layers WHERE constraint_type = 'aqma'");
+        await client.query(
+          `INSERT INTO planning_layers (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at)
+           SELECT constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at FROM planning_stage`,
+        );
+        const filedCount = await client.query(
+          "SELECT count(*)::int AS n FROM planning_layers WHERE constraint_type = 'aqma'",
+        );
+        if (filedCount.rows[0].n !== expectedCount)
+          throw new Error("the filed area count does not match — rolling back");
+        await client.query("COMMIT");
+      } catch (error) {
+        await client.query("ROLLBACK").catch(() => {});
+        throw error;
+      } finally {
+        await client.end();
+      }
+    },
+    async abortFiling() {
+      await client.query("ROLLBACK").catch(() => {});
+      await client.end().catch(() => {});
+    },
+  };
+}
+
+async function main() {
+  const startedAt = Date.now();
+  const args = process.argv.slice(2);
+  const verifyOnly = args.includes("--verify-only");
+  const fileAt = args.indexOf("--file");
+  const fixtureMode = fileAt !== -1;
+  const fixtureDir = fixtureMode ? args[fileAt + 1] : null;
+
+  // A filing run streams the read into the staging
+  // transaction as it lands (BUG-195), so the database
+  // check moves ahead of the read: without DATABASE_URL a
+  // filing run now fails before fetching instead of after
+  // it. Verify-only never opens the database.
+  let filer = null;
+  if (!verifyOnly) {
+    if (!process.env.DATABASE_URL)
+      throw new Error("DATABASE_URL is not set — filing requires a database");
+    filer = await beginFiling();
+  }
+
+  let processed;
+  try {
+    const onItems = filer ? (items, edition) => filer.stageItems(items, edition) : null;
+    processed = fixtureMode
+      ? await readFixture(fixtureDir, { onItems })
+      : await readLive({ onItems });
+    if (!fixtureMode) checkCoverageCounts(processed.filed, processed.perNation);
+    checkGolden({ filed: processed.items });
+  } catch (error) {
+    if (filer) await filer.abortFiling();
+    throw error;
+  }
+
+  const edition = processed.edition;
+  const nationSummary = Object.entries(processed.perNation)
+    .map(([letter, n]) => `${NATION_NAMES[letter]} ${n}`)
+    .join(" · ");
+  const summary = () =>
+    `load-aqma · ${SOURCE_NAME} · edition ${edition} · ` +
+    `${processed.filed} areas filed (${nationSummary})`;
+
+  if (verifyOnly) {
+    console.log(`${summary()} · golden homes OK (verify only, nothing filed)`);
+    return;
+  }
+
+  const activeFiler = filer;
+  filer = null;
+  await activeFiler.finishFiling(processed.filed);
   console.log(`${summary()} · golden homes OK · ${Math.round((Date.now() - startedAt) / 1000)}s`);
 }
 

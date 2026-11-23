@@ -106,6 +106,21 @@
 // OGL; serving attribution "Source: Department for Work
 // and Pensions — Universal Credit statistics
 // (Stat-Xplore)", the month on every figure.
+//
+// BUG-195 (streaming conversion): a pull no longer builds
+// the whole row set before filing. Each table response is
+// iterated cell by cell (iterateTableRows — the parse
+// judgement lives there alone; parseTableResponse is its
+// collecting form) and handed on in batches of at most
+// 5,000 rows: the golden judgement runs as a tally over
+// the stream (createUcGoldenTally, composing goldenChecks'
+// failures in its own order) and a filing run stages each
+// batch into the swap transaction as it lands. The swap
+// stays atomic per run, so a failure rolls everything
+// back and a re-run files the pull whole. The one
+// per-response structure is the duplicate-cell key set —
+// the response is the API's unit, and the guard's scope
+// is exactly one response, as before.
 
 import { spawn } from "node:child_process";
 import { createWriteStream, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -579,7 +594,13 @@ export function buildTableQuery(discovery, databaseEntry, { months, lsoaCodes })
 // :YYYYMM suffix, an area from its value id's LSOA code.
 // Anything outside this shape fails loudly — a failed parse
 // files nothing.
-export function parseTableResponse(json, databaseEntry, discovery) {
+// The streaming form (BUG-195): the same validation and
+// cell judgement, yielding one filing row per cube cell as
+// it is read — a response is never first built into a
+// whole rows array by the filing path. The duplicate-cell
+// guard's key set lives for exactly one response, the
+// unit the API answers in.
+export function* iterateTableRows(json, databaseEntry, discovery) {
   if (
     !json ||
     !Array.isArray(json.fields) ||
@@ -646,14 +667,15 @@ export function parseTableResponse(json, databaseEntry, discovery) {
     throw new Error(
       `${databaseEntry.database}: the cube holds ${cube.values.length} rows for ${rowAxis.length} first-field items — the shape changed`,
     );
-  const rows = [];
   const seen = new Set();
-  cube.values.forEach((line, i) => {
+  for (let i = 0; i < cube.values.length; i++) {
+    const line = cube.values[i];
     if (!Array.isArray(line) || line.length !== colAxis.length)
       throw new Error(
         `${databaseEntry.database}: cube row ${i} holds ${Array.isArray(line) ? line.length : "a non-array"} values for ${colAxis.length} second-field items — the shape changed`,
       );
-    line.forEach((value, j) => {
+    for (let j = 0; j < line.length; j++) {
+      const value = line[j];
       const month = rowIsDate ? rowAxis[i].month : colAxis[j].month;
       const geo = rowIsDate ? colAxis[j] : rowAxis[i];
       if (!Number.isInteger(value) || value < 0)
@@ -666,16 +688,24 @@ export function parseTableResponse(json, databaseEntry, discovery) {
           `${databaseEntry.database}: ${geo.code} (${month}) arrived twice in one response`,
         );
       seen.add(key);
-      rows.push({
+      yield {
         lsoaCode: geo.code,
         lsoaName: geo.label ?? GOLDEN_LSOAS[geo.code] ?? geo.code,
         series: databaseEntry.series,
         sourceName: databaseEntry.sourceName,
         month,
         count: value,
-      });
-    });
-  });
+      };
+    }
+  }
+}
+
+// The collecting form over the iterated parse: the whole
+// response's rows, sorted by month then LSOA — the shape
+// this step was built with, kept for small inputs and
+// tests. The filing run streams.
+export function parseTableResponse(json, databaseEntry, discovery) {
+  const rows = [...iterateTableRows(json, databaseEntry, discovery)];
   return rows.sort((a, b) =>
     a.month === b.month ? (a.lsoaCode < b.lsoaCode ? -1 : 1) : a.month < b.month ? -1 : 1,
   );
@@ -724,6 +754,64 @@ export function goldenChecks(rows, { full }) {
   return failures;
 }
 
+// The golden checks' streaming form (BUG-195): the three
+// failure classes accumulate separately as rows stream
+// past — per-row integer failures and locked-value
+// failures in arrival order, per-pair presence and counts
+// keyed by series-month in first-appearance order — and
+// failures() concatenates them in goldenChecks' own
+// order, with the same strings. The filing run feeds the
+// tally in pull order (series by series, response by
+// response), the order loadUcRows concatenates in, so the
+// composed failures match the collecting form's.
+export function createUcGoldenTally() {
+  const integerFailures = [];
+  const valueFailures = [];
+  const pairs = new Map();
+  return {
+    offer(row) {
+      if (!Number.isInteger(row.count) || row.count < 0)
+        integerFailures.push(
+          `${row.lsoaCode} (${row.series}, ${row.month}): count ${row.count} is not a non-negative integer`,
+        );
+      const key = `${row.series}|${row.month}`;
+      let pair = pairs.get(key);
+      if (!pair) {
+        pair = { series: row.series, month: row.month, count: 0, present: new Set() };
+        pairs.set(key, pair);
+      }
+      pair.count += 1;
+      if (Object.hasOwn(GOLDEN_LSOAS, row.lsoaCode)) pair.present.add(row.lsoaCode);
+      if (GOLDEN_VALUES) {
+        const expected = GOLDEN_VALUES[row.series]?.[row.month]?.[row.lsoaCode];
+        if (expected !== undefined && row.count !== expected)
+          valueFailures.push(
+            `${row.lsoaCode} (${row.series}, ${row.month}): count is ${row.count}, expected the golden ${expected} locked at the first pull (13 Nov 2026)`,
+          );
+      }
+    },
+    failures({ full }) {
+      const failures = [...integerFailures];
+      for (const pair of pairs.values()) {
+        for (const code of Object.keys(GOLDEN_LSOAS)) {
+          // The Households cube does not hold every golden
+          // LSOA (HOUSEHOLDS_MISSING_LSOAS) — its absence there
+          // is the measured gap, never a check failure.
+          if (pair.series === "uc_households" && HOUSEHOLDS_MISSING_LSOAS.includes(code)) continue;
+          if (!pair.present.has(code))
+            failures.push(`${code} is missing from the ${pair.series} rows for ${pair.month}`);
+        }
+        if (full && (pair.count < LSOA_COUNT_BAND.min || pair.count > LSOA_COUNT_BAND.max))
+          failures.push(
+            `the ${pair.series} pull for ${pair.month} holds ${pair.count} LSOAs — outside the ${LSOA_COUNT_BAND.min}–${LSOA_COUNT_BAND.max} band around the published 35,672`,
+          );
+      }
+      failures.push(...valueFailures);
+      return failures;
+    },
+  };
+}
+
 // --- filing -----------------------------------------------------
 //
 // Per series-month stage-and-swap inside one transaction —
@@ -733,8 +821,16 @@ export function goldenChecks(rows, { full }) {
 // DWP publishes no LSOA percentage — and the prune keeps
 // each series' newest 13 months (the series' clocks
 // differ, so pruning is per series).
+//
+// The streaming form (BUG-195): createUcFiler opens the
+// transaction and the stage, stageRows buffers rows into
+// the same 500-row inserts and accumulates the
+// series-month pair set as they pass, and finishFiling
+// runs the per-pair swaps and the prunes. The swap stays
+// atomic per run — a failure anywhere rolls the whole
+// filing back and a re-run files it whole.
 
-export async function fileUc(pool, rows, retrievedAt) {
+export async function createUcFiler(pool, retrievedAt) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -742,64 +838,92 @@ export async function fileUc(pool, rows, retrievedAt) {
       lsoa_code text, lsoa_name text, series text, reference_month date,
       count integer, source_name text
     ) ON COMMIT DROP`);
-    const values = [];
-    const params = [];
-    const flush = async () => {
-      if (values.length === 0) return;
-      await client.query(
-        `INSERT INTO uc_stage (lsoa_code, lsoa_name, series, reference_month, count, source_name) VALUES ${values.join(", ")}`,
-        params,
-      );
-      values.length = 0;
-      params.length = 0;
-    };
-    for (const row of rows) {
-      const base = params.length;
-      values.push(
-        `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6})`,
-      );
-      params.push(
-        row.lsoaCode,
-        row.lsoaName,
-        row.series,
-        `${row.month}-01`,
-        row.count,
-        row.sourceName,
-      );
-      if (values.length >= 500) await flush();
-    }
-    await flush();
-    const pairs = [...new Set(rows.map((r) => `${r.series}|${r.month}`))].sort();
-    for (const pair of pairs) {
-      const [series, month] = pair.split("|");
-      await client.query(`DELETE FROM benefits_stats WHERE series = $1 AND reference_month = $2`, [
-        series,
-        `${month}-01`,
-      ]);
-      await client.query(
-        `INSERT INTO benefits_stats (lsoa_code, series, reference_month, lsoa_name, count, pct, source_name, source_date, loaded_at)
-         SELECT lsoa_code, series, reference_month, lsoa_name, count, NULL, source_name, reference_month, $2
-         FROM uc_stage WHERE series = $1 AND reference_month = $3`,
-        [series, retrievedAt, `${month}-01`],
-      );
-    }
-    for (const { series } of DATABASES) {
-      await client.query(
-        `DELETE FROM benefits_stats
-         WHERE series = $1
-           AND reference_month NOT IN (
-             SELECT DISTINCT reference_month FROM benefits_stats
-             WHERE series = $1 ORDER BY reference_month DESC LIMIT 13
-           )`,
-        [series],
-      );
-    }
-    await client.query("COMMIT");
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
-    throw err;
-  } finally {
     client.release();
+    throw err;
+  }
+  const values = [];
+  const params = [];
+  const pairsSeen = new Set();
+  const flush = async () => {
+    if (values.length === 0) return;
+    await client.query(
+      `INSERT INTO uc_stage (lsoa_code, lsoa_name, series, reference_month, count, source_name) VALUES ${values.join(", ")}`,
+      params,
+    );
+    values.length = 0;
+    params.length = 0;
+  };
+  return {
+    async stageRows(rows) {
+      for (const row of rows) {
+        pairsSeen.add(`${row.series}|${row.month}`);
+        const base = params.length;
+        values.push(
+          `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6})`,
+        );
+        params.push(
+          row.lsoaCode,
+          row.lsoaName,
+          row.series,
+          `${row.month}-01`,
+          row.count,
+          row.sourceName,
+        );
+        if (values.length >= 500) await flush();
+      }
+    },
+    async finishFiling() {
+      await flush();
+      const pairs = [...pairsSeen].sort();
+      for (const pair of pairs) {
+        const [series, month] = pair.split("|");
+        await client.query(
+          `DELETE FROM benefits_stats WHERE series = $1 AND reference_month = $2`,
+          [series, `${month}-01`],
+        );
+        await client.query(
+          `INSERT INTO benefits_stats (lsoa_code, series, reference_month, lsoa_name, count, pct, source_name, source_date, loaded_at)
+           SELECT lsoa_code, series, reference_month, lsoa_name, count, NULL, source_name, reference_month, $2
+           FROM uc_stage WHERE series = $1 AND reference_month = $3`,
+          [series, retrievedAt, `${month}-01`],
+        );
+      }
+      for (const { series } of DATABASES) {
+        await client.query(
+          `DELETE FROM benefits_stats
+           WHERE series = $1
+             AND reference_month NOT IN (
+               SELECT DISTINCT reference_month FROM benefits_stats
+               WHERE series = $1 ORDER BY reference_month DESC LIMIT 13
+             )`,
+          [series],
+        );
+      }
+      await client.query("COMMIT");
+      client.release();
+    },
+    async abortFiling() {
+      await client.query("ROLLBACK").catch(() => {});
+      client.release();
+    },
+  };
+}
+
+// The collecting form over the streaming filer: the whole
+// row set staged, then the swaps — the shape this step was
+// built with, kept for small inputs and tests. On any
+// failure the transaction rolls back and the client is
+// released, exactly as the one-shot filer did.
+export async function fileUc(pool, rows, retrievedAt) {
+  const filer = await createUcFiler(pool, retrievedAt);
+  try {
+    await filer.stageRows(rows);
+    await filer.finishFiling();
+  } catch (err) {
+    await filer.abortFiling();
+    throw err;
   }
 }
 
@@ -1012,6 +1136,101 @@ export async function loadUcRows(source, { latestFiledBySeries = {} } = {}) {
   return { rows };
 }
 
+// The streaming form of the pull (BUG-195): the same
+// branches as loadUcRows — fixture dir, verify pull,
+// months-to-file pull — but each response's rows are
+// iterated cell by cell and handed to onRows in bounded
+// batches of at most 5,000, so no whole-pull row set is
+// ever built. Rows arrive in cube order within a response
+// (the collecting form sorts each response's rows; the
+// golden tally and the filer are order-insensitive in
+// what they assert and file, and the summary counts from
+// the same stream).
+export async function streamUcRows(source, { latestFiledBySeries = {} } = {}, onRows) {
+  let pending = [];
+  const flush = async () => {
+    if (pending.length === 0) return;
+    const batch = pending;
+    pending = [];
+    await onRows(batch);
+  };
+  const drain = async (json, entry, discovery) => {
+    for (const row of iterateTableRows(json, entry, discovery)) {
+      pending.push(row);
+      if (pending.length >= 5000) await flush();
+    }
+  };
+  if (source.kind === "dir") {
+    for (const entry of DATABASES) {
+      const file = join(source.dir, `${entry.series.replace("_", "-")}-table.json`);
+      if (!existsSync(file))
+        throw new Error(`${file} is missing — the fixture holds one response per UC series`);
+      const tableJson = JSON.parse(readFileSync(file, "utf8"));
+      const discovery = await fetchDiscovery(entry, fixtureRoutes(source.dir, entry, tableJson));
+      await drain(tableJson, entry, discovery);
+    }
+    await flush();
+    return;
+  }
+  for (const entry of DATABASES) {
+    const discovery = await fetchDiscovery(entry);
+    const months = monthsToFile(
+      discovery.months.map((m) => m.month),
+      latestFiledBySeries[entry.series] ?? null,
+    );
+    if (source.codes) {
+      const latest = discovery.months.at(-1).month;
+      // The verify pull selects the golden areas — except
+      // the ones the series' cube does not hold (the
+      // Households gap): selecting one would fail the
+      // whole query at DWP, and its absence is checked
+      // for, not queried for.
+      const wanted = source.codes.filter(
+        (code) => !(entry.series === "uc_households" && HOUSEHOLDS_MISSING_LSOAS.includes(code)),
+      );
+      const json = await callStatXplore(
+        "table",
+        null,
+        buildTableQuery(discovery, entry, { months: [latest], lsoaCodes: wanted }),
+      );
+      await drain(json, entry, discovery);
+      continue;
+    }
+    if (months.length === 0) continue;
+    const json = await callStatXplore("table", null, buildTableQuery(discovery, entry, { months }));
+    await drain(json, entry, discovery);
+  }
+  await flush();
+}
+
+// The summary line's streaming form: per-series counts and
+// month sets accumulated from the same batches the tally
+// and the filer consume, composed by summaryLineFromStats
+// into the identical line summaryLine builds from rows.
+export function createRunStats() {
+  const bySeries = new Map(
+    DATABASES.map(({ series }) => [series, { count: 0, months: new Set() }]),
+  );
+  return {
+    addRows(rows) {
+      for (const row of rows) {
+        const stats = bySeries.get(row.series);
+        if (!stats) continue;
+        stats.count += 1;
+        stats.months.add(row.month);
+      }
+    },
+    summary(filed) {
+      const bits = DATABASES.map(({ series }) => {
+        const stats = bySeries.get(series);
+        const months = [...stats.months].sort();
+        return `${series}: ${stats.count} areas for ${months.join(", ") || "no new month"}`;
+      });
+      return `load-dwp-uc · Universal Credit (people + households, as published by DWP) · ${bits.join(" · ")} · ${filed ? "filed" : "would file"}`;
+    },
+  };
+}
+
 function summaryLine(rows, filed) {
   const bits = DATABASES.map(({ series }) => {
     const inSeries = rows.filter((r) => r.series === series);
@@ -1047,19 +1266,45 @@ async function main() {
     );
   }
   try {
-    const { rows } = await loadUcRows(source, { latestFiledBySeries });
-    const golden = goldenChecks(rows, { full: source.kind === "live" && !source.codes });
-    if (golden.length > 0) throw new Error(`golden checks failed: ${golden.join("; ")}`);
+    // The pull streams (BUG-195): each batch passes the
+    // golden tally and the run stats and, on a filing run,
+    // stages into the swap transaction as it lands. A
+    // golden failure aborts the filing — nothing files,
+    // exactly as when the checks ran ahead of the one-shot
+    // filer.
+    const tally = createUcGoldenTally();
+    const stats = createRunStats();
+    let filer = null;
+    if (!verifyOnly) {
+      if (!pool) pool = new Pool({ connectionString: process.env.DATABASE_URL });
+      filer = await createUcFiler(pool, new Date().toISOString());
+    }
+    try {
+      await streamUcRows(source, { latestFiledBySeries }, async (batch) => {
+        for (const row of batch) tally.offer(row);
+        stats.addRows(batch);
+        if (filer) await filer.stageRows(batch);
+      });
+      const golden = tally.failures({ full: source.kind === "live" && !source.codes });
+      if (golden.length > 0) throw new Error(`golden checks failed: ${golden.join("; ")}`);
+    } catch (err) {
+      if (filer) await filer.abortFiling();
+      throw err;
+    }
     if (verifyOnly) {
       console.log(
-        `${summaryLine(rows, false)} — golden areas verified against the locked values (verify-only: nothing filed)`,
+        `${stats.summary(false)} — golden areas verified against the locked values (verify-only: nothing filed)`,
       );
       console.log(FIRST_PULL);
       return;
     }
-    if (!pool) pool = new Pool({ connectionString: process.env.DATABASE_URL });
-    await fileUc(pool, rows, new Date().toISOString());
-    console.log(`${summaryLine(rows, true)} — golden areas present`);
+    try {
+      await filer.finishFiling();
+    } catch (err) {
+      await filer.abortFiling();
+      throw err;
+    }
+    console.log(`${stats.summary(true)} — golden areas present`);
   } finally {
     if (pool) await pool.end();
   }

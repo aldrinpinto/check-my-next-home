@@ -33,6 +33,20 @@
 //     failed load files nothing, exactly as the house pattern
 //     requires.
 //
+// BUG-195 (23 Nov 2026): the live read already streamed; the
+// one whole-set read left in this loader was the FIXTURE
+// read, which concatenated every fixture part into a single
+// features array before processing. streamPhiFixture below
+// now parses, processes and releases one part at a time.
+// The one dataset-sized structure a run still holds is the
+// UID dedupe index (state.uids): the patch counts are a
+// loader contract — a duplicate UID is counted and dropped,
+// never a failed run — and the counts reconcile exactly
+// (filed + geometry-less + duplicates == read), with the
+// duplicate judged BEFORE the geometry parse, so no
+// database-side dedupe can stand in for it without changing
+// the counted contract. It holds keys only, never rows.
+//
 // Natural England publishes no per-row quality flag, so
 // `quality` files NULL rather than inventing one. The source
 // date is the inventory's own version month (the Version field
@@ -367,6 +381,31 @@ export async function readPhiPages(
   return offset;
 }
 
+// The fixture read, streamed part by part (BUG-195): each
+// part is parsed, handed to onFeature feature by feature,
+// and released before the next part is read — the parts
+// are never concatenated into one array.
+export async function streamPhiFixture(fixtureDir, onFeature) {
+  const stem = "priority-habitats";
+  const entries = await readdir(fixtureDir);
+  const partNames = entries
+    .filter((name) => new RegExp(`^${stem}-\\d+\\.geojson$`).test(name))
+    .sort();
+  const names = entries.includes(`${stem}.geojson`) ? [`${stem}.geojson`] : partNames;
+  if (names.length === 0) throw new Error("contract failure: no priority-habitats fixture file");
+  let count = 0;
+  for (const name of names) {
+    const body = JSON.parse(await readFile(join(fixtureDir, name), "utf8"));
+    for (const feature of body.features ?? []) {
+      count += 1;
+      await onFeature(feature);
+    }
+  }
+  if (count === 0)
+    throw new Error("contract failure: the priority-habitats fixture has no features");
+  return { count };
+}
+
 async function main() {
   const startedAt = Date.now();
   const args = process.argv.slice(2);
@@ -523,29 +562,21 @@ async function main() {
 
     let expected = null;
     if (fixtureMode) {
-      // A fixture file too large for one connector push is held
-      // as numbered parts (<stem>-1.geojson, ...) whose feature
-      // arrays concatenate to the capture, in order.
-      const stem = "priority-habitats";
-      const entries = await readdir(fixtureDir);
-      const partNames = entries
-        .filter((name) => new RegExp(`^${stem}-\\d+\\.geojson$`).test(name))
-        .sort();
-      const names = entries.includes(`${stem}.geojson`) ? [`${stem}.geojson`] : partNames;
-      if (names.length === 0)
-        throw new Error("contract failure: no priority-habitats fixture file");
-      const features = [];
-      for (const name of names) {
-        const body = JSON.parse(await readFile(join(fixtureDir, name), "utf8"));
-        features.push(...(body.features ?? []));
-      }
-      if (features.length === 0)
-        throw new Error("contract failure: the priority-habitats fixture has no features");
-      for (const field of FIELDS) {
-        if (!(field in (features[0].properties ?? {})))
-          throw new Error(`contract failure: the fixture no longer carries "${field}"`);
-      }
-      for (const feature of features) await processFeature(feature);
+      // The parts stream through streamPhiFixture (BUG-195);
+      // the field contract judges the first feature before
+      // any patch is processed, as it did when the parts
+      // were concatenated.
+      let fieldChecked = false;
+      await streamPhiFixture(fixtureDir, async (feature) => {
+        if (!fieldChecked) {
+          fieldChecked = true;
+          for (const field of FIELDS) {
+            if (!(field in (feature.properties ?? {})))
+              throw new Error(`contract failure: the fixture no longer carries "${field}"`);
+          }
+        }
+        await processFeature(feature);
+      });
     } else {
       const layerUrl = `${NE_BASE}/${SERVICE}/FeatureServer/0`;
       const meta = await fetchJson(`${layerUrl}?f=json`, "the PHI layer metadata");

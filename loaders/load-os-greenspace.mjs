@@ -88,6 +88,20 @@
 // nearest Greenspace centre, but the prep's raw reads and
 // structured blocks both put Strutt Memorial (0.219 mi,
 // named, Playing Field) nearer — the structured reads win.
+//
+// BUG-195 (streaming conversion): the GeoPackage read
+// iterates its two tables row by row (the flood-defences
+// shape) instead of materialising both .all() sets and the
+// whole filing-row array; the golden judgement runs as a
+// tally over the stream (createGoldenTally replays its
+// candidate rows through the unchanged check body), and a
+// filing run stages each row into the swap transaction as
+// it is built. The swap stays atomic — greenspace_points
+// is replaced whole, so a mid-run failure rolls everything
+// back and a re-run files the edition whole. The read's
+// one dataset-sized structure is the kept-site name map
+// (site id → name, filed functions only): access points
+// file under their site's name, so the map is the join.
 
 import {
   createReadStream,
@@ -313,26 +327,30 @@ export function siteName(row) {
   return null;
 }
 
-// Read the GeoPackage at gpkgPath into filing rows. Pure
-// file→rows (no network, no database), so the fixture run and
-// the live run take the identical path. Returns the rows plus
-// the read counts the run log and the T2/T3 tests reconcile.
-export function readGreenspaceFile(gpkgPath, sourceDate) {
+// Read the GeoPackage at gpkgPath as a stream of filing
+// rows (BUG-195, the flood-defences shape): the two tables
+// are iterated row by row (statement.iterate(), never
+// .all()), each filing row is yielded as it is built, and
+// the read counts the run log and the T2/T3 tests
+// reconcile are the generator's return value. Pure
+// file→rows (no network, no database), so the fixture run
+// and the live run take the identical path. The one
+// dataset-sized structure the read holds is the kept-site
+// name map (site id → name for the filed functions only):
+// access points file under their site's name, so the map
+// is the join — keys and short names, never geometry.
+export function* iterateGreenspaceFile(gpkgPath, sourceDate) {
   const db = new DatabaseSync(gpkgPath, { readOnly: true });
   try {
-    const siteRows = db
-      .prepare(
-        "SELECT id, function AS fn, distinctive_name_1, distinctive_name_2, distinctive_name_3, distinctive_name_4, geometry FROM greenspace_site",
-      )
-      .all();
-    const accessRows = db
-      .prepare("SELECT id, ref_to_greenspace_site, geometry FROM access_point")
-      .all();
-    const rows = [];
     const keptSiteNames = new Map();
     const functionCounts = {};
+    let sitesRead = 0;
     let centresDropped = 0;
-    for (const site of siteRows) {
+    const siteStatement = db.prepare(
+      "SELECT id, function AS fn, distinctive_name_1, distinctive_name_2, distinctive_name_3, distinctive_name_4, geometry FROM greenspace_site",
+    );
+    for (const site of siteStatement.iterate()) {
+      sitesRead += 1;
       if (!FILED_FUNCTIONS.includes(site.fn)) continue;
       functionCounts[site.fn] = (functionCounts[site.fn] ?? 0) + 1;
       const geometry = parseGpkgGeometry(site.geometry);
@@ -344,7 +362,7 @@ export function readGreenspaceFile(gpkgPath, sourceDate) {
       const [lon, lat] = toWgs84.forward(centre);
       const name = siteName(site);
       keptSiteNames.set(site.id, name);
-      rows.push({
+      yield {
         osmId: null,
         name,
         pointRole: "centre",
@@ -353,11 +371,16 @@ export function readGreenspaceFile(gpkgPath, sourceDate) {
         sourceName: SOURCE_NAME,
         sourceDate,
         fn: site.fn,
-      });
+      };
     }
+    let accessRead = 0;
     let accessFiled = 0;
     let accessSkipped = 0;
-    for (const access of accessRows) {
+    const accessStatement = db.prepare(
+      "SELECT id, ref_to_greenspace_site, geometry FROM access_point",
+    );
+    for (const access of accessStatement.iterate()) {
+      accessRead += 1;
       if (!keptSiteNames.has(access.ref_to_greenspace_site)) {
         accessSkipped++;
         continue;
@@ -368,7 +391,8 @@ export function readGreenspaceFile(gpkgPath, sourceDate) {
         continue;
       }
       const [lon, lat] = toWgs84.forward(geometry.coordinates);
-      rows.push({
+      accessFiled++;
+      yield {
         osmId: null,
         name: keptSiteNames.get(access.ref_to_greenspace_site),
         pointRole: "access",
@@ -377,13 +401,11 @@ export function readGreenspaceFile(gpkgPath, sourceDate) {
         sourceName: SOURCE_NAME,
         sourceDate,
         fn: null,
-      });
-      accessFiled++;
+      };
     }
     return {
-      rows,
-      sitesRead: siteRows.length,
-      accessRead: accessRows.length,
+      sitesRead,
+      accessRead,
       functionCounts,
       centresDropped,
       accessFiled,
@@ -392,6 +414,18 @@ export function readGreenspaceFile(gpkgPath, sourceDate) {
   } finally {
     db.close();
   }
+}
+
+// The collecting form over the iterated read: the whole
+// file's rows in one array — the shape this step was built
+// with, kept for small inputs and tests. The filing run
+// streams.
+export function readGreenspaceFile(gpkgPath, sourceDate) {
+  const rows = [];
+  const iterator = iterateGreenspaceFile(gpkgPath, sourceDate);
+  let step;
+  while (!(step = iterator.next()).done) rows.push(step.value);
+  return { rows, ...step.value };
 }
 
 export function haversineMiles(lat1, lon1, lat2, lon2) {
@@ -409,7 +443,7 @@ export function haversineMiles(lat1, lon1, lat2, lon2) {
 // edition, so the same figures must reproduce there; the
 // function-mix check applies to full reads only (the
 // fixture's mix is whatever the golden postcodes hold).
-export function goldenChecks(rows, functionCounts, { full }) {
+function goldenFailures(rows, functionCounts, { full }) {
   const failures = [];
   const centres = rows.filter((r) => r.pointRole === "centre");
   // The prep's verified reads — and so these checks — are on
@@ -508,8 +542,82 @@ export function goldenChecks(rows, functionCounts, { full }) {
   return failures;
 }
 
-// Stage-table swap — the house pattern (see load-osm-places).
-export async function fileGreenspace(pool, rows, retrievedAt) {
+// The golden checks over a whole read set — the shape this
+// step was built with, kept for small inputs and tests.
+export function goldenChecks(rows, functionCounts, opts) {
+  return goldenFailures(rows, functionCounts, opts);
+}
+
+// The golden checks' streaming form (BUG-195): the filing
+// run never holds the read set, so the judgement reduces
+// to the nearest candidates and presence flags. offer()
+// takes each row as it streams past; failures() replays
+// exactly those candidate rows through the same check body
+// above — every candidate is a real filed row, and each
+// check's winner is the minimum over the whole set, which
+// the candidate set always contains, so the verdicts are
+// the collecting form's verdicts.
+export function createGoldenTally() {
+  let ctrgBest = null;
+  let ppgBest = null;
+  let keirHardieRow = null;
+  let nearestNamedBirkdale = null;
+  let nearestNamedCardiff = null;
+  let accessCount = 0;
+  let sawCtrgAccess = false;
+  const consider = (best, row, home) => {
+    const d = haversineMiles(home.lat, home.lon, row.lat, row.lon);
+    return best === null || d < best.d ? { row, d } : best;
+  };
+  return {
+    offer(row) {
+      if (row.pointRole === "access") {
+        accessCount += 1;
+        if (row.name === "Canning Town Recreation Ground") sawCtrgAccess = true;
+        return;
+      }
+      if (row.name === "Keir Hardie Park" && keirHardieRow === null) keirHardieRow = row;
+      if (row.name === "Canning Town Recreation Ground")
+        ctrgBest = consider(ctrgBest, row, HOMES.exeter);
+      if (row.name !== null && row.fn === "Public Park Or Garden")
+        ppgBest = consider(ppgBest, row, HOMES.exeter);
+      if (row.name !== null) {
+        nearestNamedBirkdale = consider(nearestNamedBirkdale, row, HOMES.birkdale);
+        nearestNamedCardiff = consider(nearestNamedCardiff, row, HOMES.cardiff);
+      }
+    },
+    failures(functionCounts, opts) {
+      const rows = [];
+      if (ctrgBest) rows.push(ctrgBest.row);
+      if (ppgBest) rows.push(ppgBest.row);
+      if (keirHardieRow) rows.push(keirHardieRow);
+      if (nearestNamedBirkdale) rows.push(nearestNamedBirkdale.row);
+      if (nearestNamedCardiff) rows.push(nearestNamedCardiff.row);
+      if (accessCount > 0)
+        rows.push({ osmId: null, name: null, pointRole: "access", lat: 0, lon: 0, fn: null });
+      if (sawCtrgAccess)
+        rows.push({
+          osmId: null,
+          name: "Canning Town Recreation Ground",
+          pointRole: "access",
+          lat: 0,
+          lon: 0,
+          fn: null,
+        });
+      return goldenFailures(rows, functionCounts, opts);
+    },
+  };
+}
+
+// Stage-table swap — the house pattern (see load-osm-places),
+// in its streaming form (BUG-195): createGreenspaceFiler
+// opens the one transaction and the staging table, stageRows
+// buffers rows into the same 500-row inserts the one-shot
+// filer ran, and finishFiling runs the swap. The atomicity
+// is the contract — greenspace_points is replaced whole —
+// so a failure anywhere rolls the whole filing back and a
+// re-run files it whole; nothing commits in pieces.
+export async function createGreenspaceFiler(pool, retrievedAt) {
   const client = await pool.connect();
   try {
     // BEGIN first — the house pattern (see load-osm-places):
@@ -523,56 +631,82 @@ export async function fileGreenspace(pool, rows, retrievedAt) {
       latitude double precision, longitude double precision,
       source_name text, source_date date
     ) ON COMMIT DROP`);
-    const values = [];
-    const params = [];
-    const flush = async () => {
-      if (values.length === 0) return;
-      await client.query(
-        `INSERT INTO greenspace_stage (osm_id, name, point_role, latitude, longitude, source_name, source_date) VALUES ${values.join(", ")}`,
-        params,
-      );
-      values.length = 0;
-      params.length = 0;
-    };
-    for (const row of rows) {
-      const base = params.length;
-      values.push(
-        `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7})`,
-      );
-      params.push(
-        row.osmId,
-        row.name,
-        row.pointRole,
-        row.lat,
-        row.lon,
-        row.sourceName,
-        row.sourceDate,
-      );
-      if (values.length >= 500) await flush();
-    }
-    await flush();
-    await client.query("DELETE FROM greenspace_points");
-    // The live table's position columns are latitude/longitude
-    // (migration 0001) — this INSERT originally named them
-    // lat/lon, the row objects' property names: the same
-    // defect CI run 99 exposed in the places filer's INSERT
-    // ("column lat of relation osm_points does not exist").
-    // This filer's own copy of the error never reached the
-    // log — the runner's one-line summary showed Node 22's
-    // node:sqlite ExperimentalWarning instead (runs 98–99) —
-    // but the DDL cross-check finds it here without needing
-    // the log, and the schema-contract tests now pin it.
-    await client.query(
-      `INSERT INTO greenspace_points (osm_id, name, point_role, latitude, longitude, source_name, source_date, loaded_at)
-       SELECT osm_id, name, point_role, latitude, longitude, source_name, source_date, $1 FROM greenspace_stage`,
-      [retrievedAt],
-    );
-    await client.query("COMMIT");
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
-    throw err;
-  } finally {
     client.release();
+    throw err;
+  }
+  const values = [];
+  const params = [];
+  const flush = async () => {
+    if (values.length === 0) return;
+    await client.query(
+      `INSERT INTO greenspace_stage (osm_id, name, point_role, latitude, longitude, source_name, source_date) VALUES ${values.join(", ")}`,
+      params,
+    );
+    values.length = 0;
+    params.length = 0;
+  };
+  return {
+    async stageRows(rows) {
+      for (const row of rows) {
+        const base = params.length;
+        values.push(
+          `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7})`,
+        );
+        params.push(
+          row.osmId,
+          row.name,
+          row.pointRole,
+          row.lat,
+          row.lon,
+          row.sourceName,
+          row.sourceDate,
+        );
+        if (values.length >= 500) await flush();
+      }
+    },
+    async finishFiling() {
+      await flush();
+      await client.query("DELETE FROM greenspace_points");
+      // The live table's position columns are latitude/longitude
+      // (migration 0001) — this INSERT originally named them
+      // lat/lon, the row objects' property names: the same
+      // defect CI run 99 exposed in the places filer's INSERT
+      // ("column lat of relation osm_points does not exist").
+      // This filer's own copy of the error never reached the
+      // log — the runner's one-line summary showed Node 22's
+      // node:sqlite ExperimentalWarning instead (runs 98–99) —
+      // but the DDL cross-check finds it here without needing
+      // the log, and the schema-contract tests now pin it.
+      await client.query(
+        `INSERT INTO greenspace_points (osm_id, name, point_role, latitude, longitude, source_name, source_date, loaded_at)
+       SELECT osm_id, name, point_role, latitude, longitude, source_name, source_date, $1 FROM greenspace_stage`,
+        [retrievedAt],
+      );
+      await client.query("COMMIT");
+      client.release();
+    },
+    async abortFiling() {
+      await client.query("ROLLBACK").catch(() => {});
+      client.release();
+    },
+  };
+}
+
+// The collecting form over the streaming filer: the whole
+// row set staged, then the swap — the shape this step was
+// built with, kept for small inputs and tests. On any
+// failure the transaction rolls back and the client is
+// released, exactly as the one-shot filer did.
+export async function fileGreenspace(pool, rows, retrievedAt) {
+  const filer = await createGreenspaceFiler(pool, retrievedAt);
+  try {
+    await filer.stageRows(rows);
+    await filer.finishFiling();
+  } catch (err) {
+    await filer.abortFiling();
+    throw err;
   }
 }
 
@@ -726,25 +860,55 @@ async function main() {
       await unzipFirstEntry(zipPath, gpkgPath);
     }
 
-    const read = readGreenspaceFile(gpkgPath, versionDate(version));
-    const golden = goldenChecks(read.rows, read.functionCounts, { full });
-    if (golden.length > 0) throw new Error(`golden checks failed: ${golden.join("; ")}`);
-    const centres = read.rows.filter((r) => r.pointRole === "centre").length;
+    // The read streams (BUG-195): each row passes the
+    // golden tally and, on a filing run, stages into the
+    // swap transaction as it is built — the read set is
+    // never held. A golden failure aborts the filing:
+    // nothing files, exactly as when the checks ran ahead
+    // of the one-shot filer.
+    const tally = createGoldenTally();
+    let centres = 0;
+    let filedRows = 0;
+    let read;
+    let pool = null;
+    let filer = null;
+    try {
+      if (!verifyOnly) {
+        pool = new Pool({ connectionString: process.env.DATABASE_URL });
+        filer = await createGreenspaceFiler(pool, `${retrievedOn}T00:00:00Z`);
+      }
+      const iterator = iterateGreenspaceFile(gpkgPath, versionDate(version));
+      try {
+        let step;
+        while (!(step = iterator.next()).done) {
+          const row = step.value;
+          tally.offer(row);
+          if (row.pointRole === "centre") centres += 1;
+          filedRows += 1;
+          if (filer) await filer.stageRows([row]);
+        }
+        read = step.value;
+      } finally {
+        iterator.return();
+      }
+      const golden = tally.failures(read.functionCounts, { full });
+      if (golden.length > 0) throw new Error(`golden checks failed: ${golden.join("; ")}`);
+    } catch (err) {
+      if (filer) await filer.abortFiling();
+      if (pool) await pool.end().catch(() => {});
+      throw err;
+    }
     const mix = FILED_FUNCTIONS.map((f) => `${f} ${read.functionCounts[f] ?? 0}`).join(" · ");
     if (verifyOnly) {
       console.log(
-        `load-os-greenspace · read ${read.sitesRead} sites and ${read.accessRead} access points — would file ${read.rows.length} points (${centres} centres · ${read.accessFiled} access; ${mix}; version ${version} · md5 ${md5}) — golden homes OK (verify-only: nothing filed)`,
+        `load-os-greenspace · read ${read.sitesRead} sites and ${read.accessRead} access points — would file ${filedRows} points (${centres} centres · ${read.accessFiled} access; ${mix}; version ${version} · md5 ${md5}) — golden homes OK (verify-only: nothing filed)`,
       );
       return;
     }
-    const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-    try {
-      await fileGreenspace(pool, read.rows, `${retrievedOn}T00:00:00Z`);
-    } finally {
-      await pool.end();
-    }
+    await filer.finishFiling();
+    await pool.end();
     console.log(
-      `load-os-greenspace · ${read.rows.length} points filed (${centres} centres · ${read.accessFiled} access; ${mix}; version ${version} · md5 ${md5}) — golden homes OK`,
+      `load-os-greenspace · ${filedRows} points filed (${centres} centres · ${read.accessFiled} access; ${mix}; version ${version} · md5 ${md5}) — golden homes OK`,
     );
   } finally {
     rmSync(workDir, { recursive: true, force: true });

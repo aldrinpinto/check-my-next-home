@@ -154,6 +154,16 @@
 // base64-encoded (<name>.pdf.b64) through the repo's
 // text-only push channel — the council-tax ODS
 // precedent; a plain .pdf beside its .b64 wins.
+//
+// BUG-195 (streaming conversion): the enumeration hands
+// each document to the case builder as it is fetched
+// instead of building the whole document set first, and
+// the builder keeps only per-case candidate lists — the
+// merge rule needs each case's own documents, never the
+// corpus as rows. The filing was already bounded (100-row
+// stage inserts inside the one atomic swap) and is
+// unchanged; the swap stays atomic, so a failure files
+// nothing and a re-run files the set whole.
 
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -536,69 +546,94 @@ export function parseDecisionHeader(text) {
 // spoken for by its order document first, then its
 // latest document.
 
-export function buildCases(documents) {
+// The streaming form (BUG-195): documents arrive one at a
+// time as the enumeration fetches them, and only their
+// per-case candidate lists accumulate — the merge rule
+// (order document first, then latest) needs each case's
+// own documents, never the whole corpus as rows. The
+// corpus is tens of documents a quarter; what the builder
+// removes is the second whole-corpus array the collecting
+// path built before filing.
+export function createCaseBuilder() {
   const failures = [];
-  const parsedDocs = [];
-  for (const doc of documents) {
-    if (doc.parsed === null) failures.push(doc.item.title?.trim() || doc.item.link);
-    else parsedDocs.push(doc);
-  }
-  const effectiveDate = (doc) => doc.parsed.headerDate ?? doc.item.decisionDate ?? null;
-
   const byRef = new Map();
-  for (const doc of parsedDocs) {
-    for (const ref of doc.parsed.refs) {
-      if (!ref.includes("/BSA/") && !ref.includes("/BSB/")) continue;
-      if (!byRef.has(ref)) byRef.set(ref, []);
-      byRef.get(ref).push(doc);
-    }
-  }
-
-  const rows = [];
-  const unfiledCases = [];
-  let metadataDateFallbacks = 0;
-  for (const [ref, candidates] of [...byRef.entries()].sort()) {
-    const ordered = [...candidates].sort((a, b) => {
-      if (a.parsed.isOrderDoc !== b.parsed.isOrderDoc) return a.parsed.isOrderDoc ? -1 : 1;
-      const da = effectiveDate(a) ?? "";
-      const db = effectiveDate(b) ?? "";
-      return db.localeCompare(da);
-    });
-    const primary = ordered[0];
-    const propDoc = ordered.find((doc) => doc.parsed.property !== null) ?? null;
-    const date = effectiveDate(primary) ?? (propDoc ? effectiveDate(propDoc) : null);
-    if (propDoc === null || date === null) {
-      unfiledCases.push(ref);
-      continue;
-    }
-    if (primary.parsed.headerDate === null && primary.item.decisionDate) {
-      const used = effectiveDate(primary) === primary.item.decisionDate;
-      if (used) metadataDateFallbacks += 1;
-    }
-    let orderKind = "other-building-safety";
-    for (const doc of ordered) {
-      const kind = kindForRef(doc.parsed.docKind, ref);
-      if (kind !== "other-building-safety") {
-        orderKind = kind;
-        break;
+  let documents = 0;
+  return {
+    get documents() {
+      return documents;
+    },
+    addDocument(doc) {
+      documents += 1;
+      if (doc.parsed === null) {
+        failures.push(doc.item.title?.trim() || doc.item.link);
+        return;
       }
-    }
-    if (orderKind === "other-building-safety") orderKind = kindForRef(primary.parsed.docKind, ref);
-    const propertyText = propDoc.parsed.property;
-    const postcode = extractPostcode(propertyText);
-    rows.push({
-      caseRef: ref,
-      decisionDate: date,
-      orderKind,
-      propertyText,
-      postcode,
-      buildingKey: buildingKey(propertyText, postcode),
-      isSingleFlat: isSingleFlat(propertyText),
-      sourceUrl: `https://www.gov.uk${propDoc.item.link}`,
-    });
-  }
-  const noPostcode = rows.filter((row) => row.postcode === null).length;
-  return { rows, failures, unfiledCases, metadataDateFallbacks, noPostcode };
+      for (const ref of doc.parsed.refs) {
+        if (!ref.includes("/BSA/") && !ref.includes("/BSB/")) continue;
+        if (!byRef.has(ref)) byRef.set(ref, []);
+        byRef.get(ref).push(doc);
+      }
+    },
+    finish() {
+      const effectiveDate = (doc) => doc.parsed.headerDate ?? doc.item.decisionDate ?? null;
+
+      const rows = [];
+      const unfiledCases = [];
+      let metadataDateFallbacks = 0;
+      for (const [ref, candidates] of [...byRef.entries()].sort()) {
+        const ordered = [...candidates].sort((a, b) => {
+          if (a.parsed.isOrderDoc !== b.parsed.isOrderDoc) return a.parsed.isOrderDoc ? -1 : 1;
+          const da = effectiveDate(a) ?? "";
+          const db = effectiveDate(b) ?? "";
+          return db.localeCompare(da);
+        });
+        const primary = ordered[0];
+        const propDoc = ordered.find((doc) => doc.parsed.property !== null) ?? null;
+        const date = effectiveDate(primary) ?? (propDoc ? effectiveDate(propDoc) : null);
+        if (propDoc === null || date === null) {
+          unfiledCases.push(ref);
+          continue;
+        }
+        if (primary.parsed.headerDate === null && primary.item.decisionDate) {
+          const used = effectiveDate(primary) === primary.item.decisionDate;
+          if (used) metadataDateFallbacks += 1;
+        }
+        let orderKind = "other-building-safety";
+        for (const doc of ordered) {
+          const kind = kindForRef(doc.parsed.docKind, ref);
+          if (kind !== "other-building-safety") {
+            orderKind = kind;
+            break;
+          }
+        }
+        if (orderKind === "other-building-safety")
+          orderKind = kindForRef(primary.parsed.docKind, ref);
+        const propertyText = propDoc.parsed.property;
+        const postcode = extractPostcode(propertyText);
+        rows.push({
+          caseRef: ref,
+          decisionDate: date,
+          orderKind,
+          propertyText,
+          postcode,
+          buildingKey: buildingKey(propertyText, postcode),
+          isSingleFlat: isSingleFlat(propertyText),
+          sourceUrl: `https://www.gov.uk${propDoc.item.link}`,
+        });
+      }
+      const noPostcode = rows.filter((row) => row.postcode === null).length;
+      return { rows, failures, unfiledCases, metadataDateFallbacks, noPostcode };
+    },
+  };
+}
+
+// The collecting form over the builder: the whole document
+// set in, the case rows out — the shape this step was built
+// with, kept for small inputs and tests.
+export function buildCases(documents) {
+  const builder = createCaseBuilder();
+  for (const doc of documents) builder.addDocument(doc);
+  return builder.finish();
 }
 
 // The control golden, asserted before anything files
@@ -719,39 +754,44 @@ async function fetchBuffer(url, what) {
   return Buffer.from(await response.arrayBuffer());
 }
 
-async function enumerateLive() {
-  const items = [];
+// The enumeration streams (BUG-195): each search page's
+// selected items are fetched and handed to the sink as
+// they land, so neither the whole item list nor the whole
+// document set is ever held — the sink (the case builder)
+// keeps only per-case candidates.
+async function enumerateLive(onDocument) {
   let total = null;
+  let enumerated = 0;
   for (let start = 0; total === null || start < total; start += 100) {
     const page = await fetchJson(
       `${SEARCH_API}?count=100&start=${start}&filter_tribunal_decision_category=building-safety-act`,
       "the GOV.UK tribunal decisions search",
     );
     total = page.total;
-    items.push(...(page.results ?? []));
-    if ((page.results ?? []).length === 0) break;
-  }
-  const documents = [];
-  for (const item of selectItems(items)) {
-    const doc = await fetchJson(`${CONTENT_API}${item.link}`, `the decision page ${item.link}`);
-    const md = doc.details?.metadata ?? {};
-    const pdf = (doc.details?.attachments ?? []).find(
-      (a) => a.content_type === "application/pdf" && typeof a.url === "string",
-    );
-    const base = {
-      link: item.link,
-      title: item.title,
-      decisionDate: md.tribunal_decision_decision_date ?? null,
-      subCategory: md.tribunal_decision_sub_category ?? null,
-    };
-    if (!pdf) {
-      documents.push({ item: base, parsed: null });
-      continue;
+    const results = page.results ?? [];
+    enumerated += results.length;
+    for (const item of selectItems(results)) {
+      const doc = await fetchJson(`${CONTENT_API}${item.link}`, `the decision page ${item.link}`);
+      const md = doc.details?.metadata ?? {};
+      const pdf = (doc.details?.attachments ?? []).find(
+        (a) => a.content_type === "application/pdf" && typeof a.url === "string",
+      );
+      const base = {
+        link: item.link,
+        title: item.title,
+        decisionDate: md.tribunal_decision_decision_date ?? null,
+        subCategory: md.tribunal_decision_sub_category ?? null,
+      };
+      if (!pdf) {
+        onDocument({ item: base, parsed: null });
+        continue;
+      }
+      const buffer = await fetchBuffer(pdf.url, `the decision PDF for ${item.link}`);
+      onDocument({ item: base, parsed: parseDecisionHeader(extractPdfText(buffer)) });
     }
-    const buffer = await fetchBuffer(pdf.url, `the decision PDF for ${item.link}`);
-    documents.push({ item: base, parsed: parseDecisionHeader(extractPdfText(buffer)) });
+    if (results.length === 0) break;
   }
-  return { documents, categoryTotal: total, enumerated: items.length };
+  return { categoryTotal: total, enumerated };
 }
 
 // Reads one fixture PDF from a --file directory: the
@@ -765,9 +805,8 @@ export async function readFixturePdf(dir, name) {
   }
 }
 
-async function enumerateFixture(dir) {
+async function enumerateFixture(dir, onDocument) {
   const manifest = JSON.parse(await readFile(join(dir, "manifest.json"), "utf8"));
-  const documents = [];
   for (const entry of manifest.items) {
     const item = {
       link: entry.link,
@@ -776,9 +815,9 @@ async function enumerateFixture(dir) {
       subCategory: entry.subCategory ?? null,
     };
     const buffer = await readFixturePdf(dir, entry.pdf);
-    documents.push({ item, parsed: parseDecisionHeader(extractPdfText(buffer)) });
+    onDocument({ item, parsed: parseDecisionHeader(extractPdfText(buffer)) });
   }
-  return { documents, categoryTotal: null, enumerated: manifest.items.length };
+  return { categoryTotal: null, enumerated: manifest.items.length };
 }
 
 // ------------------------------------------------------------------
@@ -793,10 +832,11 @@ async function main() {
   };
   if (fileAt !== -1 && !args.fileDir) throw new Error("--file needs a directory");
 
-  const { documents, categoryTotal, enumerated } = args.fileDir
-    ? await enumerateFixture(args.fileDir)
-    : await enumerateLive();
-  const { rows, failures, unfiledCases, metadataDateFallbacks, noPostcode } = buildCases(documents);
+  const builder = createCaseBuilder();
+  const { categoryTotal, enumerated } = args.fileDir
+    ? await enumerateFixture(args.fileDir, (doc) => builder.addDocument(doc))
+    : await enumerateLive((doc) => builder.addDocument(doc));
+  const { rows, failures, unfiledCases, metadataDateFallbacks, noPostcode } = builder.finish();
   if (unfiledCases.length > 0)
     throw new Error(
       `cases whose documents parsed but yielded no property or no date — nothing filed: ${unfiledCases.join(", ")}`,
@@ -812,7 +852,7 @@ async function main() {
   const summary =
     `load-tribunal-building-safety: ${rows.length} cases filed ` +
     `(${counts.ro} remediation orders, ${counts.rco} remediation contribution orders, ${counts.other} other building-safety) ` +
-    `from ${documents.length} published documents · parse failures: ${failures.length}` +
+    `from ${builder.documents} published documents · parse failures: ${failures.length}` +
     (failures.length > 0 ? ` (${failureNames.join("; ")})` : "") +
     ` · ${noPostcode} cases name no full postcode` +
     (metadataDateFallbacks > 0

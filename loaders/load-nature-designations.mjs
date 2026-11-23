@@ -77,11 +77,35 @@
 // fetch with patient retries. Retries and page sizes change
 // nothing about the data — the count oracle still has to
 // reconcile exactly.
+//
+// BUG-195 (23 Nov 2026): the reads used to accumulate every
+// service's features into one array, process them into a
+// whole-layer item set, and then map the filed set into a
+// second whole-dataset array of WKT rows before inserting
+// anything — both woodland inventories' flat geometry
+// (~30M vertices across the pair) held at once, plus the
+// raw GeoJSON behind it. The reads now stream in the
+// BUG-187 flood shape: each validated page is processed as
+// it lands and handed to the staging inserter inside the
+// one swap transaction, the golden checks run over the
+// flood sift, and the counts are scalars. Two retentions
+// are properties of the contracts, not of the read: the
+// REVISED woodland inventory's items are the merge
+// substrate (an original files only where no revised
+// polygon intersects it — the L1 rule is judged in JS, so
+// the revised set is held, in the flat storage this file
+// already uses, while the originals stream past it), and
+// the statutory layers' site-code sets (L2 counts sites,
+// not rows — keys only, never rows). The sift window for
+// this loader is 8 miles: its pinned golden distances run
+// to 7.05 miles (the SPA / Ramsar nearests), beyond the
+// flood loaders' 2-mile pins.
 
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { createGoldenSift } from "./flood-stream.mjs";
 
 const NE_BASE = "https://services.arcgis.com/JJzESW51TqeY9uat/arcgis/rest/services";
 const ORGANISATION = "Natural England";
@@ -475,10 +499,17 @@ async function fetchServicePage(
   throw lastError;
 }
 
-// One service, read whole: layer metadata (the contract and the
-// data-edit stamp), the service's own count (the oracle the
-// paged read must match), then every feature in OBJECTID order.
-export async function readServiceLive(spec, { delaysMs = RETRY_DELAYS_MS } = {}) {
+// One service, read as a stream (BUG-195): layer metadata
+// (the contract and the data-edit stamp), the service's own
+// count (the oracle the paged read must match), then every
+// page in OBJECTID order handed to onFeatures (with the
+// source date) as it lands — the page is released before
+// the next is fetched, so the read never holds the service
+// whole.
+export async function readServiceLiveStream(
+  spec,
+  { delaysMs = RETRY_DELAYS_MS, onFeatures = null } = {},
+) {
   const layerUrl = `${NE_BASE}/${spec.service}/FeatureServer/0`;
   const meta = await fetchJson(`${layerUrl}?f=json`, `the ${spec.service} layer metadata`);
   const metaFields = (meta.fields ?? []).map((f) => f.name);
@@ -499,7 +530,7 @@ export async function readServiceLive(spec, { delaysMs = RETRY_DELAYS_MS } = {})
   const expected = countBody.count;
   if (!Number.isInteger(expected) || expected < 0)
     throw new Error(`contract failure: the ${spec.service} count response carries no count`);
-  const features = [];
+  let read = 0;
   let offset = 0;
   let lastObjectId = null;
   while (offset < expected) {
@@ -512,21 +543,38 @@ export async function readServiceLive(spec, { delaysMs = RETRY_DELAYS_MS } = {})
       lastObjectId,
       delaysMs,
     );
-    features.push(...page.features);
+    if (onFeatures) await onFeatures(page.features, sourceDate);
     lastObjectId = page.features[page.features.length - 1].properties.OBJECTID;
     offset += page.features.length;
+    read += page.features.length;
   }
-  if (features.length !== expected)
-    throw new Error(
-      `${spec.service}: read ${features.length} features but the service count is ${expected}`,
-    );
+  if (read !== expected)
+    throw new Error(`${spec.service}: read ${read} features but the service count is ${expected}`);
+  return { sourceDate, expected };
+}
+
+// The collecting form over the streaming read: the whole
+// service's features in one array — the shape this step
+// was built with, kept for small inputs and tests. The
+// filing run streams.
+export async function readServiceLive(spec, { delaysMs = RETRY_DELAYS_MS } = {}) {
+  const features = [];
+  const { sourceDate, expected } = await readServiceLiveStream(spec, {
+    delaysMs,
+    onFeatures: async (batch) => {
+      features.push(...batch);
+    },
+  });
   return { features, sourceDate, expected };
 }
 
 // A fixture file too large for one connector push is held as
 // numbered parts (<stem>-1.geojson, <stem>-2.geojson, ...) whose
-// feature arrays concatenate to the capture, in order.
-async function readFixtureFeatures(fixtureDir, fileName) {
+// feature arrays concatenate to the capture, in order. The
+// parts stream (BUG-195): each is parsed, handed to
+// onFeatures, and released before the next is read — the
+// parts are never concatenated into one array.
+async function streamFixtureFeatures(fixtureDir, fileName, onFeatures) {
   const stem = fileName.replace(/\.geojson$/, "");
   const entries = await readdir(fixtureDir);
   const partNames = entries
@@ -534,79 +582,146 @@ async function readFixtureFeatures(fixtureDir, fileName) {
     .sort();
   const names = entries.includes(fileName) ? [fileName] : partNames;
   if (names.length === 0) throw new Error(`contract failure: no fixture file for ${fileName}`);
-  const features = [];
+  let count = 0;
   for (const name of names) {
     const body = JSON.parse(await readFile(join(fixtureDir, name), "utf8"));
-    features.push(...(body.features ?? []));
+    const features = body.features ?? [];
+    count += features.length;
+    if (onFeatures) await onFeatures(features);
   }
-  return features;
+  return count;
 }
 
-async function readServiceFixture(spec, fixtureDir, captured) {
-  const features = await readFixtureFeatures(fixtureDir, spec.file);
-  if (features.length === 0)
-    throw new Error(`contract failure: the ${spec.file} fixture has no features`);
-  for (const field of spec.fields) {
-    if (!(field in (features[0].properties ?? {})))
-      throw new Error(`contract failure: the ${spec.file} fixture no longer carries "${field}"`);
-  }
-  return { features, sourceDate: captured, expected: features.length };
+export async function readServiceFixtureStream(spec, fixtureDir, captured, onFeatures) {
+  let fieldChecked = false;
+  const expected = await streamFixtureFeatures(fixtureDir, spec.file, async (features) => {
+    if (!fieldChecked && features.length > 0) {
+      fieldChecked = true;
+      for (const field of spec.fields) {
+        if (!(field in (features[0].properties ?? {})))
+          throw new Error(
+            `contract failure: the ${spec.file} fixture no longer carries "${field}"`,
+          );
+      }
+    }
+    if (onFeatures) await onFeatures(features, captured);
+  });
+  if (expected === 0) throw new Error(`contract failure: the ${spec.file} fixture has no features`);
+  return { sourceDate: captured, expected };
 }
 
-// Features -> validated items. Geometry-less features are
-// counted, never filed; malformed geometry fails the run.
-function processFeatures(raw, label) {
+// Features -> validated items, per batch (BUG-195): the
+// read hands the processor one page (or one fixture part)
+// at a time. Geometry-less features are counted, never
+// filed; malformed geometry is counted across the whole
+// read and judged at finish() — the same total, the same
+// message, nothing filed.
+export function createFeatureProcessor(label) {
   let geoless = 0;
   let invalid = 0;
-  const items = [];
-  for (const feature of raw) {
-    let polygons = null;
-    try {
-      polygons = geojsonPolygons(feature.geometry);
-    } catch {
-      invalid += 1;
-      continue;
-    }
-    if (polygons === null) {
-      geoless += 1;
-      continue;
-    }
-    const props = {};
-    for (const [k, v] of Object.entries(feature.properties ?? {}))
-      props[k] = typeof v === "string" ? v.trim() : v;
-    items.push({ props, polygons, bbox: bboxOf(polygons) });
-  }
-  if (invalid > 0)
-    throw new Error(
-      `${label}: ${invalid} features carry geometry that does not parse — contract failure, nothing filed`,
-    );
+  let read = 0;
+  return {
+    processBatch(raw) {
+      read += raw.length;
+      const items = [];
+      for (const feature of raw) {
+        let polygons = null;
+        try {
+          polygons = geojsonPolygons(feature.geometry);
+        } catch {
+          invalid += 1;
+          continue;
+        }
+        if (polygons === null) {
+          geoless += 1;
+          continue;
+        }
+        const props = {};
+        for (const [k, v] of Object.entries(feature.properties ?? {}))
+          props[k] = typeof v === "string" ? v.trim() : v;
+        items.push({ props, polygons, bbox: bboxOf(polygons) });
+      }
+      return items;
+    },
+    finish() {
+      if (invalid > 0)
+        throw new Error(
+          `${label}: ${invalid} features carry geometry that does not parse — contract failure, nothing filed`,
+        );
+      return { read, geoless };
+    },
+  };
+}
+
+// The collecting form over the processor, kept for the
+// shape this step was built with (small inputs and tests).
+function processFeatures(raw, label) {
+  const processor = createFeatureProcessor(label);
+  const items = processor.processBatch(raw);
+  const { geoless } = processor.finish();
   return { items, geoless };
 }
 
-// Statutory layers: the status filter is what "current" means
-// (L3); sites are counted by site code, never by rows (L2).
-function processStatutory(raw, spec) {
-  const { items, geoless } = processFeatures(raw, spec.label);
+// Statutory layers, per batch: the status filter is what
+// "current" means (L3); sites are counted by site code,
+// never by rows (L2) — the site set holds codes only.
+export function createStatutoryProcessor(spec) {
+  const processor = createFeatureProcessor(spec.label);
   let excluded = 0;
-  const filed = [];
-  for (const item of items) {
-    if (spec.keepStatus && item.props[spec.statusField] !== spec.keepStatus) {
-      excluded += 1;
-      continue;
-    }
-    filed.push(item);
-  }
-  const sites = new Set(
-    filed.map((item) => item.props[spec.codeField]).filter((c) => c !== "" && c != null),
-  ).size;
-  return { read: raw.length, geoless, excluded, filed, sites };
+  let filedCount = 0;
+  const sites = new Set();
+  return {
+    processBatch(raw) {
+      const items = processor.processBatch(raw);
+      const filed = [];
+      for (const item of items) {
+        if (spec.keepStatus && item.props[spec.statusField] !== spec.keepStatus) {
+          excluded += 1;
+          continue;
+        }
+        filedCount += 1;
+        const code = item.props[spec.codeField];
+        if (code !== "" && code != null) sites.add(code);
+        filed.push(item);
+      }
+      return filed;
+    },
+    finish() {
+      const { read, geoless } = processor.finish();
+      return { read, geoless, excluded, filed: filedCount, sites: sites.size };
+    },
+  };
+}
+
+// The collecting form over the statutory processor: the
+// whole raw set in, the whole filed set out.
+function processStatutory(raw, spec) {
+  const processor = createStatutoryProcessor(spec);
+  const filedItems = processor.processBatch(raw);
+  const totals = processor.finish();
+  return {
+    read: totals.read,
+    geoless: totals.geoless,
+    excluded: totals.excluded,
+    filed: filedItems,
+    sites: totals.sites,
+  };
 }
 
 // The merged woodland layer (L1): revised polygons all file;
 // an original files only where no revised polygon intersects
 // it. Revised candidates are found through a grid over their
 // bounding boxes, so the national merge stays cheap.
-function mergeWoodland(origItems, revItems) {
+//
+// The merger is the streaming form (BUG-195): it is built
+// once over the revised items — the merge substrate, held
+// for the whole originals pass — and each original is
+// offered as it streams past: offer() returns the item to
+// file (tagged with its inventory) or null when the
+// revision replaces it, counting the replaced as it goes.
+// mergeWoodland below is the collecting form over it, so
+// the intersection judgement lives in exactly one place.
+export function createWoodlandMerger(revItems) {
   const CELL = 0.05;
   const grid = new Map();
   const cellKeys = (bbox) => {
@@ -623,22 +738,42 @@ function mergeWoodland(origItems, revItems) {
     }
   });
   let replaced = 0;
-  const filed = revItems.map((item) => ({ ...item, inventory: "revised inventory" }));
+  return {
+    replaced: () => replaced,
+    revisedFiled: revItems.map((item) => ({ ...item, inventory: "revised inventory" })),
+    offer(item) {
+      const candidates = new Set();
+      for (const key of cellKeys(item.bbox))
+        for (const idx of grid.get(key) ?? []) candidates.add(idx);
+      const hit = [...candidates].some((idx) => {
+        const other = revItems[idx];
+        const b = other.bbox;
+        if (
+          item.bbox[0] > b[2] ||
+          item.bbox[2] < b[0] ||
+          item.bbox[1] > b[3] ||
+          item.bbox[3] < b[1]
+        )
+          return false;
+        return polygonsIntersect(item.polygons, other.polygons);
+      });
+      if (hit) {
+        replaced += 1;
+        return null;
+      }
+      return { ...item, inventory: "original inventory" };
+    },
+  };
+}
+
+export function mergeWoodland(origItems, revItems) {
+  const merger = createWoodlandMerger(revItems);
+  const filed = [...merger.revisedFiled];
   for (const item of origItems) {
-    const candidates = new Set();
-    for (const key of cellKeys(item.bbox))
-      for (const idx of grid.get(key) ?? []) candidates.add(idx);
-    const hit = [...candidates].some((idx) => {
-      const other = revItems[idx];
-      const b = other.bbox;
-      if (item.bbox[0] > b[2] || item.bbox[2] < b[0] || item.bbox[1] > b[3] || item.bbox[3] < b[1])
-        return false;
-      return polygonsIntersect(item.polygons, other.polygons);
-    });
-    if (hit) replaced += 1;
-    else filed.push({ ...item, inventory: "original inventory" });
+    const kept = merger.offer(item);
+    if (kept) filed.push(kept);
   }
-  return { filed, replaced };
+  return { filed, replaced: merger.replaced() };
 }
 
 function checkGolden(layers) {
@@ -772,125 +907,16 @@ function checkGolden(layers) {
   if (fails.length > 0) throw new Error(`golden checks failed:\n - ${fails.join("\n - ")}`);
 }
 
-async function main() {
-  const startedAt = Date.now();
-  const args = process.argv.slice(2);
-  const verifyOnly = args.includes("--verify-only");
-  const fileAt = args.indexOf("--file");
-  const fixtureMode = fileAt !== -1;
-  const fixtureDir = fixtureMode ? args[fileAt + 1] : null;
-  const captured = fixtureMode
-    ? JSON.parse(await readFile(join(fixtureDir, "fixture.json"), "utf8")).captured
-    : null;
+// --- filing ------------------------------------------------------------
 
-  const read = async (key) =>
-    fixtureMode
-      ? readServiceFixture(SERVICES[key], fixtureDir, captured)
-      : readServiceLive(SERVICES[key]);
-
-  // Each service is read and processed inside its own scope,
-  // so the raw GeoJSON (hundreds of MB across the six) is
-  // released as soon as its flat items exist.
-  const loadStatutoryLayer = async (key) => {
-    const raw = await read(key);
-    return { ...processStatutory(raw.features, SERVICES[key]), sourceDate: raw.sourceDate };
-  };
-  const sssi = await loadStatutoryLayer("sssi");
-  const sac = await loadStatutoryLayer("sac");
-  const spa = await loadStatutoryLayer("spa");
-  const ramsar = await loadStatutoryLayer("ramsar");
-  const loadWoodland = async (key) => {
-    const raw = await read(key);
-    return {
-      processed: processFeatures(raw.features, SERVICES[key].label),
-      read: raw.features.length,
-      sourceDate: raw.sourceDate,
-    };
-  };
-  const awiOrigLayer = await loadWoodland("awi");
-  const awiRevLayer = await loadWoodland("awiRev");
-  const merged = mergeWoodland(awiOrigLayer.processed.items, awiRevLayer.processed.items);
-  const awi = {
-    read: awiOrigLayer.read + awiRevLayer.read,
-    origRead: awiOrigLayer.read,
-    revRead: awiRevLayer.read,
-    geoless: awiOrigLayer.processed.geoless + awiRevLayer.processed.geoless,
-    replaced: merged.replaced,
-    filed: merged.filed,
-  };
-
-  if (!fixtureMode) {
-    const band = (value, lo, hi, what) => {
-      if (value < lo || value > hi)
-        throw new Error(`sanity failure: ${what} (${value}) is outside the expected band`);
-    };
-    band(sssi.read, 3900, 4400, "SSSI features read");
-    band(sac.read, 1750, 2100, "SAC features read");
-    band(sac.sites, 240, 270, "designated SAC sites");
-    band(sac.excluded, 1, 200, "candidate SAC features excluded");
-    band(spa.read, 950, 1250, "SPA features read");
-    band(spa.sites, 80, 96, "SPA sites");
-    band(ramsar.read, 1150, 1450, "Ramsar features read");
-    band(ramsar.sites, 65, 82, "Ramsar sites");
-    band(awi.origRead, 50000, 57500, "original woodland polygons read");
-    band(awi.revRead, 40000, 65000, "revised woodland polygons read");
-  }
-  checkGolden({ sssi, sac, spa, ramsar, awi });
-
-  const geoNote = (n) => (n > 0 ? ` · ${n} without geometry counted` : "");
-  const summary = () =>
-    `load-nature-designations · Natural England ArcGIS services · ` +
-    `SSSI: ${sssi.filed.length} features filed · ${sssi.sites} sites (${sssi.read} read${geoNote(sssi.geoless)}) · ` +
-    `SAC: ${sac.filed.length} designated features filed · ${sac.sites} designated sites (${sac.read} read · ${sac.excluded} candidate features excluded${geoNote(sac.geoless)}) · ` +
-    `SPA: ${spa.filed.length} features filed · ${spa.sites} sites (${spa.read} read${geoNote(spa.geoless)}) · ` +
-    `Ramsar: ${ramsar.filed.length} features filed · ${ramsar.sites} sites (${ramsar.read} read${geoNote(ramsar.geoless)}) · ` +
-    `ancient woodland: ${awi.filed.length} filed (${awi.origRead} in the original inventory · ${awi.revRead} in the revised inventory · ${awi.replaced} originals replaced by the revision${geoNote(awi.geoless)})`;
-
-  if (verifyOnly) {
-    console.log(`${summary()} · golden homes OK (verify only, nothing filed)`);
-    return;
-  }
-  if (!process.env.DATABASE_URL)
-    throw new Error("DATABASE_URL is not set — filing requires a database");
-
-  const rows = [];
-  const pushStatutory = (result, spec, sourceDate) => {
-    for (const item of result.filed) {
-      rows.push({
-        constraintType: spec.constraintType,
-        name: item.props[spec.nameField] || null,
-        wkt: polygonsToWkt(item.polygons),
-        reference: item.props[spec.codeField] || null,
-        detail: item.props[spec.detailField] || null,
-        sourceName: spec.sourceName,
-        sourceDate,
-      });
-    }
-  };
-  pushStatutory(sssi, SERVICES.sssi, sssi.sourceDate);
-  pushStatutory(sac, SERVICES.sac, sac.sourceDate);
-  pushStatutory(spa, SERVICES.spa, spa.sourceDate);
-  pushStatutory(ramsar, SERVICES.ramsar, ramsar.sourceDate);
-  for (const item of awi.filed) {
-    const spec = item.inventory === "revised inventory" ? SERVICES.awiRev : SERVICES.awi;
-    const detailParts = [item.props.STATUS, item.props[spec.themeField], item.inventory].filter(
-      (p) => p !== "" && p != null,
-    );
-    rows.push({
-      constraintType: "ancient_woodland",
-      name: item.props.NAME || null,
-      wkt: polygonsToWkt(item.polygons),
-      reference: `${item.inventory === "revised inventory" ? "AWI-R" : "AWI"}-${item.props.OBJECTID}`,
-      detail: detailParts.join(" · "),
-      sourceName:
-        item.inventory === "revised inventory"
-          ? "Natural England — Ancient Woodland Inventory, Revised (England)"
-          : "Natural England — Ancient Woodland Inventory (England)",
-      sourceDate:
-        item.inventory === "revised inventory" ? awiRevLayer.sourceDate : awiOrigLayer.sourceDate,
-    });
-  }
-
+// Stage, count, swap — one transaction, fed as a stream
+// (BUG-195, the flood shape). beginFiling opens the
+// transaction and the staging table; stageRows inserts
+// the filing rows the caller builds per item as it
+// streams, in the house chunks of 10 rows; finishFiling
+// runs the counts and the swap exactly as the one-shot
+// filer did.
+async function beginFiling() {
   const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
   await client.connect();
   try {
@@ -903,9 +929,16 @@ async function main() {
          loaded_at timestamptz NOT NULL DEFAULT now()
        ) ON COMMIT DROP`,
     );
-    const CHUNK = 10;
-    for (let at = 0; at < rows.length; at += CHUNK) {
-      const chunk = rows.slice(at, at + CHUNK);
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    await client.end().catch(() => {});
+    throw error;
+  }
+  const CHUNK = 10;
+  const pending = [];
+  async function flushPending(flushTail = false) {
+    while (pending.length >= CHUNK || (flushTail && pending.length > 0)) {
+      const chunk = pending.splice(0, Math.min(CHUNK, pending.length));
       const values = [];
       const params = [];
       chunk.forEach((row, i) => {
@@ -931,28 +964,233 @@ async function main() {
         params,
       );
     }
-    const staged = await client.query("SELECT count(*)::int AS n FROM planning_stage");
-    if (staged.rows[0].n !== rows.length)
-      throw new Error("the staged layer count does not match — rolling back");
-    await client.query(
-      "DELETE FROM planning_layers WHERE constraint_type IN ('sssi', 'sac', 'spa', 'ramsar', 'ancient_woodland')",
-    );
-    await client.query(
-      `INSERT INTO planning_layers (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at)
-       SELECT constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at FROM planning_stage`,
-    );
-    const filedCount = await client.query(
-      "SELECT count(*)::int AS n FROM planning_layers WHERE constraint_type IN ('sssi', 'sac', 'spa', 'ramsar', 'ancient_woodland')",
-    );
-    if (filedCount.rows[0].n !== rows.length)
-      throw new Error("the filed layer count does not match — rolling back");
-    await client.query("COMMIT");
-  } catch (error) {
-    await client.query("ROLLBACK").catch(() => {});
-    throw error;
-  } finally {
-    await client.end();
   }
+  return {
+    async stageRows(rows) {
+      pending.push(...rows);
+      if (pending.length >= CHUNK) await flushPending();
+    },
+    async finishFiling(expectedCount) {
+      try {
+        await flushPending(true);
+        const staged = await client.query("SELECT count(*)::int AS n FROM planning_stage");
+        if (staged.rows[0].n !== expectedCount)
+          throw new Error("the staged layer count does not match — rolling back");
+        await client.query(
+          "DELETE FROM planning_layers WHERE constraint_type IN ('sssi', 'sac', 'spa', 'ramsar', 'ancient_woodland')",
+        );
+        await client.query(
+          `INSERT INTO planning_layers (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at)
+           SELECT constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at FROM planning_stage`,
+        );
+        const filedCount = await client.query(
+          "SELECT count(*)::int AS n FROM planning_layers WHERE constraint_type IN ('sssi', 'sac', 'spa', 'ramsar', 'ancient_woodland')",
+        );
+        if (filedCount.rows[0].n !== expectedCount)
+          throw new Error("the filed layer count does not match — rolling back");
+        await client.query("COMMIT");
+      } catch (error) {
+        await client.query("ROLLBACK").catch(() => {});
+        throw error;
+      } finally {
+        await client.end();
+      }
+    },
+    async abortFiling() {
+      await client.query("ROLLBACK").catch(() => {});
+      await client.end().catch(() => {});
+    },
+  };
+}
+
+// The sift window for this loader's golden checks: the
+// pinned nearests run to 7.05 miles (the SPA / Ramsar
+// nearests at the Epsom flat), beyond the flood loaders'
+// 2-mile pins — 8 miles keeps every pinned candidate with
+// room to spare while staying a local, dataset-independent
+// set.
+const GOLDEN_WINDOW_MILES = 8;
+
+async function main() {
+  const startedAt = Date.now();
+  const args = process.argv.slice(2);
+  const verifyOnly = args.includes("--verify-only");
+  const fileAt = args.indexOf("--file");
+  const fixtureMode = fileAt !== -1;
+  const fixtureDir = fixtureMode ? args[fileAt + 1] : null;
+  const captured = fixtureMode
+    ? JSON.parse(await readFile(join(fixtureDir, "fixture.json"), "utf8")).captured
+    : null;
+
+  // A filing run streams the reads into the staging
+  // transaction as they land (BUG-195), so the database
+  // check moves ahead of the reads: without DATABASE_URL a
+  // filing run now fails before fetching instead of after
+  // it. Verify-only never opens the database.
+  let filer = null;
+  if (!verifyOnly) {
+    if (!process.env.DATABASE_URL)
+      throw new Error("DATABASE_URL is not set — filing requires a database");
+    filer = await beginFiling();
+  }
+
+  const readStream = (key, onFeatures) =>
+    fixtureMode
+      ? readServiceFixtureStream(SERVICES[key], fixtureDir, captured, onFeatures)
+      : readServiceLiveStream(SERVICES[key], { onFeatures });
+
+  const statutoryRow = (item, spec, sourceDate) => ({
+    constraintType: spec.constraintType,
+    name: item.props[spec.nameField] || null,
+    wkt: polygonsToWkt(item.polygons),
+    reference: item.props[spec.codeField] || null,
+    detail: item.props[spec.detailField] || null,
+    sourceName: spec.sourceName,
+    sourceDate,
+  });
+
+  const woodlandRow = (item, sourceDate) => {
+    const spec = item.inventory === "revised inventory" ? SERVICES.awiRev : SERVICES.awi;
+    const detailParts = [item.props.STATUS, item.props[spec.themeField], item.inventory].filter(
+      (p) => p !== "" && p != null,
+    );
+    return {
+      constraintType: "ancient_woodland",
+      name: item.props.NAME || null,
+      wkt: polygonsToWkt(item.polygons),
+      reference: `${item.inventory === "revised inventory" ? "AWI-R" : "AWI"}-${item.props.OBJECTID}`,
+      detail: detailParts.join(" · "),
+      sourceName:
+        item.inventory === "revised inventory"
+          ? "Natural England — Ancient Woodland Inventory, Revised (England)"
+          : "Natural England — Ancient Woodland Inventory (England)",
+      sourceDate,
+    };
+  };
+
+  let sssi, sac, spa, ramsar, awi;
+  try {
+    const loadStatutoryLayer = async (key) => {
+      const spec = SERVICES[key];
+      const processor = createStatutoryProcessor(spec);
+      const sift = createGoldenSift(HOMES, GOLDEN_WINDOW_MILES);
+      const { sourceDate } = await readStream(key, async (features, date) => {
+        const filed = processor.processBatch(features);
+        const rows = [];
+        for (const item of filed) {
+          sift.offer(item);
+          if (filer) rows.push(statutoryRow(item, spec, date));
+        }
+        if (filer && rows.length > 0) await filer.stageRows(rows);
+      });
+      const totals = processor.finish();
+      return { ...totals, sourceDate, sifted: sift.items };
+    };
+    sssi = await loadStatutoryLayer("sssi");
+    sac = await loadStatutoryLayer("sac");
+    spa = await loadStatutoryLayer("spa");
+    ramsar = await loadStatutoryLayer("ramsar");
+
+    // Ancient woodland (L1): the revised inventory is read
+    // first and held — it is the merge substrate — and its
+    // filed rows stage as soon as the merger exists; the
+    // originals then stream past it, staging only the
+    // survivors. The golden sift merges the two sifted
+    // inventories with the same merger the collecting form
+    // uses; the replaced count the checks judge is the
+    // full merge's, accumulated as a scalar.
+    const revProcessor = createFeatureProcessor(SERVICES.awiRev.label);
+    const revSift = createGoldenSift(HOMES, GOLDEN_WINDOW_MILES);
+    const revItems = [];
+    let revSourceDate = null;
+    await readStream("awiRev", async (features, date) => {
+      revSourceDate = date;
+      const items = revProcessor.processBatch(features);
+      for (const item of items) {
+        revItems.push(item);
+        revSift.offer(item);
+      }
+    });
+    const revTotals = revProcessor.finish();
+    const merger = createWoodlandMerger(revItems);
+    if (filer) {
+      await filer.stageRows(merger.revisedFiled.map((item) => woodlandRow(item, revSourceDate)));
+    }
+    const origProcessor = createFeatureProcessor(SERVICES.awi.label);
+    const origSift = createGoldenSift(HOMES, GOLDEN_WINDOW_MILES);
+    let origFiled = 0;
+    await readStream("awi", async (features, date) => {
+      const items = origProcessor.processBatch(features);
+      const rows = [];
+      for (const item of items) {
+        origSift.offer(item);
+        const kept = merger.offer(item);
+        if (kept) {
+          origFiled += 1;
+          if (filer) rows.push(woodlandRow(kept, date));
+        }
+      }
+      if (filer && rows.length > 0) await filer.stageRows(rows);
+    });
+    const origTotals = origProcessor.finish();
+    awi = {
+      read: origTotals.read + revTotals.read,
+      origRead: origTotals.read,
+      revRead: revTotals.read,
+      geoless: origTotals.geoless + revTotals.geoless,
+      replaced: merger.replaced(),
+      filed: revItems.length + origFiled,
+    };
+
+    if (!fixtureMode) {
+      const band = (value, lo, hi, what) => {
+        if (value < lo || value > hi)
+          throw new Error(`sanity failure: ${what} (${value}) is outside the expected band`);
+      };
+      band(sssi.read, 3900, 4400, "SSSI features read");
+      band(sac.read, 1750, 2100, "SAC features read");
+      band(sac.sites, 240, 270, "designated SAC sites");
+      band(sac.excluded, 1, 200, "candidate SAC features excluded");
+      band(spa.read, 950, 1250, "SPA features read");
+      band(spa.sites, 80, 96, "SPA sites");
+      band(ramsar.read, 1150, 1450, "Ramsar features read");
+      band(ramsar.sites, 65, 82, "Ramsar sites");
+      band(awi.origRead, 50000, 57500, "original woodland polygons read");
+      band(awi.revRead, 40000, 65000, "revised woodland polygons read");
+    }
+    checkGolden({
+      sssi: { filed: sssi.sifted },
+      sac: { filed: sac.sifted },
+      spa: { filed: spa.sifted },
+      ramsar: { filed: ramsar.sifted },
+      awi: {
+        filed: mergeWoodland(origSift.items, revSift.items).filed,
+        replaced: merger.replaced(),
+      },
+    });
+  } catch (error) {
+    if (filer) await filer.abortFiling();
+    throw error;
+  }
+
+  const geoNote = (n) => (n > 0 ? ` · ${n} without geometry counted` : "");
+  const summary = () =>
+    `load-nature-designations · Natural England ArcGIS services · ` +
+    `SSSI: ${sssi.filed} features filed · ${sssi.sites} sites (${sssi.read} read${geoNote(sssi.geoless)}) · ` +
+    `SAC: ${sac.filed} designated features filed · ${sac.sites} designated sites (${sac.read} read · ${sac.excluded} candidate features excluded${geoNote(sac.geoless)}) · ` +
+    `SPA: ${spa.filed} features filed · ${spa.sites} sites (${spa.read} read${geoNote(spa.geoless)}) · ` +
+    `Ramsar: ${ramsar.filed} features filed · ${ramsar.sites} sites (${ramsar.read} read${geoNote(ramsar.geoless)}) · ` +
+    `ancient woodland: ${awi.filed} filed (${awi.origRead} in the original inventory · ${awi.revRead} in the revised inventory · ${awi.replaced} originals replaced by the revision${geoNote(awi.geoless)})`;
+
+  if (verifyOnly) {
+    console.log(`${summary()} · golden homes OK (verify only, nothing filed)`);
+    return;
+  }
+
+  const totalFiled = sssi.filed + sac.filed + spa.filed + ramsar.filed + awi.filed;
+  const activeFiler = filer;
+  filer = null;
+  await activeFiler.finishFiling(totalFiled);
   console.log(`${summary()} · golden homes OK · ${Math.round((Date.now() - startedAt) / 1000)}s`);
 }
 
