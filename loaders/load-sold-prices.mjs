@@ -54,6 +54,34 @@
 // — without the stamp its first check would pay for a phantom
 // full-file load just to learn it has no sales.
 //
+// BUG-188 (found 23 Nov 2026): the first national pass filed
+// 30,668,847 rows where the source (edition 2026-10-28) holds
+// 31,642,211 filable records — 973,364 sales never reached the
+// register, among them all three of TR8 4LX's 1995 sales, the
+// only loss the golden set could see. A full reconciliation of
+// the source through this loader's own parser proved the loss
+// was not in any deterministic code path: the file holds zero
+// duplicate transaction ids (the staging dedupe deletes
+// nothing), none of the lost ids appears in the monthly update
+// file (the merge is net-zero: its 96,272 upserts replace
+// exactly 96,272 staged rows), and the three sales file cleanly
+// through the staging/swap path in every reproduction. The pass
+// under-consumed its source — a short stream or a truncated
+// copy — and nothing in the loader could tell: it counted no
+// lines, no bytes, and never reconciled what it staged against
+// what it parsed. The pass now reconciles at every step and
+// refuses rather than file a register it cannot account for:
+// the bytes the line source delivers must match the size the
+// source declared (the Content-Length live, the file's size
+// under --file), the staged count must equal the parsed count
+// after intake, after the dedupe and after the update merge,
+// and the swap must land exactly the staged total inside its
+// transaction. The monthly update path reads its file whole
+// into memory before runUpdate ever sees it (a short body makes
+// the read itself fail), so the under-delivery mechanism cannot
+// occur there; its records are counted by parseAllRecords as
+// before.
+//
 // --update applies ONE monthly update file to the live register:
 // A/C rows upsert by transaction id, D rows delete by id (a
 // category change arrives as a D for the old id plus an A under a
@@ -604,8 +632,20 @@ export async function stampNoSalePostcodes(client, edition) {
 // file lines (arrays in tests and --file runs, a readline stream
 // live); edition is the full file's publication date, or null to
 // fall back to the newest sale date filed (the legacy loader's
-// --file fallback).
-export async function runNational(client, { fullLines, updateLines, edition, verifyOnly = false }) {
+// --file fallback). expectedFullBytes, when the caller knows it,
+// is the full file's size in bytes as its source declared it
+// (the download's Content-Length, or the file's size under
+// --file): the pass reconciles the lines it actually consumed
+// against that size and refuses an under-delivered source
+// before anything is filed (BUG-188).
+/**
+ * @param {any} client
+ * @param {{ fullLines: AsyncIterable<string> | Iterable<string>, updateLines: Iterable<string>, edition: string | null, verifyOnly?: boolean, expectedFullBytes?: number | null }} options
+ */
+export async function runNational(
+  client,
+  { fullLines, updateLines, edition, verifyOnly = false, expectedFullBytes = null },
+) {
   const startedAt = Date.now();
   const stats = { malformed: 0, emptyPostcode: 0, duplicates: 0, uncovered: {} };
   await client.query(`DROP TABLE IF EXISTS ${STAGE_TABLE}`);
@@ -634,14 +674,21 @@ export async function runNational(client, { fullLines, updateLines, edition, ver
 
   // 1 — the full file, every line parsed, filed in batches
   // (uncovered-area rows skipped and counted at intake, BUG-184 —
-  // they are never staged).
+  // they are never staged). Intake keeps the reconciliation
+  // tallies BUG-188 demands: the lines read, the bytes they
+  // account for, and the records handed to the staging inserts.
   let batch = [];
+  let linesRead = 0;
+  let lineBytes = 0;
+  let recordsStaged = 0;
   const flush = async () => {
     await insertRecords(client, STAGE_TABLE, batch, null);
     batch = [];
   };
   for await (const line of fullLines) {
     if (!line) continue;
+    linesRead += 1;
+    lineBytes += Buffer.byteLength(line);
     const record = toRecord(parsePpdLine(line));
     if (!record) {
       stats.malformed += 1;
@@ -653,9 +700,42 @@ export async function runNational(client, { fullLines, updateLines, edition, ver
     }
     if (skipUncoveredRecord(record, stats)) continue;
     batch.push(record);
+    recordsStaged += 1;
     if (batch.length >= INSERT_BATCH_ROWS) await flush();
   }
   await flush();
+
+  const stagedCount = async () =>
+    (await client.query(`SELECT count(*)::int AS n FROM ${STAGE_TABLE}`)).rows[0].n;
+
+  // 1b — the source-completeness guard (BUG-188): when the
+  // caller declared the full file's size, the lines consumed
+  // must account for exactly that many bytes — one terminator
+  // per line, LF or CRLF, the final terminator present or not.
+  // Anything else means the source under-delivered (or over-
+  // delivered) and the register this pass would file is not the
+  // register the source describes; refuse before the swap.
+  if (expectedFullBytes !== null && expectedFullBytes !== undefined) {
+    const honestSizes = new Set([
+      lineBytes + linesRead, // LF, final newline present
+      lineBytes + linesRead - 1, // LF, no final newline
+      lineBytes + 2 * linesRead, // CRLF, final newline present
+      lineBytes + 2 * linesRead - 2, // CRLF, no final newline
+    ]);
+    if (!honestSizes.has(expectedFullBytes))
+      throw new Error(
+        `the full file under-delivered: its source declared ${expectedFullBytes} bytes but the pass read ${linesRead} lines accounting for ${lineBytes + linesRead} of them — refusing to file a partial register (BUG-188)`,
+      );
+  }
+
+  // 1c — the staged count must equal the parsed count: a batch
+  // insert that landed short is a silent hole of exactly the
+  // BUG-188 shape, caught here instead of after the swap.
+  const afterIntake = await stagedCount();
+  if (afterIntake !== recordsStaged)
+    throw new Error(
+      `the national pass staged ${afterIntake} rows from ${recordsStaged} parsed records — refusing to file a register it cannot account for (BUG-188)`,
+    );
 
   // 2 — duplicate transaction ids in the full file collapse to
   // the last row filed (the legacy loader's Map semantics), in
@@ -665,12 +745,34 @@ export async function runNational(client, { fullLines, updateLines, edition, ver
       WHERE a.transaction_id = b.transaction_id AND a.seq < b.seq`,
   );
   stats.duplicates = deduped.rowCount ?? 0;
+  const afterDedupe = await stagedCount();
+  if (afterDedupe !== recordsStaged - stats.duplicates)
+    throw new Error(
+      `the national pass holds ${afterDedupe} staged rows after collapsing ${stats.duplicates} duplicates from ${recordsStaged} parsed records — refusing to file a register it cannot account for (BUG-188)`,
+    );
 
   // 3 — the monthly update file merged over the staged full
   // file, by transaction id (the register's standing definition:
   // full file + monthly update, the SOURCE_NAME's own words).
+  // The merge is reconciled too: staged rows whose id the update
+  // names are counted before the merge, and the staged total
+  // after it must be that count removed and the upserts added.
   const updateRecords = parseAllRecords(updateLines, stats);
-  await mergeUpdateRecords(client, STAGE_TABLE, updateRecords, null);
+  const updateGuids = [...new Set(updateRecords.map((r) => r.transactionId))];
+  let updateMatched = 0;
+  for (let at = 0; at < updateGuids.length; at += GUID_CHUNK) {
+    const res = await client.query(
+      `SELECT count(*)::int AS n FROM ${STAGE_TABLE} WHERE transaction_id = ANY($1)`,
+      [updateGuids.slice(at, at + GUID_CHUNK)],
+    );
+    updateMatched += res.rows[0].n;
+  }
+  const merged = await mergeUpdateRecords(client, STAGE_TABLE, updateRecords, null);
+  const afterMerge = await stagedCount();
+  if (afterMerge !== afterDedupe - updateMatched + merged.upserted)
+    throw new Error(
+      `the national pass holds ${afterMerge} staged rows after the update merge (expected ${afterDedupe - updateMatched + merged.upserted}: ${afterDedupe} staged − ${updateMatched} replaced or deleted + ${merged.upserted} upserted) — refusing to file a register it cannot account for (BUG-188)`,
+    );
 
   // 4 — the edition settles once, over the whole staged set:
   // the file's publication date when the source gave one, else
@@ -714,10 +816,14 @@ export async function runNational(client, { fullLines, updateLines, edition, ver
     );
   const totalRes = await client.query(`SELECT count(*)::int AS n FROM ${STAGE_TABLE}`);
   const total = totalRes.rows[0].n;
+  if (total !== afterMerge)
+    throw new Error(
+      `the national pass holds ${total} staged rows at the proofs against ${afterMerge} reconciled after the update merge — refusing to file a register it cannot account for (BUG-188)`,
+    );
 
   const seconds = () => Math.round((Date.now() - startedAt) / 1000);
   const summary = (stamped) =>
-    `load-sold-prices · edition ${sourceDate} · national pass · ${total} sales filed · ${updateRecords.length} update rows merged · ${stats.malformed} malformed skipped · ${stats.duplicates} duplicates collapsed · ${stats.emptyPostcode} empty-postcode rows skipped · ${uncoveredSkipSegment(stats)} · ${stamped} no-sale postcodes stamped · golden homes OK · ${seconds()}s`;
+    `load-sold-prices · edition ${sourceDate} · national pass · ${total} sales filed · ${updateRecords.length} update rows merged · ${stats.malformed} malformed skipped · ${stats.duplicates} duplicates collapsed · ${stats.emptyPostcode} empty-postcode rows skipped · ${uncoveredSkipSegment(stats)} · ${stamped} no-sale postcodes stamped · ${linesRead} full-file lines read · golden homes OK · ${seconds()}s`;
 
   if (verifyOnly) {
     await client.query(`DROP TABLE IF EXISTS ${STAGE_TABLE}`);
@@ -725,6 +831,7 @@ export async function runNational(client, { fullLines, updateLines, edition, ver
       edition: sourceDate,
       logLine: `${summary(0)} · verify only, nothing filed`,
       total,
+      linesRead,
       stats,
       updateRows: updateRecords.length,
       stamped: 0,
@@ -739,7 +846,7 @@ export async function runNational(client, { fullLines, updateLines, edition, ver
   try {
     await client.query("BEGIN");
     await client.query("TRUNCATE price_paid");
-    await client.query(
+    const swapped = await client.query(
       `INSERT INTO price_paid
          (transaction_id, postcode, price, sale_date, property_type, new_build,
           tenure, paon, saon, street, locality, town, county, ppd_category,
@@ -749,6 +856,13 @@ export async function runNational(client, { fullLines, updateLines, edition, ver
               record_status, source_name, source_date
          FROM ${STAGE_TABLE}`,
     );
+    // The swap lands exactly the staged total or the whole
+    // transaction rolls back (BUG-188): a short insert-select
+    // must never become the served register.
+    if (swapped.rowCount !== total)
+      throw new Error(
+        `the swap filed ${swapped.rowCount} rows against ${total} staged — rolling back (BUG-188)`,
+      );
     const filed = {};
     for (const pc of ["CM3 2JT", "E16 1GN"])
       filed[pc] = await filedRowsFor(client, "price_paid", pc);
@@ -767,6 +881,7 @@ export async function runNational(client, { fullLines, updateLines, edition, ver
     edition: sourceDate,
     logLine: summary(stamped),
     total,
+    linesRead,
     stats,
     updateRows: updateRecords.length,
     stamped,
@@ -856,10 +971,19 @@ async function modeMain(args) {
     if (parsed.mode === "national") {
       let fullLines;
       let updateLines;
+      // The full file's declared size, reconciled by the pass
+      // against the lines it consumes (BUG-188): the file's byte
+      // length under --file; live, the download's Content-Length
+      // — taken only when the body arrives unencoded, since an
+      // encoded body's length counts compressed bytes the line
+      // stream never sees. Absent a usable declaration the pass
+      // runs unguarded on size (its staged-count reconciliations
+      // still apply).
+      let expectedFullBytes = null;
       if (parsed.fileDir) {
-        fullLines = (await readFile(join(parsed.fileDir, "pp-complete.csv"), "utf8")).split(
-          /\r?\n/,
-        );
+        const fullText = await readFile(join(parsed.fileDir, "pp-complete.csv"));
+        expectedFullBytes = fullText.length;
+        fullLines = fullText.toString("utf8").split(/\r?\n/);
         updateLines = (await readFile(join(parsed.fileDir, "pp-monthly-update.csv"), "utf8")).split(
           /\r?\n/,
         );
@@ -869,6 +993,10 @@ async function modeMain(args) {
         const lastModified = response.headers.get("last-modified");
         if (lastModified && !context.sourceDate)
           context.sourceDate = new Date(lastModified).toISOString().slice(0, 10);
+        const contentEncoding = response.headers.get("content-encoding");
+        const contentLength = response.headers.get("content-length");
+        if (contentLength && (!contentEncoding || contentEncoding === "identity"))
+          expectedFullBytes = Number(contentLength);
         fullLines = createInterface({
           input: Readable.fromWeb(response.body),
           crlfDelay: Infinity,
@@ -883,6 +1011,7 @@ async function modeMain(args) {
         updateLines,
         edition: context.sourceDate,
         verifyOnly: parsed.verifyOnly,
+        expectedFullBytes,
       });
       context.sourceDate = result.edition;
       if (parsed.verifyOnly) {

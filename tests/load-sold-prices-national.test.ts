@@ -143,6 +143,13 @@ class FakeClient {
       ).length;
       return { rows: [{ n }] as Row[] };
     }
+    if (
+      sql.startsWith("SELECT count(*)::int AS n FROM price_paid_stage WHERE transaction_id = ANY")
+    ) {
+      const guids = new Set(params[0] as string[]);
+      const n = (this.stage as Row[]).filter((r) => guids.has(r.transaction_id as string)).length;
+      return { rows: [{ n }] as Row[] };
+    }
     if (sql.startsWith("SELECT count(*)::int AS n FROM price_paid_stage")) {
       return { rows: [{ n: (this.stage as Row[]).length }] as Row[] };
     }
@@ -156,7 +163,7 @@ class FakeClient {
     if (sql.startsWith("INSERT INTO price_paid") && sql.includes("SELECT")) {
       if (this.failOnSwapInsert) throw new Error("armed failure on the swap insert");
       this.live = (this.stage as Row[]).map(({ seq: _seq, ...row }) => ({ ...row }));
-      return { rows: [] };
+      return { rows: [], rowCount: this.live.length };
     }
     if (sql.startsWith("INSERT INTO price_paid")) {
       const width = COLUMNS.length;
@@ -479,6 +486,83 @@ describe("runNational — the whole register in one pass", () => {
     expect(result.stats.duplicates).toBe(1);
     expect(result.total).toBe(39);
     expect(client.live).toHaveLength(39);
+  });
+
+  it("files the three BUG-188 sales verbatim through the national path", async () => {
+    // The exact source lines (pp-complete.csv, edition
+    // 2026-10-28) the first national pass lost: TR8 4LX's whole
+    // 1995 presence at Atlantic Reach, Newquay. The file's own
+    // GUID-to-sale pairing governs.
+    const lost = [
+      '"{6CA09ECE-6846-462D-810E-8EAC6D723DC7}","14000","1995-07-28 00:00","TR8 4LX","T","N","L","MANOR VILLAS","115","ATLANTIC REACH","NEWQUAY","NEWQUAY","RESTORMEL","CORNWALL","A","A"',
+      '"{3A73C0E3-33E1-43B3-8A20-3DACB09A244D}","65000","1995-09-22 00:00","TR8 4LX","T","N","F","COACHMANS COTTAGE","","","NEWQUAY","NEWQUAY","RESTORMEL","CORNWALL","A","A"',
+      '"{93C07D1B-0EFB-4A6F-BCA5-12B65FB9F9D2}","50000","1995-10-30 00:00","TR8 4LX","T","Y","F","OLD STABLES","","","NEWQUAY","NEWQUAY","RESTORMEL","CORNWALL","A","A"',
+    ];
+    const client = new FakeClient();
+    const result = await runNational(client as never, {
+      fullLines: [...fullLines, ...lost],
+      updateLines,
+      edition: EDITION,
+    });
+    expect(result.total).toBe(42);
+    const tr8 = client.live.filter((r) => r.postcode === "TR8 4LX");
+    expect(tr8).toHaveLength(3);
+    const byId = new Map(tr8.map((r) => [r.transaction_id, r]));
+    expect(byId.get("6CA09ECE-6846-462D-810E-8EAC6D723DC7")).toMatchObject({
+      price: 14000,
+      sale_date: "1995-07-28",
+    });
+    expect(byId.get("3A73C0E3-33E1-43B3-8A20-3DACB09A244D")).toMatchObject({
+      price: 65000,
+      sale_date: "1995-09-22",
+    });
+    expect(byId.get("93C07D1B-0EFB-4A6F-BCA5-12B65FB9F9D2")).toMatchObject({
+      price: 50000,
+      sale_date: "1995-10-30",
+    });
+  });
+
+  it("refuses a full file that under-delivers against its declared size, and files nothing (BUG-188)", async () => {
+    // The class test for the BUG-188 drop: the source declares
+    // more bytes than the line stream delivers — the shape of
+    // the live failure, in which a short stream quietly became
+    // the register. The pass must refuse and leave the standing
+    // register untouched.
+    const delivered = fullLines.filter((l) => l);
+    const lfBytes = delivered.reduce((n, l) => n + Buffer.byteLength(l) + 1, 0);
+    const client = new FakeClient();
+    client.live = [{ transaction_id: "STANDING-ROW", postcode: "CM3 2JT" } as Row];
+    await expect(
+      runNational(client as never, {
+        fullLines,
+        updateLines,
+        edition: EDITION,
+        expectedFullBytes: lfBytes + 500_000,
+      }),
+    ).rejects.toThrow(/under-delivered/);
+    expect(client.live).toEqual([{ transaction_id: "STANDING-ROW", postcode: "CM3 2JT" }]);
+  });
+
+  it("accepts a declared size that honestly accounts for the lines read, LF or CRLF (BUG-188)", async () => {
+    const delivered = fullLines.filter((l) => l);
+    const lineBytes = delivered.reduce((n, l) => n + Buffer.byteLength(l), 0);
+    for (const expectedFullBytes of [
+      lineBytes + delivered.length, // LF, final newline present
+      lineBytes + delivered.length - 1, // LF, no final newline
+      lineBytes + 2 * delivered.length, // CRLF, final newline present
+      lineBytes + 2 * delivered.length - 2, // CRLF, no final newline
+    ]) {
+      const client = new FakeClient();
+      const result = await runNational(client as never, {
+        fullLines,
+        updateLines,
+        edition: EDITION,
+        expectedFullBytes,
+      });
+      expect(result.total).toBe(39);
+      expect(result.linesRead).toBe(delivered.length);
+      expect(result.logLine).toContain(`${delivered.length} full-file lines read`);
+    }
   });
 
   it("skips and counts an empty-postcode row without losing a sale", async () => {
