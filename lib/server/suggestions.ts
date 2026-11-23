@@ -124,6 +124,8 @@
 // prefix query rides the postcode column's index, and the
 // homes read is the resolver's own per-postcode query.
 
+import type { Pool, PoolClient } from "pg";
+
 import {
   classifyAddressInput,
   compareAddressParts,
@@ -215,14 +217,6 @@ export interface SuggestionGroups {
     label: "Postcodes" | "Streets" | "Properties" | "Homes" | "Places" | "Districts";
     items: SuggestionItem[];
   }[];
-  // Set only when the full-postcode branch served one
-  // postcode's own list — its Homes group, or the
-  // postcode itself in the zero-home self-serve form
-  // (BUG-032). It is the search box's warrant for the
-  // "Don't see your home?" row (BUG-185): the row belongs
-  // only where one postcode's homes are listed, never on
-  // a street or area search, whose groups span postcodes.
-  postcodeList?: { postcode: string };
 }
 
 // A properties query: the homes inside a bound — a
@@ -323,6 +317,113 @@ export function createSuggestionSource(db: StreetQueryable): SuggestionSource {
         params,
       );
       return [...filed.rows, ...indexed.rows] as unknown as LoadedAddressParts[];
+    },
+  };
+}
+
+// The bounded suggest source (BUG-194, 23 Nov 2026):
+// the suggest route serves through this, never
+// through the bare pool. The audit's compounding
+// defect, beside the missing register index
+// (migration 0045): a fragment keystroke's reads ran
+// with NO statement timeout and NO cancellation, so
+// every superseded keystroke left its scan running
+// against the app's shared pool — the oldest orphan
+// was observed at 13 minutes — congesting the box
+// for every later keystroke and every other reader.
+//
+// The bounds, both real mechanisms of this stack:
+//   * One dedicated client per request, with
+//     statement_timeout set on its session: every
+//     statement the read model issues for the
+//     request — the tiers' own transaction included,
+//     see the connect() note below — is bounded by
+//     SUGGEST_STATEMENT_TIMEOUT_MS, and a statement
+//     that overruns fails the request (the route's
+//     settled 500) instead of holding the disk and a
+//     pool connection. Three seconds is generous
+//     against D72 item 4's under-100ms budget for
+//     the indexed reads; it exists to kill pathological
+//     scans, not to gate honest ones.
+//   * Cancellation on client disconnect: the route
+//     hands in the request's AbortSignal; when it
+//     fires, the request's backend is cancelled with
+//     pg_cancel_backend, so the database work dies
+//     with the request that asked for it. The
+//     client's own per-keystroke abort (lib/
+//     suggest-client.ts) is what ordinarily triggers
+//     the disconnect. Cancellation is best-effort —
+//     a cancel that lands after the work finished is
+//     a no-op — and the statement timeout above is
+//     the hard bound that stands even if a signal
+//     never fires.
+//
+// The connect() seam: the fuzzy tiers (streets,
+// places) take a dedicated client from the source
+// for their BEGIN / set_limit / read / COMMIT, and
+// release it when done. Here that client is a
+// stand-in over the request's one bounded session —
+// its queries delegate, so the timeout covers the
+// tiers' transaction too, and its release() is a
+// deliberate no-op: the session is owned by this
+// source and released exactly once, by close(). The
+// read model issues its reads sequentially, so one
+// session is never driven concurrently.
+export const SUGGEST_STATEMENT_TIMEOUT_MS = 3_000;
+
+export interface BoundedSuggestionSource {
+  source: SuggestionSource;
+  close: () => Promise<void>;
+}
+
+export async function createBoundedSuggestionSource(
+  pool: Pool,
+  signal?: AbortSignal,
+): Promise<BoundedSuggestionSource> {
+  const client = await pool.connect();
+  let backendPid: number | null = null;
+  let closed = false;
+  const onAbort = () => {
+    if (backendPid === null || closed) return;
+    // Fire and forget: the cancel rides its own pool
+    // connection, and a failure to land it leaves the
+    // statement timeout as the bound.
+    void pool.query("SELECT pg_cancel_backend($1)", [backendPid]).catch(() => undefined);
+  };
+  try {
+    const { rows } = await client.query("SELECT pg_backend_pid() AS pid");
+    backendPid = (rows[0]?.pid as number | undefined) ?? null;
+    await client.query(`SET statement_timeout = ${SUGGEST_STATEMENT_TIMEOUT_MS}`);
+  } catch (error) {
+    client.release();
+    throw error;
+  }
+  if (signal) {
+    if (signal.aborted) onAbort();
+    else signal.addEventListener("abort", onAbort, { once: true });
+  }
+  const boundedDb = {
+    query: (text: string, params?: readonly unknown[]) => client.query(text, params as unknown[]),
+    connect: () =>
+      Promise.resolve({
+        query: (text: string, params?: readonly unknown[]) =>
+          client.query(text, params as unknown[]),
+        release: () => undefined,
+      } as unknown as PoolClient),
+  } as unknown as StreetQueryable;
+  return {
+    source: createSuggestionSource(boundedDb),
+    close: async () => {
+      closed = true;
+      signal?.removeEventListener("abort", onAbort);
+      try {
+        await client.query("RESET statement_timeout");
+      } catch {
+        // The session is released regardless; a reset
+        // that fails (a dead connection) must not turn
+        // the release into a leak.
+      }
+      client.release();
     },
   };
 }
@@ -651,15 +752,6 @@ export async function suggestionsFor(
       places: 0,
       districts: 0,
     });
-    // BUG-185: this branch listed ONE postcode's homes
-    // (or the postcode itself, when it files none) — the
-    // one panel shape the wider-list row belongs to. A
-    // full-postcode-shaped input the directory does not
-    // file served nothing above, and carries no marker:
-    // there is no settled postcode to widen.
-    if (items.length > 0 || selfServed === 1) {
-      return { groups, postcodeList: { postcode: input.postcode } };
-    }
     return { groups };
   }
 

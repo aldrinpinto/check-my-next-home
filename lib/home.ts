@@ -63,6 +63,16 @@ export const POSTCODE_BOX_BUTTON_BARE = "Check this home";
 // away, and the line says so.
 export const POSTCODE_BOX_NO_SUGGESTIONS_LINE =
   "No suggestions for that — check the spelling, or use the button to search anyway.";
+// The suggestions panel's mid-flight line (BUG-196,
+// 23 Nov 2026): while the current query's answer is
+// still on its way, the panel holds this one plain
+// line instead of vanishing. It is a state, never a
+// result — it carries no items and nothing clickable
+// (BUG-033's rule stands untouched: no stale list
+// ever sits under new text), and the settled response
+// replaces it the moment it lands, with the groups or
+// with the no-suggestions line above.
+export const POSTCODE_BOX_SEARCHING_LINE = "Searching…";
 
 // The small line under the hero's search row (the decided
 // sample page's, verbatim — fidelity pass 2). The hero's

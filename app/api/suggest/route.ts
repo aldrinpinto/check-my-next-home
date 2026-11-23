@@ -56,9 +56,8 @@ import { NextResponse } from "next/server";
 
 import { getDbPool } from "../../../lib/server/db";
 import { logEntry, newRequestId } from "../../../lib/server/entry-log";
-import { postioSupplementEnabled } from "../../../lib/server/hybrid";
 import { rateLimitOk } from "../../../lib/server/rate-limit";
-import { createSuggestionSource, suggestionsFor } from "../../../lib/server/suggestions";
+import { createBoundedSuggestionSource, suggestionsFor } from "../../../lib/server/suggestions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -76,21 +75,19 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const q = url.searchParams.get("q") ?? "";
   try {
-    const source = createSuggestionSource(getDbPool());
-    const { groups, postcodeList } = await suggestionsFor(q, source, req);
-    // BUG-185: when the answer is one postcode's own list,
-    // the response also names that postcode and whether
-    // the wider-list row may be offered (the kill switch,
-    // read per request so flipping the env needs no
-    // rebuild). The groups contract above is unchanged.
-    if (postcodeList) {
-      return NextResponse.json({
-        groups,
-        postcodeList,
-        supplementEnabled: postioSupplementEnabled(),
-      });
+    // The bounded source (BUG-194): one dedicated
+    // session per request, its statements under a
+    // timeout, and the request's own signal wired to
+    // cancel the database work when the caller goes
+    // away — a superseded keystroke must not leave
+    // its scan running against the shared pool.
+    const bounded = await createBoundedSuggestionSource(getDbPool(), request.signal);
+    try {
+      const { groups } = await suggestionsFor(q, bounded.source, req);
+      return NextResponse.json({ groups });
+    } finally {
+      await bounded.close();
     }
-    return NextResponse.json({ groups });
   } catch {
     return NextResponse.json({ error: "suggest-failed" }, { status: 500 });
   }

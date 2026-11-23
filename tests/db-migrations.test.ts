@@ -46,6 +46,21 @@ describe("database migrations", () => {
     expect([...versions].sort((a, b) => a - b)).toEqual(versions);
   });
 
+  it("migration 0045 gives price_paid its postcode pattern index (BUG-194)", () => {
+    // The register was the one table of the suggest
+    // path's three still missing its text_pattern_ops
+    // index (0035 gave the other two theirs), so every
+    // postcode-fragment keystroke seq-scanned all
+    // 10 GB of it. The migration is that one index,
+    // in the house form — a plain CREATE INDEX inside
+    // the runner's transaction, as 0035 wrote its two.
+    const file = files.find((candidate) => candidate.startsWith("0045_"));
+    expect(file).toBeDefined();
+    const sql = readFileSync(join(migrationsDir, file!), "utf8");
+    expect(sql).toContain("CREATE INDEX price_paid_postcode_prefix_idx");
+    expect(sql).toContain("ON price_paid (postcode text_pattern_ops)");
+  });
+
   it("migration 0001 enables PostGIS and creates all 20 shelves", () => {
     const first = files.find((file) => file.startsWith("0001_"));
     expect(first).toBeDefined();

@@ -1,0 +1,52 @@
+-- Migration 0045 — the pattern index for the sales
+-- register's postcode-prefix read (BUG-194, founder-
+-- found live 23 Nov 2026).
+--
+-- THE DEFECT. Migration 0035 gave the suggestion
+-- endpoint's two OTHER postcode-prefix reads their
+-- text_pattern_ops indexes (picking_index,
+-- postcode_cache) and the fragment shapes went fast —
+-- on the tables it covered. The properties read
+-- (lib/server/suggestions.ts, propertiesMatching)
+-- runs the same bound against price_paid as well, and
+-- price_paid never got its index: it is the one table
+-- of the three still carrying only the plain btree
+-- (price_paid_postcode_idx, migration 0001), which —
+-- the cause 0031 and 0035 already name — cannot serve
+-- a LIKE prefix under this database's en_US.utf8
+-- collation. While the register held only the golden
+-- postcodes the scan it forced was milliseconds and
+-- invisible. The national pass (30.7M rows, ~10 GB)
+-- armed it: on 23 Nov 2026 every postcode-fragment
+-- keystroke (CM3, E13, E13 8) fired a Parallel Seq
+-- Scan of the whole register — planner cost
+-- ~1,041,112 against ~150 for the indexed twin —
+-- serving in 5–12 seconds against D72 item 4's
+-- under-100ms budget, and the superseded keystrokes'
+-- scans, un-cancellable until this build's companion
+-- bounds, were observed still running 13 minutes
+-- later against the app's shared connection pool.
+--
+-- THE FIX is the missing third index of 0035's set,
+-- nothing else: the query is unchanged and serves
+-- identical results (same rows, same order — the
+-- index changes only how the matching rows are
+-- found).
+--
+-- THE FORM is the house form, deliberately: a plain
+-- CREATE INDEX inside the migration runner's
+-- per-migration transaction, exactly as 0035 wrote
+-- its two. CREATE INDEX CONCURRENTLY cannot run
+-- inside that transaction, and the runner is not
+-- being bent for one index. A plain build takes a
+-- SHARE lock on price_paid for its duration — reads
+-- continue; writes to the register (the loaders'
+-- filings) wait — so this migration is applied when
+-- the box is quiet, never alongside a filing pass.
+-- At 0035's proof the picking_index pattern index
+-- (201 MB over a 9 GB table) built in ~23 s; this
+-- register is of the same order, so the build is a
+-- short, scheduled pause to writes, not an event.
+
+CREATE INDEX price_paid_postcode_prefix_idx
+  ON price_paid (postcode text_pattern_ops);

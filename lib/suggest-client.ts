@@ -1,0 +1,216 @@
+// The search box's live-suggest coordinator (BUG-196,
+// 23 Nov 2026). The fetch logic that used to live
+// inline in components/PostcodeBox.tsx's effect —
+// debounce, sequence guard, state settles — moved
+// here, framework-free, so the per-keystroke
+// behaviour is unit-testable in the node harness
+// (tests/suggest-client.test.ts) and the component
+// only renders what the coordinator settles.
+//
+// The behaviour it coordinates (entry-point build,
+// 18 Nov 2026; D71 + D72): as the visitor types, the
+// box asks /api/suggest — LOCAL FILED DATA ONLY,
+// never Postio — after a ~140ms pause, and a response
+// a newer keystroke has superseded is dropped, never
+// repainted (the sequence guard). Two BUG-033 rules
+// stand exactly as they were: the component clears
+// the served list the moment the text changes, so no
+// stale list ever sits clickable under new text; and
+// the no-suggestions line belongs to a settled empty
+// answer only, never a mid-flight one.
+//
+// What BUG-196 adds (founder-found live, 23 Nov
+// 2026: at slow server speeds the panel blinked in
+// and out on alternate keystrokes — each keystroke
+// cleared it, and a superseded response was discarded
+// with nothing repainting until a later keystroke's
+// own response happened to land while still current):
+//
+//   * Cancel-and-replace (fix 3): every keystroke
+//     aborts the superseded fetch through an
+//     AbortController — never skip-while-in-flight,
+//     and the abort is what lets the server cancel
+//     the superseded query's database work (the
+//     bounded suggest source, lib/server/
+//     suggestions.ts) instead of leaving it running
+//     against the shared pool.
+//   * A flight signal (fix 4): the coordinator
+//     reports whether the current query is in flight
+//     from the keystroke until its response settles,
+//     so the component can hold its plain "Searching…"
+//     line in the panel's place — a state, never a
+//     result: it carries no items and nothing
+//     clickable, so BUG-033 is preserved exactly.
+//   * The current value always has a live fetch
+//     (fix 5): when a superseded response is
+//     discarded, the coordinator checks the current
+//     value is still covered — a fetch outstanding
+//     for it, one scheduled, or an answer already
+//     settled for it — and issues one on the spot if
+//     it is somehow bare. In this design the
+//     keystroke's own scheduled fetch is that cover
+//     in every ordinary ordering; the check is the
+//     cheap insurance the audit asked for against
+//     edge orderings in the sequence guard, and the
+//     tests pin the no-double-fetch orderings around
+//     it.
+
+// The pause between the last keystroke and the fetch
+// (the entry-point build's ~140ms, unchanged).
+export const SUGGEST_DEBOUNCE_MS = 140;
+
+// Suggestions start at 3 typed characters (D71) —
+// the read model's own floor (SUGGEST_MIN_CHARS in
+// lib/server/suggestions.ts), restated at this edge:
+// below it the coordinator issues nothing.
+export const SUGGEST_CLIENT_MIN_CHARS = 3;
+
+// The /api/suggest payload, as the route serves it
+// (the contract pinned by tests/entry-point.test.ts).
+export interface SuggestPayload {
+  groups?: {
+    label: string;
+    items: { label: string; href: string | null; place?: string }[];
+  }[];
+}
+
+// The fetch the coordinator drives: the component
+// hands it the browser's fetch with the abort signal
+// attached; the tests hand it a fake.
+export type SuggestFetchImpl = (
+  url: string,
+  signal: AbortSignal,
+) => Promise<{ ok: boolean; json(): Promise<unknown> }>;
+
+export interface SuggestCoordinatorHandlers {
+  // The current query's response settled with a
+  // payload: repaint with it.
+  onResponse: (data: SuggestPayload) => void;
+  // The current query's fetch failed: the box's
+  // settled-failure state (the panel closes).
+  onFailure: () => void;
+  // The current query is in flight (true from its
+  // keystroke until its response settles): the box
+  // holds its mid-flight line meanwhile.
+  onFlightChange: (inFlight: boolean) => void;
+}
+
+export interface SuggestCoordinator {
+  // One call per keystroke, with the field's trimmed
+  // value.
+  type: (typed: string) => void;
+  // The box unmounted: cancel everything, settle
+  // nothing further.
+  dispose: () => void;
+}
+
+export function createSuggestCoordinator(
+  fetchImpl: SuggestFetchImpl,
+  handlers: SuggestCoordinatorHandlers,
+  debounceMs: number = SUGGEST_DEBOUNCE_MS,
+): SuggestCoordinator {
+  let seq = 0;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let controller: AbortController | null = null;
+  // The outstanding fetch, if any: the value it was
+  // issued for and its controller, so its settle can
+  // tell whether it is still the recorded one.
+  let inFlight: { value: string; controller: AbortController } | null = null;
+  // The value a debounce timer is currently scheduled
+  // to fetch, if any.
+  let pendingFor: string | null = null;
+  // The value the field currently holds, and the
+  // value whose answer has settled (a response or a
+  // failure), if any.
+  let current = "";
+  let answeredFor: string | null = null;
+  let disposed = false;
+
+  function issue(typed: string) {
+    const mySeq = (seq += 1);
+    controller?.abort();
+    const ctrl = new AbortController();
+    controller = ctrl;
+    const record = { value: typed, controller: ctrl };
+    inFlight = record;
+    void (async () => {
+      let data: SuggestPayload | null = null;
+      let failed = false;
+      try {
+        const response = await fetchImpl(
+          `/api/suggest?q=${encodeURIComponent(typed)}`,
+          ctrl.signal,
+        );
+        if (!response.ok) throw new Error("suggest-failed");
+        data = (await response.json()) as SuggestPayload;
+      } catch {
+        failed = true;
+      }
+      if (inFlight === record) inFlight = null;
+      if (disposed) return;
+      if (mySeq !== seq) {
+        // A newer keystroke superseded this response —
+        // drop it, never repaint with stale suggestions;
+        // then the fix-5 check: the current value must
+        // still be covered.
+        ensureCurrent();
+        return;
+      }
+      answeredFor = typed;
+      handlers.onFlightChange(false);
+      if (failed) handlers.onFailure();
+      else handlers.onResponse(data ?? {});
+    })();
+  }
+
+  // Fix 5: after a superseded response is discarded,
+  // the current value keeps a live fetch — issue one
+  // on the spot if it is somehow neither outstanding,
+  // scheduled, nor already answered.
+  function ensureCurrent() {
+    if (disposed) return;
+    if (current.length < SUGGEST_CLIENT_MIN_CHARS) return;
+    if (answeredFor === current) return;
+    if (inFlight !== null && inFlight.value === current) return;
+    if (pendingFor === current) return;
+    issue(current);
+  }
+
+  return {
+    type(typed: string) {
+      if (disposed) return;
+      if (typed !== current) answeredFor = null;
+      current = typed;
+      // The keystroke supersedes everything before
+      // it: any in-flight response now belongs to the
+      // old text (the sequence guard will drop it),
+      // and its fetch is aborted — cancel-and-replace.
+      seq += 1;
+      controller?.abort();
+      controller = null;
+      if (timer !== null) clearTimeout(timer);
+      timer = null;
+      pendingFor = null;
+      if (typed.length < SUGGEST_CLIENT_MIN_CHARS) {
+        handlers.onFlightChange(false);
+        return;
+      }
+      handlers.onFlightChange(true);
+      pendingFor = typed;
+      timer = setTimeout(() => {
+        timer = null;
+        pendingFor = null;
+        issue(typed);
+      }, debounceMs);
+    },
+    dispose() {
+      disposed = true;
+      seq += 1;
+      controller?.abort();
+      controller = null;
+      if (timer !== null) clearTimeout(timer);
+      timer = null;
+      pendingFor = null;
+    },
+  };
+}
