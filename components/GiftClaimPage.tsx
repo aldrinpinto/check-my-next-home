@@ -35,6 +35,9 @@ import {
   GIFT_USED_BODY,
   GIFT_USED_HEADING,
   GIFT_USED_SEARCH_HEADING,
+  GIFT_VOIDED_BODY,
+  GIFT_VOIDED_HEADING,
+  GIFT_VOIDED_SEARCH_HEADING,
   giftClaimPostPath,
   type GiftClaimVariant,
 } from "../lib/gift";
@@ -212,6 +215,27 @@ function BrokenLinkIcon() {
       <path d="M10 14a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7" />
       <path d="M14 10a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7" />
       <path d="m4 4 16 16" />
+    </svg>
+  );
+}
+
+// The voided screen's badge glyph (M9.8): the refund's
+// returning arrow, the download card's own mark.
+function RefundIcon() {
+  return (
+    <svg
+      width="26"
+      height="26"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M3 12a9 9 0 1 0 3-6.7" />
+      <path d="M3 4v5h5" />
     </svg>
   );
 }
@@ -425,11 +449,30 @@ export function GiftClaimedCard() {
   );
 }
 
-// The three closed screens: already used (view 25),
-// expired (view 26) and link not recognised (view 27) —
-// each its own claim-flow screen carrying its pinned
-// text in full and its own search block.
-export function GiftClosedCard({ variant }: { variant: "used" | "expired" | "not-recognised" }) {
+// The closed screens: already used (view 25), expired
+// (view 26), link not recognised (view 27) — and, since
+// M9.8, voided (the refund of the issuing order ended
+// the gift; DRAFT copy from the M9.8 draft samples,
+// never the expired or used words) — each its own
+// claim-flow screen carrying its pinned text in full
+// and its own search block.
+export function GiftClosedCard({
+  variant,
+}: {
+  variant: "used" | "expired" | "not-recognised" | "voided";
+}) {
+  if (variant === "voided") {
+    return (
+      <div className="card gift-card">
+        <Badge form="neutral">
+          <RefundIcon />
+        </Badge>
+        <h1>{GIFT_VOIDED_HEADING}</h1>
+        <p>{rich(GIFT_VOIDED_BODY)}</p>
+        <GiftSearchBlock heading={GIFT_VOIDED_SEARCH_HEADING} />
+      </div>
+    );
+  }
   if (variant === "used") {
     return (
       <div className="card gift-card">

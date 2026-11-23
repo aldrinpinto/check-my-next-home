@@ -43,6 +43,13 @@ export async function GET(
   const deliveries = createDbDeliveryStore(getDbPool());
   const delivery = await deliveries.getById(verification.deliveryId);
   if (!delivery) return new Response("Not found", { status: 404 });
+  // The withdrawn standing (M9.8), checked after the
+  // delivery loads and before a byte is served: the
+  // order was refunded in full, so the file is closed
+  // — back to the landing, which serves the refunded
+  // card. The stored bytes stay on the shelf; the
+  // standing, not the file, is what closes.
+  if (delivery.withdrawnAt) return redirectRelative(downloadPath(token));
   const bytes = await getReportPdfStore().get(delivery.pdfKey);
   if (!bytes) return new Response("Not found", { status: 404 });
 

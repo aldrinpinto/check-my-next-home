@@ -30,6 +30,19 @@
 // Both post-payment surfaces read through here — the
 // success surface and the payment return landing — so
 // the two can never disagree about an order's state.
+//
+// THE REFUND OVERLAY (M9.8, gap 9) reads BEFORE the
+// claim's state: where a completed full refund stands
+// for the reference, the order reads REFUNDED whatever
+// its claim says — a fulfilled claim keeps its status
+// in the books, but its surfaces stop presenting the
+// report as ready, stop offering its opening and stop
+// offering the re-send. A gifted claim reads its own
+// overlay: where the gift behind it stands voided, the
+// claimant's surface reads the voided state rather
+// than a claim that waits forever. Both overlays are
+// optional deps in the type; both production surfaces
+// wire them.
 
 import {
   PAYMENT_METADATA_EMAIL,
@@ -38,8 +51,18 @@ import {
   type PaymentsRouter,
 } from "./payments";
 import type { FulfilmentClaim, FulfilmentClaimStore } from "./fulfilment";
+import type { RefundProcessing } from "./refunds";
 
 export type OrderReading =
+  // A completed full refund stands for this reference
+  // (M9.8): the overlay answer, read before the
+  // claim's own state. The claim rides along where one
+  // stands — the surface still needs its kind, its
+  // email and its home.
+  | { kind: "refunded"; claim: FulfilmentClaim | null }
+  // A gifted claim whose gift stands voided (M9.8):
+  // the claimant's own overlay.
+  | { kind: "voided-gift"; claim: FulfilmentClaim }
   | { kind: "claim"; claim: FulfilmentClaim }
   | {
       kind: "payment";
@@ -56,11 +79,35 @@ export type OrderReading =
 export interface OrderStateDeps {
   claims: FulfilmentClaimStore;
   payments: PaymentsRouter;
+  // The refund overlay (M9.8): whether a completed
+  // full refund stands for a payment reference.
+  refunds?: Pick<RefundProcessing, "completedFullRefund">;
+  // The gift overlay (M9.8): whether the gift behind a
+  // gifted claim stands voided, by its token.
+  giftVoided?: (giftToken: string) => Promise<boolean>;
 }
 
 export async function readOrderState(deps: OrderStateDeps, ref: string): Promise<OrderReading> {
+  // The refund overlay first (M9.8): a completed full
+  // refund outranks the claim's own state — including
+  // the no-claim-yet race, where a refund heard before
+  // the success still ends the order's surfaces.
+  if (deps.refunds) {
+    const refunded = await deps.refunds.completedFullRefund(ref).catch(() => false);
+    if (refunded) {
+      const claim = await deps.claims.getByRef(ref).catch(() => null);
+      return { kind: "refunded", claim };
+    }
+  }
+
   const claim = await deps.claims.getByRef(ref).catch(() => null);
-  if (claim) return { kind: "claim", claim };
+  if (claim) {
+    if (claim.kind === "gifted" && claim.giftToken && deps.giftVoided) {
+      const voided = await deps.giftVoided(claim.giftToken).catch(() => false);
+      if (voided) return { kind: "voided-gift", claim };
+    }
+    return { kind: "claim", claim };
+  }
 
   const status = await deps.payments.intentStatus(ref).catch(() => null);
   if (!status || !status.ok) return { kind: "none" };

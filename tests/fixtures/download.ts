@@ -41,6 +41,8 @@ export function deliveryRecord(overrides: Partial<DeliveryRecord> = {}): Deliver
     giftToken: null,
     orderRef: "order-fixture-1",
     createdAt: DOWNLOAD_NOW,
+    withdrawnAt: null,
+    withdrawnRefundId: null,
     ...overrides,
   };
 }

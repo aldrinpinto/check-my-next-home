@@ -5,6 +5,8 @@ import {
   DOWNLOAD_EXPIRED_BODY,
   DOWNLOAD_EXPIRED_FINE_PRINT,
   DOWNLOAD_EXPIRED_HEADING,
+  DOWNLOAD_REFUNDED_BODY,
+  DOWNLOAD_REFUNDED_HEADING,
   DOWNLOAD_REISSUE_BUTTON,
   DOWNLOAD_SENT_AGAIN_LINE,
   DOWNLOAD_SENT_BODY,
@@ -66,6 +68,25 @@ function MailIcon() {
     >
       <rect x="3" y="5" width="18" height="14" rx="2" />
       <path d="m3 7 9 6 9-6" />
+    </svg>
+  );
+}
+
+function RefundIcon() {
+  return (
+    <svg
+      width="26"
+      height="26"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M3 12a9 9 0 1 0 3-6.7" />
+      <path d="M3 4v5h5" />
     </svg>
   );
 }
@@ -144,6 +165,26 @@ export function DownloadSentCard({ token }: { token: string }) {
       <p>{DOWNLOAD_SENT_BODY}</p>
       <p>{DOWNLOAD_SENT_AGAIN_LINE}</p>
       <ReissueForm token={token} />
+    </div>
+  );
+}
+
+// The refunded delivery (M9.8) — DRAFT copy from the
+// M9.8 draft samples (outside the Final Sample
+// Master): the expired card's frame, but no form under
+// it — no fresh link can be sent for a refunded order,
+// and a form here would promise a recovery that must
+// not happen. It stands for genuine links in date and
+// expired alike: the withdrawal, not the link's own
+// age, is the fact.
+export function DownloadRefundedCard() {
+  return (
+    <div className="card download-card">
+      <Badge form="warn">
+        <RefundIcon />
+      </Badge>
+      <h1>{DOWNLOAD_REFUNDED_HEADING}</h1>
+      <p>{DOWNLOAD_REFUNDED_BODY}</p>
     </div>
   );
 }

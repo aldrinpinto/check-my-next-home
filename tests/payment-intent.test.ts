@@ -229,17 +229,61 @@ describe("startReportPayment — the test lane (M9.6)", () => {
     expect(test.created[0]?.email).toBe(TESTER);
   });
 
-  it("an allowlisted email with NO test set configured creates on the default set — and is still flagged TEST", async () => {
+  it("an allowlisted email with NO test set configured is refused — not-configured, nothing created (RE-PINNED: the M9.6 fallback is retired)", async () => {
+    // M9.9 prep gap 9, adopted and built with M9.8:
+    // this test previously pinned the M9.6 one-key-set
+    // fallback — the allowlisted email created on the
+    // default set, still flagged TEST. That fallback
+    // could take real money on a test purchase, so it
+    // is retired: the start now fails closed. The TEST
+    // flag itself is unchanged (the router's
+    // isTestOrder still answers by allowlist alone,
+    // pinned in tests/payments.test.ts); what changed
+    // is that no payment is created for the flag to
+    // ride on.
     const live = createFakePayments();
     const result = await startReportPayment(
       { payments: routerFor(live, { testEmails: [TESTER] }), resolve: HOME },
       { postcode: "CM3 2JT", email: TESTER, consent: CONSENT },
     );
-    expect(result.ok).toBe(true);
-    if (!result.ok || "gifted" in result) return;
-    expect(result.publishableKey).toBe("pk_default");
-    expect(live.created).toHaveLength(1);
-    expect(live.created[0]?.testOrder).toBe(true);
+    expect(result).toEqual({ ok: false, reason: "not-configured" });
+    expect(live.created).toHaveLength(0);
+  });
+
+  it("an allowlisted email whose test set is INCOMPLETE is refused the same way — missing publishable key, missing webhook secret", async () => {
+    // The other two parts of an incomplete set (gap
+    // 9's own list): the secret key is placed, but the
+    // publishable key or the webhook secret is not.
+    // laneFor would still call this the test lane —
+    // the refusal is the start's, on testLaneReady.
+    const liveSet = {
+      payments: createFakePayments(),
+      webhookConfigured: true,
+      publishableKey: "pk_default",
+    };
+    for (const testSet of [
+      // No publishable key: the page could not
+      // initialise the test lane's card element.
+      { payments: createFakePayments(), webhookConfigured: true, publishableKey: null },
+      // No webhook secret: the set cannot verify its
+      // events (webhookConfigured is the factory's
+      // key-and-secret answer).
+      { payments: createFakePayments(), webhookConfigured: false, publishableKey: "pk_test_lane" },
+    ]) {
+      const router = createPaymentsRouter({
+        live: liveSet,
+        test: testSet,
+        testEmails: [TESTER],
+      });
+      expect(router.testLaneReady()).toBe(false);
+      const result = await startReportPayment(
+        { payments: router, resolve: HOME },
+        { postcode: "CM3 2JT", email: TESTER, consent: CONSENT },
+      );
+      expect(result).toEqual({ ok: false, reason: "not-configured" });
+      expect(testSet.payments.created).toHaveLength(0);
+    }
+    expect(liveSet.payments.created).toHaveLength(0);
   });
 
   it("an unlisted email can never reach the test set, and is never flagged (the negative pin)", async () => {

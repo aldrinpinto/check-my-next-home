@@ -42,13 +42,25 @@
 // environment only — no admin UI, no buyer-facing
 // surface) decides the lane BY DELIVERY EMAIL at intent
 // creation: an allowlisted email creates its payment
-// with the TEST keys where a test set is configured,
-// and its order is flagged TEST in the payment's
-// metadata either way (on a server carrying only one
-// key set — the play server today, whose only keys are
-// the sandbox ones — the default set is used and the
-// order is still flagged). Any other email always takes
-// the default set, and the lane is invisible to it.
+// with the TEST keys where a COMPLETE test set is
+// configured, and its order is flagged TEST in the
+// payment's metadata. Any other email always takes the
+// default set, and the lane is invisible to it.
+//
+// FAIL-CLOSED (M9.9 prep gap 9, adopted and built with
+// M9.8): the M9.6 one-key-set fallback — an allowlisted
+// email carried by the default set, still flagged TEST
+// — is RETIRED. A test purchase must never be capable
+// of taking real money: where the test set is absent or
+// INCOMPLETE (secret API key, publishable key or
+// webhook secret missing), the payment start refuses
+// an allowlisted email outright (not-configured,
+// nothing created) rather than letting the default set
+// carry it. The start seam enforces it before it
+// consults laneFor (lib/server/payment-intent.ts);
+// testLaneReady() below is the router's statement of
+// the set's completeness. The TEST flag itself is
+// unchanged: allowlist membership alone decides it.
 // Test orders fulfil identically — real PDF, real
 // delivery email, real gift rules; only the money is
 // dummy — and the flag rides the metadata into M9.6's
@@ -117,6 +129,42 @@ export type WebhookEventResult =
       // tests). M9.6's audit log records it beside the
       // order's TEST flag.
       livemode: boolean | null;
+      // The event envelope's own id (M9.8): the
+      // provider's reference for THIS delivery of the
+      // news, distinct from the object it carries.
+      eventId: string | null;
+      // The event object's own kind — the object's
+      // "object" field ("payment_intent", "refund",
+      // "charge", …), null where the object names none.
+      objectKind: string | null;
+      // The PaymentIntent the object belongs to, read
+      // from the object's OWN payment linkage — its
+      // "payment_intent" field (a refund's and a
+      // charge's link to their payment) — never from
+      // metadata, which a refund object does not carry
+      // for us (M9.8, gap 2). Null where the object
+      // carries no such link (a PaymentIntent object
+      // itself among them).
+      paymentIntentId: string | null;
+      // The charge the object names: a refund's
+      // "charge" field, or the object's own id where
+      // the object IS a charge. Null otherwise.
+      chargeId: string | null;
+      // The refund's own id, where the object IS a
+      // refund; null for every other object kind.
+      refundId: string | null;
+      // The object's amount in the currency's minor
+      // units (a refund's own amount; a payment's full
+      // amount), and — where the object carries it —
+      // the cumulative amount refunded against it (a
+      // charge's corroboration, never the authority).
+      amount: number | null;
+      amountRefunded: number | null;
+      currency: string | null;
+      // When the provider says the object happened —
+      // the object's own creation time (a refund's
+      // "created"), distinct from when we heard of it.
+      providerCreatedAt: Date | null;
     }
   | { ok: false; reason: string };
 
@@ -199,6 +247,44 @@ function stringMetadata(raw: unknown): Record<string, string> {
   return metadata;
 }
 
+// The event-object fields the translator names beyond
+// the payment itself (M9.8, gap 2), read from the
+// verified object in ONE place so the Stripe adapter
+// and the fake answer identically: the Refund object
+// is the authority for a refund — its own id, its
+// amount, its status (already on the verdict) and its
+// payment linkage — while a charge's amount_refunded
+// is corroboration only and is exposed as such.
+function webhookObjectFields(object: Record<string, unknown>): {
+  objectKind: string | null;
+  paymentIntentId: string | null;
+  chargeId: string | null;
+  refundId: string | null;
+  amount: number | null;
+  amountRefunded: number | null;
+  currency: string | null;
+  providerCreatedAt: Date | null;
+} {
+  const objectKind = typeof object.object === "string" ? object.object : null;
+  const ownId = typeof object.id === "string" ? object.id : null;
+  const minorUnits = (value: unknown): number | null =>
+    typeof value === "number" && Number.isFinite(value) ? value : null;
+  return {
+    objectKind,
+    paymentIntentId: typeof object.payment_intent === "string" ? object.payment_intent : null,
+    chargeId:
+      typeof object.charge === "string" ? object.charge : objectKind === "charge" ? ownId : null,
+    refundId: objectKind === "refund" ? ownId : null,
+    amount: minorUnits(object.amount),
+    amountRefunded: minorUnits(object.amount_refunded),
+    currency: typeof object.currency === "string" ? object.currency : null,
+    providerCreatedAt:
+      typeof object.created === "number" && Number.isFinite(object.created)
+        ? new Date(object.created * 1000)
+        : null,
+  };
+}
+
 export interface StripeClientSlice {
   paymentIntents: {
     create(params: Record<string, unknown>): Promise<{
@@ -218,6 +304,7 @@ export interface StripeClientSlice {
       signature: string,
       secret: string,
     ): {
+      id?: unknown;
       type: string;
       livemode?: unknown;
       data: { object: Record<string, unknown> };
@@ -292,6 +379,8 @@ export function createStripePayments(config: {
           status: typeof object.status === "string" ? object.status : null,
           metadata: stringMetadata(object.metadata),
           livemode: typeof event.livemode === "boolean" ? event.livemode : null,
+          eventId: typeof event.id === "string" ? event.id : null,
+          ...webhookObjectFields(object),
         };
       } catch {
         return { ok: false, reason: "bad-signature" };
@@ -414,6 +503,7 @@ export function createFakePayments(config?: { webhookSecret?: string }): FakePay
       }
       try {
         const event = JSON.parse(input.payload) as {
+          id?: unknown;
           type?: unknown;
           livemode?: unknown;
           data?: { object?: Record<string, unknown> };
@@ -426,6 +516,8 @@ export function createFakePayments(config?: { webhookSecret?: string }): FakePay
           status: typeof object.status === "string" ? object.status : null,
           metadata: stringMetadata(object.metadata),
           livemode: typeof event.livemode === "boolean" ? event.livemode : null,
+          eventId: typeof event.id === "string" ? event.id : null,
+          ...webhookObjectFields(object),
         };
       } catch {
         return { ok: false, reason: "bad-payload" };
@@ -488,12 +580,23 @@ export interface PaymentsRouter {
   // the test lane only where the email is allowlisted
   // AND a test set is configured; the default ("live")
   // set otherwise — an unlisted email can never reach
-  // the test set.
+  // the test set. NOTE (fail-closed, M9.9 gap 9): the
+  // payment start refuses an allowlisted email BEFORE
+  // consulting this where the test set is absent or
+  // incomplete (see testLaneReady) — this answer is
+  // never the route by which a test order reaches the
+  // default set's money.
   laneFor(email: string): PaymentLane;
+  // Whether the test lane can actually run a test
+  // order end to end: a test set is configured AND
+  // complete — it can verify its webhooks (its secret
+  // API key and webhook secret are placed) and the
+  // page can initialise from it (its publishable key
+  // is placed). The payment start fails closed on this
+  // for allowlisted emails.
+  testLaneReady(): boolean;
   // Whether an order for this email is flagged TEST:
-  // allowlist membership alone decides it, configured
-  // test set or not (the one-key-set server still flags
-  // its testers' orders).
+  // allowlist membership alone decides it.
   isTestOrder(email: string): boolean;
   forLane(lane: PaymentLane): Payments;
   publishableKeyFor(lane: PaymentLane): string | null;
@@ -548,6 +651,17 @@ export function createPaymentsRouter(config: {
   const isTestOrder = (email: string) => allowlist.has(normaliseEmail(email));
   return {
     isTestOrder,
+    testLaneReady() {
+      // A set exists only where its secret API key was
+      // placed (the factory's own gate), so completeness
+      // is the remaining two parts: it can verify its
+      // webhooks (webhookConfigured — the key and the
+      // webhook secret together) and the payment page
+      // can initialise from its publishable key.
+      return (
+        config.test !== null && config.test.webhookConfigured && config.test.publishableKey !== null
+      );
+    },
     laneFor(email) {
       return isTestOrder(email) && config.test ? "test" : "live";
     },

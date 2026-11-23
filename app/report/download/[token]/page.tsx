@@ -4,11 +4,14 @@ import { notFound, redirect } from "next/navigation";
 import {
   DownloadExpiredCard,
   DownloadPageShell,
+  DownloadRefundedCard,
   DownloadSentCard,
 } from "../../../../components/DownloadLinkPage";
 import { downloadFilePath, downloadLandingView } from "../../../../lib/download";
 import { pageMetadata } from "../../../../lib/seo";
+import { getDbPool } from "../../../../lib/server/db";
 import { getDownloadSigner } from "../../../../lib/server/download-links";
+import { createDbDeliveryStore } from "../../../../lib/server/report-deliveries";
 
 // The download link's landing page (plan step M8.6,
 // Key K16) — the URL every delivery and re-issue email
@@ -31,13 +34,25 @@ import { getDownloadSigner } from "../../../../lib/server/download-links";
 //                       made-up link, a mistyped one
 //                       and a tampered one get exactly
 //                       the same answer.
+//   genuine, but the
+//   delivery stands
+//   WITHDRAWN (M9.8)  → the refunded card, in date or
+//                       expired alike: the order was
+//                       refunded in full, so the link
+//                       is closed — never the file, and
+//                       never the expired card, whose
+//                       re-issue form would promise a
+//                       recovery that must not happen.
 //
 // Verification is stateless (the signature carries the
-// expiry), so this page spends no database read at
-// all. Journey-page conventions: explicit noindex
-// metadata in every environment (the M7.8 pattern —
-// the route family already stands in the robots
-// disallow set under /report), no sitemap entry.
+// expiry). A link that is not genuine still spends no
+// database read at all; a genuine one now spends one —
+// the delivery read that carries the withdrawn
+// standing (M9.8). Journey-page conventions: explicit
+// noindex metadata in every environment (the M7.8
+// pattern — the route family already stands in the
+// robots disallow set under /report), no sitemap
+// entry.
 
 export const metadata: Metadata = pageMetadata({
   title: "Your report download | Check My Next Home",
@@ -59,12 +74,23 @@ export default async function DownloadLandingRoute({
   const { sent } = await searchParams;
   const signer = getDownloadSigner();
   const verification = signer?.verify(token, new Date()) ?? { kind: "invalid" as const };
-  const view = downloadLandingView(verification, { sent: sent === "1" });
+  // The withdrawn standing (M9.8): read only once the
+  // link has proven genuine — a forged link still
+  // learns nothing and spends nothing.
+  let withdrawn = false;
+  if (verification.kind !== "invalid") {
+    const deliveries = createDbDeliveryStore(getDbPool());
+    const delivery = await deliveries.getById(verification.deliveryId).catch(() => null);
+    withdrawn = delivery?.withdrawnAt != null;
+  }
+  const view = downloadLandingView(verification, { sent: sent === "1", withdrawn });
   if (view.kind === "not-recognised") notFound();
   if (view.kind === "serve") redirect(downloadFilePath(token));
   return (
     <DownloadPageShell>
-      {view.kind === "sent" ? (
+      {view.kind === "refunded" ? (
+        <DownloadRefundedCard />
+      ) : view.kind === "sent" ? (
         <DownloadSentCard token={token} />
       ) : (
         <DownloadExpiredCard token={token} />

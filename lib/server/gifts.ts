@@ -27,10 +27,16 @@
 //                        when the gifted report is
 //                        DELIVERED to the bound email —
 //                        only delivery consumes the gift.
-//   - A refund voids the order's gift while Issued or
-//     Claimed (M9.8, carried from M7.13): that
-//     transition is M9.8's to add; a Redeemed gift
-//     stands.
+//   - voidByOrderRef() — M9.8's refund transition calls
+//                        this when the issuing order's
+//                        refund completes in full: an
+//                        Issued gift is voided (its
+//                        pending confirmation cleared
+//                        with it), a Claimed gift is
+//                        voided, and a Redeemed gift
+//                        STANDS — answered unchanged, so
+//                        the caller records that the
+//                        gift stood.
 //
 // The gift claimed/redeemed measurement events (M7.14)
 // attach at bindByConfirm() and markRedeemed() — the two
@@ -92,6 +98,21 @@ export interface GiftStore {
   // The live claimed gift bound to this email, if any:
   // claimed, unconsumed, unexpired (test (i)'s lookup).
   findClaimedByEmail(email: string, now: Date): Promise<GiftRecord | null>;
+  // The gift an order issued, if any (M9.8): the
+  // refund transition finds the order's gift by the
+  // order's own reference — never by buyer email, so a
+  // second genuine order by the same buyer is never
+  // touched by the first order's refund.
+  getByOrderRef(orderRef: string): Promise<GiftRecord | null>;
+  // Void the order's gift (M9.8): Issued → Voided with
+  // any pending confirmation cleared; Claimed →
+  // Voided; Redeemed stands untouched. Answers the
+  // record as it stands after the call (null where the
+  // order issued no gift), so the caller records the
+  // gift consequence from the record's own status.
+  // Idempotent: voiding a voided gift answers it
+  // unchanged.
+  voidByOrderRef(orderRef: string, now: Date): Promise<GiftRecord | null>;
 }
 
 interface GiftRow {
@@ -104,6 +125,7 @@ interface GiftRow {
   expires_at: Date;
   claimed_at: Date | null;
   redeemed_at: Date | null;
+  voided_at: Date | null;
   pending_email: string | null;
   pending_token: string | null;
   pending_sent_at: Date | null;
@@ -120,6 +142,7 @@ function toRecord(row: GiftRow): GiftRecord {
     expiresAt: new Date(row.expires_at),
     claimedAt: row.claimed_at ? new Date(row.claimed_at) : null,
     redeemedAt: row.redeemed_at ? new Date(row.redeemed_at) : null,
+    voidedAt: row.voided_at ? new Date(row.voided_at) : null,
     pendingEmail: row.pending_email,
     pendingToken: row.pending_token,
     pendingSentAt: row.pending_sent_at ? new Date(row.pending_sent_at) : null,
@@ -127,7 +150,7 @@ function toRecord(row: GiftRow): GiftRecord {
 }
 
 const COLUMNS = `token, buyer_email, claimant_email, status, order_ref,
-  issued_at, expires_at, claimed_at, redeemed_at,
+  issued_at, expires_at, claimed_at, redeemed_at, voided_at,
   pending_email, pending_token, pending_sent_at`;
 
 export function createDbGiftStore(db: AddressQueryable, sink?: GiftJourneySink): GiftStore {
@@ -155,13 +178,14 @@ export function createDbGiftStore(db: AddressQueryable, sink?: GiftJourneySink):
         expiresAt: new Date(now.getTime() + GIFT_VALIDITY_MS),
         claimedAt: null,
         redeemedAt: null,
+        voidedAt: null,
         pendingEmail: null,
         pendingToken: null,
         pendingSentAt: null,
       };
       await db.query(
         `INSERT INTO gift_tokens (${COLUMNS})
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
         [
           record.token,
           record.buyerEmail,
@@ -172,6 +196,7 @@ export function createDbGiftStore(db: AddressQueryable, sink?: GiftJourneySink):
           record.expiresAt,
           record.claimedAt,
           record.redeemedAt,
+          record.voidedAt,
           record.pendingEmail,
           record.pendingToken,
           record.pendingSentAt,
@@ -252,6 +277,44 @@ export function createDbGiftStore(db: AddressQueryable, sink?: GiftJourneySink):
       const row = (rows as unknown as GiftRow[])[0];
       return row ? toRecord(row) : null;
     },
+
+    async getByOrderRef(orderRef) {
+      const { rows } = await db.query(
+        `SELECT ${COLUMNS} FROM gift_tokens WHERE order_ref = $1 LIMIT 1`,
+        [orderRef],
+      );
+      const row = (rows as unknown as GiftRow[])[0];
+      return row ? toRecord(row) : null;
+    },
+
+    async voidByOrderRef(orderRef, now) {
+      // The conditions live in the write itself: only
+      // an Issued or Claimed gift voids — a Redeemed
+      // gift is never touched by this statement, and a
+      // pending confirmation dies with the void so a
+      // confirmation link clicked afterwards binds
+      // nothing (bindByConfirm requires Issued anyway;
+      // clearing keeps the record honest).
+      const { rows } = await db.query(
+        `UPDATE gift_tokens
+            SET status = 'voided', voided_at = $2,
+                pending_email = NULL, pending_token = NULL, pending_sent_at = NULL
+          WHERE order_ref = $1 AND status IN ('issued', 'claimed')
+          RETURNING ${COLUMNS}`,
+        [orderRef, now],
+      );
+      const row = (rows as unknown as GiftRow[])[0];
+      if (row) return toRecord(row);
+      // Nothing voided — either the order issued no
+      // gift, or its gift stands Redeemed (or already
+      // Voided): answer what stands.
+      const { rows: standing } = await db.query(
+        `SELECT ${COLUMNS} FROM gift_tokens WHERE order_ref = $1 LIMIT 1`,
+        [orderRef],
+      );
+      const found = (standing as unknown as GiftRow[])[0];
+      return found ? toRecord(found) : null;
+    },
   };
 }
 
@@ -277,6 +340,7 @@ export function createMemoryGiftStore(
         expiresAt: new Date(at.getTime() + GIFT_VALIDITY_MS),
         claimedAt: null,
         redeemedAt: null,
+        voidedAt: null,
         pendingEmail: null,
         pendingToken: null,
         pendingSentAt: null,
@@ -341,6 +405,28 @@ export function createMemoryGiftStore(
         ) {
           return clone(record);
         }
+      }
+      return null;
+    },
+
+    async getByOrderRef(orderRef) {
+      for (const record of records.values()) {
+        if (record.orderRef === orderRef) return clone(record);
+      }
+      return null;
+    },
+
+    async voidByOrderRef(orderRef, at) {
+      for (const record of records.values()) {
+        if (record.orderRef !== orderRef) continue;
+        if (record.status === "issued" || record.status === "claimed") {
+          record.status = "voided";
+          record.voidedAt = at;
+          record.pendingEmail = null;
+          record.pendingToken = null;
+          record.pendingSentAt = null;
+        }
+        return clone(record);
       }
       return null;
     },

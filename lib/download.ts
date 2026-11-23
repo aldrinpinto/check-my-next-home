@@ -116,6 +116,16 @@ export interface DeliveryRecord {
   // traced to its order. Null until M9 wires delivery.
   orderRef: string | null;
   createdAt: Date;
+  // The WITHDRAWN standing (M9.8): set when the order
+  // behind this delivery was refunded in full. The row
+  // and the stored PDF are kept — the standing is read
+  // at serve time (landing, file route, re-issue,
+  // re-send), so every token ever minted over this
+  // delivery dies at once without any token bookkeeping.
+  // withdrawnRefundId names the refund that is the
+  // standing's reason. Null while the delivery stands.
+  withdrawnAt: Date | null;
+  withdrawnRefundId: string | null;
 }
 
 // ----------------------------------------------------------------
@@ -187,13 +197,25 @@ export type DownloadVerification =
   | { kind: "invalid" };
 
 export type DownloadLandingView =
-  { kind: "serve" } | { kind: "expired" } | { kind: "sent" } | { kind: "not-recognised" };
+  | { kind: "serve" }
+  | { kind: "expired" }
+  | { kind: "sent" }
+  | { kind: "not-recognised" }
+  | { kind: "refunded" };
 
 export function downloadLandingView(
   verification: DownloadVerification,
-  flags: { sent?: boolean },
+  flags: { sent?: boolean; withdrawn?: boolean },
 ): DownloadLandingView {
   if (verification.kind === "invalid") return { kind: "not-recognised" };
+  // A withdrawn delivery (M9.8 — the order was
+  // refunded in full) serves the refunded card whatever
+  // the link's own state: never the file, and never the
+  // expired card, whose re-issue form would promise a
+  // recovery that must not happen. The flag can only be
+  // raised over a genuine link — the page reads the
+  // delivery only once verification has named it.
+  if (flags.withdrawn) return { kind: "refunded" };
   if (verification.kind === "ok") return { kind: "serve" };
   // Expired: the sent presentation stands over the same
   // form once a re-issue has been asked for (?sent=1 —
@@ -221,6 +243,12 @@ export function decideReissue(
   normalisedEmail: string,
 ): "send" | "no-send" {
   if (!delivery) return "no-send";
+  // A withdrawn delivery (M9.8) is never re-issued: the
+  // order was refunded, and a fresh link would resurrect
+  // exactly what the refund closed. The route's uniform
+  // answer stands either way — the refusal is visible
+  // only in no email leaving the building.
+  if (delivery.withdrawnAt) return "no-send";
   return normalisedEmail === delivery.email ? "send" : "no-send";
 }
 
@@ -245,6 +273,19 @@ export const DOWNLOAD_SENT_BODY =
   "If that email address matches a report, a fresh download link is on its way. It should arrive within a few minutes — if it isn't there, have a quick look in your spam or junk folder, as first emails from us sometimes land there.";
 export const DOWNLOAD_SENT_AGAIN_LINE =
   "Typed the wrong address? Enter it again below and we'll send another.";
+
+// The refunded delivery (M9.8) — DRAFT copy, drawn in
+// the M9.8 draft samples outside the Final Sample
+// Master (ruling R3), in the expired card's own frame
+// and manner but never its words: the link did not run
+// out — the order was refunded, the link is closed, and
+// there is no form under this card because no fresh
+// link can be sent. The support address is the site's
+// standing one (the gift screens' GIFT_SUPPORT_EMAIL
+// carries the same address).
+export const DOWNLOAD_REFUNDED_HEADING = "This report was refunded";
+export const DOWNLOAD_REFUNDED_BODY =
+  "The order behind this link was refunded in full, so the link no longer opens the report. The refund went back to the card that paid — there's nothing you need to do. If you still want the report, you can order it again on our website. If you think something has gone wrong, email us at support@checkmynexthome.co.uk and we'll look into it.";
 
 // The two emails' shared furniture (views 11 and 34).
 export const DOWNLOAD_EMAIL_GREETING = "Hello,";

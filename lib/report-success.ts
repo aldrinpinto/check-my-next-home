@@ -67,8 +67,22 @@ import { PAYMENT_REFUND_LINE } from "./report-payment";
 //     re-issue (a fresh link for an expired one, from
 //     the download page) nor M9.10's owner resend (any
 //     order, support-side); the three never merge.
+//
+// M9.8 adds the fourth state — REFUNDED, read from the
+// refund overlay before the claim's state (the
+// order-state reading's overlay; the claim's own
+// status is never rewritten): the surface stops
+// presenting the report as ready — no sections line,
+// no viewing route, no email card, no re-send, no
+// mystery strip — and says the plain fact. For a
+// gifted claim whose gift was voided, the same state
+// carries the voided words for the claimant. The copy
+// is DRAFT (the M9.8 draft samples, drawn outside the
+// Final Sample Master per ruling R3): Sample 10's
+// frame, in its manner; Sample 12 (the decline
+// surface) is never borrowed for a refund.
 
-export type ReportSuccessState = "preparing" | "ready" | "failed";
+export type ReportSuccessState = "preparing" | "ready" | "failed" | "refunded";
 
 export interface ReportSuccessView {
   state: ReportSuccessState;
@@ -184,9 +198,18 @@ export const SUCCESS_FAILED_GIFT_LINE =
   "Your gift has not been used — it is still yours. Start again from the report page for this home, and we will set the report going.";
 export const SUCCESS_FAILED_RETRY_LINE =
   "Start again from the report page for this home, and we will set the report going.";
-// Sample 10's tease strip, verbatim — its eyebrow and
-// line are this surface's own (the buy bar carries its
-// own form of the same tease).
+// The refunded state (M9.8) — DRAFT copy from the
+// M9.8 draft samples: the heading and the plain fact,
+// per kind. The paid fact names the closure and where
+// the money went; the gifted fact is the voided gift's
+// own truth for the claimant — nothing was used up by
+// them, and no report will be made.
+export const SUCCESS_HEADING_REFUNDED = "This order was refunded";
+export const SUCCESS_REFUNDED_FACT_PAID =
+  "This report was refunded in full, so it has been closed — its download link no longer works, and the report is no longer available to view. The money went back to the card that paid for it.";
+export const SUCCESS_HEADING_VOIDED_GIFT = "This gift was voided";
+export const SUCCESS_REFUNDED_FACT_GIFTED =
+  "The report this gift came with was refunded, and a refund ends the gift that came with it — so this free report won't be made. Nothing was used up by you.";
 export const SUCCESS_MYSTERY_EYEBROW = "One more thing";
 export const SUCCESS_MYSTERY_LINE = "There's a little extra waiting in that email, on us.";
 // The gift-applied banner (the claim samples' approved
@@ -214,17 +237,22 @@ export function buildReportSuccessView(input: {
 }): ReportSuccessView {
   const ready = input.state === "ready";
   const failed = input.state === "failed";
+  const refunded = input.state === "refunded";
   const identity = input.identity;
   const emailUnsent = ready && input.mailSent === false;
   return {
     state: input.state,
     kind: input.kind,
-    badge: input.kind === "paid" ? SUCCESS_BADGE_PAID : null,
+    badge: refunded ? null : input.kind === "paid" ? SUCCESS_BADGE_PAID : null,
     heading: ready
       ? SUCCESS_HEADING_READY
       : failed
         ? SUCCESS_HEADING_FAILED
-        : SUCCESS_HEADING_PREPARING,
+        : refunded
+          ? input.kind === "gifted"
+            ? SUCCESS_HEADING_VOIDED_GIFT
+            : SUCCESS_HEADING_REFUNDED
+          : SUCCESS_HEADING_PREPARING,
     homeSubject:
       identity.kind === "home"
         ? identity.subject
@@ -238,7 +266,11 @@ export function buildReportSuccessView(input: {
         ? input.kind === "paid"
           ? SUCCESS_FAILED_FACT_PAID
           : SUCCESS_FAILED_FACT
-        : SUCCESS_LEDE_PREPARING,
+        : refunded
+          ? input.kind === "gifted"
+            ? SUCCESS_REFUNDED_FACT_GIFTED
+            : SUCCESS_REFUNDED_FACT_PAID
+          : SUCCESS_LEDE_PREPARING,
     sectionsLine: ready ? SUCCESS_SECTIONS_LINE : null,
     viewHref: ready
       ? reportViewRoute(
@@ -247,20 +279,23 @@ export function buildReportSuccessView(input: {
         )
       : null,
     viewLabel: SUCCESS_VIEW_LABEL,
-    emailHeading: failed
-      ? null
-      : emailUnsent
-        ? SUCCESS_EMAIL_HEADING_UNSENT
-        : SUCCESS_EMAIL_HEADING,
-    emailLead: failed
-      ? null
-      : emailUnsent
-        ? SUCCESS_EMAIL_LEAD_UNSENT
-        : ready
-          ? SUCCESS_EMAIL_LEAD_READY
-          : SUCCESS_EMAIL_LEAD_PREPARING,
+    emailHeading:
+      failed || refunded
+        ? null
+        : emailUnsent
+          ? SUCCESS_EMAIL_HEADING_UNSENT
+          : SUCCESS_EMAIL_HEADING,
+    emailLead:
+      failed || refunded
+        ? null
+        : emailUnsent
+          ? SUCCESS_EMAIL_LEAD_UNSENT
+          : ready
+            ? SUCCESS_EMAIL_LEAD_READY
+            : SUCCESS_EMAIL_LEAD_PREPARING,
     email: input.email,
-    emailTail: failed ? null : emailUnsent ? SUCCESS_EMAIL_TAIL_UNSENT : SUCCESS_EMAIL_TAIL,
+    emailTail:
+      failed || refunded ? null : emailUnsent ? SUCCESS_EMAIL_TAIL_UNSENT : SUCCESS_EMAIL_TAIL,
     refundLine: failed && input.kind === "paid" ? PAYMENT_REFUND_LINE : null,
     failedGiftLine: failed && input.kind === "gifted" ? SUCCESS_FAILED_GIFT_LINE : null,
     failedRetryLine: failed && input.kind === "free" ? SUCCESS_FAILED_RETRY_LINE : null,
@@ -268,9 +303,10 @@ export function buildReportSuccessView(input: {
     resendLabel: ready ? SUCCESS_RESEND_LABEL : null,
     resendSentLine: ready ? SUCCESS_RESEND_SENT_LINE : null,
     resendFailedLine: ready ? SUCCESS_RESEND_FAILED_LINE : null,
-    mysteryEyebrow: !failed && input.kind === "paid" ? SUCCESS_MYSTERY_EYEBROW : null,
-    mysteryLine: !failed && input.kind === "paid" ? SUCCESS_MYSTERY_LINE : null,
-    giftBannerLine: !failed && input.kind === "gifted" ? GIFT_APPLIED_BANNER_LINE : null,
+    mysteryEyebrow: !failed && !refunded && input.kind === "paid" ? SUCCESS_MYSTERY_EYEBROW : null,
+    mysteryLine: !failed && !refunded && input.kind === "paid" ? SUCCESS_MYSTERY_LINE : null,
+    giftBannerLine:
+      !failed && !refunded && input.kind === "gifted" ? GIFT_APPLIED_BANNER_LINE : null,
     shortlistHref: "/shortlist",
     shortlistLabel: SUCCESS_SHORTLIST_LABEL,
   };

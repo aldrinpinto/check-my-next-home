@@ -6,8 +6,10 @@ import { buildReportPaymentFailedView } from "../../../lib/report-payment-failed
 import { pageMetadata } from "../../../lib/seo";
 import { getDbPool } from "../../../lib/server/db";
 import { createDbFulfilmentClaimStore } from "../../../lib/server/fulfilment";
+import { createDbGiftStore } from "../../../lib/server/gifts";
 import { readOrderState } from "../../../lib/server/order-state";
 import { getPaymentsRouter } from "../../../lib/server/payments";
+import { createDbRefundStore, refundTriggerMet } from "../../../lib/server/refunds";
 import { identityForOrder } from "../../../lib/server/report-identity";
 
 // The payment's return landing (plan step M9.7, gap
@@ -51,9 +53,29 @@ export default async function ReportReturnRoute({
   const params = await searchParams;
   const ref = params.order ?? params.payment_intent ?? null;
   if (!ref) redirect("/report");
-  const claims = createDbFulfilmentClaimStore(getDbPool());
-  const reading = await readOrderState({ claims, payments: getPaymentsRouter() }, ref);
+  const pool = getDbPool();
+  const claims = createDbFulfilmentClaimStore(pool);
+  const gifts = createDbGiftStore(pool);
+  const refundStore = createDbRefundStore(pool);
+  const reading = await readOrderState(
+    {
+      claims,
+      payments: getPaymentsRouter(),
+      refunds: {
+        completedFullRefund: async (paymentRef) =>
+          refundTriggerMet(await refundStore.listByPayment(paymentRef)),
+      },
+      giftVoided: async (token) => (await gifts.getByToken(token))?.status === "voided",
+    },
+    ref,
+  );
 
+  // A refunded order (M9.8) belongs on the success
+  // surface, which renders the refunded state — never
+  // on Sample 12: the payment did not fail.
+  if (reading.kind === "refunded" || reading.kind === "voided-gift") {
+    redirect(`/report/success?order=${encodeURIComponent(ref)}`);
+  }
   if (reading.kind === "claim") {
     redirect(`/report/success?order=${encodeURIComponent(ref)}`);
   }

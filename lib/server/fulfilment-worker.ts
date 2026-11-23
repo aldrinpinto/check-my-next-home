@@ -26,6 +26,8 @@ import {
 } from "./fulfilment";
 import { createDbGiftStore } from "./gifts";
 import { recordJourneyEvent } from "./journey-events";
+import { createDbRefundStore, createRefundProcessing } from "./refunds";
+import { createDbDeliveryStore } from "./report-deliveries";
 import { getReportDeliveryService } from "./report-delivery";
 import { storeReportPdf } from "./report-pdf";
 import { checkReport, resolutionForRoute } from "./serve";
@@ -69,12 +71,33 @@ export function getFulfilmentService(): ReturnType<typeof createFulfilmentServic
   const claims = createDbFulfilmentClaimStore(pool);
   const deliveryService = getReportDeliveryService();
   const gifts = createDbGiftStore(pool);
+  const refunds = createDbRefundStore(pool);
+  const refundProcessing = createRefundProcessing({
+    refunds,
+    claims,
+    deliveries: createDbDeliveryStore(pool),
+    gifts,
+  });
   return createFulfilmentService({
     claims,
     resolve: resolveForFulfilment,
     buildPdf: buildPdfForClaim,
     deliver: deliveryService ? (input) => deliveryService.deliverReport(input) : null,
     redeemGift: (token, at) => gifts.markRedeemed(token, at),
+    // The refund stop (M9.8): a paid claim whose
+    // payment stands fully refunded, or a gifted claim
+    // whose gift has been voided, is retired as
+    // refunded and never delivered.
+    stopCheck: async (claim) => {
+      if (claim.kind === "paid") {
+        return (await refundProcessing.completedFullRefund(claim.ref)) ? "refunded" : null;
+      }
+      if (claim.kind === "gifted" && claim.giftToken) {
+        const gift = await gifts.getByToken(claim.giftToken);
+        return gift?.status === "voided" ? "refunded" : null;
+      }
+      return null;
+    },
     recordDelivered: () => {
       void recordJourneyEvent(pool, { event: "report_delivered", routePattern: "/report" });
     },

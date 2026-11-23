@@ -27,6 +27,7 @@ export function giftRecord(overrides: Partial<GiftRecord> = {}): GiftRecord {
     expiresAt: new Date(issuedAt.getTime() + GIFT_VALIDITY_MS),
     claimedAt: null,
     redeemedAt: null,
+    voidedAt: null,
     pendingEmail: null,
     pendingToken: null,
     pendingSentAt: null,

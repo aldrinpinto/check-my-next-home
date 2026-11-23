@@ -205,6 +205,22 @@ function contractSuite(
           consent_tick: "true",
           consent_timestamp: CONSENT.timestamp,
         },
+        // M9.8 (gap 2): the verdict also names the
+        // event's own id and the object's linkage
+        // fields. This fixture's object carries none of
+        // them — a payment object names no payment
+        // linkage of its own — so every one reads null
+        // here; the refund-shaped payloads in
+        // tests/refunds.test.ts pin them populated.
+        eventId: null,
+        objectKind: null,
+        paymentIntentId: null,
+        chargeId: null,
+        refundId: null,
+        amount: null,
+        amountRefunded: null,
+        currency: null,
+        providerCreatedAt: null,
       });
     });
 
@@ -497,10 +513,42 @@ describe("payments translator — the test lane (M9.6)", () => {
       test: null,
       testEmails: [TESTER],
     });
-    // No test set configured: the default set creates the
-    // payment, but the order is STILL a test order.
+    // laneFor still answers "live" here — it names the
+    // set that WOULD create the payment — and the order
+    // is still a test order by flag. What the answer no
+    // longer means (M9.9 gap 9, fail-closed, built with
+    // M9.8): that the payment gets created at all. The
+    // start refuses an allowlisted email before
+    // consulting laneFor wherever testLaneReady() is
+    // false — pinned at the start seam in
+    // tests/payment-intent.test.ts.
     expect(withoutSet.laneFor(TESTER)).toBe("live");
     expect(withoutSet.isTestOrder(TESTER)).toBe(true);
+    expect(withoutSet.testLaneReady()).toBe(false);
+  });
+
+  it("testLaneReady: a configured set is ready only complete — key, publishable key and webhook secret (M9.9 gap 9)", () => {
+    const live = createFakePayments();
+    const complete = createPaymentsRouter({
+      live: laneSet(live, "pk_live"),
+      test: laneSet(createFakePayments(), "pk_test"),
+      testEmails: [TESTER],
+    });
+    expect(complete.testLaneReady()).toBe(true);
+
+    const noPublishable = createPaymentsRouter({
+      live: laneSet(live, "pk_live"),
+      test: { payments: createFakePayments(), webhookConfigured: true, publishableKey: null },
+      testEmails: [TESTER],
+    });
+    expect(noPublishable.testLaneReady()).toBe(false);
+
+    const noWebhookSecret = createPaymentsRouter({
+      live: laneSet(live, "pk_live"),
+      test: { payments: createFakePayments(), webhookConfigured: false, publishableKey: "pk_test" },
+      testEmails: [TESTER],
+    });
+    expect(noWebhookSecret.testLaneReady()).toBe(false);
   });
 
   it("reads a payment back through the router: whichever lane set holds it answers (M9.7)", async () => {

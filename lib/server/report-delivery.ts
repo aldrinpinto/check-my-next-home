@@ -130,6 +130,11 @@ export interface ReportDeliveryService {
   // email, entered from the download page; this answers
   // an email that never arrived, from the order's own
   // success surface, keyed by the order.
+  // A WITHDRAWN delivery (M9.8 — its order was
+  // refunded in full) answers null like a missing one:
+  // no re-send may resurrect what the refund closed.
+  // M9.10's owner resend inherits this refusal — it
+  // runs over this same service.
   resendDeliveryEmail(input: {
     deliveryId: string;
     origin: string;
@@ -204,6 +209,9 @@ export function createReportDeliveryService(deps: ReportDeliveryDeps): ReportDel
       const now = input.now ?? new Date();
       const delivery = await deps.deliveries.getById(input.deliveryId);
       if (!delivery) return null;
+      // The withdrawn standing (M9.8): a refunded
+      // order's delivery is never re-sent.
+      if (delivery.withdrawnAt) return null;
       const { token } = deps.signer.mint(delivery.id, now);
       const email = deliveryEmail({
         homeTitle: delivery.homeTitle,

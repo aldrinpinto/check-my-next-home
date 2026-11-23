@@ -62,12 +62,16 @@ import {
   type PaymentsRouter,
 } from "./payments";
 import type { DeliverReportOutcome } from "./report-delivery";
+import type { RefundEventInput, RefundProcessing } from "./refunds";
+import { createDbRefundStore, createRefundProcessing } from "./refunds";
+import { createDbGiftStore } from "./gifts";
+import { createDbDeliveryStore } from "./report-deliveries";
 
 // ----------------------------------------------------------------
 // The claim store
 
 export type FulfilmentKind = "paid" | "gifted" | "free";
-export type FulfilmentStatus = "claimed" | "fulfilled" | "failed";
+export type FulfilmentStatus = "claimed" | "fulfilled" | "failed" | "refunded";
 
 export interface FulfilmentClaim {
   ref: string;
@@ -135,6 +139,15 @@ export interface FulfilmentClaimStore {
   // the email — follows the fact. Only a fulfilled
   // claim's flag can move, and only to true.
   markMailSent(ref: string): Promise<void>;
+  // Retire a still-waiting claim as REFUNDED (M9.8):
+  // a completed full refund stands for its payment (or
+  // its gift was voided), so the claim will never be
+  // fulfilled and never issue a gift. Only a claim
+  // still standing "claimed" moves; a fulfilled claim
+  // keeps its status (the refund is an overlay beside
+  // it) and a failed claim stays failed. The reason is
+  // kept on the row.
+  markRefunded(ref: string): Promise<void>;
 }
 
 // A free-window claim's reference: no payment and no
@@ -267,6 +280,15 @@ export function createDbFulfilmentClaimStore(db: {
         [ref],
       );
     },
+
+    async markRefunded(ref) {
+      await db.query(
+        `UPDATE fulfilment_claims
+            SET status = 'refunded', last_error = 'refunded'
+          WHERE ref = $1 AND status = 'claimed'`,
+        [ref],
+      );
+    },
   };
 }
 
@@ -335,6 +357,12 @@ export function createMemoryFulfilmentClaimStore(): FulfilmentClaimStore & {
       if (!claim || claim.status !== "fulfilled") return;
       claim.mailSent = true;
     },
+    async markRefunded(ref) {
+      const claim = claims.get(ref);
+      if (!claim || claim.status !== "claimed") return;
+      claim.status = "refunded";
+      claim.lastError = "refunded";
+    },
   };
 }
 
@@ -349,6 +377,13 @@ export interface WebhookDeps {
   // never from a browser beacon, copying no order
   // fields (M7.14). Fire-and-forget by contract.
   recordCheckoutPaid: () => void;
+  // The refund machinery (M9.8): refund events are
+  // recorded against the refund record and their
+  // consequences applied here; the claim path reads
+  // the same processing for its tombstone. Optional in
+  // the type so older test harnesses stand unchanged;
+  // the production wiring always provides it.
+  refunds?: RefundProcessing;
   now?: () => Date;
 }
 
@@ -363,7 +398,11 @@ export type WebhookOutcome =
   | { kind: "claimed" }
   // Verified and logged; the claim already stood — the
   // redelivery changed nothing.
-  | { kind: "duplicate" };
+  | { kind: "duplicate" }
+  // Verified, logged, and recorded against the refund
+  // record (M9.8) — its consequences applied where the
+  // refund completed in full.
+  | { kind: "refund" };
 
 export async function processWebhookEvent(
   deps: WebhookDeps,
@@ -379,10 +418,16 @@ export async function processWebhookEvent(
   const testOrder = verdict.metadata[PAYMENT_METADATA_TEST] === "true";
 
   // The log comes first — every verified event,
-  // whatever happens next (founder amendment).
+  // whatever happens next (founder amendment). An
+  // event whose object names its payment (a refund, a
+  // charge) is filed under that PaymentIntent
+  // reference, so the order's event history joins up;
+  // a payment event files under its own id, exactly as
+  // before (M9.8, gap 4 — a refund filed under the
+  // refund's own id would strand the order's trail).
   await deps.log.record({
     eventType: verdict.type,
-    intentId: verdict.intentId,
+    intentId: verdict.paymentIntentId ?? verdict.intentId,
     status: verdict.status,
     email,
     postcode,
@@ -391,6 +436,41 @@ export async function processWebhookEvent(
     testOrder,
     now,
   });
+
+  // Refund events (M9.8): recorded against the refund
+  // record, with the consequences of a completed full
+  // refund applied by the one transition. The Refund
+  // object is the authority — charge.refunded is not
+  // in this set and stays a logged event only. A
+  // failure while applying propagates, so the route
+  // answers the provider with failure and the event
+  // retries into the same transition.
+  if (
+    verdict.type === "refund.created" ||
+    verdict.type === "refund.updated" ||
+    verdict.type === "refund.failed"
+  ) {
+    if (!deps.refunds || !verdict.refundId) return { kind: "logged" };
+    const paymentRef = verdict.paymentIntentId;
+    const orderClaim = paymentRef ? await deps.claims.getByRef(paymentRef) : null;
+    const refundInput: RefundEventInput = {
+      refundId: verdict.refundId,
+      paymentRef,
+      chargeRef: verdict.chargeId,
+      amount: verdict.amount,
+      currency: verdict.currency,
+      status: verdict.status,
+      livemode: verdict.livemode,
+      providerCreatedAt: verdict.providerCreatedAt,
+      // The order's own TEST flag where its claim
+      // stands; else the event's mode (a test-mode
+      // refund is a test order's refund).
+      testOrder: orderClaim?.testOrder ?? verdict.livemode === false,
+      now,
+    };
+    await deps.refunds.handleRefundEvent(refundInput);
+    return { kind: "refund" };
+  }
 
   const isSucceededPayment =
     verdict.type === "payment_intent.succeeded" && verdict.status === "succeeded";
@@ -409,9 +489,18 @@ export async function processWebhookEvent(
     testOrder,
     now,
   });
-  if (!claimed) return { kind: "duplicate" };
-  deps.recordCheckoutPaid();
-  return { kind: "claimed" };
+  if (claimed) deps.recordCheckoutPaid();
+
+  // The tombstone (M9.8, gap 6): where a completed full
+  // refund already stands for this payment — the refund
+  // was heard before the success — the claim is born
+  // refunded: retired at once, never fulfilled, never
+  // issued a gift. The worker's own guard covers the
+  // races on either side of this moment.
+  if (deps.refunds && (await deps.refunds.completedFullRefund(verdict.intentId))) {
+    await deps.claims.markRefunded(verdict.intentId);
+  }
+  return claimed ? { kind: "claimed" } : { kind: "duplicate" };
 }
 
 // ----------------------------------------------------------------
@@ -454,6 +543,17 @@ export interface FulfilmentDeps {
   // the gift store's markRedeemed, which records
   // gift_redeemed at the same moment.
   redeemGift: (token: string, now: Date) => Promise<unknown>;
+  // The refund stop (M9.8, gap 6): asked whether this
+  // claim must never be fulfilled — a completed full
+  // refund stands for a paid claim's payment, or a
+  // gifted claim's gift has been voided. Consulted
+  // before any work, and again immediately before the
+  // delivery call (the irreversible moment — the
+  // delivery issues the gift inside itself, so this
+  // one check guards both). A claim it stops is
+  // retired as refunded, never failed. Optional in the
+  // type; the production wiring always provides it.
+  stopCheck?: (claim: FulfilmentClaim) => Promise<"refunded" | null>;
   // report_delivered, recorded server-side at delivery
   // — the payment funnel's last step (Amendment B).
   recordDelivered: () => void;
@@ -465,7 +565,13 @@ export interface FulfilmentDeps {
   now?: () => Date;
 }
 
-export type FulfilOneOutcome = { outcome: "fulfilled" } | { outcome: "failed"; error: string };
+export type FulfilOneOutcome =
+  | { outcome: "fulfilled" }
+  | { outcome: "failed"; error: string }
+  // Stopped by the refund guard (M9.8): the claim was
+  // retired as refunded — not a failure, and its
+  // attempts were not spent.
+  | { outcome: "refunded" };
 
 const DEFAULT_MAX_ATTEMPTS = 3;
 
@@ -476,9 +582,30 @@ export function createFulfilmentService(deps: FulfilmentDeps) {
   async function fulfilClaim(claim: FulfilmentClaim): Promise<FulfilOneOutcome> {
     try {
       if (!deps.deliver) throw new Error("delivery-not-configured");
+      // The refund stop, before any work (M9.8): a
+      // claim under a completed refund — or a gifted
+      // claim whose gift was voided — is retired as
+      // refunded and never reaches the rendering path.
+      // The check lives inside the guarded stretch on
+      // purpose: where the check itself cannot be read,
+      // the claim fails an attempt and is retried,
+      // rather than delivering on an unproven standing.
+      if (deps.stopCheck && (await deps.stopCheck(claim)) === "refunded") {
+        await deps.claims.markRefunded(claim.ref);
+        return { outcome: "refunded" };
+      }
       const resolution = await deps.resolve(claim.postcode, claim.homeKey);
       if (!resolution) throw new Error("home-not-resolved");
       const pdf = await deps.buildPdf(resolution, claim);
+      // And again immediately before delivering: a
+      // refund that completed while this claim composed
+      // still stops it — the delivery call below is the
+      // irreversible moment (it issues the gift inside
+      // itself), so this check guards the gift too.
+      if (deps.stopCheck && (await deps.stopCheck(claim)) === "refunded") {
+        await deps.claims.markRefunded(claim.ref);
+        return { outcome: "refunded" };
+      }
       const outcome = await deps.deliver({
         email: claim.email,
         kind: claim.kind,
@@ -524,7 +651,9 @@ export function createFulfilmentService(deps: FulfilmentDeps) {
       for (const claim of waiting) {
         const result = await fulfilClaim(claim);
         if (result.outcome === "fulfilled") fulfilled += 1;
-        else failed += 1;
+        else if (result.outcome === "failed") failed += 1;
+        // A refunded claim counts in neither column:
+        // it was processed, and it did not fail.
       }
       return { processed: waiting.length, fulfilled, failed };
     },
@@ -533,12 +662,19 @@ export function createFulfilmentService(deps: FulfilmentDeps) {
 
 export function getWebhookDeps(router: PaymentsRouter): WebhookDeps {
   const pool = getDbPool();
+  const claims = createDbFulfilmentClaimStore(pool);
   return {
     payments: router,
     log: createDbPaymentEventLog(pool),
-    claims: createDbFulfilmentClaimStore(pool),
+    claims,
     recordCheckoutPaid: () => {
       void recordJourneyEvent(pool, { event: "checkout_paid", routePattern: "/report" });
     },
+    refunds: createRefundProcessing({
+      refunds: createDbRefundStore(pool),
+      claims,
+      deliveries: createDbDeliveryStore(pool),
+      gifts: createDbGiftStore(pool),
+    }),
   };
 }

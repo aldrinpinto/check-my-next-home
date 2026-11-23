@@ -55,14 +55,19 @@
 //               and keeps Text 2 (see giftServedState).
 //
 // A refund voids the order's gift while it is Issued or
-// Claimed; a Redeemed gift stands (M9.8, carried from
-// this step) — that transition is M9.8's to build; the
-// status set here is D21's four and nothing in this shell
-// contradicts it.
+// Claimed; a Redeemed gift stands (M9.8 — the refund
+// transition in lib/server/refunds.ts performs the void;
+// the status set here gains the terminal Voided state it
+// writes). Voided is served before expiry at every read:
+// a voided gift never reads "expired", never "already
+// used", never "not recognised" — the voided text is its
+// own (M9.8's draft samples, drawn outside the Final
+// Sample Master per ruling R3 and awaiting the founder's
+// fold-in approval).
 
 export const GIFT_VALIDITY_MS = 30 * 24 * 60 * 60 * 1000;
 
-export type GiftStatus = "issued" | "claimed" | "redeemed";
+export type GiftStatus = "issued" | "claimed" | "redeemed" | "voided";
 
 export interface GiftRecord {
   token: string;
@@ -80,6 +85,12 @@ export interface GiftRecord {
   expiresAt: Date;
   claimedAt: Date | null;
   redeemedAt: Date | null;
+  // The refund void (M9.8): when the issuing order's
+  // completed full refund voided this gift. Terminal —
+  // a voided gift is never re-served as claimable, and
+  // the auto-apply lookup only finds Claimed gifts, so
+  // a voided gift can never start a new order.
+  voidedAt: Date | null;
   // The pending confirmation: the email awaiting its
   // round-trip and the credential the emailed link
   // carries. Replaced wholesale on every new claim
@@ -97,16 +108,19 @@ export interface GiftRecord {
 // claim route; the claimed route checks the record
 // itself (status claimed, in date).
 export type GiftServedState =
-  "not-recognised" | "claim" | "claimed-guard" | "already-used" | "expired";
+  "not-recognised" | "claim" | "claimed-guard" | "already-used" | "expired" | "voided";
 
 // The served state for the claim route, in the plan's
-// precedence: redemption is final (Text 2 even after the
-// 30 days), expiry ends everything unredeemed (Text 1 —
-// including a claimed-but-unused gift), a bound gift
-// guards itself (Text 3's page), and an unclaimed in-date
-// gift offers the claim form.
+// precedence: the void stands first among the stored
+// states (a refund's act, never re-read as expiry even
+// after the 30 days), redemption is final (Text 2 even
+// after the 30 days), expiry ends everything unredeemed
+// (Text 1 — including a claimed-but-unused gift), a
+// bound gift guards itself (Text 3's page), and an
+// unclaimed in-date gift offers the claim form.
 export function giftServedState(record: GiftRecord | null, now: Date): GiftServedState {
   if (!record) return "not-recognised";
+  if (record.status === "voided") return "voided";
   if (record.status === "redeemed") return "already-used";
   if (now.getTime() > record.expiresAt.getTime()) return "expired";
   if (record.status === "claimed") return "claimed-guard";
@@ -251,7 +265,7 @@ export type GiftClaimPageView =
       entryEmail?: string;
       sendFailed?: boolean;
     }
-  | { kind: "closed"; variant: "used" | "expired" | "not-recognised" };
+  | { kind: "closed"; variant: "used" | "expired" | "not-recognised" | "voided" };
 
 export interface GiftClaimFlags {
   // ?refused=same-email — the attempt just refused was
@@ -285,6 +299,7 @@ export function giftClaimPageView(
 ): GiftClaimPageView {
   const state = giftServedState(record, now);
   if (state === "not-recognised") return { kind: "closed", variant: "not-recognised" };
+  if (state === "voided") return { kind: "closed", variant: "voided" };
   if (state === "already-used") return { kind: "closed", variant: "used" };
   if (state === "expired") return { kind: "closed", variant: "expired" };
   if (state === "claimed-guard") return { kind: "card", variant: "different" };
@@ -344,7 +359,8 @@ export function decideClaimAttempt(
   now: Date,
 ): ClaimAttempt {
   const state = giftServedState(record, now);
-  if (state === "already-used" || state === "expired") return { kind: "closed" };
+  if (state === "already-used" || state === "expired" || state === "voided")
+    return { kind: "closed" };
   if (state === "claimed-guard") {
     return normalisedEmail === record.claimantEmail
       ? { kind: "resume" }
@@ -426,6 +442,20 @@ export const GIFT_NOT_RECOGNISED_HEADING = "This link doesn't work";
 export const GIFT_NOT_RECOGNISED_BODY =
   "This gift link may have been copied incompletely, so we can't find the gift it belongs to. You can still check any home on our website — the headline facts are free.";
 export const GIFT_NOT_RECOGNISED_SEARCH_HEADING = "Check a home";
+
+// Voided (M9.8) — DRAFT copy, drawn in the M9.8 draft
+// samples outside the Final Sample Master (ruling R3),
+// in the closed screens' own manner: it says what
+// happened (the refund ended the gift), what it means
+// for the visitor (nothing was used up by them) and the
+// road onward, in the expired screen's own closing form.
+// It never borrows the expired, used or not-recognised
+// words — the gift did not run out, was not spent and
+// is not a bad link.
+export const GIFT_VOIDED_HEADING = "This gift was voided";
+export const GIFT_VOIDED_BODY =
+  "The report this gift came with was refunded, and a refund ends the gift that came with it — so this link no longer works. Nothing was used up by you, and no report was delivered against this gift. You can still check any home on our website — the headline facts are free — and a full report costs £4.99.";
+export const GIFT_VOIDED_SEARCH_HEADING = "Check a home anyway";
 
 // The search block the claimed, used, expired and
 // not-recognised screens carry (the samples' line,

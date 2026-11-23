@@ -6,8 +6,15 @@ import { buildReportSuccessView } from "../../../lib/report-success";
 import { pageMetadata } from "../../../lib/seo";
 import { getDbPool } from "../../../lib/server/db";
 import { createDbFulfilmentClaimStore } from "../../../lib/server/fulfilment";
+import { createDbGiftStore } from "../../../lib/server/gifts";
 import { readOrderState } from "../../../lib/server/order-state";
-import { getPaymentsRouter } from "../../../lib/server/payments";
+import {
+  PAYMENT_METADATA_EMAIL,
+  PAYMENT_METADATA_HOME_KEY,
+  PAYMENT_METADATA_POSTCODE,
+  getPaymentsRouter,
+} from "../../../lib/server/payments";
+import { createDbRefundStore, refundTriggerMet } from "../../../lib/server/refunds";
 import { identityForOrder } from "../../../lib/server/report-identity";
 
 // The success surface's route (plan steps M9.6 and
@@ -35,6 +42,13 @@ import { identityForOrder } from "../../../lib/server/report-identity";
 //     the report door, never to an error page (the M9.6
 //     pin, kept).
 //
+// M9.8 adds the refund overlay, read through the same
+// reading: a completed full refund renders the
+// refunded state whatever the claim's own status says
+// (no report opening, no re-send), and a gifted claim
+// whose gift stands voided renders the voided words
+// for its claimant.
+//
 // The reference is the only key: a payment id, a gift
 // token or a free-window id, each unguessable in its
 // own right. The surface is viewing-only: the report
@@ -60,15 +74,69 @@ export default async function ReportSuccessRoute({
   const params = await searchParams;
   const ref = params.order ?? null;
   if (!ref) redirect("/report");
-  const claims = createDbFulfilmentClaimStore(getDbPool());
-  const reading = await readOrderState({ claims, payments: getPaymentsRouter() }, ref);
+  const pool = getDbPool();
+  const claims = createDbFulfilmentClaimStore(pool);
+  const gifts = createDbGiftStore(pool);
+  const refundStore = createDbRefundStore(pool);
+  const payments = getPaymentsRouter();
+  const reading = await readOrderState(
+    {
+      claims,
+      payments,
+      refunds: {
+        completedFullRefund: async (paymentRef) =>
+          refundTriggerMet(await refundStore.listByPayment(paymentRef)),
+      },
+      giftVoided: async (token) => (await gifts.getByToken(token))?.status === "voided",
+    },
+    ref,
+  );
+
+  if (reading.kind === "refunded" || reading.kind === "voided-gift") {
+    const claim = reading.claim;
+    if (claim) {
+      const identity = await identityForOrder(claim.postcode, claim.homeKey);
+      const view = buildReportSuccessView({
+        state: "refunded",
+        kind: claim.kind,
+        identity,
+        email: claim.email,
+        orderRef: ref,
+      });
+      return <ReportSuccessPage view={view} />;
+    }
+    // Refunded before any claim stands: the payment
+    // itself names the home and the inbox.
+    const status = await payments.intentStatus(ref).catch(() => null);
+    const email = status?.ok ? (status.metadata[PAYMENT_METADATA_EMAIL] ?? null) : null;
+    const postcode = status?.ok ? (status.metadata[PAYMENT_METADATA_POSTCODE] ?? null) : null;
+    if (!email || !postcode) redirect("/report");
+    const identity = await identityForOrder(
+      postcode,
+      status?.ok ? (status.metadata[PAYMENT_METADATA_HOME_KEY] ?? null) : null,
+    );
+    const view = buildReportSuccessView({
+      state: "refunded",
+      kind: "paid",
+      identity,
+      email,
+      orderRef: ref,
+    });
+    return <ReportSuccessPage view={view} />;
+  }
 
   if (reading.kind === "claim") {
     const claim = reading.claim;
     const identity = await identityForOrder(claim.postcode, claim.homeKey);
     const view = buildReportSuccessView({
       state:
-        claim.status === "fulfilled" ? "ready" : claim.status === "failed" ? "failed" : "preparing",
+        claim.status === "fulfilled"
+          ? "ready"
+          : claim.status === "failed"
+            ? "failed"
+            : claim.status === "refunded"
+              ? "refunded"
+              : "preparing",
       kind: claim.kind,
       identity,
       email: claim.email,

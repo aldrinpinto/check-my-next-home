@@ -234,11 +234,23 @@ export async function startReportPayment(
     }
   }
 
+  // FAIL-CLOSED (M9.9 prep gap 9, adopted; built with
+  // M9.8): an allowlisted email whose test set is
+  // absent or incomplete is refused HERE — not-configured,
+  // nothing created — and never carried by the default
+  // set flagged TEST. A test purchase must not be
+  // capable of taking real money. The check stands
+  // after gift recognition (a gifted order creates no
+  // payment at all, in any lane) and before the lane is
+  // consulted for money.
+  if (deps.payments.isTestOrder(email) && !deps.payments.testLaneReady()) {
+    return { ok: false, reason: "not-configured" };
+  }
+
   // The lane is the router's answer for this email —
-  // the test set for an allowlisted tester where one
-  // is configured, the default set for everyone else —
-  // and the TEST flag rides into the metadata either
-  // way the allowlist answers.
+  // the test set for an allowlisted tester, the default
+  // set for everyone else — and the TEST flag rides
+  // into the metadata either way the allowlist answers.
   const lane = deps.payments.laneFor(email);
   const intent = await deps.payments.forLane(lane).createReportIntent({
     email,

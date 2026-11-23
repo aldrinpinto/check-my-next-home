@@ -15,7 +15,13 @@
 //                 M9's payment trigger calls the
 //                 service, never the store directly.
 //
-// A delivery is written once and never updated: a
+// A delivery is written once and never updated — with
+// ONE exception (M9.8): the WITHDRAWN standing. When
+// the order behind a delivery is refunded in full, the
+// refund transition sets withdrawn_at (with the refund
+// as its reason); the row and its stored PDF are kept,
+// and every reader checks the standing at serve time.
+// Nothing else about a delivery ever changes: a
 // re-issue mints a new signed token over the same row
 // (the token is stateless — lib/server/download-links.ts),
 // so there is no link state to keep in step.
@@ -53,6 +59,20 @@ export interface DeliveryStore {
     now?: Date;
   }): Promise<DeliveryRecord>;
   getById(id: string): Promise<DeliveryRecord | null>;
+  // The delivery an order produced, if any (M9.8): the
+  // refund transition finds an order's deliveries by
+  // the order's own reference — the buyer's delivery by
+  // the payment reference, a gifted delivery by the
+  // gift token its order reference carries — never by
+  // email or home, so a second genuine order for the
+  // same home stands untouched by the first's refund.
+  listByOrderRef(orderRef: string): Promise<DeliveryRecord[]>;
+  // Set the withdrawn standing (M9.8): idempotent — a
+  // delivery already withdrawn keeps its first
+  // standing and its first reason. Answers the record
+  // as it stands after the call, or null where no such
+  // delivery stands.
+  withdraw(id: string, refundId: string, now: Date): Promise<DeliveryRecord | null>;
 }
 
 interface DeliveryRow {
@@ -66,6 +86,8 @@ interface DeliveryRow {
   gift_token: string | null;
   order_ref: string | null;
   created_at: Date;
+  withdrawn_at: Date | null;
+  withdrawn_refund_id: string | null;
 }
 
 function toRecord(row: DeliveryRow): DeliveryRecord {
@@ -80,11 +102,14 @@ function toRecord(row: DeliveryRow): DeliveryRecord {
     giftToken: row.gift_token,
     orderRef: row.order_ref,
     createdAt: new Date(row.created_at),
+    withdrawnAt: row.withdrawn_at ? new Date(row.withdrawn_at) : null,
+    withdrawnRefundId: row.withdrawn_refund_id,
   };
 }
 
 const COLUMNS = `id, email, kind, pdf_key, file_name, home_title,
-  home_address_line, gift_token, order_ref, created_at`;
+  home_address_line, gift_token, order_ref, created_at,
+  withdrawn_at, withdrawn_refund_id`;
 
 export function createDbDeliveryStore(db: AddressQueryable): DeliveryStore {
   return {
@@ -100,10 +125,12 @@ export function createDbDeliveryStore(db: AddressQueryable): DeliveryStore {
         giftToken: input.gift?.token ?? null,
         orderRef: input.orderRef ?? null,
         createdAt: input.now ?? new Date(),
+        withdrawnAt: null,
+        withdrawnRefundId: null,
       };
       await db.query(
         `INSERT INTO report_deliveries (${COLUMNS})
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
         [
           record.id,
           record.email,
@@ -115,6 +142,8 @@ export function createDbDeliveryStore(db: AddressQueryable): DeliveryStore {
           record.giftToken,
           record.orderRef,
           record.createdAt,
+          record.withdrawnAt,
+          record.withdrawnRefundId,
         ],
       );
       return record;
@@ -126,6 +155,34 @@ export function createDbDeliveryStore(db: AddressQueryable): DeliveryStore {
       ]);
       const row = (rows as unknown as DeliveryRow[])[0];
       return row ? toRecord(row) : null;
+    },
+
+    async listByOrderRef(orderRef) {
+      const { rows } = await db.query(
+        `SELECT ${COLUMNS} FROM report_deliveries WHERE order_ref = $1 ORDER BY created_at ASC`,
+        [orderRef],
+      );
+      return (rows as unknown as DeliveryRow[]).map(toRecord);
+    },
+
+    async withdraw(id, refundId, now) {
+      const { rows } = await db.query(
+        `UPDATE report_deliveries
+            SET withdrawn_at = $2, withdrawn_refund_id = $3
+          WHERE id = $1 AND withdrawn_at IS NULL
+          RETURNING ${COLUMNS}`,
+        [id, now, refundId],
+      );
+      const row = (rows as unknown as DeliveryRow[])[0];
+      if (row) return toRecord(row);
+      // Already withdrawn (or unknown): answer what
+      // stands, so a repeated transition is a no-op.
+      const { rows: standing } = await db.query(
+        `SELECT ${COLUMNS} FROM report_deliveries WHERE id = $1`,
+        [id],
+      );
+      const found = (standing as unknown as DeliveryRow[])[0];
+      return found ? toRecord(found) : null;
     },
   };
 }
@@ -149,6 +206,8 @@ export function createMemoryDeliveryStore(now: () => Date = () => new Date()): D
         giftToken: input.gift?.token ?? null,
         orderRef: input.orderRef ?? null,
         createdAt: input.now ?? now(),
+        withdrawnAt: null,
+        withdrawnRefundId: null,
       };
       records.set(record.id, record);
       return clone(record);
@@ -157,6 +216,24 @@ export function createMemoryDeliveryStore(now: () => Date = () => new Date()): D
     async getById(id) {
       const record = records.get(id);
       return record ? clone(record) : null;
+    },
+
+    async listByOrderRef(orderRef) {
+      const found: DeliveryRecord[] = [];
+      for (const record of records.values()) {
+        if (record.orderRef === orderRef) found.push(clone(record));
+      }
+      return found;
+    },
+
+    async withdraw(id, refundId, at) {
+      const record = records.get(id);
+      if (!record) return null;
+      if (!record.withdrawnAt) {
+        record.withdrawnAt = at;
+        record.withdrawnRefundId = refundId;
+      }
+      return clone(record);
     },
   };
 }
