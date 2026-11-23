@@ -52,7 +52,11 @@ test.describe("consolidated chain — regression", () => {
       await page.waitForURL("**/search/home?postcode=CM3+2JT");
 
       // Home dropdown → checking → results.
-      await page.locator(".picker__select").selectOption({ label: "19 Birkdale Rise" });
+      await page.locator(".picker__trigger").click();
+      await page
+        .locator(".picker__panel")
+        .getByRole("option", { name: "19 Birkdale Rise" })
+        .click();
       await page.waitForURL(/\/search\/home\?postcode=.*&home=/);
       await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
       await expect(page.locator(".results-head h1")).toHaveText("19 Birkdale Rise, CM3 2JT");

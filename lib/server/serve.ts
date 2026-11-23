@@ -48,7 +48,13 @@ import {
 import { buildSoldPricesBundle, createSoldPricesSource } from "../sold-prices";
 import { getDbPool } from "./db";
 import { logEntry } from "./entry-log";
-import { pickerList, promotionKeyFor, type PickerRow } from "./hybrid";
+import {
+  pickerList,
+  postioSupplementEnabled,
+  promotionKeyFor,
+  supplementPickerList,
+  type PickerRow,
+} from "./hybrid";
 import { createPickingIndexSource } from "./picking-index";
 import { createPlaceSource, placeNormOf, type PlaceQueryable } from "./places";
 import { getPostioClient } from "./postio";
@@ -191,25 +197,20 @@ export async function resolutionForRoute(
   return null;
 }
 
-// The picker's rows for a route (entry-point build, D72;
-// union from M7.15B): the local list is the UNION of the
-// ladder's filed rows (the caller's `local` — already
-// narrowed by the frozen resolver) and the picking
-// index's index-only rows for the postcode, narrowed
-// here by the route's own street/building so a narrowed
-// picker never widens back to the whole postcode. The
-// hybrid brain (lib/server/hybrid.ts) owns the Postio
-// supplement decision, the merge, the dedupe and the
-// decision log; this is only its wiring to the real
-// deps. An index read that fails leaves the filed list
-// standing — the picker degrades to the pre-preload
-// behaviour, never to an error.
-export async function pickerRowsFor(
+// The picker's local union for a route (entry-point
+// build, D72; union from M7.15B): the ladder's filed rows
+// (the caller's `local` — already narrowed by the frozen
+// resolver) plus the picking index's index-only rows for
+// the postcode, narrowed here by the route's own
+// street/building so a narrowed picker never widens back
+// to the whole postcode. An index read that fails leaves
+// the filed list standing — the picker degrades to the
+// pre-preload behaviour, never to an error.
+async function unionLocalFor(
   postcode: string,
   local: ResolvedAddress[],
   narrowing: { street: string | null; building: string | null },
-  req: string,
-): Promise<PickerRow[]> {
+): Promise<ResolvedAddress[]> {
   let unionLocal = local;
   try {
     const indexOnly =
@@ -238,14 +239,72 @@ export async function pickerRowsFor(
   } catch {
     // The filed list stands (see the header note).
   }
-  const { rows } = await pickerList({
+  return unionLocal;
+}
+
+// The picker's rows for a route: the local union, as
+// filed — the ONLY rows a page load ever serves
+// (BUG-185: the Postio supplement is the visitor's
+// click, never the page's). The hybrid brain
+// (lib/server/hybrid.ts) owns the ordering and the
+// decision log; this is only its wiring to the real deps.
+export async function pickerRowsFor(
+  postcode: string,
+  local: ResolvedAddress[],
+  narrowing: { street: string | null; building: string | null },
+  req: string,
+): Promise<PickerRow[]> {
+  const unionLocal = await unionLocalFor(postcode, local, narrowing);
+  const { rows } = pickerList({ postcode, local: unionLocal, req });
+  return rows;
+}
+
+// The supplemented rows for a route — the answer to the
+// visitor's click on the "Don't see your home?" row
+// (BUG-185): the same local union the picker served,
+// merged with Postio's list for the postcode under the
+// hybrid's dedupe, the kill switch read here at the
+// wiring edge. Nothing about this runs on a page load.
+export async function supplementedPickerRowsFor(
+  postcode: string,
+  local: ResolvedAddress[],
+  narrowing: { street: string | null; building: string | null },
+  req: string,
+): Promise<PickerRow[]> {
+  const unionLocal = await unionLocalFor(postcode, local, narrowing);
+  const { rows } = await supplementPickerList({
     postio: getPostioClient(),
     postcode,
     local: unionLocal,
     narrowing,
+    enabled: postioSupplementEnabled(),
     req,
   });
   return rows;
+}
+
+// The supplement for a bare route (the /api/supplement
+// endpoint): the local side is rebuilt exactly as the
+// check page built it — the ladder re-run over the
+// route's narrowing gives the filed rows, the union adds
+// the index-only rows — so the refreshed list is the
+// page's own list, widened. A narrowing that resolved to
+// a single home (rung 1) or to nothing listable falls
+// back to the whole-postcode union: the click asked for
+// the postcode's full address list.
+export async function supplementForRoute(
+  postcode: string,
+  narrowing: { street: string | null; building: string | null },
+  req: string,
+): Promise<PickerRow[]> {
+  let local: ResolvedAddress[] = [];
+  try {
+    const resolution = await resolutionForPostcodeRoute(postcode, narrowing);
+    if (resolution.rung === 2) local = resolution.addresses;
+  } catch {
+    // The whole-postcode union stands (see the header note).
+  }
+  return supplementedPickerRowsFor(postcode, local, narrowing, req);
 }
 
 // Promotion (entry-point build, D72 fold-in): when a

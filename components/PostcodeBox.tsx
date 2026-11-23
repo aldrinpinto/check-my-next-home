@@ -12,11 +12,14 @@ import {
 } from "../lib/home";
 import {
   FAILED_ROUTE,
+  PICK_FALLBACK_FLAG,
   TURNSTILE_BLOCK_LINE,
   UNPLACED_NOTICE_LINE,
+  homeRoute,
   placeChoiceRoute,
 } from "../lib/journey";
 import { Button, SuggestionShell, type SuggestionGroup, type SuggestionItem } from "./kit";
+import SupplementRow, { type SupplementStage } from "./SupplementRow";
 
 // M7.3 — the one postcode box, wired. M7.2 shipped it inert
 // (founder ruling at that step: present and typeable, submit
@@ -81,6 +84,23 @@ import { Button, SuggestionShell, type SuggestionGroup, type SuggestionItem } fr
 // postcode's COMPLETE home list in a scrollable region
 // (app/globals.css) — the keyboard walks the whole list
 // and the active row is scrolled into view as it moves.
+//
+// BUG-185 (founder-ruled 23 Nov 2026): when the panel
+// lists ONE postcode's homes, its pinned footer is the
+// "Don't see your home?" row — the visitor's one
+// deliberate Postio call. The suggest response names the
+// settled postcode and whether the row may be offered
+// (the kill switch); the click fetches /api/supplement,
+// the panel's homes dim under the row's spinner, and the
+// merged list replaces the panel's in place before the
+// row settles to its done line. A failed call settles
+// exactly the same way over the list as it stands — the
+// visitor never sees a failure state. The row never
+// appears on street or area searches (their groups span
+// postcodes, and the response carries no settled
+// postcode for them). A Postio row in the refreshed list
+// picks through /api/pick, exactly as the check page's
+// picker picks one.
 // The `suggestions`
 // prop remains as a static override (a caller handing
 // groups in suppresses the live fetch); no caller uses it
@@ -215,6 +235,20 @@ export default function PostcodeBox({
   const placeByIdRef = useRef(new Map<string, string>());
   const suggestSeqRef = useRef(0);
   const choosingRef = useRef(false);
+  // The wider-list row (BUG-185): the settled postcode
+  // the open panel lists, and whether the kill switch
+  // lets the row be offered — both named by the suggest
+  // response, never guessed client-side. The stage is
+  // the row's own: idle, loading, done. A refreshed
+  // list's Postio rows remember their UDPRNs here, as
+  // hrefByIdRef remembers the local rows' routes.
+  const [supplementTarget, setSupplementTarget] = useState<{
+    postcode: string;
+    enabled: boolean;
+  } | null>(null);
+  const [supplementStage, setSupplementStage] = useState<SupplementStage>("idle");
+  const udprnByIdRef = useRef(new Map<string, string>());
+  const supplementSeqRef = useRef(0);
   // Below the 3-character floor the panel is derived shut
   // at render — the effect never clears state synchronously.
   const typedLength = value.trim().length;
@@ -245,6 +279,8 @@ export default function PostcodeBox({
               label: string;
               items: { label: string; href: string | null; place?: string }[];
             }[];
+            postcodeList?: { postcode: string };
+            supplementEnabled?: boolean;
           };
           // A newer keystroke superseded this response —
           // drop it, never repaint with stale suggestions.
@@ -264,6 +300,16 @@ export default function PostcodeBox({
           }));
           hrefByIdRef.current = hrefs;
           placeByIdRef.current = places;
+          // A fresh list is local-only again: no Postio
+          // rows ride it, and the wider-list row starts
+          // from idle for the newly settled postcode.
+          udprnByIdRef.current = new Map();
+          setSupplementTarget(
+            data.postcodeList
+              ? { postcode: data.postcodeList.postcode, enabled: data.supplementEnabled === true }
+              : null,
+          );
+          setSupplementStage("idle");
           setLiveGroups(groups);
           setEmptySettled(groups.length === 0);
           setPanelOpen(true);
@@ -274,6 +320,7 @@ export default function PostcodeBox({
           setEmptySettled(false);
           setPanelOpen(false);
           setActiveId(null);
+          setSupplementTarget(null);
         }
       })();
     }, 140);
@@ -293,7 +340,15 @@ export default function PostcodeBox({
 
   function choose(item: SuggestionItem) {
     if (choosingRef.current) return;
-    // Every pick navigates to its item's route — a home
+    // A Postio row of a supplemented list resolves
+    // through /api/pick first (BUG-185) — the picker's
+    // own machinery, mirrored here.
+    const udprn = udprnByIdRef.current.get(item.id);
+    if (udprn) {
+      resolvePostioPick(udprn);
+      return;
+    }
+    // Every other pick navigates to its item's route — a home
     // to its check, a street to its choice or its one
     // postcode, a place to the place page (founder
     // ruling, 19 Nov 2026: no pick expands in place).
@@ -301,6 +356,83 @@ export default function PostcodeBox({
     if (!href) return;
     choosingRef.current = true;
     window.location.assign(href);
+  }
+
+  // A Postio row's pick (BUG-185): the transient record,
+  // or the mid-pick fallback when the backstop cannot
+  // answer — the same answer the check page's picker
+  // gives, so the journey never dead-ends here either.
+  function resolvePostioPick(udprn: string) {
+    const postcode = supplementTarget?.postcode ?? "";
+    choosingRef.current = true;
+    void (async () => {
+      const fallback = `/search/home?postcode=${encodeURIComponent(postcode)}&notfound=${PICK_FALLBACK_FLAG}`;
+      try {
+        const response = await fetch("/api/pick", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ postcode, udprn }),
+        });
+        const data = (await response.json()) as { url?: string };
+        window.location.assign(data.url ?? fallback);
+      } catch {
+        window.location.assign(fallback);
+      }
+    })();
+  }
+
+  // The wider-list row's click (BUG-185): exactly one
+  // supplement fetch for the settled postcode. Success
+  // replaces the panel's groups with the merged list in
+  // place; ANY failure leaves the list standing — and
+  // either way the row settles to its done state, because
+  // the visitor is never shown a failure for this.
+  function startSupplement() {
+    const target = supplementTarget;
+    if (!target || !target.enabled || supplementStage !== "idle") return;
+    const seq = (supplementSeqRef.current += 1);
+    setSupplementStage("loading");
+    void (async () => {
+      try {
+        const response = await fetch(
+          `/api/supplement?postcode=${encodeURIComponent(target.postcode)}`,
+        );
+        if (!response.ok) throw new Error("supplement-failed");
+        const data = (await response.json()) as {
+          rows?: {
+            key: string;
+            label: string;
+            source?: string;
+            homeKey?: string;
+            udprn?: string;
+          }[];
+        };
+        // A newer keystroke superseded this click — drop
+        // the answer, never repaint a stale panel.
+        if (seq !== supplementSeqRef.current) return;
+        if (Array.isArray(data.rows)) {
+          const hrefs = new Map<string, string>();
+          const udprns = new Map<string, string>();
+          let n = 0;
+          const items: SuggestionItem[] = data.rows.map((row) => {
+            const id = `suggest-${n}`;
+            n += 1;
+            if (row.source === "postio" && row.udprn) udprns.set(id, row.udprn);
+            else if (row.homeKey) hrefs.set(id, homeRoute(target.postcode, row.homeKey));
+            return { id, label: `${row.label}, ${target.postcode}` };
+          });
+          hrefByIdRef.current = hrefs;
+          udprnByIdRef.current = udprns;
+          placeByIdRef.current = new Map();
+          setLiveGroups([{ label: "Homes", items }]);
+          setActiveId(null);
+        }
+      } catch {
+        // Silent by ruling (BUG-185): the done state
+        // settles over the list as it stands.
+      }
+      if (seq === supplementSeqRef.current) setSupplementStage("done");
+    })();
   }
 
   function onFieldKeyDown(event: KeyboardEvent<HTMLInputElement>) {
@@ -550,6 +682,12 @@ export default function PostcodeBox({
     // never a mid-flight one.
     setLiveGroups([]);
     setActiveId(null);
+    // The wider-list row belongs to the settled query
+    // too (BUG-185): a keystroke drops its target, its
+    // stage and any supplement answer still in flight.
+    supplementSeqRef.current += 1;
+    setSupplementTarget(null);
+    setSupplementStage("idle");
   }
 
   return (
@@ -607,6 +745,16 @@ export default function PostcodeBox({
           groups={visibleGroups}
           activeId={activeId}
           onSelect={choose}
+          dimmed={supplementStage === "loading"}
+          footer={
+            supplementTarget && supplementTarget.enabled ? (
+              <SupplementRow
+                stage={supplementStage}
+                postcode={supplementTarget.postcode}
+                onActivate={startSupplement}
+              />
+            ) : undefined
+          }
         />
       ) : emptyShown ? (
         <div className="postcode-box__suggestions" id="postcode-suggestions">

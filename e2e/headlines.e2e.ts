@@ -64,7 +64,8 @@ async function reachResults(page: Page, postcode: string, rowName: string) {
   // list dump is gone), and choosing one goes straight
   // to that home's check.
   await page.waitForURL(`**/search/home?postcode=${postcode.replace(" ", "+")}`);
-  await page.locator(".picker__select").selectOption({ label: rowName });
+  await page.locator(".picker__trigger").click();
+  await page.locator(".picker__panel").getByRole("option", { name: rowName }).click();
   await page.waitForURL(/\/search\/home\?postcode=.*&home=/);
   await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
 }

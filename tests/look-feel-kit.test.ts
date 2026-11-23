@@ -309,6 +309,28 @@ describe("header and footer shells", () => {
     expect(footer).not.toContain("Every fact from an official source, shown with its source");
   });
 
+  it("carries the © line and the two social icons on the bottom row (footer batch, 23 Nov 2026)", () => {
+    // The batch folded into the BUG-185 build: the bottom
+    // row's left carries the © line and the Instagram and
+    // Facebook icon links (the brand's own handles); the
+    // sources line keeps the row's right.
+    const bottomAt = footer.indexOf("site-footer__bottom");
+    const legalAt = footer.indexOf("site-footer__legal");
+    const copyrightAt = footer.indexOf("site-footer__copyright");
+    const sourcesAt = footer.indexOf("site-footer__sources");
+    expect(legalAt).toBeGreaterThan(bottomAt);
+    expect(copyrightAt).toBeGreaterThan(legalAt);
+    expect(sourcesAt).toBeGreaterThan(copyrightAt);
+    expect(footer).toContain(`© ${new Date().getFullYear()} ${SITE_NAME}`);
+    expect(footer).toContain('href="https://www.instagram.com/checkmynexthome"');
+    expect(footer).toContain('href="https://www.facebook.com/checkmynexthome"');
+    expect(footer).toContain('aria-label="Check My Next Home on Instagram"');
+    expect(footer).toContain('aria-label="Check My Next Home on Facebook"');
+    // Exactly the two social links, each opening externally.
+    expect(footer.match(/site-footer__social-link/g)).toHaveLength(2);
+    expect(footer.match(/target="_blank"/g)).toHaveLength(2);
+  });
+
   it("renders no Shortlist badge until a count is passed (the count is M7.5's)", () => {
     expect(header).not.toContain("shortlist-count");
     const withCount = renderToStaticMarkup(createElement(SiteHeader, { shortlistCount: 2 }));
@@ -399,14 +421,20 @@ describe("unified chrome (founder ruling, 18 Nov 2026)", () => {
     const css = read("app/globals.css");
     expect(css).not.toContain(".site-header--content");
     expect(css).not.toContain(".site-footer--content");
-    // The bottom row pushes its only item to the extreme
-    // right, and the sources line is set at the site's
-    // small-print measure — 0.62rem (BUG-165; the BUG-128
-    // measure) against the footer body's 0.78125rem.
+    // The sources line keeps the bottom row's extreme
+    // right, set at the site's small-print measure —
+    // 0.62rem (BUG-165; the BUG-128 measure) against the
+    // footer body's 0.78125rem. Footer batch (23 Nov
+    // 2026): the row now spreads its two ends — the ©
+    // line and social icons joined the left (the old
+    // flex-end pin described the row when the sources
+    // line was its only item).
     expect(css).toContain(".site-footer__bottom");
-    expect(css).toContain("justify-content: flex-end");
+    expect(css).toMatch(/\.site-footer__bottom \{[^}]*justify-content: space-between/);
     expect(css).toMatch(/\.site-footer__sources \{[^}]*font-size: 0\.62rem/);
     expect(css).toMatch(/\.site-footer__sources \{[^}]*text-align: right/);
+    expect(css).toMatch(/\.site-footer__copyright \{[^}]*font-size: 0\.62rem/);
+    expect(css).toContain(".site-footer__social-link");
   });
 
   it("exports no content-footer small print from the footer module", async () => {

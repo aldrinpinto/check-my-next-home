@@ -46,7 +46,8 @@ async function reachResults(
   // gone), and choosing one is the pick.
   await page.goto(`/search?postcode=${postcode.replace(" ", "+")}`);
   await page.waitForURL(/\/search\/home\?postcode=/);
-  await page.locator(".picker__select").selectOption({ label: rowName });
+  await page.locator(".picker__trigger").click();
+  await page.locator(".picker__panel").getByRole("option", { name: rowName }).click();
   await page.waitForURL(/\/search\/home\?postcode=.*&home=/);
   await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
 }

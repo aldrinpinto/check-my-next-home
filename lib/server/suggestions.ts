@@ -215,6 +215,14 @@ export interface SuggestionGroups {
     label: "Postcodes" | "Streets" | "Properties" | "Homes" | "Places" | "Districts";
     items: SuggestionItem[];
   }[];
+  // Set only when the full-postcode branch served one
+  // postcode's own list — its Homes group, or the
+  // postcode itself in the zero-home self-serve form
+  // (BUG-032). It is the search box's warrant for the
+  // "Don't see your home?" row (BUG-185): the row belongs
+  // only where one postcode's homes are listed, never on
+  // a street or area search, whose groups span postcodes.
+  postcodeList?: { postcode: string };
 }
 
 // A properties query: the homes inside a bound — a
@@ -643,6 +651,15 @@ export async function suggestionsFor(
       places: 0,
       districts: 0,
     });
+    // BUG-185: this branch listed ONE postcode's homes
+    // (or the postcode itself, when it files none) — the
+    // one panel shape the wider-list row belongs to. A
+    // full-postcode-shaped input the directory does not
+    // file served nothing above, and carries no marker:
+    // there is no settled postcode to widen.
+    if (items.length > 0 || selfServed === 1) {
+      return { groups, postcodeList: { postcode: input.postcode } };
+    }
     return { groups };
   }
 

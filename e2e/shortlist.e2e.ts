@@ -122,7 +122,8 @@ async function reachResults(page: Page, postcode: string, rowName: string) {
   // gone), and choosing one is the pick.
   await page.goto(`/search?postcode=${postcode.replace(" ", "+")}`);
   await page.waitForURL(/\/search\/home\?postcode=/);
-  await page.locator(".picker__select").selectOption({ label: rowName });
+  await page.locator(".picker__trigger").click();
+  await page.locator(".picker__panel").getByRole("option", { name: rowName }).click();
   await page.waitForURL(/\/search\/home\?postcode=.*&home=/);
   await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
 }
@@ -143,7 +144,11 @@ test.describe("shortlist — smoke", () => {
         let persistent = context.pages()[0] ?? (await context.newPage());
         await persistent.goto("/search?postcode=CM3+2JT");
         await persistent.waitForURL(/\/search\/home\?postcode=/);
-        await persistent.locator(".picker__select").selectOption({ label: "19 Birkdale Rise" });
+        await persistent.locator(".picker__trigger").click();
+        await persistent
+          .locator(".picker__panel")
+          .getByRole("option", { name: "19 Birkdale Rise" })
+          .click();
         await persistent.waitForURL(/\/search\/home\?postcode=.*&home=/);
         await expect(persistent.locator(".results")).toBeVisible({ timeout: 30_000 });
         // Two shortlist controls render on a rung-1 page

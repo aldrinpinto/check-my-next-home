@@ -58,7 +58,8 @@ async function reachResults(page: Page, postcode: string, rowName: string) {
   // list dump is gone), and choosing one goes straight
   // to that home's check.
   await page.waitForURL(`**/search/home?postcode=${postcode.replace(" ", "+")}`);
-  await page.locator(".picker__select").selectOption({ label: rowName });
+  await page.locator(".picker__trigger").click();
+  await page.locator(".picker__panel").getByRole("option", { name: rowName }).click();
   await page.waitForURL(/\/search\/home\?postcode=.*&home=/);
   await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
 }
@@ -262,8 +263,9 @@ test.describe("results page — regression", () => {
       );
       await page.goBack();
       await page.waitForURL(/\/search\/home\?postcode=CM3\+2JT$/);
+      await page.locator(".picker__trigger").click();
       await expect(
-        page.locator(".picker__select option", { hasText: "19 Birkdale Rise" }),
+        page.locator(".picker__panel").getByRole("option", { name: "19 Birkdale Rise" }),
       ).toBeAttached();
     },
   );
@@ -390,15 +392,18 @@ test.describe("results page — regression", () => {
       // index homes stand here — the empty line this spec
       // asserted before the preload is gone by design
       // (CI #215). Since the founder's ruling of 20 Nov
-      // 2026 they stand as the dropdown's options (49 homes
-      // + the prompt option), and the count line is gone
-      // with the list dump. The empty list is pinned on
+      // 2026 they stand as the dropdown's rows (49 homes;
+      // BUG-185: the custom dropdown's panel carries the
+      // homes alone — the prompt lives on its closed
+      // field), and the count line is gone with the list
+      // dump. The empty list is pinned on
       // CM0 7AA in the next spec.
       await expect(page.locator(".picker__empty-line")).toHaveCount(0);
       await expect(page.locator(".picker__count")).toHaveCount(0);
-      await expect(page.locator(".picker__select option")).toHaveCount(50);
+      await page.locator(".picker__trigger").click();
+      await expect(page.locator(".picker__panel .suggest__item")).toHaveCount(49);
       await expect(
-        page.locator(".picker__select option", { hasText: "49 George Heard Crescent" }),
+        page.locator(".picker__panel").getByRole("option", { name: "49 George Heard Crescent" }),
       ).toBeAttached();
       await expect(page.getByRole("tab")).toHaveCount(4);
     },

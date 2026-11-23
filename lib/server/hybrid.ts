@@ -1,18 +1,28 @@
 // The hybrid brain (entry-point build, 18 Nov 2026;
-// decision D72 as adopted in full).
+// decision D72 as adopted in full; the list movement
+// re-ruled by the founder, 23 Nov 2026 — BUG-185).
 //
 // The serve layer's new resolution SOURCE, sitting beside
 // the frozen ladder (lib/address.ts is untouched — M7.3's
 // rungs, routes and brains do not change). Three movements:
 //
-//   1. THE PICKER LIST — local as filed first; when the
-//      local list at a full postcode is short, Postio's
-//      exhaustive postcode list supplements it, merged and
-//      deduplicated by normalised parts (a home both filed
-//      and in PAF appears once, as the local row). A Postio
-//      failure here degrades silently to the local list —
-//      the degradation happened before any pick, so no
-//      notice is owed (D72 item 3); it is still logged.
+//   1. THE PICKER LIST — local as filed, ALWAYS. No Postio
+//      call ever happens on a list build: the automatic
+//      supplement (the floor-of-5 trigger) is abolished.
+//      The wider list is fetched only when the visitor
+//      clicks the "Don't see your home?" row inside a
+//      dropdown that lists one postcode's homes — one
+//      deliberate click, one call (supplementPickerList
+//      below), the list refreshing in place, merged and
+//      deduplicated by home identity (a home both filed
+//      and in PAF appears once, as the local row). A
+//      Postio failure on that click degrades silently to
+//      the list as it stands — the visitor sees the done
+//      state either way, no notice is owed (D72 item 3);
+//      it is still logged. The row itself is gated by the
+//      kill switch POSTIO_SUPPLEMENT_ENABLED: off, the
+//      row disappears everywhere and no supplement call
+//      is possible at all.
 //   2. THE PICK — a local row navigates by its home key,
 //      exactly as before. A Postio row resolves at pick
 //      time into a transient record (founder-ruled, 24h
@@ -51,18 +61,21 @@ import { entryNow, logEntry } from "./entry-log";
 import type { PostioAddress, PostioClient } from "./postio";
 import type { ResolveRecordStore } from "./resolve-records";
 
-// When the local list at a postcode holds fewer distinct
-// homes than this, it is "short" and Postio supplements
-// it. The local list is the union of the filed sales and
-// the national picking index (M7.15B); the preload
-// recalibrated this floor from 25 to 5. At 25 the
-// supplement kept paying to re-list homes the index
-// already names; below five, the local tier genuinely
-// barely knows the postcode — a brand-new or mostly
-// non-residential one — and the supplement earns its
-// 2.6p. The constant is a build judgement, recorded in
-// docs/entry-point.md.
-export const POSTIO_SUPPLEMENT_BELOW = 5;
+// The supplement's kill switch (BUG-185, founder-ruled
+// 23 Nov 2026): POSTIO_SUPPLEMENT_ENABLED in the server
+// env, default ON. It gates the "Don't see your home?"
+// ROW ITSELF on both surfaces — off, the row is not
+// rendered anywhere and the supplement endpoint makes no
+// Postio call at all. Only an explicit off value (0,
+// false, off, no — any casing, whitespace tolerated)
+// turns it off; an unset or unrecognised value leaves
+// the ruled default standing.
+export function postioSupplementEnabled(
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  const raw = (env.POSTIO_SUPPLEMENT_ENABLED ?? "").trim().toLowerCase();
+  return !(raw === "0" || raw === "false" || raw === "off" || raw === "no");
+}
 
 // The in-process Postio list memory's lifetime.
 export const POSTIO_LIST_MEMORY_MS = 5 * 60 * 1000;
@@ -171,7 +184,7 @@ export function rememberedPostioRow(postcode: string, udprn: string): PostioAddr
 }
 
 // ------------------------------------------------------------------
-// 1. The picker list
+// 1. The picker list — and the on-demand supplement
 // ------------------------------------------------------------------
 
 export interface PickerListResult {
@@ -182,21 +195,17 @@ export interface PickerListResult {
   postioFrom: "live" | "memory" | "failed" | "not-called";
 }
 
-export async function pickerList(deps: {
-  postio: PostioClient;
+// The local list, in natural address order, exactly as
+// filed. This is the ONLY list a page load or a keystroke
+// ever builds (BUG-185): it takes no Postio client
+// because it never calls one, at any list size.
+export function pickerList(deps: {
   postcode: string;
   local: ResolvedAddress[];
-  // The route's narrowing, when the ladder narrowed the
-  // local list to a street or building: Postio rows are
-  // filtered to the same narrowing (word filtering over
-  // the merged list's parts).
-  narrowing?: { street: string | null; building: string | null };
   req: string;
-}): Promise<PickerListResult> {
+}): PickerListResult {
   const started = entryNow();
-  const { postio, postcode, local, req } = deps;
-  // Rows are carried with their address parts so the
-  // merged list can be ordered at the end (below).
+  const { postcode, local, req } = deps;
   const merged: { row: PickerRow; parts: LoadedAddressParts }[] = local.map((address) => ({
     row: {
       key: partsKey(address),
@@ -206,41 +215,234 @@ export async function pickerList(deps: {
     },
     parts: address,
   }));
-  const seen = new Set(merged.map((entry) => entry.row.key));
+  merged.sort((x, y) => compareAddressParts(x.parts, y.parts));
+  const rows = merged.map((entry) => entry.row);
+
+  logEntry(req, "picker.list", {
+    layer: "local",
+    reason: "local-complete",
+    ms: entryNow() - started,
+    postcode,
+    local: local.length,
+    postio: 0,
+    deduped: 0,
+    postioFrom: "not-called",
+  });
+
+  return {
+    rows,
+    localCount: local.length,
+    postioCount: 0,
+    dedupedCount: 0,
+    postioFrom: "not-called",
+  };
+}
+
+// ------------------------------------------------------------------
+// Home identity across part-split written forms (BUG-185)
+// ------------------------------------------------------------------
+//
+// The merge's dedupe used to key rows by their exact
+// parts (paon | saon | street), which holds only while
+// every source splits an address the same way. They do
+// not: the picking index's EPC-derived form can carry the
+// flat in the PAON and the building's name in the STREET
+// slot ("FLAT B" / street "JUST DELIGHTS"), where PAF
+// carries the building in the PAON and the flat in the
+// SAON ("JUST DELIGHTS" / "FLAT B" / street "COMMERCIAL
+// ROAD") — the same home under two different keys, served
+// twice (the founder's TR10 8AH finding, 23 Nov 2026).
+// The predicate below recognises the same home across
+// those splits. It is deliberately pairwise — a canonical
+// key cannot know which slot the OTHER form put the
+// building's name in — and it is conservative: the unit
+// must agree exactly, a street number carried on both
+// sides must agree, and a name/street disagreement is a
+// match only under the split signature (one side's name
+// is the other side's street).
+
+const UNIT_WORDS = new Set(["FLAT", "APARTMENT", "APT", "UNIT", "MAISONETTE"]);
+const PURE_UNIT_RE = /^(?:FLAT|APARTMENT|APT|UNIT|MAISONETTE)\s+([0-9]+[A-Z]?|[A-Z])$/;
+
+function tokenSet(value: string | null): Set<string> {
+  if (!value) return new Set();
+  return new Set(normText(value).split(" ").filter(Boolean));
+}
+
+function setsEqual(a: Set<string>, b: Set<string>): boolean {
+  if (a.size !== b.size) return false;
+  for (const token of a) if (!b.has(token)) return false;
+  return true;
+}
+
+// The home's unit designator, wherever the form put it:
+// the SAON when there is one (its leading unit word is
+// dress, not identity — "FLAT 4" and "4" are one unit),
+// else a PAON that is nothing but a unit ("FLAT B").
+// Null when the home carries no unit at all.
+function unitKeyOf(parts: LoadedAddressParts): string | null {
+  const saon = normText(parts.saon ?? "");
+  if (saon) {
+    const tokens = saon.split(" ").filter(Boolean);
+    if (tokens.length > 1 && UNIT_WORDS.has(tokens[0])) tokens.shift();
+    return tokens.join(" ");
+  }
+  const paon = normText(parts.paon ?? "");
+  const pure = PURE_UNIT_RE.exec(paon);
+  return pure ? pure[1] : null;
+}
+
+// The PAON read as (name, number) once a pure-unit PAON
+// is accounted for: a PAON that IS the unit contributes
+// neither a name nor a number.
+function paonNameAndNumber(parts: LoadedAddressParts): {
+  name: Set<string>;
+  number: string | null;
+} {
+  const paon = normText(parts.paon ?? "");
+  if (PURE_UNIT_RE.test(paon)) return { name: new Set(), number: null };
+  const tokens = paon.split(" ").filter(Boolean);
+  const numberIdx = tokens.findIndex((token) => /^[0-9]+[A-Z]?$/.test(token));
+  const number = numberIdx === -1 ? null : tokens[numberIdx];
+  const name = new Set(tokens.filter((_, i) => i !== numberIdx));
+  return { name, number };
+}
+
+// True when two part sets name the SAME home within one
+// postcode, across the part-split written forms the
+// sources use. Both sides are read independently; the
+// postcode itself is the caller's bound (the merge only
+// ever compares rows of one postcode).
+export function sameHomeParts(a: LoadedAddressParts, b: LoadedAddressParts): boolean {
+  // The unit must agree exactly — a flat and its building
+  // are different homes, and two flats of one building
+  // differ only here.
+  if (unitKeyOf(a) !== unitKeyOf(b)) return false;
+
+  const pa = paonNameAndNumber(a);
+  const pb = paonNameAndNumber(b);
+  // A street number both sides carry must agree.
+  if (pa.number !== null && pb.number !== null && pa.number !== pb.number) return false;
+
+  const streetA = tokenSet(a.street);
+  const streetB = tokenSet(b.street);
+
+  if (setsEqual(pa.name, pb.name)) {
+    if (pa.name.size === 0) {
+      // Numbered (or numberless) houses: the street is
+      // the identity that remains — same number on two
+      // streets of one postcode is two homes.
+      return setsEqual(streetA, streetB);
+    }
+    // The same building/house name on both sides. The
+    // streets may differ only by the split signature —
+    // one side's street IS the shared name (the EPC form
+    // that parks the building in the street slot) — or
+    // by one side carrying no street at all.
+    if (setsEqual(streetA, streetB)) return true;
+    if (streetA.size === 0 || streetB.size === 0) return true;
+    return setsEqual(streetA, pa.name) || setsEqual(streetB, pa.name);
+  }
+
+  // The names differ: a match only under the split
+  // signature — one side carries no name of its own and
+  // its street is the other side's name (the flat-in-PAON
+  // form), or one side's name is the other side's street.
+  if (pa.name.size === 0 && setsEqual(streetA, pb.name)) return true;
+  if (pb.name.size === 0 && setsEqual(streetB, pa.name)) return true;
+  if (setsEqual(pa.name, streetB) || setsEqual(pb.name, streetA)) return true;
+  return false;
+}
+
+// ------------------------------------------------------------------
+// The on-demand supplement (BUG-185)
+// ------------------------------------------------------------------
+
+// The merged list after the visitor's one deliberate
+// click on the "Don't see your home?" row: exactly one
+// Postio list fetch (the 5-minute list memory may answer
+// it — re-listing a postcode re-charges, and the ruled
+// retention is unchanged), merged over the local list and
+// deduped by home identity (sameHomeParts), the local
+// row winning every shared home. With the kill switch
+// off, no call is made at all and the local list stands.
+// A failed call returns the local list standing — the
+// caller settles the row to its done state over it, and
+// the failure lives only in this log.
+export async function supplementPickerList(deps: {
+  postio: PostioClient;
+  postcode: string;
+  local: ResolvedAddress[];
+  // The route's narrowing, when the ladder narrowed the
+  // local list to a street or building: Postio rows are
+  // filtered to the same narrowing (word filtering over
+  // the merged list's parts).
+  narrowing?: { street: string | null; building: string | null };
+  // The kill switch (postioSupplementEnabled): false
+  // means no call is possible, whatever the client asks.
+  enabled: boolean;
+  req: string;
+}): Promise<PickerListResult> {
+  const started = entryNow();
+  const { postio, postcode, local, req } = deps;
+  const merged: { row: PickerRow; parts: LoadedAddressParts }[] = local.map((address) => ({
+    row: {
+      key: partsKey(address),
+      label: address.label,
+      source: "local" as const,
+      homeKey: partsKey(address),
+    },
+    parts: address,
+  }));
   let postioCount = 0;
   let dedupedCount = 0;
-  let postioFrom: PickerListResult["postioFrom"] = "not-called";
-  let postioReason: string | undefined;
 
-  if (local.length < POSTIO_SUPPLEMENT_BELOW) {
-    const list = await postioListFor(postio, postcode, req);
-    postioFrom = list.from;
-    postioReason = list.reason;
-    const streetNorm = deps.narrowing?.street ? normText(deps.narrowing.street) : null;
-    const buildingNorm = deps.narrowing?.building ? normText(deps.narrowing.building) : null;
-    for (const candidate of list.rows) {
-      if (streetNorm && normText(candidate.parts.street ?? "") !== streetNorm) continue;
-      if (buildingNorm) {
-        const paonName = normText((candidate.parts.paon ?? "").split(",")[0]);
-        if (!paonName.includes(buildingNorm) && !buildingNorm.includes(paonName)) continue;
-      }
-      const key = partsKey(candidate.parts);
-      postioCount += 1;
-      if (seen.has(key)) {
-        dedupedCount += 1;
-        continue;
-      }
-      seen.add(key);
-      merged.push({
-        row: {
-          key: `postio:${candidate.udprn}`,
-          label: candidate.label,
-          source: "postio",
-          udprn: candidate.udprn,
-        },
-        parts: candidate.parts,
-      });
+  if (!deps.enabled) {
+    merged.sort((x, y) => compareAddressParts(x.parts, y.parts));
+    logEntry(req, "picker.supplement", {
+      layer: "local",
+      reason: "supplement-off",
+      ms: entryNow() - started,
+      postcode,
+      local: local.length,
+      postio: 0,
+      deduped: 0,
+      postioFrom: "not-called",
+    });
+    return {
+      rows: merged.map((entry) => entry.row),
+      localCount: local.length,
+      postioCount,
+      dedupedCount,
+      postioFrom: "not-called",
+    };
+  }
+
+  const list = await postioListFor(postio, postcode, req);
+  const postioFrom = list.from;
+  const postioReason = list.reason;
+  const streetNorm = deps.narrowing?.street ? normText(deps.narrowing.street) : null;
+  const buildingNorm = deps.narrowing?.building ? normText(deps.narrowing.building) : null;
+  for (const candidate of list.rows) {
+    if (streetNorm && normText(candidate.parts.street ?? "") !== streetNorm) continue;
+    if (buildingNorm) {
+      const paonName = normText((candidate.parts.paon ?? "").split(",")[0]);
+      if (!paonName.includes(buildingNorm) && !buildingNorm.includes(paonName)) continue;
     }
+    postioCount += 1;
+    if (merged.some((entry) => sameHomeParts(entry.parts, candidate.parts))) {
+      dedupedCount += 1;
+      continue;
+    }
+    merged.push({
+      row: {
+        key: `postio:${candidate.udprn}`,
+        label: candidate.label,
+        source: "postio",
+        udprn: candidate.udprn,
+      },
+      parts: candidate.parts,
+    });
   }
 
   // ONE merged list in natural address order
@@ -252,14 +454,9 @@ export async function pickerList(deps: {
   merged.sort((x, y) => compareAddressParts(x.parts, y.parts));
   const rows = merged.map((entry) => entry.row);
 
-  logEntry(req, "picker.list", {
+  logEntry(req, "picker.supplement", {
     layer: postioCount > 0 ? "hybrid" : "local",
-    reason:
-      postioFrom === "not-called"
-        ? "local-complete"
-        : postioFrom === "failed"
-          ? `postio-${postioReason ?? "error"}`
-          : "merged",
+    reason: postioFrom === "failed" ? `postio-${postioReason ?? "error"}` : "merged",
     ms: entryNow() - started,
     postcode,
     local: local.length,

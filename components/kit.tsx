@@ -146,15 +146,32 @@ export function SuggestionShell({
   id,
   activeId,
   onSelect,
+  footer,
+  dimmed = false,
 }: {
   groups: SuggestionGroup[];
   id?: string;
   activeId?: string | null;
   onSelect?: (item: SuggestionItem) => void;
+  // The pinned footer under the groups, inside the same
+  // card (BUG-185): the wider-list row on a one-postcode
+  // panel. It sits outside every group's scroll region,
+  // so it never scrolls away.
+  footer?: ReactNode;
+  // The loading dress while the footer's action runs:
+  // the listed homes dim in place (the approved draft
+  // samples' Panel 3 form).
+  dimmed?: boolean;
 }) {
   if (groups.length === 0) return null;
   return (
-    <div className="postcode-box__suggestions" id={id}>
+    <div
+      className={["postcode-box__suggestions", dimmed ? "postcode-box__suggestions--loading" : ""]
+        .filter(Boolean)
+        .join(" ")}
+      id={id}
+      aria-busy={dimmed || undefined}
+    >
       {groups.map((group) => (
         <div className="suggest__group" key={group.label} data-group-label={group.label}>
           <p className="suggest__group-label">{group.label}</p>
@@ -217,6 +234,7 @@ export function SuggestionShell({
           </ul>
         </div>
       ))}
+      {footer}
     </div>
   );
 }

@@ -10,15 +10,19 @@ import { setEntryLogSink } from "../lib/server/entry-log";
 import {
   pickerList,
   pickFallbackUrl,
+  postioSupplementEnabled,
   promotionKeyFor,
   resetPostioListMemory,
   resolvePick,
+  sameHomeParts,
+  supplementPickerList,
 } from "../lib/server/hybrid";
 import {
   addressFromPostio,
   createFakePostioClient,
   createPostioClient,
   partsFromPostio,
+  type PostioAddress,
 } from "../lib/server/postio";
 import { rateLimitOk, resetRateLimits } from "../lib/server/rate-limit";
 import {
@@ -43,24 +47,31 @@ import {
 } from "./fixtures/entry-point";
 
 // The entry point's hybrid (18 Nov 2026; decision D72,
-// adopted in full). The four scenarios the founder asked
-// to have "somewhere" — fixtures in
+// adopted in full; the list movement re-ruled by the
+// founder, 23 Nov 2026 — BUG-185: no automatic Postio
+// call anywhere; the wider list is fetched only by the
+// visitor's click on the "Don't see your home?" row, via
+// supplementPickerList). The four scenarios the founder
+// asked to have "somewhere" — fixtures in
 // tests/fixtures/entry-point.ts, the table in
 // docs/entry-point.md:
 //
 //   (a) LOCAL ONLY — Birkdale CM3 2JT: a complete filed
 //       list; Postio is never called.
 //   (b) POSTIO ONLY — Minerva KT17 1FH: nothing filed;
-//       Postio's list carries the picker and Flat 4's pick
-//       resolves into a transient record.
+//       the list build serves nothing and calls nothing,
+//       then the click's supplement carries the picker
+//       and Flat 4's pick resolves into a transient
+//       record.
 //   (c) FALLBACK — Southminster CM0 7AA (the M7.15B
-//       neither-source witness): local empty and Postio
-//       failing (error / timeout / zero-balance / empty
-//       in turn); a pick lands on the whole-postcode
-//       check with the notice flag.
-//   (d) COMBINATION — EX1 1AA: local partial + Postio
-//       merged and deduped; a Postio pick that promotes to
-//       its home key once its sale is filed.
+//       neither-source witness): local empty and the
+//       supplement's Postio call failing (error / timeout
+//       / zero-balance / empty in turn); a pick lands on
+//       the whole-postcode check with the notice flag.
+//   (d) COMBINATION — EX1 1AA: local partial + the
+//       supplement's Postio list merged and deduped; a
+//       Postio pick that promotes to its home key once
+//       its sale is filed.
 //   (e) EPC-COVERED — Beaulieu CM1 6ER (M7.15B): no filed
 //       sales, but the picking index holds its 49
 //       certificate homes, so the local tier carries the
@@ -140,16 +151,19 @@ describe("(a) local only — Birkdale CM3 2JT", () => {
   });
 
   it("the picker list is complete locally — Postio is never called", async () => {
-    const postio = createFakePostioClient({ postcodes: fixture.postioLists });
-    const result = await pickerList({
-      postio,
+    // BUG-185: the list build takes no Postio client at
+    // all — there is nothing here that COULD call. The
+    // result's own fields are the pin: not-called, at a
+    // complete list's size as at any other.
+    const result = pickerList({
       postcode: BIRKDALE,
       local: resolved(BIRKDALE),
       req: "a2",
     });
-    expect(postio.calls).toHaveLength(0);
     expect(result.rows).toHaveLength(30);
     expect(result.rows.every((row) => row.source === "local")).toBe(true);
+    expect(result.postioFrom).toBe("not-called");
+    expect(result.postioCount).toBe(0);
     const log = logsFor("a2").find((l) => l.includes("event=picker.list"));
     expect(log).toContain("layer=local");
     expect(log).toContain("reason=local-complete");
@@ -333,6 +347,11 @@ describe("BUG-032 — a full postcode with no filed homes still serves itself", 
     const result = await suggestionsFor("E16 1AF", noHomesSource(), "b32a");
     expect(result.groups).toHaveLength(1);
     expect(result.groups[0].label).toBe("Postcodes");
+    // BUG-185: the self-serve still marks the response as
+    // one postcode's list, so the search box stands the
+    // "Don't see your home?" row up under it — a zero-home
+    // postcode is exactly where the row earns its place.
+    expect(result.postcodeList).toEqual({ postcode: "E16 1AF" });
     expect(result.groups[0].items).toEqual([{ label: "E16 1AF", href: homeRoute("E16 1AF") }]);
     const served = logsFor("b32a").find((l) => l.includes("event=suggestions.served"));
     expect(served).toContain("reason=ok");
@@ -684,11 +703,24 @@ describe("BUG-010 — a failed full postcode serves a settled empty response", (
 // ------------------------------------------------------------------
 
 describe("(b) postio only — Minerva KT17 1FH", () => {
-  it("Postio's list carries the picker, and Flat 4's pick resolves transiently", async () => {
+  it("the click's supplement carries the picker, and Flat 4's pick resolves transiently", async () => {
     const postio = createFakePostioClient({ postcodes: fixture.postioLists });
     const store = createMemoryResolveRecordStore();
 
-    const list = await pickerList({ postio, postcode: MINERVA, local: [], req: "b1" });
+    // BUG-185: the list build itself serves the empty
+    // local list and makes NO call — the postcode's
+    // homes arrive only with the visitor's click.
+    const built = pickerList({ postcode: MINERVA, local: [], req: "b1" });
+    expect(built.rows).toHaveLength(0);
+    expect(postio.calls).toHaveLength(0);
+
+    const list = await supplementPickerList({
+      postio,
+      postcode: MINERVA,
+      local: [],
+      enabled: true,
+      req: "b1",
+    });
     expect(list.rows).toHaveLength(7);
     expect(list.rows.every((row) => row.source === "postio")).toBe(true);
     // The flats serve in natural order (founder fix,
@@ -726,9 +758,9 @@ describe("(b) postio only — Minerva KT17 1FH", () => {
     expect(path.some((l) => l.includes("event=postio.call") && l.includes("op=postcode"))).toBe(
       true,
     );
-    expect(path.some((l) => l.includes("event=picker.list") && l.includes("layer=hybrid"))).toBe(
-      true,
-    );
+    expect(
+      path.some((l) => l.includes("event=picker.supplement") && l.includes("layer=hybrid")),
+    ).toBe(true);
     expect(path.some((l) => l.includes("event=transient.created"))).toBe(true);
     expect(path.some((l) => l.includes("event=pick.resolved") && l.includes("layer=postio"))).toBe(
       true,
@@ -758,7 +790,13 @@ describe("(b) postio only — Minerva KT17 1FH", () => {
     const store = createMemoryResolveRecordStore();
 
     const first = await import("../lib/server/hybrid");
-    const list = await first.pickerList({ postio, postcode: MINERVA, local: [], req: "b3" });
+    const list = await first.supplementPickerList({
+      postio,
+      postcode: MINERVA,
+      local: [],
+      enabled: true,
+      req: "b3",
+    });
     expect(list.postioFrom).toBe("live");
     expect(postio.calls).toHaveLength(1);
 
@@ -806,17 +844,23 @@ describe("(b) postio only — Minerva KT17 1FH", () => {
 // ------------------------------------------------------------------
 
 describe("(c) fallback — Southminster CM0 7AA", () => {
-  it("Postio erroring: the list degrades silently, a pick falls back WITH the notice flag", async () => {
+  it("Postio erroring: the supplement degrades silently, a pick falls back WITH the notice flag", async () => {
     const postio = createFakePostioClient({
       postcodes: fixture.postioLists,
       fail: "error",
     });
     const store = createMemoryResolveRecordStore();
 
-    const list = await pickerList({ postio, postcode: FALLBACK, local: [], req: "c1" });
+    const list = await supplementPickerList({
+      postio,
+      postcode: FALLBACK,
+      local: [],
+      enabled: true,
+      req: "c1",
+    });
     expect(list.rows).toHaveLength(0);
     expect(list.postioFrom).toBe("failed");
-    const listLog = logsFor("c1").find((l) => l.includes("event=picker.list"));
+    const listLog = logsFor("c1").find((l) => l.includes("event=picker.supplement"));
     expect(listLog).toContain("reason=postio-error");
 
     const pick = await resolvePick({
@@ -867,9 +911,15 @@ describe("(c) fallback — Southminster CM0 7AA", () => {
     expect(logsFor("c3").some((l) => l.includes("reason=postio-timeout"))).toBe(true);
   });
 
-  it("an empty Postio list is a silent local-only list, not a failure", async () => {
+  it("an empty Postio list is a silent local-only supplement, not a failure", async () => {
     const postio = createFakePostioClient({ postcodes: {} });
-    const list = await pickerList({ postio, postcode: FALLBACK, local: [], req: "c4" });
+    const list = await supplementPickerList({
+      postio,
+      postcode: FALLBACK,
+      local: [],
+      enabled: true,
+      req: "c4",
+    });
     expect(list.rows).toHaveLength(0);
     expect(list.postioFrom).toBe("live");
     expect(list.postioCount).toBe(0);
@@ -894,15 +944,17 @@ describe("(c) fallback — Southminster CM0 7AA", () => {
 
 describe("(e) EPC-covered — Beaulieu CM1 6ER", () => {
   it("the union serves all 49 certificate homes locally — Postio is never called", async () => {
-    const postio = createFakePostioClient({ postcodes: fixture.postioLists });
     const union = await fixture.source.addressesInPostcode(BEAULIEU);
     expect(union).toHaveLength(49);
     const local: ResolvedAddress[] = union.map((parts) => ({
       ...parts,
       label: labelForAddressParts(parts),
     }));
-    const list = await pickerList({ postio, postcode: BEAULIEU, local, req: "e1" });
-    expect(postio.calls).toHaveLength(0);
+    // BUG-185: the list build has no Postio client to
+    // call with — the 49 arrive as filed, and the result
+    // says not-called in its own fields.
+    const list = pickerList({ postcode: BEAULIEU, local, req: "e1" });
+    expect(list.postioFrom).toBe("not-called");
     expect(list.rows).toHaveLength(49);
     expect(list.rows.every((row) => row.source === "local")).toBe(true);
     // Natural order (founder fix, 18 Nov 2026): the odd
@@ -940,12 +992,13 @@ describe("(e) EPC-covered — Beaulieu CM1 6ER", () => {
 // ------------------------------------------------------------------
 
 describe("(d) combination — EX1 1AA", () => {
-  it("local partial + Postio merge into one deduped list in natural address order", async () => {
+  it("local partial + the supplement's Postio list merge into one deduped list in natural address order", async () => {
     const postio = createFakePostioClient({ postcodes: fixture.postioLists });
-    const list = await pickerList({
+    const list = await supplementPickerList({
       postio,
       postcode: COMBINATION,
       local: resolved(COMBINATION),
+      enabled: true,
       req: "d1",
     });
     expect(list.rows.map((row) => row.label)).toEqual([
@@ -956,7 +1009,7 @@ describe("(d) combination — EX1 1AA", () => {
     ]);
     expect(list.rows.map((row) => row.source)).toEqual(["local", "local", "postio", "postio"]);
     expect(list.dedupedCount).toBe(2);
-    const log = logsFor("d1").find((l) => l.includes("event=picker.list"));
+    const log = logsFor("d1").find((l) => l.includes("event=picker.supplement"));
     expect(log).toContain("layer=hybrid");
     expect(log).toContain("local=2");
     expect(log).toContain("postio=4");
@@ -991,7 +1044,13 @@ describe("(d) combination — EX1 1AA", () => {
         })),
       },
     });
-    const list = await pickerList({ postio, postcode: COMBINATION, local, req: "d1b" });
+    const list = await supplementPickerList({
+      postio,
+      postcode: COMBINATION,
+      local,
+      enabled: true,
+      req: "d1b",
+    });
     expect(list.rows.map((row) => row.label)).toEqual([
       "1 High Street",
       "2 High Street",
@@ -1005,7 +1064,13 @@ describe("(d) combination — EX1 1AA", () => {
   it("a Postio pick promotes to its home key once its sale is filed", async () => {
     const postio = createFakePostioClient({ postcodes: fixture.postioLists });
     const store = createMemoryResolveRecordStore();
-    await pickerList({ postio, postcode: COMBINATION, local: resolved(COMBINATION), req: "d2" });
+    await supplementPickerList({
+      postio,
+      postcode: COMBINATION,
+      local: resolved(COMBINATION),
+      enabled: true,
+      req: "d2",
+    });
     const pick = await resolvePick({
       postio,
       store,
@@ -1088,10 +1153,11 @@ describe("contract pins", () => {
 
   it("the picker row shapes differ by source, exactly", async () => {
     const postio = createFakePostioClient({ postcodes: fixture.postioLists });
-    const list = await pickerList({
+    const list = await supplementPickerList({
       postio,
       postcode: COMBINATION,
       local: resolved(COMBINATION),
+      enabled: true,
       req: "p2",
     });
     const local = list.rows.find((row) => row.source === "local");
@@ -1263,5 +1329,280 @@ describe("the rate limiter", () => {
     expect(rateLimitOk("test", 2, 60_000)).toBe(true);
     expect(rateLimitOk("test", 2, 60_000)).toBe(false);
     expect(rateLimitOk("other", 2, 60_000)).toBe(true);
+  });
+});
+
+// ------------------------------------------------------------------
+// BUG-185 — the on-demand supplement (founder-ruled
+// 23 Nov 2026): no automatic call anywhere; the click's
+// merge dedupes the part-split written forms; the kill
+// switch gates the call itself. The two proof postcodes
+// are the bug's own: TR10 8AH (the duplicate) and
+// CM0 7BE (the control).
+// ------------------------------------------------------------------
+
+describe("BUG-185 — the on-demand supplement", () => {
+  const TR10 = "TR10 8AH";
+  const CM0 = "CM0 7BE";
+
+  function localRow(parts: LoadedAddressParts): ResolvedAddress {
+    return { ...parts, label: labelForAddressParts(parts) };
+  }
+
+  // The local (EPC-form) rows at TR10 8AH: the flats ride
+  // in the PAON and the building's name sits in the
+  // street slot.
+  const tr10Local: ResolvedAddress[] = [
+    localRow({
+      postcode: TR10,
+      paon: "FLAT B",
+      saon: null,
+      street: "JUST DELIGHTS",
+      locality: null,
+      town: "PENRYN",
+    }),
+    localRow({
+      postcode: TR10,
+      paon: "FLAT D",
+      saon: null,
+      street: "JUST DELIGHTS",
+      locality: null,
+      town: "PENRYN",
+    }),
+  ];
+
+  // Postio's PAF forms for the same postcode: the
+  // building in the PAON, the flat in the SAON, the real
+  // street named — plus the building itself and the
+  // Telephone Exchange.
+  const tr10Postio: PostioAddress[] = [
+    {
+      udprn: "2001",
+      label: "Flat B, Just Delights, Commercial Road",
+      parts: {
+        postcode: TR10,
+        paon: "JUST DELIGHTS",
+        saon: "FLAT B",
+        street: "COMMERCIAL ROAD",
+        locality: null,
+        town: "PENRYN",
+      },
+    },
+    {
+      udprn: "2002",
+      label: "Flat D, Just Delights, Commercial Road",
+      parts: {
+        postcode: TR10,
+        paon: "JUST DELIGHTS",
+        saon: "FLAT D",
+        street: "COMMERCIAL ROAD",
+        locality: null,
+        town: "PENRYN",
+      },
+    },
+    {
+      udprn: "2003",
+      label: "Just Delights, Commercial Road",
+      parts: {
+        postcode: TR10,
+        paon: "JUST DELIGHTS",
+        saon: null,
+        street: "COMMERCIAL ROAD",
+        locality: null,
+        town: "PENRYN",
+      },
+    },
+    {
+      udprn: "2004",
+      label: "Telephone Exchange, Commercial Road",
+      parts: {
+        postcode: TR10,
+        paon: "TELEPHONE EXCHANGE",
+        saon: null,
+        street: "COMMERCIAL ROAD",
+        locality: null,
+        town: "PENRYN",
+      },
+    },
+  ];
+
+  it("TR10 8AH: the merged list shows Flat B and Flat D ONCE each", async () => {
+    const postio = createFakePostioClient({ postcodes: { [TR10]: tr10Postio } });
+    const list = await supplementPickerList({
+      postio,
+      postcode: TR10,
+      local: tr10Local,
+      enabled: true,
+      req: "x1",
+    });
+    // Two local flats + the building + the exchange; the
+    // two PAF flat forms dedupe against their local twins.
+    expect(list.rows).toHaveLength(4);
+    expect(list.dedupedCount).toBe(2);
+    expect(list.postioCount).toBe(4);
+    expect(list.postioFrom).toBe("live");
+    const labels = list.rows.map((row) => row.label);
+    expect(labels.filter((label) => /Flat B/.test(label))).toHaveLength(1);
+    expect(labels.filter((label) => /Flat D/.test(label))).toHaveLength(1);
+    // The surviving flat rows are the LOCAL rows (the
+    // local form wins a shared home); the building and
+    // the exchange arrive as Postio rows.
+    expect(list.rows.filter((row) => row.source === "local")).toHaveLength(2);
+    expect(list.rows.filter((row) => row.source === "postio").map((row) => row.label)).toEqual(
+      expect.arrayContaining([
+        "Just Delights, Commercial Road",
+        "Telephone Exchange, Commercial Road",
+      ]),
+    );
+    expect(postio.calls).toEqual([{ op: "postcode", arg: TR10 }]);
+  });
+
+  it("CM0 7BE (the control): six distinct homes, no duplicates, no losses", async () => {
+    const names = ["DHU CRAIGE", "IONA", "POND HOUSE", "SCOTTS HILL FARM"];
+    const cm0Local: ResolvedAddress[] = names.map((name) =>
+      localRow({
+        postcode: CM0,
+        paon: name,
+        saon: null,
+        street: "BURNHAM ROAD",
+        locality: null,
+        town: "SOUTHMINSTER",
+      }),
+    );
+    const cm0Postio: PostioAddress[] = [...names, "HILLSIDE", "ORCHARD COTTAGE"].map(
+      (name, index) => ({
+        udprn: `30${index}`,
+        label: `${labelForAddressParts({
+          postcode: CM0,
+          paon: name,
+          saon: null,
+          street: "BURNHAM ROAD",
+          locality: null,
+          town: "SOUTHMINSTER",
+        })}`,
+        parts: {
+          postcode: CM0,
+          paon: name,
+          saon: null,
+          street: "BURNHAM ROAD",
+          locality: null,
+          town: "SOUTHMINSTER",
+        },
+      }),
+    );
+    const postio = createFakePostioClient({ postcodes: { [CM0]: cm0Postio } });
+    const list = await supplementPickerList({
+      postio,
+      postcode: CM0,
+      local: cm0Local,
+      enabled: true,
+      req: "x2",
+    });
+    expect(list.rows).toHaveLength(6);
+    expect(list.dedupedCount).toBe(4);
+    // The only Postio-sourced rows are the two homes the
+    // local list did not hold.
+    expect(list.rows.filter((row) => row.source === "postio").map((row) => row.label)).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Hillside"),
+        expect.stringContaining("Orchard Cottage"),
+      ]),
+    );
+    expect(list.rows.filter((row) => row.source === "postio")).toHaveLength(2);
+    expect(new Set(list.rows.map((row) => row.key)).size).toBe(6);
+  });
+
+  it("sameHomeParts: the split forms match; neighbours never do", () => {
+    const flatBLocal = tr10Local[0];
+    const [flatBPaf, flatDPaf, buildingPaf] = tr10Postio.map((row) => row.parts);
+    expect(sameHomeParts(flatBLocal, flatBPaf)).toBe(true);
+    expect(sameHomeParts(flatBLocal, buildingPaf)).toBe(false);
+    expect(sameHomeParts(flatBPaf, flatDPaf)).toBe(false);
+    const ten = (street: string): LoadedAddressParts => ({
+      postcode: "ZZ1 1ZZ",
+      paon: "10",
+      saon: null,
+      street,
+      locality: null,
+      town: null,
+    });
+    expect(sameHomeParts(ten("HIGH STREET"), ten("HIGH STREET"))).toBe(true);
+    expect(sameHomeParts(ten("HIGH STREET"), ten("STATION ROAD"))).toBe(false);
+  });
+
+  it("the kill switch: parsing pins, and off means no call is possible", async () => {
+    expect(postioSupplementEnabled({})).toBe(true);
+    expect(postioSupplementEnabled({ POSTIO_SUPPLEMENT_ENABLED: "1" })).toBe(true);
+    expect(postioSupplementEnabled({ POSTIO_SUPPLEMENT_ENABLED: "banana" })).toBe(true);
+    for (const off of ["0", "false", "off", "no", "FALSE", "Off"]) {
+      expect(postioSupplementEnabled({ POSTIO_SUPPLEMENT_ENABLED: off })).toBe(false);
+    }
+    const postio = createFakePostioClient({ postcodes: { [TR10]: tr10Postio } });
+    const list = await supplementPickerList({
+      postio,
+      postcode: TR10,
+      local: tr10Local,
+      enabled: false,
+      req: "x3",
+    });
+    expect(postio.calls).toHaveLength(0);
+    expect(list.rows).toHaveLength(2);
+    expect(list.postioFrom).toBe("not-called");
+    expect(
+      logsFor("x3").some(
+        (l) => l.includes("event=picker.supplement") && l.includes("reason=supplement-off"),
+      ),
+    ).toBe(true);
+  });
+
+  it("one click is one call: a second supplement inside the memory adds none", async () => {
+    const postio = createFakePostioClient({ postcodes: { [TR10]: tr10Postio } });
+    const first = await supplementPickerList({
+      postio,
+      postcode: TR10,
+      local: tr10Local,
+      enabled: true,
+      req: "x4",
+    });
+    const second = await supplementPickerList({
+      postio,
+      postcode: TR10,
+      local: tr10Local,
+      enabled: true,
+      req: "x4",
+    });
+    expect(postio.calls).toHaveLength(1);
+    expect(first.postioFrom).toBe("live");
+    expect(second.postioFrom).toBe("memory");
+    expect(second.rows).toHaveLength(first.rows.length);
+  });
+
+  it("the list build never calls, at local sizes 0, 1 and 20", () => {
+    const twenty: ResolvedAddress[] = Array.from({ length: 20 }, (_, i) =>
+      localRow({
+        postcode: CM0,
+        paon: `${i + 1}`,
+        saon: null,
+        street: "BURNHAM ROAD",
+        locality: null,
+        town: "SOUTHMINSTER",
+      }),
+    );
+    for (const local of [[], twenty.slice(0, 1), twenty]) {
+      const list = pickerList({ postcode: CM0, local, req: "x5" });
+      expect(list.rows).toHaveLength(local.length);
+      expect(list.postioFrom).toBe("not-called");
+      expect(list.postioCount).toBe(0);
+    }
+  });
+
+  it("suggestions mark a single postcode's list — and only that", async () => {
+    // A full postcode's Homes list carries the marker the
+    // search box reads to stand the row up; a fragment
+    // (several postcodes) never does.
+    const full = await suggestionsFor(BIRKDALE, fixture.source, "x6");
+    expect(full.postcodeList).toEqual({ postcode: BIRKDALE });
+    const fragment = await suggestionsFor("CM3 2J", fixture.source, "x6");
+    expect(fragment.postcodeList).toBeUndefined();
   });
 });

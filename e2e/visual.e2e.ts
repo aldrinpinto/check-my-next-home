@@ -136,7 +136,8 @@ async function searchFromHome(page: Page, text: string) {
 async function openHomeResults(page: Page) {
   await searchFromHome(page, "CM3 2JT");
   await page.waitForURL("**/search/home?postcode=CM3+2JT");
-  await page.locator(".picker__select").selectOption({ label: "19 Birkdale Rise" });
+  await page.locator(".picker__trigger").click();
+  await page.locator(".picker__panel").getByRole("option", { name: "19 Birkdale Rise" }).click();
   await page.waitForURL(/\/search\/home\?postcode=.*&home=/);
   await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
 }

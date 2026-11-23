@@ -82,7 +82,8 @@ async function pickAndReachResults(page: Page, postcode: string, rowName: string
   // ruling, 20 Nov 2026 — the list dump is gone), and
   // choosing one goes straight to that home's check.
   await page.waitForURL(`**/search/home?postcode=${postcode.replace(" ", "+")}`);
-  await page.locator(".picker__select").selectOption({ label: rowName });
+  await page.locator(".picker__trigger").click();
+  await page.locator(".picker__panel").getByRole("option", { name: rowName }).click();
   await page.waitForURL(/\/search\/home\?postcode=.*&home=/);
   await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
 }
@@ -116,9 +117,11 @@ test.describe("checker journey — smoke", () => {
     async ({ page }) => {
       await searchFromHome(page, "KT17 1FH");
       await page.waitForURL("**/search/home?postcode=KT17+1FH");
+      await page.locator(".picker__trigger").click();
       await page
-        .locator(".picker__select")
-        .selectOption({ label: "Flat 4, Minerva House, 12 Ceres Crescent" });
+        .locator(".picker__panel")
+        .getByRole("option", { name: "Flat 4, Minerva House, 12 Ceres Crescent" })
+        .click();
       await page.waitForURL(/\/search\/home\?postcode=KT17\+1FH&home=/);
       await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
       await expect(page.locator(".results-head h1")).toContainText("KT17 1FH");
@@ -154,8 +157,9 @@ test.describe("checker journey — smoke", () => {
       await expect(page.locator(".results-head h1")).toHaveText(
         "Postcode area — CM3 2JT, not one exact home",
       );
+      await page.locator(".picker__trigger").click();
       await expect(
-        page.locator(".picker__select option", { hasText: "19 Birkdale Rise" }),
+        page.locator(".picker__panel").getByRole("option", { name: "19 Birkdale Rise" }),
       ).toBeAttached();
       const sections = page.locator("[data-section]");
       expect(await sections.count()).toBeGreaterThan(0);
@@ -185,7 +189,11 @@ test.describe("checker journey — regression", () => {
       });
       await searchFromHome(page, "CM3 2JT");
       await page.waitForURL("**/search/home?postcode=CM3+2JT");
-      await page.locator(".picker__select").selectOption({ label: "19 Birkdale Rise" });
+      await page.locator(".picker__trigger").click();
+      await page
+        .locator(".picker__panel")
+        .getByRole("option", { name: "19 Birkdale Rise" })
+        .click();
 
       await expect(page.locator(".checking .page-title")).toHaveText("Your check is under way");
       const rows = page.locator(".checking__row");
@@ -237,7 +245,11 @@ test.describe("checker journey — regression", () => {
       });
       await searchFromHome(page, "CM3 2JT");
       await page.waitForURL("**/search/home?postcode=CM3+2JT");
-      await page.locator(".picker__select").selectOption({ label: "19 Birkdale Rise" });
+      await page.locator(".picker__trigger").click();
+      await page
+        .locator(".picker__panel")
+        .getByRole("option", { name: "19 Birkdale Rise" })
+        .click();
       await expect(page.locator(".checking__row")).toHaveCount(5);
 
       // Item 2: the screen is NOT inside the results shell
@@ -311,14 +323,16 @@ test.describe("checker journey — regression", () => {
     async ({ page }) => {
       await searchFromHome(page, "e161gn");
       await page.waitForURL("**/search/home?postcode=E16+1GN");
+      await page.locator(".picker__trigger").click();
       await expect(
-        page.locator(".picker__select option", { hasText: "6 Exeter Road" }),
+        page.locator(".picker__panel").getByRole("option", { name: "6 Exeter Road" }),
       ).toBeAttached();
 
       await searchFromHome(page, " cm3 2jt ");
       await page.waitForURL("**/search/home?postcode=CM3+2JT");
+      await page.locator(".picker__trigger").click();
       await expect(
-        page.locator(".picker__select option", { hasText: "19 Birkdale Rise" }),
+        page.locator(".picker__panel").getByRole("option", { name: "19 Birkdale Rise" }),
       ).toBeAttached();
     },
   );
@@ -346,7 +360,11 @@ test.describe("checker journey — regression", () => {
       // The dropdown form (founder ruling, 20 Nov 2026):
       // the list dump is gone — one select carries the
       // postcode's homes, and choosing one is the pick.
-      await page.locator(".picker__select").selectOption({ label: "19 Birkdale Rise" });
+      await page.locator(".picker__trigger").click();
+      await page
+        .locator(".picker__panel")
+        .getByRole("option", { name: "19 Birkdale Rise" })
+        .click();
       await page.waitForURL(/\/search\/home\?postcode=CM3\+2JT&home=/);
       await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
       await expect(page.locator(".results-head h1")).toHaveText("19 Birkdale Rise, CM3 2JT");
@@ -533,13 +551,16 @@ test.describe("checker journey — regression", () => {
       // the empty list this spec asserted before the
       // preload is gone by design (CI #215). Since the
       // founder's ruling of 20 Nov 2026 they stand as the
-      // dropdown's options (49 homes + the prompt option),
-      // and the count line is gone with the list dump.
+      // dropdown's rows (49 homes; BUG-185: the custom
+      // dropdown's panel carries the homes alone — the
+      // prompt lives on its closed field), and the count
+      // line is gone with the list dump.
       await expect(page.locator(".picker__empty-line")).toHaveCount(0);
       await expect(page.locator(".picker__count")).toHaveCount(0);
-      await expect(page.locator(".picker__select option")).toHaveCount(50);
+      await page.locator(".picker__trigger").click();
+      await expect(page.locator(".picker__panel .suggest__item")).toHaveCount(49);
       await expect(
-        page.locator(".picker__select option", { hasText: "49 George Heard Crescent" }),
+        page.locator(".picker__panel").getByRole("option", { name: "49 George Heard Crescent" }),
       ).toBeAttached();
       await expect(page.locator(".results-head h1")).toHaveText(
         "Postcode area — CM1 6ER, not one exact home",
@@ -553,7 +574,11 @@ test.describe("checker journey — regression", () => {
     async ({ page }) => {
       await searchFromHome(page, "CM1 6ER");
       await page.waitForURL("**/search/home?postcode=CM1+6ER");
-      await page.locator(".picker__select").selectOption({ label: "49 George Heard Crescent" });
+      await page.locator(".picker__trigger").click();
+      await page
+        .locator(".picker__panel")
+        .getByRole("option", { name: "49 George Heard Crescent" })
+        .click();
       // The pick carries the home's durable key — the
       // same key a filed sale would carry — so the pick
       // lands on the canonical home route, not on a
@@ -614,8 +639,9 @@ test.describe("checker journey — regression", () => {
       // other spec here — the home dropdown renders inside
       // the results, behind the checking screen's reveal.
       await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
+      await page.locator(".picker__trigger").click();
       await expect(
-        page.locator(".picker__select option", { hasText: "19 Birkdale Rise" }),
+        page.locator(".picker__panel").getByRole("option", { name: "19 Birkdale Rise" }),
       ).toBeAttached();
     },
   );
@@ -645,8 +671,9 @@ test.describe("checker journey — regression", () => {
       // keys against the real widget and verify endpoint.
       await searchFromHome(page, "E16 1GN");
       await page.waitForURL("**/search/home?postcode=E16+1GN");
+      await page.locator(".picker__trigger").click();
       await expect(
-        page.locator(".picker__select option", { hasText: "6 Exeter Road" }),
+        page.locator(".picker__panel").getByRole("option", { name: "6 Exeter Road" }),
       ).toBeAttached();
     },
   );
@@ -726,7 +753,11 @@ test.describe("checker journey — regression", () => {
       });
       await searchFromHome(page, "CM3 2JT");
       await page.waitForURL("**/search/home?postcode=CM3+2JT");
-      await page.locator(".picker__select").selectOption({ label: "19 Birkdale Rise" });
+      await page.locator(".picker__trigger").click();
+      await page
+        .locator(".picker__panel")
+        .getByRole("option", { name: "19 Birkdale Rise" })
+        .click();
       const safetyRow = page.locator('.checking__row[data-row="safety"]');
       await expect(safetyRow).toHaveAttribute("data-state", "unavailable", { timeout: 15_000 });
       await expect(safetyRow.locator(".checking__row-state")).toContainText(

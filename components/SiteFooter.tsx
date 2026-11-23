@@ -52,6 +52,43 @@ const FOOTER_LINKS = [
 
 export const FOOTER_SOURCES_LINE = "Data from named official sources. Facts, not scores.";
 
+// Footer batch (founder, folded into the BUG-185 build
+// 23 Nov 2026): the bottom row gains the © line and the
+// brand's two social icons on its left, the sources line
+// keeping the extreme bottom-right. The icon links carry
+// the brand's own handles — instagram.com/checkmynexthome
+// and facebook.com/checkmynexthome — drawn as inline SVG
+// glyphs in the footer's Brass pale, like the links.
+export const FOOTER_SOCIALS = [
+  {
+    label: "Instagram",
+    href: "https://www.instagram.com/checkmynexthome",
+    ariaLabel: "Check My Next Home on Instagram",
+  },
+  {
+    label: "Facebook",
+    href: "https://www.facebook.com/checkmynexthome",
+    ariaLabel: "Check My Next Home on Facebook",
+  },
+] as const;
+
+function SocialIcon({ label }: { label: string }) {
+  if (label === "Instagram") {
+    return (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <rect x="3" y="3" width="18" height="18" rx="5" stroke="currentColor" strokeWidth="1.8" />
+        <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="1.8" />
+        <circle cx="17.2" cy="6.8" r="1.3" fill="currentColor" />
+      </svg>
+    );
+  }
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M13.5 21v-7h2.4l.4-3h-2.8V9.1c0-.9.3-1.5 1.6-1.5h1.3V4.9c-.3 0-1.1-.1-2-.1-2 0-3.4 1.2-3.4 3.5V11H8.5v3H11v7h2.5Z" />
+    </svg>
+  );
+}
+
 export default function SiteFooter() {
   return (
     <footer className="site-footer">
@@ -86,6 +123,25 @@ export default function SiteFooter() {
         </nav>
       </div>
       <div className="site-footer__bottom">
+        <div className="site-footer__legal">
+          <p className="site-footer__copyright">
+            © {new Date().getFullYear()} {SITE_NAME}
+          </p>
+          <span className="site-footer__social">
+            {FOOTER_SOCIALS.map((social) => (
+              <a
+                key={social.label}
+                className="site-footer__social-link"
+                href={social.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={social.ariaLabel}
+              >
+                <SocialIcon label={social.label} />
+              </a>
+            ))}
+          </span>
+        </div>
         <p className="site-footer__sources">{FOOTER_SOURCES_LINE}</p>
       </div>
     </footer>

@@ -47,8 +47,9 @@ test.describe("the single error page — regression", () => {
       await page.getByLabel("Postcode or address").fill("CM3 2JT");
       await page.getByRole("button", { name: "Check this home" }).click();
       await page.waitForURL("**/search/home?postcode=CM3+2JT");
+      await page.locator(".picker__trigger").click();
       await expect(
-        page.locator(".picker__select option", { hasText: "19 Birkdale Rise" }),
+        page.locator(".picker__panel").getByRole("option", { name: "19 Birkdale Rise" }),
       ).toBeAttached();
     },
   );

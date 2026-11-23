@@ -181,8 +181,9 @@ test.describe("suggestions dropdown — regression", () => {
       await expect(page.locator(".picker h2")).toHaveText("Birkdale Rise");
       // The street's homes stand as the dropdown's options
       // (founder ruling, 20 Nov 2026 — the list dump is gone).
+      await page.locator(".picker__trigger").click();
       await expect(
-        page.locator(".picker__select option", { hasText: "19 Birkdale Rise" }),
+        page.locator(".picker__panel").getByRole("option", { name: "19 Birkdale Rise" }),
       ).toBeAttached();
     },
   );
@@ -503,6 +504,84 @@ test.describe("suggestions dropdown — regression", () => {
       await expect(panel.locator(".suggest__empty")).toHaveText(
         "No suggestions for that — check the spelling, or use the button to search anyway.",
       );
+    },
+  );
+
+  test(
+    "BUG-185: a full postcode's panel ends with the full-address-list row",
+    { tag: "@regression" },
+    async ({ page }) => {
+      await page.goto("/");
+      const box = page.locator("#postcode");
+      await box.fill("CM3 2JT");
+      const panel = page.locator("#postcode-suggestions");
+      await expect(panel).toBeVisible();
+      await expect(panel.locator(".suggest__group-label")).toHaveText("Homes");
+      // The row stands under the homes, whatever the
+      // list's size — the panel's pinned footer.
+      const row = panel.locator("button.postio-row");
+      await expect(row).toBeVisible();
+      await expect(row).toContainText("Don't see your home? Search the full address list");
+    },
+  );
+
+  test(
+    "BUG-185: a street search shows no full-address-list row",
+    { tag: "@regression" },
+    async ({ page }) => {
+      await page.goto("/");
+      const box = page.locator("#postcode");
+      const panel = page.locator("#postcode-suggestions");
+      await box.fill("Birkdale Rise");
+      await expect(panel).toBeVisible();
+      await expect(
+        panel.getByRole("listbox", { name: "Streets" }).getByRole("option").first(),
+      ).toBeAttached();
+      // The row belongs to one postcode's home list only.
+      await expect(panel.locator(".postio-row")).toHaveCount(0);
+    },
+  );
+
+  test(
+    "BUG-185: clicking the row settles to the done line over the standing list",
+    { tag: "@regression" },
+    async ({ page }) => {
+      // The harness carries no Postio key, so the click's
+      // one call fails — which is exactly the ruled
+      // silent path: spinner, then the done line over
+      // whatever list stands, no failure state anywhere.
+      await page.goto("/");
+      const box = page.locator("#postcode");
+      await box.fill("CM3 2JT");
+      const panel = page.locator("#postcode-suggestions");
+      await expect(panel).toBeVisible();
+      const before = await panel.getByRole("option").count();
+      expect(before).toBeGreaterThan(8);
+      await panel.locator("button.postio-row").click();
+      const done = panel.locator(".postio-row--done");
+      await expect(done).toBeVisible({ timeout: 15_000 });
+      await expect(done).toContainText("Showing every address we can find for CM3 2JT");
+      // The list stands unchanged, and the row cannot be
+      // charged again — it is no longer a button.
+      await expect(panel.getByRole("option")).toHaveCount(before);
+      await expect(panel.locator("button.postio-row")).toHaveCount(0);
+    },
+  );
+
+  test(
+    "BUG-185: the picker dropdown carries the same row as its last item",
+    { tag: "@regression" },
+    async ({ page }) => {
+      await page.goto("/search/home?postcode=CM3+2JT");
+      await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
+      await page.locator(".picker__trigger").click();
+      const panel = page.locator(".picker__panel");
+      await expect(panel).toBeVisible();
+      const row = panel.locator("button.postio-row");
+      await expect(row).toBeVisible();
+      await expect(row).toContainText("Don't see your home? Search the full address list");
+      // Last item in the panel — after the homes group.
+      await expect(panel.locator(":scope > :last-child")).toHaveClass(/postio-row/);
     },
   );
 });

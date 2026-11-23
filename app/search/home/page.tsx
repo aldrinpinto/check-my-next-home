@@ -33,6 +33,7 @@ import {
   resolutionForRoute,
   resolutionNotCovered,
 } from "../../../lib/server/serve";
+import { postioSupplementEnabled } from "../../../lib/server/hybrid";
 import { noteCheckServe } from "../../../lib/server/search-counting";
 import { streetNormOf } from "../../../lib/server/streets";
 import { logEntry, newRequestId } from "../../../lib/server/entry-log";
@@ -149,6 +150,7 @@ async function Results({
   pickerAddresses,
   pickerHeading,
   pickFallback,
+  supplementEnabled,
 }: {
   postcode: string;
   homeKey: string | null;
@@ -156,6 +158,11 @@ async function Results({
   pickerAddresses: PickerAddress[];
   pickerHeading: string;
   pickFallback: boolean;
+  // The supplement kill switch's state (BUG-185), read
+  // at the page and handed to the picker, which also
+  // forwards the resolution's narrowing to its
+  // supplement call.
+  supplementEnabled: boolean;
 }) {
   let view;
   let results;
@@ -219,7 +226,16 @@ async function Results({
       </header>
       {pickFallback && <p className="journey-notice">{PICK_FALLBACK_LINE}</p>}
       {resolution.rung === 2 && (
-        <HomeList postcode={postcode} heading={pickerHeading} addresses={pickerAddresses} />
+        <HomeList
+          postcode={postcode}
+          heading={pickerHeading}
+          addresses={pickerAddresses}
+          supplementEnabled={supplementEnabled}
+          narrowing={{
+            street: resolution.street,
+            building: resolution.building,
+          }}
+        />
       )}
       <ResultsPage view={view} shortlistCard={card} />
       {completionBeacon(resolution, results.short)}
@@ -392,6 +408,7 @@ export default async function HomePage({
             pickerAddresses={pickerAddresses}
             pickerHeading={pickerHeading}
             pickFallback={pickFallback}
+            supplementEnabled={postioSupplementEnabled()}
           />
         </Suspense>
       </CheckingScreen>

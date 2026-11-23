@@ -22,8 +22,15 @@
 //                         the truncation is logged, never
 //                         silent);
 //   picker.list           the picker list's composition —
-//                         how many rows each layer supplied
-//                         and how many duplicates were merged;
+//                         the local rows as filed (BUG-185:
+//                         a list build is local-only, always);
+//   picker.supplement     the on-demand supplement's
+//                         composition — the visitor's one
+//                         click: how many rows Postio
+//                         supplied and how many duplicates
+//                         were merged (or why none were);
+//   supplement.limited    a supplement call refused by
+//                         the rate limit;
 //   postio.call           one Postio call's outcome (ok /
 //                         timeout / error / zero-balance /
 //                         no-key / refused);
@@ -55,6 +62,8 @@ export type EntryEvent =
   | "suggestions.limited"
   | "suggestions.ceiling"
   | "picker.list"
+  | "picker.supplement"
+  | "supplement.limited"
   | "postio.call"
   | "pick.resolved"
   | "transient.created"

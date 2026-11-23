@@ -456,9 +456,11 @@ test.describe("cold checks — regression", () => {
         // there 18 Nov 2026; since the founder's ruling of
         // 20 Nov 2026 one dropdown — choosing the home in
         // it goes to the home).
+        await page.locator(".picker__trigger").click();
         await page
-          .locator(".picker__select")
-          .selectOption({ label: `${home.paon} ${display(home.street)}` });
+          .locator(".picker__panel")
+          .getByRole("option", { name: `${home.paon} ${display(home.street)}` })
+          .click();
         await page.waitForURL(/\/search\/home\?postcode=.*&home=/);
         await expectResultsWhole(page);
       }

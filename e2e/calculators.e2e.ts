@@ -54,7 +54,8 @@ async function reachBirkdaleResults(page: Page) {
   // postcode's homes (founder ruling, 20 Nov 2026 — the
   // list dump is gone), and choosing one is the pick.
   await page.waitForURL("**/search/home?postcode=CM3+2JT");
-  await page.locator(".picker__select").selectOption({ label: "19 Birkdale Rise" });
+  await page.locator(".picker__trigger").click();
+  await page.locator(".picker__panel").getByRole("option", { name: "19 Birkdale Rise" }).click();
   await page.waitForURL(/\/search\/home\?postcode=.*&home=/);
   await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
   await page.locator(".calculators").scrollIntoViewIfNeeded();

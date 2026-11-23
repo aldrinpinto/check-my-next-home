@@ -400,6 +400,25 @@ export const PICKER_TITLE = "Pick a home";
 // the site's plain voice).
 export const PICKER_SELECT_PROMPT = "Choose your exact house";
 
+// The wider-address-list row (BUG-185, founder-ruled
+// 23 Nov 2026, copy finalised at his approval the same
+// day): the last item inside a dropdown that lists ONE
+// postcode's homes — the search box's panel and the
+// picker alike. Nothing is fetched from the wider list
+// until the visitor clicks this row; the click settles
+// through the loading line to the done line over whatever
+// list stands, success or failure alike — there is no
+// failure wording for it anywhere. The row exists only
+// while the supplement's kill switch is on
+// (POSTIO_SUPPLEMENT_ENABLED, lib/server/hybrid.ts).
+export const SUPPLEMENT_ROW_LINE = "Don't see your home? Search the full address list";
+export function supplementLoadingLine(postcode: string): string {
+  return `Loading every address for ${postcode}…`;
+}
+export function supplementDoneLine(postcode: string): string {
+  return `Showing every address we can find for ${postcode}`;
+}
+
 // The empty list (fold-in 4): a valid England/Wales full
 // postcode with zero filed addresses. One named state, one
 // meaning — Scotland/NI never reach it (ruling 4).

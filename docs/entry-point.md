@@ -22,19 +22,39 @@ One search, three layers, in order:
    filed" is the ruling: the search path never waits on
    a cold load; the check's own cold loads still run
    inside the check, as before.
-2. **Postio, the backstop.** When the local list at a
-   full postcode is short (fewer than
-   `POSTIO_SUPPLEMENT_BELOW = 5` distinct local homes),
-   Postio's exhaustive postcode list supplements it.
-   The floor was 25 until M7.15B: with the picking
-   index loaded, a postcode the local tier names fewer
-   than five homes for is genuinely thin — brand-new or
-   mostly non-residential — while at 25 the supplement
-   kept paying to re-list homes the index already
-   names. The merged list dedupes by normalised parts;
-   a home both filed and in PAF appears once, as the
-   local row. Picking a Postio row is the one billable
-   moment.
+2. **Postio, the backstop — on the visitor's click
+   only (BUG-185, founder-ruled 23 Nov 2026).** No
+   Postio call ever happens automatically: the
+   floor-of-5 trigger this section used to describe
+   (`POSTIO_SUPPLEMENT_BELOW`, recalibrated 25 → 5 at
+   M7.15B) is abolished, and every list build — the
+   suggestions and the picker alike — is local-only.
+   Where a dropdown lists one postcode's homes (the
+   search box's panel, and the check page's picker,
+   rebuilt as the same custom dropdown), it always
+   ends with the row "Don't see your home? Search the
+   full address list". A click on the row fires
+   exactly one Postio call for that postcode; the list
+   refreshes in place, merged and deduped by home
+   identity across the part-split written forms
+   (`sameHomeParts` in `lib/server/hybrid.ts` — the
+   EPC form that parks a flat in the PAON and the
+   building's name in the street slot is the same home
+   as the PAF form that splits them properly), the
+   local row winning every shared home. The row then
+   shows its done line and cannot be charged again.
+   If the call fails for any reason, the visitor sees
+   nothing of it: the done state settles over whatever
+   list stands — no error copy, no failure state,
+   anywhere. The kill switch
+   `POSTIO_SUPPLEMENT_ENABLED` (server env, default
+   on) gates the row itself: off, the row disappears
+   everywhere and no Postio call is possible at all.
+   The supplemented list is held five minutes in
+   server memory only; nothing is written to the
+   database or the picking index. Picking a Postio
+   row resolves exactly as before (the transient
+   record, 24h).
 3. **The postcode-level fallback.** If both layers fail —
    Postio slow (hard 1,500ms timeout), erroring, out of
    credit (HTTP 402), or not configured — the journey
@@ -48,20 +68,22 @@ hybrid is a serve-layer resolution source beside them
 
 ## The pieces
 
-| Piece                                           | Where                                                                                       |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| Local suggestion read model                     | `lib/server/suggestions.ts`                                                                 |
-| Suggestions endpoint (local only, rate-limited) | `app/api/suggest/route.ts`                                                                  |
-| Dropdown completion (keyboard, aria, picks)     | `components/PostcodeBox.tsx`, `components/kit.tsx` (`SuggestionShell`)                      |
-| Postio client + fake                            | `lib/server/postio.ts`                                                                      |
-| The hybrid brain (list merge, pick, promotion)  | `lib/server/hybrid.ts`                                                                      |
-| Transient resolve records                       | `lib/server/resolve-records.ts`, migration `0029`                                           |
-| Pick endpoint                                   | `app/api/pick/route.ts`                                                                     |
-| Picker pages (merge wired)                      | `app/search/page.tsx`, `app/search/home/page.tsx`                                           |
-| Decision log                                    | `lib/server/entry-log.ts`                                                                   |
-| Rate limiter                                    | `lib/server/rate-limit.ts`                                                                  |
-| Balance/health probe                            | `loaders/canary-postio.mjs` (item `postio` in `loaders/canary.mjs`)                         |
-| Scenario fixtures + specs                       | `tests/fixtures/entry-point.ts`, `tests/entry-point.test.ts`, `tests/canary-postio.test.ts` |
+| Piece                                           | Where                                                                                          |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Local suggestion read model                     | `lib/server/suggestions.ts`                                                                    |
+| Suggestions endpoint (local only, rate-limited) | `app/api/suggest/route.ts`                                                                     |
+| Dropdown completion (keyboard, aria, picks)     | `components/PostcodeBox.tsx`, `components/kit.tsx` (`SuggestionShell`)                         |
+| Postio client + fake                            | `lib/server/postio.ts`                                                                         |
+| The hybrid brain (list merge, pick, promotion)  | `lib/server/hybrid.ts`                                                                         |
+| Transient resolve records                       | `lib/server/resolve-records.ts`, migration `0029`                                              |
+| Pick endpoint                                   | `app/api/pick/route.ts`                                                                        |
+| Supplement endpoint (the row's one call)        | `app/api/supplement/route.ts`                                                                  |
+| The "Don't see your home?" row                  | `components/SupplementRow.tsx` (in `components/PostcodeBox.tsx` and `components/HomeList.tsx`) |
+| Picker pages (merge wired)                      | `app/search/page.tsx`, `app/search/home/page.tsx`                                              |
+| Decision log                                    | `lib/server/entry-log.ts`                                                                      |
+| Rate limiter                                    | `lib/server/rate-limit.ts`                                                                     |
+| Balance/health probe                            | `loaders/canary-postio.mjs` (item `postio` in `loaders/canary.mjs`)                            |
+| Scenario fixtures + specs                       | `tests/fixtures/entry-point.ts`, `tests/entry-point.test.ts`, `tests/canary-postio.test.ts`    |
 
 ## Rules the build holds
 
@@ -312,8 +334,11 @@ their sales parts, sales rows byte-identical).
 the UNION (filed price_paid + index, filed winning);
 an index-only home resolves by its durable home key
 through the serve layer exactly as a filed home does —
-no token, no TTL, no Postio call. The Postio
-supplement floor recalibrated 25 → 5 (above).
+no token, no TTL, no Postio call. (The Postio
+supplement floor this note once recorded — 25 → 5 —
+was abolished at BUG-185: the supplement is the
+visitor's click now, never a list build's. See point
+2 above.)
 
 **Freshness.** The sales pass is a monthly FULL
 re-extract under its own schedule entry and a measured
@@ -370,10 +395,11 @@ address order. This build is that amendment.
   postcode's full union list (the picking-index union,
   naturally ordered), and address words typed alongside
   the postcode filter within that full list — the
-  filtered result is uncapped too. The Postio supplement
-  behaviour for short local lists is untouched (a
-  keystroke still never reaches Postio; the supplement
-  lives on the picker path, as before).
+  filtered result is uncapped too. A keystroke still
+  never reaches Postio; since BUG-185 the supplement
+  is the visitor's click on the "Don't see your home?"
+  row, on the search-box panel as on the picker (point
+  2 above).
 - **The fragment cap stands, exactly.** Partial
   postcodes (the Postcodes group), fragments and mixed
   groups still cap at 8 in total (`SUGGEST_TOTAL_CAP`).
@@ -510,10 +536,12 @@ filed certificates + the picking index), in natural
 address order, uncapped as the dropdown's full-postcode
 list is, each home a link straight to its own check.
 The hybrid supplement machinery re-points to this list:
-`pickerList` (local union + the Postio supplement below
-the floor, with its warm list memory and transient
+`pickerList` (the local union, with its transient
 records) serves the list on the postcode check exactly
 as it served the picker page, so no behaviour is lost —
+and since BUG-185 the wider list joins it only through
+the visitor's click (`supplementPickerList`, point 2
+above), the warm list memory serving the click's pick —
 without the list, a button-presser could never reach a
 home check at all. A Postio-served row still resolves
 through `/api/pick` into its transient record; a local
