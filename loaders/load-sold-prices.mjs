@@ -107,7 +107,8 @@
 // new modes take no postcodes at all, and a flag in slot 0 is
 // honoured exactly like a flag anywhere else.
 
-import { readFile } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { Readable } from "node:stream";
@@ -629,8 +630,9 @@ export async function stampNoSalePostcodes(client, edition) {
 // staging table, the update merge over it, proofs against
 // staging, then the swap. Returns the summary facts; the caller
 // stamps and prints. fullLines/updateLines are iterables of raw
-// file lines (arrays in tests and --file runs, a readline stream
-// live); edition is the full file's publication date, or null to
+// file lines (arrays in tests; a readline stream live and under
+// --file alike, since BUG-200); edition is the full file's
+// publication date, or null to
 // fall back to the newest sale date filed (the legacy loader's
 // --file fallback). expectedFullBytes, when the caller knows it,
 // is the full file's size in bytes as its source declared it
@@ -949,6 +951,47 @@ export async function runUpdate(client, { updateLines, edition, verifyOnly = fal
   };
 }
 
+// The national pass's --file sources (BUG-200): the complete
+// file consumed as a readline stream over a file read stream —
+// the identical consumption shape to the live branch — and
+// never held whole: at 5.54 GB the file cannot be a string at
+// all (V8's string ceiling and heap are both smaller), which
+// is what stranded the register repair on a byte-verified
+// local copy the whole-read branch could not ingest. The
+// declared size the BUG-188 guard reconciles against is the
+// file's true on-disk size, from stat. The monthly update
+// file rides whole, as the array of lines runNational's merge
+// consumes — 17 MB at the Registry's current size, safe to
+// hold, and the merge's own shape.
+/**
+ * @param {string} fileDir
+ */
+export async function nationalFileSources(fileDir) {
+  const fullPath = join(fileDir, "pp-complete.csv");
+  const { size: expectedFullBytes } = await stat(fullPath);
+  // The line stream is created lazily, on the pass's first
+  // pull: a readline interface over a file stream flows the
+  // moment it is created, and lines it emits before the
+  // consumer attaches are lost — and the pass's own preamble
+  // (its staging-table setup) sits between this resolution
+  // and the first pull, long enough for a fast local file to
+  // empty itself into the void and leave the consumer waiting
+  // on a stream that will never close for it. (The live
+  // branch carries the same shape and is spared only by its
+  // source's slowness.)
+  const fullLines = (async function* () {
+    const lines = createInterface({
+      input: createReadStream(fullPath),
+      crlfDelay: Infinity,
+    });
+    for await (const line of lines) yield line;
+  })();
+  const updateLines = (await readFile(join(fileDir, "pp-monthly-update.csv"), "utf8")).split(
+    /\r?\n/,
+  );
+  return { fullLines, updateLines, expectedFullBytes };
+}
+
 // The new modes' entry: sources resolved (live downloads or a
 // --file directory), the work run, the outcome stamped (gap 4 —
 // success and failure alike; a verify-only run stamps nothing,
@@ -972,8 +1015,8 @@ async function modeMain(args) {
       let fullLines;
       let updateLines;
       // The full file's declared size, reconciled by the pass
-      // against the lines it consumes (BUG-188): the file's byte
-      // length under --file; live, the download's Content-Length
+      // against the lines it consumes (BUG-188): the file's
+      // on-disk size under --file; live, the download's Content-Length
       // — taken only when the body arrives unencoded, since an
       // encoded body's length counts compressed bytes the line
       // stream never sees. Absent a usable declaration the pass
@@ -981,12 +1024,7 @@ async function modeMain(args) {
       // still apply).
       let expectedFullBytes = null;
       if (parsed.fileDir) {
-        const fullText = await readFile(join(parsed.fileDir, "pp-complete.csv"));
-        expectedFullBytes = fullText.length;
-        fullLines = fullText.toString("utf8").split(/\r?\n/);
-        updateLines = (await readFile(join(parsed.fileDir, "pp-monthly-update.csv"), "utf8")).split(
-          /\r?\n/,
-        );
+        ({ fullLines, updateLines, expectedFullBytes } = await nationalFileSources(parsed.fileDir));
       } else {
         const response = await fetch(FULL_FILE_URL);
         if (!response.ok) throw new Error(`the full file download failed: HTTP ${response.status}`);

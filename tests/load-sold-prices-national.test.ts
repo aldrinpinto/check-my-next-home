@@ -1,9 +1,11 @@
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   decideUpdateAction,
   isCoveredPostcode,
+  nationalFileSources,
   parseAllRecords,
   parseModeArgs,
   runNational,
@@ -693,6 +695,72 @@ describe("runNational — the whole register in one pass", () => {
     expect(result.stamped).toBe(0);
     expect(client.live).toEqual([{ transaction_id: "SENTINEL" }]);
     expect(client.cache.get("CM3 2AA")?.answers.soldPricesLoad).toBeUndefined();
+  });
+});
+
+describe("nationalFileSources — the --file branch streams its local copy (BUG-200)", () => {
+  it("files the register end to end from a local directory, guarded by the file's on-disk size", async () => {
+    const sources = await nationalFileSources(fixtureDir);
+    // The guard's declared size is the complete file's true
+    // on-disk size, taken from stat — not a held copy's length.
+    expect(sources.expectedFullBytes).toBe(statSync(join(fixtureDir, "pp-complete.csv")).size);
+    const client = new FakeClient();
+    client.seedCache(["CM3 2JT", "CM3 2AA", "E16 1GN", "EH1 1AA", "BT1 1AA"]);
+    const result = await runNational(client as never, {
+      fullLines: sources.fullLines,
+      updateLines: sources.updateLines,
+      edition: EDITION,
+      expectedFullBytes: sources.expectedFullBytes,
+    });
+    expect(result.total).toBe(39);
+    expect(client.live).toHaveLength(39);
+    const delivered = fullLines.filter((l) => l);
+    expect(result.linesRead).toBe(delivered.length);
+    expect(result.logLine).toContain(
+      `load-sold-prices · edition ${EDITION} · national pass · 39 sales filed`,
+    );
+    expect(result.logLine).toContain(`${delivered.length} full-file lines read`);
+  });
+
+  it("refuses a truncated local copy and leaves the standing register untouched", async () => {
+    // A truncated copy of the complete file, cut mid-line —
+    // the shape the live stream twice delivered. Judged
+    // against the complete file's on-disk size (the size its
+    // source declares), the delivered lines under-account and
+    // the guard refuses before anything is filed. Judged
+    // against the copy's own stat the cut would be invisible
+    // to byte accounting: a mid-line cut is indistinguishable
+    // from a complete file whose last line simply carries no
+    // terminator — the tolerance the guard's honest sizes
+    // spell out — so the declared size here is the complete
+    // file's, exactly as the live branch takes the download's
+    // Content-Length rather than the delivered body's length.
+    const dir = mkdtempSync(join(tmpdir(), "cmnh-pp-truncated-"));
+    try {
+      const complete = readFileSync(join(fixtureDir, "pp-complete.csv"));
+      writeFileSync(
+        join(dir, "pp-complete.csv"),
+        complete.subarray(0, Math.floor(complete.length / 2)),
+      );
+      writeFileSync(
+        join(dir, "pp-monthly-update.csv"),
+        readFileSync(join(fixtureDir, "pp-monthly-update.csv")),
+      );
+      const sources = await nationalFileSources(dir);
+      const client = new FakeClient();
+      client.live = [{ transaction_id: "STANDING-ROW", postcode: "CM3 2JT" } as Row];
+      await expect(
+        runNational(client as never, {
+          fullLines: sources.fullLines,
+          updateLines: sources.updateLines,
+          edition: EDITION,
+          expectedFullBytes: complete.length,
+        }),
+      ).rejects.toThrow(/under-delivered/);
+      expect(client.live).toEqual([{ transaction_id: "STANDING-ROW", postcode: "CM3 2JT" }]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
