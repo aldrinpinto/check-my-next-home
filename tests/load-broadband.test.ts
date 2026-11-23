@@ -134,7 +134,7 @@ describe("the file contract", () => {
 });
 
 describe("filing — the answers pattern (guard-asserted shape)", () => {
-  it("stages, merges with UPDATE postcode_cache SET answers, clears stale keys", async () => {
+  it("stages, merges with UPDATE postcode_cache SET answers, sweeps stale keys", async () => {
     const statements: string[] = [];
     const client = {
       query: async (sql: string) => {
@@ -149,8 +149,21 @@ describe("filing — the answers pattern (guard-asserted shape)", () => {
     const stageAt = statements.findIndex((s) => /CREATE TEMP TABLE broadband_stage/.test(s));
     expect(beginAt).toBeGreaterThanOrEqual(0);
     expect(stageAt).toBeGreaterThan(beginAt);
+    expect(
+      statements.some(
+        (s) =>
+          /INSERT INTO broadband_stage/.test(s) && /ON CONFLICT \(postcode\) DO NOTHING/.test(s),
+      ),
+    ).toBe(true);
     expect(statements.some((s) => /UPDATE postcode_cache SET answers/.test(s))).toBe(true);
-    expect(statements.some((s) => /answers - 'broadband'/.test(s))).toBe(true);
-    expect(statements.at(-1)).toBe("COMMIT");
+    // BUG-191: no single transaction spans the filing — staging,
+    // merging and the sweep each commit separately (the mock's
+    // empty scan ends the sweep before its delete can fire; the
+    // delete itself is proven against the stateful fake in
+    // load-broadband-streaming.test.ts).
+    expect(statements.filter((s) => s === "BEGIN").length).toBeGreaterThanOrEqual(3);
+    expect(statements.filter((s) => s === "COMMIT").length).toBeGreaterThanOrEqual(3);
+    expect(statements.some((s) => /SELECT postcode FROM postcode_cache/.test(s))).toBe(true);
+    expect(statements.at(-1)).toMatch(/DROP TABLE IF EXISTS broadband_stage/);
   });
 });
