@@ -5220,6 +5220,15 @@ function section9(input: ReportInput, homeCerts: ServedCertificate[]): ReportSec
 // The EPC destination is a per-certificate pattern: the
 // fixed base is what the registry holds, and the robot
 // checks the service behind it.
+// The attribution statement HM Land Registry pins for users of
+// Price Paid Data (its single-file download page), carried
+// verbatim at the end of Section 10's Sold prices bullet —
+// checked and conformed at the Price Paid national step
+// (adopted prep, gap 10): the words did not stand in the report
+// before that step.
+export const PRICE_PAID_OGL_ATTRIBUTION =
+  "Contains HM Land Registry data © Crown copyright and database right 2021. This data is licensed under the Open Government Licence v3.0.";
+
 export const EPC_CERTIFICATE_URL_BASE =
   "https://find-energy-certificate.service.gov.uk/energy-certificate/";
 export const LONG_TERM_FLOOD_RISK_URL =
@@ -5288,11 +5297,13 @@ function section10(input: ReportInput, cert: ServedCertificate | null): ReportSe
             median.spanFrom && median.spanTo
               ? ` spanning ${formatShortFiledDate(median.spanFrom)} to ${formatShortFiledDate(median.spanTo)}`
               : ""
-          }${own}. Land Registry data typically lags by around two months.`,
+          }${own}. Land Registry data typically lags by around two months. ${PRICE_PAID_OGL_ATTRIBUTION}`,
         ),
       ]);
     } else {
-      sourceItem("Sold prices", [seg(strippedSource(soldBundle.sourceLine))]);
+      sourceItem("Sold prices", [
+        seg(`${strippedSource(soldBundle.sourceLine)} ${PRICE_PAID_OGL_ATTRIBUTION}`),
+      ]);
     }
   }
 

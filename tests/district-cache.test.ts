@@ -247,6 +247,22 @@ describe("district cache — serve, invalidate, degrade", () => {
     expect(calls.soldFacts).toBe(2);
   });
 
+  it("a moved load-sold-prices stamp alone invalidates the entry — the price-only correction month", async () => {
+    const db = new FakeDb();
+    succeedAll(db);
+    const cache = createDistrictCache(db);
+    const { source, calls } = fakeSource();
+    await buildDistrictBundleCached("ZZ9", source, cache);
+    // A monthly update that corrects one price and files no
+    // new sale moves no count anywhere — the only thing that
+    // advances is the sold-prices loader's own success stamp
+    // (Price Paid national step, gap 4: the stamp is written
+    // on every applied update). The entry must still fall.
+    db.stamps.set("load-sold-prices", "2026-12-01T05:15:00.000Z");
+    await buildDistrictBundleCached("ZZ9", source, cache);
+    expect(calls.soldFacts).toBe(2);
+  });
+
   it("a moved guard count invalidates the entry — a re-filing that moves no stamp", async () => {
     const db = new FakeDb();
     succeedAll(db);

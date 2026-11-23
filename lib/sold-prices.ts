@@ -441,7 +441,18 @@ export async function buildSoldPricesBundle(
     }
     const loadState = rows.length > 0 ? "found" : "loaded-none";
     const sourceName = rows[0]?.sourceName ?? SOLD_PRICES_SOURCE_NAME;
-    const edition = rows[0]?.sourceDate ?? stampEdition;
+    // The figures' edition is the NEWEST source_date among the
+    // postcode's rows (Price Paid national step, gap 6): whole-
+    // postcode loads stamp every row alike, but the monthly
+    // update mode upserts single sales under the update file's
+    // own edition, so a postcode's rows legitimately span
+    // editions — the served source line names the newest file
+    // any of its figures came from, never whichever row the
+    // read happened to return first.
+    const edition =
+      rows.length > 0
+        ? rows.reduce((max, r) => (r.sourceDate > max ? r.sourceDate : max), rows[0].sourceDate)
+        : stampEdition;
     const sourceLine = edition
       ? `${sourceName} — file edition ${edition}`
       : `${sourceName} — the filed edition for this postcode is not recorded`;

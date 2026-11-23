@@ -658,6 +658,27 @@ describe("sold prices — the three loaded states", () => {
   });
 });
 
+describe("sold prices — the served edition (Price Paid national step, gap 6)", () => {
+  it("names the NEWEST source_date among the postcode's rows, not the first row's", async () => {
+    // After a monthly update upserts single sales under its own
+    // edition, a postcode's rows legitimately span editions. The
+    // first row here carries the middle edition, so a
+    // first-row read and the correct max read disagree.
+    const source = new FakeSoldPricesSource([
+      syntheticRow({ price: 300000, saleDate: "2024-01-01", paon: "1", sourceDate: "2026-10-28" }),
+      syntheticRow({ price: 310000, saleDate: "2024-02-01", paon: "2", sourceDate: "2026-11-25" }),
+      syntheticRow({ price: 320000, saleDate: "2024-03-01", paon: "3", sourceDate: "2026-09-30" }),
+    ]);
+    source.prefile("XX1 1XX");
+    const bundle = await buildSoldPricesBundle(rung2Resolution("XX1 1XX"), source);
+    if (bundle.kind !== "sold-prices" || "soldPrices" in bundle)
+      throw new Error("expected sold-prices");
+    expect(bundle.edition).toBe("2026-11-25");
+    expect(bundle.sourceLine).toContain("2026-11-25");
+    expect(bundle.sourceLine).not.toContain("2026-10-28");
+  });
+});
+
 describe("sold prices — coverage", () => {
   it("gives a Scottish postcode the named not-covered state, without loading it", async () => {
     const source = new FakeSoldPricesSource(REGISTRY_ROWS);

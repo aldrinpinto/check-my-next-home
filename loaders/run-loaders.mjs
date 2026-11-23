@@ -981,8 +981,20 @@ async function main() {
           targets.epc.add(pc);
         });
       }
+      // Sold prices' monthly entry invokes the loader's
+      // --update mode with no postcode arguments (Price Paid
+      // national step, gap 8): since the national pass filed
+      // the whole register, the monthly refresh is one small
+      // update file applied by transaction id, not a full-file
+      // stream per filed postcode. The item's name, cadence and
+      // digest parsing are unchanged — the runner's record for
+      // it stands exactly as before, and the loader stamps its
+      // own outcome as well (the cron path runs it standalone).
+      // The per-postcode mode itself is NOT retired: the
+      // brain's on-demand path and the fixture pass above still
+      // use it.
       for (const [item, set, loaderArgs] of [
-        ["load-sold-prices", targets.sold, [...targets.sold]],
+        ["load-sold-prices", targets.sold, ["--update"]],
         ["load-crime", targets.crime, [...targets.crime]],
         ["load-epc", targets.epc, [...targets.epc]],
       ]) {
