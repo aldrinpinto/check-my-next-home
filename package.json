@@ -17,6 +17,7 @@
     "db:seed": "node db/seed.mjs",
     "digest:journeys": "node scripts/journey-digest.mjs",
     "fulfil:reports": "npx -y tsx scripts/fulfil-reports.ts",
+    "order:lookup": "npx -y tsx scripts/order-lookup.ts",
     "prune:journeys": "node scripts/prune-journey-events.mjs",
     "heartbeat": "node scripts/heartbeat.mjs",
     "load:postcodes": "node loaders/load-postcodes.mjs",

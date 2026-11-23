@@ -26,6 +26,7 @@ import {
 } from "./fulfilment";
 import { createDbGiftStore } from "./gifts";
 import { recordJourneyEvent } from "./journey-events";
+import { getOrderNotices } from "./order-notices";
 import { createDbRefundStore, createRefundProcessing } from "./refunds";
 import { createDbDeliveryStore } from "./report-deliveries";
 import { getReportDeliveryService } from "./report-delivery";
@@ -101,6 +102,13 @@ export function getFulfilmentService(): ReturnType<typeof createFulfilmentServic
     recordDelivered: () => {
       void recordJourneyEvent(pool, { event: "report_delivered", routePattern: "/report" });
     },
+    // The order notices (M9.10): the order record's
+    // delivery entry, the sale alert at fulfilment,
+    // the failure pair at terminal failure, and the
+    // retry sweep opening each pass. The module's own
+    // origin rule is this worker's (APP_ORIGIN, else
+    // the site's URL).
+    orderNotices: getOrderNotices(),
     origin: process.env.APP_ORIGIN ?? SITE_URL,
   });
 }

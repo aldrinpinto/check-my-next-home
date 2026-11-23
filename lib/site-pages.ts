@@ -312,7 +312,7 @@ export const PRIVACY_H1 = "Privacy policy";
 export const PRIVACY_LEAD = "We collect as little as we can, and only what the site needs to work.";
 export const PRIVACY_LEAD_REST =
   "This page explains, in plain English, what we hold, why we hold it, and what we never do with it.";
-export const PRIVACY_DATE_LINE = "This version: 20 November 2026";
+export const PRIVACY_DATE_LINE = "This version: 23 November 2026";
 export const PRIVACY_EMAIL_ADDRESS = "privacy@checkmynexthome.co.uk";
 
 // Privacy copy carries the sample's bold lead-ins as **…**
@@ -358,7 +358,10 @@ export const PRIVACY_CARDS: PrivacyCard[] = [
         "Card payments are handled by **Stripe**. When you pay for a report, you give your card details to Stripe, not to us.",
       ),
       p(
-        "We never see your card details, and we never store them. Stripe confirms to us that a payment has been made so we can send your report — that confirmation is all we receive about the payment itself.",
+        "We never see your card details, and we never store them. Stripe confirms to us that a payment has been made so we can send your report — and tells us if a payment fails or is refunded, so we can put things right.",
+      ),
+      p(
+        "We keep an **order record** for every report bought: the email address it was sent to, the home it covers, the amount paid, and the moment you agreed to receive the report straight away. We keep order records for **five years**, for our accounts and so we can help if you ever ask about an order. A copy of each report is emailed to us when it is delivered, with the report itself attached, so we hold the same record you received.",
       ),
     ],
   },

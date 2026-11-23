@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { createDbFulfilmentClaimStore } from "../../../../lib/server/fulfilment";
 import { getDbPool } from "../../../../lib/server/db";
+import { createDbOrderStore } from "../../../../lib/server/orders";
 import { publicOriginOf } from "../../../../lib/server/public-url";
 import { rateLimitOk } from "../../../../lib/server/rate-limit";
 import { getReportDeliveryService } from "../../../../lib/server/report-delivery";
@@ -46,9 +47,18 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "bad-request" }, { status: 400 });
   }
 
-  const claims = createDbFulfilmentClaimStore(getDbPool());
+  const pool = getDbPool();
+  const claims = createDbFulfilmentClaimStore(pool);
+  const orders = createDbOrderStore(pool);
   const result = await resendOrderDelivery(
-    { claims, delivery: getReportDeliveryService() },
+    {
+      claims,
+      delivery: getReportDeliveryService(),
+      // The delivery log (M9.10): the buyer's re-send
+      // stands in the order's log beside its delivery.
+      logResend: (entry) =>
+        orders.logDelivery({ ...entry, kind: "buyer-resend" }).then(() => undefined),
+    },
     { ref: order.trim(), origin: publicOriginOf(request) },
   );
   if (!result.ok) {

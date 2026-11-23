@@ -39,6 +39,7 @@ import {
 import { getDbPool } from "../../../../lib/server/db";
 import { createDbFulfilmentClaimStore } from "../../../../lib/server/fulfilment";
 import { createDbGiftStore } from "../../../../lib/server/gifts";
+import { createDbOrderStore } from "../../../../lib/server/orders";
 import { getPaymentsRouter } from "../../../../lib/server/payments";
 import {
   startReportPayment,
@@ -144,15 +145,41 @@ export async function POST(request: Request) {
         const gift = await gifts.findClaimedByEmail(email, new Date());
         return gift ? { token: gift.token } : null;
       },
-      claimGifted: (input) =>
-        claims.claim({
+      claimGifted: async (input) => {
+        const took = await claims.claim({
           ref: input.ref,
           kind: "gifted",
           email: input.email,
           postcode: input.postcode,
           homeKey: input.homeKey,
           giftToken: input.giftToken,
-        }),
+        });
+        if (took) {
+          // The order record (M9.10): a gifted order
+          // stands in the same books as a paid one, its
+          // money fields honestly empty — nothing was
+          // paid and no consent tick was given. Written
+          // where the claim is taken; a failed write
+          // never un-takes the claim (the worker's
+          // notices backfill the record at delivery).
+          try {
+            await createDbOrderStore(pool).recordClaim({
+              ref: input.ref,
+              kind: "gifted",
+              email: input.email,
+              postcode: input.postcode,
+              homeKey: input.homeKey,
+            });
+          } catch (error) {
+            console.warn(
+              `order record outcome=dropped order=${input.ref} reason=${
+                error instanceof Error ? error.message.slice(0, 120) : "unknown"
+              }`,
+            );
+          }
+        }
+        return took;
+      },
       reclaimFailedGifted: (ref) => claims.reclaimFailed(ref),
     },
     body,

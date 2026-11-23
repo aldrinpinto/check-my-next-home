@@ -51,6 +51,12 @@ export interface PaymentEventLog {
     testOrder: boolean;
     now?: Date;
   }): Promise<PaymentEventRecord>;
+  // How many events of a type stand against a payment
+  // — the failed-payment email's once-per-intent
+  // discipline (M9.10, prep gap 5) counts the failures
+  // the log already holds, the current delivery
+  // included (the log is written before the count).
+  countEvents(filter: { eventType: string; intentId: string }): Promise<number>;
 }
 
 interface PaymentEventRow {
@@ -114,6 +120,15 @@ export function createDbPaymentEventLog(db: AddressQueryable): PaymentEventLog {
       );
       return toRecord((rows as unknown as PaymentEventRow[])[0]);
     },
+
+    async countEvents(filter) {
+      const { rows } = await db.query(
+        `SELECT count(*)::int AS n FROM payment_events
+          WHERE event_type = $1 AND intent_id = $2`,
+        [filter.eventType, filter.intentId],
+      );
+      return Number((rows as unknown as { n: number }[])[0]?.n ?? 0);
+    },
   };
 }
 
@@ -138,6 +153,11 @@ export function createMemoryPaymentEventLog(): PaymentEventLog & {
       };
       records.push(record);
       return { ...record };
+    },
+    async countEvents(filter) {
+      return records.filter(
+        (record) => record.eventType === filter.eventType && record.intentId === filter.intentId,
+      ).length;
     },
   };
 }

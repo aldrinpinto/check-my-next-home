@@ -31,8 +31,12 @@
 
 import { NextResponse } from "next/server";
 
+import { getDbPool } from "../../../../lib/server/db";
 import { getWebhookDeps, processWebhookEvent } from "../../../../lib/server/fulfilment";
+import { getOrderNotices } from "../../../../lib/server/order-notices";
+import { createDbOrderStore } from "../../../../lib/server/orders";
 import { getPaymentsRouter } from "../../../../lib/server/payments";
+import { publicOriginOf } from "../../../../lib/server/public-url";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,10 +45,23 @@ export async function POST(request: Request) {
   const payload = await request.text();
   const signature = request.headers.get("stripe-signature") ?? "";
   try {
-    const outcome = await processWebhookEvent(getWebhookDeps(getPaymentsRouter()), {
-      payload,
-      signature,
-    });
+    // The order record and the failed-payment email
+    // (M9.10): the record's store, and the notices
+    // module built on THIS request's public origin —
+    // the failed-payment email's try-again link is
+    // built on it, by the public-url discipline, never
+    // on the server's listen address.
+    const notices = getOrderNotices(publicOriginOf(request));
+    const outcome = await processWebhookEvent(
+      getWebhookDeps(getPaymentsRouter(), {
+        orders: createDbOrderStore(getDbPool()),
+        failedPaymentNotice: (input) => notices.failedPayment(input),
+      }),
+      {
+        payload,
+        signature,
+      },
+    );
     if (outcome.kind === "refused") {
       return NextResponse.json({ error: outcome.reason }, { status: 400 });
     }

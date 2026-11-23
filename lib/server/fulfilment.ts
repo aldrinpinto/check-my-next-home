@@ -51,10 +51,15 @@
 import { randomBytes } from "node:crypto";
 
 import type { AddressResolution } from "../address";
+import { REPORT_PRICE_PENCE } from "../site";
 import { getDbPool } from "./db";
 import { recordJourneyEvent } from "./journey-events";
+import type { OrderStore } from "./orders";
 import { createDbPaymentEventLog, type PaymentEventLog } from "./payment-events";
 import {
+  PAYMENT_CURRENCY,
+  PAYMENT_METADATA_CONSENT_TICK,
+  PAYMENT_METADATA_CONSENT_TIMESTAMP,
   PAYMENT_METADATA_EMAIL,
   PAYMENT_METADATA_HOME_KEY,
   PAYMENT_METADATA_POSTCODE,
@@ -384,6 +389,24 @@ export interface WebhookDeps {
   // the type so older test harnesses stand unchanged;
   // the production wiring always provides it.
   refunds?: RefundProcessing;
+  // The order record (M9.10): written where the paid
+  // claim is taken, from the verified event. Optional
+  // in the type so older test harnesses stand
+  // unchanged; the production wiring always provides
+  // it. A failed record write never un-takes a claim
+  // that stands — the worker's notices backfill the
+  // record at delivery (lib/server/order-notices.ts).
+  orders?: OrderStore;
+  // The failed-payment email (M9.10, prep gap 5 —
+  // Sample 40), fired from here under the once-per-
+  // intent discipline the event log and the claim
+  // shelf together prove. Optional like the order
+  // record; the production wiring always provides it.
+  failedPaymentNotice?: (input: {
+    email: string;
+    postcode: string;
+    homeKey: string | null;
+  }) => Promise<void>;
   now?: () => Date;
 }
 
@@ -472,6 +495,48 @@ export async function processWebhookEvent(
     return { kind: "refund" };
   }
 
+  // The failed-payment email (M9.10, prep gap 5 —
+  // Sample 40): the buyer whose payment did not go
+  // through hears so by email, once. The discipline
+  // is proven from the shelves, not from a new flag:
+  // the event log (written above, before this point)
+  // counts the failures already standing against this
+  // payment — the email fires only on the FIRST — and
+  // no email fires at all where a claim already stands
+  // for the payment (a success landed first; the
+  // failure is a later chapter of a paid order, not a
+  // lost sale). Stripe may deliver the same failure
+  // twice and a buyer may fail repeatedly on one
+  // payment (a mistyped number, then a decline): the
+  // log's count absorbs both. The notice is a
+  // courtesy beside the audit trail — its failure is
+  // logged and swallowed, never a 500 the provider
+  // would retry into a second email.
+  if (
+    verdict.type === "payment_intent.payment_failed" &&
+    verdict.intentId &&
+    email &&
+    postcode &&
+    deps.failedPaymentNotice
+  ) {
+    try {
+      const failures = await deps.log.countEvents({
+        eventType: verdict.type,
+        intentId: verdict.intentId,
+      });
+      const claim = await deps.claims.getByRef(verdict.intentId);
+      if (failures <= 1 && !claim) {
+        await deps.failedPaymentNotice({ email, postcode, homeKey });
+      }
+    } catch (error) {
+      console.warn(
+        `failed-payment notice outcome=dropped payment=${verdict.intentId} reason=${
+          error instanceof Error ? error.message.slice(0, 120) : "unknown"
+        }`,
+      );
+    }
+  }
+
   const isSucceededPayment =
     verdict.type === "payment_intent.succeeded" && verdict.status === "succeeded";
   if (!isSucceededPayment || !verdict.intentId || !email || !postcode) {
@@ -490,6 +555,51 @@ export async function processWebhookEvent(
     now,
   });
   if (claimed) deps.recordCheckoutPaid();
+
+  // The order record (M9.10, prep gaps 2 and 3):
+  // written where the claim is taken, from the
+  // VERIFIED event — the buyer, the home, the TEST
+  // flag, and the consent pair threaded from the
+  // payment's metadata (extending T-PAY-06's proof
+  // from metadata to record). The amount is pinned
+  // from the one price (REPORT_PRICE_PENCE, GBP): true
+  // for every order the site can currently take — the
+  // prep's recorded limit stands in migration 0043's
+  // header (a varying price must first extend the
+  // translator's verdict to read the amount off the
+  // event). Insert-or-nothing, so a redelivery's
+  // record attempt is a no-op; a failed write is
+  // logged and swallowed — the claim stands, and the
+  // worker's notices backfill the record at delivery.
+  if (deps.orders) {
+    try {
+      await deps.orders.recordClaim({
+        ref: verdict.intentId,
+        kind: "paid",
+        email,
+        postcode,
+        homeKey,
+        amount: REPORT_PRICE_PENCE,
+        currency: PAYMENT_CURRENCY,
+        providerRef: verdict.intentId,
+        consentTick:
+          verdict.metadata[PAYMENT_METADATA_CONSENT_TICK] === "true"
+            ? true
+            : verdict.metadata[PAYMENT_METADATA_CONSENT_TICK] === "false"
+              ? false
+              : null,
+        consentTimestamp: verdict.metadata[PAYMENT_METADATA_CONSENT_TIMESTAMP] ?? null,
+        testOrder,
+        now,
+      });
+    } catch (error) {
+      console.warn(
+        `order record outcome=dropped order=${verdict.intentId} reason=${
+          error instanceof Error ? error.message.slice(0, 120) : "unknown"
+        }`,
+      );
+    }
+  }
 
   // The tombstone (M9.8, gap 6): where a completed full
   // refund already stands for this payment — the refund
@@ -554,6 +664,30 @@ export interface FulfilmentDeps {
   // retired as refunded, never failed. Optional in the
   // type; the production wiring always provides it.
   stopCheck?: (claim: FulfilmentClaim) => Promise<"refunded" | null>;
+  // The order notices (M9.10): the order record's
+  // delivery entry and log row at fulfilment, the
+  // sale alert, the terminal-failure pair, and the
+  // retry sweep each worker pass opens with — all
+  // lib/server/order-notices.ts's module, whose
+  // contract is that NO method throws: a notice's
+  // failure is a logged gap on the order record (its
+  // marker unset, the sweep its road back), never a
+  // reason to unpick a delivery that stands or spend
+  // a claim's attempts. Optional in the type so older
+  // test harnesses stand unchanged; the production
+  // wiring always provides it. Stated structurally
+  // here so this file never imports the notices
+  // module (which itself assembles from this file's
+  // claim store).
+  orderNotices?: {
+    delivered(
+      claim: FulfilmentClaim,
+      outcome: { deliveryId: string; mailSent: boolean },
+    ): Promise<void>;
+    saleAlert(claim: FulfilmentClaim): Promise<void>;
+    failureNotices(claim: FulfilmentClaim): Promise<void>;
+    sweep(): Promise<void>;
+  };
   // report_delivered, recorded server-side at delivery
   // — the payment funnel's last step (Amendment B).
   recordDelivered: () => void;
@@ -629,10 +763,36 @@ export function createFulfilmentService(deps: FulfilmentDeps) {
         now: now(),
       });
       deps.recordDelivered();
+      // The order record and the sale alert (M9.10):
+      // the record names its delivery and the delivery
+      // log gains its row; a PAID claim's sale alert
+      // fires here — at fulfilment (ruling R1), under
+      // its marker's exactly-once guard, with the
+      // stored PDF attached. The notices never throw,
+      // so nothing here can unpick the delivery.
+      if (deps.orderNotices) {
+        await deps.orderNotices.delivered(claim, {
+          deliveryId: outcome.delivery.id,
+          mailSent: outcome.mail.sent,
+        });
+        if (claim.kind === "paid") await deps.orderNotices.saleAlert(claim);
+      }
       return { outcome: "fulfilled" };
     } catch (error) {
       const message = error instanceof Error ? error.message : "fulfilment-failed";
       await deps.claims.recordFailure(claim.ref, { error: message, maxAttempts });
+      // The failure pair (M9.10, prep gap 6): only a
+      // TERMINAL failure speaks — a claim with attempts
+      // left retries in silence. Where this failure
+      // exhausted the claim, the pair fires (the owner
+      // alert for every kind; Sample 41 to paid buyers
+      // only), under the order record's marker.
+      if (deps.orderNotices) {
+        const after = await deps.claims.getByRef(claim.ref).catch(() => null);
+        if (after && after.status === "failed") {
+          await deps.orderNotices.failureNotices(after);
+        }
+      }
       return { outcome: "failed", error: message };
     }
   }
@@ -645,6 +805,12 @@ export function createFulfilmentService(deps: FulfilmentDeps) {
     async runPending(
       limit = 10,
     ): Promise<{ processed: number; fulfilled: number; failed: number }> {
+      // The notices sweep (M9.10) opens the pass: an
+      // earlier pass's unsent failure pair or sale
+      // alert is retried before new work — under the
+      // markers' guards, so nothing already sent is
+      // ever sent again.
+      if (deps.orderNotices) await deps.orderNotices.sweep();
       const waiting = await deps.claims.pending(limit);
       let fulfilled = 0;
       let failed = 0;
@@ -660,7 +826,19 @@ export function createFulfilmentService(deps: FulfilmentDeps) {
   };
 }
 
-export function getWebhookDeps(router: PaymentsRouter): WebhookDeps {
+export function getWebhookDeps(
+  router: PaymentsRouter,
+  options: {
+    // The order record and the failed-payment email
+    // (M9.10): the route builds them (the email's
+    // try-again link is built on the request's public
+    // origin, which only the route can see) and passes
+    // them in, keeping this file's wiring free of the
+    // notices module the worker's wiring assembles.
+    orders?: OrderStore;
+    failedPaymentNotice?: WebhookDeps["failedPaymentNotice"];
+  } = {},
+): WebhookDeps {
   const pool = getDbPool();
   const claims = createDbFulfilmentClaimStore(pool);
   return {
@@ -676,5 +854,7 @@ export function getWebhookDeps(router: PaymentsRouter): WebhookDeps {
       deliveries: createDbDeliveryStore(pool),
       gifts: createDbGiftStore(pool),
     }),
+    orders: options.orders,
+    failedPaymentNotice: options.failedPaymentNotice,
   };
 }

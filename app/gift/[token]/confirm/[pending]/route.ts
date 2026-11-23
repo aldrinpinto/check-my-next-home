@@ -35,6 +35,7 @@ import {
 } from "../../../../../lib/gift";
 import { getDbPool } from "../../../../../lib/server/db";
 import { createDbGiftStore } from "../../../../../lib/server/gifts";
+import { getOrderNotices } from "../../../../../lib/server/order-notices";
 import { redirectRelative } from "../../../../../lib/server/public-url";
 
 export const runtime = "nodejs";
@@ -63,6 +64,17 @@ export async function GET(
 
   const bound = await store.bindByConfirm(token, pending, now);
   if (!bound) return backToClaim();
+
+  // The gift-claimed email (M9.10, prep gap 7 — Sample
+  // 42): the buyer who gave the gift hears it has been
+  // claimed, at the BIND — the moment the claim
+  // becomes real (not at the later redemption, which
+  // the giver has no part in timing). A courtesy
+  // notice: the notices module never throws, a failed
+  // send changes nothing about the claim that stands,
+  // and there is no retry machinery for it, by the
+  // prep's design.
+  await getOrderNotices().giftClaimed(bound);
 
   const response = redirectRelative(giftClaimedPath(token));
   response.cookies.set(GIFT_COOKIE_NAME, token, {

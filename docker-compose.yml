@@ -89,17 +89,21 @@ services:
       # per sender — the EM-14 wiring fix, 22 Nov 2026:
       # without these lines the app container carried no
       # mail config at all and every in-app send answered
-      # not-configured). REPORT_DELIVERY_FROM and
-      # ALERT_EMAIL_TO have defaults in the code, so
-      # their lines may stay empty; the other FROM names
-      # have none — an unplaced one leaves only its own
-      # send unconfigured.
+      # not-configured). REPORT_DELIVERY_FROM,
+      # ALERT_EMAIL_TO and SALE_ALERT_TO have defaults
+      # in the code, so their lines may stay empty; the
+      # other FROM names have none — an unplaced one
+      # leaves only its own send unconfigured.
+      # SALE_ALERT_TO (M9.10) is where the sale alert
+      # and the fulfilment-failure alert go; they send
+      # FROM the CONTACT_NOTIFICATION_FROM value.
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       REPORT_DELIVERY_FROM: ${REPORT_DELIVERY_FROM:-}
       GIFT_CONFIRMATION_FROM: ${GIFT_CONFIRMATION_FROM:-}
       CONTACT_NOTIFICATION_FROM: ${CONTACT_NOTIFICATION_FROM:-}
       CONTACT_ACKNOWLEDGEMENT_FROM: ${CONTACT_ACKNOWLEDGEMENT_FROM:-}
       ALERT_EMAIL_TO: ${ALERT_EMAIL_TO:-}
+      SALE_ALERT_TO: ${SALE_ALERT_TO:-}
     ports:
       - "127.0.0.1:3000:3000"
 

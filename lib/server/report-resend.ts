@@ -16,9 +16,12 @@
 // no delivery record, no gift, no link record.
 //
 // It is NOT M8.6's re-issue (an expired link renewed
-// from the download page) and NOT M9.10's owner resend
-// (any order, support-side, behind the admin page);
-// the three flows never merge.
+// from the download page). M9.10's owner resend (any
+// order, support-side, from the ops script) drives
+// THIS seam rather than merging with the buyer's
+// flow: the script adds its own requester
+// verification in front, and inherits this seam's
+// guards — the three flows never merge.
 
 import type { FulfilmentClaimStore } from "./fulfilment";
 import type { ReportDeliveryService } from "./report-delivery";
@@ -30,6 +33,26 @@ export interface ReportResendDeps {
   // re-send is then not-configured, exactly as the
   // payment start reads an unconfigured translator.
   delivery: ReportDeliveryService | null;
+  // The delivery log (M9.10): every re-send this seam
+  // actually attempts is written to the order's
+  // delivery log — the caller names the kind by the
+  // closure it passes (this route's buyer re-send;
+  // the owner ops script's support re-send, which
+  // drives this same seam so the withdrawal refusal
+  // and the fulfilled-only guard are inherited, never
+  // re-implemented). A withdrawn delivery never
+  // reaches the log: the service answers null for it
+  // before any send, and that refusal is the answer,
+  // not a send. Optional in the type so older test
+  // harnesses stand unchanged; both production
+  // callers wire it. A failed log write never changes
+  // the re-send's own answer.
+  logResend?: (entry: {
+    orderRef: string;
+    deliveryId: string;
+    sent: boolean;
+    detail?: string | null;
+  }) => Promise<void>;
 }
 
 export type ReportResendResult =
@@ -49,6 +72,18 @@ export async function resendOrderDelivery(
     origin: input.origin,
   });
   if (!mail) return { ok: false, reason: "not-found" };
+  // The re-send stands attempted: the order's delivery
+  // log gains its row, sent or failed alike (M9.10).
+  if (deps.logResend) {
+    await deps
+      .logResend({
+        orderRef: input.ref,
+        deliveryId: claim.deliveryId,
+        sent: mail.sent,
+        detail: mail.sent ? null : mail.reason,
+      })
+      .catch(() => {});
+  }
   if (mail.sent) {
     // The email stands sent: the claim's record follows
     // the fact, so the surface stops showing the unsent

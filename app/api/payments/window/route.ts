@@ -30,6 +30,7 @@ import { isScotlandOrNorthernIrelandPostcode } from "../../../../lib/nation";
 import { REPORT_DOOR_STATE } from "../../../../lib/site";
 import { getDbPool } from "../../../../lib/server/db";
 import { createDbFulfilmentClaimStore, newFreeClaimRef } from "../../../../lib/server/fulfilment";
+import { createDbOrderStore } from "../../../../lib/server/orders";
 import { rateLimitOk } from "../../../../lib/server/rate-limit";
 import { resolutionForRoute } from "../../../../lib/server/serve";
 
@@ -114,8 +115,9 @@ export async function POST(request: Request) {
   const homeKey = resolution.rung === 1 ? homeKeyOf(resolution) : null;
 
   const ref = newFreeClaimRef();
+  const pool = getDbPool();
   try {
-    await createDbFulfilmentClaimStore(getDbPool()).claim({
+    await createDbFulfilmentClaimStore(pool).claim({
       ref,
       kind: "free",
       email,
@@ -126,6 +128,26 @@ export async function POST(request: Request) {
     return NextResponse.json(
       { error: "unavailable", message: WINDOW_START_FAILED_LINE },
       { status: 502 },
+    );
+  }
+  // The order record (M9.10): a free order stands in
+  // the same books as a paid one, its money fields
+  // honestly empty. Written where the claim is taken;
+  // a failed write never un-takes the claim (the
+  // worker's notices backfill the record at delivery).
+  try {
+    await createDbOrderStore(pool).recordClaim({
+      ref,
+      kind: "free",
+      email,
+      postcode,
+      homeKey,
+    });
+  } catch (error) {
+    console.warn(
+      `order record outcome=dropped order=${ref} reason=${
+        error instanceof Error ? error.message.slice(0, 120) : "unknown"
+      }`,
     );
   }
   return NextResponse.json({ ref });
