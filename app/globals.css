@@ -557,10 +557,14 @@ p {
 }
 
 /* The footer's bottom row (chrome unification, 18 Nov
-   2026): its own row under the main footer row, the
-   sources line at the extreme right. Footer batch
-   (23 Nov 2026, riding the BUG-185 build): the © line
-   and the two social icons join the row's left. */
+   2026): its own row under the main footer row. Footer
+   batch (23 Nov 2026, riding the BUG-185 build): the ©
+   line and the two social icons join the row's left.
+   BUG-197 (founder-directed 23 Nov 2026): the sources
+   line that stood at the row's extreme right is
+   removed — the legal block is the row's whole
+   content, and its .site-footer__sources rule is
+   retired with it. */
 .site-footer__bottom {
   max-width: var(--container-wide);
   margin: 0 auto;
@@ -579,8 +583,8 @@ p {
 
 .site-footer__copyright {
   margin-bottom: 0;
-  /* The bottom row's small-print measure, matching the
-     sources line beside it (0.62rem, BUG-128/BUG-165). */
+  /* The bottom row's small-print measure (0.62rem,
+     BUG-128/BUG-165). */
   font-size: 0.62rem;
   line-height: 1.3;
 }
@@ -599,18 +603,6 @@ p {
 
 .site-footer__social-link:hover {
   color: var(--colour-on-dark);
-}
-
-.site-footer__sources {
-  margin-bottom: 0;
-  /* True small print (BUG-165, founder ruling 22 Nov
-     2026): the site's small-print measure, 0.62rem (the
-     BUG-128 measure) — visibly smaller than the footer
-     links and the footer body text (0.78125rem on
-     .site-footer__inner). */
-  font-size: 0.62rem;
-  line-height: 1.3;
-  text-align: right;
 }
 
 /* --- Buttons ------------------------------------------------------ */
@@ -836,6 +828,17 @@ a:hover {
 .pill__figure--red {
   background: var(--dist-red-bg);
   color: var(--dist-red);
+}
+
+/* The uncoloured figure chip (BUG-190, 23 Nov 2026):
+   the pill form with no verdict colour — the wash
+   ground and ink text. Its one wearer is the shortlist
+   comparison's GP distance, the fact the product never
+   colours anywhere: the row takes its siblings' pill
+   form, and the colour stays out. */
+.pill__figure--plain {
+  background: var(--colour-wash);
+  color: var(--cmnh-ink);
 }
 
 /* --- Tabs -----------------------------------------------------------
@@ -1142,10 +1145,17 @@ body:has(.main--home) .site-footer {
 .source-strip__logos {
   display: flex;
   flex-wrap: nowrap;
-  justify-content: center;
+  /* BUG-192 (founder-raised 23 Nov 2026): the row takes
+     the page's own wide measure (--container-wide,
+     72rem — the header, footer and main sections'
+     measure) and the eight lockups spread evenly
+     across it, instead of grouping in the middle of
+     the full-width band on the old 62.5rem cap. The
+     wrap on narrower screens stands (below). */
+  justify-content: space-between;
   align-items: center;
   gap: 0.5rem 1.125rem;
-  max-width: 62.5rem;
+  max-width: var(--container-wide);
   margin: 0 auto;
 }
 
@@ -1394,9 +1404,12 @@ body:has(.main--home) .site-footer {
    2026; dress from the approved draft samples): the
    pinned footer of a dropdown that lists one postcode's
    homes — the search box's panel and the picker alike.
-   An action, not a home: a warm band ground, a brass-pale
-   top rule, a marker disc and heavy Deep Forest wording
-   set it apart from every home row above it. The loading
+   An action, not a home: a filled band, a marker disc
+   and heavy wording set it apart from every home row
+   above it — since BUG-193 (founder ruling, 23 Nov
+   2026) the band is the Check button's brass with ink
+   wording and a white disc, where the launch dress was
+   a warm band with Deep Forest wording. The loading
    state dims the homes in place while the row spins; the
    done state settles quiet — there is no failure dress,
    because the visitor never sees one. */
@@ -1407,9 +1420,17 @@ body:has(.main--home) .site-footer {
   width: 100%;
   padding: 0.8rem var(--space-3);
   border: 0;
-  border-top: 1px solid var(--cmnh-brass-pale);
-  background: var(--colour-fam-bg);
-  color: var(--cmnh-forest-deep);
+  /* BUG-193 (founder ruling 23 Nov 2026, Option B of
+     the draft samples): the band is the Check button's
+     brass (--cmnh-brass, #c29a3b) with ink text
+     (--cmnh-ink, #17201e) — the warm cream band it
+     launched with disappeared against the landing
+     page's own cream sections. The top rule is the
+     brass darkened the way the brass button's hover
+     darkens it. */
+  border-top: 1px solid color-mix(in srgb, var(--cmnh-brass) 82%, black);
+  background: var(--cmnh-brass);
+  color: var(--cmnh-ink);
   font: inherit;
   font-size: 0.94rem;
   font-weight: 700;
@@ -1419,7 +1440,7 @@ body:has(.main--home) .site-footer {
 }
 
 button.postio-row:hover {
-  background: var(--colour-band);
+  background: color-mix(in srgb, var(--cmnh-brass) 82%, black);
 }
 
 .postio-row__mark {
@@ -1430,9 +1451,11 @@ button.postio-row:hover {
   width: 1.65rem;
   height: 1.65rem;
   border-radius: 50%;
+  /* The white disc of the ruled dress, its rim a
+     quiet ink line, the magnifier in ink. */
   background: var(--cmnh-white);
-  border: 1px solid var(--cmnh-brass-pale);
-  color: var(--cmnh-brass);
+  border: 1px solid rgba(23, 32, 30, 0.35);
+  color: var(--cmnh-ink);
 }
 
 .postio-row__mark svg {
@@ -3146,17 +3169,14 @@ a.trunc-row:hover {
   margin-top: 8px;
 }
 
-/* The comparison miles in their plain dress: bold Forest
-   text. Item 43 of the parity fix batch set this form;
-   BUG-163 (22 Nov 2026) colours every banded value in the
-   pills' figure dress instead, so this plain form now
-   remains only for the rows the product never colours
-   (GP) and for bandless cells. */
-.compare-mi {
-  color: var(--cmnh-forest);
-  font-weight: 700;
-  white-space: nowrap;
-}
+/* The comparison miles in their plain dress stood here
+   until BUG-190 (23 Nov 2026): bold Forest text, the
+   form item 43 of the parity fix batch set and BUG-163
+   left to the one never-coloured row (GP). The founder
+   found that row standing apart from its siblings, so
+   its miles now take the siblings' pill form on the
+   plain chip below — the .compare-mi rule is retired
+   with the form. */
 
 /* A banded line value in the comparison (BUG-163): the
    pills' figure chip carries a whole fact here (a flood

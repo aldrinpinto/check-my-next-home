@@ -8,7 +8,9 @@ import { SUPPLEMENT_ROW_LINE, supplementDoneLine, supplementLoadingLine } from "
 // item of a dropdown that lists one postcode's homes.
 //
 // Three states, and only three — there is deliberately
-// no failure state: idle (the action, on its warm band),
+// no failure state: idle (the action, on its brass band
+// — BUG-193, founder ruling 23 Nov 2026: the Check
+// button's brass with ink text and a white disc),
 // loading (a spinner in the row while the homes above
 // dim), and done (the settled line, not clickable, over
 // whatever list stands — the click's outcome, success or

@@ -293,14 +293,17 @@ test.describe("shortlist — regression", () => {
       // ruling, 22 Nov 2026) supersedes it: the miles take
       // the reports' colour coding in the pills' figure
       // dress — Birkdale's primary at 0.42 mi is the
-      // school band's green — while the rows the product
-      // never colours (GP) keep the plain .compare-mi form.
+      // school band's green. BUG-190 (founder-found,
+      // 23 Nov 2026) completes the form: the one row the
+      // product never colours (GP) takes the same pill
+      // form as its siblings, on the plain uncoloured
+      // chip — no colour, but a pill like the rest.
       await expect(primaryRow.locator("td").first()).toContainText(
         "Birkdale Primary School · 0.4 mi",
       );
       await expect(primaryRow.locator(".pill__figure--green").first()).toHaveText("0.4 mi");
       await expect(
-        compare.locator('.compare-table [data-compare-row="gp"] .compare-mi').first(),
+        compare.locator('.compare-table [data-compare-row="gp"] .pill__figure--plain').first(),
       ).toHaveText("1.9 mi");
       // Legacy pointer cells still render their pointer;
       // the real cells render their lines.

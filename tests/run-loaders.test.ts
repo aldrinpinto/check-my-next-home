@@ -147,7 +147,13 @@ describe("sources", () => {
 
   it("the runner sends one email via Resend and prints ALERT FAILED when it cannot", () => {
     expect(runner).toContain("api.resend.com/emails");
-    expect(runner).toContain("onboarding@resend.dev");
+    // EM-12 (founder ruling 23 Nov 2026): the run email
+    // sends from the placed internal identity
+    // (CONTACT_NOTIFICATION_FROM) or the site's fixed
+    // proper sender — never Resend's sandbox sender.
+    expect(runner).toContain("CONTACT_NOTIFICATION_FROM");
+    expect(runner).toContain("reports@checkmynexthome.co.uk");
+    expect(runner).not.toContain("onboarding@resend.dev");
     expect(runner).toContain("ALERT FAILED");
     expect(runner).toContain("loader-runs-fallback.jsonl");
   });

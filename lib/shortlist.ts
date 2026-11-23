@@ -301,6 +301,52 @@ export function buildComparison(cards: ShortlistCard[]): ComparisonView {
   };
 }
 
+// BUG-189 (founder-found 23 Nov 2026): a card saved
+// before the BUG-163/BUG-164 colour work stores its
+// flood, crime and air line cells with no band, and the
+// stored record is never rewritten (it is the visitor's
+// own snapshot) — so where the snapshot's stored values
+// still determine the pill's verdict on their own, the
+// band is derived at display time, here, from the
+// cell's own text. The derivation is deliberately
+// narrow: it speaks only where EVERY state of the
+// facts the snapshot does not hold gives the pill the
+// same colour.
+//   - Flood: the cell stores both layers' band words
+//     ("Rivers & sea: X · Surface water: Y"). A Medium
+//     or High word makes the pill red whatever the
+//     planning zone says — the likelihood alone paints
+//     red (floodPillBand), and a zone can only agree
+//     or stand aside. But a Low worst word is orange
+//     or red by the zone, and a Very-low pair is
+//     green, orange or red by the zone — and the zone
+//     is not in the snapshot, so those cells stay
+//     plain rather than guess at it.
+//   - Crime: the cell stores the count alone. The
+//     verdict needs the calibration pair (the local
+//     rate against England's), which no snapshot
+//     stores — plain, as assembly has always held:
+//     no threshold is ever faked on the raw count.
+//   - Air quality: a card old enough to lack the band
+//     holds no air cell at all (buildComparison serves
+//     the not-saved line); a stored air cell already
+//     carries the band its verdict produced, and a
+//     bandless one is the verdict's honest "neither".
+const LEGACY_FLOOD_CELL_TEXT =
+  /^Rivers & sea: (Very low|Low|Medium|High) · Surface water: (Very low|Low|Medium|High)$/;
+
+function derivedLegacyBand(rowKey: ComparisonRowKey, text: string): DistanceBand | null {
+  if (rowKey !== "flood") return null;
+  const match = LEGACY_FLOOD_CELL_TEXT.exec(text);
+  if (!match) return null;
+  return match[1] === "Medium" ||
+    match[1] === "High" ||
+    match[2] === "Medium" ||
+    match[2] === "High"
+    ? "red"
+    : null;
+}
+
 // The colour a cell takes in the table (BUG-163, founder
 // ruling 22 Nov 2026): the reports' own colour machinery,
 // never a second set of thresholds. A distance cell takes
@@ -309,8 +355,10 @@ export function buildComparison(cards: ShortlistCard[]): ComparisonView {
 // product never colours a GP distance anywhere, so the
 // table does not start. A line cell takes the band
 // assembly derived for it from the pill verdicts (flood,
-// crime, air quality); every other line — council tax
-// above all — stays plain, as does a legacy pointer.
+// crime, air quality) — or, for a pre-colour-work card
+// that stored none, the band its stored values still
+// determine (BUG-189, above); every other line — council
+// tax above all — stays plain, as does a legacy pointer.
 export function comparisonCellBand(
   rowKey: ComparisonRowKey,
   family: DistanceFamily | null,
@@ -320,7 +368,7 @@ export function comparisonCellBand(
     if (family === null || rowKey === "gp") return null;
     return distanceBand(family, cell.miles);
   }
-  if (cell.kind === "line") return cell.band ?? null;
+  if (cell.kind === "line") return cell.band ?? derivedLegacyBand(rowKey, cell.text);
   return null;
 }
 

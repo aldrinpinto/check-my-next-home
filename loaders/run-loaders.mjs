@@ -717,7 +717,15 @@ async function sendRunEmail(subject, text, html) {
         method: "POST",
         headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
         body: JSON.stringify({
-          from: "Check My Next Home <onboarding@resend.dev>",
+          // EM-12 (founder ruling 23 Nov 2026): never
+          // Resend's sandbox sender — the placed
+          // internal identity (CONTACT_NOTIFICATION_FROM)
+          // where the run's environment places it, else
+          // the site's one fixed proper sender, the
+          // delivery mailer's own default.
+          from:
+            process.env.CONTACT_NOTIFICATION_FROM ??
+            "Check My Next Home <reports@checkmynexthome.co.uk>",
           to: [ALERT_TO],
           subject,
           text,

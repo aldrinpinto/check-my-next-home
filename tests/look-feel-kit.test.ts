@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import KitchenSinkPage from "../app/kitchen-sink/page";
 import SiteChrome from "../components/SiteChrome";
-import SiteFooter, { FOOTER_SOURCES_LINE } from "../components/SiteFooter";
+import SiteFooter from "../components/SiteFooter";
 import SiteHeader from "../components/SiteHeader";
 import Tabs from "../components/Tabs";
 import {
@@ -257,7 +257,7 @@ describe("header and footer shells", () => {
     expect(header).toContain('src="/brand/logo-mark.svg"');
   });
 
-  it("renders the footer's sample form: middle links and the sources line (fidelity pass 2)", () => {
+  it("renders the footer's sample form: the middle links (fidelity pass 2)", () => {
     // The footer's set, in order — D77(g) as amended by the
     // founder's ruling of 18 Nov 2026: Guides joins between
     // About and Contact, pointing at the /guides hub, and
@@ -286,23 +286,26 @@ describe("header and footer shells", () => {
     expect(footer).toContain('href="/contact"');
     expect(footer).toContain('href="/privacy"');
     expect(footer).toContain('href="/terms"');
-    expect(footer).toContain(FOOTER_SOURCES_LINE);
-    expect(FOOTER_SOURCES_LINE).toBe("Data from named official sources. Facts, not scores.");
+    // BUG-197 (founder-directed 23 Nov 2026): the sources
+    // line is removed from the footer — the sentence
+    // stands nowhere in it. (The paid report PDF's
+    // footer carries the same sentence on a separate
+    // surface and is not this ruling's to remove.)
+    expect(footer).not.toContain("Data from named official sources. Facts, not scores.");
+    expect(footer).not.toContain("site-footer__sources");
   });
 
-  it("places the sources line on its own bottom row, after the main footer row", () => {
-    // Chrome unification (18 Nov 2026): the sources line is
-    // NOT on the main footer row — it sits in
-    // .site-footer__bottom, which follows
-    // .site-footer__inner in the markup (its extreme
-    // bottom-right, very-small styling is pinned in the
-    // CSS assertions in the unified-chrome describe below).
+  it("places the bottom row after the main footer row, carrying no sources line (BUG-197)", () => {
+    // Chrome unification (18 Nov 2026): the bottom row
+    // (.site-footer__bottom) follows .site-footer__inner
+    // in the markup. Until BUG-197 it carried the
+    // sources line at its extreme right; the line is
+    // removed and the row carries the legal block alone.
     const innerAt = footer.indexOf("site-footer__inner");
     const bottomAt = footer.indexOf("site-footer__bottom");
-    const sourcesAt = footer.indexOf("site-footer__sources");
     expect(innerAt).toBeGreaterThan(-1);
     expect(bottomAt).toBeGreaterThan(innerAt);
-    expect(sourcesAt).toBeGreaterThan(bottomAt);
+    expect(footer).not.toContain("site-footer__sources");
     expect(footer).not.toContain("site-footer--content");
     // The retired content footer's closing line is gone
     // as footer small print.
@@ -312,15 +315,15 @@ describe("header and footer shells", () => {
   it("carries the © line and the two social icons on the bottom row (footer batch, 23 Nov 2026)", () => {
     // The batch folded into the BUG-185 build: the bottom
     // row's left carries the © line and the Instagram and
-    // Facebook icon links (the brand's own handles); the
-    // sources line keeps the row's right.
+    // Facebook icon links (the brand's own handles). The
+    // sources line that kept the row's right is removed
+    // (BUG-197) — the legal block is the row's content.
     const bottomAt = footer.indexOf("site-footer__bottom");
     const legalAt = footer.indexOf("site-footer__legal");
     const copyrightAt = footer.indexOf("site-footer__copyright");
-    const sourcesAt = footer.indexOf("site-footer__sources");
     expect(legalAt).toBeGreaterThan(bottomAt);
     expect(copyrightAt).toBeGreaterThan(legalAt);
-    expect(sourcesAt).toBeGreaterThan(copyrightAt);
+    expect(footer).not.toContain("site-footer__sources");
     expect(footer).toContain(`© ${new Date().getFullYear()} ${SITE_NAME}`);
     expect(footer).toContain('href="https://www.instagram.com/checkmynexthome"');
     expect(footer).toContain('href="https://www.facebook.com/checkmynexthome"');
@@ -401,15 +404,16 @@ describe("unified chrome (founder ruling, 18 Nov 2026)", () => {
       expect(html, name).toContain('href="/shortlist"');
       expect(html, name).toContain('href="/contact"');
       // The unified (app) footer: reversed mark, the link
-      // row including Privacy policy, and the sources line
-      // on its own bottom row.
+      // row including Privacy policy, and the bottom row
+      // — with no sources line on it (BUG-197).
       expect(html, name).toContain('<footer class="site-footer">');
       expect(html, name).toContain('src="/brand/logo-mark-reversed.svg"');
       expect(html, name).toContain(
         '<a class="site-footer__link" href="/privacy">Privacy policy</a>',
       );
       expect(html, name).toContain('<div class="site-footer__bottom">');
-      expect(html, name).toContain(`<p class="site-footer__sources">${FOOTER_SOURCES_LINE}</p>`);
+      expect(html, name).not.toContain("site-footer__sources");
+      expect(html, name).not.toContain("Data from named official sources. Facts, not scores.");
       // No trace of the retired content chrome on any surface.
       expect(html, name).not.toContain("site-header--content");
       expect(html, name).not.toContain("site-footer--content");
@@ -417,22 +421,21 @@ describe("unified chrome (founder ruling, 18 Nov 2026)", () => {
     }
   });
 
-  it("retires the content chrome from the stylesheet and pins the bottom-right sources line", () => {
+  it("retires the content chrome from the stylesheet and the sources line with it (BUG-197)", () => {
     const css = read("app/globals.css");
     expect(css).not.toContain(".site-header--content");
     expect(css).not.toContain(".site-footer--content");
-    // The sources line keeps the bottom row's extreme
-    // right, set at the site's small-print measure —
+    // The bottom row stands as the footer's last row,
+    // its © line at the site's small-print measure —
     // 0.62rem (BUG-165; the BUG-128 measure) against the
     // footer body's 0.78125rem. Footer batch (23 Nov
-    // 2026): the row now spreads its two ends — the ©
-    // line and social icons joined the left (the old
-    // flex-end pin described the row when the sources
-    // line was its only item).
+    // 2026): the © line and social icons joined the
+    // row's left. BUG-197 removes the sources line the
+    // row's right carried — its rule is retired from
+    // the stylesheet with the element.
     expect(css).toContain(".site-footer__bottom");
     expect(css).toMatch(/\.site-footer__bottom \{[^}]*justify-content: space-between/);
-    expect(css).toMatch(/\.site-footer__sources \{[^}]*font-size: 0\.62rem/);
-    expect(css).toMatch(/\.site-footer__sources \{[^}]*text-align: right/);
+    expect(css).not.toMatch(/\.site-footer__sources \{/);
     expect(css).toMatch(/\.site-footer__copyright \{[^}]*font-size: 0\.62rem/);
     expect(css).toContain(".site-footer__social-link");
   });
@@ -440,6 +443,9 @@ describe("unified chrome (founder ruling, 18 Nov 2026)", () => {
   it("exports no content-footer small print from the footer module", async () => {
     const footerModule = await import("../components/SiteFooter");
     expect("FOOTER_CONTENT_SMALL" in footerModule).toBe(false);
+    // BUG-197: the sources line's constant is retired
+    // with the line itself.
+    expect("FOOTER_SOURCES_LINE" in footerModule).toBe(false);
     const headerModule = await import("../components/SiteHeader");
     // PRIMARY_NAV is unchanged by the unification.
     expect(headerModule.PRIMARY_NAV.map((item) => item.label)).toEqual([

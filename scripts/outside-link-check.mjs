@@ -235,12 +235,19 @@ async function sendEmail(subject, text) {
   const key = process.env.RESEND_API_KEY;
   if (!key) return false;
   const to = process.env.ALERT_EMAIL_TO ?? "checkmynexthome@gmail.com";
+  // EM-12 (founder ruling 23 Nov 2026): never Resend's
+  // sandbox sender — the placed internal identity
+  // (CONTACT_NOTIFICATION_FROM, loaded from .env.local
+  // above) where placed, else the site's one fixed
+  // proper sender, the delivery mailer's own default.
+  const from =
+    process.env.CONTACT_NOTIFICATION_FROM ?? "Check My Next Home <reports@checkmynexthome.co.uk>";
   try {
     const response = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        from: "Check My Next Home <onboarding@resend.dev>",
+        from,
         to: [to],
         subject,
         text,

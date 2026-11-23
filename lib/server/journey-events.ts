@@ -25,8 +25,26 @@
 // alerted only when the send succeeds, so a failed send
 // is retried by a later occurrence — never one email per
 // error, and never silence because Resend blinked.
+//
+// EM-12 (founder ruling 23 Nov 2026): the alert no
+// longer sends from Resend's sandbox sender
+// (onboarding@resend.dev — it delivers only to the
+// account owner's own inbox and reads as a test
+// sender). Its FROM is the placed internal-notification
+// identity, CONTACT_NOTIFICATION_FROM — the same value
+// the owner mailer's bells send from — read through
+// envValue like every FROM name: a send whose FROM is
+// unplaced does not send (the fingerprint stays
+// unmarked and a later occurrence retries, exactly the
+// standing discipline). And the email wears the
+// designed shell the customer emails wear
+// (lib/email-shell.ts, in the owner emails' internal
+// form: labelled fact lines, no customer sign-off),
+// where it used to go out as bare text.
 
 import type { AddressQueryable } from "../address";
+import { DOWNLOAD_EMAIL_FOOTER_LINE } from "../download";
+import { EMAIL_SERIF, designedEmailHtml, emailFooterHtml } from "../email-shell";
 import { envValue } from "./env";
 import {
   assertJourneyEventSafe,
@@ -107,6 +125,49 @@ export interface PageErrorInput {
 interface AlertEmail {
   subject: string;
   text: string;
+  html: string;
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+// The alert's HTML part (EM-12): the designed shell in
+// its internal form — the owner emails' dress
+// (lib/order-emails.ts's ownerEmail): a serif heading,
+// the lede, the facts as labelled lines, the closing
+// line, an empty sign-off row and the name-and-domain
+// footer. Every word is the text part's own; the shell
+// adds no wording of its own.
+function alertEmailHtml(input: {
+  heading: string;
+  lede: string;
+  facts: { label: string; value: string }[];
+  closing: string;
+}): string {
+  const bodyP = `font-size:15.5px;line-height:1.65;margin:0 0 15px;`;
+  return designedEmailHtml({
+    contentHtml: [
+      `<h2 style="font-family:${EMAIL_SERIF};font-size:24px;font-weight:600;color:#1E402C;margin:0 0 12px;line-height:1.3;">${escapeHtml(input.heading)}</h2>`,
+      `<p style="${bodyP}">${escapeHtml(input.lede)}</p>`,
+      ...input.facts.map(
+        (fact) =>
+          `<p style="font-size:15.5px;line-height:1.55;margin:0 0 6px;"><strong>${escapeHtml(fact.label)}:</strong> ${escapeHtml(fact.value)}</p>`,
+      ),
+      `<p style="${bodyP}margin-top:14px;">${escapeHtml(input.closing)}</p>`,
+    ],
+    signOffHtml: "",
+    footerHtml: emailFooterHtml({
+      linesHtml: "",
+      footerLine: DOWNLOAD_EMAIL_FOOTER_LINE,
+      wrapStyle:
+        "border-top:1px solid #E3DCC4;margin-top:18px;padding:16px 0 22px;font-size:13px;color:#4A5548;line-height:1.6;",
+    }),
+  });
 }
 
 // The Resend send, in run-loaders.mjs's shape — a value,
@@ -120,16 +181,24 @@ async function sendAlertEmail(email: AlertEmail): Promise<boolean> {
   // project inbox instead of an empty address.
   const key = envValue("RESEND_API_KEY");
   if (!key) return false;
+  // EM-12: the sender is the placed internal identity
+  // (CONTACT_NOTIFICATION_FROM — the owner mailer's
+  // FROM). Unplaced, the send does not happen: the
+  // fingerprint stays unmarked and a later occurrence
+  // retries, as with any failed send.
+  const from = envValue("CONTACT_NOTIFICATION_FROM");
+  if (!from) return false;
   const to = envValue("ALERT_EMAIL_TO") ?? "checkmynexthome@gmail.com";
   try {
     const response = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        from: "Check My Next Home <onboarding@resend.dev>",
+        from,
         to: [to],
         subject: email.subject,
         text: email.text,
+        html: email.html,
       }),
     });
     return response.ok;
@@ -220,6 +289,12 @@ export async function recordPageError(
     if (reason) {
       const name = errorName ?? "(unnamed error)";
       const where = routePattern ?? "(no route)";
+      // The words are unchanged by EM-12 — the text part
+      // stands exactly as composed before it; the HTML
+      // part (alertEmailHtml) dresses the same words in
+      // the designed shell.
+      const closing =
+        "The full record is in the journey_events table (D45); Sentry carries the stack traces.";
       const email: AlertEmail =
         reason === "first-seen"
           ? {
@@ -231,8 +306,18 @@ export async function recordPageError(
                 `Page: ${where}`,
                 errorMessage ? `Message: ${errorMessage}` : `Message: (none recorded)`,
                 ``,
-                `The full record is in the journey_events table (D45); Sentry carries the stack traces.`,
+                closing,
               ].join("\n"),
+              html: alertEmailHtml({
+                heading: "New page error",
+                lede: "A page error type has been seen for the first time.",
+                facts: [
+                  { label: "Error", value: name },
+                  { label: "Page", value: where },
+                  { label: "Message", value: errorMessage ?? "(none recorded)" },
+                ],
+                closing,
+              }),
             }
           : {
               subject: `Page error spike on Check My Next Home — ${name} on ${where}`,
@@ -243,8 +328,18 @@ export async function recordPageError(
                 `Page: ${where}`,
                 errorMessage ? `Latest message: ${errorMessage}` : `Message: (none recorded)`,
                 ``,
-                `The full record is in the journey_events table (D45); Sentry carries the stack traces.`,
+                closing,
               ].join("\n"),
+              html: alertEmailHtml({
+                heading: "Page error spike",
+                lede: `A page error has spiked: ${hourCount} in the last hour (the alert threshold is ${ERROR_SPIKE_THRESHOLD}).`,
+                facts: [
+                  { label: "Error", value: name },
+                  { label: "Page", value: where },
+                  { label: "Latest message", value: errorMessage ?? "(none recorded)" },
+                ],
+                closing,
+              }),
             };
       queueAlert(async () => {
         const sent = await sendAlertEmail(email);

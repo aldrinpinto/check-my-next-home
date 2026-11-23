@@ -136,3 +136,16 @@ export const WALES_TAX_LINK = {
   label: "Land Transaction Tax — GOV.WALES",
   url: "https://www.gov.wales/land-transaction-tax-guide",
 };
+
+// The report's Welsh line (founder ruling 23 Nov 2026,
+// the M8.10 build's conform flag): the line above
+// speaks as a calculator because on the calculator
+// card it is one; the report is not a calculator, so
+// its worked-figure block names the tax in Land
+// Transaction Tax's own framing and says plainly why
+// no stamp duty figure stands for the home. Scotland's
+// report line takes the same change later, with the
+// Scotland work (M14, LBTT); until then the report
+// carries SCOTLAND_TAX_LINE as composed above.
+export const WALES_TAX_LINE_REPORT =
+  "Wales charges Land Transaction Tax instead of stamp duty, so no stamp duty figure is worked for this home.";

@@ -280,11 +280,22 @@ async function main() {
       process.exit(1);
     }
     const recipient = process.env.ALERT_EMAIL_TO ?? "checkmynexthome@gmail.com";
+    // EM-12 (founder ruling 23 Nov 2026): never Resend's
+    // sandbox sender — the placed internal identity
+    // (CONTACT_NOTIFICATION_FROM, loaded from .env.local
+    // above) where placed, else the site's one fixed
+    // proper sender, the delivery mailer's own default.
+    // (Named senderFrom, not from: the digest window's
+    // own `from` above is this function's date bound,
+    // and a same-named const here would shadow it for
+    // the whole block.)
+    const senderFrom =
+      process.env.CONTACT_NOTIFICATION_FROM ?? "Check My Next Home <reports@checkmynexthome.co.uk>";
     const response = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        from: "Check My Next Home <onboarding@resend.dev>",
+        from: senderFrom,
         to: [recipient],
         subject: `Your Check My Next Home digest — ${label}`,
         text: `Your journey digest for ${label} is attached as a PDF.\n\nHeadline: ${visits} page visits, ${completed} checks completed, ${reportClicked} report clicks, ${giftClaimed} gifts claimed, ${errorsTotal} page errors.\n`,

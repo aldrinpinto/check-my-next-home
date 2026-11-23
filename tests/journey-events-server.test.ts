@@ -80,9 +80,15 @@ describe("recordJourneyEvent", () => {
 
 describe("recordPageError and the alert rules (D45)", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
+  let savedFrom: string | undefined;
 
   beforeEach(() => {
     process.env.RESEND_API_KEY = "test-key";
+    // EM-12: the alert's FROM is the placed internal
+    // identity — the tests place it the way the server
+    // does, and restore whatever stood before.
+    savedFrom = process.env.CONTACT_NOTIFICATION_FROM;
+    process.env.CONTACT_NOTIFICATION_FROM = "Check My Next Home <contact@checkmynexthome.co.uk>";
     fetchMock = vi.fn(async () => ({ ok: true }));
     vi.stubGlobal("fetch", fetchMock);
   });
@@ -90,6 +96,8 @@ describe("recordPageError and the alert rules (D45)", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     delete process.env.RESEND_API_KEY;
+    if (savedFrom === undefined) delete process.env.CONTACT_NOTIFICATION_FROM;
+    else process.env.CONTACT_NOTIFICATION_FROM = savedFrom;
   });
 
   function errorDb({
@@ -121,14 +129,45 @@ describe("recordPageError and the alert rules (D45)", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const sent = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body) as {
       subject: string;
+      from: string;
+      text: string;
+      html: string;
     };
     expect(sent.subject).toContain("New page error");
     expect(sent.subject).toContain("TypeError");
+    // EM-12 (founder ruling 23 Nov 2026): the alert sends
+    // from the placed internal identity — never Resend's
+    // sandbox sender — and wears the designed shell: the
+    // forest-deep brand band over the alert's own words,
+    // its facts as labelled lines.
+    expect(sent.from).toBe("Check My Next Home <contact@checkmynexthome.co.uk>");
+    expect(sent.from).not.toContain("onboarding@resend.dev");
+    expect(sent.html).toContain("background-color:#1E402C");
+    expect(sent.html).toContain("New page error");
+    expect(sent.html).toContain("<strong>Error:</strong> TypeError");
+    expect(sent.html).toContain("Cannot read properties of undefined");
+    // The text part stands exactly as it stood before
+    // the shell: the same words, undressed.
+    expect(sent.text).toContain("A page error type has been seen for the first time.");
+    expect(sent.text).toContain("Error: TypeError");
     const marked = calls.filter(
       (call) => call.text.includes("last_alert_at = now()") && call.text.includes("UPDATE"),
     );
     expect(marked).toHaveLength(1);
     expect(marked[0].params[1]).toBe("first-seen");
+  });
+
+  it("does not send at all while the alert's FROM is unplaced, and leaves the fingerprint unmarked (EM-12)", async () => {
+    delete process.env.CONTACT_NOTIFICATION_FROM;
+    const { db, calls } = errorDb();
+    const outcome = await recordPageError(db, { errorName: "TypeError", routePattern: "/" });
+    expect(outcome).toBe("recorded");
+    await whenJourneyAlertsSettled();
+    expect(fetchMock).not.toHaveBeenCalled();
+    const marked = calls.filter((call) =>
+      call.text.includes("UPDATE journey_event_alerts SET last_alert_at"),
+    );
+    expect(marked).toHaveLength(0);
   });
 
   it("does not alert again for a known fingerprint below the spike threshold", async () => {

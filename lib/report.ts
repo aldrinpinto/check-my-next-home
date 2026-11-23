@@ -16,7 +16,7 @@ import {
   SCOTLAND_TAX_LINK,
   STAMP_DUTY_RATES_LINE,
   STAMP_DUTY_RATES_URL,
-  WALES_TAX_LINE,
+  WALES_TAX_LINE_REPORT,
   WALES_TAX_LINK,
   defaultDeposit,
   mortgageMonthly,
@@ -3256,9 +3256,12 @@ function section7(input: ReportInput): ReportSectionView {
   // verdict, and these figures are never summed with the
   // council tax or energy lines around them. Scotland
   // and Wales charge their own taxes, so the stamp duty
-  // figure gives way to the calculators' named nation
-  // line and its official link (the D30 pattern) — no
-  // SDLT figure is ever served for either nation.
+  // figure gives way to the named nation line and its
+  // official link (the D30 pattern) — no SDLT figure is
+  // ever served for either nation. The Welsh line is
+  // the report's own Land Transaction Tax wording
+  // (founder ruling 23 Nov 2026); Scotland's remains
+  // the calculators' line until M14.
   const soldForCosts = input.sold;
   const lastSale =
     soldForCosts.kind === "sold-prices" && "ownHistory" in soldForCosts
@@ -3296,7 +3299,13 @@ function section7(input: ReportInput): ReportSectionView {
       mortgageFindings.push(sentenceLine(SCOTLAND_TAX_LINE));
       ratesLink = { label: SCOTLAND_TAX_LINK.label, href: SCOTLAND_TAX_LINK.url };
     } else if (nation === "wales") {
-      mortgageFindings.push(sentenceLine(WALES_TAX_LINE));
+      // The report's own Welsh wording (founder ruling
+      // 23 Nov 2026): Land Transaction Tax framing, not
+      // the calculator card's line — the report is not
+      // a calculator. Scotland's line above still
+      // carries the calculator's wording until its own
+      // change lands with M14.
+      mortgageFindings.push(sentenceLine(WALES_TAX_LINE_REPORT));
       ratesLink = { label: WALES_TAX_LINK.label, href: WALES_TAX_LINK.url };
     } else {
       mortgageFindings.push(
@@ -3950,6 +3959,22 @@ function section7(input: ReportInput): ReportSectionView {
       type: "list",
       items: group.decisions.map((decision) => sentenceLine(decision.line)),
     });
+    // One small-print link per decision, after the
+    // group's data (founder ruling 23 Nov 2026: "add
+    // them as planned — very small print"; BUG-124
+    // small print after the data, BUG-128's 0.62rem
+    // measure — the noteLink form, as the rates link
+    // above takes). Every served decision carries its
+    // GOV.UK page (sourceUrl, filed with the record),
+    // so a link stands wherever a decision stands.
+    for (const decision of group.decisions) {
+      blocks.push({
+        type: "noteLink",
+        text: "",
+        label: `Read the decision on GOV.UK — ${decision.caseRef}`,
+        href: decision.sourceUrl,
+      });
+    }
   }
   // BUG-128 (founder ruling 22 Nov 2026): the block's
   // long explainer no longer prints here — it filled a

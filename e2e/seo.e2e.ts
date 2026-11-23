@@ -182,8 +182,9 @@ test.describe("SEO pages — regression", () => {
   // the landing route, a content route, /shortlist and a
   // results route: the Roof-Tick header with the brand
   // block as one home link, and the app footer with the
-  // Privacy policy link and the sources line at the
-  // extreme bottom-right, set very small.
+  // Privacy policy link and its bottom row — the sources
+  // line that stood at the row's extreme bottom-right
+  // is removed (BUG-197, founder-directed 23 Nov 2026).
   test(
     "every surface renders the one unified header and footer",
     { tag: "@regression" },
@@ -205,32 +206,29 @@ test.describe("SEO pages — regression", () => {
         await expect(page.locator("footer.site-footer")).toHaveCount(1);
         await expect(page.locator('footer a[href="/privacy"]')).toHaveCount(1);
         await expect(page.locator('footer a[href="/privacy"]')).toHaveText("Privacy policy");
-        // The sources line: present once, on its own bottom
-        // row, below the main footer row, at the right edge
-        // and set smaller than the footer body text.
-        const sources = page.locator("footer .site-footer__sources");
-        await expect(sources).toHaveCount(1);
-        await expect(sources).toHaveText("Data from named official sources. Facts, not scores.");
+        // The sources line is gone (BUG-197): no element
+        // carries it on any surface, and the sentence
+        // stands nowhere in the footer. The bottom row
+        // still stands below the main footer row, holding
+        // the © line at the small-print measure.
+        await expect(page.locator("footer .site-footer__sources")).toHaveCount(0);
+        await expect(page.locator("footer.site-footer")).not.toContainText(
+          "Data from named official sources. Facts, not scores.",
+        );
         const geometry = await page.locator("footer.site-footer").evaluate((footer) => {
-          const sourcesEl = footer.querySelector(".site-footer__sources")!;
+          const bottomEl = footer.querySelector(".site-footer__bottom")!;
           const innerEl = footer.querySelector(".site-footer__inner")!;
-          const sourcesBox = sourcesEl.getBoundingClientRect();
+          const copyrightEl = footer.querySelector(".site-footer__copyright")!;
+          const bottomBox = bottomEl.getBoundingClientRect();
           const innerBox = innerEl.getBoundingClientRect();
-          const footerBox = footer.getBoundingClientRect();
           return {
-            sourcesFontSize: parseFloat(getComputedStyle(sourcesEl).fontSize),
+            copyrightFontSize: parseFloat(getComputedStyle(copyrightEl).fontSize),
             innerFontSize: parseFloat(getComputedStyle(innerEl).fontSize),
-            sourcesBelowInner: sourcesBox.top >= innerBox.bottom - 1,
-            // Aligned to the main footer row's right edge
-            // (the centred container, not the viewport edge).
-            sourcesAtRight: Math.abs(sourcesBox.right - innerBox.right) <= 40,
-            sourcesAboveFooterBottom: Math.abs(sourcesBox.bottom - footerBox.bottom) <= 20,
+            bottomBelowInner: bottomBox.top >= innerBox.bottom - 1,
           };
         });
-        expect(geometry.sourcesFontSize).toBeLessThan(geometry.innerFontSize);
-        expect(geometry.sourcesBelowInner).toBe(true);
-        expect(geometry.sourcesAtRight).toBe(true);
-        expect(geometry.sourcesAboveFooterBottom).toBe(true);
+        expect(geometry.copyrightFontSize).toBeLessThan(geometry.innerFontSize);
+        expect(geometry.bottomBelowInner).toBe(true);
       }
     },
   );

@@ -829,6 +829,63 @@ describe("the comparison's colour coding (BUG-163)", () => {
     expect(comparisonCellBand("crime", null, { kind: "line", text: "330 crimes" })).toBeNull();
   });
 
+  it("derives a legacy flood cell's band at display time only where the stored words settle it (BUG-189)", () => {
+    // A pre-BUG-163 card stores the flood pair with no
+    // band. A Medium or High layer word makes the pill
+    // red under every planning-zone state (the zone is
+    // not in the snapshot and can only agree or stand
+    // aside), so the table colours it red — the same
+    // verdict the home's own pill carries.
+    expect(
+      comparisonCellBand("flood", null, {
+        kind: "line",
+        text: "Rivers & sea: Medium · Surface water: Very low",
+      }),
+    ).toBe("red");
+    expect(
+      comparisonCellBand("flood", null, {
+        kind: "line",
+        text: "Rivers & sea: Very low · Surface water: High",
+      }),
+    ).toBe("red");
+    // A stored band always wins over the derivation.
+    expect(
+      comparisonCellBand("flood", null, {
+        kind: "line",
+        text: "Rivers & sea: Medium · Surface water: Very low",
+        band: "orange",
+      }),
+    ).toBe("orange");
+    // A Low worst word is orange or red by the unstored
+    // zone, and a Very-low pair is green, orange or red
+    // by it — the snapshot cannot settle either, so both
+    // stay plain rather than guess.
+    expect(
+      comparisonCellBand("flood", null, {
+        kind: "line",
+        text: "Rivers & sea: Very low · Surface water: Low",
+      }),
+    ).toBeNull();
+    expect(
+      comparisonCellBand("flood", null, {
+        kind: "line",
+        text: "Rivers & sea: Very low · Surface water: Very low",
+      }),
+    ).toBeNull();
+    // A bandless named-state line (a layer that served
+    // no band) is not the pair form and never derives.
+    expect(
+      comparisonCellBand("flood", null, {
+        kind: "line",
+        text: "flood answers need an exact postcode",
+      }),
+    ).toBeNull();
+    // Crime's verdict needs the calibration pair, which
+    // no snapshot stores — a legacy count stays plain,
+    // and the derivation never reaches another row.
+    expect(comparisonCellBand("air", null, { kind: "line", text: "1,956 crimes" })).toBeNull();
+  });
+
   it("assembly bands the crime cell red for a home more than a quarter above the England rate", () => {
     const card = buildShortlistCard({
       resolution: birkdale,

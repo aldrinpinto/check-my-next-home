@@ -184,6 +184,35 @@ describe("report — Section 7 additions (M8.10): building safety", () => {
       "Remediation order (section 123 of the Building Safety Act 2022) for 1-31 Oyster Bay Apartments, Sterte, Poole BH15 2FN — HAV/00HQ/BSA/2025/0002, 10 April 2026.",
     );
     expect(text).toContain("LON/00AE/BSA/2024/0007, 3 March 2025.");
+    // One small-print GOV.UK link per decision (founder
+    // ruling 23 Nov 2026), each standing after its own
+    // group's list — never before the data it explains
+    // (BUG-124) — in the noteLink form at the BUG-128
+    // measure, carrying the decision's own case
+    // reference and its filed GOV.UK page.
+    const decisionLinks = blocks.filter(
+      (b) => b.type === "noteLink" && b.label.startsWith("Read the decision on GOV.UK"),
+    );
+    expect(decisionLinks).toHaveLength(2);
+    expect(decisionLinks[0]).toMatchObject({
+      label: "Read the decision on GOV.UK — HAV/00HQ/BSA/2025/0002",
+      href: "https://www.gov.uk/residential-property-tribunal-decisions/1-31-oyster-bay-apartments-sterte-poole-dorset-bh15-2fn-hav-slash-00hq-slash-bsa-slash-2025-slash-0002",
+    });
+    expect(decisionLinks[1]).toMatchObject({
+      label: "Read the decision on GOV.UK — LON/00AE/BSA/2024/0007",
+      href: "https://www.gov.uk/residential-property-tribunal-decisions/flats-5-15-and-29-thanet-lodge-10-mapesbury-road-nw2-4ja-lon-slash-00ae-slash-bsa-slash-2024-slash-0007-0500-and-0502",
+    });
+    const oysterListAt = blocks.findIndex(
+      (b) => b.type === "list" && b.items.some((item) => item.includes("HAV/00HQ/BSA/2025/0002")),
+    );
+    const thanetListAt = blocks.findIndex(
+      (b) => b.type === "list" && b.items.some((item) => item.includes("LON/00AE/BSA/2024/0007")),
+    );
+    const oysterLinkAt = blocks.indexOf(decisionLinks[0]);
+    const thanetLinkAt = blocks.indexOf(decisionLinks[1]);
+    expect(oysterLinkAt).toBeGreaterThan(oysterListAt);
+    expect(thanetLinkAt).toBeGreaterThan(thanetListAt);
+    expect(thanetLinkAt).toBeGreaterThan(oysterLinkAt);
     // The short small-print line closes the block
     // (BUG-128): the long explainer no longer prints in
     // the report — its full text stands on the
@@ -754,9 +783,16 @@ describe("report — Section 7 additions (M8.10): mortgage & stamp duty", () => 
     );
     const text = sectionText(welsh, 7);
     expect(text).toContain("£2,455 a month, repayment.");
+    // The report's own Welsh wording (founder ruling
+    // 23 Nov 2026): Land Transaction Tax framing — the
+    // calculator card's line ("this calculator covers
+    // England & Northern Ireland") never stands in a
+    // report. The card itself keeps its line; only the
+    // report's worked-figure block changed.
     expect(text).toContain(
-      "Wales charges Land Transaction Tax instead — this calculator covers England & Northern Ireland.",
+      "Wales charges Land Transaction Tax instead of stamp duty, so no stamp duty figure is worked for this home.",
     );
+    expect(text).not.toContain("this calculator covers");
     expect(text).toContain("https://www.gov.wales/land-transaction-tax-guide");
     expect(text).not.toContain("Stamp duty on that price");
   });

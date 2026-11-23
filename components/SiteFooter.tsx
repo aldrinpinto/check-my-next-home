@@ -30,11 +30,15 @@ import { SITE_NAME, SITE_TAGLINE } from "../lib/site";
 // the ONE footer on every page. The content chrome's
 // stacked footer — and its long closing line as footer
 // small print — is retired; there is no variant. Privacy
-// policy joins the link row after Contact, and the sources
-// line moves to the extreme bottom-right of the footer, on
-// its own bottom row, set very small (see
-// .site-footer__bottom / .site-footer__sources in
-// app/globals.css).
+// policy joins the link row after Contact. The sources
+// line that stood at the bottom row's extreme right
+// ("Data from named official sources. Facts, not
+// scores.") is REMOVED (BUG-197, founder-directed
+// 23 Nov 2026) — the bottom row now carries the legal
+// block alone (see .site-footer__bottom in
+// app/globals.css). The same sentence in the paid
+// report PDF's footer (lib/report-pdf.ts) is a separate
+// surface and stands untouched by that ruling.
 const FOOTER_LINKS = [
   { label: "How we check", href: "/how-we-check" },
   { label: "Sample report", href: "/sample-report" },
@@ -50,12 +54,9 @@ const FOOTER_LINKS = [
   { label: "Terms of service", href: "/terms" },
 ] as const;
 
-export const FOOTER_SOURCES_LINE = "Data from named official sources. Facts, not scores.";
-
 // Footer batch (founder, folded into the BUG-185 build
 // 23 Nov 2026): the bottom row gains the © line and the
-// brand's two social icons on its left, the sources line
-// keeping the extreme bottom-right. The icon links carry
+// brand's two social icons on its left. The icon links carry
 // the brand's own handles — instagram.com/checkmynexthome
 // and facebook.com/checkmynexthome — drawn as inline SVG
 // glyphs in the footer's Brass pale, like the links.
@@ -142,7 +143,6 @@ export default function SiteFooter() {
             ))}
           </span>
         </div>
-        <p className="site-footer__sources">{FOOTER_SOURCES_LINE}</p>
       </div>
     </footer>
   );

@@ -119,9 +119,17 @@ function CompareCell({
     return <span className={`pill__figure pill__figure--${band} compare-val`}>{cell.text}</span>;
   }
   if (!band) {
+    // BUG-190 (founder-found 23 Nov 2026): a bandless
+    // distance — GP, the row the product never colours —
+    // takes the sibling rows' form after all: the name
+    // as stored, the distance standing in a pill. The
+    // pill is the plain, uncoloured chip (the GP rule
+    // stands: no colour), not the bold green text that
+    // used to set this one row apart.
     return (
       <span>
-        {cell.name} · <span className="compare-mi">{formatMiles(cell.miles)} mi</span>
+        {cell.name} ·{" "}
+        <span className="pill__figure pill__figure--plain">{formatMiles(cell.miles)} mi</span>
       </span>
     );
   }
