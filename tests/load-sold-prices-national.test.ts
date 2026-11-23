@@ -395,6 +395,41 @@ describe("coverage and the record reader (gaps 2 and 7)", () => {
     expect(stats.emptyPostcode).toBe(1);
     expect(stats.malformed).toBe(1);
   });
+
+  it("skips and counts uncovered-area rows per area (BUG-184)", () => {
+    const stats = { malformed: 0, emptyPostcode: 0, uncovered: {} as Record<string, number> };
+    const records = parseAllRecords(
+      [
+        ppdLine({
+          transactionId: "T-1",
+          price: 100000,
+          saleDate: "2026-01-01",
+          postcode: "TD15 2AB",
+        }),
+        ppdLine({
+          transactionId: "T-2",
+          price: 100000,
+          saleDate: "2026-01-01",
+          postcode: "TD9 1AA",
+        }),
+        ppdLine({
+          transactionId: "T-3",
+          price: 100000,
+          saleDate: "2026-01-01",
+          postcode: "DG1 2AA",
+        }),
+        ppdLine({
+          transactionId: "T-4",
+          price: 100000,
+          saleDate: "2026-01-01",
+          postcode: "CM3 2JT",
+        }),
+      ],
+      stats,
+    );
+    expect(records.map((r) => r.transactionId)).toEqual(["T-4"]);
+    expect(stats.uncovered).toEqual({ DG: 1, TD: 2 });
+  });
 });
 
 describe("runNational — the whole register in one pass", () => {
@@ -465,9 +500,8 @@ describe("runNational — the whole register in one pass", () => {
     expect(result.total).toBe(39);
   });
 
-  it("refuses the pass when the file stages Scotland or NI rows", async () => {
+  it("skips and counts a Scotland row at intake and files none of it (BUG-184)", async () => {
     const client = new FakeClient();
-    client.live = [{ transaction_id: "SENTINEL" } as Row];
     const scot = ppdLine({
       transactionId: "AAAAAAAA-0000-4000-8000-000000000002",
       price: 123456,
@@ -476,14 +510,78 @@ describe("runNational — the whole register in one pass", () => {
       paon: "1",
       street: "ROYAL MILE",
     });
-    await expect(
-      runNational(client as never, {
-        fullLines: [...fullLines, scot],
-        updateLines,
-        edition: EDITION,
-      }),
-    ).rejects.toThrow(/Scotland or Northern Ireland/);
-    expect(client.live).toEqual([{ transaction_id: "SENTINEL" }]);
+    const result = await runNational(client as never, {
+      fullLines: [...fullLines, scot],
+      updateLines,
+      edition: EDITION,
+    });
+    expect(result.stats.uncovered).toEqual({ EH: 1 });
+    expect(result.total).toBe(39);
+    expect(client.live).toHaveLength(39);
+    expect(client.live.filter((r) => r.postcode === "EH1 1AA")).toHaveLength(0);
+    expect(result.logLine).toContain("1 uncovered-area rows skipped (EH 1)");
+  });
+
+  it("skips TD rows from BOTH source files, reports per-area counts, and files zero uncovered rows (BUG-184)", async () => {
+    const client = new FakeClient();
+    const tdFull = ppdLine({
+      transactionId: "AAAAAAAA-0000-4000-8000-000000000003",
+      price: 200000,
+      saleDate: "2026-01-05",
+      postcode: "TD15 2AB",
+      paon: "1",
+      street: "CASTLEGATE",
+    });
+    const tdUpdate = ppdLine({
+      transactionId: "AAAAAAAA-0000-4000-8000-000000000004",
+      price: 210000,
+      saleDate: "2026-10-02",
+      postcode: "TD9 1AA",
+      paon: "2",
+      street: "HIGH STREET",
+    });
+    const dgUpdate = ppdLine({
+      transactionId: "AAAAAAAA-0000-4000-8000-000000000005",
+      price: 180000,
+      saleDate: "2026-10-03",
+      postcode: "DG1 1AA",
+      paon: "3",
+      street: "BUCCLEUCH STREET",
+    });
+    const result = await runNational(client as never, {
+      fullLines: [...fullLines, tdFull],
+      updateLines: [...updateLines, tdUpdate, dgUpdate],
+      edition: EDITION,
+    });
+    expect(result.stats.uncovered).toEqual({ DG: 1, TD: 2 });
+    // The skipped update rows are not counted as merged.
+    expect(result.updateRows).toBe(2);
+    expect(result.total).toBe(39);
+    expect(result.logLine).toContain("3 uncovered-area rows skipped (DG 1 · TD 2)");
+    // The zero-filed proof, in the guard's own area extraction:
+    // no live row sits in an uncovered area.
+    const uncoveredAreas = new Set([
+      "AB",
+      "DD",
+      "DG",
+      "EH",
+      "FK",
+      "G",
+      "HS",
+      "IV",
+      "KA",
+      "KY",
+      "ML",
+      "PA",
+      "PH",
+      "TD",
+      "ZE",
+      "BT",
+    ]);
+    const filedUncovered = client.live.filter((r) =>
+      uncoveredAreas.has(/^[A-Z]+/.exec((r.postcode as string).split(" ")[0])?.[0] ?? ""),
+    );
+    expect(filedUncovered).toHaveLength(0);
   });
 
   it("leaves the live register untouched when the swap itself fails", async () => {
@@ -575,6 +673,43 @@ describe("runUpdate — one monthly file, edition-gated", () => {
     expect(amended?.price).toBe(651441);
     expect(amended?.source_date).toBe("2026-11-25");
     expect(client.live.filter((r) => r.postcode === "E16 1GN")).toHaveLength(8);
+  });
+
+  it("skips and counts uncovered-area rows instead of filing them (BUG-184)", async () => {
+    const client = await seededClient();
+    const lines = [
+      ...craftedUpdate(client),
+      ppdLine({
+        transactionId: "AAAAAAAA-0000-4000-8000-000000000012",
+        price: 300000,
+        saleDate: "2026-11-04",
+        postcode: "TD15 2AB",
+        paon: "1",
+        street: "CASTLEGATE",
+      }),
+      ppdLine({
+        transactionId: "AAAAAAAA-0000-4000-8000-000000000013",
+        price: 190000,
+        saleDate: "2026-11-04",
+        postcode: "DG1 1AA",
+        paon: "3",
+        street: "BUCCLEUCH STREET",
+      }),
+    ];
+    const result = await runUpdate(client as never, {
+      updateLines: lines,
+      edition: "2026-11-25",
+    });
+    // The covered rows land exactly as without the TD/DG rows…
+    expect(result.applied).toBe(2);
+    expect(result.deleted).toBe(1);
+    expect(client.live).toHaveLength(39);
+    // …and the uncovered rows are counted, never filed.
+    expect(result.stats.uncovered).toEqual({ DG: 1, TD: 1 });
+    expect(
+      client.live.filter((r) => r.postcode === "TD15 2AB" || r.postcode === "DG1 1AA"),
+    ).toHaveLength(0);
+    expect(result.logLine).toContain("2 uncovered-area rows skipped (DG 1 · TD 1)");
   });
 
   it("lands a category change (D of the old id, A under a new one) as one row in the new category", async () => {

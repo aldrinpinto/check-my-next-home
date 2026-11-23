@@ -36,12 +36,16 @@
 //
 // --national files the WHOLE register in one pass: the full file is
 // streamed once into a session staging table in batches (no
-// postcode filter — every line is parsed), duplicate transaction
-// ids collapse to the last row filed, the current monthly update
-// file is merged over the staging table by transaction id (the
-// legacy merge, unfiltered), the golden proof and the
-// Scotland/NI zero-row guard run against staging, and only then is
-// the live register swapped inside one transaction (truncate +
+// postcode filter — every line is parsed), rows for Scotland/NI
+// postcode areas are skipped and counted per area at intake
+// (BUG-184: the source legitimately publishes TD15 — Berwick —
+// sales, so an uncovered row is data to skip, never a reason to
+// refuse the run), duplicate transaction ids collapse to the
+// last row filed, the current monthly update file is merged over
+// the staging table by transaction id (the legacy merge,
+// unfiltered), the golden proof and a zero-uncovered-row
+// self-check run against staging, and only then is the live
+// register swapped inside one transaction (truncate +
 // insert-select + the golden proof read back from the live table).
 // A failed pass files nothing: staging is a TEMP table, so it dies
 // with the session and the previous register keeps serving. After
@@ -245,8 +249,9 @@ const STAMP_PAGE_ROWS = 5000;
 // Postcode areas the register does not cover: Scotland's areas
 // plus BT (Northern Ireland) — lib/sold-prices.ts's coverage rule,
 // restated for the standalone loader. The brain's gate is the
-// serving authority; this copy drives only the national pass's
-// zero-row guard and its no-sale stamping.
+// serving authority; this copy drives the new modes' intake skip
+// (BUG-184 — skip-and-count, never refuse), the staging
+// self-check, and the no-sale stamping.
 const UNCOVERED_AREAS = new Set([
   "AB",
   "DD",
@@ -266,10 +271,39 @@ const UNCOVERED_AREAS = new Set([
   "BT",
 ]);
 
-export function isCoveredPostcode(postcode) {
+export function postcodeArea(postcode) {
   const outward = postcode.split(" ")[0] ?? "";
-  const area = /^[A-Z]+/.exec(outward)?.[0] ?? "";
-  return !UNCOVERED_AREAS.has(area);
+  return /^[A-Z]+/.exec(outward)?.[0] ?? "";
+}
+
+export function isCoveredPostcode(postcode) {
+  return !UNCOVERED_AREAS.has(postcodeArea(postcode));
+}
+
+// BUG-184's intake skip, shared by the national pass and the
+// monthly update: a record for an uncovered area is never filed;
+// it is counted per area in stats.uncovered, so the run's summary
+// — and its stamp, which carries the summary — reconciles exactly
+// what was left out. Returns true when the record was skipped.
+function skipUncoveredRecord(record, stats) {
+  const area = postcodeArea(record.postcode);
+  if (!UNCOVERED_AREAS.has(area)) return false;
+  stats.uncovered ??= {};
+  stats.uncovered[area] = (stats.uncovered[area] ?? 0) + 1;
+  return true;
+}
+
+// The summary segment for the intake skip: the total plus the
+// per-area counts, areas in alphabetical order.
+function uncoveredSkipSegment(stats) {
+  const entries = Object.entries(stats.uncovered ?? {}).sort(([a], [b]) =>
+    a < b ? -1 : a > b ? 1 : 0,
+  );
+  const total = entries.reduce((n, [, count]) => n + count, 0);
+  if (total === 0) return "0 uncovered-area rows skipped";
+  return `${total} uncovered-area rows skipped (${entries
+    .map(([area, count]) => `${area} ${count}`)
+    .join(" · ")})`;
 }
 
 // Named-flag parsing for the new modes (gap 3). Every flag is
@@ -388,9 +422,11 @@ async function mergeUpdateRecords(client, table, records, sourceDate) {
 
 // Every valid record in a set of Price Paid lines, parsed whole —
 // the new modes' reader. No postcode pre-filter (the national
-// pass files everything; the update merge keys on ids alone).
-// Rows with an empty postcode are skipped and counted (gap 7):
-// filed, they would sit under an empty key no check can serve.
+// pass files everything covered; the update merge keys on ids
+// alone). Rows with an empty postcode are skipped and counted
+// (gap 7): filed, they would sit under an empty key no check can
+// serve. Rows for uncovered (Scotland/NI) areas are skipped and
+// counted per area (BUG-184): the register never files them.
 export function parseAllRecords(lines, stats) {
   const records = [];
   for (const line of lines) {
@@ -404,6 +440,7 @@ export function parseAllRecords(lines, stats) {
       stats.emptyPostcode += 1;
       continue;
     }
+    if (skipUncoveredRecord(record, stats)) continue;
     records.push(record);
   }
   return records;
@@ -570,7 +607,7 @@ export async function stampNoSalePostcodes(client, edition) {
 // --file fallback).
 export async function runNational(client, { fullLines, updateLines, edition, verifyOnly = false }) {
   const startedAt = Date.now();
-  const stats = { malformed: 0, emptyPostcode: 0, duplicates: 0 };
+  const stats = { malformed: 0, emptyPostcode: 0, duplicates: 0, uncovered: {} };
   await client.query(`DROP TABLE IF EXISTS ${STAGE_TABLE}`);
   await client.query(
     `CREATE TEMP TABLE ${STAGE_TABLE} (
@@ -595,7 +632,9 @@ export async function runNational(client, { fullLines, updateLines, edition, ver
      )`,
   );
 
-  // 1 — the full file, every line parsed, filed in batches.
+  // 1 — the full file, every line parsed, filed in batches
+  // (uncovered-area rows skipped and counted at intake, BUG-184 —
+  // they are never staged).
   let batch = [];
   const flush = async () => {
     await insertRecords(client, STAGE_TABLE, batch, null);
@@ -612,6 +651,7 @@ export async function runNational(client, { fullLines, updateLines, edition, ver
       stats.emptyPostcode += 1;
       continue;
     }
+    if (skipUncoveredRecord(record, stats)) continue;
     batch.push(record);
     if (batch.length >= INSERT_BATCH_ROWS) await flush();
   }
@@ -654,9 +694,11 @@ export async function runNational(client, { fullLines, updateLines, edition, ver
   );
 
   // 6 — proofs against staging, before anything live moves: the
-  // golden homes, and the Scotland/NI guard (the source files
-  // none, so any row counted here is a defect in the file or
-  // the parser — the pass refuses rather than file them).
+  // golden homes, and the zero-uncovered-row self-check.
+  // Uncovered-area rows were skipped at intake (BUG-184), so
+  // this count must read zero; a row here means the skip itself
+  // is broken, and the pass refuses on that defect — never on
+  // the source's data.
   const stagedFor = async (pc) => filedRowsFor(client, STAGE_TABLE, pc);
   const goldenStaged = {};
   for (const pc of ["CM3 2JT", "E16 1GN"]) goldenStaged[pc] = await stagedFor(pc);
@@ -668,14 +710,14 @@ export async function runNational(client, { fullLines, updateLines, edition, ver
   );
   if (guard.rows[0].n > 0)
     throw new Error(
-      `the national pass staged ${guard.rows[0].n} rows for Scotland or Northern Ireland postcodes, which Price Paid does not cover — refusing to file them`,
+      `the national pass staged ${guard.rows[0].n} rows for Scotland or Northern Ireland postcodes despite the intake skip (BUG-184) — the loader is defective, refusing to file them`,
     );
   const totalRes = await client.query(`SELECT count(*)::int AS n FROM ${STAGE_TABLE}`);
   const total = totalRes.rows[0].n;
 
   const seconds = () => Math.round((Date.now() - startedAt) / 1000);
   const summary = (stamped) =>
-    `load-sold-prices · edition ${sourceDate} · national pass · ${total} sales filed · ${updateRecords.length} update rows merged · ${stats.malformed} malformed skipped · ${stats.duplicates} duplicates collapsed · ${stats.emptyPostcode} empty-postcode rows skipped · ${stamped} no-sale postcodes stamped · golden homes OK · ${seconds()}s`;
+    `load-sold-prices · edition ${sourceDate} · national pass · ${total} sales filed · ${updateRecords.length} update rows merged · ${stats.malformed} malformed skipped · ${stats.duplicates} duplicates collapsed · ${stats.emptyPostcode} empty-postcode rows skipped · ${uncoveredSkipSegment(stats)} · ${stamped} no-sale postcodes stamped · golden homes OK · ${seconds()}s`;
 
   if (verifyOnly) {
     await client.query(`DROP TABLE IF EXISTS ${STAGE_TABLE}`);
@@ -735,9 +777,13 @@ export async function runNational(client, { fullLines, updateLines, edition, ver
 // register, edition-gated. Returns the summary facts; the
 // caller stamps and prints. A refusal throws with the gate's
 // reason — the caller stamps the failure before it propagates.
+// Uncovered-area rows in the file are skipped and counted at
+// intake (BUG-184), exactly as in the national pass: the
+// monthly file carries TD rows most months, and this path never
+// had an area guard — without the skip it would FILE them.
 export async function runUpdate(client, { updateLines, edition, verifyOnly = false }) {
   const startedAt = Date.now();
-  const stats = { malformed: 0, emptyPostcode: 0 };
+  const stats = { malformed: 0, emptyPostcode: 0, uncovered: {} };
   const records = parseAllRecords(updateLines, stats);
   const seconds = () => Math.round((Date.now() - startedAt) / 1000);
 
@@ -745,7 +791,7 @@ export async function runUpdate(client, { updateLines, edition, verifyOnly = fal
     const upserts = records.filter((r) => r.recordStatus !== "D").length;
     return {
       edition,
-      logLine: `load-sold-prices · edition ${edition} · monthly update · ${upserts} sales to add or correct · ${records.length - upserts} to delete · ${stats.malformed} malformed skipped · verify only, nothing filed · ${seconds()}s`,
+      logLine: `load-sold-prices · edition ${edition} · monthly update · ${upserts} sales to add or correct · ${records.length - upserts} to delete · ${stats.malformed} malformed skipped · ${uncoveredSkipSegment(stats)} · verify only, nothing filed · ${seconds()}s`,
       applied: 0,
       deleted: 0,
       stats,
@@ -781,7 +827,7 @@ export async function runUpdate(client, { updateLines, edition, verifyOnly = fal
   }
   return {
     edition,
-    logLine: `load-sold-prices · edition ${edition} · monthly update · ${merged.upserted} sales added or corrected · ${merged.deleted} deleted · ${stats.malformed} malformed skipped · ${stats.emptyPostcode} empty-postcode rows skipped · ${seconds()}s`,
+    logLine: `load-sold-prices · edition ${edition} · monthly update · ${merged.upserted} sales added or corrected · ${merged.deleted} deleted · ${stats.malformed} malformed skipped · ${stats.emptyPostcode} empty-postcode rows skipped · ${uncoveredSkipSegment(stats)} · ${seconds()}s`,
     applied: merged.upserted,
     deleted: merged.deleted,
     stats,
