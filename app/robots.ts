@@ -30,6 +30,9 @@ export const dynamic = "force-static";
 // a crawl destination. The sample page itself is not named
 // here: its gate is its metadata and the sitemap, not this
 // file.
+//
+// M9.11: /admin joins the set — the owner page sits behind
+// the Access wall and is never a crawl destination either.
 export default function robots(): MetadataRoute.Robots {
   if (!isProductionEnv()) {
     return { rules: { userAgent: "*", disallow: "/" } };
@@ -47,6 +50,7 @@ export default function robots(): MetadataRoute.Robots {
         "/gift",
         "/sample-report/print",
         "/kitchen-sink",
+        "/admin",
         "/api",
       ],
     },

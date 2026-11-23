@@ -1117,627 +1117,768 @@ export const DISTRICT_WARNINGS_UNAVAILABLE: DistrictFloodSection["warnings"] = {
   line: "Live flood warnings could not be checked just now.",
 };
 
-export async function buildDistrictBundle(
+// BUG-171: the build, staged. startDistrictBuild fires
+// the same reads buildDistrictBundle always fired, but
+// each section composes as its own reads land and is
+// exposed as a promise of its own, so the district
+// checking screen's per-group parts can each settle on
+// their own slice of the one build instead of every
+// group waiting for the slowest read in the district.
+// buildDistrictBundle (below) is the staged build's
+// bundle promise: every existing caller sees exactly
+// the bundle it always saw, from the same reads,
+// composed by the same code in the same words.
+
+export type DistrictSettlement =
+  { kind: "district" } | { kind: "not-covered"; nation: "scotland" | "northern-ireland" };
+
+// The staged build's working record: one composer
+// promise per section, plus the head's.
+interface DistrictWork {
+  headP: Promise<DistrictHead>;
+  districtP: Promise<{
+    section: DistrictItselfSection;
+    settlementPostcodes: { name: string; postcode: string }[];
+  }>;
+  censusP: Promise<DistrictCensusSection>;
+  crimeP: Promise<DistrictCrimeSection>;
+  soldPricesP: Promise<DistrictSoldSection>;
+  deprivationP: Promise<DistrictDeprivationSection>;
+  councilTaxP: Promise<DistrictCouncilTaxSection>;
+  connectivityP: Promise<DistrictConnectivitySection>;
+  schoolsP: Promise<DistrictSchoolsSection>;
+  everydayP: Promise<DistrictEverydaySection>;
+  floodP: Promise<DistrictFloodSection>;
+  airP: Promise<DistrictAirSection>;
+  bridgeP: Promise<DistrictSections["bridge"]>;
+}
+
+export interface DistrictBuild {
+  // Resolves from the postcode-directory read alone:
+  // the Scotland / Northern Ireland gate never waits
+  // for the district's data reads (BUG-017's rule, kept).
+  settlement: Promise<DistrictSettlement>;
+  // The district branch's head and sections, each
+  // settling as its own reads land. On the not-covered
+  // branch these reject — a caller reads settlement
+  // first, exactly as payload builders have always
+  // branched on the bundle's kind before touching it.
+  head: Promise<DistrictHead>;
+  sections: { [K in keyof DistrictSections]: Promise<DistrictSections[K]> };
+  bundle: Promise<DistrictBundle>;
+}
+
+export function startDistrictBuild(
   outward: string,
   source: DistrictDataSource,
   options: DistrictBundleOptions = {},
-): Promise<DistrictBundle> {
-  const postcodes = await source.postcodes(outward);
-  const letters = new Set(postcodes.map((row) => nationLetterOf(row.lsoaCode)));
-  const hasEnglish = letters.has("E");
-  const hasWelsh = letters.has("W");
+): DistrictBuild {
+  const gate = (async () => {
+    const postcodes = await source.postcodes(outward);
+    const letters = new Set(postcodes.map((row) => nationLetterOf(row.lsoaCode)));
+    // Scotland / Northern Ireland districts: the old
+    // rung-3 behaviour stands whole (Phase 3 owns their
+    // coverage).
+    const nation: "scotland" | "northern-ireland" | null =
+      !letters.has("E") && !letters.has("W") && (letters.has("S") || letters.has("N"))
+        ? letters.has("S")
+          ? "scotland"
+          : "northern-ireland"
+        : null;
+    return { postcodes, letters, nation };
+  })();
+  const settlement: Promise<DistrictSettlement> = gate.then(({ nation }) =>
+    nation ? { kind: "not-covered", nation } : { kind: "district" },
+  );
 
-  // Scotland / Northern Ireland districts: the old rung-3
-  // behaviour stands whole (Phase 3 owns their coverage).
-  if (!hasEnglish && !hasWelsh && (letters.has("S") || letters.has("N"))) {
-    return {
-      kind: "not-covered",
-      outward,
-      nation: letters.has("S") ? "scotland" : "northern-ireland",
-    };
-  }
+  // The working build, present only on the district
+  // branch: the derived code lists, the reads (fired
+  // together, exactly as the one Promise.all fired
+  // them), and one composer promise per section.
+  const work: Promise<DistrictWork | null> = gate.then(({ postcodes, letters, nation }) => {
+    if (nation) return null;
+    const hasEnglish = letters.has("E");
 
-  const englishPostcodes = postcodes.filter((row) => nationLetterOf(row.lsoaCode) === "E");
-  const ewPostcodes = postcodes.filter((row) => {
-    const letter = nationLetterOf(row.lsoaCode);
-    return letter === "E" || letter === "W";
-  });
-  const lsoaCodes = [
-    ...new Set(postcodes.map((row) => row.lsoaCode).filter((c): c is string => !!c)),
-  ];
-  const englishLsoaCodes = [
-    ...new Set(englishPostcodes.map((row) => row.lsoaCode).filter((c): c is string => !!c)),
-  ];
-  const msoaCodes = [
-    ...new Set(ewPostcodes.map((row) => row.msoaCode).filter((c): c is string => !!c)),
-  ];
-  const councils = [
-    ...new Set(postcodes.map((row) => row.council).filter((c): c is string => !!c)),
-  ].sort();
-  const regions = [...new Set(postcodes.map((row) => row.region).filter((c): c is string => !!c))];
-  const stamp = postcodes.find((row) => row.sourceName) ?? null;
+    const englishPostcodes = postcodes.filter((row) => nationLetterOf(row.lsoaCode) === "E");
+    const ewPostcodes = postcodes.filter((row) => {
+      const letter = nationLetterOf(row.lsoaCode);
+      return letter === "E" || letter === "W";
+    });
+    const lsoaCodes = [
+      ...new Set(postcodes.map((row) => row.lsoaCode).filter((c): c is string => !!c)),
+    ];
+    const englishLsoaCodes = [
+      ...new Set(englishPostcodes.map((row) => row.lsoaCode).filter((c): c is string => !!c)),
+    ];
+    const msoaCodes = [
+      ...new Set(ewPostcodes.map((row) => row.msoaCode).filter((c): c is string => !!c)),
+    ];
+    const councils = [
+      ...new Set(postcodes.map((row) => row.council).filter((c): c is string => !!c)),
+    ].sort();
+    const regions = [
+      ...new Set(postcodes.map((row) => row.region).filter((c): c is string => !!c)),
+    ];
+    const stamp = postcodes.find((row) => row.sourceName) ?? null;
 
-  const [
-    bases,
-    censusFactsRows,
-    imd,
-    sold,
-    broadband,
-    mobile,
-    schoolsFacts,
-    health,
-    stationNames,
-    homes,
-    places,
-    crime,
-    rofrsFacts,
-    rofswFacts,
-    zoneFacts,
-    watercourses,
-    airFacts,
-    councilTaxRows,
-  ] = await Promise.all([
-    source.lsoaBases(lsoaCodes),
-    source.censusRows(msoaCodes),
-    source.imdDeciles(englishLsoaCodes),
-    source.soldFacts(outward),
-    source.broadbandAnswers(outward),
-    source.mobileAnswers(outward),
-    source.schools(outward),
-    source.healthCounts(outward),
-    source.stations(outward),
-    source.pickingHomes(outward),
-    source.places(outward),
-    source.crimeFacts(outward),
-    hasEnglish
+    const basesR = source.lsoaBases(lsoaCodes);
+    const censusRowsR = source.censusRows(msoaCodes);
+    const imdR = source.imdDeciles(englishLsoaCodes);
+    const soldR = source.soldFacts(outward);
+    const broadbandR = source.broadbandAnswers(outward);
+    const mobileR = source.mobileAnswers(outward);
+    const schoolsFactsR = source.schools(outward);
+    const healthR = source.healthCounts(outward);
+    const stationNamesR = source.stations(outward);
+    const homesR = source.pickingHomes(outward);
+    const placesR = source.places(outward);
+    const crimeR = source.crimeFacts(outward);
+    const rofrsR = hasEnglish
       ? source.floodFacts(
           "rofrs",
           englishPostcodes.map((row) => row.postcode),
         )
-      : Promise.resolve(null),
-    hasEnglish
+      : Promise.resolve(null);
+    const rofswR = hasEnglish
       ? source.floodFacts(
           "rofsw",
           englishPostcodes.map((row) => row.postcode),
         )
-      : Promise.resolve(null),
-    hasEnglish
+      : Promise.resolve(null);
+    const zoneR = hasEnglish
       ? source.floodFacts(
           "flood_zone",
           englishPostcodes.map((row) => row.postcode),
         )
-      : Promise.resolve(null),
-    hasEnglish
+      : Promise.resolve(null);
+    const watercoursesR = hasEnglish
       ? source.defenceWatercourses(englishPostcodes.map((row) => row.postcode))
-      : Promise.resolve([] as string[]),
-    source.airSquares(postcodes.map((row) => row.postcode)),
-    Promise.all(
+      : Promise.resolve([] as string[]);
+    const airFactsR = source.airSquares(postcodes.map((row) => row.postcode));
+    const councilTaxRowsR = Promise.all(
       councils.map(async (council) => ({ council, facts: await source.councilTax(council) })),
-    ),
-  ]);
+    );
 
-  const head: DistrictHead = {
-    outward,
-    postcodeCount: postcodes.length,
-    lsoaCount: lsoaCodes.length,
-    msoaCount: msoaCodes.length,
-    councils,
-    counties: [...new Set(places.counties.map((name) => displayText(name)))].sort(),
-    postTown: places.towns[0] ? displayText(places.towns[0].name) : null,
-    region: regions[0] ?? null,
-    sourceName: stamp?.sourceName ?? null,
-    sourceDate: stamp?.sourceDate ?? null,
-    sourceLine: sourceLineOf(stamp?.sourceName ?? null, stamp?.sourceDate ?? null),
-  };
-
-  // 1 — The district itself. The filter drops by the
-  // union set (places.settlementCounties), never the
-  // district's own counties alone (BUG-034 residual) —
-  // the head above keeps places.counties, the district's
-  // own, for its chip.
-  const settlementsRaw = places.localities.length > 0 ? places.localities : places.towns;
-  const settlements = cleanSettlements(settlementsRaw, places.settlementCounties);
-  // The bridge's named links ride the same cleaned set:
-  // one filed postcode per settlement, from the sales
-  // rows that filed the locality.
-  const settlementPostcodes = settlements
-    .map((name) => {
-      const filed = places.settlementPostcodes.find((row) => displayText(row.locality) === name);
-      return filed ? { name, postcode: filed.postcode } : null;
-    })
-    .filter((row): row is { name: string; postcode: string } => row !== null);
-  const residents = bases.length > 0 ? bases.reduce((sum, row) => sum + row.residents, 0) : null;
-  const households = bases.length > 0 ? bases.reduce((sum, row) => sum + row.households, 0) : null;
-  const district: DistrictItselfSection = {
-    state: settlements.length > 0 || residents !== null ? "served" : "not-filed",
-    settlements,
-    settlementsCount: settlements.length,
-    homes: homes > 0 ? homes : null,
-    residents,
-    households,
-    sourceName: head.sourceName,
-    sourceDate: head.sourceDate,
-    sourceLine: head.sourceLine,
-  };
-
-  // 2 — Census, summed across the district's MSOAs.
-  let census: DistrictCensusSection;
-  if (censusFactsRows.length === 0) {
-    census = {
-      state: "not-filed",
-      line: "Census 2021 figures are not filed for this district's areas.",
-      msoaCount: 0,
-      residentsTotal: null,
-      householdsTotal: null,
-      medianAge: null,
-      socialRented: null,
-      tables: [],
-      ageYears: null,
-      sourceName: null,
-      sourceDate: null,
-      sourceLine: null,
-    };
-  } else {
-    const stats = sumCensusStats(censusFactsRows);
-    const tables: CensusTableServed[] = [];
-    for (const code of Object.keys(CENSUS_TABLE_TITLES)) {
-      const fragment = stats[code];
-      if (!fragment) continue;
-      const rowsSource = fragment.categories ?? fragment.bands ?? fragment.groups ?? {};
-      tables.push({
-        code,
-        title: CENSUS_TABLE_TITLES[code],
-        total: fragment.total,
-        rows: censusRows(rowsSource, fragment.total),
-        groups:
-          fragment.groups && fragment.categories
-            ? censusRows(fragment.groups, fragment.total)
-            : null,
-      });
-    }
-    const years = stats.ts007?.years;
-    const tenure = stats.ts054;
-    const first = censusFactsRows[0];
-    census = {
-      state: "served",
-      line: null,
-      msoaCount: censusFactsRows.length,
-      residentsTotal: stats.ts007a?.total ?? null,
-      householdsTotal: stats.ts044?.total ?? null,
-      medianAge:
-        Array.isArray(years) && years.length > 0
-          ? { value: round1(medianAgeOf(years)), calculated: true as const }
-          : null,
-      socialRented:
-        tenure && typeof tenure.social_rented === "number"
-          ? {
-              count: tenure.social_rented,
-              total: tenure.total,
-              pct: round1((tenure.social_rented / tenure.total) * 100),
-            }
-          : null,
-      tables,
-      ageYears: Array.isArray(years) && years.length > 0 ? years : null,
-      sourceName: first.sourceName,
-      sourceDate: first.sourceDate,
-      sourceLine: sourceLineOf(first.sourceName, first.sourceDate),
-    };
-  }
-
-  // 3 — Crime (premise-checked: no district total is
-  // filed today; the served form stands ready for one).
-  let crimeSection: DistrictCrimeSection;
-  if (crime === null) {
-    crimeSection = {
-      state: "not-filed",
-      line: CRIME_NOT_FILED_LINE,
-      total: null,
-      windowLine: null,
-      per1000: null,
-      england: null,
-      categories: [],
-      sourceName: null,
-      sourceLine: null,
-    };
-  } else {
-    const per1000 = crime.residents > 0 ? round1((crime.total / crime.residents) * 1000) : null;
-    let england: DistrictCrimeSection["england"] = null;
-    if (
-      per1000 !== null &&
-      crime.national &&
-      crime.national.residents >= ENGLAND_BASE_MIN_RESIDENTS
-    ) {
-      const englandExact = (crime.national.total / crime.national.residents) * 1000;
-      const englandPer1000 = round1(englandExact);
-      let multiple: number | null = null;
-      if (crime.total > 0 && englandExact > 0) {
-        const candidate = round1(((crime.total / crime.residents) * 1000) / englandExact);
-        if (candidate >= 0.1) multiple = candidate;
-      }
-      england = {
-        englandPer1000,
-        multiple,
-        line:
-          multiple === null
-            ? `the England figure for the same 12 months is ${englandPer1000.toFixed(1)} recorded crimes per 1,000 residents`
-            : `the England figure for the same 12 months is ${englandPer1000.toFixed(1)} recorded crimes per 1,000 residents — this district's figure is about ${multiple.toFixed(1)} times the England figure`,
+    const headP: Promise<DistrictHead> = (async () => {
+      const places = await placesR;
+      return {
+        outward,
+        postcodeCount: postcodes.length,
+        lsoaCount: lsoaCodes.length,
+        msoaCount: msoaCodes.length,
+        councils,
+        counties: [...new Set(places.counties.map((name) => displayText(name)))].sort(),
+        postTown: places.towns[0] ? displayText(places.towns[0].name) : null,
+        region: regions[0] ?? null,
+        sourceName: stamp?.sourceName ?? null,
+        sourceDate: stamp?.sourceDate ?? null,
+        sourceLine: sourceLineOf(stamp?.sourceName ?? null, stamp?.sourceDate ?? null),
       };
-    }
-    crimeSection = {
-      state: "served",
-      line: null,
-      total: crime.total,
-      windowLine: `${monthLabel(crime.windowFrom)} to ${monthLabel(crime.windowTo)}`,
-      per1000,
-      england,
-      categories: Object.entries(crime.categories)
-        .filter(([, count]) => count > 0)
-        .map(([slug, count]) => ({ slug, label: crimeCategoryLabel(slug), count }))
-        .sort((a, b) => b.count - a.count || a.slug.localeCompare(b.slug)),
-      sourceName: crime.sourceName,
-      sourceLine: sourceLineOf(crime.sourceName, crime.sourceDate),
-    };
-  }
+    })();
 
-  // 4 — Sold prices (category A only, D23).
-  const soldPricesAll = sold.rows.map((row) => row.price);
-  const soldByType = new Map<string, number[]>();
-  for (const row of sold.rows) {
-    const code = row.propertyType ?? "O";
-    const list = soldByType.get(code) ?? [];
-    list.push(row.price);
-    soldByType.set(code, list);
-  }
-  const typeRows: DistrictSoldSection["types"] = [];
-  let foldedTypeCount = 0;
-  for (const [code, prices] of [...soldByType.entries()].sort(
-    (a, b) => b[1].length - a[1].length,
-  )) {
-    if (prices.length >= 5) {
-      typeRows.push({
-        code,
-        label: PROPERTY_TYPE_LABELS[code] ?? "Other",
-        count: prices.length,
-        median: medianOf(prices),
-      });
-    } else {
-      foldedTypeCount += prices.length;
-    }
-  }
-  const soldDates = sold.rows.map((row) => row.saleDate).sort();
-  const soldPrices: DistrictSoldSection = {
-    state: sold.rows.length > 0 ? "served" : "not-filed",
-    count: sold.rows.length,
-    postcodesCovered: new Set(sold.rows.map((row) => row.postcode)).size,
-    median: sold.rows.length >= 5 ? medianOf(soldPricesAll) : null,
-    fromDate: soldDates[0] ?? null,
-    toDate: soldDates[soldDates.length - 1] ?? null,
-    spanLine:
-      soldDates.length > 0
-        ? `${dateLabel(soldDates[0])} to ${dateLabel(soldDates[soldDates.length - 1])}`
-        : null,
-    types: typeRows,
-    foldedTypeCount,
-    sourceName: sold.sourceName,
-    sourceDate: sold.sourceDate,
-    sourceLine: sourceLineOf(sold.sourceName, sold.sourceDate),
-  };
+    // 1 — The district itself. The filter drops by the
+    // union set (places.settlementCounties), never the
+    // district's own counties alone (BUG-034 residual) —
+    // the head above keeps places.counties, the district's
+    // own, for its chip. The composer also yields the
+    // bridge's settlement postcodes, which ride its
+    // result until the bundle assembles.
+    const districtP: Promise<{
+      section: DistrictItselfSection;
+      settlementPostcodes: { name: string; postcode: string }[];
+    }> = (async () => {
+      const [places, bases, homes, head] = await Promise.all([placesR, basesR, homesR, headP]);
+      const settlementsRaw = places.localities.length > 0 ? places.localities : places.towns;
+      const settlements = cleanSettlements(settlementsRaw, places.settlementCounties);
+      // The bridge's named links ride the same cleaned set:
+      // one filed postcode per settlement, from the sales
+      // rows that filed the locality.
+      const settlementPostcodes = settlements
+        .map((name) => {
+          const filed = places.settlementPostcodes.find(
+            (row) => displayText(row.locality) === name,
+          );
+          return filed ? { name, postcode: filed.postcode } : null;
+        })
+        .filter((row): row is { name: string; postcode: string } => row !== null);
+      const residents =
+        bases.length > 0 ? bases.reduce((sum, row) => sum + row.residents, 0) : null;
+      const households =
+        bases.length > 0 ? bases.reduce((sum, row) => sum + row.households, 0) : null;
+      const district: DistrictItselfSection = {
+        state: settlements.length > 0 || residents !== null ? "served" : "not-filed",
+        settlements,
+        settlementsCount: settlements.length,
+        homes: homes > 0 ? homes : null,
+        residents,
+        households,
+        sourceName: head.sourceName,
+        sourceDate: head.sourceDate,
+        sourceLine: head.sourceLine,
+      };
+      return { section: district, settlementPostcodes };
+    })();
 
-  // 5 — Deprivation: the spread of the district's English
-  // small areas across the deciles. A spread, never a score.
-  const decileCounts = new Array<number>(10).fill(0);
-  for (const { decile } of imd.deciles) {
-    if (decile >= 1 && decile <= 10) decileCounts[decile - 1] += 1;
-  }
-  const deprivation: DistrictDeprivationSection = !hasEnglish
-    ? {
-        state: "not-covered",
-        line: DEPRIVATION_NOT_COVERED_LINE,
-        counts: decileCounts,
-        areasCounted: 0,
-        sourceName: null,
-        sourceDate: null,
-        sourceLine: null,
-      }
-    : imd.deciles.length === 0
-      ? {
+    // 2 — Census, summed across the district's MSOAs.
+    const censusP: Promise<DistrictCensusSection> = (async () => {
+      const censusFactsRows = await censusRowsR;
+      let census: DistrictCensusSection;
+      if (censusFactsRows.length === 0) {
+        census = {
           state: "not-filed",
-          line: "Deprivation figures are not filed for this district's small areas.",
-          counts: decileCounts,
-          areasCounted: 0,
+          line: "Census 2021 figures are not filed for this district's areas.",
+          msoaCount: 0,
+          residentsTotal: null,
+          householdsTotal: null,
+          medianAge: null,
+          socialRented: null,
+          tables: [],
+          ageYears: null,
           sourceName: null,
           sourceDate: null,
           sourceLine: null,
+        };
+      } else {
+        const stats = sumCensusStats(censusFactsRows);
+        const tables: CensusTableServed[] = [];
+        for (const code of Object.keys(CENSUS_TABLE_TITLES)) {
+          const fragment = stats[code];
+          if (!fragment) continue;
+          const rowsSource = fragment.categories ?? fragment.bands ?? fragment.groups ?? {};
+          tables.push({
+            code,
+            title: CENSUS_TABLE_TITLES[code],
+            total: fragment.total,
+            rows: censusRows(rowsSource, fragment.total),
+            groups:
+              fragment.groups && fragment.categories
+                ? censusRows(fragment.groups, fragment.total)
+                : null,
+          });
         }
-      : {
+        const years = stats.ts007?.years;
+        const tenure = stats.ts054;
+        const first = censusFactsRows[0];
+        census = {
           state: "served",
           line: null,
-          counts: decileCounts,
-          areasCounted: imd.deciles.length,
-          sourceName: imd.sourceName,
-          sourceDate: imd.sourceDate,
-          sourceLine: sourceLineOf(imd.sourceName, imd.sourceDate),
+          msoaCount: censusFactsRows.length,
+          residentsTotal: stats.ts007a?.total ?? null,
+          householdsTotal: stats.ts044?.total ?? null,
+          medianAge:
+            Array.isArray(years) && years.length > 0
+              ? { value: round1(medianAgeOf(years)), calculated: true as const }
+              : null,
+          socialRented:
+            tenure && typeof tenure.social_rented === "number"
+              ? {
+                  count: tenure.social_rented,
+                  total: tenure.total,
+                  pct: round1((tenure.social_rented / tenure.total) * 100),
+                }
+              : null,
+          tables,
+          ageYears: Array.isArray(years) && years.length > 0 ? years : null,
+          sourceName: first.sourceName,
+          sourceDate: first.sourceDate,
+          sourceLine: sourceLineOf(first.sourceName, first.sourceDate),
         };
+      }
 
-  // 6 — Council tax: every council the district straddles.
-  const filedCouncils = councilTaxRows.filter((row) => row.facts !== null);
-  const councilTax: DistrictCouncilTaxSection = {
-    state: filedCouncils.length > 0 ? "served" : "not-filed",
-    councils: filedCouncils.map((row) => ({
-      authorityName: (row.facts as DistrictCouncilTaxFacts).authorityName,
-      taxYear: (row.facts as DistrictCouncilTaxFacts).taxYear,
-      bandDAreaAveragePence: (row.facts as DistrictCouncilTaxFacts).bandDAreaAveragePence,
-      parishAveraged: (row.facts as DistrictCouncilTaxFacts).parishAveraged,
-      sourceLine: sourceLineOf(
-        (row.facts as DistrictCouncilTaxFacts).sourceName,
-        (row.facts as DistrictCouncilTaxFacts).sourceDate,
-      ),
-    })),
-    unfiledCouncils: councilTaxRows.filter((row) => row.facts === null).map((row) => row.council),
-  };
+      return census;
+    })();
 
-  // 7 — Broadband & mobile.
-  const broadbandSection =
-    broadband.length > 0
-      ? {
-          postcodesCounted: broadband.length,
-          gigabitMeanPct: round1(
-            broadband.reduce((sum, answer) => sum + answer.gigabitCapablePct, 0) / broadband.length,
-          ),
-          superfastMeanPct: round1(
-            broadband.reduce((sum, answer) => sum + answer.superfast30Pct, 0) / broadband.length,
-          ),
-          snapshot: broadband[0].snapshot,
-        }
-      : null;
-  const mobileAreas = new Map<string, number | null>();
-  for (const answer of mobile) {
-    if (!mobileAreas.has(answer.lauaName)) {
-      mobileAreas.set(answer.lauaName, answer.fourGOutdoorAtLeastOnePct);
-    }
-  }
-  const connectivity: DistrictConnectivitySection = {
-    state: broadbandSection || mobileAreas.size > 0 ? "served" : "not-filed",
-    broadband: broadbandSection,
-    mobile:
-      mobileAreas.size > 0
-        ? {
-            areas: [...mobileAreas.entries()].map(([lauaName, pct]) => ({
-              lauaName,
-              fourGOutdoorAtLeastOnePct: pct,
-            })),
+    // 3 — Crime (premise-checked: no district total is
+    // filed today; the served form stands ready for one).
+    const crimeP: Promise<DistrictCrimeSection> = (async () => {
+      const crime = await crimeR;
+      let crimeSection: DistrictCrimeSection;
+      if (crime === null) {
+        crimeSection = {
+          state: "not-filed",
+          line: CRIME_NOT_FILED_LINE,
+          total: null,
+          windowLine: null,
+          per1000: null,
+          england: null,
+          categories: [],
+          sourceName: null,
+          sourceLine: null,
+        };
+      } else {
+        const per1000 = crime.residents > 0 ? round1((crime.total / crime.residents) * 1000) : null;
+        let england: DistrictCrimeSection["england"] = null;
+        if (
+          per1000 !== null &&
+          crime.national &&
+          crime.national.residents >= ENGLAND_BASE_MIN_RESIDENTS
+        ) {
+          const englandExact = (crime.national.total / crime.national.residents) * 1000;
+          const englandPer1000 = round1(englandExact);
+          let multiple: number | null = null;
+          if (crime.total > 0 && englandExact > 0) {
+            const candidate = round1(((crime.total / crime.residents) * 1000) / englandExact);
+            if (candidate >= 0.1) multiple = candidate;
           }
-        : null,
-    sourceLine: broadbandSection
-      ? `Ofcom Connected Nations — snapshot ${broadbandSection.snapshot}`
-      : null,
-  };
+          england = {
+            englandPer1000,
+            multiple,
+            line:
+              multiple === null
+                ? `the England figure for the same 12 months is ${englandPer1000.toFixed(1)} recorded crimes per 1,000 residents`
+                : `the England figure for the same 12 months is ${englandPer1000.toFixed(1)} recorded crimes per 1,000 residents — this district's figure is about ${multiple.toFixed(1)} times the England figure`,
+          };
+        }
+        crimeSection = {
+          state: "served",
+          line: null,
+          total: crime.total,
+          windowLine: `${monthLabel(crime.windowFrom)} to ${monthLabel(crime.windowTo)}`,
+          per1000,
+          england,
+          categories: Object.entries(crime.categories)
+            .filter(([, count]) => count > 0)
+            .map(([slug, count]) => ({ slug, label: crimeCategoryLabel(slug), count }))
+            .sort((a, b) => b.count - a.count || a.slug.localeCompare(b.slug)),
+          sourceName: crime.sourceName,
+          sourceLine: sourceLineOf(crime.sourceName, crime.sourceDate),
+        };
+      }
 
-  // 8 — Schools.
-  const schoolRows = schoolsFacts.rows;
-  const ofstedCounts = new Map<string, number>();
-  let notYetInspected = 0;
-  for (const row of schoolRows) {
-    if (row.ofstedRating) {
-      ofstedCounts.set(row.ofstedRating, (ofstedCounts.get(row.ofstedRating) ?? 0) + 1);
-    } else {
-      notYetInspected += 1;
-    }
-  }
-  const OFSTED_ORDER = ["Outstanding", "Good", "Requires improvement", "Inadequate"];
-  const schools: DistrictSchoolsSection = {
-    state: schoolRows.length > 0 ? "served" : "not-filed",
-    counted: schoolRows.length,
-    primary: schoolRows.filter((row) => row.phase === "Primary").length,
-    secondary: schoolRows.filter((row) => row.phase === "Secondary").length,
-    allThrough: schoolRows.filter((row) => row.phase === "All-through").length,
-    post16: schoolRows.filter((row) => row.phase === "16 plus").length,
-    otherPhase: schoolRows.filter(
-      (row) => !["Primary", "Secondary", "All-through", "16 plus"].includes(row.phase ?? ""),
-    ).length,
-    grammar: schoolRows.filter((row) => row.selective && row.phase === "Secondary").length,
-    ofsted: [
-      ...OFSTED_ORDER.filter((rating) => ofstedCounts.has(rating)).map((rating) => ({
-        rating,
-        count: ofstedCounts.get(rating) as number,
-      })),
-      ...[...ofstedCounts.entries()]
-        .filter(([rating]) => !OFSTED_ORDER.includes(rating))
-        .map(([rating, count]) => ({ rating, count })),
-    ],
-    notYetInspected,
-    sourceName: schoolsFacts.sourceName,
-    sourceDate: schoolsFacts.sourceDate,
-    sourceLine: sourceLineOf(schoolsFacts.sourceName, schoolsFacts.sourceDate),
-  };
+      return crimeSection;
+    })();
 
-  // 9 — Everyday counts.
-  const healthCount = (types: string[]) =>
-    health
-      .filter((row) => types.includes(row.serviceType))
-      .reduce((sum, row) => sum + row.count, 0);
-  const everyday: DistrictEverydaySection = {
-    state: health.length > 0 || stationNames.length > 0 ? "served" : "not-filed",
-    gp: healthCount(["gp_practice", "gp_branch_surgery"]),
-    dentists: healthCount(["dentist"]),
-    pharmacies: healthCount(["pharmacy"]),
-    stations: stationNames,
-  };
-
-  // 10 — Flood: the district roll-up.
-  const floodBlock = (
-    layer: "rofrs" | "rofsw",
-    title: string,
-    facts: DistrictFloodFacts | null,
-  ): DistrictFloodBlock | null => {
-    // The coverage guard (audit item 14): a layer filed
-    // somewhere but covering nothing of this district
-    // serves no block — its assignments would read null
-    // end to end and print a computed "No band published
-    // 100%". The section carries the layer's own
-    // not-filed line in its place (below).
-    if (!facts || facts.filedCount <= 0 || !facts.covered || facts.assignments.length === 0)
-      return null;
-    const counted = facts.assignments.length;
-    const byLabel = new Map<string, number>();
-    let unbanded = 0;
-    for (const assignment of facts.assignments) {
-      if (assignment.label) byLabel.set(assignment.label, (byLabel.get(assignment.label) ?? 0) + 1);
-      else unbanded += 1;
-    }
-    const bandOrder =
-      layer === "rofrs" ? ["High", "Medium", "Low", "Very low"] : ["High", "Medium", "Low"];
-    const buckets: DistrictFloodBlock["buckets"] = [];
-    for (const label of bandOrder) {
-      const count = byLabel.get(label) ?? 0;
-      buckets.push({
-        label,
-        definition: FLOOD_BAND_DEFINITIONS[label] ?? null,
-        count,
-        pct: round1((count / counted) * 100),
-      });
-    }
-    buckets.push({
-      label: layer === "rofrs" ? "No band published" : "Below the lowest published band",
-      definition: null,
-      count: unbanded,
-      pct: round1((unbanded / counted) * 100),
-    });
-    return {
-      layer,
-      title,
-      counted,
-      buckets,
-      sourceName: facts.sourceName,
-      sourceDate: facts.sourceDate,
-      sourceLine: sourceLineOf(facts.sourceName, facts.sourceDate),
-    };
-  };
-
-  let flood: DistrictFloodSection;
-  if (!hasEnglish) {
-    flood = {
-      state: "not-covered",
-      line: FLOOD_NOT_COVERED_LINE,
-      countedPostcodes: 0,
-      riversSea: null,
-      surfaceWater: null,
-      riversSeaNotCoveredLine: null,
-      surfaceWaterNotCoveredLine: null,
-      zones: null,
-      watercourses: [],
-      warnings: { state: "unavailable", areas: [], line: "" },
-      honestyLine: FLOOD_HONESTY_LINE,
-    };
-  } else {
-    const riversSea = floodBlock("rofrs", "Flooding from rivers and the sea", rofrsFacts);
-    const surfaceWater = floodBlock(
-      "rofsw",
-      "Flooding from surface water (heavy rain)",
-      rofswFacts,
-    );
-    // A filed layer that does not cover this district
-    // names itself in its block's place (audit item 14).
-    const riversSeaNotCoveredLine =
-      !riversSea && rofrsFacts && rofrsFacts.filedCount > 0 && !rofrsFacts.covered
-        ? "The rivers and sea flood map is not filed for this district yet."
-        : null;
-    const surfaceWaterNotCoveredLine =
-      !surfaceWater && rofswFacts && rofswFacts.filedCount > 0 && !rofswFacts.covered
-        ? "The surface water flood map is not filed for this district yet."
-        : null;
-    let zones: DistrictFloodSection["zones"] = null;
-    if (
-      zoneFacts &&
-      zoneFacts.filedCount > 0 &&
-      zoneFacts.covered &&
-      zoneFacts.assignments.length > 0
-    ) {
-      const counted = zoneFacts.assignments.length;
-      const inZone = (label: string) =>
-        zoneFacts.assignments.filter((a) => a.label === label).length;
-      zones = {
-        zone3Pct: round1((inZone("FZ3") / counted) * 100),
-        zone2Pct: round1((inZone("FZ2") / counted) * 100),
+    // 4 — Sold prices (category A only, D23).
+    const soldPricesP: Promise<DistrictSoldSection> = (async () => {
+      const sold = await soldR;
+      const soldPricesAll = sold.rows.map((row) => row.price);
+      const soldByType = new Map<string, number[]>();
+      for (const row of sold.rows) {
+        const code = row.propertyType ?? "O";
+        const list = soldByType.get(code) ?? [];
+        list.push(row.price);
+        soldByType.set(code, list);
+      }
+      const typeRows: DistrictSoldSection["types"] = [];
+      let foldedTypeCount = 0;
+      for (const [code, prices] of [...soldByType.entries()].sort(
+        (a, b) => b[1].length - a[1].length,
+      )) {
+        if (prices.length >= 5) {
+          typeRows.push({
+            code,
+            label: PROPERTY_TYPE_LABELS[code] ?? "Other",
+            count: prices.length,
+            median: medianOf(prices),
+          });
+        } else {
+          foldedTypeCount += prices.length;
+        }
+      }
+      const soldDates = sold.rows.map((row) => row.saleDate).sort();
+      const soldPrices: DistrictSoldSection = {
+        state: sold.rows.length > 0 ? "served" : "not-filed",
+        count: sold.rows.length,
+        postcodesCovered: new Set(sold.rows.map((row) => row.postcode)).size,
+        median: sold.rows.length >= 5 ? medianOf(soldPricesAll) : null,
+        fromDate: soldDates[0] ?? null,
+        toDate: soldDates[soldDates.length - 1] ?? null,
+        spanLine:
+          soldDates.length > 0
+            ? `${dateLabel(soldDates[0])} to ${dateLabel(soldDates[soldDates.length - 1])}`
+            : null,
+        types: typeRows,
+        foldedTypeCount,
+        sourceName: sold.sourceName,
+        sourceDate: sold.sourceDate,
+        sourceLine: sourceLineOf(sold.sourceName, sold.sourceDate),
       };
-    }
 
-    // Live warnings over the district's own spread,
-    // composed fresh at serve time — never filed, never
-    // cached (see composeDistrictWarnings).
-    const warnings = options.warningSource
-      ? await composeDistrictWarnings(outward, englishPostcodes, options.warningSource)
-      : DISTRICT_WARNINGS_UNAVAILABLE;
+      return soldPrices;
+    })();
 
-    // The section's own line where nothing serves: the
-    // district-scoped not-filed form where a filed layer
-    // simply does not reach this district, the plain
-    // not-filed form where the maps are not filed at all.
-    const anyUncovered = [rofrsFacts, rofswFacts, zoneFacts].some(
-      (facts) => facts && facts.filedCount > 0 && !facts.covered,
-    );
-    flood = {
-      state: riversSea || surfaceWater ? "served" : "not-filed",
-      line:
-        riversSea || surfaceWater
-          ? null
-          : anyUncovered
-            ? "The flood maps are not filed for this district yet, so no district flood answer can be given yet."
-            : "The flood maps are not filed yet, so no district flood answer can be given yet.",
-      countedPostcodes: englishPostcodes.length,
-      riversSea,
-      surfaceWater,
-      riversSeaNotCoveredLine,
-      surfaceWaterNotCoveredLine,
-      zones,
-      watercourses,
-      warnings,
-      honestyLine: FLOOD_HONESTY_LINE,
+    // 5 — Deprivation: the spread of the district's English
+    // small areas across the deciles. A spread, never a score.
+    const deprivationP: Promise<DistrictDeprivationSection> = (async () => {
+      const imd = await imdR;
+      const decileCounts = new Array<number>(10).fill(0);
+      for (const { decile } of imd.deciles) {
+        if (decile >= 1 && decile <= 10) decileCounts[decile - 1] += 1;
+      }
+      const deprivation: DistrictDeprivationSection = !hasEnglish
+        ? {
+            state: "not-covered",
+            line: DEPRIVATION_NOT_COVERED_LINE,
+            counts: decileCounts,
+            areasCounted: 0,
+            sourceName: null,
+            sourceDate: null,
+            sourceLine: null,
+          }
+        : imd.deciles.length === 0
+          ? {
+              state: "not-filed",
+              line: "Deprivation figures are not filed for this district's small areas.",
+              counts: decileCounts,
+              areasCounted: 0,
+              sourceName: null,
+              sourceDate: null,
+              sourceLine: null,
+            }
+          : {
+              state: "served",
+              line: null,
+              counts: decileCounts,
+              areasCounted: imd.deciles.length,
+              sourceName: imd.sourceName,
+              sourceDate: imd.sourceDate,
+              sourceLine: sourceLineOf(imd.sourceName, imd.sourceDate),
+            };
+
+      return deprivation;
+    })();
+
+    // 6 — Council tax: every council the district straddles.
+    const councilTaxP: Promise<DistrictCouncilTaxSection> = (async () => {
+      const councilTaxRows = await councilTaxRowsR;
+      const filedCouncils = councilTaxRows.filter((row) => row.facts !== null);
+      const councilTax: DistrictCouncilTaxSection = {
+        state: filedCouncils.length > 0 ? "served" : "not-filed",
+        councils: filedCouncils.map((row) => ({
+          authorityName: (row.facts as DistrictCouncilTaxFacts).authorityName,
+          taxYear: (row.facts as DistrictCouncilTaxFacts).taxYear,
+          bandDAreaAveragePence: (row.facts as DistrictCouncilTaxFacts).bandDAreaAveragePence,
+          parishAveraged: (row.facts as DistrictCouncilTaxFacts).parishAveraged,
+          sourceLine: sourceLineOf(
+            (row.facts as DistrictCouncilTaxFacts).sourceName,
+            (row.facts as DistrictCouncilTaxFacts).sourceDate,
+          ),
+        })),
+        unfiledCouncils: councilTaxRows
+          .filter((row) => row.facts === null)
+          .map((row) => row.council),
+      };
+
+      return councilTax;
+    })();
+
+    // 7 — Broadband & mobile.
+    const connectivityP: Promise<DistrictConnectivitySection> = (async () => {
+      const [broadband, mobile] = await Promise.all([broadbandR, mobileR]);
+      const broadbandSection =
+        broadband.length > 0
+          ? {
+              postcodesCounted: broadband.length,
+              gigabitMeanPct: round1(
+                broadband.reduce((sum, answer) => sum + answer.gigabitCapablePct, 0) /
+                  broadband.length,
+              ),
+              superfastMeanPct: round1(
+                broadband.reduce((sum, answer) => sum + answer.superfast30Pct, 0) /
+                  broadband.length,
+              ),
+              snapshot: broadband[0].snapshot,
+            }
+          : null;
+      const mobileAreas = new Map<string, number | null>();
+      for (const answer of mobile) {
+        if (!mobileAreas.has(answer.lauaName)) {
+          mobileAreas.set(answer.lauaName, answer.fourGOutdoorAtLeastOnePct);
+        }
+      }
+      const connectivity: DistrictConnectivitySection = {
+        state: broadbandSection || mobileAreas.size > 0 ? "served" : "not-filed",
+        broadband: broadbandSection,
+        mobile:
+          mobileAreas.size > 0
+            ? {
+                areas: [...mobileAreas.entries()].map(([lauaName, pct]) => ({
+                  lauaName,
+                  fourGOutdoorAtLeastOnePct: pct,
+                })),
+              }
+            : null,
+        sourceLine: broadbandSection
+          ? `Ofcom Connected Nations — snapshot ${broadbandSection.snapshot}`
+          : null,
+      };
+
+      return connectivity;
+    })();
+
+    // 8 — Schools.
+    const schoolsP: Promise<DistrictSchoolsSection> = (async () => {
+      const schoolsFacts = await schoolsFactsR;
+      const schoolRows = schoolsFacts.rows;
+      const ofstedCounts = new Map<string, number>();
+      let notYetInspected = 0;
+      for (const row of schoolRows) {
+        if (row.ofstedRating) {
+          ofstedCounts.set(row.ofstedRating, (ofstedCounts.get(row.ofstedRating) ?? 0) + 1);
+        } else {
+          notYetInspected += 1;
+        }
+      }
+      const OFSTED_ORDER = ["Outstanding", "Good", "Requires improvement", "Inadequate"];
+      const schools: DistrictSchoolsSection = {
+        state: schoolRows.length > 0 ? "served" : "not-filed",
+        counted: schoolRows.length,
+        primary: schoolRows.filter((row) => row.phase === "Primary").length,
+        secondary: schoolRows.filter((row) => row.phase === "Secondary").length,
+        allThrough: schoolRows.filter((row) => row.phase === "All-through").length,
+        post16: schoolRows.filter((row) => row.phase === "16 plus").length,
+        otherPhase: schoolRows.filter(
+          (row) => !["Primary", "Secondary", "All-through", "16 plus"].includes(row.phase ?? ""),
+        ).length,
+        grammar: schoolRows.filter((row) => row.selective && row.phase === "Secondary").length,
+        ofsted: [
+          ...OFSTED_ORDER.filter((rating) => ofstedCounts.has(rating)).map((rating) => ({
+            rating,
+            count: ofstedCounts.get(rating) as number,
+          })),
+          ...[...ofstedCounts.entries()]
+            .filter(([rating]) => !OFSTED_ORDER.includes(rating))
+            .map(([rating, count]) => ({ rating, count })),
+        ],
+        notYetInspected,
+        sourceName: schoolsFacts.sourceName,
+        sourceDate: schoolsFacts.sourceDate,
+        sourceLine: sourceLineOf(schoolsFacts.sourceName, schoolsFacts.sourceDate),
+      };
+
+      return schools;
+    })();
+
+    // 9 — Everyday counts.
+    const everydayP: Promise<DistrictEverydaySection> = (async () => {
+      const [health, stationNames] = await Promise.all([healthR, stationNamesR]);
+      const healthCount = (types: string[]) =>
+        health
+          .filter((row) => types.includes(row.serviceType))
+          .reduce((sum, row) => sum + row.count, 0);
+      const everyday: DistrictEverydaySection = {
+        state: health.length > 0 || stationNames.length > 0 ? "served" : "not-filed",
+        gp: healthCount(["gp_practice", "gp_branch_surgery"]),
+        dentists: healthCount(["dentist"]),
+        pharmacies: healthCount(["pharmacy"]),
+        stations: stationNames,
+      };
+
+      return everyday;
+    })();
+
+    // 10 — Flood: the district roll-up.
+    const floodP: Promise<DistrictFloodSection> = (async () => {
+      const [rofrsFacts, rofswFacts, zoneFacts, watercourses] = await Promise.all([
+        rofrsR,
+        rofswR,
+        zoneR,
+        watercoursesR,
+      ]);
+      const floodBlock = (
+        layer: "rofrs" | "rofsw",
+        title: string,
+        facts: DistrictFloodFacts | null,
+      ): DistrictFloodBlock | null => {
+        // The coverage guard (audit item 14): a layer filed
+        // somewhere but covering nothing of this district
+        // serves no block — its assignments would read null
+        // end to end and print a computed "No band published
+        // 100%". The section carries the layer's own
+        // not-filed line in its place (below).
+        if (!facts || facts.filedCount <= 0 || !facts.covered || facts.assignments.length === 0)
+          return null;
+        const counted = facts.assignments.length;
+        const byLabel = new Map<string, number>();
+        let unbanded = 0;
+        for (const assignment of facts.assignments) {
+          if (assignment.label)
+            byLabel.set(assignment.label, (byLabel.get(assignment.label) ?? 0) + 1);
+          else unbanded += 1;
+        }
+        const bandOrder =
+          layer === "rofrs" ? ["High", "Medium", "Low", "Very low"] : ["High", "Medium", "Low"];
+        const buckets: DistrictFloodBlock["buckets"] = [];
+        for (const label of bandOrder) {
+          const count = byLabel.get(label) ?? 0;
+          buckets.push({
+            label,
+            definition: FLOOD_BAND_DEFINITIONS[label] ?? null,
+            count,
+            pct: round1((count / counted) * 100),
+          });
+        }
+        buckets.push({
+          label: layer === "rofrs" ? "No band published" : "Below the lowest published band",
+          definition: null,
+          count: unbanded,
+          pct: round1((unbanded / counted) * 100),
+        });
+        return {
+          layer,
+          title,
+          counted,
+          buckets,
+          sourceName: facts.sourceName,
+          sourceDate: facts.sourceDate,
+          sourceLine: sourceLineOf(facts.sourceName, facts.sourceDate),
+        };
+      };
+
+      let flood: DistrictFloodSection;
+      if (!hasEnglish) {
+        flood = {
+          state: "not-covered",
+          line: FLOOD_NOT_COVERED_LINE,
+          countedPostcodes: 0,
+          riversSea: null,
+          surfaceWater: null,
+          riversSeaNotCoveredLine: null,
+          surfaceWaterNotCoveredLine: null,
+          zones: null,
+          watercourses: [],
+          warnings: { state: "unavailable", areas: [], line: "" },
+          honestyLine: FLOOD_HONESTY_LINE,
+        };
+      } else {
+        const riversSea = floodBlock("rofrs", "Flooding from rivers and the sea", rofrsFacts);
+        const surfaceWater = floodBlock(
+          "rofsw",
+          "Flooding from surface water (heavy rain)",
+          rofswFacts,
+        );
+        // A filed layer that does not cover this district
+        // names itself in its block's place (audit item 14).
+        const riversSeaNotCoveredLine =
+          !riversSea && rofrsFacts && rofrsFacts.filedCount > 0 && !rofrsFacts.covered
+            ? "The rivers and sea flood map is not filed for this district yet."
+            : null;
+        const surfaceWaterNotCoveredLine =
+          !surfaceWater && rofswFacts && rofswFacts.filedCount > 0 && !rofswFacts.covered
+            ? "The surface water flood map is not filed for this district yet."
+            : null;
+        let zones: DistrictFloodSection["zones"] = null;
+        if (
+          zoneFacts &&
+          zoneFacts.filedCount > 0 &&
+          zoneFacts.covered &&
+          zoneFacts.assignments.length > 0
+        ) {
+          const counted = zoneFacts.assignments.length;
+          const inZone = (label: string) =>
+            zoneFacts.assignments.filter((a) => a.label === label).length;
+          zones = {
+            zone3Pct: round1((inZone("FZ3") / counted) * 100),
+            zone2Pct: round1((inZone("FZ2") / counted) * 100),
+          };
+        }
+
+        // Live warnings over the district's own spread,
+        // composed fresh at serve time — never filed, never
+        // cached (see composeDistrictWarnings).
+        const warnings = options.warningSource
+          ? await composeDistrictWarnings(outward, englishPostcodes, options.warningSource)
+          : DISTRICT_WARNINGS_UNAVAILABLE;
+
+        // The section's own line where nothing serves: the
+        // district-scoped not-filed form where a filed layer
+        // simply does not reach this district, the plain
+        // not-filed form where the maps are not filed at all.
+        const anyUncovered = [rofrsFacts, rofswFacts, zoneFacts].some(
+          (facts) => facts && facts.filedCount > 0 && !facts.covered,
+        );
+        flood = {
+          state: riversSea || surfaceWater ? "served" : "not-filed",
+          line:
+            riversSea || surfaceWater
+              ? null
+              : anyUncovered
+                ? "The flood maps are not filed for this district yet, so no district flood answer can be given yet."
+                : "The flood maps are not filed yet, so no district flood answer can be given yet.",
+          countedPostcodes: englishPostcodes.length,
+          riversSea,
+          surfaceWater,
+          riversSeaNotCoveredLine,
+          surfaceWaterNotCoveredLine,
+          zones,
+          watercourses,
+          warnings,
+          honestyLine: FLOOD_HONESTY_LINE,
+        };
+      }
+
+      return flood;
+    })();
+
+    // 11 — Air: the range across the district's squares.
+    const airP: Promise<DistrictAirSection> = (async () => {
+      const airFacts = await airFactsR;
+      let air: DistrictAirSection;
+      if (airFacts.squares.length === 0) {
+        air = {
+          state: "not-filed",
+          squaresCounted: 0,
+          year: null,
+          no2: null,
+          pm25: null,
+          pm10: null,
+          sourceName: null,
+          sourceDate: null,
+          sourceLine: null,
+        };
+      } else {
+        const year = Math.max(...airFacts.squares.map((square) => square.year));
+        const squares = airFacts.squares.filter((square) => square.year === year);
+        const range = (pick: (square: DistrictAirSquare) => number) => ({
+          min: Math.min(...squares.map(pick)),
+          max: Math.max(...squares.map(pick)),
+        });
+        air = {
+          state: "served",
+          squaresCounted: squares.length,
+          year,
+          no2: range((square) => square.no2),
+          pm25: range((square) => square.pm25),
+          pm10: range((square) => square.pm10),
+          sourceName: airFacts.sourceName,
+          sourceDate: airFacts.sourceDate,
+          sourceLine: sourceLineOf(airFacts.sourceName, airFacts.sourceDate),
+        };
+      }
+
+      return air;
+    })();
+
+    return {
+      headP,
+      districtP,
+      censusP,
+      crimeP,
+      soldPricesP,
+      deprivationP,
+      councilTaxP,
+      connectivityP,
+      schoolsP,
+      everydayP,
+      floodP,
+      airP,
+      bridgeP: districtP.then(({ settlementPostcodes }) => ({
+        postcodes: postcodes.map((row) => row.postcode),
+        settlementPostcodes,
+      })),
     };
-  }
+  });
 
-  // 11 — Air: the range across the district's squares.
-  let air: DistrictAirSection;
-  if (airFacts.squares.length === 0) {
-    air = {
-      state: "not-filed",
-      squaresCounted: 0,
-      year: null,
-      no2: null,
-      pm25: null,
-      pm10: null,
-      sourceName: null,
-      sourceDate: null,
-      sourceLine: null,
-    };
-  } else {
-    const year = Math.max(...airFacts.squares.map((square) => square.year));
-    const squares = airFacts.squares.filter((square) => square.year === year);
-    const range = (pick: (square: DistrictAirSquare) => number) => ({
-      min: Math.min(...squares.map(pick)),
-      max: Math.max(...squares.map(pick)),
-    });
-    air = {
-      state: "served",
-      squaresCounted: squares.length,
-      year,
-      no2: range((square) => square.no2),
-      pm25: range((square) => square.pm25),
-      pm10: range((square) => square.pm10),
-      sourceName: airFacts.sourceName,
-      sourceDate: airFacts.sourceDate,
-      sourceLine: sourceLineOf(airFacts.sourceName, airFacts.sourceDate),
-    };
-  }
-
-  return {
-    kind: "district",
-    outward,
-    head,
-    sections: {
-      district,
+  const bundle: Promise<DistrictBundle> = (async () => {
+    const { nation } = await gate;
+    if (nation) return { kind: "not-covered", outward, nation };
+    const w = await work;
+    if (!w) throw new Error("district build: the working build vanished on the district branch");
+    const [
+      head,
+      districtPart,
       census,
-      crime: crimeSection,
+      crime,
       soldPrices,
       deprivation,
       councilTax,
@@ -1746,12 +1887,91 @@ export async function buildDistrictBundle(
       everyday,
       flood,
       air,
-      bridge: {
-        postcodes: postcodes.map((row) => row.postcode),
-        settlementPostcodes,
+      bridge,
+    ] = await Promise.all([
+      w.headP,
+      w.districtP,
+      w.censusP,
+      w.crimeP,
+      w.soldPricesP,
+      w.deprivationP,
+      w.councilTaxP,
+      w.connectivityP,
+      w.schoolsP,
+      w.everydayP,
+      w.floodP,
+      w.airP,
+      w.bridgeP,
+    ]);
+    return {
+      kind: "district",
+      outward,
+      head,
+      sections: {
+        district: districtPart.section,
+        census,
+        crime,
+        soldPrices,
+        deprivation,
+        councilTax,
+        connectivity,
+        schools,
+        everyday,
+        flood,
+        air,
+        bridge,
       },
-    },
+    };
+  })();
+
+  const notCovered = (): Error =>
+    new Error(`District ${outward} is not covered — it has no sections to settle`);
+  const head: Promise<DistrictHead> = (async () => {
+    const w = await work;
+    if (!w) throw notCovered();
+    return w.headP;
+  })();
+  const sectionOf = <T>(pick: (w: DistrictWork) => Promise<T>): Promise<T> =>
+    (async () => {
+      const w = await work;
+      if (!w) throw notCovered();
+      return pick(w);
+    })();
+  const sections: DistrictBuild["sections"] = {
+    district: sectionOf((w) => w.districtP.then((part) => part.section)),
+    census: sectionOf((w) => w.censusP),
+    crime: sectionOf((w) => w.crimeP),
+    soldPrices: sectionOf((w) => w.soldPricesP),
+    deprivation: sectionOf((w) => w.deprivationP),
+    councilTax: sectionOf((w) => w.councilTaxP),
+    connectivity: sectionOf((w) => w.connectivityP),
+    schools: sectionOf((w) => w.schoolsP),
+    everyday: sectionOf((w) => w.everydayP),
+    flood: sectionOf((w) => w.floodP),
+    air: sectionOf((w) => w.airP),
+    bridge: sectionOf((w) => w.bridgeP),
   };
+
+  // A section nobody awaits must never surface as an
+  // unhandled rejection (a checking part reads only its
+  // own group's sections; the bundle awaits them all,
+  // but a caller of the build alone may not): every
+  // promise the build hands out carries a handled
+  // branch, and awaiting the promise itself still
+  // delivers the rejection to its real consumer.
+  for (const promise of [settlement, bundle, head, ...Object.values(sections)]) {
+    void promise.catch(() => {});
+  }
+
+  return { settlement, head, sections, bundle };
+}
+
+export async function buildDistrictBundle(
+  outward: string,
+  source: DistrictDataSource,
+  options: DistrictBundleOptions = {},
+): Promise<DistrictBundle> {
+  return startDistrictBuild(outward, source, options).bundle;
 }
 
 // ------------------------------------------------------------------
@@ -2079,46 +2299,61 @@ export function createDistrictSource(db: AddressQueryable): DistrictDataSource {
       // registers that file them and stand most-filed
       // first, so the head's post town is the district's
       // main one, deterministically.
-      const { rows: localityRows } = await db.query(
-        `SELECT locality, count(*)::int AS filings FROM price_paid
+      // The six reads are independent, so they run
+      // together (BUG-171): serially they cost six round
+      // trips end to end — several over price_paid, the
+      // biggest table — in front of the district head,
+      // and with it the neighbourhood checking group.
+      const prefix = prefixOf(outward);
+      const [
+        { rows: localityRows },
+        { rows: townRows },
+        { rows: indexTownRows },
+        { rows: countyRows },
+        allCounties,
+        { rows: settlementRows },
+      ] = await Promise.all([
+        db.query(
+          `SELECT locality, count(*)::int AS filings FROM price_paid
           WHERE starts_with(postcode, $1) AND locality IS NOT NULL
           GROUP BY locality
           ORDER BY filings DESC, locality`,
-        [prefixOf(outward)],
-      );
-      const { rows: townRows } = await db.query(
-        `SELECT town, count(*)::int AS filings FROM price_paid
+          [prefix],
+        ),
+        db.query(
+          `SELECT town, count(*)::int AS filings FROM price_paid
           WHERE starts_with(postcode, $1) AND town IS NOT NULL
           GROUP BY town`,
-        [prefixOf(outward)],
-      );
-      const { rows: indexTownRows } = await db.query(
-        `SELECT town, count(*)::int AS filings FROM picking_index
+          [prefix],
+        ),
+        db.query(
+          `SELECT town, count(*)::int AS filings FROM picking_index
           WHERE starts_with(postcode, $1) AND town IS NOT NULL
           GROUP BY town`,
-        [prefixOf(outward)],
-      );
-      // The counties the district's sales rows file
-      // (Price Paid's own county column) and one filed
-      // postcode per locality — the head chip's data and
-      // the bridge links' landings (founder fix batch).
-      // The settlement filter drops by a wider set: the
-      // district's own UNION every county filed anywhere
-      // in the register (everyFiledCounty above), because
-      // a district whose rows file no county must not let
-      // the county stand as a settlement (BUG-034
-      // residual).
-      const { rows: countyRows } = await db.query(
-        `SELECT DISTINCT county FROM price_paid WHERE starts_with(postcode, $1) AND county IS NOT NULL`,
-        [prefixOf(outward)],
-      );
-      const allCounties = await everyFiledCounty(db);
-      const { rows: settlementRows } = await db.query(
-        `SELECT locality, min(postcode) AS postcode FROM price_paid
+          [prefix],
+        ),
+        // The counties the district's sales rows file
+        // (Price Paid's own county column) and one filed
+        // postcode per locality — the head chip's data and
+        // the bridge links' landings (founder fix batch).
+        // The settlement filter drops by a wider set: the
+        // district's own UNION every county filed anywhere
+        // in the register (everyFiledCounty above), because
+        // a district whose rows file no county must not let
+        // the county stand as a settlement (BUG-034
+        // residual).
+        db.query(
+          `SELECT DISTINCT county FROM price_paid WHERE starts_with(postcode, $1) AND county IS NOT NULL`,
+          [prefix],
+        ),
+        everyFiledCounty(db),
+        db.query(
+          `SELECT locality, min(postcode) AS postcode FROM price_paid
          WHERE starts_with(postcode, $1) AND locality IS NOT NULL
          GROUP BY locality`,
-        [prefixOf(outward)],
-      );
+          [prefix],
+        ),
+      ]);
       const townsByName = new Map<string, number>();
       for (const row of [...townRows, ...indexTownRows]) {
         const town = row.town as string;
@@ -2144,15 +2379,16 @@ export function createDistrictSource(db: AddressQueryable): DistrictDataSource {
     },
 
     async floodFacts(layer, postcodes) {
-      const { rows: countRows } = await db.query(
-        "SELECT count(*)::int AS n FROM flood_layers WHERE layer_type = $1",
-        [layer],
-      );
+      // The count and the stamp are independent reads;
+      // together, not one after the other (BUG-171).
+      const [{ rows: countRows }, { rows: stampRows }] = await Promise.all([
+        db.query("SELECT count(*)::int AS n FROM flood_layers WHERE layer_type = $1", [layer]),
+        db.query(
+          "SELECT source_name, source_date::text AS source_date FROM flood_layers WHERE layer_type = $1 LIMIT 1",
+          [layer],
+        ),
+      ]);
       const filedCount = Number(countRows[0]?.n ?? 0);
-      const { rows: stampRows } = await db.query(
-        "SELECT source_name, source_date::text AS source_date FROM flood_layers WHERE layer_type = $1 LIMIT 1",
-        [layer],
-      );
       if (filedCount <= 0 || postcodes.length === 0) {
         return {
           filedCount,
@@ -2167,9 +2403,12 @@ export function createDistrictSource(db: AddressQueryable): DistrictDataSource {
       // hull of its postcode points, buffered by 1 km so
       // a shape falling between neighbouring points still
       // counts as covering the district it cuts across.
-      // The GiST index serves the intersects test.
-      const { rows: coverageRows } = await db.query(
-        `WITH hull AS (
+      // The GiST index serves the intersects test. The
+      // coverage test and the per-point label read below
+      // are independent, so they run together (BUG-171).
+      const [{ rows: coverageRows }, { rows }] = await Promise.all([
+        db.query(
+          `WITH hull AS (
            SELECT ST_Buffer(ST_ConvexHull(ST_Collect(geom))::geography, 1000)::geometry AS g
            FROM postcode_cache WHERE postcode = ANY($2)
          )
@@ -2177,21 +2416,22 @@ export function createDistrictSource(db: AddressQueryable): DistrictDataSource {
            SELECT 1 FROM flood_layers fl, hull
            WHERE fl.layer_type = $1 AND hull.g IS NOT NULL AND ST_Intersects(fl.geom, hull.g)
          ) AS covered`,
-        [layer, postcodes],
-      );
-      const covered = Boolean(coverageRows[0]?.covered);
-      // One read per postcode point: the label of the
-      // filed shape covering it (the products are dissolved
-      // per label and mutually exclusive — the flood
-      // brain's own premise), or null where none does.
-      const { rows } = await db.query(
-        `SELECT pc.postcode,
+          [layer, postcodes],
+        ),
+        // One read per postcode point: the label of the
+        // filed shape covering it (the products are dissolved
+        // per label and mutually exclusive — the flood
+        // brain's own premise), or null where none does.
+        db.query(
+          `SELECT pc.postcode,
                 (SELECT fl.risk_label FROM flood_layers fl
                  WHERE fl.layer_type = $1 AND ST_Covers(fl.geom, pc.geom)
                  LIMIT 1) AS label
          FROM postcode_cache pc WHERE pc.postcode = ANY($2)`,
-        [layer, postcodes],
-      );
+          [layer, postcodes],
+        ),
+      ]);
+      const covered = Boolean(coverageRows[0]?.covered);
       return {
         filedCount,
         covered,

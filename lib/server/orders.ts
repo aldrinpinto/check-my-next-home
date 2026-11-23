@@ -133,6 +133,9 @@ export interface OrderStore {
   // (see the header): set by name, never unset back
   // past a refund.
   markRefundStatus(ref: string, status: string, now: Date): Promise<void>;
+  // Every order taken inside a window, newest first
+  // (the admin page's period reads, M9.11).
+  listInPeriod(filter: { from: Date; to: Date }): Promise<OrderRecord[]>;
   // The delivery/resend log: one row per delivery or
   // re-send, written whether the send succeeded or
   // failed, with its outcome.
@@ -344,6 +347,15 @@ export function createDbOrderStore(db: AddressQueryable): OrderStore {
       ]);
     },
 
+    async listInPeriod(filter) {
+      const { rows } = await db.query(
+        `SELECT ${ORDER_COLUMNS} FROM orders
+          WHERE created_at >= $1 AND created_at < $2 ORDER BY created_at DESC`,
+        [filter.from, filter.to],
+      );
+      return (rows as unknown as OrderRow[]).map(toOrder);
+    },
+
     async logDelivery(input) {
       const { rows } = await db.query(
         `INSERT INTO order_delivery_log (order_ref, delivery_id, kind, sent, detail, created_at)
@@ -471,6 +483,12 @@ export function createMemoryOrderStore(): OrderStore & {
       if (!record) return;
       record.refundStatus = status;
       record.updatedAt = now;
+    },
+    async listInPeriod(filter) {
+      return [...orders.values()]
+        .filter((record) => record.createdAt >= filter.from && record.createdAt < filter.to)
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+        .map(clone);
     },
     async logDelivery(input) {
       const entry: DeliveryLogEntry = {

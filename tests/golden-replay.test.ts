@@ -2020,9 +2020,28 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
       }
       return inside;
     };
+    // BUG-170: the model carries path data only, so the
+    // geometry is read back out of the drawn paths — a
+    // shade's rings are its M…Z subpaths, with the
+    // closing point restored (the thinned path drops
+    // the filed repeat; the Z closes the shape). The
+    // even–odd reading runs over the shade's rings
+    // together, which is exactly the renderer's own
+    // fill rule for the path.
+    const parsePathPoints = (d: string): { x: number; y: number }[] =>
+      [...d.matchAll(/[ML](-?[\d.]+) (-?[\d.]+)/g)].map((match) => ({
+        x: Number(match[1]),
+        y: Number(match[2]),
+      }));
+    const parseShadeRings = (d: string): { x: number; y: number }[][] =>
+      [...d.matchAll(/M[^Z]*Z/g)].map((match) => {
+        const points = parsePathPoints(match[0]);
+        if (points.length > 0) points.push(points[0]);
+        return points;
+      });
     const shadeAt = (map: FloodMap, x: number, y: number): string | null => {
       for (const shade of map.shades)
-        for (const polygon of shade.polygons) if (pointInPolygon(x, y, polygon)) return shade.label;
+        if (pointInPolygon(x, y, parseShadeRings(shade.d))) return shade.label;
       return null;
     };
     const segIntersects = (
@@ -2058,22 +2077,20 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
     // shading must actually reach the street).
     const streetTouchedByShading = (
       map: FloodMap,
-      street: { points: { x: number; y: number }[] },
+      streetPoints: { x: number; y: number }[],
     ): boolean => {
-      for (const shade of map.shades)
-        for (const polygon of shade.polygons) {
-          for (const point of street.points)
-            if (pointInPolygon(point.x, point.y, polygon)) return true;
-          for (const ring of polygon)
-            for (let i = 0; i < ring.length - 1; i++) {
-              for (let s = 0; s < street.points.length - 1; s++)
-                if (segIntersects(street.points[s], street.points[s + 1], ring[i], ring[i + 1]))
-                  return true;
-              for (let s = 0; s < street.points.length - 1; s++)
-                if (pointSegDistance(ring[i], street.points[s], street.points[s + 1]) < 2)
-                  return true;
-            }
-        }
+      for (const shade of map.shades) {
+        const rings = parseShadeRings(shade.d);
+        for (const point of streetPoints) if (pointInPolygon(point.x, point.y, rings)) return true;
+        for (const ring of rings)
+          for (let i = 0; i < ring.length - 1; i++) {
+            for (let s = 0; s < streetPoints.length - 1; s++)
+              if (segIntersects(streetPoints[s], streetPoints[s + 1], ring[i], ring[i + 1]))
+                return true;
+            for (let s = 0; s < streetPoints.length - 1; s++)
+              if (pointSegDistance(ring[i], streetPoints[s], streetPoints[s + 1]) < 2) return true;
+          }
+      }
       return false;
     };
 
@@ -2083,12 +2100,12 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
     const birkdaleMaps = floodMapsOf(birkdale);
     const birkdaleZones = birkdaleMaps.find((m) => m.title.startsWith("Flood zones"));
     if (!birkdaleZones) throw new Error("expected Birkdale's flood-zones picture to be drawn");
-    const birkdaleShaded = birkdaleZones.shades.reduce((n, s) => n + s.polygons.length, 0);
+    const birkdaleShaded = birkdaleZones.shades.reduce((n, s) => n + s.areas, 0);
     expect(birkdaleShaded).toBeGreaterThanOrEqual(1);
     expect(shadeAt(birkdaleZones, birkdaleZones.homeX, birkdaleZones.homeY)).toBeNull();
     const birkdaleStreet = birkdaleZones.streets.find((s) => s.home);
     if (!birkdaleStreet) throw new Error("expected Birkdale Rise to be drawn as the home street");
-    expect(streetTouchedByShading(birkdaleZones, birkdaleStreet)).toBe(false);
+    expect(streetTouchedByShading(birkdaleZones, parsePathPoints(birkdaleStreet.d))).toBe(false);
     expect(birkdaleZones.caption).toContain("sits outside them");
 
     // --- Exeter: the shading picture matches the data.

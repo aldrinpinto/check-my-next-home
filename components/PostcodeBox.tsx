@@ -10,7 +10,12 @@ import {
   POSTCODE_BOX_NO_SUGGESTIONS_LINE,
   POSTCODE_BOX_PLACEHOLDER,
 } from "../lib/home";
-import { FAILED_ROUTE, TURNSTILE_BLOCK_LINE, placeChoiceRoute } from "../lib/journey";
+import {
+  FAILED_ROUTE,
+  TURNSTILE_BLOCK_LINE,
+  UNPLACED_NOTICE_LINE,
+  placeChoiceRoute,
+} from "../lib/journey";
 import { Button, SuggestionShell, type SuggestionGroup, type SuggestionItem } from "./kit";
 
 // M7.3 — the one postcode box, wired. M7.2 shipped it inert
@@ -31,7 +36,13 @@ import { Button, SuggestionShell, type SuggestionGroup, type SuggestionItem } fr
 // (D44(7)). The box itself does no tidying, no validation
 // and no normalisation — the ladder owns all of that, and a
 // partial postcode typed here is a valid search, never an
-// error.
+// error. BUG-176 (founder, 23 Nov 2026) is the one
+// exception, and it is a presentation rule, not a
+// validation: a blank box, and a resolve answer of the
+// no-location kind, show the couldn't-place line under
+// the field on the page the visitor is already on,
+// instead of carrying them away — the ladder still owns
+// the placing; only the telling moved.
 //
 // D70: the box takes its designed form — the field and its
 // button in one row (stacked on small screens), the field's
@@ -420,6 +431,18 @@ export default function PostcodeBox({
     const input = new FormData(event.currentTarget).get("postcode");
     const typed = typeof input === "string" ? input : "";
 
+    // BUG-176 (founder, 23 Nov 2026): a blank or
+    // whitespace-only box is answered on the page
+    // itself, under the field — immediately, before the
+    // place check's fetch, before the robot check,
+    // before any resolve call. The line is the product's
+    // own couldn't-place line, the same one the unplaced
+    // notice carries.
+    if (!typed.trim()) {
+      setBlockMessage(UNPLACED_NOTICE_LINE);
+      return;
+    }
+
     // A place name in the field is the place pick: it
     // runs before the robot check (which stays on the
     // search path only, exactly as ruled for picks) and
@@ -468,10 +491,35 @@ export default function PostcodeBox({
       return;
     }
     if (!response.ok) {
+      // The site's-fault class (BUG-176's mapping): the
+      // whole-check 500 — the serve layer threw — and
+      // any other non-OK the box cannot have caused by
+      // typing (the 400 answers a malformed request
+      // body, which this box never sends) still land on
+      // the single failure page, exactly as before.
       window.location.assign(failedRouteFor(typed));
       return;
     }
-    const data = (await response.json()) as { destination?: string };
+    let data: { destination?: string; kind?: string };
+    try {
+      data = (await response.json()) as { destination?: string; kind?: string };
+    } catch {
+      window.location.assign(failedRouteFor(typed));
+      return;
+    }
+    // The typist's-fault class (BUG-176): the resolve
+    // answered, and the answer is that the input cannot
+    // be placed — unparseable, unresolvable, no
+    // destination for it (the no-location kind, whose
+    // destination used to carry the visitor to the
+    // landing's unplaced notice). The couldn't-place
+    // line shows here instead, under the field, and the
+    // visitor stays where they are.
+    if (data.kind === "no-location") {
+      setBlockMessage(UNPLACED_NOTICE_LINE);
+      setBusy(false);
+      return;
+    }
     window.location.assign(data.destination ?? failedRouteFor(typed));
   }
 

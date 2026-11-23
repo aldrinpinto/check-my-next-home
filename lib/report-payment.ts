@@ -17,7 +17,7 @@ import { REPORT_PRICE_LABEL } from "./site";
 // page builds (the step's Check: no card field exists
 // anywhere in our pages — the card fields live inside
 // the provider's own iframes). Everything else follows
-// the sample: the heading form, the lede, the contents
+// the sample: the heading form, the contents
 // card with the Master's own list, the email block's exact label, help and error
 // lines, the mystery tease (permitted here — one of its
 // two places, lib/results.ts), the card panel's head,
@@ -45,7 +45,7 @@ import { REPORT_PRICE_LABEL } from "./site";
 // (BUG-131: the honesty block below is the single
 // money statement — the view no longer carries a
 // price line at all), moved the mystery tease to
-// directly under the lede (BUG-133), and gave the
+// directly under the intro (BUG-133), and gave the
 // consent tick its Required tag and its own error
 // line (BUG-132). BUG-145 (founder, 22 Nov 2026, as
 // amended) then re-formed the block itself: the
@@ -77,7 +77,6 @@ export interface PaymentContentLine {
 export interface ReportPaymentView {
   heading: string;
   subline: string | null;
-  lede: string;
   contentsHeading: string;
   contents: PaymentContentLine[];
   termsLineLead: string;
@@ -96,8 +95,13 @@ export interface ReportPaymentView {
   closingLine: string;
 }
 
-export const PAYMENT_LEDE =
-  "You've seen the headlines for this home, free. The detailed report goes through every one of them properly.";
+// BUG-174 (founder, 23 Nov 2026): the page's lede —
+// "You've seen the headlines for this home, free…" —
+// is removed entirely, at the founder's instruction.
+// The page opens with its heading and goes straight
+// to the tease and the contents. The two similar door
+// lines in lib/report-door.ts are different sentences
+// and stand untouched.
 
 // The Master's list for the paid page (Sample 9),
 // verbatim — lead-ins in the sample's bold, the flood
@@ -232,7 +236,6 @@ export const WINDOW_START_FAILED_LINE =
 
 export function buildReportPaymentView(identity: ReportDoorIdentity): ReportPaymentView {
   const base = {
-    lede: PAYMENT_LEDE,
     contentsHeading: REPORT_DOOR_CONTENTS_HEADING,
     contents: PAYMENT_CONTENTS,
     termsLineLead: PAYMENT_TERMS_LINE_LEAD,

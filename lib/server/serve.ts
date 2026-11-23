@@ -25,7 +25,16 @@ import { buildAreaBundle, createAreaSource } from "../area-bundle";
 import { createCachedBrains, homeKeyOf } from "../bundle-cache";
 import { buildCrimeBundle, createCrimeSource } from "../crime";
 import { createDistrictSource, createDistrictWarningSource } from "../district";
-import { buildDistrictBundleCached, createDistrictCache } from "../district-cache";
+import {
+  buildDistrictBundleCached,
+  createDistrictCache,
+  districtBuildFor,
+} from "../district-cache";
+import {
+  districtCheckingGroupPayload,
+  type DistrictCheckingGroupPayload,
+  type DistrictCheckingRowKey,
+} from "../district-checking";
 import { buildFloodBundle, createFloodSource } from "../flood";
 import { buildNearbyBundle, createNearbySource, reportListSizeFor } from "../nearby";
 import { buildShortBundle } from "../short-bundle";
@@ -428,6 +437,77 @@ export async function checkDistrictBundleOnly(resolution: AddressResolution) {
       warningSource: createDistrictWarningSource(),
     },
   );
+}
+
+// One district checking group, settled on its own
+// slice of the one staged build (BUG-171): the build
+// comes through the district cache's single flight, so
+// the four group parts and the streamed results behind
+// the screen share the one build — a part awaits the
+// settlement (the Scotland / NI gate, from the
+// directory read alone) and then only its own group's
+// sections, so a group completes as its own data lands
+// instead of waiting for the district's slowest read.
+export async function checkDistrictGroup(
+  resolution: AddressResolution,
+  group: DistrictCheckingRowKey,
+): Promise<DistrictCheckingGroupPayload> {
+  if (resolution.rung !== 3)
+    throw new Error(`district derivation: unexpected rung ${resolution.rung}`);
+  const db = getDbPool();
+  const outward = resolution.outward;
+  const build = districtBuildFor(outward, createDistrictSource(db), createDistrictCache(db), {
+    warningSource: createDistrictWarningSource(),
+  });
+  const settlement = await build.settlement;
+  if (settlement.kind === "not-covered") {
+    return { kind: "not-covered", outward, nation: settlement.nation };
+  }
+  switch (group) {
+    case "family":
+      return districtCheckingGroupPayload("family", outward, {
+        schools: await build.sections.schools,
+        outward,
+      });
+    case "neighbourhood": {
+      const [head, district, census, crime, deprivation, air] = await Promise.all([
+        build.head,
+        build.sections.district,
+        build.sections.census,
+        build.sections.crime,
+        build.sections.deprivation,
+        build.sections.air,
+      ]);
+      return districtCheckingGroupPayload("neighbourhood", outward, {
+        head,
+        district,
+        census,
+        crime,
+        deprivation,
+        air,
+      });
+    }
+    case "home": {
+      const [soldPrices, councilTax, connectivity, flood] = await Promise.all([
+        build.sections.soldPrices,
+        build.sections.councilTax,
+        build.sections.connectivity,
+        build.sections.flood,
+      ]);
+      return districtCheckingGroupPayload("home", outward, {
+        soldPrices,
+        councilTax,
+        connectivity,
+        flood,
+        outward,
+      });
+    }
+    case "nearby":
+      return districtCheckingGroupPayload("nearby", outward, {
+        everyday: await build.sections.everyday,
+        outward,
+      });
+  }
 }
 
 // The rung-3 route's full serve (district page, 18 Nov

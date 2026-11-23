@@ -18,31 +18,32 @@
 // the page streams the district results in behind this
 // screen exactly as the home page streams its results
 // behind the checking screen, and this screen holds them
-// until its gate completes. The gate is one payload —
-// /api/check/district — derived server-side from the
-// district bundle (lib/district-checking.ts); the bundle
-// itself never ships to the browser. The payload call and
-// the streamed results share one bundle build through
-// the district cache's single-flight, so the lines this
-// screen lands are derived from the very bundle the
-// results behind it serve.
+// until its gate completes. The gate is four part calls —
+// /api/check/district-<group>, one per group, in the home
+// check's per-part pattern (BUG-171) — each derived
+// server-side from only that group's slice of the one
+// staged district build (lib/district-checking.ts); the
+// bundle itself never ships to the browser. The part
+// calls and the streamed results share the one build
+// through the district cache's single-flight, so the
+// lines this screen lands are derived from the very
+// bundle the results behind it serve.
 //
-// Honest granularity: the district bundle assembles as
-// one build, so the four groups' lines arrive in the
-// single payload settlement and complete in feed order
-// under the D73 pacing — as the home groups do when
-// their parts settle together. No group completes before
-// the payload settles, and no completion is a timer
-// chain: the timers only space out completions the data
-// has already earned. A payload that fails completes
-// every group with its named failure line and the
-// results still open.
+// Honest granularity: each group completes as its own
+// data settles, in feed order under the D73 pacing — a
+// group whose sections are quick no longer waits for
+// the district's slowest read behind the others. No
+// group completes before its own part settles, and no
+// completion is a timer chain: the timers only space
+// out completions the data has already earned. A part
+// that fails completes its own group with its named
+// failure line and the results still open.
 //
-// Scotland and Northern Ireland: the payload reports the
-// not-covered kind and the screen completes on settlement
-// without playing — no groups are drawn complete for a
-// check the product does not run, and the streamed
-// not-covered results reveal as they land.
+// Scotland and Northern Ireland: a part reports the
+// not-covered kind and the screen completes on
+// settlement without playing — no groups are drawn
+// complete for a check the product does not run, and
+// the streamed not-covered results reveal as they land.
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
@@ -56,7 +57,8 @@ import {
   DISTRICT_CHECKING_STEP_DONE,
   DISTRICT_CHECKING_SWEEP_CAPTION,
   districtCheckingFailureOutcomes,
-  type DistrictCheckingPayload,
+  parseDistrictCheckingGroupValue,
+  type DistrictCheckingGroupPayload,
   type DistrictCheckingRowKey,
 } from "../lib/district-checking";
 import {
@@ -68,7 +70,12 @@ import {
 } from "../lib/journey";
 import { fireJourneyEvent } from "./JourneyBeacon";
 
-type DistrictPart = { ok: true; payload: DistrictCheckingPayload } | { ok: false } | null;
+// One group's part settlement: the validated payload on
+// success, the failure mark on an error status, an
+// unreadable or contract-drifting body, or a network
+// failure (the home screen's CheckingPart shape).
+type DistrictGroupPart =
+  { ok: true; value: DistrictCheckingGroupPayload } | { ok: false } | undefined;
 
 export default function DistrictCheckingScreen({
   outward,
@@ -77,65 +84,92 @@ export default function DistrictCheckingScreen({
   outward: string;
   children: ReactNode;
 }) {
-  const [part, setPart] = useState<DistrictPart>(null);
+  const [parts, setParts] = useState<Partial<Record<DistrictCheckingRowKey, DistrictGroupPart>>>(
+    {},
+  );
   const [doneCount, setDoneCount] = useState(0);
   const [playedComplete, setPlayedComplete] = useState(false);
 
-  // The payload call. A non-200 or an unreachable call
-  // completes every group failed (the outcomes below);
-  // an unparsable 200 body completes them the same way
+  // The part calls: the four groups fire in parallel and
+  // each settlement is recorded as it lands (the home
+  // screen's wiring, part for part). A non-200 or an
+  // unreachable call completes that group failed and
+  // fires a page_error naming the part; an unparsable or
+  // contract-drifting 200 body completes it the same way
   // without a page_error — the home screen's precedent.
   useEffect(() => {
     let cancelled = false;
-    const run = async () => {
+    const settle = async (
+      partName: string,
+      group: DistrictCheckingRowKey,
+    ): Promise<DistrictGroupPart> => {
       try {
-        const response = await fetch(`/api/check/district?outward=${encodeURIComponent(outward)}`);
+        const response = await fetch(
+          `/api/check/${partName}?outward=${encodeURIComponent(outward)}`,
+        );
         if (!response.ok) {
           fireJourneyEvent("page_error", {
             error_name: "CheckRequestFailed",
-            error_message: `The district part of the check answered HTTP ${response.status}`,
+            error_message: `The ${partName} part of the check answered HTTP ${response.status}`,
           });
-          if (!cancelled) setPart({ ok: false });
-          return;
+          return { ok: false };
         }
-        let parsed: unknown = null;
+        let body: unknown;
         try {
-          parsed = await response.json();
+          body = await response.json();
         } catch {
-          parsed = null;
+          return { ok: false };
         }
-        if (cancelled) return;
-        if (parsed !== null && typeof parsed === "object" && "kind" in parsed) {
-          setPart({ ok: true, payload: parsed as DistrictCheckingPayload });
-        } else {
-          setPart({ ok: false });
-        }
+        const value = parseDistrictCheckingGroupValue(group, body);
+        return value === null ? { ok: false } : { ok: true, value };
       } catch {
         fireJourneyEvent("page_error", {
           error_name: "CheckRequestFailed",
-          error_message: "The district part of the check could not be reached",
+          error_message: `The ${partName} part of the check could not be reached`,
         });
-        if (!cancelled) setPart({ ok: false });
+        return { ok: false };
       }
     };
-    void run();
+    for (const row of DISTRICT_CHECKING_ROWS) {
+      void settle(`district-${row.key}`, row.key).then((part) => {
+        if (!cancelled) setParts((prev) => ({ ...prev, [row.key]: part }));
+      });
+    }
     return () => {
       cancelled = true;
     };
   }, [outward]);
 
-  const payload = part?.ok ? part.payload : null;
-  const notCovered = payload?.kind === "not-covered";
-  const outcomes = useMemo<Record<DistrictCheckingRowKey, CheckingGroupResult> | null>(() => {
-    if (part === null || notCovered) return null;
-    if (!part.ok) return districtCheckingFailureOutcomes();
-    return part.payload.kind === "district" ? part.payload.groups : null;
-  }, [part, notCovered]);
+  // A not-covered answer from any part completes the
+  // screen (the settlement is the build's own gate, so
+  // every part carries the same answer; the first to
+  // land settles it).
+  const notCovered = DISTRICT_CHECKING_ROWS.some((row) => {
+    const part = parts[row.key];
+    return part?.ok === true && part.value.kind === "not-covered";
+  });
+
+  // Each group's outcome exists once its own part has
+  // settled: the served line on success, the group's
+  // named failure line on failure. Unsettled groups read
+  // null — the pacing below never completes a group
+  // whose outcome is not there (D73).
+  const outcomes = useMemo<Record<DistrictCheckingRowKey, CheckingGroupResult | null>>(() => {
+    const failures = districtCheckingFailureOutcomes();
+    const record = {} as Record<DistrictCheckingRowKey, CheckingGroupResult | null>;
+    for (const row of DISTRICT_CHECKING_ROWS) {
+      const part = parts[row.key];
+      if (part === undefined) record[row.key] = null;
+      else if (!part.ok) record[row.key] = failures[row.key];
+      else record[row.key] = part.value.kind === "district" ? part.value.result : null;
+    }
+    return record;
+  }, [parts]);
 
   // A not-covered district completes on settlement,
   // without playing: the streamed not-covered results
   // reveal as they land. The completion is derived from
-  // the payload rather than played into state.
+  // a part's answer rather than played into state.
   const complete = playedComplete || notCovered;
 
   // The pacing: a group completes only once its outcome
@@ -144,7 +178,7 @@ export default function DistrictCheckingScreen({
   // that keeps a fast answer readable (D73), never the
   // driver of completion.
   useEffect(() => {
-    if (complete || outcomes === null) return;
+    if (complete) return;
     if (doneCount >= DISTRICT_CHECKING_ROWS.length) return;
     const row = DISTRICT_CHECKING_ROWS[doneCount];
     if (!outcomes[row.key]) return;
@@ -156,7 +190,7 @@ export default function DistrictCheckingScreen({
   // screen holds the completed beat briefly (the stamp
   // landed, the settled sentence showing), then reveals.
   useEffect(() => {
-    if (complete || outcomes === null) return;
+    if (complete) return;
     if (doneCount < DISTRICT_CHECKING_ROWS.length) return;
     const timer = setTimeout(() => setPlayedComplete(true), CHECKING_ADVANCE_MS);
     return () => clearTimeout(timer);
@@ -166,12 +200,11 @@ export default function DistrictCheckingScreen({
 
   const sealed = doneCount >= DISTRICT_CHECKING_ROWS.length;
   const activeKey =
-    outcomes !== null && doneCount < DISTRICT_CHECKING_ROWS.length
-      ? DISTRICT_CHECKING_ROWS[doneCount].key
-      : null;
+    doneCount < DISTRICT_CHECKING_ROWS.length ? DISTRICT_CHECKING_ROWS[doneCount].key : null;
+  const anyPartSettled = DISTRICT_CHECKING_ROWS.some((row) => parts[row.key] !== undefined);
   const ticker = sealed
     ? DISTRICT_CHECKING_READY_TICKER
-    : doneCount === 0 && outcomes === null
+    : doneCount === 0 && !anyPartSettled
       ? DISTRICT_CHECKING_START_LINE
       : DISTRICT_CHECKING_ROWS[Math.min(doneCount, DISTRICT_CHECKING_ROWS.length - 1)].ticker(
           outward,
@@ -183,14 +216,25 @@ export default function DistrictCheckingScreen({
   let announcement = "";
   if (sealed) {
     announcement = DISTRICT_CHECKING_READY_ANNOUNCEMENT;
-  } else if (doneCount > 0 && outcomes !== null) {
+  } else if (doneCount > 0) {
     const row = DISTRICT_CHECKING_ROWS[doneCount - 1];
     const outcome = outcomes[row.key];
     if (outcome) announcement = `${row.label} — ${outcome.line}`;
   }
 
-  const postTown = payload?.kind === "district" ? payload.postTown : null;
-  const county = payload?.kind === "district" ? payload.county : null;
+  // The stamp's place rides the neighbourhood part (its
+  // slice carries the head): until that part lands the
+  // header names the district alone, as the screen did
+  // before the single payload landed.
+  const neighbourhoodPart = parts.neighbourhood;
+  const postTown =
+    neighbourhoodPart?.ok && neighbourhoodPart.value.kind === "district"
+      ? neighbourhoodPart.value.postTown
+      : null;
+  const county =
+    neighbourhoodPart?.ok && neighbourhoodPart.value.kind === "district"
+      ? neighbourhoodPart.value.county
+      : null;
 
   return (
     <>

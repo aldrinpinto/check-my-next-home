@@ -13,6 +13,10 @@
 // How it works:
 //   1. Search the postcode (paged stubs), then fetch every
 //      certificate in full — the stub has no floor area.
+//      The fetches run concurrently, bounded (BUG-173),
+//      and a certificate the register withdraws between
+//      the search and the fetch is skipped and counted,
+//      never fatal to the whole postcode's filing.
 //   2. Minimise each certificate to the fields the product shows
 //      (data protection: address-level EPC data is personal data,
 //      so we hold only what the site uses). ALL certificates are
@@ -268,7 +272,22 @@ async function apiGet(path, token) {
   throw new Error("unreachable");
 }
 
-async function liveCertificates(postcode, token) {
+// The certificate fetches run CONCURRENTLY, bounded
+// (BUG-173, 23 Nov 2026): the serial form — one fetch
+// per certificate with a 100 ms pause after each — took
+// minutes on a certificate-rich postcode, so the area
+// part's bounded wait for the on-the-spot load expired
+// on every visit and the section served its not-filed
+// state forever (the audit's flat 10.0 s, cold and warm
+// alike: a not-filed EPC section is never bundle-cached,
+// so every visit re-joined the same unfinished load).
+// Eight in flight keeps the register's load bounded
+// while a few hundred certificates land in seconds;
+// the results are collected by stub index, so the
+// filed order stays the register's search order.
+const CERT_FETCH_CONCURRENCY = 8;
+
+export async function liveCertificates(postcode, token) {
   const stubs = [];
   let page = 1;
   for (;;) {
@@ -276,23 +295,43 @@ async function liveCertificates(postcode, token) {
       `/api/domestic/search?postcode=${encodeURIComponent(postcode)}&current_page=${page}&page_size=5000`,
       token,
     );
-    if (result === null) return [];
+    if (result === null) return { certificates: [], skipped: 0 };
     stubs.push(...(result.data ?? []));
     if (page >= (result.pagination?.totalPages ?? 1)) break;
     page += 1;
   }
-  const certificates = [];
-  for (const stub of stubs) {
-    const doc = await apiGet(
-      `/api/certificate?certificate_number=${encodeURIComponent(stub.certificateNumber)}`,
-      token,
-    );
-    if (doc === null)
-      throw new Error(`certificate ${stub.certificateNumber} vanished between search and fetch`);
-    certificates.push(minimise(stub, doc.data ?? doc));
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  return certificates;
+  const byIndex = new Array(stubs.length).fill(null);
+  let skipped = 0;
+  let nextIndex = 0;
+  const worker = async () => {
+    while (nextIndex < stubs.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      const stub = stubs[index];
+      const doc = await apiGet(
+        `/api/certificate?certificate_number=${encodeURIComponent(stub.certificateNumber)}`,
+        token,
+      );
+      if (doc === null) {
+        // The register listed the certificate and then
+        // withdrew it (a superseded assessment): the
+        // search answer was stale, not the load broken.
+        // The old form threw here and filed NOTHING —
+        // every later check restarted the same doomed
+        // load and burned its whole wait again. The
+        // certificate is skipped and counted instead:
+        // what files is what the register actually
+        // serves for the postcode now.
+        skipped += 1;
+        continue;
+      }
+      byIndex[index] = minimise(stub, doc.data ?? doc);
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(CERT_FETCH_CONCURRENCY, stubs.length) }, () => worker()),
+  );
+  return { certificates: byIndex.filter((cert) => cert !== null), skipped };
 }
 
 async function fixtureCertificates(postcode, fileDir, fixture) {
@@ -517,10 +556,12 @@ async function main() {
     : null;
 
   const answers = new Map();
+  const skippedByPostcode = new Map();
   for (const pc of postcodes) {
-    const certificates = fixture
-      ? await fixtureCertificates(pc, fileDir, fixture)
+    const { certificates, skipped } = fixture
+      ? { certificates: await fixtureCertificates(pc, fileDir, fixture), skipped: 0 }
       : await liveCertificates(pc, token);
+    skippedByPostcode.set(pc, skipped);
     checkGolden(pc, certificates);
     answers.set(pc, {
       certificates,
@@ -532,7 +573,16 @@ async function main() {
   }
 
   const summary = () =>
-    `load-epc · ${postcodes.map((pc) => `${pc} ${answers.get(pc).certificateCount} certificates`).join(" · ")}`;
+    `load-epc · ${postcodes
+      .map(
+        (pc) =>
+          `${pc} ${answers.get(pc).certificateCount} certificates${
+            skippedByPostcode.get(pc)
+              ? ` (${skippedByPostcode.get(pc)} withdrawn on the register, skipped)`
+              : ""
+          }`,
+      )
+      .join(" · ")}`;
   if (verifyOnly) {
     console.log(
       `${summary()} · golden homes OK (verify only, nothing filed) · ${Math.round((Date.now() - startedAt) / 1000)}s`,

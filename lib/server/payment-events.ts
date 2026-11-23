@@ -36,6 +36,13 @@ export interface PaymentEventRecord {
   homeKey: string | null;
   livemode: boolean | null;
   testOrder: boolean;
+  // The provider's own words for a failed payment
+  // (migration 0044, M9.11): read off the verified
+  // event's object by the translator and kept here so
+  // the admin page's Needs a human panel can show what
+  // the provider said. Null for every other event, and
+  // for failures recorded before the column existed.
+  failureReason: string | null;
   receivedAt: Date;
 }
 
@@ -49,6 +56,7 @@ export interface PaymentEventLog {
     homeKey: string | null;
     livemode: boolean | null;
     testOrder: boolean;
+    failureReason?: string | null;
     now?: Date;
   }): Promise<PaymentEventRecord>;
   // How many events of a type stand against a payment
@@ -57,6 +65,12 @@ export interface PaymentEventLog {
   // the log already holds, the current delivery
   // included (the log is written before the count).
   countEvents(filter: { eventType: string; intentId: string }): Promise<number>;
+  // Every event standing against one payment, oldest
+  // first (the admin page's order history, M9.11).
+  listByIntent(intentId: string): Promise<PaymentEventRecord[]>;
+  // Every event received inside a window, oldest first
+  // (the admin page's period reads, M9.11).
+  listInPeriod(filter: { from: Date; to: Date }): Promise<PaymentEventRecord[]>;
 }
 
 interface PaymentEventRow {
@@ -68,6 +82,7 @@ interface PaymentEventRow {
   home_key: string | null;
   livemode: boolean | null;
   test_order: boolean;
+  failure_reason: string | null;
   received_at: Date;
 }
 
@@ -81,12 +96,13 @@ function toRecord(row: PaymentEventRow): PaymentEventRecord {
     homeKey: row.home_key,
     livemode: row.livemode,
     testOrder: row.test_order,
+    failureReason: row.failure_reason,
     receivedAt: new Date(row.received_at),
   };
 }
 
 const COLUMNS = `event_type, intent_id, status, email, postcode, home_key,
-  livemode, test_order, received_at`;
+  livemode, test_order, failure_reason, received_at`;
 
 export function createDbPaymentEventLog(db: AddressQueryable): PaymentEventLog {
   return {
@@ -100,11 +116,12 @@ export function createDbPaymentEventLog(db: AddressQueryable): PaymentEventLog {
         homeKey: input.homeKey,
         livemode: input.livemode,
         testOrder: input.testOrder,
+        failureReason: input.failureReason ?? null,
         receivedAt: input.now ?? new Date(),
       };
       const { rows } = await db.query(
         `INSERT INTO payment_events (${COLUMNS})
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
          RETURNING ${COLUMNS}`,
         [
           record.eventType,
@@ -115,6 +132,7 @@ export function createDbPaymentEventLog(db: AddressQueryable): PaymentEventLog {
           record.homeKey,
           record.livemode,
           record.testOrder,
+          record.failureReason,
           record.receivedAt,
         ],
       );
@@ -128,6 +146,24 @@ export function createDbPaymentEventLog(db: AddressQueryable): PaymentEventLog {
         [filter.eventType, filter.intentId],
       );
       return Number((rows as unknown as { n: number }[])[0]?.n ?? 0);
+    },
+
+    async listByIntent(intentId) {
+      const { rows } = await db.query(
+        `SELECT ${COLUMNS} FROM payment_events
+          WHERE intent_id = $1 ORDER BY received_at ASC, id ASC`,
+        [intentId],
+      );
+      return (rows as unknown as PaymentEventRow[]).map(toRecord);
+    },
+
+    async listInPeriod(filter) {
+      const { rows } = await db.query(
+        `SELECT ${COLUMNS} FROM payment_events
+          WHERE received_at >= $1 AND received_at < $2 ORDER BY received_at ASC, id ASC`,
+        [filter.from, filter.to],
+      );
+      return (rows as unknown as PaymentEventRow[]).map(toRecord);
     },
   };
 }
@@ -149,6 +185,7 @@ export function createMemoryPaymentEventLog(): PaymentEventLog & {
         homeKey: input.homeKey,
         livemode: input.livemode,
         testOrder: input.testOrder,
+        failureReason: input.failureReason ?? null,
         receivedAt: input.now ?? new Date(),
       };
       records.push(record);
@@ -158,6 +195,16 @@ export function createMemoryPaymentEventLog(): PaymentEventLog & {
       return records.filter(
         (record) => record.eventType === filter.eventType && record.intentId === filter.intentId,
       ).length;
+    },
+    async listByIntent(intentId) {
+      return records
+        .filter((record) => record.intentId === intentId)
+        .map((record) => ({ ...record }));
+    },
+    async listInPeriod(filter) {
+      return records
+        .filter((record) => record.receivedAt >= filter.from && record.receivedAt < filter.to)
+        .map((record) => ({ ...record }));
     },
   };
 }

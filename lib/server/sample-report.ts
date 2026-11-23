@@ -8,6 +8,9 @@
 // is not recomputed per hit); a failed generation is NOT
 // cached, so the next hit retries.
 
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+
 import { displayText } from "../address";
 import {
   anonymiseSampleView,
@@ -75,7 +78,16 @@ function identityOf(candidate: SampleCandidate, postcode: string): SampleHomeIde
   };
 }
 
-async function generateSampleReportView(): Promise<ReportView> {
+// The baked view's home (BUG-170): the container's
+// start command runs scripts/bake-sample-report.ts
+// once per deploy, which generates the view through
+// this same seam and writes it here; serves then read
+// the file instead of regenerating the merged bundles
+// on the first hit. The directory is gitignored — the
+// bake is a deploy artefact, never a committed one.
+export const BAKED_SAMPLE_REPORT_PATH = join(process.cwd(), "baked", "sample-report-view.json");
+
+export async function generateSampleReportView(): Promise<ReportView> {
   const resolved = await Promise.all(SAMPLE_CANDIDATES.map(resolveCandidate));
   const candidates = resolved.filter((c): c is SampleCandidate => c !== null);
   const primary = candidates.find((c) => c.id === "birkdale");
@@ -105,11 +117,33 @@ async function generateSampleReportView(): Promise<ReportView> {
   return anonymiseSampleView(view, identities);
 }
 
+// The baked view, when one stands (BUG-170). Two
+// cases never read it: the harness's SAMPLE_REPORT_NOW
+// seam is set (the pinned moment must be composed
+// live, exactly as the seam has always worked — the
+// e2e harness never bakes, and even a stray bake file
+// must not shadow the pin), and any read or parse
+// failure (a half-written or stale-shaped file falls
+// back to live generation rather than failing the
+// page; the next deploy's bake replaces it).
+async function readBakedSampleReportView(): Promise<ReportView | null> {
+  if (process.env.SAMPLE_REPORT_NOW) return null;
+  try {
+    const raw = await readFile(BAKED_SAMPLE_REPORT_PATH, "utf8");
+    return JSON.parse(raw) as ReportView;
+  } catch {
+    return null;
+  }
+}
+
 let generating: Promise<ReportView> | null = null;
 
 export function getSampleReportView(): Promise<ReportView> {
   if (!generating) {
-    generating = generateSampleReportView().catch((error: unknown) => {
+    generating = (async () => {
+      const baked = await readBakedSampleReportView();
+      return baked ?? (await generateSampleReportView());
+    })().catch((error: unknown) => {
       generating = null;
       throw error;
     });

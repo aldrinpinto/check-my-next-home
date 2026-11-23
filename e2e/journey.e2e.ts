@@ -354,7 +354,7 @@ test.describe("checker journey — regression", () => {
   );
 
   test(
-    "the bare route redirects to the landing page with the unplaced notice, and a bare street name lands there too (18 Nov 2026)",
+    "the bare route redirects to the landing page with the unplaced notice (18 Nov 2026); a bare street name submitted in the box is answered under the field (BUG-176)",
     { tag: "@regression" },
     async ({ page }) => {
       // The standalone no-location page is retired (founder
@@ -373,15 +373,21 @@ test.describe("checker journey — regression", () => {
       await expect(page.locator("#postcode")).toBeVisible();
 
       // A bare street name submitted from the landing box
-      // lands back on the landing page the same way.
+      // is answered on the page itself (BUG-176, founder
+      // ruling 23 Nov 2026): the couldn't-place line shows
+      // under the field and the visitor is not carried
+      // anywhere — where this once navigated back to the
+      // landing's unplaced notice.
       await searchFromHome(page, "Birkdale Rise");
-      await page.waitForURL(/\/\?notice=unplaced/);
-      await expect(page.locator(".unplaced-notice")).toBeVisible();
+      await expect(page.locator("#postcode-message")).toHaveText(
+        "We couldn't place that. Try a full postcode — for example SW1A 1AA — or start typing a street name and pick it from the list.",
+      );
+      expect(page.url()).toBe("http://127.0.0.1:4173/");
     },
   );
 
   test(
-    "mistypes land on their named states: unheld full postcode → wider area naming it; unknown outward → the landing page with the unplaced notice",
+    "mistypes land on their named states: unheld full postcode → wider area naming it; unknown outward → the couldn't-place line under the field (BUG-176)",
     { tag: "@regression" },
     async ({ page }) => {
       await searchFromHome(page, "CM3 2JA");
@@ -420,9 +426,14 @@ test.describe("checker journey — regression", () => {
         page.locator(".district-bridge").getByRole("button", { name: "Check this home" }),
       ).toBeVisible();
 
+      // An unknown outward is the typist's-fault class
+      // (BUG-176): the couldn't-place line shows under
+      // the field on the landing, and nothing navigates.
       await searchFromHome(page, "ZZ1 1ZZ");
-      await page.waitForURL(/\/\?notice=unplaced/);
-      await expect(page.locator(".unplaced-notice")).toBeVisible();
+      await expect(page.locator("#postcode-message")).toHaveText(
+        "We couldn't place that. Try a full postcode — for example SW1A 1AA — or start typing a street name and pick it from the list.",
+      );
+      expect(page.url()).toBe("http://127.0.0.1:4173/");
     },
   );
 

@@ -1,8 +1,9 @@
 import type { AddressQueryable } from "./address";
 import {
-  buildDistrictBundle,
   composeDistrictWarnings,
   DISTRICT_WARNINGS_UNAVAILABLE,
+  startDistrictBuild,
+  type DistrictBuild,
   type DistrictBundle,
   type DistrictBundleOptions,
   type DistrictDataSource,
@@ -154,41 +155,43 @@ async function artefactHashOf(
 
 // The guards half: district-scoped filed counts and
 // content hashes whose movement can change the district
-// bundle without moving a runner stamp.
+// bundle without moving a runner stamp. The reads are
+// independent of one another, so they run together
+// (BUG-171): the version read stands in front of every
+// district serve, hit or miss, and its serial form cost
+// a dozen round trips end to end on a warm district.
 async function districtGuards(
   db: AddressQueryable,
   outward: string,
 ): Promise<DistrictVersion["guards"]> {
   const prefix = `${outward} `;
-  const { rows: layerRows } = await db.query(
-    "SELECT layer_type, count(*)::int AS n FROM flood_layers GROUP BY layer_type",
-  );
-  const byLayer = new Map(layerRows.map((row) => [row.layer_type as string, Number(row.n)]));
-  return {
+  const [
+    layerRowsResult,
+    districtPostcodes,
+    districtSales,
+    pickingHomes,
+    districtSchools,
+    censusRows,
+    lsoaBases,
+    floodDefences,
+    broadbandAnswers,
+    mobileAnswers,
+  ] = await Promise.all([
+    db.query("SELECT layer_type, count(*)::int AS n FROM flood_layers GROUP BY layer_type"),
     // The district's own membership: a directory re-file
     // that adds or moves the district's postcodes moves
     // this count (and the load-postcodes stamp).
-    districtPostcodes: await countOf(
-      db,
-      "SELECT count(*)::int AS n FROM postcode_cache WHERE starts_with(postcode, $1)",
-      [prefix],
-    ),
-    districtSales: await countOf(
-      db,
-      "SELECT count(*)::int AS n FROM price_paid WHERE starts_with(postcode, $1)",
-      [prefix],
-    ),
-    pickingHomes: await countOf(
-      db,
-      "SELECT count(*)::int AS n FROM picking_index WHERE starts_with(postcode, $1)",
-      [prefix],
-    ),
-    districtSchools: await countOf(
-      db,
-      "SELECT count(*)::int AS n FROM schools WHERE starts_with(postcode, $1)",
-      [prefix],
-    ),
-    censusRows: await countOf(
+    countOf(db, "SELECT count(*)::int AS n FROM postcode_cache WHERE starts_with(postcode, $1)", [
+      prefix,
+    ]),
+    countOf(db, "SELECT count(*)::int AS n FROM price_paid WHERE starts_with(postcode, $1)", [
+      prefix,
+    ]),
+    countOf(db, "SELECT count(*)::int AS n FROM picking_index WHERE starts_with(postcode, $1)", [
+      prefix,
+    ]),
+    countOf(db, "SELECT count(*)::int AS n FROM schools WHERE starts_with(postcode, $1)", [prefix]),
+    countOf(
       db,
       `SELECT count(*)::int AS n FROM census_stats
        WHERE msoa_code IN (
@@ -197,7 +200,7 @@ async function districtGuards(
        )`,
       [prefix],
     ),
-    lsoaBases: await countOf(
+    countOf(
       db,
       `SELECT count(*)::int AS n FROM lsoa_bases
        WHERE lsoa_code IN (
@@ -206,6 +209,34 @@ async function districtGuards(
        )`,
       [prefix],
     ),
+    countOf(db, "SELECT count(*)::int AS n FROM flood_defences"),
+    // The Ofcom answers filed inside the district's
+    // postcode rows: both loaders are directly runnable
+    // outside the runner, moving no stamp, so the filed
+    // answers' content hashes are the guards that move.
+    artefactHashOf(
+      db,
+      `SELECT md5(coalesce(string_agg((answers -> 'broadband')::text, ',' ORDER BY postcode), '')) AS h
+       FROM postcode_cache WHERE starts_with(postcode, $1) AND answers ? 'broadband'`,
+      [prefix],
+    ),
+    artefactHashOf(
+      db,
+      `SELECT md5(coalesce(string_agg((answers -> 'mobile')::text, ',' ORDER BY postcode), '')) AS h
+       FROM postcode_cache WHERE starts_with(postcode, $1) AND answers ? 'mobile'`,
+      [prefix],
+    ),
+  ]);
+  const byLayer = new Map(
+    layerRowsResult.rows.map((row) => [row.layer_type as string, Number(row.n)]),
+  );
+  return {
+    districtPostcodes,
+    districtSales,
+    pickingHomes,
+    districtSchools,
+    censusRows,
+    lsoaBases,
     // The per-layer filed counts the flood source itself
     // reads — a layer's first filing (0 -> N) busts a
     // cached per-layer not-filed state, whoever ran it;
@@ -214,23 +245,9 @@ async function districtGuards(
     floodZone: byLayer.get("flood_zone") ?? 0,
     rofrs: byLayer.get("rofrs") ?? 0,
     rofsw: byLayer.get("rofsw") ?? 0,
-    floodDefences: await countOf(db, "SELECT count(*)::int AS n FROM flood_defences"),
-    // The Ofcom answers filed inside the district's
-    // postcode rows: both loaders are directly runnable
-    // outside the runner, moving no stamp, so the filed
-    // answers' content hashes are the guards that move.
-    broadbandAnswers: await artefactHashOf(
-      db,
-      `SELECT md5(coalesce(string_agg((answers -> 'broadband')::text, ',' ORDER BY postcode), '')) AS h
-       FROM postcode_cache WHERE starts_with(postcode, $1) AND answers ? 'broadband'`,
-      [prefix],
-    ),
-    mobileAnswers: await artefactHashOf(
-      db,
-      `SELECT md5(coalesce(string_agg((answers -> 'mobile')::text, ',' ORDER BY postcode), '')) AS h
-       FROM postcode_cache WHERE starts_with(postcode, $1) AND answers ? 'mobile'`,
-      [prefix],
-    ),
+    floodDefences,
+    broadbandAnswers,
+    mobileAnswers,
   };
 }
 
@@ -256,8 +273,13 @@ export function createDistrictCache(db: AddressQueryable): DistrictCache {
   return {
     async versionFor(outward) {
       try {
-        const stamps = await readStamps(db, DISTRICT_DEPENDENCIES);
-        const guards = await districtGuards(db, outward);
+        // The stamps and the guards are independent
+        // reads; together, not one after the other
+        // (BUG-171).
+        const [stamps, guards] = await Promise.all([
+          readStamps(db, DISTRICT_DEPENDENCIES),
+          districtGuards(db, outward),
+        ]);
         return { stamps, guards };
       } catch {
         return null;
@@ -373,12 +395,38 @@ function storable(bundle: DistrictBundle): DistrictBundle {
 // still refreshes the warnings on every serve, and a
 // shared build is by definition one serve moment.
 const districtBuildsGlobal = globalThis as typeof globalThis & {
-  __cmnhDistrictBuilds?: Map<string, Promise<DistrictBundle>>;
+  __cmnhDistrictBuilds?: Map<string, DistrictBuild>;
 };
 
-function districtBuildsInFlight(): Map<string, Promise<DistrictBundle>> {
+function districtBuildsInFlight(): Map<string, DistrictBuild> {
   districtBuildsGlobal.__cmnhDistrictBuilds ??= new Map();
   return districtBuildsGlobal.__cmnhDistrictBuilds;
+}
+
+// The staged build behind the cache (BUG-171): the
+// registry now holds the build itself, not just its
+// bundle, so the checking screen's per-group parts join
+// the same single flight as the streamed results and
+// settle section by section. Joining callers receive
+// the very build the first caller started — the same
+// one-bundle guarantee the promise registry gave, one
+// level down.
+export function districtBuildFor(
+  outward: string,
+  source: DistrictDataSource,
+  cache: DistrictCache,
+  options: DistrictBundleOptions = {},
+): DistrictBuild {
+  const inFlight = districtBuildsInFlight();
+  const existing = inFlight.get(outward);
+  if (existing) return existing;
+  const build = startDistrictBuildCached(outward, source, cache, options);
+  inFlight.set(outward, build);
+  const evict = () => {
+    if (inFlight.get(outward) === build) inFlight.delete(outward);
+  };
+  void build.bundle.then(evict, evict);
+  return build;
 }
 
 export async function buildDistrictBundleCached(
@@ -387,65 +435,146 @@ export async function buildDistrictBundleCached(
   cache: DistrictCache,
   options: DistrictBundleOptions = {},
 ): Promise<DistrictBundle> {
-  const inFlight = districtBuildsInFlight();
-  const existing = inFlight.get(outward);
-  if (existing) return existing;
-  const run = buildDistrictBundleCachedOnce(outward, source, cache, options);
-  inFlight.set(outward, run);
-  const evict = () => {
-    if (inFlight.get(outward) === run) inFlight.delete(outward);
-  };
-  void run.then(evict, evict);
-  return run;
+  return districtBuildFor(outward, source, cache, options).bundle;
 }
 
-async function buildDistrictBundleCachedOnce(
+// A build whose every promise derives from one settled
+// bundle (the cache-hit path): the settlement is the
+// bundle's own kind, and each section is the bundle's.
+function districtBuildFromBundle(bundle: DistrictBundle): DistrictBuild {
+  if (bundle.kind === "not-covered") {
+    const rejected = <T>(): Promise<T> => {
+      const promise = Promise.reject<T>(
+        new Error(`District ${bundle.outward} is not covered — it has no sections to settle`),
+      );
+      void promise.catch(() => {});
+      return promise;
+    };
+    return {
+      settlement: Promise.resolve({ kind: "not-covered", nation: bundle.nation }),
+      head: rejected(),
+      sections: {
+        district: rejected(),
+        census: rejected(),
+        crime: rejected(),
+        soldPrices: rejected(),
+        deprivation: rejected(),
+        councilTax: rejected(),
+        connectivity: rejected(),
+        schools: rejected(),
+        everyday: rejected(),
+        flood: rejected(),
+        air: rejected(),
+        bridge: rejected(),
+      },
+      bundle: Promise.resolve(bundle),
+    };
+  }
+  return {
+    settlement: Promise.resolve({ kind: "district" }),
+    head: Promise.resolve(bundle.head),
+    sections: {
+      district: Promise.resolve(bundle.sections.district),
+      census: Promise.resolve(bundle.sections.census),
+      crime: Promise.resolve(bundle.sections.crime),
+      soldPrices: Promise.resolve(bundle.sections.soldPrices),
+      deprivation: Promise.resolve(bundle.sections.deprivation),
+      councilTax: Promise.resolve(bundle.sections.councilTax),
+      connectivity: Promise.resolve(bundle.sections.connectivity),
+      schools: Promise.resolve(bundle.sections.schools),
+      everyday: Promise.resolve(bundle.sections.everyday),
+      flood: Promise.resolve(bundle.sections.flood),
+      air: Promise.resolve(bundle.sections.air),
+      bridge: Promise.resolve(bundle.sections.bridge),
+    },
+    bundle: Promise.resolve(bundle),
+  };
+}
+
+// The cache probe stands in front of the build (the
+// version is read BEFORE the compute, the D29
+// discipline: a filing that lands during the compute
+// moves the next read's version and busts the entry),
+// so the returned build's promises derive from an inner
+// build that resolves once the probe answers: a hit
+// serves the stored bundle's sections (its warnings
+// composed fresh, as ever); a miss starts the staged
+// build and chains the cache write onto its bundle
+// exactly as the once-path wrote it.
+function startDistrictBuildCached(
   outward: string,
   source: DistrictDataSource,
   cache: DistrictCache,
   options: DistrictBundleOptions = {},
-): Promise<DistrictBundle> {
-  // The version is read BEFORE the compute (the D29
-  // discipline): a filing that lands during the compute
-  // moves the next read's version and busts the entry.
-  const version = await cache.versionFor(outward);
-  if (version !== null) {
-    const entry = await cache.readEntry(outward);
-    if (entry && versionsEqual(entry.version, version) && shapeOk(entry.bundle, outward)) {
-      const stored = entry.bundle;
-      if (stored.kind === "district" && options.warningSource) {
-        // The warnings refresh: one indexed read of the
-        // district's rows for the spread, then the fresh
-        // composition over the stored bundle. A district
-        // with no English postcodes has no warnings
-        // composition at all (its flood section is the
-        // not-covered form) — the stored bundle serves
-        // as it stands.
-        const postcodes = await source.postcodes(outward);
-        const englishPostcodes = postcodes.filter((row) => (row.lsoaCode ?? "").startsWith("E"));
-        if (englishPostcodes.length === 0) return stored;
-        return {
-          ...stored,
-          sections: {
-            ...stored.sections,
-            flood: {
-              ...stored.sections.flood,
-              warnings: await composeDistrictWarnings(
-                outward,
-                englishPostcodes,
-                options.warningSource,
-              ),
+): DistrictBuild {
+  const inner: Promise<DistrictBuild> = (async () => {
+    const version = await cache.versionFor(outward);
+    if (version !== null) {
+      const entry = await cache.readEntry(outward);
+      if (entry && versionsEqual(entry.version, version) && shapeOk(entry.bundle, outward)) {
+        const stored = entry.bundle;
+        if (stored.kind === "district" && options.warningSource) {
+          // The warnings refresh: one indexed read of the
+          // district's rows for the spread, then the fresh
+          // composition over the stored bundle. A district
+          // with no English postcodes has no warnings
+          // composition at all (its flood section is the
+          // not-covered form) — the stored bundle serves
+          // as it stands.
+          const postcodes = await source.postcodes(outward);
+          const englishPostcodes = postcodes.filter((row) => (row.lsoaCode ?? "").startsWith("E"));
+          if (englishPostcodes.length === 0) return districtBuildFromBundle(stored);
+          return districtBuildFromBundle({
+            ...stored,
+            sections: {
+              ...stored.sections,
+              flood: {
+                ...stored.sections.flood,
+                warnings: await composeDistrictWarnings(
+                  outward,
+                  englishPostcodes,
+                  options.warningSource,
+                ),
+              },
             },
-          },
-        };
+          });
+        }
+        return districtBuildFromBundle(stored);
       }
-      return stored;
     }
-  }
 
-  const bundle = await buildDistrictBundle(outward, source, options);
-  if (version !== null) {
-    await cache.writeEntry(outward, version, storable(bundle));
-  }
-  return bundle;
+    const fresh = startDistrictBuild(outward, source, options);
+    const bundle = fresh.bundle.then(async (built) => {
+      if (version !== null) {
+        await cache.writeEntry(outward, version, storable(built));
+      }
+      return built;
+    });
+    return { settlement: fresh.settlement, head: fresh.head, sections: fresh.sections, bundle };
+  })();
+
+  const derive = <T>(pick: (build: DistrictBuild) => Promise<T>): Promise<T> => {
+    const promise = inner.then(pick);
+    void promise.catch(() => {});
+    return promise;
+  };
+  return {
+    settlement: derive((build) => build.settlement),
+    head: derive((build) => build.head),
+    sections: {
+      district: derive((build) => build.sections.district),
+      census: derive((build) => build.sections.census),
+      crime: derive((build) => build.sections.crime),
+      soldPrices: derive((build) => build.sections.soldPrices),
+      deprivation: derive((build) => build.sections.deprivation),
+      councilTax: derive((build) => build.sections.councilTax),
+      connectivity: derive((build) => build.sections.connectivity),
+      schools: derive((build) => build.sections.schools),
+      everyday: derive((build) => build.sections.everyday),
+      flood: derive((build) => build.sections.flood),
+      air: derive((build) => build.sections.air),
+      bridge: derive((build) => build.sections.bridge),
+    },
+    bundle: derive((build) => build.bundle),
+  };
 }

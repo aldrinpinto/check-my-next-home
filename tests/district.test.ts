@@ -1,5 +1,8 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
+import ResultsPage from "../components/ResultsPage";
 import type { CensusFacts } from "../lib/area-bundle";
 import {
   buildDistrictBundle,
@@ -1220,5 +1223,38 @@ describe("district view — the results layout system, no upsell", () => {
     const blocks = sectionBlocks(bundle, "neighbourhood", "district");
     const pills = blocks.find((block) => block.type === "pills");
     expect(pills?.type === "pills" && pills.items).toEqual(["Danbury", "Hatfield Peverel"]);
+  });
+});
+
+describe("district page — the summary pills strip (BUG-167)", () => {
+  it("renders the eleven district check pills, in the sample's order, as the strip the home page carries", async () => {
+    const bundle = await servedBundle();
+    const view = buildDistrictResultsView(bundle);
+    const html = renderToStaticMarkup(createElement(ResultsPage, { view }));
+    expect(html).toContain("check-pills");
+    expect(html).toContain("About these checks");
+    expect(html).not.toContain("<details");
+    // Every one of the eleven, in order, in the strip's
+    // own pill form (Sample 28 as amended 23 Nov 2026).
+    let lastAt = -1;
+    for (const link of view.checkLinks) {
+      const pill = `<a class="check-pills__pill" href="${link.href}">${link.label.replace(/&/g, "&amp;")}</a>`;
+      const at = html.indexOf(pill);
+      expect(at, `pill for ${link.label}`).toBeGreaterThan(lastAt);
+      lastAt = at;
+    }
+    expect(view.checkLinks).toHaveLength(11);
+  });
+
+  it("closes in Sample 28's order: the bridge, then the pills strip, then the boxed disclaimers panel", async () => {
+    const bundle = await servedBundle();
+    const view = buildDistrictResultsView(bundle);
+    const html = renderToStaticMarkup(createElement(ResultsPage, { view }));
+    const bridgeAt = html.indexOf("Checking one home in ZZ9?");
+    const pillsAt = html.indexOf("check-pills");
+    const disclaimersAt = html.indexOf("district-disclaimers");
+    expect(bridgeAt).toBeGreaterThan(-1);
+    expect(pillsAt).toBeGreaterThan(bridgeAt);
+    expect(disclaimersAt).toBeGreaterThan(pillsAt);
   });
 });

@@ -1915,8 +1915,26 @@ body:has(.main--home) .site-footer {
 /* BUG-150: the dropdown is capped narrower than the
    page column, so it reads as a dropdown — it stretched
    the full width before, reading as a text field. */
+/* BUG-172 (23 Nov 2026): the select wears the site's
+   own chevron — the appearance reset takes the
+   browser's small default arrow away, and an inline
+   SVG chevron in the ink colour, drawn with the round
+   caps and joins of the site's own marks, sits at the
+   field's right, sized to the field and vertically
+   centred. The right padding keeps the prompt and the
+   picked home's name clear of it. The element stays a
+   native select: its keyboard operation, its option
+   list and its accessibility are the browser's own,
+   untouched. */
 .picker__select {
   max-width: 26rem;
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 2.75rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 18 18'%3E%3Cpath d='M4 6.5 L9 11.5 L14 6.5' fill='none' stroke='%2317201e' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.875rem center;
+  background-size: 1.125rem;
 }
 
 .picker__count {
@@ -6856,5 +6874,594 @@ a.picker__row {
     display: inline;
     color: inherit;
     text-decoration: none;
+  }
+}
+
+/* ---------- M9.11 · Admin — the owner's page: Sample 36's
+   own styles, carried in with the build (the sample's
+   harness-only rules — the browser chrome, the design
+   banner, the note grid — do not come across; the page
+   sits in the site's own header and footer). Scoped to
+   .admin-scope exactly as the sample scopes them. The
+   control bar's switches are real form controls here
+   (the page works without JavaScript), and the order
+   detail panel and the resend block are the product's
+   additions the sample does not draw — they are built
+   in the sample's own forms and listed for the Master
+   fold at push time. */
+.admin-scope {
+  font-family:
+    "DM Sans",
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    Helvetica,
+    Arial,
+    sans-serif;
+  color: #26332b;
+  font-size: 14px;
+  line-height: 1.45;
+}
+.admin-scope * {
+  box-sizing: border-box;
+}
+.admin-scope button,
+.admin-scope input,
+.admin-scope select {
+  font: inherit;
+}
+.admin-scope .adm-page {
+  background: #fdf8e8;
+  border: 1px solid #e4dfc8;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.admin-scope .adm-header {
+  background: #1e402c;
+  color: #fdf8e8;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 20px;
+  flex-wrap: wrap;
+  padding: 18px 24px;
+}
+.admin-scope .adm-header h1 {
+  font-family: "Newsreader", Georgia, "Times New Roman", serif;
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: #fdf8e8;
+  margin: 0;
+}
+.admin-scope .adm-header__sub {
+  font-size: 13px;
+  color: #e4cf9a;
+  margin-top: 2px;
+}
+.admin-scope .adm-header__right {
+  display: flex;
+  align-items: center;
+  gap: 10px 14px;
+  flex-wrap: wrap;
+}
+.admin-scope .adm-asof {
+  font-size: 13px;
+  color: #e4cf9a;
+  margin: 0;
+}
+.admin-scope .adm-refresh {
+  background: #c29a3b;
+  color: #1e402c;
+  border: 0;
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-weight: 700;
+  font-size: 13.5px;
+  cursor: pointer;
+  min-height: 36px;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+.admin-scope .adm-refresh:hover {
+  background: #e4cf9a;
+}
+.admin-scope .adm-main {
+  padding: 20px 24px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.admin-scope .adm-controls {
+  background: #fff;
+  border: 1px solid #e4dfc8;
+  border-top: 3px solid #2f5d3e;
+  border-radius: 6px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+}
+.admin-scope .adm-controls__row {
+  display: flex;
+  align-items: center;
+  gap: 10px 14px;
+  flex-wrap: wrap;
+}
+.admin-scope .adm-controls__label {
+  font-weight: 700;
+  font-size: 13.5px;
+  color: #1e402c;
+}
+.admin-scope .adm-pills {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.admin-scope .adm-pill {
+  border: 1px solid #c9c2a4;
+  background: #fff;
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  color: #33413a;
+  min-height: 36px;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+.admin-scope .adm-pill:hover {
+  border-color: #2f5d3e;
+}
+.admin-scope .adm-pill.is-active {
+  background: #2f5d3e;
+  color: #fdf8e8;
+  border-color: #2f5d3e;
+}
+.admin-scope .adm-custom {
+  display: flex;
+  gap: 10px 16px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.admin-scope .adm-custom label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #33413a;
+}
+.admin-scope .adm-custom input {
+  border: 1px solid #c9c2a4;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13.5px;
+  background: #fff;
+  min-height: 36px;
+  color: #26332b;
+}
+.admin-scope .adm-toggle-wrap {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #33413a;
+}
+.admin-scope .adm-toggle-wrap input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: #2f5d3e;
+  flex: none;
+}
+.admin-scope .adm-kind {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+}
+.admin-scope .adm-kind label {
+  font-weight: 700;
+  color: #1e402c;
+}
+.admin-scope .adm-kind select,
+.admin-scope .adm-kind input {
+  border: 1px solid #c9c2a4;
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-size: 13.5px;
+  background: #fff;
+  min-height: 36px;
+  color: #26332b;
+}
+.admin-scope .adm-caption {
+  font-size: 13px;
+  color: #5b6b66;
+  margin: 0;
+}
+.admin-scope .adm-section {
+  background: #fff;
+  border: 1px solid #e4dfc8;
+  border-radius: 6px;
+  padding: 18px 20px;
+}
+.admin-scope .adm-section h2 {
+  font-family: "Newsreader", Georgia, "Times New Roman", serif;
+  font-size: 20px;
+  font-weight: 700;
+  color: #1e402c;
+  margin: 0 0 12px;
+}
+.admin-scope .adm-section h3 {
+  font-family: "Newsreader", Georgia, "Times New Roman", serif;
+  font-size: 16px;
+  font-weight: 700;
+  color: #1e402c;
+  margin: 18px 0 8px;
+}
+.admin-scope .adm-note-text {
+  font-size: 13px;
+  line-height: 1.55;
+  color: #5b6b66;
+  margin: 10px 0 0;
+}
+.admin-scope .adm-cards {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px;
+}
+.admin-scope .adm-cards--gifts {
+  grid-template-columns: repeat(4, 1fr);
+}
+.admin-scope .adm-card {
+  border: 1px solid #e4dfc8;
+  border-radius: 6px;
+  padding: 12px 14px;
+  background: #fbf7e9;
+}
+.admin-scope .adm-card__label {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #5b6b66;
+  line-height: 1.35;
+}
+.admin-scope .adm-card__value {
+  font-family: "Newsreader", Georgia, "Times New Roman", serif;
+  font-size: 26px;
+  font-weight: 700;
+  color: #1e402c;
+  line-height: 1.15;
+  margin: 3px 0 2px;
+}
+.admin-scope .adm-delta {
+  font-size: 12.5px;
+  font-weight: 700;
+}
+.admin-scope .adm-delta.good {
+  color: #2f7d46;
+}
+.admin-scope .adm-delta.bad {
+  color: #b3261e;
+}
+.admin-scope .adm-funnel__row {
+  display: grid;
+  grid-template-columns: 158px 1fr 72px 62px;
+  gap: 10px;
+  align-items: center;
+  padding: 7px 0;
+  border-bottom: 1px solid #efead2;
+}
+.admin-scope .adm-funnel__row:last-child {
+  border-bottom: 0;
+}
+.admin-scope .adm-funnel__name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #33413a;
+}
+.admin-scope .adm-funnel__barwrap {
+  background: #efead2;
+  border-radius: 3px;
+  height: 14px;
+  overflow: hidden;
+}
+.admin-scope .adm-funnel__bar {
+  display: block;
+  height: 100%;
+  background: #2f5d3e;
+  border-radius: 3px;
+}
+.admin-scope .adm-funnel__count {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #1e402c;
+  text-align: right;
+}
+.admin-scope .adm-funnel__drop {
+  font-size: 12.5px;
+  color: #a34a3f;
+  text-align: right;
+}
+.admin-scope .adm-orders__tools {
+  display: flex;
+  gap: 12px 18px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.admin-scope .adm-search {
+  flex: 1 1 220px;
+}
+.admin-scope .adm-search input {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+}
+.admin-scope table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.admin-scope th {
+  text-align: left;
+  font-size: 11.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #5b6b66;
+  padding: 8px 10px;
+  border-bottom: 2px solid #e4dfc8;
+  white-space: nowrap;
+}
+.admin-scope td {
+  padding: 8px 10px;
+  border-bottom: 1px solid #efead2;
+  vertical-align: top;
+  color: #33413a;
+}
+.admin-scope .num {
+  text-align: right;
+}
+.admin-scope td.num {
+  font-weight: 600;
+  color: #1e402c;
+}
+.admin-scope .adm-status {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.admin-scope .adm-status--green {
+  background: #e3f0e4;
+  color: #1e5c33;
+}
+.admin-scope .adm-status--red {
+  background: #f9e3e0;
+  color: #9c241b;
+}
+.admin-scope .adm-status--amber {
+  background: #f7ecd2;
+  color: #7a5a12;
+}
+.admin-scope .adm-status--grey {
+  background: #eceae0;
+  color: #5b6b66;
+}
+.admin-scope .adm-test {
+  font-weight: 800;
+  color: #9c241b;
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+}
+.admin-scope .adm-empty td {
+  text-align: center;
+  color: #5b6b66;
+  padding: 18px 10px;
+  font-size: 13.5px;
+}
+.admin-scope .adm-pager {
+  font-size: 13px;
+  color: #5b6b66;
+  margin-top: 12px;
+}
+.admin-scope .adm-pager__link {
+  color: #8a6d1f;
+  font-weight: 700;
+  text-decoration: none;
+}
+.admin-scope .adm-pager__link:hover {
+  text-decoration: underline;
+}
+.admin-scope .adm-order-link {
+  color: #1e402c;
+  font-weight: 600;
+  text-decoration: none;
+}
+.admin-scope .adm-order-link:hover {
+  text-decoration: underline;
+}
+.admin-scope .adm-streets {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.admin-scope .adm-streets li {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 7px 0;
+  border-bottom: 1px solid #efead2;
+  font-size: 13.5px;
+  color: #33413a;
+}
+.admin-scope .adm-streets li:last-child {
+  border-bottom: 0;
+}
+.admin-scope .adm-streets__count {
+  font-weight: 700;
+  color: #1e402c;
+}
+.admin-scope .adm-human {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.admin-scope .adm-human li {
+  padding: 11px 0;
+  border-bottom: 1px solid #efead2;
+}
+.admin-scope .adm-human li:first-child {
+  padding-top: 2px;
+}
+.admin-scope .adm-human li:last-child {
+  border-bottom: 0;
+  padding-bottom: 2px;
+}
+.admin-scope .adm-human__meta {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #1e402c;
+  margin: 7px 0 2px;
+}
+.admin-scope .adm-human__reason {
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: #44514c;
+  margin: 0;
+}
+.admin-scope .adm-detail__lines {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+.admin-scope .adm-detail__lines th {
+  text-align: left;
+  font-weight: 600;
+  color: #5b6b66;
+  width: 220px;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 13px;
+  border-bottom: 1px solid #efead2;
+  padding: 7px 10px 7px 0;
+  white-space: normal;
+}
+.admin-scope .adm-detail__lines td {
+  border-bottom: 1px solid #efead2;
+  padding: 7px 0;
+  color: #33413a;
+}
+.admin-scope .adm-resend {
+  margin-top: 16px;
+  border-top: 1px solid #efead2;
+  padding-top: 14px;
+}
+.admin-scope .adm-resend__note {
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: #44514c;
+  margin: 0 0 10px;
+  max-width: 70ch;
+}
+.admin-scope .adm-resend__outcome {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #1e402c;
+  margin: 10px 0 0;
+}
+.admin-scope .adm-footnote {
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: #5b6b66;
+  padding: 4px 24px 22px;
+  max-width: 88ch;
+  margin: 0;
+}
+@media (max-width: 900px) {
+  .admin-scope .adm-cards {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .admin-scope .adm-cards--gifts {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+@media (max-width: 760px) {
+  .admin-scope .adm-orders-table thead {
+    display: none;
+  }
+  .admin-scope .adm-orders-table tr {
+    display: block;
+    border: 1px solid #e4dfc8;
+    border-radius: 6px;
+    margin-bottom: 10px;
+    padding: 4px 6px;
+  }
+  .admin-scope .adm-orders-table td {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 14px;
+    border-bottom: 1px solid #f1ecd8;
+    text-align: right;
+  }
+  .admin-scope .adm-orders-table td::before {
+    content: attr(data-label);
+    font-weight: 700;
+    color: #5b6b66;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    text-align: left;
+    flex: none;
+  }
+  .admin-scope .adm-orders-table tr td:last-child {
+    border-bottom: 0;
+  }
+  .admin-scope .adm-orders-table .adm-empty td {
+    display: block;
+    text-align: center;
+  }
+  .admin-scope .adm-orders-table .adm-empty td::before {
+    content: none;
+  }
+}
+@media (max-width: 640px) {
+  .admin-scope .adm-main {
+    padding: 16px 12px 4px;
+  }
+  .admin-scope .adm-header {
+    padding: 16px;
+  }
+  .admin-scope .adm-section {
+    padding: 16px 14px;
+  }
+  .admin-scope .adm-cards {
+    grid-template-columns: 1fr 1fr;
+  }
+  .admin-scope .adm-funnel__row {
+    grid-template-columns: 104px 1fr 54px 50px;
+    gap: 8px;
+  }
+  .admin-scope .adm-footnote {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  .admin-scope .adm-detail__lines th {
+    width: 150px;
+  }
+}
+@media (max-width: 420px) {
+  .admin-scope .adm-cards,
+  .admin-scope .adm-cards--gifts {
+    grid-template-columns: 1fr;
   }
 }

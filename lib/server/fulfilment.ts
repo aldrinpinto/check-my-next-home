@@ -71,6 +71,7 @@ import type { RefundEventInput, RefundProcessing } from "./refunds";
 import { createDbRefundStore, createRefundProcessing } from "./refunds";
 import { createDbGiftStore } from "./gifts";
 import { createDbDeliveryStore } from "./report-deliveries";
+import { createDbSearchCountingStore, type SearchCountingStore } from "./search-counting";
 
 // ----------------------------------------------------------------
 // The claim store
@@ -144,6 +145,9 @@ export interface FulfilmentClaimStore {
   // the email — follows the fact. Only a fulfilled
   // claim's flag can move, and only to true.
   markMailSent(ref: string): Promise<void>;
+  // Every claim taken inside a window, oldest first
+  // (the admin page's period reads, M9.11).
+  listInPeriod(filter: { from: Date; to: Date }): Promise<FulfilmentClaim[]>;
   // Retire a still-waiting claim as REFUNDED (M9.8):
   // a completed full refund stands for its payment (or
   // its gift was voided), so the claim will never be
@@ -294,6 +298,15 @@ export function createDbFulfilmentClaimStore(db: {
         [ref],
       );
     },
+
+    async listInPeriod(filter) {
+      const { rows } = await db.query(
+        `SELECT ${CLAIM_COLUMNS} FROM fulfilment_claims
+          WHERE claimed_at >= $1 AND claimed_at < $2 ORDER BY claimed_at ASC`,
+        [filter.from, filter.to],
+      );
+      return (rows as unknown as ClaimRow[]).map(toClaim);
+    },
   };
 }
 
@@ -368,6 +381,12 @@ export function createMemoryFulfilmentClaimStore(): FulfilmentClaimStore & {
       claim.status = "refunded";
       claim.lastError = "refunded";
     },
+    async listInPeriod(filter) {
+      return [...claims.values()]
+        .filter((claim) => claim.claimedAt >= filter.from && claim.claimedAt < filter.to)
+        .sort((a, b) => a.claimedAt.getTime() - b.claimedAt.getTime())
+        .map(clone);
+    },
   };
 }
 
@@ -407,6 +426,15 @@ export interface WebhookDeps {
     postcode: string;
     homeKey: string | null;
   }) => Promise<void>;
+  // The search counting (M9.11; the founder's ruling
+  // of 22 Nov 2026): a paid claim counts as one
+  // purchase under its postcode, attributed to the
+  // search type that postcode's last counted check
+  // began with — aggregate only, the counting store's
+  // own shelves. Optional like the order record; the
+  // production wiring always provides it. A failed
+  // count never un-takes a claim that stands.
+  searchCounting?: SearchCountingStore;
   now?: () => Date;
 }
 
@@ -457,6 +485,10 @@ export async function processWebhookEvent(
     homeKey,
     livemode: verdict.livemode,
     testOrder,
+    // The provider's own words for a failed payment
+    // (M9.11), kept on the audit row for the admin
+    // page's Needs a human panel.
+    failureReason: verdict.failureMessage,
     now,
   });
 
@@ -555,6 +587,23 @@ export async function processWebhookEvent(
     now,
   });
   if (claimed) deps.recordCheckoutPaid();
+
+  // The search counting's purchase (M9.11): one paid
+  // claim, one purchase counted under its postcode —
+  // beside the claim, exactly where the order record
+  // is written, and swallowed the same way: a dropped
+  // count is a gap in a chart, never a lost order.
+  if (claimed && deps.searchCounting) {
+    try {
+      await deps.searchCounting.notePurchase({ postcode, testOrder, now });
+    } catch (error) {
+      console.warn(
+        `search counting outcome=dropped order=${verdict.intentId} reason=${
+          error instanceof Error ? error.message.slice(0, 120) : "unknown"
+        }`,
+      );
+    }
+  }
 
   // The order record (M9.10, prep gaps 2 and 3):
   // written where the claim is taken, from the
@@ -856,5 +905,6 @@ export function getWebhookDeps(
     }),
     orders: options.orders,
     failedPaymentNotice: options.failedPaymentNotice,
+    searchCounting: createDbSearchCountingStore(pool),
   };
 }

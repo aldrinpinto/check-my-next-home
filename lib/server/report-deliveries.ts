@@ -73,6 +73,9 @@ export interface DeliveryStore {
   // as it stands after the call, or null where no such
   // delivery stands.
   withdraw(id: string, refundId: string, now: Date): Promise<DeliveryRecord | null>;
+  // Every delivery made inside a window, oldest first
+  // (the admin page's period reads, M9.11).
+  listInPeriod(filter: { from: Date; to: Date }): Promise<DeliveryRecord[]>;
 }
 
 interface DeliveryRow {
@@ -184,6 +187,15 @@ export function createDbDeliveryStore(db: AddressQueryable): DeliveryStore {
       const found = (standing as unknown as DeliveryRow[])[0];
       return found ? toRecord(found) : null;
     },
+
+    async listInPeriod(filter) {
+      const { rows } = await db.query(
+        `SELECT ${COLUMNS} FROM report_deliveries
+          WHERE created_at >= $1 AND created_at < $2 ORDER BY created_at ASC`,
+        [filter.from, filter.to],
+      );
+      return (rows as unknown as DeliveryRow[]).map(toRecord);
+    },
   };
 }
 
@@ -234,6 +246,13 @@ export function createMemoryDeliveryStore(now: () => Date = () => new Date()): D
         record.withdrawnRefundId = refundId;
       }
       return clone(record);
+    },
+
+    async listInPeriod(filter) {
+      return [...records.values()]
+        .filter((record) => record.createdAt >= filter.from && record.createdAt < filter.to)
+        .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+        .map(clone);
     },
   };
 }

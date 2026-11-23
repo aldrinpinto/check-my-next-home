@@ -148,7 +148,8 @@ describe("robots generator (M2.11)", () => {
     // never existed). M7.13 adds /gift — the Check
     // Together claim flow, reached only via a private
     // link. M8.8 adds /sample-report/print — the sample
-    // PDF's internal print view.
+    // PDF's internal print view. M9.11 adds /admin —
+    // the owner page behind the Access wall.
     expect(result.rules).toMatchObject({
       userAgent: "*",
       allow: "/",
@@ -161,6 +162,7 @@ describe("robots generator (M2.11)", () => {
         "/gift",
         "/sample-report/print",
         "/kitchen-sink",
+        "/admin",
         "/api",
       ],
     });

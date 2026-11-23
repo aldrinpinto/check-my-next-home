@@ -165,6 +165,11 @@ export type WebhookEventResult =
       // the object's own creation time (a refund's
       // "created"), distinct from when we heard of it.
       providerCreatedAt: Date | null;
+      // The provider's own words for a failed payment
+      // (M9.11) — the failed intent's last payment
+      // error message; null wherever the object
+      // carries none.
+      failureMessage: string | null;
     }
   | { ok: false; reason: string };
 
@@ -264,6 +269,14 @@ function webhookObjectFields(object: Record<string, unknown>): {
   amountRefunded: number | null;
   currency: string | null;
   providerCreatedAt: Date | null;
+  // The provider's own words for a failed payment
+  // (M9.11): a PaymentIntent's last payment error
+  // carries the message the buyer's bank gave ("Your
+  // card was declined."). The audit log keeps it
+  // (migration 0044) so the admin page's Needs a human
+  // panel can show what the provider said; null for
+  // every object that carries no such error.
+  failureMessage: string | null;
 } {
   const objectKind = typeof object.object === "string" ? object.object : null;
   const ownId = typeof object.id === "string" ? object.id : null;
@@ -282,6 +295,12 @@ function webhookObjectFields(object: Record<string, unknown>): {
       typeof object.created === "number" && Number.isFinite(object.created)
         ? new Date(object.created * 1000)
         : null,
+    failureMessage: ((): string | null => {
+      const error = object.last_payment_error;
+      if (typeof error !== "object" || error === null) return null;
+      const message = (error as Record<string, unknown>).message;
+      return typeof message === "string" && message.length > 0 ? message : null;
+    })(),
   };
 }
 

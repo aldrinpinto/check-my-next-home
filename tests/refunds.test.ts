@@ -304,6 +304,10 @@ describe("T-PAY-07 — the translator names a refund by its payment linkage (gap
       amountRefunded: null,
       currency: "gbp",
       providerCreatedAt: new Date(REFUND_CREATED_S * 1000),
+      // M9.11: the provider's failure message rides the
+      // verdict too — a refund object carries no payment
+      // error, so it reads null here.
+      failureMessage: null,
     });
   });
 

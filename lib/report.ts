@@ -382,11 +382,17 @@ export interface ReportFloodMapModel {
   height: 560;
   homeX: 380;
   homeY: 280;
-  // The drawn street lines: path data, the projected
-  // points, and whether this line is the home's own
-  // street (drawn in the strong tint and named in the
-  // caption's clear case).
-  streets: { d: string; points: { x: number; y: number }[]; home: boolean; name: string | null }[];
+  // The drawn street lines: path data, and whether
+  // this line is the home's own street (drawn in the
+  // strong tint and named in the caption's clear
+  // case). BUG-170: the model carries the path data
+  // only — the projected points the path was built
+  // from rode along until this fix and doubled the
+  // geometry every view serialised; nothing downstream
+  // reads them (the renderer draws the path, the PDF
+  // draws the path), so they stay behind in the
+  // builder as locals.
+  streets: { d: string; home: boolean; name: string | null }[];
   // The home street's name, labelled on the picture along
   // its own line near the pin (the founder's ruling of
   // 20 Nov 2026, on the independent audit's Divergence 2:
@@ -397,14 +403,17 @@ export interface ReportFloodMapModel {
   homeStreetLabel: { text: string; x: number; y: number; angle: number } | null;
   // The shaded shapes, weakest first (draw order): each
   // carries its filed label, its display label, its fill
-  // and its projected polygons (a polygon is an array of
-  // rings; a ring is an array of points).
+  // and its path data. BUG-170: the projected polygons
+  // the path was built from no longer ride along (they
+  // doubled the geometry, like the streets' points);
+  // the count of areas survives as a number, which is
+  // all the aria summary ever read from them.
   shades: {
     label: string;
     displayLabel: string;
     fill: string;
     d: string;
-    polygons: { x: number; y: number }[][][];
+    areas: number;
   }[];
   legend: { label: string; fill: string }[];
   caption: string;
@@ -2904,8 +2913,16 @@ function buildSection5Map(input: ReportInput): ReportMapModel | null {
       // A street wholly outside the drawn extent adds
       // nothing to the ground; keep the model lean.
       if (!projected.some((p) => Math.abs(p.mx) <= extent && Math.abs(p.my) <= extent)) continue;
+      // The drawn points are thinned as they are filed
+      // into the model (BUG-170): duplicates and exactly
+      // collinear points draw nothing the picture can
+      // show, so the polyline carries the visible points
+      // only — the picture is identical.
+      const drawn = thinProjectedPoints(
+        projected.map((p) => ({ x: round1(toX(p.mx)), y: round1(toY(p.my)) })),
+      );
       streets.push({
-        d: projected.map((p) => `${round1(toX(p.mx))},${round1(toY(p.my))}`).join(" "),
+        d: drawn.map((p) => `${p.x},${p.y}`).join(" "),
         home: flood.maps.homeStreet !== null && street === flood.maps.homeStreet,
       });
     }
@@ -4299,6 +4316,57 @@ function section6(input: ReportInput): ReportSectionView {
 // the home POINT's state, not the street's whole
 // geometry. Reworded on the founder's ruling of
 // 20 Nov 2026.)
+// Raster-identical thinning (BUG-170): the filed
+// shapes project onto a 0.1-pixel grid, and real
+// geometry carries runs of points the drawn picture
+// cannot show — consecutive duplicates (a zero-length
+// segment draws nothing) and points lying exactly on
+// the segment between their neighbours (the segment
+// a–c covers the point b precisely). Dropping both
+// kinds leaves every drawn segment's endpoints and
+// every filled region exactly as they were, so the
+// rendered picture is unchanged point for point; only
+// the path data shrinks. The collinearity test's
+// epsilon sits far below the smallest true cross
+// product the 0.1 grid can produce (0.01), so it
+// catches only float noise around exact collinearity,
+// never a real corner. No curve fitting, no tolerance
+// simplification, no re-rounding: display fidelity is
+// the filed fidelity, minus the invisible points.
+export function thinProjectedPoints(
+  points: { x: number; y: number }[],
+): { x: number; y: number }[] {
+  const out: { x: number; y: number }[] = [];
+  for (const point of points) {
+    const last = out[out.length - 1];
+    if (last && last.x === point.x && last.y === point.y) continue;
+    out.push(point);
+    while (out.length >= 3) {
+      const a = out[out.length - 3];
+      const b = out[out.length - 2];
+      const c = out[out.length - 1];
+      const cross = (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x);
+      if (Math.abs(cross) < 1e-6) out.splice(out.length - 2, 1);
+      else break;
+    }
+  }
+  return out;
+}
+
+// A ring is thinned as a line, and a closing repeat of
+// the first point drops: the path's Z closes the shape
+// to the first point either way, so the filled region
+// is identical.
+export function thinProjectedRing(points: { x: number; y: number }[]): { x: number; y: number }[] {
+  const thinned = thinProjectedPoints(points);
+  if (thinned.length > 1) {
+    const first = thinned[0];
+    const last = thinned[thinned.length - 1];
+    if (first.x === last.x && first.y === last.y) thinned.pop();
+  }
+  return thinned;
+}
+
 export function buildFloodMapModels(served: Extract<FloodBundle, { kind: "flood" }>["flood"]): {
   zones: ReportFloodMapModel | null;
   surfaceWater: ReportFloodMapModel | null;
@@ -4339,11 +4407,15 @@ export function buildFloodMapModels(served: Extract<FloodBundle, { kind: "flood"
   });
   const pathOf = (points: { x: number; y: number }[]) =>
     points.map((p, i) => `${i === 0 ? "M" : "L"}${p.x} ${p.y}`).join(" ");
-  const streets = maps.streets.map((street) => {
+  // The street lines, with their projected points kept
+  // as builder locals (the home street's label reads
+  // them below): the model carries the thinned path
+  // data only (BUG-170).
+  const streetLines = maps.streets.map((street) => {
     const points = street.points.map(([lon, lat]) => project(lon, lat));
     const homeStreet = maps.homeStreet;
     return {
-      d: pathOf(points),
+      d: pathOf(thinProjectedPoints(points)),
       points,
       home:
         homeStreet !== null &&
@@ -4354,6 +4426,7 @@ export function buildFloodMapModels(served: Extract<FloodBundle, { kind: "flood"
       name: street.name,
     };
   });
+  const streets = streetLines.map(({ d, home, name }) => ({ d, home, name }));
   const capitalise = (line: string) => line.charAt(0).toUpperCase() + line.slice(1);
 
   // The home street's label (the founder's ruling of
@@ -4367,7 +4440,7 @@ export function buildFloodMapModels(served: Extract<FloodBundle, { kind: "flood"
   // direction there (never upside down) and lifts just
   // off the line — the sample label's placement.
   const homeStreetLabel = ((): ReportFloodMapModel["homeStreetLabel"] => {
-    const homeLine = streets.find((s) => s.home);
+    const homeLine = streetLines.find((s) => s.home);
     if (!homeLine || !homeLine.name || homeLine.points.length < 2) return null;
     const pts = homeLine.points;
     // Arc lengths along the drawn line.
@@ -4477,10 +4550,16 @@ export function buildFloodMapModels(served: Extract<FloodBundle, { kind: "flood"
           label: set.label,
           displayLabel: displayLabels.get(set.label) ?? set.label,
           fill: fills[set.label] ?? "#C3D8EA",
+          // The rings are thinned as they are drawn
+          // (BUG-170): a ring whose filed form closes
+          // by repeating its first point drops the
+          // repeat — the Z closes the shape either way.
           d: polygons
-            .map((polygon) => polygon.map((ring) => `${pathOf(ring)} Z`).join(" "))
+            .map((polygon) =>
+              polygon.map((ring) => `${pathOf(thinProjectedRing(ring))} Z`).join(" "),
+            )
             .join(" "),
-          polygons,
+          areas: polygons.length,
         };
       });
     const legend = [...shades]
@@ -4506,8 +4585,7 @@ export function buildFloodMapModels(served: Extract<FloodBundle, { kind: "flood"
     }
     const shadeSummary = shades
       .map(
-        (shade) =>
-          `${shade.displayLabel} (${shade.polygons.length} ${shade.polygons.length === 1 ? "area" : "areas"})`,
+        (shade) => `${shade.displayLabel} (${shade.areas} ${shade.areas === 1 ? "area" : "areas"})`,
       )
       .join(", ");
     const homeState = inside

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { AddressQueryable } from "../lib/address";
 import {
   buildDistrictBundle,
+  startDistrictBuild,
   type DistrictDataSource,
   type DistrictWarningItem,
   type DistrictWarningSource,
@@ -11,6 +12,7 @@ import {
   DISTRICT_DEPENDENCIES,
   buildDistrictBundleCached,
   createDistrictCache,
+  districtBuildFor,
 } from "../lib/district-cache";
 import { LOADER_SCHEDULE } from "../loaders/run-loaders.mjs";
 
@@ -330,5 +332,94 @@ describe("district cache — serve, invalidate, degrade", () => {
     const third = await buildDistrictBundleCached("ZZ9", source, cache);
     expect(third).toEqual(page);
     expect(calls.postcodes).toBe(1);
+  });
+});
+
+describe("district build — the staged settlement (BUG-171)", () => {
+  it("two callers join the one build, and the registry evicts on settlement", async () => {
+    const db = new FakeDb();
+    succeedAll(db);
+    const cache = createDistrictCache(db);
+    const { source } = fakeSource();
+    const first = districtBuildFor("ZZ9", source, cache);
+    const second = districtBuildFor("ZZ9", source, cache);
+    expect(second).toBe(first);
+    await first.bundle;
+    const third = districtBuildFor("ZZ9", source, cache);
+    expect(third).not.toBe(first);
+    await third.bundle;
+  });
+
+  it("a group's sections settle without waiting for the district's slow reads", async () => {
+    // The flood reads hang until the test releases them:
+    // the schools section (and so the family group)
+    // settles regardless, and the bundle stays unsettled
+    // until the flood lands — the construction proof of
+    // the per-group split.
+    let releaseFlood: (() => void) | null = null;
+    const floodGate = new Promise<void>((resolve) => {
+      releaseFlood = resolve;
+    });
+    const { source } = fakeSource();
+    const hanging = {
+      ...source,
+      floodFacts: async () => {
+        await floodGate;
+        return {
+          filedCount: 0,
+          covered: false,
+          assignments: [],
+          sourceName: null,
+          sourceDate: null,
+        };
+      },
+    };
+    const build = startDistrictBuild("ZZ9", hanging);
+    expect(await build.settlement).toEqual({ kind: "district" });
+    const schools = await build.sections.schools;
+    expect(schools.state).toBe("not-filed");
+    let bundleSettled = false;
+    void build.bundle.then(() => {
+      bundleSettled = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(bundleSettled).toBe(false);
+    releaseFlood!();
+    const bundle = await build.bundle;
+    expect(bundle.kind).toBe("district");
+  });
+
+  it("the not-covered settlement answers from the directory read alone", async () => {
+    // Every data read hangs: the settlement must still
+    // answer, from the postcodes read and nothing else
+    // (BUG-017's rule, on the staged build).
+    const scottish = [
+      {
+        postcode: "EH9 1AA",
+        latitude: 55.9,
+        longitude: -3.2,
+        council: "Edinburgh",
+        region: "Scotland",
+        lsoaCode: "S01000001",
+        msoaCode: "S02000001",
+        sourceName: "Office for National Statistics",
+        sourceDate: "2024-11-01",
+      },
+    ];
+    const hang = () => new Promise<never>(() => {});
+    const { source } = fakeSource();
+    const source2: DistrictDataSource = {
+      ...source,
+      postcodes: async () => scottish,
+      lsoaBases: hang,
+      censusRows: hang,
+      soldFacts: hang,
+      schools: hang,
+      places: hang,
+    };
+    const build = startDistrictBuild("EH9", source2);
+    expect(await build.settlement).toEqual({ kind: "not-covered", nation: "scotland" });
+    const bundle = await build.bundle;
+    expect(bundle).toEqual({ kind: "not-covered", outward: "EH9", nation: "scotland" });
   });
 });

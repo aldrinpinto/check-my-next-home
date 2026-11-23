@@ -57,11 +57,26 @@
 //            one build with the page's streamed results —
 //            the screen's lines and the results behind it
 //            derive from the same bundle.
+//
+// BUG-171: the screen now asks per group, in the home
+// check's per-part pattern — district-family,
+// district-neighbourhood, district-home and
+// district-nearby each answer one group's line, derived
+// from only that group's slice of the one staged build
+// behind the district cache's single flight, so each
+// group completes as its own data settles instead of
+// every group waiting for the district's slowest read
+// behind the single payload. The whole-payload district
+// part stands for any caller that wants the bundle's
+// whole answer at once.
 
 import { NextResponse } from "next/server";
 
 import { resolveAddressInput, createAddressSource } from "../../../../lib/address";
-import { districtCheckingPayload } from "../../../../lib/district-checking";
+import {
+  districtCheckingPayload,
+  type DistrictCheckingRowKey,
+} from "../../../../lib/district-checking";
 import {
   areaCheckingGroups,
   floodCheckingSegments,
@@ -74,6 +89,7 @@ import {
   checkArea,
   checkCrime,
   checkDistrictBundleOnly,
+  checkDistrictGroup,
   checkFlood,
   checkNearby,
   resolutionForRoute,
@@ -84,16 +100,40 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: Request, { params }: { params: Promise<{ part: string }> }) {
   const { part } = await params;
+  const DISTRICT_GROUP_PARTS: Record<string, DistrictCheckingRowKey> = {
+    "district-family": "family",
+    "district-neighbourhood": "neighbourhood",
+    "district-home": "home",
+    "district-nearby": "nearby",
+  };
   if (
     part !== "nearby" &&
     part !== "flood" &&
     part !== "crime" &&
     part !== "area" &&
-    part !== "district"
+    part !== "district" &&
+    !(part in DISTRICT_GROUP_PARTS)
   ) {
     return NextResponse.json({ error: "unknown-part" }, { status: 404 });
   }
   const url = new URL(request.url);
+
+  if (part in DISTRICT_GROUP_PARTS) {
+    const outward = url.searchParams.get("outward");
+    if (!outward) return NextResponse.json({ error: "bad-request" }, { status: 400 });
+    try {
+      const resolution = await resolveAddressInput(outward, createAddressSource(getDbPool()));
+      if (resolution.rung !== 3)
+        return NextResponse.json({ error: "no-resolution" }, { status: 404 });
+      // The group settles on its own slice of the one
+      // staged build (BUG-171): the settlement answers a
+      // Scotland / NI outward from the directory read
+      // alone, exactly as the whole payload's did.
+      return NextResponse.json(await checkDistrictGroup(resolution, DISTRICT_GROUP_PARTS[part]));
+    } catch {
+      return NextResponse.json({ error: "check-failed" }, { status: 500 });
+    }
+  }
 
   if (part === "district") {
     const outward = url.searchParams.get("outward");

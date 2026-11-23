@@ -62,9 +62,9 @@ describe("payment page — the view (Sample 9)", () => {
     const view = buildReportPaymentView(HOME);
     expect(view.heading).toBe("The detailed report for 19 Birkdale Rise");
     expect(view.subline).toBe("Hatfield Peverel, CM3 2JT");
-    expect(view.lede).toBe(
-      "You've seen the headlines for this home, free. The detailed report goes through every one of them properly.",
-    );
+    // BUG-174 re-pin: the lede the founder removed
+    // (23 Nov 2026) — the view no longer carries one.
+    expect("lede" in view).toBe(false);
   });
 
   it("carries the Master's contents list verbatim, bold leads and the flood line's plain tail", () => {

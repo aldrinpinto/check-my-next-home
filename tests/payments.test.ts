@@ -221,6 +221,12 @@ function contractSuite(
         amountRefunded: null,
         currency: null,
         providerCreatedAt: null,
+        // M9.11: the verdict also carries the
+        // provider's failure message, read off the
+        // object's last payment error — a succeeded
+        // event carries none, so it reads null here;
+        // the failure surfaces pin it populated.
+        failureMessage: null,
       });
     });
 

@@ -39,7 +39,21 @@
 // rather than inventing new ones, and each is marked at
 // its constant below.
 
-import type { DistrictBundle, DistrictFloodSection } from "./district";
+import type {
+  DistrictAirSection,
+  DistrictBundle,
+  DistrictCensusSection,
+  DistrictConnectivitySection,
+  DistrictCouncilTaxSection,
+  DistrictCrimeSection,
+  DistrictDeprivationSection,
+  DistrictEverydaySection,
+  DistrictFloodSection,
+  DistrictHead,
+  DistrictItselfSection,
+  DistrictSchoolsSection,
+  DistrictSoldSection,
+} from "./district";
 import {
   formatPounds,
   groupResult,
@@ -47,8 +61,6 @@ import {
   type CheckingGroupResult,
   type CheckingSegment,
 } from "./journey";
-
-type DistrictServed = Extract<DistrictBundle, { kind: "district" }>;
 
 // ------------------------------------------------------------------
 // The screen's pinned copy
@@ -165,8 +177,7 @@ function formatDistrictPence(pence: number): string {
 // Family Checks — the schools section alone.
 // ------------------------------------------------------------------
 
-function familyGroupResult(bundle: DistrictServed): CheckingGroupResult {
-  const schools = bundle.sections.schools;
+function familyGroupResult(schools: DistrictSchoolsSection, outward: string): CheckingGroupResult {
   if (schools.state !== "served") return { state: "unavailable", line: SCHOOLS_NOT_FILED_LINE };
   if (schools.primary + schools.secondary === 0) {
     // The drawn lead facts are absent but the section
@@ -175,13 +186,13 @@ function familyGroupResult(bundle: DistrictServed): CheckingGroupResult {
     // a filed zero included (a recorded zero is a fact).
     return {
       state: "done",
-      line: `${count(schools.counted)} schools are filed inside ${bundle.outward}.`,
+      line: `${count(schools.counted)} schools are filed inside ${outward}.`,
     };
   }
   const text =
     `${count(schools.primary)} primary ${plural(schools.primary, "school", "schools")} and ` +
     `${count(schools.secondary)} secondary ${plural(schools.secondary, "school", "schools")} ` +
-    `found across ${bundle.outward}` +
+    `found across ${outward}` +
     (schools.grammar === 0
       ? " — and no grammar school filed in the district"
       : ` — including ${count(schools.grammar)} grammar ${plural(schools.grammar, "school", "schools")}`);
@@ -193,8 +204,16 @@ function familyGroupResult(bundle: DistrictServed): CheckingGroupResult {
 // deprivation, air (the tab's own section order).
 // ------------------------------------------------------------------
 
-function neighbourhoodGroupResult(bundle: DistrictServed): CheckingGroupResult {
-  const { sections, head } = bundle;
+function neighbourhoodGroupResult(slice: {
+  head: DistrictHead;
+  district: DistrictItselfSection;
+  census: DistrictCensusSection;
+  crime: DistrictCrimeSection;
+  deprivation: DistrictDeprivationSection;
+  air: DistrictAirSection;
+}): CheckingGroupResult {
+  const sections = slice;
+  const head = slice.head;
   const segments: CheckingSegment[] = [];
 
   // The lead segment: the residents the district page's
@@ -309,9 +328,15 @@ function floodSegments(flood: DistrictFloodSection): CheckingSegment[] {
   return segments;
 }
 
-function homeGroupResult(bundle: DistrictServed): CheckingGroupResult {
-  const { sections } = bundle;
-  const outward = bundle.outward;
+function homeGroupResult(slice: {
+  soldPrices: DistrictSoldSection;
+  councilTax: DistrictCouncilTaxSection;
+  connectivity: DistrictConnectivitySection;
+  flood: DistrictFloodSection;
+  outward: string;
+}): CheckingGroupResult {
+  const sections = slice;
+  const outward = slice.outward;
   const segments: CheckingSegment[] = [];
 
   const sold = sections.soldPrices;
@@ -369,8 +394,10 @@ function homeGroupResult(bundle: DistrictServed): CheckingGroupResult {
 // What's Nearby — the everyday section alone.
 // ------------------------------------------------------------------
 
-function nearbyGroupResult(bundle: DistrictServed): CheckingGroupResult {
-  const everyday = bundle.sections.everyday;
+function nearbyGroupResult(
+  everyday: DistrictEverydaySection,
+  outward: string,
+): CheckingGroupResult {
   if (everyday.state !== "served") return { state: "unavailable", line: EVERYDAY_NOT_FILED_LINE };
   const segments: CheckingSegment[] = [
     {
@@ -378,7 +405,7 @@ function nearbyGroupResult(bundle: DistrictServed): CheckingGroupResult {
         `${count(everyday.gp)} GP ${plural(everyday.gp, "practice", "practices")}, ` +
         `${count(everyday.dentists)} ${plural(everyday.dentists, "dentist", "dentists")} and ` +
         `${count(everyday.pharmacies)} ${plural(everyday.pharmacies, "pharmacy", "pharmacies")} ` +
-        `across ${bundle.outward}`,
+        `across ${outward}`,
       named: false,
     },
   ];
@@ -428,12 +455,148 @@ export function districtCheckingPayload(bundle: DistrictBundle): DistrictCheckin
     postTown: bundle.head.postTown,
     county: bundle.head.counties.length === 1 ? bundle.head.counties[0] : null,
     groups: {
-      family: familyGroupResult(bundle),
-      neighbourhood: neighbourhoodGroupResult(bundle),
-      home: homeGroupResult(bundle),
-      nearby: nearbyGroupResult(bundle),
+      family: familyGroupResult(bundle.sections.schools, bundle.outward),
+      neighbourhood: neighbourhoodGroupResult({
+        head: bundle.head,
+        district: bundle.sections.district,
+        census: bundle.sections.census,
+        crime: bundle.sections.crime,
+        deprivation: bundle.sections.deprivation,
+        air: bundle.sections.air,
+      }),
+      home: homeGroupResult({
+        soldPrices: bundle.sections.soldPrices,
+        councilTax: bundle.sections.councilTax,
+        connectivity: bundle.sections.connectivity,
+        flood: bundle.sections.flood,
+        outward: bundle.outward,
+      }),
+      nearby: nearbyGroupResult(bundle.sections.everyday, bundle.outward),
     },
   };
+}
+
+// ------------------------------------------------------------------
+// The per-group payloads (BUG-171): the checking screen
+// no longer waits for the whole district bundle behind
+// one request. Each group has its own part, derived
+// from only that group's slice of the one staged build
+// (lib/district.ts's startDistrictBuild, behind the
+// district cache's single flight), so a group completes
+// as its own data settles — the home check's per-part
+// pattern, on the district screen. The full payload
+// above stands for any caller that wants the bundle's
+// whole answer at once.
+// ------------------------------------------------------------------
+
+// Each group's slice of the district bundle: exactly
+// the sections its derivation reads, nothing more.
+export interface DistrictGroupSlices {
+  family: { schools: DistrictSchoolsSection; outward: string };
+  neighbourhood: {
+    head: DistrictHead;
+    district: DistrictItselfSection;
+    census: DistrictCensusSection;
+    crime: DistrictCrimeSection;
+    deprivation: DistrictDeprivationSection;
+    air: DistrictAirSection;
+  };
+  home: {
+    soldPrices: DistrictSoldSection;
+    councilTax: DistrictCouncilTaxSection;
+    connectivity: DistrictConnectivitySection;
+    flood: DistrictFloodSection;
+    outward: string;
+  };
+  nearby: { everyday: DistrictEverydaySection; outward: string };
+}
+
+export function districtGroupResult<K extends DistrictCheckingRowKey>(
+  group: K,
+  slice: DistrictGroupSlices[K],
+): CheckingGroupResult {
+  switch (group) {
+    case "family": {
+      const s = slice as DistrictGroupSlices["family"];
+      return familyGroupResult(s.schools, s.outward);
+    }
+    case "neighbourhood":
+      return neighbourhoodGroupResult(slice as DistrictGroupSlices["neighbourhood"]);
+    case "home":
+      return homeGroupResult(slice as DistrictGroupSlices["home"]);
+    case "nearby": {
+      const s = slice as DistrictGroupSlices["nearby"];
+      return nearbyGroupResult(s.everyday, s.outward);
+    }
+  }
+}
+
+export type DistrictCheckingGroupPayload =
+  | {
+      kind: "district";
+      outward: string;
+      group: DistrictCheckingRowKey;
+      result: CheckingGroupResult;
+      // The stamp's place and the intro line's place ride
+      // the neighbourhood part alone: its slice carries
+      // the head, and no other group waits for the places
+      // read just to name the town. The screen takes the
+      // header from that part when it lands; before it
+      // lands the screen shows the district alone, exactly
+      // as it did before the single payload landed.
+      postTown: string | null;
+      county: string | null;
+    }
+  | {
+      kind: "not-covered";
+      outward: string;
+      nation: "scotland" | "northern-ireland";
+    };
+
+export function districtCheckingGroupPayload<K extends DistrictCheckingRowKey>(
+  group: K,
+  outward: string,
+  slice: DistrictGroupSlices[K],
+): DistrictCheckingGroupPayload {
+  const head =
+    group === "neighbourhood" ? (slice as DistrictGroupSlices["neighbourhood"]).head : null;
+  return {
+    kind: "district",
+    outward,
+    group,
+    result: districtGroupResult(group, slice),
+    postTown: head ? head.postTown : null,
+    county: head && head.counties.length === 1 ? head.counties[0] : null,
+  };
+}
+
+// The wire check for a group part's body (the CI #247
+// lesson, in the home derivation's own pattern —
+// lib/journey.ts's parseCheckingPartValue): the check
+// is structural and minimal, exactly the fields the
+// screen dereferences, so a drifted shape settles its
+// group as failed instead of stalling the screen.
+export function parseDistrictCheckingGroupValue(
+  group: DistrictCheckingRowKey,
+  body: unknown,
+): DistrictCheckingGroupPayload | null {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) return null;
+  const record = body as Record<string, unknown>;
+  if (record.kind === "not-covered") {
+    if (typeof record.outward !== "string") return null;
+    if (record.nation !== "scotland" && record.nation !== "northern-ireland") return null;
+    return body as DistrictCheckingGroupPayload;
+  }
+  if (record.kind !== "district") return null;
+  if (record.group !== group) return null;
+  if (typeof record.outward !== "string") return null;
+  const result = record.result;
+  if (typeof result !== "object" || result === null || Array.isArray(result)) return null;
+  const resultRecord = result as Record<string, unknown>;
+  if (typeof resultRecord.state !== "string" || typeof resultRecord.line !== "string") return null;
+  if (record.postTown !== null && typeof record.postTown !== "string") return null;
+  if (record.county !== null && typeof record.county !== "string") return null;
+  return body as DistrictCheckingGroupPayload;
 }
 
 // The outcomes when the payload request itself fails:

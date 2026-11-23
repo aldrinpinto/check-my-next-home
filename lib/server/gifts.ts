@@ -113,6 +113,9 @@ export interface GiftStore {
   // Idempotent: voiding a voided gift answers it
   // unchanged.
   voidByOrderRef(orderRef: string, now: Date): Promise<GiftRecord | null>;
+  // Every gift issued inside a window, oldest first
+  // (the admin page's Gifts panel, M9.11).
+  listIssuedInPeriod(filter: { from: Date; to: Date }): Promise<GiftRecord[]>;
 }
 
 interface GiftRow {
@@ -315,6 +318,15 @@ export function createDbGiftStore(db: AddressQueryable, sink?: GiftJourneySink):
       const found = (standing as unknown as GiftRow[])[0];
       return found ? toRecord(found) : null;
     },
+
+    async listIssuedInPeriod(filter) {
+      const { rows } = await db.query(
+        `SELECT ${COLUMNS} FROM gift_tokens
+          WHERE issued_at >= $1 AND issued_at < $2 ORDER BY issued_at ASC`,
+        [filter.from, filter.to],
+      );
+      return (rows as unknown as GiftRow[]).map(toRecord);
+    },
   };
 }
 
@@ -429,6 +441,13 @@ export function createMemoryGiftStore(
         return clone(record);
       }
       return null;
+    },
+
+    async listIssuedInPeriod(filter) {
+      return [...records.values()]
+        .filter((record) => record.issuedAt >= filter.from && record.issuedAt < filter.to)
+        .sort((a, b) => a.issuedAt.getTime() - b.issuedAt.getTime())
+        .map(clone);
     },
   };
 }

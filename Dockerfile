@@ -37,4 +37,10 @@ WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=build /app ./
 EXPOSE 3000
-CMD ["npm", "run", "start"]
+# BUG-170: the sample report is baked once per deploy
+# before the server starts — generation reads the
+# filed data through the real pipeline, so it cannot
+# happen at image build (no database there). A failed
+# bake never blocks the start: the serving seam falls
+# back to live generation, the pre-fix behaviour.
+CMD ["sh", "-c", "npx -y tsx scripts/bake-sample-report.ts || true; exec npm run start"]

@@ -19,7 +19,10 @@ import {
   DISTRICT_CHECKING_STEP_DONE,
   DISTRICT_CHECKING_SWEEP_CAPTION,
   districtCheckingFailureOutcomes,
+  districtCheckingGroupPayload,
   districtCheckingPayload,
+  parseDistrictCheckingGroupValue,
+  type DistrictGroupSlices,
 } from "../lib/district-checking";
 
 // The district brain's own honest crime line (lib/
@@ -487,5 +490,95 @@ describe("the payload's other kind, and the failure outcomes", () => {
         line: "What's Nearby couldn't be checked just now — the rest of the check still opens.",
       },
     });
+  });
+});
+
+describe("the per-group payloads (BUG-171)", () => {
+  function slicesOf(bundle: Served): DistrictGroupSlices {
+    return {
+      family: { schools: bundle.sections.schools, outward: bundle.outward },
+      neighbourhood: {
+        head: bundle.head,
+        district: bundle.sections.district,
+        census: bundle.sections.census,
+        crime: bundle.sections.crime,
+        deprivation: bundle.sections.deprivation,
+        air: bundle.sections.air,
+      },
+      home: {
+        soldPrices: bundle.sections.soldPrices,
+        councilTax: bundle.sections.councilTax,
+        connectivity: bundle.sections.connectivity,
+        flood: bundle.sections.flood,
+        outward: bundle.outward,
+      },
+      nearby: { everyday: bundle.sections.everyday, outward: bundle.outward },
+    };
+  }
+
+  it("each group's part derives the same line the whole payload derives", () => {
+    const bundle = servedBundle();
+    const whole = districtCheckingPayload(bundle);
+    if (whole.kind !== "district") throw new Error("expected a district payload");
+    const slices = slicesOf(bundle);
+    for (const row of DISTRICT_CHECKING_ROWS) {
+      const part = districtCheckingGroupPayload(row.key, bundle.outward, slices[row.key]);
+      if (part.kind !== "district") throw new Error("expected a district group payload");
+      expect(part.group).toBe(row.key);
+      expect(part.result).toEqual(whole.groups[row.key]);
+    }
+  });
+
+  it("the stamp's place rides the neighbourhood part alone", () => {
+    const bundle = servedBundle();
+    const slices = slicesOf(bundle);
+    const neighbourhood = districtCheckingGroupPayload(
+      "neighbourhood",
+      bundle.outward,
+      slices.neighbourhood,
+    );
+    if (neighbourhood.kind !== "district") throw new Error("expected a district group payload");
+    expect(neighbourhood.postTown).toBe("Chelmsford");
+    expect(neighbourhood.county).toBe("Essex");
+    for (const key of ["family", "home", "nearby"] as const) {
+      const part = districtCheckingGroupPayload(key, bundle.outward, slices[key]);
+      if (part.kind !== "district") throw new Error("expected a district group payload");
+      expect(part.postTown).toBeNull();
+      expect(part.county).toBeNull();
+    }
+  });
+
+  it("the wire check accepts a served part and a not-covered answer, and refuses drift", () => {
+    const bundle = servedBundle();
+    const part = districtCheckingGroupPayload("family", bundle.outward, slicesOf(bundle).family);
+    expect(parseDistrictCheckingGroupValue("family", part)).toEqual(part);
+    // The wrong group's part is not this group's answer.
+    expect(parseDistrictCheckingGroupValue("home", part)).toBeNull();
+    // A drifted result shape settles as failed, never stalls.
+    expect(
+      parseDistrictCheckingGroupValue("family", {
+        kind: "district",
+        outward: "CM3",
+        group: "family",
+        result: { state: "done" },
+        postTown: null,
+        county: null,
+      }),
+    ).toBeNull();
+    expect(
+      parseDistrictCheckingGroupValue("family", {
+        kind: "not-covered",
+        outward: "EH9",
+        nation: "scotland",
+      }),
+    ).toEqual({ kind: "not-covered", outward: "EH9", nation: "scotland" });
+    expect(
+      parseDistrictCheckingGroupValue("family", {
+        kind: "not-covered",
+        outward: "EH9",
+        nation: "france",
+      }),
+    ).toBeNull();
+    expect(parseDistrictCheckingGroupValue("family", null)).toBeNull();
   });
 });

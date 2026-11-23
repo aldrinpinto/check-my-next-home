@@ -13,6 +13,10 @@
 # production
 /build
 
+# the sample report's bake (BUG-170): a deploy artefact
+# written at container start, never committed
+/baked/
+
 # misc
 .DS_Store
 *.pem

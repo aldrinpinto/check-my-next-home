@@ -339,7 +339,6 @@ export default function ReportPaymentPage({
     <main className="journey-page report-door report-payment">
       <h1>{view.heading}</h1>
       {view.subline && <p className="type-lead report-door__subline">{view.subline}</p>}
-      <p className="type-lead report-payment__lede">{view.lede}</p>
 
       {/* BUG-133: the mystery tease stands directly
           under the intro, above the contents card — in

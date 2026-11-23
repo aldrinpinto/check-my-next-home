@@ -33,6 +33,8 @@ import {
   resolutionForRoute,
   resolutionNotCovered,
 } from "../../../lib/server/serve";
+import { noteCheckServe } from "../../../lib/server/search-counting";
+import { streetNormOf } from "../../../lib/server/streets";
 import { logEntry, newRequestId } from "../../../lib/server/entry-log";
 import { isResolveToken } from "../../../lib/server/resolve-records";
 import { SITE_MANIFESTO } from "../../../lib/site";
@@ -102,6 +104,38 @@ function completionBeacon(resolution: AddressResolution, short: ShortBundle) {
   );
 }
 
+// The search counting's serve fact (M9.11; the
+// founder's ruling of 22 Nov 2026): a completed check
+// on this page counts once under its full postcode and
+// the type its journey began with — a street-narrowed
+// serve is a street search's check, every other serve
+// here a postcode search's. A rung-2 serve also sets
+// the postcode's last-touch type, the purchase
+// attribution the counting keeps. Aggregate only: the
+// counting store's shelves hold no visitor, and this
+// call is fire-and-forget beside the serve.
+function noteServedCheck(resolution: AddressResolution, postcode: string): void {
+  const narrowed =
+    resolution.rung === 2 && (resolution.street !== null || resolution.building !== null);
+  let street: { key: string; label: string } | null = null;
+  if (narrowed && resolution.rung === 2) {
+    const streetName = resolution.street ?? resolution.addresses[0]?.street ?? null;
+    const town = resolution.addresses[0]?.town ?? null;
+    if (streetName) {
+      street = {
+        key: `${streetNormOf(streetName)}|${streetNormOf(town ?? "")}`,
+        label: town ? `${displayText(streetName)}, ${displayText(town)}` : displayText(streetName),
+      };
+    }
+  }
+  void noteCheckServe({
+    type: narrowed ? "street" : "postcode",
+    postcode,
+    street,
+    setsLastType: resolution.rung === 2,
+  });
+}
+
 // The results half of the page, streamed in behind the
 // checking screen: the derivation awaits the cached brains
 // (the checking screen's own calls warm the same D29 cache
@@ -131,6 +165,7 @@ async function Results({
   } catch {
     return <WholeCheckFailure initialValue={postcode} />;
   }
+  noteServedCheck(resolution, postcode);
   // M7.5: the shortlist card record, rung 1 only (ruling 4
   // — rung 2 has no home to shortlist, and the not-covered
   // branch below never reaches this component). The record
@@ -285,6 +320,7 @@ export default async function HomePage({
     } catch {
       return <WholeCheckFailure initialValue={postcode} />;
     }
+    noteServedCheck(resolution, postcode);
     const nation = nationOfLsoa(resolution.directory.lsoaCode);
     return (
       <main className="journey-page main--wide">

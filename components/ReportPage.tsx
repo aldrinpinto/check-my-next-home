@@ -335,6 +335,55 @@ function Block({ block }: { block: ReportBlock }) {
   }
 }
 
+// Consecutive same-style street runs, merged into one
+// drawn element (BUG-170): the maps draw hundreds of
+// street lines, and one element per line made the page
+// carry tens of thousands of nodes. A run of streets
+// sharing a style becomes a single path whose subpaths
+// are the streets themselves — same geometry, same
+// paint order, same caps and joins (SVG caps and joins
+// apply per subpath), so the picture is identical; the
+// run breaks wherever the style changes, so no street
+// ever paints over a differently-styled neighbour it
+// did not paint over before.
+function streetRuns(streets: { d: string; home: boolean }[]): { d: string; home: boolean }[] {
+  const runs: { d: string; home: boolean }[] = [];
+  for (const street of streets) {
+    const last = runs[runs.length - 1];
+    if (last && last.home === street.home) {
+      last.d = `${last.d} ${street.d}`;
+    } else {
+      runs.push({ d: street.d, home: street.home });
+    }
+  }
+  return runs;
+}
+
+// A polyline's points string as path data (the merged
+// runs draw as paths: a path's subpaths are the
+// streets, which a polyline cannot hold).
+function pointsToPath(points: string): string {
+  return points
+    .split(" ")
+    .filter((point) => point.length > 0)
+    .map((point, index) => `${index === 0 ? "M" : "L"}${point}`)
+    .join(" ");
+}
+
+function streetPathRuns(streets: { d: string; home: boolean }[]): { d: string; home: boolean }[] {
+  const runs: { d: string; home: boolean }[] = [];
+  for (const street of streets) {
+    const last = runs[runs.length - 1];
+    const d = pointsToPath(street.d);
+    if (last && last.home === street.home) {
+      last.d = `${last.d} ${d}`;
+    } else {
+      runs.push({ d, home: street.home });
+    }
+  }
+  return runs;
+}
+
 // The Section 5 location map: a static SVG picture drawn
 // from the model's own projection (lib/report.ts decided
 // every coordinate) — home pin, one numbered pin per
@@ -358,13 +407,13 @@ function ReportMap({ map }: { map: ReportMapModel }) {
         {map.streets ? (
           <>
             <rect x="0" y="0" width="760" height="520" fill="#FDF8E8" />
-            {map.streets.map((street, index) => (
-              <polyline
+            {streetPathRuns(map.streets).map((run, index) => (
+              <path
                 key={index}
-                points={street.d}
+                d={run.d}
                 fill="none"
-                stroke={street.home ? "#2F5D3E" : "#CFC7A8"}
-                strokeWidth={street.home ? 5 : 3.5}
+                stroke={run.home ? "#2F5D3E" : "#CFC7A8"}
+                strokeWidth={run.home ? 5 : 3.5}
                 strokeLinejoin="round"
                 strokeLinecap="round"
               />
@@ -462,13 +511,13 @@ function FloodMap({ map }: { map: ReportFloodMapModel }) {
         {map.shades.map((shade) => (
           <path key={shade.label} d={shade.d} fill={shade.fill} fillRule="evenodd" stroke="none" />
         ))}
-        {map.streets.map((street, index) => (
+        {streetRuns(map.streets).map((run, index) => (
           <path
             key={index}
-            d={street.d}
+            d={run.d}
             fill="none"
-            stroke={street.home ? "#2F5D3E" : "#CFC7A8"}
-            strokeWidth={street.home ? 5 : 3.5}
+            stroke={run.home ? "#2F5D3E" : "#CFC7A8"}
+            strokeWidth={run.home ? 5 : 3.5}
             strokeLinecap="round"
             strokeLinejoin="round"
           />

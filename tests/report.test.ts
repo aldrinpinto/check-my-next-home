@@ -18,6 +18,8 @@ import {
   buildReportView,
   reportViewGate,
   reportViewRoute,
+  thinProjectedPoints,
+  thinProjectedRing,
   type ReportBlock,
   type ReportInput,
   type ReportView,
@@ -1709,6 +1711,18 @@ function servedWithMaps(
   return served;
 }
 
+// BUG-170: the flood model carries path data only —
+// the projected points no longer ride the view — so
+// the projection tests read the geometry back out of
+// the drawn path itself, which is the stronger pin:
+// what is asserted is what is actually drawn.
+function pathPoints(d: string): { x: number; y: number }[] {
+  return [...d.matchAll(/[ML](-?[\d.]+) (-?[\d.]+)/g)].map((match) => ({
+    x: Number(match[1]),
+    y: Number(match[2]),
+  }));
+}
+
 describe("report — M8.3 flood maps: frame maths and projection", () => {
   it("the frame reaches a mile in each direction with the point centred", () => {
     const frame = floodMapFrame(MAP_HOME.lat, MAP_HOME.lon);
@@ -1737,7 +1751,7 @@ describe("report — M8.3 flood maps: frame maths and projection", () => {
     if (!zones) throw new Error("expected a zones picture");
     expect(zones.homeX).toBe(380);
     expect(zones.homeY).toBe(280);
-    const ring = zones.shades[0].polygons[0][0];
+    const ring = pathPoints(zones.shades[0].d);
     // The square is centred on the home: its corners sit
     // symmetric about the pin.
     expect(ring[0].x + ring[2].x).toBeCloseTo(760, 0);
@@ -1745,9 +1759,10 @@ describe("report — M8.3 flood maps: frame maths and projection", () => {
     // The home street runs west–east through the centre.
     const homeLine = zones.streets.find((s) => s.home);
     if (!homeLine) throw new Error("expected the home street to be flagged");
-    expect(homeLine.points[0].y).toBe(280);
-    expect(homeLine.points[0].x).toBeLessThan(380);
-    expect(homeLine.points[1].x).toBeGreaterThan(380);
+    const homePoints = pathPoints(homeLine.d);
+    expect(homePoints[0].y).toBe(280);
+    expect(homePoints[0].x).toBeLessThan(380);
+    expect(homePoints[1].x).toBeGreaterThan(380);
   });
 
   it("the projection is isotropic: a mile east lands at the same pixel offset as a mile north", () => {
@@ -1788,8 +1803,8 @@ describe("report — M8.3 flood maps: frame maths and projection", () => {
     );
     const { zones } = buildFloodMapModels(served);
     if (!zones) throw new Error("expected a zones picture");
-    const east = zones.streets[0].points[1];
-    const north = zones.streets[1].points[1];
+    const east = pathPoints(zones.streets[0].d)[1];
+    const north = pathPoints(zones.streets[1].d)[1];
     const eastOffset = east.x - zones.homeX;
     const northOffset = zones.homeY - north.y;
     expect(eastOffset).toBeGreaterThan(0);
@@ -1800,6 +1815,48 @@ describe("report — M8.3 flood maps: frame maths and projection", () => {
     expect(Math.abs(eastOffset - northOffset)).toBeLessThan(0.2);
     expect(eastOffset).toBeCloseTo(280, 0);
     expect(northOffset).toBeCloseTo(280, 0);
+  });
+});
+
+describe("report — BUG-170 thinning: only invisible points drop", () => {
+  it("drops consecutive duplicates and exactly collinear points, keeps every corner", () => {
+    const line = [
+      { x: 0, y: 0 },
+      { x: 10, y: 0 },
+      { x: 10, y: 0 },
+      { x: 20, y: 0 },
+      { x: 20, y: 10 },
+      { x: 30, y: 10 },
+    ];
+    expect(thinProjectedPoints(line)).toEqual([
+      { x: 0, y: 0 },
+      { x: 20, y: 0 },
+      { x: 20, y: 10 },
+      { x: 30, y: 10 },
+    ]);
+  });
+
+  it("a point a hair off the line is a corner and stays", () => {
+    const line = [
+      { x: 0, y: 0 },
+      { x: 10, y: 0.1 },
+      { x: 20, y: 0 },
+    ];
+    expect(thinProjectedPoints(line)).toEqual(line);
+  });
+
+  it("a ring's closing repeat drops — the Z closes the shape either way", () => {
+    const ring = [
+      { x: 0, y: 0 },
+      { x: 10, y: 0 },
+      { x: 10, y: 10 },
+      { x: 0, y: 0 },
+    ];
+    expect(thinProjectedRing(ring)).toEqual([
+      { x: 0, y: 0 },
+      { x: 10, y: 0 },
+      { x: 10, y: 10 },
+    ]);
   });
 });
 

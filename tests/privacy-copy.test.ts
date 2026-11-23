@@ -31,7 +31,7 @@ const SHORTLIST_LINE =
   "**Your shortlist** — this lives in your own browser, on your own device. We cannot see which homes are on it. Our counting only learns that a home was added or removed — never which home.";
 
 const COUNTING_LINE =
-  "**Counting, kept at home** — we count how the site is used — which pages are opened, how many checks run, where people stop — with our own counting on our own server, plus Cloudflare Web Analytics for traffic. The counting never records the home or postcode you checked, your email, or anything that identifies you: it counts journeys, not people. No analytics company is involved, and counting sets no cookies.";
+  "**Counting, kept at home** — we count how the site is used — which pages are opened, how many checks run, where people stop — with our own counting on our own server, plus Cloudflare Web Analytics for traffic. The counting never records the home you checked, your email, or anything that identifies you: it counts journeys, not people. It does add up, in totals only, how many checks and purchases each postcode and street sees, so we can see where people are looking — a total is never tied to a visitor, and the words you type into the search box are never stored. No analytics company is involved, and counting sets no cookies.";
 
 const GIFT_COOKIE_LINE =
   "One more cookie appears if you arrive through a Check Together gift link. It remembers that the gift was claimed on this device, so your free report stays unlocked. It holds no personal details and is never used for counting or advertising.";

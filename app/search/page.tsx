@@ -33,6 +33,7 @@ import {
   placeChoiceUrl,
   resolutionForPostcodeRoute,
 } from "../../lib/server/serve";
+import { noteCheckServe } from "../../lib/server/search-counting";
 import { getDbPool } from "../../lib/server/db";
 import { createPlaceSource, placeNormOf } from "../../lib/server/places";
 import { createStreetSource, streetNormOf } from "../../lib/server/streets";
@@ -314,6 +315,12 @@ async function DistrictResults({
   } catch {
     return <WholeCheckFailure initialValue={resolution.outward} />;
   }
+  // The search counting's wider-area fact (M9.11): a
+  // completed district check counts once under the
+  // wider-area type — a district carries no full
+  // postcode, so it counts nowhere else. Fire-and-
+  // forget beside the serve, as on the home page.
+  void noteCheckServe({ type: "wider-area", postcode: null, street: null, setsLastType: false });
   const { short, district } = served;
   // District and not-covered surfaces carry NO shortlist
   // control (D40; fix batch, 19 Nov 2026 — BUG-018): the

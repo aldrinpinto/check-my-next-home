@@ -129,6 +129,12 @@ export interface RefundStore {
   // is never unset here.
   recordEvent(input: RefundEventInput): Promise<PaymentRefund>;
   listByPayment(paymentRef: string): Promise<PaymentRefund[]>;
+  // Every refund standing against any of a set of
+  // payments, in one read (the admin page's period
+  // assembly, M9.11 — the orders on screen name their
+  // payments, and each order's refunds are read from
+  // this one source).
+  listByPayments(paymentRefs: string[]): Promise<PaymentRefund[]>;
   getByRefundId(refundId: string): Promise<PaymentRefund | null>;
   // Mark the transition applied: every succeeded
   // refund of the payment takes the applied state, the
@@ -342,6 +348,16 @@ export function createDbRefundStore(db: AddressQueryable): RefundStore {
       return (rows as unknown as RefundRow[]).map(toRefund);
     },
 
+    async listByPayments(paymentRefs) {
+      if (paymentRefs.length === 0) return [];
+      const { rows } = await db.query(
+        `SELECT ${REFUND_COLUMNS} FROM payment_refunds
+          WHERE payment_ref = ANY($1) ORDER BY first_heard_at ASC`,
+        [paymentRefs],
+      );
+      return (rows as unknown as RefundRow[]).map(toRefund);
+    },
+
     getByRefundId,
 
     async markConsequencesApplied(paymentRef, input) {
@@ -373,6 +389,13 @@ export function createMemoryRefundStore(): RefundStore & {
     async listByPayment(paymentRef) {
       return [...refunds.values()]
         .filter((refund) => refund.paymentRef === paymentRef)
+        .sort((a, b) => a.firstHeardAt.getTime() - b.firstHeardAt.getTime())
+        .map(clone);
+    },
+    async listByPayments(paymentRefs) {
+      const wanted = new Set(paymentRefs);
+      return [...refunds.values()]
+        .filter((refund) => refund.paymentRef !== null && wanted.has(refund.paymentRef))
         .sort((a, b) => a.firstHeardAt.getTime() - b.firstHeardAt.getTime())
         .map(clone);
     },
