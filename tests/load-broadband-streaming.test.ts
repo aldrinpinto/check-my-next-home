@@ -266,6 +266,61 @@ describe("streamed staging (BUG-191)", () => {
       ),
     ).toThrow(/duplicate postcodes in the release/);
   });
+
+  it("checks the way run() does: flush, then staged count, before finishFiling (CI #320)", async () => {
+    // run() reads stagedCount() for the structural check after
+    // streaming and BEFORE finishFiling. stagedCount() only
+    // advances on a flush, and stageItems flushes only at
+    // STAGE_CHUNK — so without the flush run() now performs, the
+    // pending tail (here the whole 6-row fixture) reads as that
+    // many duplicate postcodes and the check throws on a clean
+    // release. This is the composition the CI fixture pass runs.
+    const fake = createRecordingClient();
+    const filer = await createBroadbandFiler(fake as never);
+    const { stats } = (await streamBroadbandRows(
+      { fileDir: FIXTURE_DIR } as never,
+      (batch: { postcode: string; answer: Record<string, unknown> }[]) =>
+        filer.stageItems(batch as never),
+    )) as { stats: { parsed: number; goldensSeen: Set<string> } };
+    expect(filer.stagedCount()).toBe(0);
+    await filer.flushPending();
+    expect(filer.stagedCount()).toBe(6);
+    expect(() =>
+      structuralCheckStats(
+        {
+          parsed: stats.parsed,
+          duplicates: stats.parsed - filer.stagedCount(),
+          goldensSeen: stats.goldensSeen,
+        },
+        { full: false },
+      ),
+    ).not.toThrow();
+    await filer.finishFiling();
+  });
+
+  it("still refuses a genuine duplicate at the run() composition, after the flush", async () => {
+    const fake = createRecordingClient();
+    const filer = await createBroadbandFiler(fake as never);
+    const row = { postcode: "CM3 2JT", answer: { snapshot: "2026-01" } };
+    await filer.stageItems([
+      row,
+      row,
+      { postcode: "E16 1GN", answer: { snapshot: "2026-01" } },
+      { postcode: "KT17 1FH", answer: { snapshot: "2026-01" } },
+    ] as never);
+    await filer.flushPending();
+    expect(filer.stagedCount()).toBe(3);
+    expect(() =>
+      structuralCheckStats(
+        {
+          parsed: 4,
+          duplicates: 4 - filer.stagedCount(),
+          goldensSeen: new Set(["CM3 2JT", "E16 1GN", "KT17 1FH"]),
+        },
+        { full: false },
+      ),
+    ).toThrow(/duplicate postcodes in the release/);
+  });
 });
 
 // 12,000 synthetic rows — enough to span several merge chunks

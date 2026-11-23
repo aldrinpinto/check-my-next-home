@@ -426,6 +426,13 @@ export async function createBroadbandFiler(client) {
   return {
     offeredCount: () => offered,
     stagedCount: () => staged,
+    // Flush the pending buffer into the staging table. Until this
+    // runs, stagedCount() understates what has been offered — the
+    // tail under STAGE_CHUNK sits in memory — so any caller that
+    // reads stagedCount() as "everything offered is staged" (the
+    // structural check in run()) must flush first (CI #320: the
+    // unflushed tail read as phantom duplicate postcodes).
+    flushPending,
     async stageItems(rows) {
       offered += rows.length;
       pending.push(...rows);
@@ -731,6 +738,12 @@ async function run() {
       let streamed;
       try {
         streamed = await streamBroadbandRows({ fileDir }, (batch) => filer.stageItems(batch));
+        // The duplicates figure is parsed minus staged, and the
+        // staging counter only advances on a flush — flush the
+        // pending tail before checking, or it reads as duplicates
+        // (CI #320). Staging is a TEMP table, so this files
+        // nothing; the merge still runs only after the check.
+        await filer.flushPending();
         structuralCheckStats(
           {
             parsed: streamed.stats.parsed,
