@@ -43,7 +43,12 @@ import type { AddressResolution } from "./address";
 import type { AreaBundle } from "./area-bundle";
 import type { CrimeBundle } from "./crime";
 import type { FloodBundle, ServedFloodLayer } from "./flood";
-import { type CategoryAnswer, type NearbyBundle, type NearbyCategory } from "./nearby";
+import {
+  servingRadiusMiles,
+  type CategoryAnswer,
+  type NearbyBundle,
+  type NearbyCategory,
+} from "./nearby";
 import type { SoldPricesBundle } from "./sold-prices";
 
 // ------------------------------------------------------------------
@@ -797,7 +802,18 @@ export function joinSegments(source: string, segments: CheckingSegment[]): strin
   return segments
     .map((segment, index) => {
       const prefix = segment.prefix ?? (index === 0 ? source : undefined);
-      return prefix ? `${prefix} — ${segment.text}` : segment.text;
+      const text =
+        index < segments.length - 1
+          ? // BUG-257 (24 Nov 2026): the segments' texts are
+            // full sentences ending in ".", and joining them
+            // with "; " printed ".;" mid-sentence on the
+            // district checking screen. A non-final
+            // segment's trailing full stop is dropped before
+            // the join; the final segment keeps the line's
+            // own terminal punctuation.
+            segment.text.trimEnd().replace(/\.$/, "")
+          : segment.text;
+      return prefix ? `${prefix} — ${text}` : text;
     })
     .join("; ");
 }
@@ -893,8 +909,12 @@ const SCHOOL_COUNT_LABELS: Record<string, [string, string]> = {
   nurseries: ["nursery", "nurseries"],
 };
 
-// The nearby brain's filed radius (lib/nearby.ts
-// RADIUS_MILES), named in the schools line's own words.
+// The nearby brain's filed radius for the primary and
+// nursery categories (lib/nearby.ts RADIUS_MILES) —
+// the schools line's two-mile half. The secondary and
+// sixth-form categories serve to five miles
+// (lib/nearby.ts servingRadiusMiles), and the counts
+// line names each half's own radius (BUG-264).
 const CHECKING_NEARBY_RADIUS_MILES = 2;
 
 // The health group's core three — the drawn finding's
@@ -949,16 +969,27 @@ function schoolsGroupResult(byCategory: Map<NearbyCategory, CategoryAnswer>): Ch
       },
     ]);
   }
-  const parts = present.map(({ key, count }) => {
+  // BUG-264: one "Within 2 miles" label overstated the
+  // secondary and sixth-form counts, which the nearby
+  // brain serves to five miles — primaries and nurseries
+  // serve to two. The line carries both radii, each
+  // naming its own counts in category order; a radius
+  // with no counts is not named. The counts and their
+  // definitions are unchanged — labels only.
+  const byRadius = new Map<number, string[]>();
+  for (const { key, count } of present) {
     const [singular, plural] = SCHOOL_COUNT_LABELS[key] ?? [key, key];
-    return `${count.toLocaleString("en-GB")} ${count === 1 ? singular : plural}`;
-  });
-  return groupResult(rowSource("schools"), [
-    {
-      text: `Within ${CHECKING_NEARBY_RADIUS_MILES} miles: ${parts.join(" · ")}`,
-      named: false,
-    },
-  ]);
+    const part = `${count.toLocaleString("en-GB")} ${count === 1 ? singular : plural}`;
+    const radius = servingRadiusMiles(key);
+    const parts = byRadius.get(radius) ?? [];
+    parts.push(part);
+    byRadius.set(radius, parts);
+  }
+  const text = [...byRadius.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([radius, parts]) => `Within ${radius} miles: ${parts.join(" · ")}`)
+    .join(" · ");
+  return groupResult(rowSource("schools"), [{ text, named: false }]);
 }
 
 function healthGroupResult(byCategory: Map<NearbyCategory, CategoryAnswer>): CheckingGroupResult {

@@ -125,9 +125,16 @@ function PlaceGroup({ group, giftHeld = false }: { group: PlaceGroupView; giftHe
                   <span className="place-row__name">{school.name}</span>
                   <span className="place-row__detail">Entry by test.</span>
                 </span>
-                <span className="badge badge--grey">SELECTIVE — TEST ENTRY</span>
-                <span className={`place-row__miles place-row__miles--${school.band}`}>
-                  {school.milesText}
+                {/* BUG-250 (24 Nov 2026): the badge and the
+                    miles chip travel as one right-hand
+                    cluster (.place-row__end) — spread by
+                    the row's space-between, the badge
+                    landed in the wide empty middle. */}
+                <span className="place-row__end">
+                  <span className="badge badge--grey">SELECTIVE — TEST ENTRY</span>
+                  <span className={`place-row__miles place-row__miles--${school.band}`}>
+                    {school.milesText}
+                  </span>
                 </span>
               </li>
             ))}

@@ -971,7 +971,13 @@ function emptyLine(
   if (spec.emptyKind === "map")
     return `no ${spec.label} recorded within ${radius} miles on the map data we hold — a gap in the map is not proof that none exists`;
   if (spec.emptyKind === "register")
-    return `no nursery within ${radius} miles of the postcode point in the childcare register we hold`;
+    // BUG-250 item 25 (24 Nov 2026): the nurseries line
+    // is a finished sentence and carries its closing full
+    // stop. The other empty forms are fragments by design
+    // and keep theirs off; the join in lib/journey.ts
+    // (BUG-257) strips a non-final segment's stop, so
+    // this never prints ".;" where the line is joined.
+    return `no nursery within ${radius} miles of the postcode point in the childcare register we hold.`;
   if (key === "parks")
     return countWithin > 0
       ? `no named greenspace site within ${radius} miles of the postcode point`
@@ -1626,6 +1632,22 @@ function schoolDetailOf(row: Record<string, unknown>): string | null {
   return parts.length > 0 ? parts.join(" • ") : null;
 }
 
+// BUG-246 (24 Nov 2026): filed addresses can carry a
+// comma with no space inside a single source field —
+// "Waterfront Studios Business Centre,1 Dock Road" in an
+// Ofsted address line, "Glen Road,Plaistow,London" in an
+// NHS address field — and the loaders already join parts
+// with ", ", so the fault lives inside the source fields,
+// not in our joining. A loader change would not repair
+// the rows already filed; the serve layer is the one
+// place every served detail passes through, so the repair
+// sits here: a space after a comma that lacks one, except
+// between two digits, where the comma is a thousands
+// separator (1,000 stays untouched).
+export function normaliseCommaSpacing(detail: string): string {
+  return detail.replace(/,([A-Za-z])/g, ", $1").replace(/([A-Za-z]),(\d)/g, "$1, $2");
+}
+
 function toPoint(row: Record<string, unknown>): NearbyPoint {
   const point: NearbyPoint = {
     name: typeof row.name === "string" ? row.name : null,
@@ -1692,6 +1714,12 @@ function toPoint(row: Record<string, unknown>): NearbyPoint {
     };
     point.destinations = { ks4: fact("d4"), ks5: fact("d5") };
   }
+  // BUG-246: the served detail's comma spacing is repaired
+  // here, at the end, so the school-composed detail above
+  // is repaired too — every served place passes through
+  // this point, and the report and the results page both
+  // read the detail from it.
+  if (typeof point.detail === "string") point.detail = normaliseCommaSpacing(point.detail);
   return point;
 }
 

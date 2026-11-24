@@ -268,6 +268,21 @@ describe("the group mapping, the priority and the recorded detail (rulings 3 and
     expect(placeName({ name: " Galu " })).toBe("Galu");
   });
 
+  it("corrects a typo'd source name to the business's own name (BUG-239)", () => {
+    // OSM way 1319900560 carries a stray "l" in its
+    // name tag ("Kennelsl"); the loader files the
+    // corrected name, and a re-file keeps the fix.
+    expect(placeName({ name: "Latneys Boarding Kennelsl and Cattery" })).toBe(
+      "Latneys Boarding Kennels and Cattery",
+    );
+    // Every other name files verbatim — the map is one
+    // exact string, never a pattern.
+    expect(placeName({ name: "Latneys Boarding Kennels and Cattery" })).toBe(
+      "Latneys Boarding Kennels and Cattery",
+    );
+    expect(placeName({ name: "Some Other Kennels" })).toBe("Some Other Kennels");
+  });
+
   it("migration 0009 adds the detail column, and the schema doc records the shape (T12's OSM half)", () => {
     expect(migration).toContain("ALTER TABLE osm_points");
     expect(migration).toContain("ADD COLUMN detail text");
@@ -409,7 +424,10 @@ describe("the fixture recomputation — the golden figures", () => {
     expect(rows.filter((r) => r.placeType === "vet").length).toBe(0);
     expect(rows.filter((r) => r.placeType === "pet_shop").length).toBe(0);
     const boarding = nearestNamed("birkdale", "pet_boarding");
-    expect(boarding.row.name).toContain("Latneys");
+    // BUG-239: the filed name is the corrected one —
+    // the fixture's OSM way carries the typo ("Kennelsl")
+    // and the loader corrects it at filing.
+    expect(boarding.row.name).toBe("Latneys Boarding Kennels and Cattery");
     expect(boarding.d).toBeCloseTo(0.782, 1);
     const library = nearestNamed("birkdale", "library");
     expect(library.row.name).toBe("Hatfield Peverel Library");

@@ -22,6 +22,10 @@ export interface MortgageResult {
 // Standard repayment (annuity) formula. A zero rate falls
 // back to a straight division; non-positive inputs yield a
 // zero result rather than a NaN the page could render.
+// BUG-262 (founder ruling, 24 Nov 2026): NO ROUNDING —
+// the monthly figure is shown to the penny (£1,000.50 on
+// £180,000 at 4.5% over 25 years), never rounded to whole
+// pounds. The sentence always carries two decimals.
 export function mortgageMonthly(
   price: number,
   deposit: number,
@@ -33,11 +37,15 @@ export function mortgageMonthly(
   if (loan === 0 || months === 0) return { loan, monthly: 0, sentence: "" };
   const r = ratePct / 100 / 12;
   const raw = r === 0 ? loan / months : (loan * r) / (1 - Math.pow(1 + r, -months));
-  const monthly = Math.round(raw);
+  const monthly = Math.round(raw * 100) / 100;
+  const monthlyText = monthly.toLocaleString("en-GB", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
   return {
     loan,
     monthly,
-    sentence: `On a loan of £${loan.toLocaleString("en-GB")} (£${Math.round(price).toLocaleString("en-GB")} price less £${Math.round(deposit).toLocaleString("en-GB")} deposit) at ${ratePct}% over ${years} years: £${monthly.toLocaleString("en-GB")} a month, repayment.`,
+    sentence: `On a loan of £${loan.toLocaleString("en-GB")} (£${Math.round(price).toLocaleString("en-GB")} price less £${Math.round(deposit).toLocaleString("en-GB")} deposit) at ${ratePct}% over ${years} years: £${monthlyText} a month, repayment.`,
   };
 }
 

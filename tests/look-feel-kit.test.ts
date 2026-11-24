@@ -157,6 +157,50 @@ describe("kit tokens (app/globals.css)", () => {
     const block = ruleBlock(".report-payment__consent");
     expect(block).toContain("font-size: 0.62rem");
   });
+
+  it("BUG-232: the suggestions lists cap at a whole number of rows, so the footer never reads as covering one", () => {
+    // A suggestion row is 2.5rem (the body's 1.5
+    // line-height on 1rem, plus 0.5rem of padding top
+    // and bottom — --space-2, pinned above): the
+    // single-group cap is exactly eight rows and the
+    // grouped cap exactly five per group. A fractional
+    // cap cut the last visible row mid-height, and the
+    // brass footer directly beneath read as if it
+    // covered the row's lower half. The footer itself
+    // is a normal-flow sibling below the lists, never
+    // positioned over them — the fold was the defect.
+    const single = ruleBlock(".suggest__list");
+    expect(single).toContain("max-height: min(20rem, 60vh)");
+    const grouped = css.slice(
+      css.indexOf(
+        ".postcode-box__suggestions:has(.suggest__group + .suggest__group) .suggest__list {",
+      ),
+    );
+    expect(grouped).toContain("max-height: min(12.5rem, 40vh)");
+  });
+
+  it("BUG-241: the report band's heading stays cream on content pages", () => {
+    // The content pages' h2 rule (.site-pages h2, dark
+    // --sp-deep, 0,1,1) beats the band's own heading rule
+    // (0,1,0); the scoped override wins at 0,2,0.
+    const block = ruleBlock(".site-pages .report-band__heading");
+    expect(block).toContain("color: var(--cmnh-cream)");
+  });
+
+  it("BUG-242: the report band's price block anchors to the top of the text", () => {
+    const block = ruleBlock(".report-band");
+    expect(block).toContain("align-items: flex-start");
+  });
+
+  it("BUG-244: the calculator fieldset's legend clears its border", () => {
+    const block = ruleBlock(".calculator-card fieldset legend");
+    expect(block).toContain("padding: 0 0.5rem");
+  });
+
+  it("BUG-245: the distance pill keeps its own height in any flex row", () => {
+    const block = ruleBlock(".place-row__miles");
+    expect(block).toContain("height: fit-content");
+  });
 });
 
 describe("brand assets at their fixed destinations", () => {

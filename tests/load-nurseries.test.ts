@@ -64,7 +64,8 @@ const filedClass = records.filter(
   (r) =>
     r["Provider type"] === GROUP &&
     r["Provider status"] === "Active" &&
-    (r["Provider subtype"] === "Full day care" || r["Provider subtype"] === "Sessional day care"),
+    (r["Provider subtype"] === "Full day care" || r["Provider subtype"] === "Sessional day care") &&
+    r["Provider Early Years Register flag"] === "Y",
 );
 
 function haversineMiles(aLat: number, aLng: number, bLat: number, bLng: number): number {
@@ -95,11 +96,13 @@ describe("nurseries loader sources", () => {
     expect(loader).toContain("Ofsted childcare register (management information)");
   });
 
-  it("files group settings only: the non-domestic type in the two nursery subtypes", () => {
+  it("files group settings only: the non-domestic type in the two nursery subtypes, on the Early Years Register (BUG-240)", () => {
     expect(loader).toContain('const GROUP_TYPE = "Childcare on non-domestic premises"');
     expect(loader).toContain('"Full day care"');
     expect(loader).toContain('"Sessional day care"');
     expect(loader).toContain('"Out-of-school day care"');
+    expect(loader).toContain('"Provider Early Years Register flag"');
+    expect(loader).toContain("notOnEarlyYearsRegister");
   });
 
   it("keeps childminders and the redacted domestic rows out by named class (D5)", () => {
@@ -141,12 +144,42 @@ describe("nurseries fixture — real rows from the register as at 30 June 2026",
     }
   });
 
-  it("files 336 group settings, every one positioned by the fixture's postcode list", () => {
-    expect(filedClass).toHaveLength(336);
+  it("files 296 group settings, every one positioned by the fixture's postcode list", () => {
+    expect(filedClass).toHaveLength(296);
     for (const r of filedClass) {
       expect(postcodes[r["Provider postcode"].toUpperCase()]).toBeDefined();
     }
-    expect(new Set(filedClass.map((r) => r["Provider URN"])).size).toBe(336);
+    expect(new Set(filedClass.map((r) => r["Provider URN"])).size).toBe(296);
+  });
+
+  it("the Early Years Register rule drops only voluntary-register care, never a nursery (BUG-240)", () => {
+    // 40 of the 336 subtype-filed rows are off the EYR —
+    // every one a voluntary-register-only provider for
+    // activity, tutoring or holiday care, not a nursery.
+    const offEyr = records.filter(
+      (r) =>
+        r["Provider type"] === GROUP &&
+        r["Provider status"] === "Active" &&
+        (r["Provider subtype"] === "Full day care" ||
+          r["Provider subtype"] === "Sessional day care") &&
+        r["Provider Early Years Register flag"] !== "Y",
+    );
+    expect(offEyr).toHaveLength(40);
+    for (const r of offEyr) {
+      expect(r["Provider Voluntary Childcare Register flag"]).toBe("Y");
+    }
+    // The sample's own case: the maths tutor listed
+    // under Nurseries is VCR-only, never EYR.
+    const pearl = records.find(
+      (r) => r["Provider name"] === "Maths Tutoring By Pearl Lily And Co Accountants",
+    );
+    expect(pearl?.["Provider Early Years Register flag"]).toBe("N");
+    expect(pearl?.["Provider Voluntary Childcare Register flag"]).toBe("Y");
+    expect(filedClass.some((r) => r["Provider name"].includes("Pearl Lily"))).toBe(false);
+    // No dropped name is a day nursery or pre-school.
+    for (const r of offEyr) {
+      expect(r["Provider name"]).not.toMatch(/Day Nursery|Pre-School|Pre-school|Nursery School/i);
+    }
   });
 
   it("reproduces the golden facts the first filed load locked", () => {
@@ -164,13 +197,13 @@ describe("nurseries fixture — real rows from the register as at 30 June 2026",
       "E16 1GN": {
         nearest: "Cribs Day Nursery",
         miles: 0.088,
-        count: 96,
+        count: 81,
         top3: ["Cribs Day Nursery", "Moksliukas", "Clever Cloggs Day Nursery"],
       },
       "KT17 1FH": {
         nearest: "Nestots Day Nursery",
         miles: 0.174,
-        count: 39,
+        count: 35,
         top3: [
           "Nestots Day Nursery",
           "Lynton House Day Nursery",

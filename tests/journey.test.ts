@@ -371,7 +371,7 @@ describe("checking group derivation — the nearby part (schools & health)", () 
     );
     expect(groups.schools).toEqual({
       state: "done",
-      line: "Ofsted — Within 2 miles: 3 primary schools · 1 secondary school · 2 nurseries",
+      line: "Ofsted — Within 2 miles: 3 primary schools · 2 nurseries · Within 5 miles: 1 secondary school",
     });
     expect(groups.health).toEqual({
       state: "done",

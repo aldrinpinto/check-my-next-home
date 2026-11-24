@@ -514,9 +514,7 @@ test.describe("shortlist — regression", () => {
       const searchCard = page.locator(".shortlist-search-card");
       await expect(searchCard).toBeVisible();
       await expect(searchCard.locator("h2")).toHaveText("Check a home");
-      await expect(
-        searchCard.getByPlaceholder("Enter a postcode, street or town — e.g. SW1A 1AA"),
-      ).toBeVisible();
+      await expect(searchCard.getByPlaceholder("Enter a postcode, street or town")).toBeVisible();
       await expect(searchCard.getByRole("button", { name: "Check this home" })).toBeVisible();
     },
   );

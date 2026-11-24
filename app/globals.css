@@ -457,6 +457,20 @@ p {
   gap: var(--space-2) 1.375rem;
 }
 
+/* BUG-250 (24 Nov 2026): at phone width the five nav
+   items wrapped 4 + 1, "Contact" alone on a second line,
+   left-aligned. The nav takes the full row and its items
+   centre, so no item stands orphaned. */
+@media (max-width: 30rem) {
+  .site-nav {
+    margin-left: 0;
+    width: 100%;
+  }
+  .site-nav__list {
+    justify-content: center;
+  }
+}
+
 .site-nav__link {
   display: inline-flex;
   align-items: center;
@@ -1165,6 +1179,18 @@ body:has(.main--home) .site-footer {
   padding: 2.75rem 1.875rem 2.5rem;
 }
 
+/* BUG-249 (24 Nov 2026): at phone width the hero's 30px
+   side gutters leave the search field too narrow for its
+   placeholder — the final "A" of "SW1A 1AA" clips. The
+   16px gutters are the site's own phone measure (the
+   content pages' inner), so the field gains the room
+   without touching the desktop sample's padding. */
+@media (max-width: 30rem) {
+  .hero {
+    padding: 2.75rem 1rem 2.5rem;
+  }
+}
+
 .hero__kicker {
   /* The sample's kicker: Brass, uppercase, tracked, small. */
   font-size: 0.78125rem;
@@ -1338,6 +1364,10 @@ body:has(.main--home) .site-footer {
   .source-strip__logos {
     flex-wrap: wrap;
     gap: 0.625rem 0.875rem;
+    /* BUG-250 (24 Nov 2026): at phone width the logos
+       wrapped 3 / 4 / 1, the lone EPC Register left-
+       aligned on its own row. Centred, the rows balance. */
+    justify-content: center;
   }
 }
 
@@ -1456,8 +1486,14 @@ body:has(.main--home) .site-footer {
      roughly eight rows, and never more than 60% of the
      viewport on a short screen; the group label stays
      pinned above it. A short list never reaches the cap
-     and renders exactly as before. */
-  max-height: min(19rem, 60vh);
+     and renders exactly as before. BUG-232 (24 Nov
+     2026): the cap is a WHOLE number of rows — a row is
+     2.5rem (the body's 1.5 line-height on 1rem, plus
+     0.5rem of padding top and bottom), so 20rem is
+     exactly eight rows. The 19rem cap cut the eighth
+     row at ~60%, and the brass footer directly beneath
+     read as if it covered the row's lower half. */
+  max-height: min(20rem, 60vh);
   overflow-y: auto;
 }
 
@@ -1470,9 +1506,12 @@ body:has(.main--home) .site-footer {
    matching set (the E161G fix) and the full set stays
    reachable by scrolling, exactly as the full-postcode
    home list behaves above. The single-group panel (the
-   Homes list above all) keeps the D71 form untouched. */
+   Homes list above all) keeps the D71 form untouched.
+   BUG-232: the same whole-row rule — 12.5rem is
+   exactly five 2.5rem rows; the 12rem cap cut the
+   fifth row at ~80%. */
 .postcode-box__suggestions:has(.suggest__group + .suggest__group) .suggest__list {
-  max-height: min(12rem, 40vh);
+  max-height: min(12.5rem, 40vh);
 }
 
 .suggest__item {
@@ -1638,6 +1677,23 @@ button.postio-row:hover {
 @media (max-width: 30rem) {
   .postcode-box--bare .field__input {
     font-size: 1rem;
+  }
+  /* BUG-249 / BUG-252 (24 Nov 2026): the placeholder
+     "Enter a postcode, street or town — e.g. SW1A 1AA"
+     measures 363px in the DM Sans 400 webfont at the
+     16px phone size, against ~338px of field at 390px
+     once the hero's gutters narrow — the final "A"
+     clips. The placeholder alone drops to the caption
+     size (0.8125rem, 295px): the typed text stays at
+     16px, so the iOS no-zoom floor above is untouched,
+     and the copy stays exactly as the founder wrote it.
+     The field's side padding narrows with it (14px to
+     10px) for the same reason. Desktop is untouched. */
+  .postcode-box--bare .field__input::placeholder {
+    font-size: 0.8125rem;
+  }
+  .postcode-box--bare .field__input {
+    padding: 0.75rem 0.625rem;
   }
 }
 
@@ -1843,7 +1899,11 @@ button.postio-row:hover {
   display: flex;
   flex-wrap: wrap;
   gap: 1.625rem;
-  align-items: center;
+  /* BUG-242 (24 Nov 2026): the price block was vertically
+     centred against the taller text block, so it floated
+     disconnected mid-band. Anchored to the top, it sits
+     with the text it prices. */
+  align-items: flex-start;
 }
 
 .report-band__main {
@@ -1851,6 +1911,17 @@ button.postio-row:hover {
 }
 
 .report-band__heading {
+  color: var(--cmnh-cream);
+}
+
+/* BUG-241 (24 Nov 2026): the content pages' own h2 rule
+   (.site-pages h2, dark --sp-deep at specificity 0,1,1)
+   beats the rule above (0,1,0) and draws this heading
+   dark on the dark band — invisible on every check,
+   guide, hub and How-we-check page. Scoping the cream
+   here wins (0,2,0); the homepage and About, which carry
+   no .site-pages rule, are untouched. */
+.site-pages .report-band__heading {
   color: var(--cmnh-cream);
 }
 
@@ -2767,6 +2838,7 @@ button.postio-row:hover {
    mechanics, not animation, and is untouched. */
 @media (prefers-reduced-motion: reduce) {
   .checking__row-spinner,
+  .checking__spinner,
   .checking__ticker-text {
     animation: none;
   }
@@ -2841,6 +2913,16 @@ button.postio-row:hover {
   border-radius: var(--radius-tile);
   padding: 12px 14px;
   margin-bottom: var(--space-4);
+}
+
+/* BUG-250 (24 Nov 2026): at phone width the five pills
+   wrapped 2 + 2 + 1, the lone fifth pill left-aligned on
+   its own row. Centred below 40rem, the rows balance;
+   the desktop row stays left-aligned. */
+@media (max-width: 40rem) {
+  .results-strip {
+    justify-content: center;
+  }
 }
 
 /* The gift strip (BUG-223, approved Screen B, DRAFT
@@ -3032,6 +3114,16 @@ button.postio-row:hover {
   white-space: nowrap;
   padding: 5px 9px;
   border-radius: 999px;
+  /* BUG-245 (24 Nov 2026): the chip keeps its natural
+     height only because its usual container (.place-row)
+     carries align-items: flex-start. In .results-row —
+     the brownfield row's tagged-line form — there is no
+     such rule, so the flex default (stretch) pulls the
+     chip to the full row height, text pinned at the top
+     of a tall pink oval. fit-content holds the chip at
+     its own height in any container, as .badge already
+     does for the same reason. */
+  height: fit-content;
 }
 
 .place-row__miles--green {
@@ -3047,6 +3139,18 @@ button.postio-row:hover {
 .place-row__miles--red {
   background: var(--dist-red-bg);
   color: var(--dist-red);
+}
+
+/* BUG-250 (24 Nov 2026): the grammar row's three flex
+   children spread across the row (space-between), so the
+   SELECTIVE badge landed in the wide empty middle. The
+   badge and the miles chip travel as one right-hand
+   cluster; the name keeps the left. */
+.place-row__end {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
 }
 
 .place-row__detail,
@@ -3219,6 +3323,11 @@ a.trunc-row:hover {
    similar form. */
 .results-list__item--sub {
   margin-left: 18px;
+  /* BUG-250 (24 Nov 2026): the 18px indent alone read
+     flat against the group bullets. The sub-bullet takes
+     the hollow circle, so the level shows in the marker
+     as well as the indent. */
+  list-style-type: circle;
 }
 
 .results-list--row {
@@ -3518,7 +3627,11 @@ a.picker__row {
   border: 1px solid var(--colour-line-warm);
   border-radius: 16px;
   background: var(--cmnh-white);
-  padding: 1.4rem 1.5rem;
+  /* BUG-250 (24 Nov 2026): the card's 1.4rem bottom
+     padding left dead space under the Remove button —
+     the card ends with its action, so it closes tighter
+     below it than above. */
+  padding: 1.4rem 1.5rem 0.9rem;
 }
 
 .shortlist-card__address {
@@ -3562,7 +3675,10 @@ a.picker__row {
 }
 
 .shortlist-compare {
-  margin-top: 2.6rem;
+  /* BUG-250 (24 Nov 2026): the 2.6rem gap above the
+     comparison read as more empty space below the
+     Remove button. Tightened to 1.8rem. */
+  margin-top: 1.8rem;
 }
 
 .shortlist-compare > h2 {
@@ -4340,6 +4456,21 @@ a.picker__row {
   flex: none;
 }
 
+/* BUG-260 (24 Nov 2026): the preparing state's visible
+   progress — the checking screen's own 17px ring beside
+   the line, so the ~minute wait never reads as a stuck
+   page. The ring is the same .checking__spinner the
+   checking screen wears; the line is plain words, no
+   faked percentage and no time claim. */
+.report-success__preparing {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 18px;
+  color: var(--cmnh-forest-deep);
+  font-size: 1rem;
+}
+
 /* The gift-applied banner (PF-17, founder ruling
    22 Nov 2026): kept — a gifted buyer is told the
    gift was applied — and dressed in the flow's
@@ -4537,6 +4668,35 @@ a.picker__row {
   border-color: var(--cmnh-forest);
 }
 
+/* BUG-259 (24 Nov 2026): at phone width the "Check
+   another home" field on the success / failed surfaces
+   rendered ~260px tall, a giant empty box with its
+   placeholder centred in the middle — the same shape as
+   BUG-252 on the content pages, but a different card:
+   the BUG-252 fix is scoped to .site-pages
+   .search-block and never reaches this box. The cause is
+   the same: the field's 260px flex-basis is a width at
+   desktop and becomes the field's HEIGHT once the global
+   30rem rule flips the row to a column. Reset the basis
+   here so the field is one line tall again (its 48px
+   min-height stands) and the button stacks below it. The
+   card's side padding narrows with it (26px to 16px) so
+   the full placeholder fits at 390px, as BUG-252 did for
+   the search block. The failed surface carries the
+   identical rule and gets the identical reset — the same
+   mechanism in the twin card. Desktop is untouched: the
+   row stays a row and the basis stays a width. */
+@media (max-width: 30rem) {
+  .report-success .report-door__card,
+  .report-failed .report-door__card {
+    padding: 1.5rem 1rem;
+  }
+  .report-success .postcode-box__row .field__input,
+  .report-failed .postcode-box__row .field__input {
+    flex: 1 1 auto;
+  }
+}
+
 /* M9.7's additions to the post-payment surfaces: the
    failed state's lines on the success surface, the
    buyer re-send's row and answer, and Sample 12's
@@ -4714,6 +4874,109 @@ a.picker__row {
   border-bottom: none;
 }
 
+/* The phone swipe table (founder-picked option 1, 24 Nov
+   2026): below 40rem the comparison is the desktop
+   table's own form in a horizontal scroller — the fact
+   labels pinned in a fixed first column, one column per
+   saved home, the columns swiping under the thumb with
+   scroll-snap. The paper frame moves to the scroller (the
+   table's own border and radius would clip the sticky
+   column), and the table switches to separate borders so
+   the sticky cells keep their hairlines. Every selector
+   is qualified by the scroller, so these rules can never
+   reach the desktop table; desktop never renders this
+   markup at all (components/ShortlistPage.tsx). */
+@media (max-width: 40rem) {
+  .compare-table__scroller {
+    margin-top: 1.2rem;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x proximity;
+    scroll-padding-left: 6.5rem;
+    background: var(--cmnh-white);
+    border: 1px solid var(--colour-line-warm);
+    border-radius: 16px;
+  }
+
+  /* Fixed layout with an explicit width per home count, so
+     the columns measure exactly: the label column is the
+     6.5rem the scroller's left scroll-padding names, and a
+     home column is 11rem — narrower than the scroller
+     minus the label column, so the next home peeks in,
+     the affordance that the table swipes. One home fills
+     the scroller (the facts for this home); two or three
+     overflow it and scroll. */
+  .compare-table__scroller .compare-table--swipe {
+    table-layout: fixed;
+    margin-top: 0;
+    border: none;
+    border-radius: 0;
+    overflow: visible;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+
+  .compare-table__scroller .compare-table--swipe[data-card-count="1"] {
+    width: max(100%, 17.5rem);
+  }
+
+  .compare-table__scroller .compare-table--swipe[data-card-count="2"] {
+    width: max(100%, 28.5rem);
+  }
+
+  .compare-table__scroller .compare-table--swipe[data-card-count="3"] {
+    width: max(100%, 39.5rem);
+  }
+
+  .compare-table__scroller .compare-table--swipe[data-card-count] thead th:first-child {
+    width: 6.5rem;
+  }
+
+  .compare-table__scroller .compare-table--swipe thead th:not(:first-child) {
+    width: 11rem;
+  }
+
+  /* The label column takes the phone block's label measure
+     (0.82rem, tighter sides) so its longest word —
+     "SECONDARY" — holds on one line instead of breaking
+     mid-word. */
+  .compare-table__scroller .compare-table--swipe tbody th {
+    font-size: 0.82rem;
+    padding: 0.85rem 0.625rem;
+  }
+
+  /* The pinned label column: opaque, so the home cells
+     slide under it, with a hairline at its edge. The
+     corner cell rides above the scrolling cells. */
+  .compare-table__scroller .compare-table--swipe thead th:first-child,
+  .compare-table__scroller .compare-table--swipe tbody th,
+  .compare-table__scroller .compare-table--swipe tfoot th {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    box-shadow: 1px 0 0 var(--colour-line-warm);
+  }
+
+  .compare-table__scroller .compare-table--swipe thead th:first-child {
+    z-index: 2;
+  }
+
+  .compare-table__scroller .compare-table--swipe tbody th {
+    background: var(--cmnh-white);
+  }
+
+  /* Snap lands a home column flush after the label column
+     (the scroller's left scroll-padding is the label
+     column's width); proximity, never mandatory, so a
+     partial swipe is never trapped. */
+  .compare-table__scroller .compare-table--swipe thead th:not(:first-child),
+  .compare-table__scroller .compare-table--swipe tbody td,
+  .compare-table__scroller .compare-table--swipe tfoot td {
+    scroll-snap-align: start;
+  }
+}
+
 /* The shortlist's empty state: the sample's dashed-brass
    paper card at 640px (D8, parity fix stack, 18 Nov
    2026). The sample carries no illustration — the dog the
@@ -4833,6 +5096,11 @@ a.picker__row {
 .calculators__cards {
   display: flex;
   flex-wrap: wrap;
+  /* BUG-250 (24 Nov 2026): the flex default stretches
+     both cards to the taller one's height, so the shorter
+     card carries dead space under its last line. Each
+     card takes its own height. */
+  align-items: flex-start;
   gap: var(--space-4);
 }
 .calculator-card {
@@ -4852,6 +5120,25 @@ a.picker__row {
   flex-direction: column;
   gap: var(--space-1);
 }
+.calculator-card fieldset {
+  /* BUG-244 (24 Nov 2026): the bare fieldset renders the
+     browser's default legend-on-the-border, and the
+     legend's text touches the border on both sides. A
+     tile-line border in the card's own language, with
+     room inside, and the legend padded so its text
+     clears the border. */
+  border: 1px solid var(--colour-tile-line);
+  border-radius: var(--radius-card);
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  margin: 0;
+  min-width: 0;
+}
+
+.calculator-card fieldset legend {
+  padding: 0 0.5rem;
+  font-weight: 700;
+}
+
 .calculator-card fieldset label {
   flex-direction: row;
   align-items: center;
@@ -4901,6 +5188,14 @@ a.picker__row {
   max-width: 1080px;
   margin: 0 auto;
   padding: 2rem 1rem 3rem;
+}
+/* BUG-250 (24 Nov 2026): the chrome pages (About,
+   Contact, Privacy, Terms) sat in the 1080px column and
+   read as lost on a wide viewport. Those four pages take
+   the wider column; the guides and check pages keep the
+   sample's measure. */
+.site-pages__inner--wide {
+  max-width: 1180px;
 }
 .site-pages h1,
 .site-pages h2,
@@ -5032,6 +5327,14 @@ a.picker__row {
   color: #3d4a40;
   max-width: 75ch;
 }
+/* BUG-250 (24 Nov 2026): the 75ch cap left the
+   how-we-check cards' text — and the dashed divider
+   under it — occupying only the left ~60% of each
+   full-width card. The check cards use the card's full
+   width; the cap stands everywhere else. */
+.site-pages .how-card p {
+  max-width: none;
+}
 .site-pages .card p + p {
   margin-top: 0.55rem;
 }
@@ -5079,6 +5382,26 @@ a.picker__row {
   border-radius: 999px;
   padding: 0.28rem 0.7rem;
   white-space: nowrap;
+}
+
+/* BUG-251 (24 Nov 2026): at phone width the check cards
+   overflowed the viewport — body text cut mid-word at the
+   screen's right edge, SOURCE pills cut, a horizontal
+   scrollbar. The cause is the source-tag: one unbroken
+   line up to 424px ("SOURCE · FIRST-TIER TRIBUNAL ·
+   BUILDING SAFETY REGULATOR", measured in the DM Sans
+   700 webfont), so the card's min-content — the grid
+   item's default min-width — is ~477px with its padding,
+   wider than a 390px phone. At phone width the tag wraps
+   onto its own lines and the card is allowed to shrink
+   to its grid track; desktop keeps the one-line pill. */
+@media (max-width: 30rem) {
+  .site-pages .how-card {
+    min-width: 0;
+  }
+  .site-pages .source-tag {
+    white-space: normal;
+  }
 }
 .site-pages .how-line {
   border-top: 1px dashed var(--sp-line);
@@ -5148,6 +5471,29 @@ a.picker__row {
 .site-pages .search-block .postcode-box__row .field__input {
   flex: 1 1 260px;
   min-height: 52px;
+}
+
+/* BUG-252 (24 Nov 2026): at phone width the "Check a
+   home" field rendered ~260px tall, a giant empty box
+   with its placeholder centred in the middle. The cause
+   is the field's 260px flex-basis: a width at desktop,
+   it becomes the field's HEIGHT once the global 30rem
+   rule flips the row to a column. Reset the basis here
+   so the field is one line tall again (its 52px
+   min-height stands) and the button stacks below it.
+   The block's side padding narrows with it (27px to
+   16px) so the full placeholder fits at 390px — with
+   the BUG-249 placeholder size the field holds 306px
+   of text against the placeholder's 295px. Desktop is
+   untouched: the row stays a row and the basis stays a
+   width. */
+@media (max-width: 30rem) {
+  .site-pages .search-block {
+    padding: 1.6rem 1rem;
+  }
+  .site-pages .search-block .postcode-box__row .field__input {
+    flex: 1 1 auto;
+  }
 }
 
 /* About — the hero, the card grid, the tagline, the price
@@ -5221,7 +5567,11 @@ a.picker__row {
    D5 (parity fix stack, 18 Nov 2026): the sample holds the
    policy in an 820px wrap inside the 1080px measure. */
 .site-pages .privacy-wrap {
-  max-width: 820px;
+  /* BUG-250 (24 Nov 2026): the policy text sat in the
+     sample's 820px wrap and read as lost on a wide
+     viewport — widened to 920px, still a centred column
+     in the sample's form. */
+  max-width: 920px;
 }
 .site-pages .privacy-date {
   font-size: 0.9rem;
@@ -5248,9 +5598,12 @@ a.picker__row {
    heading, form card and email route — sits in the
    sample's 720px .contact-wrap (the Master carries the
    form in its card inside that wrap); the email route
-   below the card is the sample's centred block. */
+   below the card is the sample's centred block.
+   BUG-250 (24 Nov 2026): the 720px wrap read as lost on
+   a wide viewport — widened to 840px, still a centred
+   column in the sample's form. */
 .site-pages .contact-wrap {
-  max-width: 720px;
+  max-width: 840px;
 }
 .site-pages .contact-card {
   margin-top: 1.8rem;
@@ -5675,6 +6028,10 @@ a.picker__row {
   padding: 0;
   display: flex;
   flex-wrap: wrap;
+  /* BUG-250 (24 Nov 2026): the last chip sat alone on
+     its own line, left-aligned — an orphan. Centred, the
+     wrapped rows read as a finished block. */
+  justify-content: center;
   gap: 0.6rem;
   margin-top: 0.8rem;
 }
@@ -5724,7 +6081,12 @@ a.picker__row {
   font-size: 4.6rem;
   letter-spacing: 0.25em;
   color: var(--sp-forest);
-  opacity: 0.055;
+  /* BUG-250 (24 Nov 2026): the watermark's 0.055
+     opacity greyed the body copy it crossed. Softened
+     to 0.032 — still legible as the sample marker, no
+     longer dulling the words beneath it. The marker
+     itself stays. */
+  opacity: 0.032;
   transform: rotate(-28deg);
   white-space: nowrap;
 }
@@ -5795,11 +6157,14 @@ a.picker__row {
 }
 .site-pages .rpt-meta {
   display: grid;
-  /* D7 (parity fix stack, 18 Nov 2026): the sample's
-     repeat(4, 1fr) for the meta strip's five items — four
-     across, the fifth wrapping. */
-  grid-template-columns: repeat(4, 1fr);
-  gap: 8px 20px;
+  /* BUG-250 (24 Nov 2026): the sample's repeat(4, 1fr)
+     (D7) put the fifth cell — Report date — alone on a
+     second row, reading as a mistake. Five across at
+     desktop, with a tighter column gap so the values
+     still fit; at phone width the last cell spans the
+     full width (below). Master Sample 7 conforms. */
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px 14px;
   background: var(--sp-wash);
   border: 1px solid var(--sp-line);
   border-radius: 10px;
@@ -6116,6 +6481,11 @@ a.picker__row {
   grid-template-columns: 1fr 1fr;
   gap: 10px;
   margin: 10px 0;
+  /* BUG-250 (24 Nov 2026): the grid default stretches
+     both chart cards to the taller one's height — the
+     AGE chart card carried dead space under its chart.
+     Each card takes its own height. */
+  align-items: start;
 }
 /* The one true small-print treatment (BUG-068/086):
    every explainer, caption and disclaimer-grade line —
@@ -6200,10 +6570,72 @@ a.picker__row {
   color: var(--sp-muted);
   font-weight: 700;
 }
+/* BUG-250 (24 Nov 2026): the Energy certificates
+   table's "FLOOR AREA" header wrapped mid-word. Its
+   headers are all short, so the table keeps them on one
+   line; every other table is untouched. */
+.site-pages .rpt-doc table.rpt-table--energy th {
+  white-space: nowrap;
+}
 .site-pages .rpt-doc td.num,
 .site-pages .rpt-doc th.num {
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+/* BUG-253 (24 Nov 2026): the flood defences tables'
+   six columns measure ~558px at their narrowest
+   (single-word uppercase headers — WATERCOURSE,
+   MAINTAINER, CONDITION, STANDARD, DISTANCE — plus
+   cell padding), against ~358px of report at 390px,
+   so the "Design standard" column — and the distance
+   after it — fell off the screen's right edge reading
+   "DES STA" / "1 in 1". No narrower font or padding
+   closes a 200px gap, so at phone width the defences
+   tables restack: each row becomes a labelled block,
+   the header its labels (the renderer's data-label),
+   the figure columns left-aligned under theirs. The
+   other report tables are untouched — their columns
+   fit — and print is untouched: this is a screen-only
+   rule, so the PDF twin keeps the table form. */
+@media screen and (max-width: 640px) {
+  .site-pages .rpt-doc table.rpt-table--defences thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .site-pages .rpt-doc table.rpt-table--defences,
+  .site-pages .rpt-doc table.rpt-table--defences tbody,
+  .site-pages .rpt-doc table.rpt-table--defences tr,
+  .site-pages .rpt-doc table.rpt-table--defences td {
+    display: block;
+    width: 100%;
+  }
+  .site-pages .rpt-doc table.rpt-table--defences tr + tr {
+    border-top: 1px solid var(--sp-line-soft);
+  }
+  .site-pages .rpt-doc table.rpt-table--defences tr {
+    padding: 6px 0;
+  }
+  .site-pages .rpt-doc table.rpt-table--defences td {
+    border-bottom: 0;
+    padding: 2px 0;
+  }
+  .site-pages .rpt-doc table.rpt-table--defences td::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--sp-muted);
+  }
+  .site-pages .rpt-doc table.rpt-table--defences td.num {
+    text-align: left;
+  }
 }
 /* The yardstick cells' two tones (BUG-073/076,
    succeeding print-check item 2's red-only alert): a
@@ -6422,6 +6854,14 @@ a.picker__row {
 .site-pages .rpt-printUrl {
   display: none;
 }
+/* BUG-250 (24 Nov 2026): the flood map card's title —
+   print-only, like the cover and the printed URLs. On
+   screen the layer sub above it already names the
+   picture; in print the title anchors the picture to
+   its caption (the PDF proof's cardPairs). */
+.site-pages .rpt-printTitle {
+  display: none;
+}
 
 /* The sample's own small-screen values for these pages. */
 @media (max-width: 640px) {
@@ -6436,6 +6876,12 @@ a.picker__row {
   }
   .site-pages .rpt-meta {
     grid-template-columns: 1fr 1fr;
+  }
+  /* BUG-250 (24 Nov 2026): at phone width the fifth
+     cell spans the full width instead of sitting alone
+     in a half-width column. */
+  .site-pages .rpt-meta > div:last-child {
+    grid-column: 1 / -1;
   }
   .site-pages .rpt-tldr {
     grid-template-columns: 1fr;
@@ -6746,6 +7192,10 @@ a.picker__row {
 .results-pills {
   display: flex;
   flex-wrap: wrap;
+  /* BUG-250 (24 Nov 2026): the district's settlement
+     pills wrapped 2 + 2 with uneven row widths. Centred,
+     the rows balance. */
+  justify-content: center;
   gap: 8px;
   list-style: none;
   padding: 0;
@@ -7188,6 +7638,21 @@ a.picker__row {
   margin-top: 16px;
 }
 
+/* BUG-250 (24 Nov 2026): a district's settlement detail
+   can run long enough to wrap — the CO9 row's "and 24
+   more" fell to a second line, leaving that row taller
+   than its siblings. At desktop width the detail stays
+   on one line (the full settlement list still stands on
+   the district page itself); below 40rem it wraps as
+   before. */
+@media (min-width: 40rem) {
+  .district-place__detail {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
 /* =====================================================================
    The PDF twin (plan step M8.4) — the report's print
    stylesheet. The PDF is the real report page, printed
@@ -7253,6 +7718,11 @@ a.picker__row {
     break-after: page;
     page-break-after: always;
     padding-top: 52mm;
+  }
+  /* BUG-250 (24 Nov 2026): the flood map titles show in
+     print, hidden on screen (above). */
+  .site-pages .rpt-printTitle {
+    display: block;
   }
   .site-pages .rpt-cover h1 {
     font-size: 2.6rem;

@@ -20,6 +20,7 @@ import {
   saveShortlist,
   subscribeShortlistChanged,
   type ComparisonRowKey,
+  type ComparisonView,
   type ShortlistCell,
   type ShortlistRecord,
 } from "../lib/shortlist";
@@ -141,6 +142,56 @@ function CompareCell({
   );
 }
 
+export function CompareSwipeTable({ comparison }: { comparison: ComparisonView }) {
+  return (
+    <div className="compare-table__scroller">
+      <table
+        className="compare-table compare-table--swipe"
+        data-card-count={comparison.columns.length}
+      >
+        <thead>
+          <tr>
+            <th scope="col">
+              <span className="visually-hidden">Check</span>
+            </th>
+            {comparison.columns.map((card) => (
+              <th scope="col" key={card.id} data-rung={card.rung}>
+                {card.addressLine}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {comparison.rows.map((row) => (
+            <tr key={row.key} data-compare-row={row.key}>
+              <th scope="row">{row.label}</th>
+              {row.cells.map((cell, columnIndex) => (
+                <td key={comparison.columns[columnIndex].id}>
+                  <CompareCell cell={cell} rowKey={row.key} family={row.family} />
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr>
+            <th scope="row">
+              <span className="visually-hidden">Reports</span>
+            </th>
+            {comparison.columns.map((card) => (
+              <td key={card.id}>
+                <ReportLink className="report-btn" href={cardReportHref(card)}>
+                  Get the full report — {REPORT_PRICE_LABEL}
+                </ReportLink>
+              </td>
+            ))}
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  );
+}
+
 export default function ShortlistPage() {
   const [state, setState] = useState<State>({ kind: "pending" });
   // The comparison's form follows the viewport (D70 R5/D17):
@@ -148,6 +199,13 @@ export default function ShortlistPage() {
   // proven block stacking below them. The page's content is
   // client-resolved already, so the form resolves with it.
   const [wide, setWide] = useState(false);
+  // The phone form (founder-picked option 1, 24 Nov 2026):
+  // below 40rem the comparison is the swipe table — the
+  // desktop table's own form in a horizontal scroller.
+  // A second, narrower breakpoint, so the 40–48rem band
+  // keeps exactly today's stacked blocks and desktop is
+  // untouched.
+  const [phone, setPhone] = useState(false);
 
   useEffect(() => {
     const read = () => {
@@ -163,6 +221,14 @@ export default function ShortlistPage() {
   useEffect(() => {
     const query = window.matchMedia("(min-width: 48rem)");
     const update = () => setWide(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 40rem)");
+    const update = () => setPhone(query.matches);
     update();
     query.addEventListener("change", update);
     return () => query.removeEventListener("change", update);
@@ -350,9 +416,19 @@ export default function ShortlistPage() {
                 </tr>
               </tfoot>
             </table>
+          ) : phone ? (
+            // The phone form (founder-picked option 1,
+            // 24 Nov 2026): the swipe table — the desktop
+            // table's own rows, cells and foot buttons in
+            // a horizontal scroller, the fact labels
+            // pinned in a fixed first column. The heading
+            // above ("side by side") becomes true on
+            // mobile too. Below 40rem only.
+            <CompareSwipeTable comparison={comparison} />
           ) : (
-            // The phone form: the proven block stacking — one
-            // block per home, its rows labelled per block.
+            // The 40–48rem band keeps the proven block
+            // stacking — one block per home, its rows
+            // labelled per block — exactly as before.
             <div
               className="shortlist-compare__grid"
               style={{ "--compare-columns": comparison.columns.length } as React.CSSProperties}

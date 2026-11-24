@@ -95,7 +95,7 @@ test.describe("calculators — regression (M7.10)", () => {
 
       await mortgageCard(page).getByRole("button", { name: "Calculate monthly payment" }).click();
       await expect(mortgageCard(page).locator(".calculator-card__result")).toContainText(
-        "£2,455 a month, repayment.",
+        "£2,455.37 a month, repayment.",
       );
     },
   );

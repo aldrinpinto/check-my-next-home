@@ -58,7 +58,10 @@ export default async function ContactPage({
 
   return (
     <main className="site-pages">
-      <div className="site-pages__inner">
+      {/* BUG-250 (24 Nov 2026): the chrome pages take the
+          wider inner (app/globals.css) — the 1080px
+          column read as lost on a wide viewport. */}
+      <div className="site-pages__inner site-pages__inner--wide">
         <BreadcrumbLd name="Contact" path="/contact" />
         <Breadcrumb items={[{ label: "Home", href: "/" }, { label: "Contact" }]} />
         {/* D5 (parity fix stack, 18 Nov 2026): the page

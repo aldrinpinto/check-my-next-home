@@ -17,6 +17,7 @@ import {
   SCHOOL_DEADLINE_SECONDARY,
   buildNearbyBundle,
   haversineMiles,
+  normaliseCommaSpacing,
   type CqcRating,
   type DestinationRowFact,
   type NearbyBundle,
@@ -1145,8 +1146,11 @@ describe("nearby bundle — 19 Birkdale Rise, CM3 2JT", () => {
     ]);
     // Pet boarding always serves its two nearest
     // (BUG-079), however far the second stands.
+    // BUG-239: the name is filed corrected — the OSM
+    // name tag carries a stray "l" ("Kennelsl"), and
+    // the loader files the business's own name.
     expect(top(bundle, "pet-boarding")).toEqual([
-      ["Latneys Boarding Kennelsl and Cattery", 0.77],
+      ["Latneys Boarding Kennels and Cattery", 0.77],
       ["Ponyo’s House", 31.304],
     ]);
   });
@@ -1687,5 +1691,26 @@ describe("nearby bundle — sixth forms (M6.33, D51/D64)", () => {
     expect(cat.state).toBe("none-within");
     expect(cat.countWithin).toBe(0);
     expect(cat.places).toEqual([]);
+  });
+});
+
+describe("served detail comma spacing (BUG-246)", () => {
+  it("puts a space after a comma that lacks one, in the audit's own cases", () => {
+    // The sample report's Section 3 nursery line and its
+    // Section 4 hospital lines, as filed: the comma sits
+    // inside a single source field, so no join can repair
+    // it — the serve layer normalises it instead.
+    expect(normaliseCommaSpacing("Waterfront Studios Business Centre,1 Dock Road, London")).toBe(
+      "Waterfront Studios Business Centre, 1 Dock Road, London",
+    );
+    expect(normaliseCommaSpacing("Glen Road,Plaistow,London")).toBe("Glen Road, Plaistow, London");
+  });
+
+  it("leaves a correct ', ' and a thousands separator untouched", () => {
+    expect(normaliseCommaSpacing("19 Birkdale Rise, Hatfield Peverel, CM3 2JT")).toBe(
+      "19 Birkdale Rise, Hatfield Peverel, CM3 2JT",
+    );
+    expect(normaliseCommaSpacing("1,000 homes within 2 miles")).toBe("1,000 homes within 2 miles");
+    expect(normaliseCommaSpacing("No comma here")).toBe("No comma here");
   });
 });

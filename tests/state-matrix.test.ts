@@ -513,7 +513,7 @@ describe("matrix — nearby", () => {
     const { answer } = await categoryOf(source, "nurseries");
     expect(answer.state).toBe("empty");
     expect(answer.line).toBe(
-      "no nursery within 2 miles of the postcode point in the childcare register we hold",
+      "no nursery within 2 miles of the postcode point in the childcare register we hold.",
     );
   });
 

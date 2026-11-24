@@ -3071,6 +3071,91 @@ describe("results — BUG-205/206/209 hierarchy fixes", () => {
   });
 });
 
+describe("results — BUG-247 district and place links", () => {
+  // The census section's foot carries the wider links:
+  // the district link always at rung 1, the place link
+  // only where the page resolved the home's town to a
+  // filed place. The default input() carries no census,
+  // so it exercises the not-served branch; the minimal
+  // served census below exercises the served branch.
+  const servedCensusMinimal = {
+    state: "served",
+    tables: [],
+    residentsTotal: null,
+    sourceLine: "Census 2021",
+  } as unknown as CensusSection;
+
+  const linksOf = (view: ReturnType<typeof buildResultsView>) =>
+    section(view, "neighbourhood", "census").blocks.filter((b) => b.type === "link");
+
+  const viewWithServedCensus = (overrides: Partial<ResultsInput> = {}) => {
+    const baseArea = areaBundle();
+    if (baseArea.kind !== "area-bundle") throw new Error("expected an area-bundle fixture");
+    return buildResultsView(
+      input({
+        area: {
+          ...baseArea,
+          sections: { ...baseArea.sections, census: servedCensusMinimal },
+        },
+        ...overrides,
+      }),
+    );
+  };
+
+  it("rung 1 with a place: the census section ends with the district link and the place link", () => {
+    const view = viewWithServedCensus({ placeName: "Hatfield Peverel" });
+    const links = linksOf(view);
+    expect(links).toEqual([
+      { type: "link", label: "Wider area — CM3", url: "/search?outward=CM3" },
+      { type: "link", label: "Hatfield Peverel", url: "/search?place=Hatfield+Peverel" },
+    ]);
+    // The links stand last in the section, after the data.
+    const census = section(view, "neighbourhood", "census");
+    expect(census.blocks.slice(-2)).toEqual(links);
+  });
+
+  it("rung 1 with a place, census not served: both links still stand", () => {
+    const view = buildResultsView(input({ placeName: "Hatfield Peverel" }));
+    expect(linksOf(view)).toEqual([
+      { type: "link", label: "Wider area — CM3", url: "/search?outward=CM3" },
+      { type: "link", label: "Hatfield Peverel", url: "/search?place=Hatfield+Peverel" },
+    ]);
+  });
+
+  it("rung 1 without a place: only the district link, never a dead place link", () => {
+    const view = viewWithServedCensus();
+    expect(linksOf(view)).toEqual([
+      { type: "link", label: "Wider area — CM3", url: "/search?outward=CM3" },
+    ]);
+  });
+
+  it("rung 2 carries no wider links: no single home whose town they could name", () => {
+    const view = buildResultsView(
+      input({
+        resolution: {
+          rung: 2,
+          kind: "address-list",
+          directory,
+          street: null,
+          building: null,
+          addresses: [],
+        },
+        placeName: "Hatfield Peverel",
+      }),
+    );
+    expect(linksOf(view)).toEqual([]);
+  });
+
+  it("the rendered page carries both links as anchors with the right destinations", () => {
+    const view = viewWithServedCensus({ placeName: "Hatfield Peverel" });
+    const html = renderToStaticMarkup(createElement(ResultsPage, { view }));
+    expect(html).toContain('href="/search?outward=CM3"');
+    expect(html).toContain("Wider area — CM3");
+    expect(html).toContain('href="/search?place=Hatfield+Peverel"');
+    expect(html).toContain("Hatfield Peverel");
+  });
+});
+
 describe("results — BUG-211 straight-line wording", () => {
   // BUG-211: the straight-line explanation lives once,
   // in How We Check — never on a report surface. The
@@ -3501,7 +3586,7 @@ describe("results — M7.11 figures in place (D-1/D-2/O-3)", () => {
     );
   });
 
-  it("O-3: the sixth-form no form stays as filed", () => {
+  it("O-3: the sixth-form no form reads 'sixth form: no' (BUG-250 item 24 — no filing language)", () => {
     const secondary = category({
       category: "schools-secondary",
       state: "within",
@@ -3531,8 +3616,11 @@ describe("results — M7.11 figures in place (D-1/D-2/O-3)", () => {
       true,
     );
     // The no form rides inside the row's detail line
-    // (parity fix batch, item 29).
-    expect(group.rows[0].detail).toBe("sixth form: no, as filed");
+    // (parity fix batch, item 29) — plain words since
+    // BUG-250 item 24, 24 Nov 2026: the ", as filed"
+    // tail was internal language on a consumer-facing
+    // line.
+    expect(group.rows[0].detail).toBe("sixth form: no");
   });
 });
 

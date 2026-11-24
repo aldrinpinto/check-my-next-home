@@ -10,6 +10,7 @@ import { renderSampleReportBody } from "../lib/server/sample-report-render";
 import { buildReportView } from "../lib/report";
 import {
   anonymiseSampleView,
+  fictioniseSampleOwnSale,
   suppressSampleNames,
   type SampleHomeIdentity,
 } from "../lib/sample-report";
@@ -43,14 +44,17 @@ const FIXTURE_IDENTITY: SampleHomeIdentity = {
 
 function anonymisedFixtureView() {
   const fixture = input();
-  const bundles = suppressSampleNames(
-    {
-      nearby: fixture.nearby,
-      flood: fixture.flood,
-      area: fixture.area,
-      sold: fixture.sold,
-      crime: fixture.crime,
-    },
+  const bundles = fictioniseSampleOwnSale(
+    suppressSampleNames(
+      {
+        nearby: fixture.nearby,
+        flood: fixture.flood,
+        area: fixture.area,
+        sold: fixture.sold,
+        crime: fixture.crime,
+      },
+      [FIXTURE_IDENTITY],
+    ),
     [FIXTURE_IDENTITY],
   );
   return anonymiseSampleView(buildReportView({ ...fixture, ...bundles }), [FIXTURE_IDENTITY]);

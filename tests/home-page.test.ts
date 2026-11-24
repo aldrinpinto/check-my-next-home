@@ -117,7 +117,7 @@ describe("home page copy (lib/home.ts)", () => {
     // placeholder in the field, the Brass button's words.
     // The placeholder is the one ruled text for every
     // search entry field (founder ruling, 19 Nov 2026).
-    expect(POSTCODE_BOX_PLACEHOLDER).toBe("Enter a postcode, street or town — e.g. SW1A 1AA");
+    expect(POSTCODE_BOX_PLACEHOLDER).toBe("Enter a postcode, street or town");
     expect(POSTCODE_BOX_BUTTON_BARE).toBe("Check this home");
   });
 

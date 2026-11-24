@@ -47,6 +47,8 @@ import {
   groupPlanningConstraints,
   polygonFact,
   reportRoute,
+  titleCaseName,
+  worshipDetailDisplay,
   type DistanceBand,
   type DistanceFamily,
   type PlanningConstraintInput,
@@ -801,10 +803,20 @@ function placeRows(
   answer: CategoryAnswer,
   extra?: (place: NearbyPlace) => string[],
   family: DistanceFamily = "everyday",
+  // BUG-250 (24 Nov 2026): places of worship carry their
+  // religion as the detail — served lowercase ("christian")
+  // from the register. The free page already renders it
+  // through worshipDetailDisplay (lib/results.ts); the
+  // report applies the same display here, at the one call
+  // site that serves the kind.
+  detailDisplay?: "worship",
 ): ReportRow[] {
   return answer.places.map((place) => ({
     name: place.name,
-    detail: place.detail,
+    detail:
+      detailDisplay === "worship" && place.detail
+        ? worshipDetailDisplay(place.detail)
+        : place.detail,
     tag: null,
     dist: `${formatMiles(place.miles)} mi`,
     distBand: distanceBand(family, place.miles),
@@ -2917,6 +2929,24 @@ function buildSection5Map(input: ReportInput): ReportMapModel | null {
       y,
     };
   });
+  // BUG-237: separate the pins that land on top of each
+  // other (a dense area's places share a few pixels) —
+  // the relaxation above, over the pins' own positions
+  // with the home marker as the fixed centre. Numbers,
+  // names and distances are untouched; only the drawn
+  // positions move, by the smallest push that clears
+  // every disc.
+  const decluttered = declutterMapPins(
+    pins.map((pin) => ({ x: pin.x, y: pin.y })),
+    { x: width / 2, y: height / 2 },
+    width,
+    height,
+  );
+  const placedPins: ReportMapPin[] = pins.map((pin, index) => ({
+    ...pin,
+    x: decluttered[index].x,
+    y: decluttered[index].y,
+  }));
   // The ground (item 19): the filed street lines for the
   // frame, projected into this map's mile space exactly as
   // the flood pictures project them — the home's own
@@ -2960,12 +2990,97 @@ function buildSection5Map(input: ReportInput): ReportMapModel | null {
       { r: scale * 2, label: "2 miles" },
     ],
     ...(onStreets ? { streets } : {}),
-    pins,
+    pins: placedPins,
     caption: onStreets
       ? "The named places in this section, plotted over the street lines this check holds for the area — with rings at 1 and 2 miles. The picture is drawn from the filed street lines and the listed places; it is a diagram of the listed places, not a street map."
       : "The named places in this section, plotted from their filed positions — with rings at 1 and 2 miles. The picture is drawn from the data this check holds; it is a diagram of the listed places, not a street map.",
-    ariaLabel: `Map of the ${pins.length} named places listed in this section, around ${resolution.rung === 1 ? resolution.address.label : home.postcode}, with rings at 1 and 2 miles`,
+    ariaLabel: `Map of the ${placedPins.length} named places listed in this section, around ${resolution.rung === 1 ? resolution.address.label : home.postcode}, with rings at 1 and 2 miles`,
   };
+}
+
+// The Section 5 map's pin declutter (BUG-237, 24 Nov
+// 2026): the frame is the two-mile picture (the rings
+// at 1 and 2 miles are the design — BUG-080), so in a
+// dense area the listed places land within a few pixels
+// of each other and their 22px discs overlap — the
+// Capital East sample carried 33 pins with eleven of
+// them inside one 8×10px patch, and pins 27/31/33 were
+// unreadable. The frame cannot zoom in (the rings
+// would go with it), so the pins are separated instead:
+// an iterative relaxation that pushes any two pin
+// centres closer than a full pin-width (26px) apart
+// along the line joining them, keeps every pin a
+// pin-width from the home marker (the BUG-060 nudge's
+// rule, applied here as a fixed repulsor so the
+// relaxation cannot push a pin back under the home
+// marker), and clamps every pin inside the frame. Pure
+// and deterministic — pair order is fixed, and
+// coincident pins spread on the golden angle by index,
+// so the same bundle always draws the same picture.
+// The picture stays honest about where each place
+// lies: a nudge is a few pixels at the map's scale, the
+// legend still names each pin with its true distance,
+// and the caption already says the picture is a
+// diagram of the listed places, not a street map.
+export const MAP_PIN_MIN_SEPARATION_PX = 26;
+
+export function declutterMapPins(
+  pins: { x: number; y: number }[],
+  home: { x: number; y: number },
+  width: number,
+  height: number,
+): { x: number; y: number }[] {
+  const min = MAP_PIN_MIN_SEPARATION_PX;
+  const radius = 13;
+  const placed = pins.map((pin) => ({ x: pin.x, y: pin.y }));
+  const clamp = (point: { x: number; y: number }) => {
+    point.x = Math.min(Math.max(point.x, radius), width - radius);
+    point.y = Math.min(Math.max(point.y, radius), height - radius);
+  };
+  for (let pass = 0; pass < 100; pass++) {
+    let moved = false;
+    for (const point of placed) {
+      const dx = point.x - home.x;
+      const dy = point.y - home.y;
+      const d = Math.hypot(dx, dy);
+      if (d < min) {
+        const ux = d === 0 ? 1 : dx / d;
+        const uy = d === 0 ? 0 : dy / d;
+        point.x = home.x + ux * min;
+        point.y = home.y + uy * min;
+        moved = true;
+      }
+    }
+    for (let i = 0; i < placed.length; i++) {
+      for (let j = i + 1; j < placed.length; j++) {
+        const a = placed[i];
+        const b = placed[j];
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const d = Math.hypot(dx, dy);
+        if (d >= min) continue;
+        let ux: number;
+        let uy: number;
+        if (d < 0.001) {
+          const angle = j * 2.399963;
+          ux = Math.cos(angle);
+          uy = Math.sin(angle);
+        } else {
+          ux = dx / d;
+          uy = dy / d;
+        }
+        const push = (min - d) / 2;
+        a.x -= ux * push;
+        a.y -= uy * push;
+        b.x += ux * push;
+        b.y += uy * push;
+        moved = true;
+      }
+    }
+    for (const point of placed) clamp(point);
+    if (!moved) break;
+  }
+  return placed.map((point) => ({ x: round1(point.x), y: round1(point.y) }));
 }
 
 // The straight-line distance between two filed points,
@@ -3047,12 +3162,26 @@ function section5(input: ReportInput): ReportSectionView {
     for (const key of group.keys) {
       const answer = category(nearby, key);
       if (!answer) continue;
+      // BUG-250 (24 Nov 2026): the kind subheadings stood
+      // as layer-2 "sub" directly under the "Pets" layer-2
+      // heading, and the .rpt-sub + .rpt-sub rule (BUG-117)
+      // pinched them to a 2px gap — PETS ran straight into
+      // VETS. As layer-3 "sub3" each kind takes its own
+      // 16px of air, like every other layer-3 heading.
       if (group.heading === "Pets")
-        blocks.push({ type: "sub", text: PET_SUBHEADINGS[key] ?? sentence(answer.label) });
+        blocks.push({ type: "sub3", text: PET_SUBHEADINGS[key] ?? sentence(answer.label) });
       if (answer.places.length > 0) {
         blocks.push({
           type: "rows",
-          rows: group.heading === "Transport" ? transportRows(key, answer) : placeRows(answer),
+          rows:
+            group.heading === "Transport"
+              ? transportRows(key, answer)
+              : placeRows(
+                  answer,
+                  undefined,
+                  "everyday",
+                  key === "places-of-worship" ? "worship" : undefined,
+                ),
         });
       }
       const state = stateLine(answer);
@@ -3204,13 +3333,14 @@ export const SOLAR_PANELS_NOTE =
   "Solar potential is about the sun this location gets — it does not mean this home has panels fitted.";
 
 // The EPC band scale as the sample report draws it
-// (BUG-158): bands A–E, the register's colours, widths
+// (BUG-158): bands A–G, the register's colours, widths
 // stepping down the scale, each band's score range. The
-// sample draws five bands; a home rated F or G extends
-// the drawn set to reach its own band (the scale
-// continues in the register's colours and the same
-// width step) — the home's band is always drawn, always
-// the outlined one.
+// scale is drawn WHOLE, always (BUG-238, 24 Nov 2026):
+// the earlier five-band cut hid F and G from a Band B
+// home's picture, so the scale read as ending at E — a
+// visitor could not tell whether F and G existed at
+// all. The home's band is always drawn, always the
+// outlined one.
 export const EPC_CHART_SCALE: {
   band: string;
   range: string;
@@ -3228,8 +3358,7 @@ export const EPC_CHART_SCALE: {
 ];
 
 export function epcChartBlock(band: string, score: number): ReportBlock {
-  const homeIndex = EPC_CHART_SCALE.findIndex((entry) => entry.band === band);
-  const drawn = EPC_CHART_SCALE.slice(0, Math.max(5, homeIndex + 1));
+  const drawn = EPC_CHART_SCALE;
   return {
     type: "epc-chart",
     ariaLabel: `Energy rating scale, with this home at Band ${band}, score ${score}`,
@@ -3915,7 +4044,11 @@ function section7(input: ReportInput): ReportSectionView {
     blocks.push({
       type: "rows",
       rows: heritage.listed.within.map((place) => ({
-        name: place.name ?? `Listed building, grade ${place.grade}`,
+        // BUG-250 (24 Nov 2026): the register files the
+        // name in all caps ("CHURCH OF ST LUKE") — the
+        // display title-cases it; the filed value is
+        // untouched.
+        name: place.name ? titleCaseName(place.name) : `Listed building, grade ${place.grade}`,
         detail: `Grade ${place.grade}`,
         tag: null,
         dist: `${formatMiles(place.miles)} mi`,
@@ -3949,7 +4082,7 @@ function section7(input: ReportInput): ReportSectionView {
     if (heritage.listed.beyondNearest) {
       const beyond = heritage.listed.beyondNearest;
       heritageLines.push(
-        `None within 2 miles — the nearest listed building is ${beyond.name ?? "an unnamed listed building"} (grade ${beyond.grade}), ${formatMiles(beyond.miles)} miles away.`,
+        `None within 2 miles — the nearest listed building is ${beyond.name ? titleCaseName(beyond.name) : "an unnamed listed building"} (grade ${beyond.grade}), ${formatMiles(beyond.miles)} miles away.`,
       );
     }
   }

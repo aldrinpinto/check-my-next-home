@@ -53,6 +53,14 @@ export type GuideContent = {
   lead: string;
   sections: ContentSection[];
   relatedChecks: string[]; // check pages the guide hands the reader to
+  // BUG-243 (24 Nov 2026): where a guide's own last
+  // section already lists the same checks as links, the
+  // "The checks in this guide" panel would repeat them —
+  // the leasehold guide's panel held only those three
+  // links, two-thirds empty. Set to hide the panel; the
+  // record's relatedChecks stay, so the guide still
+  // points at its checks through its own section.
+  hideChecksBlock?: boolean;
 };
 
 export const CHECK_PAGES: Record<string, CheckPageContent> = {
@@ -80,9 +88,14 @@ export const CHECK_PAGES: Record<string, CheckPageContent> = {
       {
         heading: "How the figure is produced",
         paragraphs: [
-          "The publisher is the Environment Agency. The check places the postcode's point on the Agency's published maps and reads off the flood zone and the likelihood band recorded for that point — one picture for rivers and the sea, and a separate picture for surface water — exactly as published, with the two pictures never merged. Recorded flood defences are read from the Agency's own defences record for the ground near the point, and live flood warnings are fetched from the Agency's flood-monitoring service at the moment of the check, in the Agency's own words for its named warning areas.",
-          "The bands, and the distances named beside them. Each picture bands the ground by likelihood: for rivers and the sea the bands run Very low, Low, Medium and High; for surface water they run Low, Medium and High; and the planning picture uses Flood Zones 1, 2 and 3. Where a distance is named beside a band, it is the distance in miles from the postcode's point to the nearest ground in that band — the band does not cover the point itself, and the figure says how far away its nearest edge lies. A band the point itself sits in needs no distance: the point's own band is the answer's first line.",
-          "The defences stand in a table in the detailed report, one table for each defence type: recorded stretches identical in everything the table prints — watercourse, maintainer, condition, design standard and the distance the table shows — print as one row carrying the count of the records it stands for. Stretches that differ in any of those stay separate rows, because the difference is a fact about the ground, not a repetition. A row's distance is a plain fact in the table, never coloured: a near defence is not a warning, and a far one is not a reassurance.",
+          "The publisher is the Environment Agency. The check places the postcode's point on the Agency's published maps and reads off the flood zone and the likelihood band recorded for that point — one picture for rivers and the sea, and a separate picture for surface water — exactly as published, with the two pictures never merged.",
+          "Recorded flood defences are read from the Agency's own defences record for the ground near the point, and live flood warnings are fetched from the Agency's flood-monitoring service at the moment of the check, in the Agency's own words for its named warning areas.",
+          "The bands, and the distances named beside them. Each picture bands the ground by likelihood: for rivers and the sea the bands run Very low, Low, Medium and High; for surface water they run Low, Medium and High; and the planning picture uses Flood Zones 1, 2 and 3.",
+          "Where a distance is named beside a band, it is the distance in miles from the postcode's point to the nearest ground in that band — the band does not cover the point itself, and the figure says how far away its nearest edge lies.",
+          "A band the point itself sits in needs no distance: the point's own band is the answer's first line.",
+          "The defences stand in a table in the detailed report, one table for each defence type: recorded stretches identical in everything the table prints — watercourse, maintainer, condition, design standard and the distance the table shows — print as one row carrying the count of the records it stands for.",
+          "Stretches that differ in any of those stay separate rows, because the difference is a fact about the ground, not a repetition.",
+          "A row's distance is a plain fact in the table, never coloured: a near defence is not a warning, and a far one is not a reassurance.",
           "The maps are served as published — the edition the Agency has published is the edition the check reads, and the answer names its source so the same maps can be read on the Agency's own service.",
         ],
       },
@@ -97,7 +110,9 @@ export const CHECK_PAGES: Record<string, CheckPageContent> = {
         paragraphs: [
           "The defences record covers only the Environment Agency's own assets — the defences the Agency owns, manages or inspects. Defences recorded by other bodies, and defences on smaller watercourses, are not in it, so an empty defences list never means no defences exist near a home. Flood defences reduce the chance of flooding; they do not remove it, and a defence elsewhere on a watercourse may do nothing for a particular point.",
           "Insurers and lenders run their own models on the building itself; nothing here says whether a home can be insured or borrowed against, and these answers are not a substitute for an insurer's or lender's own check. A small number of the Environment Agency's flood-zone shapes do not state whether the flooding is from rivers, the sea or another source.",
-          "The years-ahead pictures are published under one climate scenario: UKCP18 projections under RCP 8.5 — the Central allowance for rivers, covering 2040–2069, and the Higher Central allowance for the sea, covering 2036–2065 and allowing for cumulative sea level rise to 2065; for surface water the Central allowance for the 2040–2060 epoch. The Environment Agency's own caveats travel with those pictures: flood likelihood is hard to predict, especially further into the future, the modelled likelihood could turn out bigger or smaller, and the models cannot say when within the period flooding might happen. The scenario pictures are scenarios for planning, not predictions for a home, and they are never set beside the present-day maps as a change.",
+          "The years-ahead pictures are published under one climate scenario: UKCP18 projections under RCP 8.5 — the Central allowance for rivers, covering 2040–2069, and the Higher Central allowance for the sea, covering 2036–2065 and allowing for cumulative sea level rise to 2065; for surface water the Central allowance for the 2040–2060 epoch.",
+          "The Environment Agency's own caveats travel with those pictures: flood likelihood is hard to predict, especially further into the future, the modelled likelihood could turn out bigger or smaller, and the models cannot say when within the period flooding might happen.",
+          "The scenario pictures are scenarios for planning, not predictions for a home, and they are never set beside the present-day maps as a change.",
           "The answers describe the postcode point on the published maps, not the building itself: a postcode covers more ground than one home, and the point can fall in a different mapped area from the building. We hold no record of past flooding at any home, and holding no record does not mean a home has never flooded.",
         ],
       },
@@ -645,8 +660,10 @@ export const CHECK_PAGES: Record<string, CheckPageContent> = {
       {
         heading: "How the figure is produced",
         paragraphs: [
-          "The publisher is Defra — the Department for Environment, Food and Rural Affairs — through its Pollution Climate Mapping background maps on UK-AIR. The edition is Defra's 2024 modelled background: the 2024 spreadsheets, for the modelled year 2024. The method is a model, not a monitor: Defra models the background concentration of each pollutant for every kilometre square, and the check serves the annual mean figure for the one square the postcode's point falls in — nitrogen dioxide (NO2), fine particles (PM2.5) and PM10, in micrograms per cubic metre (µg/m³), exactly as published, with no interpolation across squares.",
-          "The geography is that kilometre square, not the home and not the roadside: a background square is the modelled air away from the immediate effect of a single road or chimney, spread across the whole square. Beside the square, two area designations are read at the postcode's point: whether the point falls inside a declared Air Quality Management Area, from Defra's UK-AIR record of declared areas as published, and whether it falls inside a charging zone, from the boundaries the zone operators publish.",
+          "The publisher is Defra — the Department for Environment, Food and Rural Affairs — through its Pollution Climate Mapping background maps on UK-AIR. The edition is Defra's 2024 modelled background: the 2024 spreadsheets, for the modelled year 2024.",
+          "The method is a model, not a monitor: Defra models the background concentration of each pollutant for every kilometre square, and the check serves the annual mean figure for the one square the postcode's point falls in — nitrogen dioxide (NO2), fine particles (PM2.5) and PM10, in micrograms per cubic metre (µg/m³), exactly as published, with no interpolation across squares.",
+          "The geography is that kilometre square, not the home and not the roadside: a background square is the modelled air away from the immediate effect of a single road or chimney, spread across the whole square.",
+          "Beside the square, two area designations are read at the postcode's point: whether the point falls inside a declared Air Quality Management Area, from Defra's UK-AIR record of declared areas as published, and whether it falls inside a charging zone, from the boundaries the zone operators publish.",
         ],
       },
       {
@@ -654,15 +671,20 @@ export const CHECK_PAGES: Record<string, CheckPageContent> = {
         paragraphs: [
           "The UK legal limits, as annual means, are set by the Air Quality Standards Regulations 2010: NO2 40 µg/m³, PM10 40 µg/m³, and PM2.5 20 µg/m³. Those are the limit values in law — the figures a zone's compliance is judged against, in the Regulations' own terms.",
           "The World Health Organization's guidelines, as annual means, are set by the WHO global air quality guidelines 2021: NO2 10 µg/m³, PM2.5 5 µg/m³, and PM10 15 µg/m³. A guideline is not a legal limit: it is the World Health Organization's health-based guideline value, and it is stricter than the UK limit for all three pollutants.",
-          "Why a modelled background square is not a compliance determination: whether a legal limit is met is decided for whole zones, from monitoring and modelling together, by the bodies charged with that judgement. One square's modelled background figure is a single modelled input, at background level, for one square — it is not a measurement at a home, not a roadside figure, and not the zone judgement, so it can never by itself settle whether a limit is met at a home or in a place.",
-          "How the report's yardstick lines are worded follows from that. Each yardstick line sets the modelled figure against the UK limit and against the WHO guideline, as comparisons of the modelled figure — worded as the figure's position against each yardstick, for example within the UK legal limit but above the stricter WHO guideline. A yardstick line is a scale for reading the figure. It is never a pass or fail for the home, and never a statement that a limit is met or breached at that home.",
+          "Why a modelled background square is not a compliance determination: whether a legal limit is met is decided for whole zones, from monitoring and modelling together, by the bodies charged with that judgement.",
+          "One square's modelled background figure is a single modelled input, at background level, for one square — it is not a measurement at a home, not a roadside figure, and not the zone judgement, so it can never by itself settle whether a limit is met at a home or in a place.",
+          "How the report's yardstick lines are worded follows from that. Each yardstick line sets the modelled figure against the UK limit and against the WHO guideline, as comparisons of the modelled figure — worded as the figure's position against each yardstick, for example within the UK legal limit but above the stricter WHO guideline.",
+          "A yardstick line is a scale for reading the figure. It is never a pass or fail for the home, and never a statement that a limit is met or breached at that home.",
         ],
       },
       {
         heading: "Charging zones and declared areas",
         paragraphs: [
-          "An Air Quality Management Area — an AQMA — is an area a local authority has declared, under the Environment Act 1995, where the air quality objectives are not being met, or are not likely to be met. The declaring authority must then publish an action plan for improving air quality in the area. A declaration is a management designation for the area: it is not a measurement of the air at a home inside it, and being outside a declared area is not a measurement either.",
-          "The charging schemes are areas where driving a vehicle that does not meet the scheme's emission standard can cost the driver money, and whether a vehicle is charged depends on the vehicle, not on the home. The Clean-Air Zones are run by their councils, with Defra: each council runs its own zone, sets its boundary and charges the vehicle classes its zone's class covers. London's ULEZ — the Ultra Low Emission Zone — and London's LEZ — the Low Emission Zone — are run by Transport for London. Scotland's Low Emission Zones are run by their councils, and a vehicle that does not meet the standard may not be driven in them: there is no charge to pay to enter, and driving in the zone can lead to a penalty.",
+          "An Air Quality Management Area — an AQMA — is an area a local authority has declared, under the Environment Act 1995, where the air quality objectives are not being met, or are not likely to be met. The declaring authority must then publish an action plan for improving air quality in the area.",
+          "A declaration is a management designation for the area: it is not a measurement of the air at a home inside it, and being outside a declared area is not a measurement either.",
+          "The charging schemes are areas where driving a vehicle that does not meet the scheme's emission standard can cost the driver money, and whether a vehicle is charged depends on the vehicle, not on the home. The Clean-Air Zones are run by their councils, with Defra: each council runs its own zone, sets its boundary and charges the vehicle classes its zone's class covers.",
+          "London's ULEZ — the Ultra Low Emission Zone — and London's LEZ — the Low Emission Zone — are run by Transport for London.",
+          "Scotland's Low Emission Zones are run by their councils, and a vehicle that does not meet the standard may not be driven in them: there is no charge to pay to enter, and driving in the zone can lead to a penalty.",
           "One in-force scheme publishes no boundary the check can read: Portsmouth's charging zone. A home's report names that blind spot only where the home stands near Portsmouth; everywhere else the report states only what the published boundaries establish — that the home is not inside any charging zone whose boundary is published — and this paragraph is the standing record of the gap.",
           "No charge amounts are ever printed on this site. Amounts change, and what a driver would pay depends on the vehicle, the scheme and the day — so a printed amount could be wrong for the reader in front of it. The official checkers settle it for a particular vehicle: GOV.UK's checker for the Clean-Air Zones, Transport for London's checker for the ULEZ, and Scotland's checker for the Low Emission Zones, linked below.",
         ],
@@ -681,8 +703,10 @@ export const CHECK_PAGES: Record<string, CheckPageContent> = {
       {
         heading: "Regulated industrial sites near a home",
         paragraphs: [
-          "The check also shows the regulated industrial sites recorded near a home, and it shows exactly what the regulator's record holds. The regulator is the Environment Agency, and the data is its Pollution Inventory — its regulated industry record, the annual register (the 2024 vintage, published in November 2025) of the sites the Agency permits for large industrial activities in England. For each site recorded within five miles of the postcode point, nearest first, the check serves the site's filed address — the record carries no site name, so the address is the site's identity — its operator, its permit reference, the activity and sector the record describes, and the releases to air the operator reported for that year.",
-          "Every release figure is the quantity the operator reported to the Environment Agency for that year, served with the reporting threshold for the substance — the level at or above which a quantity must be reported. A substance reported below its threshold was still released: below the reporting threshold is not a measurement of zero, so those returns serve as names on their own labelled line, never as numbers. A site with no releases to air reported for the year says exactly that. Nothing is added together across substances or across sites, and no site is placed in any order but distance.",
+          "The check also shows the regulated industrial sites recorded near a home, and it shows exactly what the regulator's record holds. The regulator is the Environment Agency, and the data is its Pollution Inventory — its regulated industry record, the annual register (the 2024 vintage, published in November 2025) of the sites the Agency permits for large industrial activities in England.",
+          "For each site recorded within five miles of the postcode point, nearest first, the check serves the site's filed address — the record carries no site name, so the address is the site's identity — its operator, its permit reference, the activity and sector the record describes, and the releases to air the operator reported for that year.",
+          "Every release figure is the quantity the operator reported to the Environment Agency for that year, served with the reporting threshold for the substance — the level at or above which a quantity must be reported. A substance reported below its threshold was still released: below the reporting threshold is not a measurement of zero, so those returns serve as names on their own labelled line, never as numbers.",
+          "A site with no releases to air reported for the year says exactly that. Nothing is added together across substances or across sites, and no site is placed in any order but distance.",
         ],
       },
       {
@@ -694,7 +718,9 @@ export const CHECK_PAGES: Record<string, CheckPageContent> = {
       {
         heading: "Known limits",
         paragraphs: [
-          "The Pollution Inventory covers England only: Wales, Scotland and Northern Ireland keep their own inventories — the Welsh Emissions Inventory, the Scottish Pollutant Release Inventory and the Northern Ireland Pollution Inventory — which are not filed here, so for a home in those nations the industrial sites answer serves its named not-covered state. The inventory is an annual register, so a site permitted, closed or changed since the filed year will show as that year's record stands. A site's reported releases are the operator's own returns for the year: they describe what the site reported releasing to air, not the air at a home two miles, or two streets, away.",
+          "The Pollution Inventory covers England only: Wales, Scotland and Northern Ireland keep their own inventories — the Welsh Emissions Inventory, the Scottish Pollutant Release Inventory and the Northern Ireland Pollution Inventory — which are not filed here, so for a home in those nations the industrial sites answer serves its named not-covered state.",
+          "The inventory is an annual register, so a site permitted, closed or changed since the filed year will show as that year's record stands.",
+          "A site's reported releases are the operator's own returns for the year: they describe what the site reported releasing to air, not the air at a home two miles, or two streets, away.",
           "The modelled square has its own limits, stated on this page above: it is a background model for a kilometre square in one modelled year, not a measurement, not a roadside figure, and never a compliance determination for a home or a place.",
         ],
       },
@@ -982,6 +1008,10 @@ export const GUIDES: Record<string, GuideContent> = {
       },
     ],
     relatedChecks: ["/check/epc", "/check/planning-constraints", "/check/sold-prices"],
+    // BUG-243: the "What this site can show you" section
+    // above already lists these same three checks, so the
+    // panel would read the section twice.
+    hideChecksBlock: true,
   },
 
   "/guides/is-this-area-good-for-families": {

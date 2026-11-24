@@ -37,6 +37,17 @@
 //     so filing them as nurseries would assert a type the
 //     register does not state. Both classes are counted in the
 //     log line, never silent.
+//   - A setting files ONLY if it is on the Early Years
+//     Register (the "Provider Early Years Register flag" is
+//     "Y") — BUG-240, 24 Nov 2026. A setting caring for
+//     children under five must be EYR-registered by law; a
+//     group setting that is NOT on it is registered only
+//     on the voluntary (or compulsory) childcare register
+//     for activity, tutoring or holiday care — a maths
+//     tutor, a stage school, a leisure-centre crèche —
+//     not a nursery, and the brain's nurseries category
+//     must not list it. The excluded class is counted in
+//     the log line, never silent.
 //   - "Childminder", "Home childcarer" and "Childminder without
 //     domestic premises" NEVER file: childminders are not
 //     included at all — Ofsted publishes no location for them
@@ -105,13 +116,13 @@ const GOLDENS_LIVE = {
   "E16 1GN": {
     nearest: "Cribs Day Nursery",
     nearestMiles: 0.088,
-    countWithin: 96,
+    countWithin: 81,
     top3: ["Cribs Day Nursery", "Moksliukas", "Clever Cloggs Day Nursery"],
   },
   "KT17 1FH": {
     nearest: "Nestots Day Nursery",
     nearestMiles: 0.174,
-    countWithin: 39,
+    countWithin: 35,
     top3: ["Nestots Day Nursery", "Lynton House Day Nursery", "Little Nick Nursery and Pre-School"],
   },
 };
@@ -125,13 +136,13 @@ const GOLDENS_FIXTURE = {
   "E16 1GN": {
     nearest: "Cribs Day Nursery",
     nearestMiles: 0.088,
-    countWithin: 96,
+    countWithin: 81,
     top3: ["Cribs Day Nursery", "Moksliukas", "Clever Cloggs Day Nursery"],
   },
   "KT17 1FH": {
     nearest: "Nestots Day Nursery",
     nearestMiles: 0.174,
-    countWithin: 39,
+    countWithin: 35,
     top3: ["Nestots Day Nursery", "Lynton House Day Nursery", "Little Nick Nursery and Pre-School"],
   },
 };
@@ -217,6 +228,7 @@ function parseRegister(text) {
     "Provider subtype",
     "Provider status",
     "Provider name",
+    "Provider Early Years Register flag",
     "Provider address line 1",
     "Provider address line 2",
     "Provider address line 3",
@@ -274,6 +286,7 @@ function buildSettings(records, positionOf) {
     outOfSchool: 0,
     blankSubtype: 0,
     otherSubtype: 0,
+    notOnEarlyYearsRegister: 0,
     notActive: 0,
     otherType: 0,
     duplicateUrns: 0,
@@ -310,6 +323,14 @@ function buildSettings(records, positionOf) {
     }
     if (!FILED_SUBTYPES.has(subtype)) {
       stats.otherSubtype += 1;
+      continue;
+    }
+    // BUG-240: only settings on the Early Years Register
+    // file as nurseries. A group setting off the EYR is
+    // a voluntary/compulsory-register-only provider for
+    // activity, tutoring or holiday care — not a nursery.
+    if (row["Provider Early Years Register flag"] !== "Y") {
+      stats.notOnEarlyYearsRegister += 1;
       continue;
     }
     const urn = row["Provider URN"];
@@ -476,7 +497,7 @@ async function main() {
     `of ${formatCount(stats.total)} register rows: ${formatCount(stats.childminderTypes)} childminder-type never filed, ` +
     `${formatCount(stats.domesticPremises)} on domestic premises (published redacted, never filed), ` +
     `${formatCount(stats.outOfSchool)} out-of-school day care not filed, ${formatCount(stats.blankSubtype)} blank subtype not filed, ` +
-    `${formatCount(stats.otherSubtype)} other subtype not filed, ${formatCount(stats.notActive)} not active, ${formatCount(stats.otherType)} other type, ` +
+    `${formatCount(stats.otherSubtype)} other subtype not filed, ${formatCount(stats.notOnEarlyYearsRegister)} not on the Early Years Register not filed, ${formatCount(stats.notActive)} not active, ${formatCount(stats.otherType)} other type, ` +
     `${formatCount(stats.duplicateUrns)} duplicate URNs, ${formatCount(stats.unresolvedPostcode)} unresolved postcodes not filed`;
 
   if (verifyOnly) {

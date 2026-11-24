@@ -14,7 +14,9 @@ import { join } from "node:path";
 import { displayText } from "../address";
 import {
   anonymiseSampleView,
+  fictioniseSampleOwnSale,
   mergeSampleBundles,
+  sampleAreaSubstitutions,
   sampleReportInput,
   sampleReportNowFromEnv,
   suppressSampleNames,
@@ -103,10 +105,24 @@ export async function generateSampleReportView(): Promise<ReportView> {
   // street name survives anywhere in the sample — not
   // even inside a genuine place name.
   const suppressed = suppressSampleNames(merged.bundles, identities);
+  // The fiction own sale (BUG-234/235/236, BUG-241):
+  // the primary's own sale is rewritten to the fiction
+  // price and date at the bundle layer, before
+  // composition, so every figure the builder computes
+  // from it — Section 7's loan, deposit and duty, the
+  // dot plot's brass dot, the first-sale year — is the
+  // fiction's, and the postcode median keeps its real
+  // value.
+  const fictionised = fictioniseSampleOwnSale(suppressed, identities);
+  // The fiction area (BUG-235): the real Essex geography
+  // the merged bundles and the primary's resolution
+  // carry is substituted for the fiction's, derived from
+  // those same inputs at generation time.
+  const areaSubs = sampleAreaSubstitutions(primary.resolution, merged.bundles.area);
   const view = buildReportView(
     sampleReportInput(
       primary,
-      { bundles: suppressed, sources: merged.sources },
+      { bundles: fictionised, sources: merged.sources },
       // The sample's composed moment: the real one, unless
       // the harness's SAMPLE_REPORT_NOW seam pins it (the
       // visual guard's day-independence — see
@@ -114,7 +130,7 @@ export async function generateSampleReportView(): Promise<ReportView> {
       sampleReportNowFromEnv(process.env),
     ),
   );
-  return anonymiseSampleView(view, identities);
+  return anonymiseSampleView(view, identities, areaSubs);
 }
 
 // The baked view, when one stands (BUG-170). Two

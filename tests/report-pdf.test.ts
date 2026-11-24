@@ -32,6 +32,7 @@ import { generateSampleReportPdf, samplePrintUrl } from "../lib/server/sample-pd
 import SampleReportPrintDocument from "../components/SampleReportPrintDocument";
 import {
   anonymiseSampleView,
+  fictioniseSampleOwnSale,
   suppressSampleNames,
   type SampleHomeIdentity,
 } from "../lib/sample-report";
@@ -774,14 +775,17 @@ const SAMPLE_FIXTURE_IDENTITY: SampleHomeIdentity = {
 
 function sampleView(): ReportView {
   const fixture = input();
-  const bundles = suppressSampleNames(
-    {
-      nearby: fixture.nearby,
-      flood: fixture.flood,
-      area: fixture.area,
-      sold: fixture.sold,
-      crime: fixture.crime,
-    },
+  const bundles = fictioniseSampleOwnSale(
+    suppressSampleNames(
+      {
+        nearby: fixture.nearby,
+        flood: fixture.flood,
+        area: fixture.area,
+        sold: fixture.sold,
+        crime: fixture.crime,
+      },
+      [SAMPLE_FIXTURE_IDENTITY],
+    ),
     [SAMPLE_FIXTURE_IDENTITY],
   );
   return anonymiseSampleView(buildReportView({ ...fixture, ...bundles }), [
@@ -948,18 +952,27 @@ describe("the sample report's PDF (M8.8)", () => {
       // The whole file names no real home (BUG-159's
       // leak guard, over the printed text): no
       // contributing home's address, postcode,
-      // certificate number or own-sale figures — and,
+      // certificate number or own-sale date — and,
       // since the founder's suppression ruling (22 Nov
       // 2026), not the bare street name either, in any
       // case form (squash lowercases): a banned-named
       // entry is dropped from the sample's lists whole,
       // never renamed (see tests/sample-report.test.ts).
+      // The own sale's PRICE is not banned here
+      // (BUG-241): the postcode median equals it
+      // (£588,995), so the median legitimately reads
+      // £588,995 in the short version, Section 2 and
+      // Section 10 — the median-aware guard in
+      // tests/sample-report.test.ts pins the two apart.
       const whole = squashed.join(" ");
       expect(whole).not.toContain(squash("Birkdale"));
       expect(whole).not.toContain(squash("CM3 2JT"));
       expect(whole).not.toContain(squash("0000-0000-0000-0000-0001"));
-      expect(whole).not.toContain(squash("588,995"));
       expect(whole).not.toContain(squash("15 June 2023"));
+      expect(whole).toContain(squash("Postcode median (category A sales): £588,995"));
+      expect(whole).toContain(squash("Median value £588,995"));
+      expect(whole).not.toContain(squash("£588,995 price less"));
+      expect(whole).not.toContain(squash("On a loan of £441,746"));
     } finally {
       server.close();
     }

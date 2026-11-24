@@ -51,7 +51,14 @@ export const POSTCODE_BOX_BUTTON = "Check a home";
 // the same words in the hero's bare form, the box's
 // standard form, and every plain search form (the
 // district bridge, the shortlist's empty-state card).
-export const POSTCODE_BOX_PLACEHOLDER = "Enter a postcode, street or town — e.g. SW1A 1AA";
+// BUG-233 (24 Nov 2026): the " — e.g. SW1A 1AA" tail
+// is dropped — the content pages' ~320px input cut the
+// placeholder off at "SW1/", and the input already
+// flex-grows to fill its row, so no width can carry the
+// longer text there. The example still stands where the
+// field has room for it: the hero's hint line below the
+// box ("For example, SW1A 1AA — …").
+export const POSTCODE_BOX_PLACEHOLDER = "Enter a postcode, street or town";
 export const POSTCODE_BOX_BUTTON_BARE = "Check this home";
 // The suggestions panel's no-results line (fix batch,
 // 19 Nov 2026 — BUG-008): a typed string that matches

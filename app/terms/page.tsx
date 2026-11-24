@@ -63,7 +63,10 @@ function Block({ block }: { block: PrivacyBlock }) {
 export default function TermsPage() {
   return (
     <main className="site-pages">
-      <div className="site-pages__inner">
+      {/* BUG-250 (24 Nov 2026): the chrome pages take the
+          wider inner (app/globals.css) — the 1080px
+          column read as lost on a wide viewport. */}
+      <div className="site-pages__inner site-pages__inner--wide">
         <BreadcrumbLd name="Terms of service" path="/terms" />
         <Breadcrumb items={[{ label: "Home", href: "/" }, { label: "Terms of service" }]} />
         <div className="privacy-wrap">

@@ -791,7 +791,7 @@ rule), with the real wiring behind them. Seven workstreams:
    components/Calculators.tsx): "Could this home fit your
    life?" below the tabs. Mortgage pre-fills from the home's
    own last recorded sale price with a 25% deposit (Birkdale:
-   £588,995 / £147,249 / £2,455 a month on a £441,746 loan at
+   £588,995 / £147,249 / £2,455.37 a month on a £441,746 loan at
    4.5% over 25 years); stamp duty pre-fills the same price,
    framed "On the price this home last sold for, the stamp
    duty would be £X — put in the price you'd actually offer,
@@ -5384,9 +5384,13 @@ counted; the partition is unchanged).
     nurseries) not-filed → the group completes
     unavailable with that category's own served line.
     Otherwise the line names each category's own filed
-    countWithin inside 2 miles ("Within 2 miles: 3
-    primary schools · 1 secondary school · 2
-    nurseries"). The counts are NEVER summed: the
+    countWithin under its own serving radius — primaries
+    and nurseries within 2 miles, secondary schools and
+    sixth forms within 5 miles (BUG-264: one "Within 2
+    miles" label overstated the 5-mile counts, so the
+    line carries both radii — "Within 2 miles: 3 primary
+    schools · 2 nurseries · Within 5 miles: 1 secondary
+    school"). The counts are NEVER summed: the
     category selections overlap (a primary-phase school
     with a sixth form files in both the primary and the
     sixth-form selections — lib/nearby.ts's

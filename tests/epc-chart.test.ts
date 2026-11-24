@@ -19,20 +19,34 @@ import { input } from "./fixtures/report-inputs";
 // twin share.
 
 describe("BUG-158 — epcChartBlock composition", () => {
-  it("draws the sample's five bands, the home's band outlined and labelled", () => {
+  it("draws the full seven-band scale, the home's band outlined and labelled (BUG-238)", () => {
+    // BUG-238 (24 Nov 2026): the scale is drawn whole,
+    // always — the earlier five-band cut hid F and G
+    // from a Band B home's picture, so the scale read
+    // as ending at E.
     const block = epcChartBlock("B", 82);
     if (block.type !== "epc-chart") throw new Error("expected an epc-chart block");
     expect(block.ariaLabel).toBe("Energy rating scale, with this home at Band B, score 82");
-    expect(block.bars.map((b) => b.band)).toEqual(["A", "B", "C", "D", "E"]);
-    expect(block.bars.map((b) => b.range)).toEqual(["92+", "81–91", "69–80", "55–68", "39–54"]);
+    expect(block.bars.map((b) => b.band)).toEqual(["A", "B", "C", "D", "E", "F", "G"]);
+    expect(block.bars.map((b) => b.range)).toEqual([
+      "92+",
+      "81–91",
+      "69–80",
+      "55–68",
+      "39–54",
+      "21–38",
+      "1–20",
+    ]);
     expect(block.bars.map((b) => b.colour)).toEqual([
       "#00A651",
       "#19B459",
       "#8DCE46",
       "#E3C700",
       "#F0A35E",
+      "#EB6A2C",
+      "#D92323",
     ]);
-    expect(block.bars.map((b) => b.widthPct)).toEqual([46, 58, 66, 74, 82]);
+    expect(block.bars.map((b) => b.widthPct)).toEqual([46, 58, 66, 74, 82, 90, 98]);
     const here = block.bars.filter((b) => b.here);
     expect(here).toHaveLength(1);
     expect(here[0].band).toBe("B");
@@ -41,14 +55,16 @@ describe("BUG-158 — epcChartBlock composition", () => {
     expect(block.bars.find((b) => b.band === "D")!.darkText).toBe(true);
   });
 
-  it("a home below the drawn set extends the scale to its own band", () => {
+  it("a home rated F or G draws the same full scale, its own band outlined", () => {
     const f = epcChartBlock("F", 30);
     if (f.type !== "epc-chart") throw new Error("expected an epc-chart block");
-    expect(f.bars.map((b) => b.band)).toEqual(["A", "B", "C", "D", "E", "F"]);
-    expect(f.bars.at(-1)!.here).toBe(true);
+    expect(f.bars.map((b) => b.band)).toEqual(["A", "B", "C", "D", "E", "F", "G"]);
+    expect(f.bars.find((b) => b.here)?.band).toBe("F");
+    expect(f.bars.find((b) => b.band === "F")!.label).toBe("F — this home, 30");
     const g = epcChartBlock("G", 12);
     if (g.type !== "epc-chart") throw new Error("expected an epc-chart block");
     expect(g.bars.map((b) => b.band)).toEqual(["A", "B", "C", "D", "E", "F", "G"]);
+    expect(g.bars.at(-1)!.here).toBe(true);
     expect(g.bars.at(-1)!.label).toBe("G — this home, 12");
   });
 });

@@ -183,4 +183,74 @@ test.describe("look assertions — smoke", () => {
       await expectNoSidewaysScroll(page);
     },
   );
+
+  test(
+    "BUG-241: the check page's report-band heading reads cream, not dark-on-dark",
+    { tag: "@smoke" },
+    async ({ page }) => {
+      await page.goto("/check/crime");
+      const heading = page.locator(".report-band__heading");
+      await expect(heading).toBeVisible();
+      const color = await heading.evaluate((el) => getComputedStyle(el).color);
+      expect(color, "the band heading's computed colour is the cream token").toBe(CREAM_RGB);
+    },
+  );
+
+  test(
+    "BUG-242: the check page's report-band price block anchors to the top of the text",
+    { tag: "@smoke" },
+    async ({ page }) => {
+      await page.goto("/check/crime");
+      await page.locator(".report-band").scrollIntoViewIfNeeded();
+      const mainBox = await page.locator(".report-band__main").boundingBox();
+      const priceBox = await page.locator(".report-band__price-block").boundingBox();
+      expect(mainBox, "the band's text block stands").not.toBeNull();
+      expect(priceBox, "the band's price block stands").not.toBeNull();
+      if (mainBox && priceBox) {
+        expect(
+          Math.abs(priceBox.y - mainBox.y),
+          "the price block's top sits with the text block's top",
+        ).toBeLessThanOrEqual(2);
+      }
+    },
+  );
+
+  test(
+    "BUG-244: the stamp duty calculator's legend clears its fieldset border",
+    { tag: "@smoke" },
+    async ({ page }) => {
+      await openHomeResults(page);
+      const legend = page.locator(".calculator-card fieldset legend");
+      await expect(legend).toBeVisible();
+      const padding = await legend.evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return { left: parseFloat(cs.paddingLeft), right: parseFloat(cs.paddingRight) };
+      });
+      expect(padding.left, "the legend clears the border on the left").toBeGreaterThanOrEqual(6);
+      expect(padding.right, "the legend clears the border on the right").toBeGreaterThanOrEqual(6);
+    },
+  );
+
+  test(
+    "BUG-245: the brownfield row's distance pill keeps its own height",
+    { tag: "@smoke" },
+    async ({ page }) => {
+      await openHomeResults(page);
+      await page.getByRole("tab", { name: "Home, Costs & Risks" }).click();
+      const chip = page
+        .locator(".results-row", {
+          has: page.locator(".results-row__lead", { hasText: "Brownfield land" }),
+        })
+        .locator(".place-row__miles");
+      await expect(chip).toBeVisible();
+      const box = await chip.boundingBox();
+      expect(box, "the brownfield pill stands").not.toBeNull();
+      if (box) {
+        expect(
+          box.height,
+          "the brownfield pill is a short pill, not a stretched oval",
+        ).toBeLessThanOrEqual(32);
+      }
+    },
+  );
 });

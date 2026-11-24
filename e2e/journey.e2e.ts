@@ -438,7 +438,7 @@ test.describe("checker journey — regression", () => {
       // on anything it could not resolve.
       await expect(page.locator(".district-bridge .postcode-box input")).toHaveAttribute(
         "placeholder",
-        "Enter a postcode, street or town — e.g. SW1A 1AA",
+        "Enter a postcode, street or town",
       );
       await expect(
         page.locator(".district-bridge").getByRole("button", { name: "Check this home" }),

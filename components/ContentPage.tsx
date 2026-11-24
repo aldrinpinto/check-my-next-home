@@ -199,13 +199,18 @@ export function GuidePageView({ guide }: { guide: GuideContent }) {
         <p className="lead">{guide.lead}</p>
         <div className="rule" />
         <Sections sections={guide.sections} />
-        <RelatedBlock
-          heading="The checks in this guide"
-          links={guide.relatedChecks.map((path) => ({
-            label: CHECK_PAGES[path].name,
-            href: path,
-          }))}
-        />
+        {/* BUG-243 (24 Nov 2026): a guide whose own last
+            section already lists its checks hides this
+            panel — otherwise the section reads twice. */}
+        {!guide.hideChecksBlock && (
+          <RelatedBlock
+            heading="The checks in this guide"
+            links={guide.relatedChecks.map((path) => ({
+              label: CHECK_PAGES[path].name,
+              href: path,
+            }))}
+          />
+        )}
         {/* BUG-149(4): the sample-report band, as on the
             check pages and the homepage. */}
         <ReportBand />

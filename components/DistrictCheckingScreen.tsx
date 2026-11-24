@@ -247,9 +247,15 @@ export default function DistrictCheckingScreen({
           District <b>{outward}</b>
           {postTown ? ` · ${postTown}${county ? `, ${county}` : ""}` : ""}
         </p>
+        {/* BUG-261 (24 Nov 2026): the dot rides INSIDE
+            the text span, at the head of its first line —
+            beside the span it wrapped alone on line one
+            when the headline ran to two lines. Same fix
+            as the per-home screen; the fade still covers
+            dot and text together. */}
         <p className="checking__ticker">
-          <span className="checking__ticker-dot" aria-hidden="true" />
           <span key={ticker} className="checking__ticker-text">
+            <span className="checking__ticker-dot" aria-hidden="true" />
             {ticker}
           </span>
         </p>

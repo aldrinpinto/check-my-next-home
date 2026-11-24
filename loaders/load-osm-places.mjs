@@ -220,11 +220,31 @@ export function classifyTags(tags) {
   return null;
 }
 
+// Source-name corrections (BUG-239, 24 Nov 2026):
+// OpenStreetMap names file verbatim — the loader never
+// renames a place — except where the source name is
+// itself a plain typo and the correct name is the
+// business's own (its signage, its website). Each entry
+// is one exact source string to its correction, with
+// the OSM element it came from, so a re-file from a
+// fresh Geofabrik extract keeps the fix instead of
+// re-filing the typo. The map is removed entry by entry
+// as the corrections land upstream in OSM itself and a
+// re-file proves them gone.
+//   - "Latneys Boarding Kennelsl and Cattery" — OSM way
+//     1319900560, London Road, Witham CM8 1EB: the
+//     stray "l" is a typo in the name tag; the business
+//     is "Latneys Boarding Kennels and Cattery".
+const NAME_CORRECTIONS = new Map([
+  ["Latneys Boarding Kennelsl and Cattery", "Latneys Boarding Kennels and Cattery"],
+]);
+
 // The recorded name: the name tag trimmed, NULL when absent
 // or blank. Unnamed rows file (L3) — serving filters them.
 export function placeName(tags) {
   const name = (tags.name ?? "").trim();
-  return name === "" ? null : name;
+  if (name === "") return null;
+  return NAME_CORRECTIONS.get(name) ?? name;
 }
 
 // The detail for a filed row: the worship religion EXACTLY as

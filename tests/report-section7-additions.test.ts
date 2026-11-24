@@ -835,7 +835,7 @@ describe("report — Section 7 additions (M8.10): mortgage & stamp duty", () => 
       "Worked on this home's last recorded sale price — £588,995 on 15 June 2023 — on the standard assumptions: a 25% deposit, a 25-year term and a 4.5% interest rate.",
     );
     expect(s7).toContain(
-      "On a loan of £441,746 (£588,995 price less £147,249 deposit) at 4.5% over 25 years: £2,455 a month, repayment.",
+      "On a loan of £441,746 (£588,995 price less £147,249 deposit) at 4.5% over 25 years: £2,455.37 a month, repayment.",
     );
     expect(s7).toContain(
       "Stamp duty on that price would be £19,450 at the standard rates for a buyer moving from their own home.",
@@ -868,7 +868,7 @@ describe("report — Section 7 additions (M8.10): mortgage & stamp duty", () => 
     const list = blocks[subAt + 2];
     if (!list || list.type !== "list") throw new Error("expected the findings list");
     expect(list.items).toEqual([
-      "On a loan of £441,746 (£588,995 price less £147,249 deposit) at 4.5% over 25 years: £2,455 a month, repayment.",
+      "On a loan of £441,746 (£588,995 price less £147,249 deposit) at 4.5% over 25 years: £2,455.37 a month, repayment.",
       "Stamp duty on that price would be £19,450 at the standard rates for a buyer moving from their own home.",
     ]);
     // The small-print rates link follows the list.
@@ -882,12 +882,12 @@ describe("report — Section 7 additions (M8.10): mortgage & stamp duty", () => 
   });
 
   it("the section's monthly figures are never summed into a combined total", () => {
-    // Council tax £178.75 + mortgage £2,455 = £2,633.75;
-    // with the modelled energy £40.75, £2,674.50. No
+    // Council tax £178.75 + mortgage £2,455.37 = £2,634.12;
+    // with the modelled energy £40.75, £2,674.87. No
     // combined figure or total-cost wording stands
     // anywhere in the view.
     const whole = JSON.stringify(view);
-    expect(whole).not.toContain("2,633");
+    expect(whole).not.toContain("2,634");
     expect(whole).not.toContain("2,674");
     expect(whole.toLowerCase()).not.toContain("total monthly");
     expect(whole.toLowerCase()).not.toContain("cost of ownership");
@@ -944,7 +944,7 @@ describe("report — Section 7 additions (M8.10): mortgage & stamp duty", () => 
       }),
     );
     const text = sectionText(welsh, 7);
-    expect(text).toContain("£2,455 a month, repayment.");
+    expect(text).toContain("£2,455.37 a month, repayment.");
     // The report's own Welsh wording (founder ruling
     // 23 Nov 2026): Land Transaction Tax framing — the
     // calculator card's line ("this calculator covers

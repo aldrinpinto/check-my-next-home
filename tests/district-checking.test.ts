@@ -349,7 +349,7 @@ describe("named states — a group completes on its brain's own words", () => {
     if (payload.kind !== "district") throw new Error("expected a district payload");
     expect(payload.groups.home).toEqual({
       state: "unavailable",
-      line: "HM Land Registry — median sold price £425,000 across 612 sales; council tax Band D £2,148.00 in Braintree; Maldon — its council tax charges are not filed yet.; 88% of postcodes outside the mapped river & sea flood bands",
+      line: "HM Land Registry — median sold price £425,000 across 612 sales; council tax Band D £2,148.00 in Braintree; Maldon — its council tax charges are not filed yet; 88% of postcodes outside the mapped river & sea flood bands",
     });
   });
 
@@ -432,7 +432,7 @@ describe("served edges — the derivation never invents", () => {
     const payload = districtCheckingPayload(bundle);
     if (payload.kind !== "district") throw new Error("expected a district payload");
     expect(payload.groups.home.line).toContain(
-      "; 1 live flood warning is in force for areas in or around CM3 just now.; 88% of postcodes outside",
+      "; 1 live flood warning is in force for areas in or around CM3 just now; 88% of postcodes outside",
     );
     bundle.sections.flood.warnings = {
       state: "unavailable",

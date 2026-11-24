@@ -40,6 +40,7 @@ import {
   resolutionNotCovered,
 } from "../../../lib/server/serve";
 import { postioSupplementEnabled } from "../../../lib/server/hybrid";
+import { createPlaceSource, placeNormOf } from "../../../lib/server/places";
 import { noteCheckServe } from "../../../lib/server/search-counting";
 import { streetNormOf } from "../../../lib/server/streets";
 import { logEntry, newRequestId } from "../../../lib/server/entry-log";
@@ -172,9 +173,22 @@ async function Results({
 }) {
   let view;
   let results;
+  // BUG-247: the home's place page — its filed town, via
+  // the place table, so the free page links on to it. A
+  // town that files no place, or a read that fails, costs
+  // no link — never a dead one, and never a failure of
+  // the whole check (the read is caught beside the serve).
+  const placeName =
+    resolution.rung === 1 && resolution.address.town
+      ? ((
+          await createPlaceSource(getDbPool())
+            .placeByNorm(placeNormOf(resolution.address.town))
+            .catch(() => null)
+        )?.place ?? null)
+      : null;
   try {
     results = await checkResults(resolution);
-    view = buildResultsView({ resolution, ...results, homeKey });
+    view = buildResultsView({ resolution, ...results, homeKey, placeName });
   } catch {
     return <WholeCheckFailure initialValue={postcode} />;
   }

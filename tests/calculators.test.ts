@@ -22,18 +22,18 @@ import {
 // buyer-kind bands, and the no-sale framing.
 
 describe("calculators — mortgage (T-WEB-12)", () => {
-  it("the Birkdale sample figures: £588,995 price, 25% deposit, £2,455 a month on a £441,746 loan at 4.5% over 25 years", () => {
+  it("the Birkdale sample figures: £588,995 price, 25% deposit, £2,455.37 a month on a £441,746 loan at 4.5% over 25 years", () => {
     expect(defaultDeposit(588995)).toBe(147249);
     const result = mortgageMonthly(588995, 147249, 4.5, 25);
     expect(result.loan).toBe(441746);
-    expect(result.monthly).toBe(2455);
+    expect(result.monthly).toBe(2455.37);
     expect(result.sentence).toBe(
-      "On a loan of £441,746 (£588,995 price less £147,249 deposit) at 4.5% over 25 years: £2,455 a month, repayment.",
+      "On a loan of £441,746 (£588,995 price less £147,249 deposit) at 4.5% over 25 years: £2,455.37 a month, repayment.",
     );
   });
 
   it("a zero rate divides straight; zero inputs never produce NaN", () => {
-    expect(mortgageMonthly(120000, 20000, 0, 10).monthly).toBe(833);
+    expect(mortgageMonthly(120000, 20000, 0, 10).monthly).toBe(833.33);
     expect(mortgageMonthly(0, 0, 4.5, 25).monthly).toBe(0);
   });
 });

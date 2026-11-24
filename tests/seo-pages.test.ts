@@ -321,6 +321,26 @@ describe("the rendered content pages (M7.8)", () => {
     expect(html).toContain('id="postcode"');
   });
 
+  it("BUG-243: the leasehold guide hides the checks panel its own section already lists", () => {
+    // The guide's "What this site can show you" section
+    // already lists the same three checks as links, so
+    // the beige "The checks in this guide" panel would
+    // read the section twice — and hold only those three
+    // chips, two-thirds empty. The panel is hidden for
+    // this guide only; the section's links still stand,
+    // so the guide still points at its checks.
+    const leasehold = GUIDES["/guides/buying-a-leasehold-flat"];
+    expect(leasehold.hideChecksBlock).toBe(true);
+    const leaseholdHtml = renderToString(createElement(GuidePageView, { guide: leasehold }));
+    expect(leaseholdHtml).not.toContain("The checks in this guide");
+    for (const check of leasehold.relatedChecks) expect(leaseholdHtml).toContain(`href="${check}"`);
+    // The other guides keep their panel.
+    const families = GUIDES["/guides/is-this-area-good-for-families"];
+    expect(families.hideChecksBlock).toBeUndefined();
+    const familiesHtml = renderToString(createElement(GuidePageView, { guide: families }));
+    expect(familiesHtml).toContain("The checks in this guide");
+  });
+
   it("renders the guides hub listing every guide from the constants, with the checker", () => {
     // The hub (18 Nov 2026, the footer's Guides destination):
     // every guide in the GUIDES record, named and linked,

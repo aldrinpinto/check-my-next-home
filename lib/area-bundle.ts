@@ -1610,6 +1610,43 @@ function toListedPlace(row: ListedRow): ListedPlace {
   };
 }
 
+// BUG-250 (24 Nov 2026): the register files listed names
+// in all caps ("CHURCH OF ST LUKE") — the brain's own
+// lines title-case the name for display. Only an all-caps
+// name is touched; the filed value is untouched. The
+// twin of titleCaseName in lib/results.ts (which the
+// report imports); this module does not import ./results,
+// so the helper is duplicated here, as the codebase's
+// small helpers are duplicated per module.
+const TITLE_CASE_SMALL = new Set([
+  "a",
+  "an",
+  "the",
+  "and",
+  "or",
+  "of",
+  "to",
+  "in",
+  "on",
+  "at",
+  "for",
+  "by",
+  "with",
+]);
+
+function titleCaseName(name: string): string {
+  const letters = name.replace(/[^A-Za-z]/g, "");
+  if (letters.length === 0 || letters !== letters.toUpperCase()) return name;
+  return name
+    .split(" ")
+    .map((word, index) =>
+      index > 0 && TITLE_CASE_SMALL.has(word.toLowerCase())
+        ? word.toLowerCase()
+        : word.charAt(0).toUpperCase() + word.slice(1).toLowerCase(),
+    )
+    .join(" ");
+}
+
 function buildHeritage(
   resolution: Extract<AddressResolution, { rung: 1 | 2 }>,
   listed: ListedFacts,
@@ -1630,7 +1667,7 @@ function buildHeritage(
   let beyondLine: string | null = null;
   if (covered && countWithin === 0 && listed.nearestBeyond) {
     beyondNearest = toListedPlace(listed.nearestBeyond);
-    beyondLine = `none within ${RADIUS_MILES} miles — the nearest listed building is ${beyondNearest.name ?? "an unnamed listed building"} (grade ${beyondNearest.grade}), ${beyondNearest.miles} miles away`;
+    beyondLine = `none within ${RADIUS_MILES} miles — the nearest listed building is ${beyondNearest.name ? titleCaseName(beyondNearest.name) : "an unnamed listed building"} (grade ${beyondNearest.grade}), ${beyondNearest.miles} miles away`;
   }
 
   let atPoint: ListedAtPoint;
@@ -1642,7 +1679,7 @@ function buildHeritage(
     atPoint = {
       state: "recorded",
       place,
-      line: `a listed building is recorded at this postcode point: ${place.name ?? "an unnamed listed building"}, grade ${place.grade} (NHLE ${place.listEntryId}) — check the NHLE entry to confirm it is this building`,
+      line: `a listed building is recorded at this postcode point: ${place.name ? titleCaseName(place.name) : "an unnamed listed building"}, grade ${place.grade} (NHLE ${place.listEntryId}) — check the NHLE entry to confirm it is this building`,
     };
   } else {
     atPoint = { state: "none" };

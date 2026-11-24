@@ -244,9 +244,17 @@ export default function CheckingScreen({
       <h1 className="page-title">{heading}</h1>
       <p className="checking__intro">{CHECKING_INTRO}</p>
 
+      {/* BUG-261 (24 Nov 2026): the dot used to stand
+          beside the text span as its own inline-block,
+          so when the headline wrapped to two lines the
+          whole text box dropped to line two and the dot
+          sat alone on line one. The dot now rides INSIDE
+          the text span, at the head of its first line —
+          it can never wrap alone, at any width. The fade
+          still covers dot and text together. */}
       <p className="checking__ticker">
-        <span className="checking__ticker-dot" aria-hidden="true" />
         <span key={ticker} className="checking__ticker-text">
+          <span className="checking__ticker-dot" aria-hidden="true" />
           {ticker}
         </span>
       </p>

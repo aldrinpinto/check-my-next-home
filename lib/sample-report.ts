@@ -18,7 +18,7 @@
 // mortgage facts in Section 7) and, on ties, everything
 // else.
 
-import type { AddressResolution } from "./address";
+import { displayText, type AddressResolution } from "./address";
 import type { AreaBundle, AreaSections } from "./area-bundle";
 import type { CrimeBundle } from "./crime";
 import type { FloodBundle } from "./flood";
@@ -40,10 +40,6 @@ export const SAMPLE_FICTION = {
   postcode: "MB3 4QX",
   certificateNumber: "0000-0000-0000-0000-0000",
   salePrice: 425000,
-  salePriceLabel: "£425,000",
-  salePriceBare: "425,000",
-  saleDateLong: "22 March 2022",
-  saleDateShort: "22 Mar 2022",
   saleDateIso: "2022-03-22",
 } as const;
 
@@ -589,6 +585,73 @@ export function suppressSampleNames(
 }
 
 // ------------------------------------------------------------------
+// The fiction own sale (BUG-234/235/236, 24 Nov 2026 —
+// and the median corruption found with them, proposed
+// BUG-241)
+// ------------------------------------------------------------------
+
+// The sample's standing fiction wears ONE sale — the
+// fiction price on the fiction date — but the primary's
+// real own sale (Birkdale: £588,995, 15 June 2023) used
+// to reach the report builder untouched, and the
+// anonymisation walk then patched its PRICE and DATE as
+// strings wherever they stood. That patched the labels
+// and left the arithmetic: Section 7's loan, deposit
+// and stamp duty were computed from the real price
+// (£441,746 loan, £147,249 deposit, £19,450 duty —
+// against a £425,000 price label), the dot plot's brass
+// dot sat on the real price, and the first-sale year
+// read 2023 against a 22 March 2022 sale date. Worse,
+// the walk's global "£588,995"→"£425,000" substitution
+// also rewrote the POSTCODE MEDIAN wherever it stood,
+// because the median equals the own-sale price
+// (£588,995 over 29 counted) — the live sample's
+// median read £425,000.
+//
+// The rewrite happens here, at the BUNDLE layer, before
+// composition — the same layer the name suppression
+// stands on — so the builder computes every figure from
+// the fiction sale itself: the last sale's price and
+// date become the fiction's, and the recent-sales row
+// that IS the home's own sale (matched on its original
+// price AND date, so a neighbour's sale at the same
+// price is never touched) becomes the fiction sale too.
+// The median and the counted set are left exactly as
+// filed: the median stays the real £588,995, the
+// counted set keeps the home's real sale as an
+// unlabelled grey dot at £588,995, and the brass dot
+// moves to £425,000. Pure: the input bundles are never
+// mutated. The walk below no longer substitutes prices
+// or dates at all — there is nothing left for it to
+// patch, and no string it could corrupt.
+export function fictioniseSampleOwnSale(
+  bundles: SampleCandidate["bundles"],
+  identities: SampleHomeIdentity[],
+): SampleCandidate["bundles"] {
+  if (bundles.sold.kind !== "sold-prices" || !("ownHistory" in bundles.sold)) return bundles;
+  const original = identities[0]?.ownSales[0];
+  const ownHistory = bundles.sold.ownHistory;
+  if (!original || ownHistory.length === 0) return bundles;
+  const first = ownHistory[0];
+  if (first.price !== original.price || first.date !== original.dateIso) return bundles;
+  return {
+    ...bundles,
+    sold: {
+      ...bundles.sold,
+      ownHistory: [
+        { ...first, price: SAMPLE_FICTION.salePrice, date: SAMPLE_FICTION.saleDateIso },
+        ...ownHistory.slice(1),
+      ],
+      recentSales: bundles.sold.recentSales.map((sale) =>
+        sale.price === original.price && sale.date === original.dateIso
+          ? { ...sale, price: SAMPLE_FICTION.salePrice, date: SAMPLE_FICTION.saleDateIso }
+          : sale,
+      ),
+    },
+  };
+}
+
+// ------------------------------------------------------------------
 // Anonymisation
 // ------------------------------------------------------------------
 
@@ -611,46 +674,18 @@ interface Substitution {
   to: string;
 }
 
-const MONTHS_LONG = [
-  "January",
-  "February",
-  "March",
-  "April",
-  "May",
-  "June",
-  "July",
-  "August",
-  "September",
-  "October",
-  "November",
-  "December",
-];
-const MONTHS_SHORT = MONTHS_LONG.map((m) => m.slice(0, 3));
-
-function dateForms(iso: string): { long: string; short: string } | null {
-  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
-  if (!match) return null;
-  const [, year, month, day] = match;
-  const m = Number(month) - 1;
-  const d = Number(day);
-  if (m < 0 || m > 11 || d < 1 || d > 31) return null;
-  return {
-    long: `${d} ${MONTHS_LONG[m]} ${year}`,
-    short: `${d} ${MONTHS_SHORT[m]} ${year}`,
-  };
-}
-
-function poundsLabel(price: number): string {
-  return `£${price.toLocaleString("en-GB")}`;
-}
-
-function bareLabel(price: number): string {
-  return price.toLocaleString("en-GB");
-}
-
 // The ordered substitution set for a set of identities:
 // longest first, so a full label is replaced before its
 // street and a full postcode before any part of it.
+// Labels, streets, postcodes and certificate numbers
+// only: the own sale's price and date are NOT
+// substituted here — the fiction rewrite above puts the
+// fiction sale into the bundles before composition, so
+// the builder composes the fiction price and date
+// itself, and a string substitution of the real price
+// would also rewrite the postcode median wherever the
+// two coincide (BUG-241: the median equals the
+// own-sale price, £588,995).
 export function sampleSubstitutions(identities: SampleHomeIdentity[]): Substitution[] {
   const subs: Substitution[] = [];
   const push = (from: string | null | undefined, to: string) => {
@@ -666,44 +701,189 @@ export function sampleSubstitutions(identities: SampleHomeIdentity[]): Substitut
     for (const number of identity.certificateNumbers) {
       push(number, SAMPLE_FICTION.certificateNumber);
     }
-    for (const sale of identity.ownSales) {
-      push(poundsLabel(sale.price), SAMPLE_FICTION.salePriceLabel);
-      push(bareLabel(sale.price), SAMPLE_FICTION.salePriceBare);
-      const forms = dateForms(sale.dateIso);
-      if (forms) {
-        push(forms.long, SAMPLE_FICTION.saleDateLong);
-        push(forms.short, SAMPLE_FICTION.saleDateShort);
-      }
-      push(sale.dateIso, SAMPLE_FICTION.saleDateIso);
-    }
   }
   return subs.sort((a, b) => b.from.length - a.from.length);
 }
 
+// ------------------------------------------------------------------
+// The fiction area (BUG-235, 24 Nov 2026 — the place half)
+// ------------------------------------------------------------------
+
+// The sample's standing fiction geography — the
+// Millbrook / Kingsford / Kent of SAMPLE_FICTION's
+// address line ("Millbrook, Kingsford, Kent MB3 4QX").
+// Keep in step with that line: the locality is the
+// fiction village, the town the fiction town, the
+// county the fiction county, the region the region
+// Kent sits in (South East).
+export const SAMPLE_FICTION_AREA = {
+  locality: "Millbrook",
+  town: "Kingsford",
+  county: "Kent",
+  region: "South East",
+} as const;
+
+// The ordered substitution set for the sample's real
+// area geography: longest first, like sampleSubstitutions
+// above, so a full small-area name is replaced before
+// its bare council ("Braintree 018" before "Braintree").
+//
+// WHY THE WALK, NOT THE BUNDLE LAYER: the names surface
+// in pre-composed lines as well as in fields — the
+// census line, the council-tax line, the planning line,
+// the mobile note, the Section 10 source lines — so a
+// bundle-layer rewrite would have to chase every line
+// template in area-bundle.ts, nearby.ts and report.ts,
+// and miss one and the name leaks. The walk is the one
+// place that covers every surface, present and future.
+// (The fiction own sale, by contrast, had to be bundle
+// layer: the price feeds arithmetic the walk cannot fix.)
+//
+// WHAT IT COVERS (audited 24 Nov 2026 against the
+// generated sample, fixture + live DB): the council
+// everywhere it is named (council tax, mobile, planning,
+// the area-facts line); the ward; the region; the census
+// MSOA and deprivation LSOA names; the postal town; the
+// village and county in the filed industrial-site
+// address. The ward-part and town mappings also cover
+// the names those labels leak into — the station name,
+// the certificate address, the sixth-form name.
+//
+// DERIVED, NEVER HAND-LISTED (the sampleBannedNames
+// principle): every name comes from the primary's
+// resolution or the merged bundles at generation time,
+// so a new golden home joins the guard by joining the
+// candidate list. Two exceptions, both properties of
+// the standing primary (Birkdale, Essex) and its
+// standing fiction, neither carried by any structured
+// field: the county ("Essex" — the directory holds the
+// region, not the county) and the village in the filed
+// industrial-site address ("Ulting" — the Pollution
+// Inventory address is one comma-less string, BUG-250
+// item 7c). If the filed industrial site changes, that
+// pair needs its new village; the live sample audit
+// after a re-file is the catch for that.
+export function sampleAreaSubstitutions(
+  resolution: AddressResolution,
+  area: AreaBundle,
+): Substitution[] {
+  const { locality, town, county, region } = SAMPLE_FICTION_AREA;
+  const subs: Substitution[] = [];
+  const push = (from: string | null | undefined, to: string) => {
+    if (from && from !== to) subs.push({ from, to });
+  };
+  // A name in both its filed form and its rendered
+  // (displayText) form — the directory's town arrives
+  // upper-case, the region in sentence case, and the
+  // report renders both title-cased.
+  const pushCased = (from: string | null | undefined, to: string) => {
+    if (!from) return;
+    push(from, from === from.toUpperCase() ? to.toUpperCase() : to);
+    push(displayText(from), to);
+  };
+
+  // The small-area names (census MSOA, deprivation
+  // LSOA): a code form — "<place> <number>" — keeps its
+  // number and takes the fiction locality for its place
+  // ("Braintree 018" -> "Millbrook 018"); a plain place
+  // name takes the fiction locality whole.
+  const smallArea = (name: string | null | undefined) => {
+    if (!name) return;
+    const coded = /^(.+?)\s+(\d+[A-Z]?)$/.exec(name);
+    if (coded) push(name, `${locality} ${coded[2]}`);
+    else push(name, locality);
+  };
+  const sections = area.kind === "area-bundle" ? area.sections : null;
+  if (sections) {
+    smallArea(sections.census.msoaName);
+    smallArea(sections.imd.lsoaName);
+    // Every council the merged sections name — the
+    // mobile grain, the council-tax authority, the
+    // planning hand-off — is the fiction town.
+    push(sections.mobile.council, town);
+    push(sections.councilTax.authority, town);
+    push(sections.planningApplications.council, town);
+  }
+
+  // The directory's own labels. The council is the
+  // fiction town; the ward takes the fiction ward form
+  // below; the region is the fiction region.
+  const directory = "directory" in resolution ? resolution.directory : null;
+  if (directory) {
+    push(directory.council, town);
+    pushCased(directory.region, region);
+    // The ward: a small area, so its fiction form is
+    // the fiction locality first and the fiction town
+    // after — "Hatfield Peverel & Terling" -> "Millbrook
+    // & Kingsford"; a single-part ward takes the
+    // locality whole. Each part is also substituted
+    // bare, so the village name is covered wherever
+    // else it stands (the station name, the certificate
+    // address, the deprivation line).
+    const ward = directory.ward;
+    if (ward) {
+      const separator = ward.includes(" & ") ? " & " : ward.includes(" and ") ? " and " : null;
+      const parts = separator ? ward.split(separator) : [ward];
+      push(ward, parts.map((_, at) => (at === 0 ? locality : town)).join(separator ?? ""));
+      parts.forEach((part, at) => push(part, at === 0 ? locality : town));
+    }
+  }
+
+  // The postal town the resolution carries.
+  const addressTown = resolution.rung === 1 ? resolution.address.town : null;
+  pushCased(addressTown, town);
+
+  // The standing constants (see the note above).
+  push("Essex", county);
+  push("Ulting", locality);
+
+  // Longest first, like sampleSubstitutions — and a
+  // name mapped twice keeps its first mapping.
+  const seen = new Set<string>();
+  return subs
+    .sort((a, b) => b.from.length - a.from.length)
+    .filter((sub) => {
+      if (seen.has(sub.from)) return false;
+      seen.add(sub.from);
+      return true;
+    });
+}
+
 // The anonymisation walk: a deep clone of the composed
-// view with every identity string replaced and every
-// own-sale price (where it stands as data, e.g. the
-// price-dot model) replaced by the fiction price. The
-// masthead's address line is set to the fiction line
-// structurally — the composed line names the primary
-// home's real locality and town, which no string
-// substitution could turn into the fiction's.
+// view with every identity string replaced. Strings
+// only: the fiction rewrite above already puts the
+// fiction sale into the bundles, so no price or date
+// needs patching here — and a number-for-number
+// replacement of the real own-sale price would rewrite
+// any data number that coincides with it (BUG-241: the
+// postcode median). The masthead's address line is set
+// to the fiction line structurally — the composed line
+// names the primary home's real locality and town,
+// which no string substitution could turn into the
+// fiction's.
 export function anonymiseSampleView(
   view: ReportView,
   identities: SampleHomeIdentity[],
+  areaSubs: Substitution[] = [],
 ): ReportView {
   const subs = sampleSubstitutions(identities);
-  const ownPrices = new Set(identities.flatMap((i) => i.ownSales.map((s) => s.price)));
   const applyText = (text: string): string => {
     let out = text;
     for (const { from, to } of subs) {
+      if (out.includes(from)) out = out.split(from).join(to);
+    }
+    // The fiction area (BUG-235): applied after the
+    // identity substitutions, so a composed address the
+    // identity walk has already fictionised ("12 Willow
+    // Close, Hatfield Peverel") has its real town
+    // fictionised too ("12 Willow Close, Millbrook").
+    for (const { from, to } of areaSubs) {
       if (out.includes(from)) out = out.split(from).join(to);
     }
     return out;
   };
   const walk = (value: unknown): unknown => {
     if (typeof value === "string") return applyText(value);
-    if (typeof value === "number") return ownPrices.has(value) ? SAMPLE_FICTION.salePrice : value;
     if (Array.isArray(value)) return value.map(walk);
     if (value !== null && typeof value === "object") {
       const out: Record<string, unknown> = {};

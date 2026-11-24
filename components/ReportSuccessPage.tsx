@@ -1,5 +1,6 @@
 import type { ReportSuccessView } from "../lib/report-success";
 import PostcodeBox from "./PostcodeBox";
+import SuccessPreparingIndicator from "./SuccessPreparingIndicator";
 import SuccessRefresher from "./SuccessRefresher";
 import SuccessResend from "./SuccessResend";
 
@@ -38,6 +39,12 @@ export default function ReportSuccessPage({ view }: { view: ReportSuccessView })
         {view.homeSubline ? `, ${view.homeSubline}` : ""}
       </p>
       <p className="type-lead report-payment__lede">{view.lede}</p>
+
+      {/* BUG-260 (24 Nov 2026): the preparing state's
+          visible progress — the ring spins while the
+          refresher polls, so the ~minute wait never reads
+          as a stuck page. Ready state carries none. */}
+      {view.state === "preparing" && <SuccessPreparingIndicator />}
 
       {view.sectionsLine && view.viewHref && (
         <section className="report-door__card">

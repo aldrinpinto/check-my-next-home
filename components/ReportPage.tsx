@@ -126,9 +126,31 @@ function Block({ block }: { block: ReportBlock }) {
         </div>
       );
     case "table":
+      // BUG-253 (24 Nov 2026): the flood defences tables
+      // restack at phone width (app/globals.css) — their
+      // six columns measure ~558px at their narrowest
+      // against ~358px of report, so the "Design
+      // standard" column fell off the screen. The
+      // restack needs the class and each cell's header as
+      // its label: the defences tables are the only
+      // tables that carry a "Design standard" column, so
+      // the marker is read off the head here, in the
+      // renderer — the composed model is untouched, and
+      // every other table renders exactly as before.
+      const isDefences = block.head.includes("Design standard");
+      // BUG-250 (24 Nov 2026): the Energy certificates
+      // table is the only table whose head carries "Floor
+      // area" — its headers stay on one line
+      // (app/globals.css). Every other table renders
+      // exactly as before.
+      const isEnergy = block.head.includes("Floor area");
       return (
         <>
-          <table>
+          <table
+            className={
+              isDefences ? "rpt-table--defences" : isEnergy ? "rpt-table--energy" : undefined
+            }
+          >
             <thead>
               <tr>
                 {/* One alignment standard for every report
@@ -164,6 +186,7 @@ function Block({ block }: { block: ReportBlock }) {
                     return (
                       <td
                         key={cellIndex}
+                        data-label={isDefences ? block.head[cellIndex] : undefined}
                         className={
                           `${block.align ? (block.align[cellIndex] === "right" ? "num" : "") : cellIndex > 0 ? "num" : ""}${tone === "red" ? " cellRed" : tone === "green" ? " cellGreen" : ""}`.trim() ||
                           undefined
@@ -392,8 +415,13 @@ function streetPathRuns(streets: { d: string; home: boolean }[]): { d: string; h
 // filed street lines are held, they draw as the ground
 // under the pins, in the flood pictures' dress (the home
 // street strong, the rest pale, over the cream ground —
-// print-check item 19). No tiles, no satellite basemap,
-// no external service.
+// print-check item 19). BUG-237 (24 Nov 2026): the pale
+// street stroke was #CFC7A8 — on the #FDF8E8 ground the
+// filed network read as blank cream, so the ground now
+// draws at #B3A67F, still pale beside the home street's
+// green but visible as a network; the flood pictures
+// share the dress and gain the same ground. No tiles,
+// no satellite basemap, no external service.
 function ReportMap({ map }: { map: ReportMapModel }) {
   return (
     <div className="rpt-chartCard">
@@ -412,7 +440,7 @@ function ReportMap({ map }: { map: ReportMapModel }) {
                 key={index}
                 d={run.d}
                 fill="none"
-                stroke={run.home ? "#2F5D3E" : "#CFC7A8"}
+                stroke={run.home ? "#2F5D3E" : "#B3A67F"}
                 strokeWidth={run.home ? 5 : 3.5}
                 strokeLinejoin="round"
                 strokeLinecap="round"
@@ -499,7 +527,16 @@ function ReportMap({ map }: { map: ReportMapModel }) {
 function FloodMap({ map }: { map: ReportFloodMapModel }) {
   return (
     <div className="rpt-chartCard">
-      <h4>{map.title}</h4>
+      {/* BUG-250 (24 Nov 2026): the card's heading repeated
+          the layer sub directly above it ("Flood zones for
+          planning…", "Flooding from surface water"), so on
+          screen it is hidden. It stays in the document as
+          print-only (app/globals.css): the printed report
+          needs the title with its caption — the PDF proof
+          (tests/report-pdf.test.ts) anchors each flood
+          picture to its caption by it. The svg's
+          aria-label keeps the accessible name on screen. */}
+      <h4 className="rpt-printTitle">{map.title}</h4>
       <svg
         className="floodMap"
         viewBox={`0 0 ${map.width} ${map.height}`}
@@ -516,7 +553,7 @@ function FloodMap({ map }: { map: ReportFloodMapModel }) {
             key={index}
             d={run.d}
             fill="none"
-            stroke={run.home ? "#2F5D3E" : "#CFC7A8"}
+            stroke={run.home ? "#2F5D3E" : "#B3A67F"}
             strokeWidth={run.home ? 5 : 3.5}
             strokeLinecap="round"
             strokeLinejoin="round"

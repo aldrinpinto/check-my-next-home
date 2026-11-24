@@ -15,7 +15,9 @@ import {
   homeRoute,
   nationName,
   nationOfLsoa,
+  placeChoiceRoute,
   suppressFarBeyond,
+  widerAreaRoute,
   type Nation,
 } from "./journey";
 
@@ -294,6 +296,45 @@ export function sentenceLine(text: string): string {
   return /[.!?]$/.test(composed) ? composed : `${composed}.`;
 }
 
+// BUG-250 (24 Nov 2026): a register name filed in all
+// caps ("CHURCH OF ST LUKE") reads as shouting in a
+// sentence or a row — the display title-cases it. Only
+// an all-caps name is touched, so a name the register
+// already files in mixed case stands exactly as filed;
+// small words (of, the, and…) stay lowercase, and the
+// rest of each word lowers ("ST" reads "St"). The report
+// (lib/report.ts) imports this helper; the brain
+// (lib/area-bundle.ts) carries its own copy, as the
+// codebase's small helpers are duplicated per module.
+const TITLE_CASE_SMALL = new Set([
+  "a",
+  "an",
+  "the",
+  "and",
+  "or",
+  "of",
+  "to",
+  "in",
+  "on",
+  "at",
+  "for",
+  "by",
+  "with",
+]);
+
+export function titleCaseName(name: string): string {
+  const letters = name.replace(/[^A-Za-z]/g, "");
+  if (letters.length === 0 || letters !== letters.toUpperCase()) return name;
+  return name
+    .split(" ")
+    .map((word, index) =>
+      index > 0 && TITLE_CASE_SMALL.has(word.toLowerCase())
+        ? word.toLowerCase()
+        : word.charAt(0).toUpperCase() + word.slice(1).toLowerCase(),
+    )
+    .join(" ");
+}
+
 // ------------------------------------------------------------------
 // BUG-212 — the planning-constraints grouping (Sample 2
 // "Grouped by answer", founder pick 24 Nov 2026), shared by
@@ -431,6 +472,42 @@ export interface TruncationView {
   href: string | null;
 }
 
+// BUG-254 (24 Nov 2026): the truncation lead's group
+// label is plural ("Plus 3 more primary schools") —
+// where exactly one item remains the lead must read
+// singular ("Plus 1 more primary school"). The map
+// covers every groupLabel the two category tables file;
+// a label with no entry keeps its plural form rather
+// than guessing — a rule-based strip would mangle
+// "nurseries" ("nurserie"), "places to visit" and
+// "places of worship" (no trailing "s" to strip) and
+// "sixth forms and colleges" ("sixth forms and
+// college").
+const SINGULAR_GROUP_LABELS: Record<string, string> = {
+  "primary schools": "primary school",
+  "secondary schools": "secondary school",
+  "sixth forms and colleges": "sixth form or college",
+  nurseries: "nursery",
+  "GP surgeries": "GP surgery",
+  "NHS dentists": "NHS dentist",
+  pharmacies: "pharmacy",
+  "A&E hospitals": "A&E hospital",
+  "maternity units": "maternity unit",
+  stations: "station",
+  "bus stops": "bus stop",
+  supermarkets: "supermarket",
+  "food and drink places": "food and drink place",
+  "parks and greenspace": "park or greenspace",
+  vets: "vet",
+  "pet shops": "pet shop",
+  "pet boarding places": "pet boarding place",
+  "EV chargers": "EV charger",
+  "leisure places": "leisure place",
+  "places to visit": "place to visit",
+  "places of worship": "place of worship",
+  libraries: "library",
+};
+
 export function truncationFor(
   countWithin: number,
   shown: number,
@@ -443,10 +520,13 @@ export function truncationFor(
   const total = Math.min(countWithin, reportListSizeFor(category));
   const n = total - shown;
   if (n <= 0) return null;
+  // BUG-254: n === 1 reads singular; n >= 2 keeps the
+  // plural form exactly as the Master shows it.
+  const label = n === 1 ? (SINGULAR_GROUP_LABELS[groupLabel] ?? groupLabel) : groupLabel;
   return {
     n,
     total,
-    lead: `Plus ${n} more ${groupLabel}`,
+    lead: `Plus ${n} more ${label}`,
     detail,
     href: linkable ? href : null,
   };
@@ -722,9 +802,11 @@ function placeRow(
   // The secondary rows' filed sixth-form flags (M6.33) as
   // the detail's last part. The yes form is the sample's
   // plain words (M7.11 O-3, founder adopted 18 Nov 2026);
-  // the no and not-recorded forms stay as filed.
+  // the no form drops the internal ", as filed" (BUG-250
+  // item 24, 24 Nov 2026) — a consumer-facing line never
+  // carries filing language.
   if (place.sixthForm === true) parts.push("Sixth form at the school");
-  else if (place.sixthForm === false) parts.push("sixth form: no, as filed");
+  else if (place.sixthForm === false) parts.push("sixth form: no");
   else if (place.sixthForm === null && "sixthForm" in place) parts.push("sixth form: not recorded");
   return {
     name: `${presentation.namePrefix ? `${presentation.namePrefix} — ` : ""}${place.name}${presentation.nameSuffix ?? ""}`,
@@ -1770,6 +1852,12 @@ export interface ResultsInput {
   // depend on. Absent, the links degrade to the postcode
   // form; they never name a wrong home.
   homeKey?: string | null;
+  // BUG-247: the home's place-page name — its filed town,
+  // as the place table files it — resolved by the page
+  // and passed in, so this builder stays pure and never
+  // reads the database. Absent, no place link is drawn,
+  // never a dead one.
+  placeName?: string | null;
 }
 
 export const BUY_BAR_HEADING = "Get the full detailed report for this home";
@@ -2236,6 +2324,32 @@ export function buildResultsView(input: ResultsInput): ResultsView {
     const blocks: SectionBlock[] = [];
     const census = areaSections?.census;
     const imd = areaSections?.imd;
+    // BUG-247 (founder ruling, 24 Nov 2026): the free
+    // page links on to its district page and its place
+    // page, at the foot of this section — the one that
+    // talks about the wider area around the home. The
+    // district link needs only the outward, derived here
+    // from the resolution; the place link needs the
+    // home's filed town as a place-page name, resolved
+    // by the page and passed in as placeName. Rung 1
+    // only: the address list and the wider-area view
+    // carry no single home whose town this could name.
+    const widerLinks: SectionBlock[] = [];
+    if (resolution.rung === 1) {
+      const outward = resolution.directory.postcode.split(" ")[0];
+      widerLinks.push({
+        type: "link",
+        label: `Wider area — ${outward}`,
+        url: widerAreaRoute(outward),
+      });
+      if (input.placeName) {
+        widerLinks.push({
+          type: "link",
+          label: input.placeName,
+          url: placeChoiceRoute(input.placeName),
+        });
+      }
+    }
     if (census && census.state === "served") {
       const items: { lead?: string; text: string; sub?: boolean }[] = [];
       const table = (code: string) => census.tables.find((t) => t.code === code);
@@ -2366,6 +2480,7 @@ export function buildResultsView(input: ResultsInput): ResultsView {
             ? "Six tables as published — age, ethnic group, religion, type of home, bedrooms and tenure, every count and percentage."
             : "The Census tables as published for this area — every count and percentage.",
       });
+      blocks.push(...widerLinks);
       neighbourhoodSections.push(
         linesSection("census", "The neighbourhood in numbers", blocks, census.sourceLine),
       );
@@ -2379,6 +2494,7 @@ export function buildResultsView(input: ResultsInput): ResultsView {
           ? sentenceLine(census.line)
           : "Census 2021 figures are not filed for this area.",
       });
+      blocks.push(...widerLinks);
       neighbourhoodSections.push(linesSection("census", "The neighbourhood in numbers", blocks));
     }
   }
@@ -3080,7 +3196,7 @@ export function buildResultsView(input: ResultsInput): ResultsView {
       // named none).
       if (listedNearest && listedNearest.name)
         texts.push(
-          `The nearest listed building is ${listedNearest.name} (Grade ${listedNearest.grade}), ${formatMiles(listedNearest.miles)} miles away.`,
+          `The nearest listed building is ${titleCaseName(listedNearest.name)} (Grade ${listedNearest.grade}), ${formatMiles(listedNearest.miles)} miles away.`,
         );
       else if (heritage.listed.beyondLine) texts.push(heritage.listed.beyondLine);
       if (heritage.atPoint.state === "recorded") texts.push(heritage.atPoint.line);
@@ -3418,6 +3534,37 @@ export function buildWiderAreaView(
 
 function districtCount(value: number): string {
   return value.toLocaleString("en-GB");
+}
+
+// BUG-258 (24 Nov 2026): the "Counts in …" tiles' labels,
+// singular at a count of 1 — "1 Rail station", never
+// "1 Rail stations". The same family as BUG-254's "Plus 1
+// more" strips. Exported for the pin test; the view calls
+// it with the section's own counts.
+export function everydayTiles(everyday: {
+  gp: number;
+  dentists: number;
+  pharmacies: number;
+  stations: string[];
+}): { label: string; value: string }[] {
+  return [
+    {
+      label: everyday.gp === 1 ? "GP surgery" : "GP surgeries",
+      value: districtCount(everyday.gp),
+    },
+    {
+      label: everyday.dentists === 1 ? "Dentist" : "Dentists",
+      value: districtCount(everyday.dentists),
+    },
+    {
+      label: everyday.pharmacies === 1 ? "Pharmacy" : "Pharmacies",
+      value: districtCount(everyday.pharmacies),
+    },
+    {
+      label: everyday.stations.length === 1 ? "Rail station" : "Rail stations",
+      value: districtCount(everyday.stations.length),
+    },
+  ];
 }
 
 function districtJoinNames(names: string[]): string {
@@ -4127,12 +4274,7 @@ export function buildDistrictResultsView(bundle: DistrictServed): ResultsView {
   } else {
     everydayBlocks.push({
       type: "tiles",
-      tiles: [
-        { label: "GP surgeries", value: districtCount(sections.everyday.gp) },
-        { label: "Dentists", value: districtCount(sections.everyday.dentists) },
-        { label: "Pharmacies", value: districtCount(sections.everyday.pharmacies) },
-        { label: "Rail stations", value: districtCount(sections.everyday.stations.length) },
-      ],
+      tiles: everydayTiles(sections.everyday),
     });
     if (sections.everyday.stations.length > 0) {
       everydayBlocks.push({
