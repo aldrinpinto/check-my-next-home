@@ -43,8 +43,13 @@ import { resolutionForRoute } from "../../lib/server/serve";
 // journey family.
 
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 
 import { pageMetadata } from "../../lib/seo";
+import { GIFT_COOKIE_NAME } from "../../lib/gift";
+import { getDbPool } from "../../lib/server/db";
+import { createDbFulfilmentClaimStore } from "../../lib/server/fulfilment";
+import { claimedGiftForVisit, createDbGiftStore } from "../../lib/server/gifts";
 
 // M7.8: explicit production noindex — see app/search/page.tsx.
 export const metadata: Metadata = pageMetadata({
@@ -141,9 +146,22 @@ export default async function ReportPage({
   // milestone lifts the hold.
   const doorState = effectiveReportDoorState(nation);
   if (doorState === "paid") {
+    // BUG-223: the visit's claimed gift, read from the
+    // cmnh-gift cookie the claim set — so the payment
+    // page shows the gift-applied state to a gift
+    // holder instead of the £4.99 checkout. No cookie
+    // (or no standing gift behind it) costs no
+    // database call: the reader short-circuits before
+    // it touches the store.
+    const gift = await claimedGiftForVisit(
+      createDbGiftStore(getDbPool()),
+      (await cookies()).get(GIFT_COOKIE_NAME)?.value,
+      new Date(),
+      createDbFulfilmentClaimStore(getDbPool()),
+    );
     return (
       <ReportPaymentPage
-        view={buildReportPaymentView(identity)}
+        view={buildReportPaymentView(identity, gift ? { email: gift.claimantEmail } : null)}
         publishableKey={paymentPublishableKey()}
         postcode={postcode}
         homeKey={identity.kind === "home" ? identity.homeKey : null}

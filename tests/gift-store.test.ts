@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { decideClaimAttempt, giftServedState, isGiftTokenForm } from "../lib/gift";
-import { createMemoryGiftStore, newConfirmToken } from "../lib/server/gifts";
+import { createMemoryFulfilmentClaimStore } from "../lib/server/fulfilment";
+import { claimedGiftForVisit, createMemoryGiftStore, newConfirmToken } from "../lib/server/gifts";
 import { GIFT_BUYER, GIFT_FRIEND } from "./fixtures/gift";
 
 // M7.13 — the gift store's lifecycle, run against the
@@ -159,5 +160,174 @@ describe("(g) and (i)'s lookup — the bound gift stays findable by its email", 
     // Past day 30 the gift is gone even though it was
     // claimed in time and never used.
     expect(await store.findClaimedByEmail(GIFT_FRIEND, at(31))).toBeNull();
+  });
+});
+
+describe("the gift visit (BUG-223) — the cookie's token resolves to the bound email", () => {
+  async function claimedStore() {
+    const store = createMemoryGiftStore();
+    const claims = createMemoryFulfilmentClaimStore();
+    const gift = await store.issue({ buyerEmail: GIFT_BUYER, now: T0 });
+    const pending = newConfirmToken();
+    await store.setPending(gift.token, GIFT_FRIEND, pending, T0);
+    await store.bindByConfirm(gift.token, pending, at(1));
+    return { store, claims, gift };
+  }
+  const visit = (
+    store: ReturnType<typeof createMemoryGiftStore>,
+    claims: ReturnType<typeof createMemoryFulfilmentClaimStore>,
+    token: string | undefined,
+    days: number,
+  ) => claimedGiftForVisit(store, token, at(days), claims);
+
+  it("resolves a claimed, unconsumed, in-date gift to the email it is bound to", async () => {
+    const { store, claims, gift } = await claimedStore();
+    expect(await visit(store, claims, gift.token, 2)).toEqual({
+      token: gift.token,
+      claimantEmail: GIFT_FRIEND,
+    });
+  });
+
+  it("resolves nothing without a cookie, or for a malformed token, or an unknown token", async () => {
+    const { store, claims } = await claimedStore();
+    expect(await visit(store, claims, undefined, 2)).toBeNull();
+    expect(await visit(store, claims, "not-a-token", 2)).toBeNull();
+    expect(await visit(store, claims, "00000000000000000000000000000000", 2)).toBeNull();
+  });
+
+  it("resolves nothing for an unclaimed gift", async () => {
+    const store = createMemoryGiftStore();
+    const claims = createMemoryFulfilmentClaimStore();
+    const gift = await store.issue({ buyerEmail: GIFT_BUYER, now: T0 });
+    expect(await visit(store, claims, gift.token, 2)).toBeNull();
+  });
+
+  it("resolves nothing once the gift is redeemed", async () => {
+    const { store, claims, gift } = await claimedStore();
+    await store.markRedeemed(gift.token, at(2));
+    expect(await visit(store, claims, gift.token, 2)).toBeNull();
+  });
+
+  it("resolves nothing once the gift is voided by a refund", async () => {
+    const store = createMemoryGiftStore();
+    const claims = createMemoryFulfilmentClaimStore();
+    const gift = await store.issue({ buyerEmail: GIFT_BUYER, orderRef: "order-1", now: T0 });
+    const pending = newConfirmToken();
+    await store.setPending(gift.token, GIFT_FRIEND, pending, T0);
+    await store.bindByConfirm(gift.token, pending, at(1));
+    await store.voidByOrderRef("order-1", at(2));
+    expect(await visit(store, claims, gift.token, 2)).toBeNull();
+  });
+
+  it("resolves nothing past day 30, even for a gift claimed in time and never used", async () => {
+    const { store, claims, gift } = await claimedStore();
+    expect(await visit(store, claims, gift.token, 31)).toBeNull();
+  });
+});
+
+// BUG-224 — one gift, one home. The gift record stays
+// "claimed" between the order being placed and the
+// worker delivering it, so the record alone cannot
+// tell a spent gift from a waiting one; the gifted
+// fulfilment claim is the spend. These scenarios run
+// the reader against the two stores in order, the way
+// the free page and the payment page read it per
+// request: a null answer is the £4.99 checkout, a
+// resolved answer is the free report.
+describe("the gift visit (BUG-224) — one gift, one home", () => {
+  async function claimedStore() {
+    const store = createMemoryGiftStore();
+    const claims = createMemoryFulfilmentClaimStore();
+    const gift = await store.issue({ buyerEmail: GIFT_BUYER, now: T0 });
+    const pending = newConfirmToken();
+    await store.setPending(gift.token, GIFT_FRIEND, pending, T0);
+    await store.bindByConfirm(gift.token, pending, at(1));
+    return { store, claims, gift };
+  }
+  const visit = (
+    store: ReturnType<typeof createMemoryGiftStore>,
+    claims: ReturnType<typeof createMemoryFulfilmentClaimStore>,
+    token: string | undefined,
+    days: number,
+  ) => claimedGiftForVisit(store, token, at(days), claims);
+  const orderFree = (
+    claims: ReturnType<typeof createMemoryFulfilmentClaimStore>,
+    token: string,
+    homeKey: string,
+    days: number,
+  ) =>
+    claims.claim({
+      ref: token,
+      kind: "gifted",
+      email: GIFT_FRIEND,
+      postcode: "CM3 2JT",
+      homeKey,
+      giftToken: token,
+      now: at(days),
+    });
+
+  it("(a) claim, order home A free, then check home B — £4.99 is asked", async () => {
+    const { store, claims, gift } = await claimedStore();
+    // Home A: the gift stands, the free report is offered.
+    expect(await visit(store, claims, gift.token, 2)).toEqual({
+      token: gift.token,
+      claimantEmail: GIFT_FRIEND,
+    });
+    // The order is placed — and the record STILL says
+    // "claimed": delivery has not consumed it yet. The
+    // claim, not the record, is what spends the gift.
+    expect(await orderFree(claims, gift.token, "home-a", 2)).toBe(true);
+    expect((await store.getByToken(gift.token))?.status).toBe("claimed");
+    // Home B: nothing resolves, so the free page and
+    // the payment page show £4.99.
+    expect(await visit(store, claims, gift.token, 2)).toBeNull();
+  });
+
+  it("(b) claim, abandon home A without ordering, order home B free, then check home C — £4.99 is asked", async () => {
+    const { store, claims, gift } = await claimedStore();
+    // Home A is looked at and left: no order, no claim,
+    // so the gift is still waiting.
+    expect(await visit(store, claims, gift.token, 2)).toEqual({
+      token: gift.token,
+      claimantEmail: GIFT_FRIEND,
+    });
+    // Home B is the one ordered free — the gift follows
+    // the claimant, not the home, until an order is
+    // placed.
+    expect(await visit(store, claims, gift.token, 2)).toEqual({
+      token: gift.token,
+      claimantEmail: GIFT_FRIEND,
+    });
+    expect(await orderFree(claims, gift.token, "home-b", 2)).toBe(true);
+    // Home C: the gift is spent.
+    expect(await visit(store, claims, gift.token, 2)).toBeNull();
+  });
+
+  it("(c) back-navigation from the success page to a different home — £4.99 is asked", async () => {
+    const { store, claims, gift } = await claimedStore();
+    // Home A is ordered free; the success page stands.
+    expect(await orderFree(claims, gift.token, "home-a", 2)).toBe(true);
+    // The success page's own read: no gift state.
+    expect(await visit(store, claims, gift.token, 2)).toBeNull();
+    // Going back re-runs the same per-request read
+    // against the live store — nothing about the
+    // navigation carries the gift state, and the
+    // browser session holds only the token, never a
+    // "free" flag — so the different home still shows
+    // £4.99.
+    expect(await visit(store, claims, gift.token, 2)).toBeNull();
+  });
+
+  it("a failed gifted claim leaves the gift usable — the M9.7 retake road (ruling R3)", async () => {
+    const { store, claims, gift } = await claimedStore();
+    expect(await orderFree(claims, gift.token, "home-a", 2)).toBe(true);
+    // The delivery failed and exhausted: the claim
+    // stands failed, so the gift was never consumed.
+    await claims.recordFailure(gift.token, { error: "delivery failed", maxAttempts: 1 });
+    expect((await claims.getByRef(gift.token))?.status).toBe("failed");
+    expect(await visit(store, claims, gift.token, 2)).toEqual({
+      token: gift.token,
+      claimantEmail: GIFT_FRIEND,
+    });
   });
 });

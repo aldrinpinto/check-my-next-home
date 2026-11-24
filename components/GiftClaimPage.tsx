@@ -122,24 +122,6 @@ function GiftIcon() {
   );
 }
 
-function TickIcon() {
-  return (
-    <svg
-      width="26"
-      height="26"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="m4.5 12.5 5 5 10-11" />
-    </svg>
-  );
-}
-
 // The pending screen's badge glyph (Master view 20):
 // the envelope, in the gift badge's brass-pale disc.
 function MailIcon() {
@@ -418,14 +400,14 @@ export function GiftClaimCard({
 }
 
 // The dedicated claimed page's confirmation card
-// (view 22): the tick badge, the "Gift saved" chip, the
+// (view 22): the "Gift saved" chip carrying the one
+// tick (BUG-222, founder ruling 24 Nov 2026 — one
+// tick, the Master changed first: the standalone
+// badge tick is gone, the pill's tick stands), the
 // claimed message, and its own postcode search field.
 export function GiftClaimedCard() {
   return (
     <div className="card gift-card">
-      <Badge form="ok">
-        <TickIcon />
-      </Badge>
       <p className="gift-chip">
         <svg
           width="16"

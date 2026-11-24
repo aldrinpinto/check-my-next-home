@@ -214,6 +214,16 @@ describe("the dedicated claimed page's card (view 22)", () => {
     expect(html).not.toContain('name="email"');
     expect(html).not.toContain("Claim my free report");
   });
+
+  it("carries exactly one tick — the pill's (BUG-222: the standalone badge tick is gone)", () => {
+    // The tick path stands once: inside the "Gift saved"
+    // pill. The standalone badge tick the founder
+    // flagged is gone, Master first, product following.
+    const ticks = html.split("m4.5 12.5 5 5 10-11").length - 1;
+    expect(ticks).toBe(1);
+    expect(html).toContain("Gift saved to your email address");
+    expect(html).not.toContain("icon-badge ok");
+  });
 });
 
 describe("the closed screens (views 25–27)", () => {

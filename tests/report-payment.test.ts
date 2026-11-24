@@ -11,6 +11,7 @@ import {
   buildReportPaymentView,
   liveStartedPayment,
   paymentElementKey,
+  PAYMENT_CLOSING_LINE,
   PAYMENT_CONSENT_ERROR_LINE,
   PAYMENT_CONSENT_LABEL,
   PAYMENT_CONSENT_TAIL,
@@ -18,6 +19,8 @@ import {
   PAYMENT_EMAIL_HELP,
   PAYMENT_EMAIL_LABEL,
   PAYMENT_EMAIL_PLACEHOLDER,
+  PAYMENT_GIFT_LINE,
+  PAYMENT_GIFT_TERMS_LINE_LEAD,
   PAYMENT_ONE_PAYMENT_LINE,
   PAYMENT_REFUND_LINE,
   PAYMENT_TERMS_HREF,
@@ -26,8 +29,14 @@ import {
   PAYMENT_TERMS_LINK_LABEL,
   type StartedPayment,
 } from "../lib/report-payment";
-import { BUY_BAR_MYSTERY_EYEBROW, BUY_BAR_MYSTERY_LINE } from "../lib/results";
+import { GIFT_APPLIED_BANNER_LINE } from "../lib/report-success";
+import {
+  BUY_BAR_MYSTERY_EYEBROW,
+  BUY_BAR_MYSTERY_LINE,
+  GIFT_REPORT_BUTTON_LABEL,
+} from "../lib/results";
 import { TERMS_CARDS } from "../lib/site-pages";
+import { GIFT_FRIEND } from "./fixtures/gift";
 
 // M9.4/M9.5 — the payment page (Final Sample Master,
 // Sample 9), proven in its forced state: built and
@@ -241,7 +250,13 @@ describe("payment page — the honest pre-payment screen (M9.5, T-PAY-06)", () =
     expect(text).not.toContain("one payment, no subscription");
     // D21: the gift is a surprise until the delivery
     // email — no honest-screen content may name it.
-    expect(text.toLowerCase()).not.toContain("gift");
+    // The assertion runs over the view's VALUES, the
+    // words a payer can see: the view now carries the
+    // gift fields (giftEmail, giftLine) for the gift
+    // variant, and they ride null on the paid page —
+    // their KEY names carry the word by design, and
+    // no value on the paid page names it.
+    expect(JSON.stringify(Object.values(view)).toLowerCase()).not.toContain("gift");
   });
 
   it("renders the consent as one checkbox line — the terms line and the change-of-mind tail inside the tick label, above the email block, with no price line in the card (BUG-215)", () => {
@@ -543,5 +558,96 @@ describe("no interim screen between Pay and the success page (BUG-217)", () => {
     const source = read("components/ReportPaymentPage.tsx");
     expect(source).toContain("window.location.assign(");
     expect(source).toContain("`/report/success?order=${encodeURIComponent(startedRef.current)}`");
+  });
+});
+
+// BUG-223 — the gift-applied order step (approved
+// Screen C, DRAFT lines 6–7, verbatim). A visit
+// holding a claimed, unspent gift sees no card form
+// and no price: the gift banner, the bound email
+// pre-filled, the consent tick standing ticked, and
+// the "Get my free report" button. The order starts
+// only when the claimant clicks that button — the
+// tick alone never places it (the start effect stays
+// gated on the button for a gift holder).
+describe("payment page — the gift variant (BUG-223, approved Screen C)", () => {
+  function renderGift(identity: ReportDoorIdentity = HOME): string {
+    return renderToStaticMarkup(
+      createElement(ReportPaymentPage, {
+        view: buildReportPaymentView(identity, { email: GIFT_FRIEND }),
+        // A gift order creates no payment at all, so the
+        // page renders with no publishable key — the
+        // gift must not depend on payment configuration.
+        publishableKey: null,
+        postcode: identity.kind === "generic" ? null : identity.postcode,
+        homeKey: identity.kind === "home" ? identity.homeKey : null,
+      }),
+    );
+  }
+
+  it("the gift view speaks of the free report, never of paying (DRAFT lines 6–7)", () => {
+    const view = buildReportPaymentView(HOME, { email: GIFT_FRIEND });
+    expect(view.payLabel).toBe(GIFT_REPORT_BUTTON_LABEL);
+    expect(view.payLabel).toBe("Get my free report");
+    expect(view.termsLineLead).toBe(PAYMENT_GIFT_TERMS_LINE_LEAD);
+    expect(view.termsLineLead).toContain("By ordering, you agree to our ");
+    expect(view.termsLineLead).not.toContain("By paying");
+    expect(view.termsLineLead).not.toContain("By claiming");
+    // Screen C draws no closing line under the button,
+    // and the panel keeps its "Detailed report" title.
+    expect(view.closingLine).toBe("");
+    expect(view.cardTitle).toBe("Detailed report");
+    expect(view.giftEmail).toBe(GIFT_FRIEND);
+    expect(view.giftLine).toBe(PAYMENT_GIFT_LINE);
+    // The heading, contents card and tease are the paid
+    // page's own and stand unchanged.
+    expect(view.heading).toBe("The detailed report for 19 Birkdale Rise");
+    expect(view.teaseEyebrow).toBe(BUY_BAR_MYSTERY_EYEBROW);
+    expect(view.teaseLine).toBe(BUY_BAR_MYSTERY_LINE);
+  });
+
+  it("the gift line is the success surface's gift-applied banner, in twin form", () => {
+    expect(PAYMENT_GIFT_LINE).toBe(GIFT_APPLIED_BANNER_LINE);
+    expect(PAYMENT_GIFT_LINE).toBe(
+      "Your free report gift has been applied — there's nothing to pay for this report.",
+    );
+  });
+
+  it("the paid view carries no gift state", () => {
+    const view = buildReportPaymentView(HOME);
+    expect(view.giftEmail).toBeNull();
+    expect(view.giftLine).toBeNull();
+    expect(view.payLabel).toBe("Pay £4.99");
+    expect(view.closingLine).toBe(PAYMENT_CLOSING_LINE);
+    expect(view.cardTitle).toBe("Card payment");
+  });
+
+  it("renders the gift step: banner, pre-filled email, ticked consent, gift button — no card form, no price", () => {
+    const html = renderGift();
+    // The server renderer escapes the apostrophe.
+    expect(html).toContain(PAYMENT_GIFT_LINE.replaceAll("'", "&#x27;"));
+    expect(html).toContain(`value="${GIFT_FRIEND}"`);
+    // The consent tick stands ticked on arrival
+    // (Screen C as drawn).
+    expect(html).toContain('id="payment-consent"');
+    expect(html).toContain('checked=""');
+    expect(html).toContain("By ordering, you agree to our ");
+    expect(html).toContain(`<a href="${PAYMENT_TERMS_HREF}">${PAYMENT_TERMS_LINK_LABEL}</a>.`);
+    expect(html).toContain("Get my free report");
+    expect(html).toContain("A mystery extra");
+    expect(html).toContain(BUY_BAR_MYSTERY_LINE);
+    expect(html).not.toContain("Pay £4.99");
+    expect(html).not.toContain("Card payment");
+    expect(html).not.toContain("Powered by");
+    expect(html).not.toContain("Payment is handled securely by Stripe");
+    expect(html).not.toContain("report-payment__smallprint");
+  });
+
+  it("the paid render still starts unticked, email empty, Pay button standing", () => {
+    const html = renderPaid();
+    expect(html).not.toContain('checked=""');
+    expect(html).toContain('value=""');
+    expect(html).toContain("Pay £4.99");
+    expect(html).toContain("Powered by");
   });
 });

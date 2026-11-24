@@ -2763,6 +2763,22 @@ button.postio-row:hover {
   margin-bottom: var(--space-4);
 }
 
+/* The gift strip (BUG-223, approved Screen B, DRAFT
+   line 3): the gift-applied banner dress (PF-17) on
+   the free page itself, standing above the pills so a
+   gift holder reads, before any fact or price, that
+   the gift is ready to use on this home. Shown only
+   while the visit holds a claimed, unspent gift. */
+.results-gift-strip {
+  margin: 0 0 var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-panel);
+  background: #fbf3d9;
+  border: 1px solid var(--cmnh-brass-pale);
+  color: var(--cmnh-forest-deep);
+  font-weight: 600;
+}
+
 .results-warnings-strip {
   border-left: 4px solid var(--cmnh-error);
   padding: var(--space-2) var(--space-4);
@@ -4090,6 +4106,22 @@ a.picker__row {
   font-weight: 600;
   line-height: 1.35;
   color: var(--cmnh-forest-deep);
+}
+
+/* The gift-applied line (BUG-223): the success
+   surface's gift banner dress (PF-17) on the payment
+   page itself — the gift holder reads, before any
+   card field or price, that the gift covers this
+   report. Shown only while the entered email still
+   matches the email the gift is bound to. */
+.report-payment__gift {
+  margin: 0 0 1.375rem;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-panel);
+  background: #fbf3d9;
+  border: 1px solid var(--cmnh-brass-pale);
+  color: var(--cmnh-forest-deep);
+  font-weight: 600;
 }
 
 /* The card panel (PF-07): the sample's stripe-panel —

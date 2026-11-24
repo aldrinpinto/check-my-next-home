@@ -83,6 +83,33 @@ import { fireJourneyEvent } from "./JourneyBeacon";
 // provider's confirmation and that navigation — the
 // buyer goes straight from the payment screen to the
 // success surface.
+//
+// BUG-223: the gift holder's variant (approved Screen
+// C, as drawn). The visit's claimed gift arrives in
+// the view (giftEmail, from the cmnh-gift cookie the
+// claim set): the email stands pre-filled, the
+// gift-applied line stands under the heading, the
+// consent's lead and the button speak of the free
+// report, never of paying, and the card panel keeps
+// its "Detailed report" title with no "Powered by
+// Stripe". The consent tick stands TICKED on arrival
+// for a gift holder — Screen C draws it ticked, and
+// the founder approved the screen as drawn — but the
+// order still starts only when the claimant clicks
+// "Get my free report": the start effect stays gated
+// on the button for a gift holder, so the order is
+// never placed on page load. The gift applies while
+// the entered email still matches the bound email —
+// editing away from it reverts the page to its paid
+// form and clears the tick in the same keystroke, so
+// a pre-ticked consent can never cover a paid order.
+// The mystery tease stands for a gift holder too:
+// Screen C draws it, and the founder approved it as
+// drawn. The consent tick's legal function (the report
+// is made straight away; the 14-day change-of-mind
+// right ends on delivery) holds for a gifted report
+// too — only its paying word is swapped for the
+// ordering word.
 
 // The provider library's promises, one per publishable
 // key (the default set's and the test lane's): the
@@ -176,7 +203,10 @@ export default function ReportPaymentPage({
   postcode: string | null;
   homeKey: string | null;
 }) {
-  const [email, setEmail] = useState("");
+  // BUG-223: the bound email stands pre-filled for a
+  // gift holder — the gift is tied to that email, and
+  // the intent's gift recognition keys on it.
+  const [email, setEmail] = useState(view.giftEmail ?? "");
   const [emailError, setEmailError] = useState(false);
   // BUG-132: the consent error — set when the buyer
   // tries to pay with the tick standing unticked,
@@ -190,7 +220,14 @@ export default function ReportPaymentPage({
   // unticked. The timestamp is captured at the tick
   // itself — it is the consent's own time, carried into
   // the payment's metadata, not a time invented later.
-  const [consentAt, setConsentAt] = useState<string | null>(null);
+  // BUG-223: for a gift holder the tick stands ticked
+  // on arrival (approved Screen C, as drawn) — the
+  // start effect below stays gated on the button for a
+  // gift holder, so the tick alone never places the
+  // order.
+  const [consentAt, setConsentAt] = useState<string | null>(
+    view.giftEmail !== null ? new Date().toISOString() : null,
+  );
   const [started, setStarted] = useState<StartedPayment | null>(null);
   const [attempt, setAttempt] = useState(0);
   const creatingFor = useRef<string | null>(null);
@@ -212,6 +249,13 @@ export default function ReportPaymentPage({
 
   const normalised = normaliseEmail(email);
   const emailValid = isEmailShape(normalised);
+
+  // BUG-223: the gift applies while the entered email
+  // still matches the email the gift is bound to. A
+  // gift holder who edits away from it sees the paid
+  // page again — the gift is tied to that email
+  // (Sample 22) and no other.
+  const giftApplies = view.giftEmail !== null && normalised === normaliseEmail(view.giftEmail);
 
   // The payment that belongs to the page as it now
   // stands: a payment started for any other address, or
@@ -238,6 +282,18 @@ export default function ReportPaymentPage({
   // button as the retry.
   useEffect(() => {
     if (!emailValid || consentAt === null) {
+      creatingFor.current = null;
+      return;
+    }
+    // BUG-223: a gift order starts only when the
+    // claimant clicks "Get my free report" — the tick
+    // stands ticked on arrival for a gift holder
+    // (approved Screen C), and without this gate the
+    // pre-filled email plus the ticked consent would
+    // place the order on page load, before the
+    // claimant has confirmed anything. The paid flow
+    // is untouched: it still starts on the tick.
+    if (giftApplies && attempt === 0) {
       creatingFor.current = null;
       return;
     }
@@ -308,7 +364,7 @@ export default function ReportPaymentPage({
     return () => {
       live = false;
     };
-  }, [emailValid, normalised, started, consentAt, postcode, homeKey, attempt]);
+  }, [emailValid, normalised, started, consentAt, postcode, homeKey, attempt, giftApplies]);
 
   function onConsentChange(checked: boolean) {
     // Ticking stamps the consent with its moment;
@@ -333,7 +389,11 @@ export default function ReportPaymentPage({
       setConsentError(true);
       return;
     }
-    if (!publishableKey) {
+    if (!publishableKey && !giftApplies) {
+      // A gift order creates no payment at all, so the
+      // payment key's absence must not block a gift
+      // holder (BUG-223): the intent answers gifted
+      // without any key. A payer still needs the key.
       setNotice(PAYMENT_START_FAILED_LINE);
       return;
     }
@@ -349,6 +409,16 @@ export default function ReportPaymentPage({
     <main className="journey-page report-door report-payment">
       <h1>{view.heading}</h1>
       {view.subline && <p className="type-lead report-door__subline">{view.subline}</p>}
+
+      {/* BUG-223: the gift-applied line stands first for
+          a gift holder — before any card field or price
+          — so the gift is visible the moment the page
+          opens, not only after the intent answers. */}
+      {giftApplies && view.giftLine && (
+        <p className="report-payment__gift" role="status">
+          {view.giftLine}
+        </p>
+      )}
 
       {/* Sample 2 "Checkout alongside" (founder,
           24 Nov 2026): two columns on desktop — the
@@ -456,6 +526,21 @@ export default function ReportPaymentPage({
                     setEmail(event.target.value);
                     setEmailError(false);
                     setNotice(null);
+                    // BUG-223: the tick stands ticked on
+                    // arrival for a gift holder — and the
+                    // moment the email leaves the bound
+                    // address, the tick clears in the same
+                    // keystroke, so a pre-ticked consent
+                    // can never cover a paid order. (An
+                    // effect could not do this: the start
+                    // effect would still see the tick
+                    // standing in the same commit.)
+                    if (
+                      view.giftEmail !== null &&
+                      normaliseEmail(event.target.value) !== normaliseEmail(view.giftEmail)
+                    ) {
+                      setConsentAt(null);
+                    }
                   }}
                   onBlur={() => {
                     if (email.trim() !== "" && !emailValid) setEmailError(true);
@@ -475,9 +560,13 @@ export default function ReportPaymentPage({
               <section className="report-payment__panel">
                 <div className="report-payment__panel-head">
                   <span className="report-payment__panel-title">{view.cardTitle}</span>
-                  <span className="report-payment__panel-powered">
-                    Powered by <strong>Stripe</strong>
-                  </span>
+                  {/* BUG-223: no "Powered by Stripe" for a gift
+                      holder — no payment is powered by anyone. */}
+                  {!giftApplies && (
+                    <span className="report-payment__panel-powered">
+                      Powered by <strong>Stripe</strong>
+                    </span>
+                  )}
                 </div>
                 {notice && (
                   <p className="field__message field__message--error" role="alert">
@@ -539,10 +628,16 @@ export default function ReportPaymentPage({
                         the provider's element (the element
                         still mounts only once a payment has
                         started, below). */}
-                    <ul className="report-payment__methods" aria-label="Payment methods">
-                      <li className="report-payment__method">Card</li>
-                      <li className="report-payment__method">Revolut Pay</li>
-                    </ul>
+                    {/* BUG-223: no payment-method rows for a
+                        gift holder — a free order has no
+                        payment method (approved Screen C
+                        draws no card panel). */}
+                    {!giftApplies && (
+                      <ul className="report-payment__methods" aria-label="Payment methods">
+                        <li className="report-payment__method">Card</li>
+                        <li className="report-payment__method">Revolut Pay</li>
+                      </ul>
+                    )}
                     {/* The element's mount point: the provider's
                         card fields render inside its own iframes
                         here once a payment has started — until
@@ -564,7 +659,14 @@ export default function ReportPaymentPage({
                     >
                       {view.payLabel}
                     </button>
-                    <p className="report-payment__smallprint">{view.closingLine}</p>
+                    {/* BUG-223: Screen C draws no closing line
+                        under the button for a gift holder —
+                        the gift variant's closing line is
+                        empty, and no empty paragraph stands
+                        in its place. */}
+                    {view.closingLine !== "" && (
+                      <p className="report-payment__smallprint">{view.closingLine}</p>
+                    )}
                   </>
                 )}
               </section>

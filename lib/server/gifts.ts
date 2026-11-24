@@ -51,7 +51,14 @@
 
 import { randomBytes } from "node:crypto";
 
-import { GIFT_VALIDITY_MS, normaliseEmail, type GiftRecord } from "../gift";
+import {
+  GIFT_VALIDITY_MS,
+  giftClaimedPageServes,
+  isGiftTokenForm,
+  normaliseEmail,
+  type GiftRecord,
+} from "../gift";
+import type { FulfilmentClaimStore } from "./fulfilment";
 import type { AddressQueryable } from "../address";
 import { recordJourneyEvent } from "./journey-events";
 
@@ -116,6 +123,70 @@ export interface GiftStore {
   // Every gift issued inside a window, oldest first
   // (the admin page's Gifts panel, M9.11).
   listIssuedInPeriod(filter: { from: Date; to: Date }): Promise<GiftRecord[]>;
+}
+
+// The gift visit (BUG-223): the cmnh-gift cookie the
+// claim and confirm routes set (path "/", value = the
+// gift token) is the visit's gift — lib/gift.ts's own
+// note says it exists "so M9's payment surface can
+// show the 'gift applied' banner during that visit".
+// Until this stack nothing ever READ the cookie: the
+// claim bound, the claimed page's search carried
+// nothing, and the free page and the payment page
+// showed the £4.99 checkout to a gift holder — the
+// gift only surfaced after the visitor typed the
+// claimed email AND ticked a consent line that says
+// "By paying". This reader completes the designed
+// mechanism: a token whose gift stands claimed
+// (bound, unconsumed, in date — the claimed page's
+// own predicate) resolves to the email it is bound
+// to, the only email the gift can be redeemed with.
+// Anything else (no cookie, a malformed token, an
+// unclaimed / redeemed / expired / voided gift)
+// resolves to nothing, and the surfaces render their
+// ordinary paid form. Gift STATE is never held in the
+// cookie: the token is read only by the server, and
+// the record decides.
+//
+// BUG-224 — one gift, one home. The gift record
+// stays "claimed" between the order being placed and
+// the worker delivering it (delivery is what consumes
+// the gift, markRedeemed), so the record alone cannot
+// tell a spent gift from a waiting one: a claimant
+// who ordered home A free would still resolve on
+// home B, and on every home after, until the worker
+// ran. The order is the spend. A gifted fulfilment
+// claim stands for the token the moment the order is
+// placed (its ref IS the gift token), so this reader
+// also asks the claim store: a gifted claim standing
+// in any state but "failed" spends the gift, and the
+// visit resolves to nothing — home B, and home C,
+// and a back-navigation from the success page, all
+// show £4.99. "Failed" is the one exception, by
+// design: M9.7's gap-4 ruling (R3) retakes a failed
+// gift claim when the buyer returns, because the
+// gift was never consumed — so a failed claim leaves
+// the gift usable, and the retake road stands. The
+// reader asks the claim store only after the record
+// itself serves, so a non-gift visit still costs no
+// second read.
+export async function claimedGiftForVisit(
+  store: GiftStore,
+  token: string | undefined,
+  now: Date,
+  claims: FulfilmentClaimStore,
+): Promise<{ token: string; claimantEmail: string } | null> {
+  if (token === undefined || !isGiftTokenForm(token)) return null;
+  const record = await store.getByToken(token);
+  if (record === null || !giftClaimedPageServes(record, now)) return null;
+  if (record.claimantEmail === null) return null;
+  // BUG-224: a gifted order already stands for this
+  // token — the gift bought one home, and it is spent
+  // for ordering, whatever the record still says.
+  // Only a failed claim leaves it usable (R3).
+  const claim = await claims.getByRef(record.token);
+  if (claim !== null && claim.kind === "gifted" && claim.status !== "failed") return null;
+  return { token: record.token, claimantEmail: record.claimantEmail };
 }
 
 interface GiftRow {

@@ -1,4 +1,4 @@
-import { BUY_BAR_MYSTERY_EYEBROW, BUY_BAR_MYSTERY_LINE } from "./results";
+import { BUY_BAR_MYSTERY_EYEBROW, BUY_BAR_MYSTERY_LINE, GIFT_REPORT_BUTTON_LABEL } from "./results";
 import { REPORT_DOOR_CONTENTS_HEADING, type ReportDoorIdentity } from "./report-door";
 import { REPORT_PRICE_LABEL } from "./site";
 
@@ -120,6 +120,16 @@ export interface ReportPaymentView {
   cardTitle: string;
   payLabel: string;
   closingLine: string;
+  // BUG-223: the visit's claimed gift — the email the
+  // gift is bound to, and the gift-applied line. Both
+  // null on the ordinary paid page. The component
+  // pre-fills the email with giftEmail and shows
+  // giftLine; the gift applies while the entered email
+  // still matches it — editing away reverts the page
+  // to its paid form, because the gift is tied to that
+  // email (Sample 22's promise) and no other.
+  giftEmail: string | null;
+  giftLine: string | null;
 }
 
 // BUG-174 (founder, 23 Nov 2026): the page's lede —
@@ -233,6 +243,33 @@ export const PAYMENT_CARD_TITLE = "Card payment";
 export const PAYMENT_CLOSING_LINE =
   "Payment is handled securely by Stripe, and we never see your card details.";
 
+// BUG-223 — the gift variant's words (approved Screen
+// C, DRAFT lines 6–7, verbatim). The gift line is the
+// success surface's gift-applied banner
+// (GIFT_APPLIED_BANNER_LINE, lib/report-success.ts),
+// in twin form here — the banner lives in the success
+// module and this module already feeds it the refund
+// line, so the twin keeps the import one-way; a test
+// pins the two equal so they can never drift apart.
+// The consent lead keeps the paid line's first
+// sentence and swaps only the paying word for the
+// ordering word (line 7: "By ordering, you agree to
+// our " + the Terms link + the paid tail). The button
+// starts the gifted order, never a payment (line 6).
+// The panel keeps the sample's own head for a gift
+// holder — "Detailed report" (approved Screen C,
+// drawn in the Sample 2 layout, whose checkout card
+// is headed so). The paid page's panel is still the
+// card panel ("Card payment") on current main: the
+// Sample 2 rebuild is a separate folded-ready stack,
+// and this title is already its head, so the gift
+// variant slots into that layout unchanged.
+export const PAYMENT_GIFT_CARD_TITLE = "Detailed report";
+export const PAYMENT_GIFT_LINE =
+  "Your free report gift has been applied — there's nothing to pay for this report.";
+export const PAYMENT_GIFT_TERMS_LINE_LEAD =
+  "The report is information from official sources — not advice. By ordering, you agree to our ";
+
 // The page's own failure lines (this build's copy, in
 // Sample 9's error-line manner: name the failure, state
 // plainly that nothing was charged, invite a retry).
@@ -263,7 +300,13 @@ export const PAYMENT_DECLINED_FALLBACK_LINE =
 export const WINDOW_START_FAILED_LINE =
   "We couldn't start your free report just now. Please try again.";
 
-export function buildReportPaymentView(identity: ReportDoorIdentity): ReportPaymentView {
+export function buildReportPaymentView(
+  identity: ReportDoorIdentity,
+  // BUG-223: the visit's claimed gift, resolved by the
+  // route from the cmnh-gift cookie — the email the
+  // gift is bound to. Absent on the ordinary paid page.
+  gift?: { email: string } | null,
+): ReportPaymentView {
   const base = {
     contentsHeading: REPORT_DOOR_CONTENTS_HEADING,
     contents: PAYMENT_CONTENTS,
@@ -282,22 +325,42 @@ export function buildReportPaymentView(identity: ReportDoorIdentity): ReportPaym
     cardTitle: PAYMENT_CARD_TITLE,
     payLabel: `Pay ${REPORT_PRICE_LABEL}`,
     closingLine: PAYMENT_CLOSING_LINE,
+    giftEmail: null as string | null,
+    giftLine: null as string | null,
   };
+  // The gift variant: the button and the consent's
+  // lead speak of the free report, never of paying —
+  // and the closing line is empty, because Screen C
+  // draws none. The heading, the contents card, the
+  // tease and the consent's tail are the paid page's
+  // own and stand unchanged; the panel takes the
+  // sample's own "Detailed report" head (see above).
+  const gifted = gift
+    ? {
+        termsLineLead: PAYMENT_GIFT_TERMS_LINE_LEAD,
+        cardTitle: PAYMENT_GIFT_CARD_TITLE,
+        payLabel: GIFT_REPORT_BUTTON_LABEL,
+        closingLine: "",
+        giftEmail: gift.email,
+        giftLine: PAYMENT_GIFT_LINE,
+      }
+    : {};
+  const view = { ...base, ...gifted };
   switch (identity.kind) {
     case "home":
       return {
-        ...base,
+        ...view,
         heading: `The detailed report for ${identity.subject}`,
         subline: identity.subline,
       };
     case "postcode":
       return {
-        ...base,
+        ...view,
         heading: `The detailed report for ${identity.postcode}`,
         subline: identity.subline,
       };
     case "generic":
-      return { ...base, heading: "The detailed report", subline: null };
+      return { ...view, heading: "The detailed report", subline: null };
   }
 }
 

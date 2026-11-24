@@ -1773,6 +1773,22 @@ export interface ResultsInput {
 }
 
 export const BUY_BAR_HEADING = "Get the full detailed report for this home";
+// BUG-223 — the gift-applied state's words on the free
+// page (approved Screen B, DRAFT lines 2–5, verbatim):
+// the header button and the trunc rows' price chip
+// share "Free with your gift" (lines 2 and 4); the
+// buy-bar button is "Get my free report" (line 5);
+// the gift strip above the pills is line 3. The
+// chip names the gift, so the state can never read
+// as the free launch window's. The gift's promise
+// itself ("we'll apply your free report for you, so
+// there's nothing to pay", Sample 22) stands behind
+// the buttons — the payment page's gift line carries
+// it in full.
+export const GIFT_REPORT_BUTTON_LABEL = "Get my free report";
+export const GIFT_FREE_LABEL = "Free with your gift";
+export const GIFT_STRIP_LINE =
+  "Your free report gift is ready to use on this home — order the full report and there's nothing to pay.";
 // Founder ruling, 17 Nov 2026 (alignment fix F4, softened
 // form adopted): the buy bar must NOT promise flood map
 // pictures — location maps only.

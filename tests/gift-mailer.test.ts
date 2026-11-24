@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DOWNLOAD_EMAIL_FOOTER_LINE,
+  DOWNLOAD_EMAIL_GREETING,
+  DOWNLOAD_EMAIL_QUESTIONS_LINE,
+  DOWNLOAD_EMAIL_SIGN_OFF,
+  DOWNLOAD_EMAIL_TEAM_LINE,
+} from "../lib/download";
+import {
   GIFT_CONFIRM_BUTTON,
   GIFT_CONFIRM_FALLBACK,
   GIFT_CONFIRM_IGNORE,
@@ -50,17 +57,37 @@ describe("the confirmation email (view 21)", () => {
     expect(sent.html).toContain(GIFT_CONFIRM_FALLBACK);
     expect(sent.html).toContain(CONFIRM_URL);
     expect(sent.html).toContain(GIFT_CONFIRM_IGNORE);
-    // View 21's dress (BUG-134): the button in forest,
-    // the bare link standing in its pale box.
-    expect(sent.html).toContain("background-color:#2F5D3E");
-    expect(sent.html).toContain("background-color:#FBF7E9");
+    // View 21's dress (BUG-221): the house shell — the
+    // forest-deep brand band, the brass button, the
+    // dashed cream link box, the sign-off row and the
+    // hairline footer — the delivery email's own dress.
+    // The sample's old dress (a forest button, a pale
+    // box, no band, no sign-off, no footer) is gone.
+    expect(sent.html).toContain("background-color:#1E402C");
+    expect(sent.html).toContain("background-color:#C29A3B");
+    expect(sent.html).toContain("background-color:#FBF3D9");
+    expect(sent.html).toContain("border:1px dashed #C29A3B");
+    expect(sent.html).toContain(DOWNLOAD_EMAIL_SIGN_OFF);
+    expect(sent.html).toContain(DOWNLOAD_EMAIL_TEAM_LINE);
+    expect(sent.html).toContain("mailto:contact@checkmynexthome.co.uk");
+    expect(sent.html).toContain(DOWNLOAD_EMAIL_FOOTER_LINE);
+    expect(sent.html).not.toContain("background-color:#2F5D3E");
+    expect(sent.html).not.toContain("background-color:#FBF7E9");
     expect(sent.html).toContain(`href="${CONFIRM_URL}"`);
     // The text body carries the same words around the
     // bare link (the fallback label belongs to the
-    // button's presentation; the link itself stands).
+    // button's presentation; the link itself stands),
+    // with the house furniture — greeting, sign-off,
+    // team line, questions line, footer line — the old
+    // text part carried none of it.
     expect(sent.text).toContain(GIFT_CONFIRM_INTRO);
     expect(sent.text).toContain(CONFIRM_URL);
     expect(sent.text).toContain(GIFT_CONFIRM_IGNORE);
+    expect(sent.text).toContain(DOWNLOAD_EMAIL_GREETING);
+    expect(sent.text).toContain(DOWNLOAD_EMAIL_SIGN_OFF);
+    expect(sent.text).toContain(DOWNLOAD_EMAIL_TEAM_LINE);
+    expect(sent.text).toContain(DOWNLOAD_EMAIL_QUESTIONS_LINE);
+    expect(sent.text).toContain(DOWNLOAD_EMAIL_FOOTER_LINE);
   });
 
   it("a failed send is a value, never a throw", async () => {

@@ -1,5 +1,8 @@
 import {
   BUY_BAR_MYSTERY_EYEBROW,
+  GIFT_FREE_LABEL,
+  GIFT_REPORT_BUTTON_LABEL,
+  GIFT_STRIP_LINE,
   type PlaceGroupView,
   type ResultsSectionView,
   type ResultsView,
@@ -43,7 +46,7 @@ import Tabs from "./Tabs";
 // state stays out of the URL — the Tabs block always opens
 // on the first tab, Family Checks.
 
-function PlaceGroup({ group }: { group: PlaceGroupView }) {
+function PlaceGroup({ group, giftHeld = false }: { group: PlaceGroupView; giftHeld?: boolean }) {
   return (
     <div className="place-group">
       {group.line && <p className="results-line">{group.line}</p>}
@@ -83,7 +86,9 @@ function PlaceGroup({ group }: { group: PlaceGroupView }) {
               )}
             </span>
             <span className="trunc-row__cta">
-              <span className="trunc-row__price">{REPORT_PRICE_LABEL}</span>{" "}
+              <span className="trunc-row__price">
+                {giftHeld ? GIFT_FREE_LABEL : REPORT_PRICE_LABEL}
+              </span>{" "}
               <span className="trunc-row__arrow">Get the full report →</span>
             </span>
           </ReportLink>
@@ -96,7 +101,9 @@ function PlaceGroup({ group }: { group: PlaceGroupView }) {
               )}
             </span>
             <span className="trunc-row__cta">
-              <span className="trunc-row__price">{REPORT_PRICE_LABEL}</span>{" "}
+              <span className="trunc-row__price">
+                {giftHeld ? GIFT_FREE_LABEL : REPORT_PRICE_LABEL}
+              </span>{" "}
               <span className="trunc-row__arrow">Get the full report →</span>
             </span>
           </p>
@@ -145,10 +152,12 @@ function UpsellRow({
   lead,
   detail,
   reportHref,
+  giftHeld = false,
 }: {
   lead: string;
   detail: string | null;
   reportHref: string | null;
+  giftHeld?: boolean;
 }) {
   const inner = (
     <>
@@ -157,7 +166,7 @@ function UpsellRow({
         {detail && <span className="trunc-row__detail">{detail}</span>}
       </span>
       <span className="trunc-row__cta">
-        <span className="trunc-row__price">{REPORT_PRICE_LABEL}</span>{" "}
+        <span className="trunc-row__price">{giftHeld ? GIFT_FREE_LABEL : REPORT_PRICE_LABEL}</span>{" "}
         <span className="trunc-row__arrow">Get the full report →</span>
       </span>
     </>
@@ -176,10 +185,12 @@ function Block({
   block,
   reportHref,
   district = false,
+  giftHeld = false,
 }: {
   block: SectionBlock;
   reportHref: string | null;
   district?: boolean;
+  giftHeld?: boolean;
 }) {
   switch (block.type) {
     case "line":
@@ -216,7 +227,14 @@ function Block({
     case "subheading":
       return <h4 className="results-subheading">{block.text}</h4>;
     case "upsell":
-      return <UpsellRow lead={block.lead} detail={block.detail} reportHref={reportHref} />;
+      return (
+        <UpsellRow
+          lead={block.lead}
+          detail={block.detail}
+          reportHref={reportHref}
+          giftHeld={giftHeld}
+        />
+      );
     case "notice":
       return <Notice variant={block.variant}>{block.text}</Notice>;
     case "link":
@@ -317,7 +335,7 @@ function Block({
         </div>
       );
     case "places":
-      return <PlaceGroup group={block.group} />;
+      return <PlaceGroup group={block.group} giftHeld={giftHeld} />;
     case "flood-warnings":
       return (
         <div className="flood-warnings">
@@ -557,11 +575,13 @@ function Section({
   warningsState,
   reportHref,
   district = false,
+  giftHeld = false,
 }: {
   section: ResultsSectionView;
   warningsState?: string | null;
   reportHref: string | null;
   district?: boolean;
+  giftHeld?: boolean;
 }) {
   return (
     <section
@@ -585,7 +605,13 @@ function Section({
         <h3 className="results-section__heading">{section.heading}</h3>
       )}
       {section.blocks.map((block, index) => (
-        <Block key={index} block={block} reportHref={reportHref} district={district} />
+        <Block
+          key={index}
+          block={block}
+          reportHref={reportHref}
+          district={district}
+          giftHeld={giftHeld}
+        />
       ))}
       {district && section.sourceLine ? (
         // WA-04: the district page restores its per-section
@@ -608,6 +634,13 @@ function Section({
 export default function ResultsPage({
   view,
   shortlistCard,
+  // BUG-223: the visit holds a claimed, unspent gift —
+  // the free page's buy prompts speak of the free
+  // report, never of £4.99 (approved Screen B). Rung 2
+  // and the district/not-covered views pass none: they
+  // carry no buy prompts, so the gift state cannot
+  // show there.
+  giftHeld = false,
 }: {
   view: ResultsView;
   // The rung-1 shortlist card, when the route assembled
@@ -616,6 +649,7 @@ export default function ResultsPage({
   // M7.5 recorded as owed; one control, never duplicated).
   // Rung 2 and the not-covered branch pass none.
   shortlistCard?: ShortlistCard | null;
+  giftHeld?: boolean;
 }) {
   // The district (wider-area) view is the one carrying a
   // bridge; it wears Sample 28's own dress (BUG-160 as
@@ -626,6 +660,15 @@ export default function ResultsPage({
   const district = view.bridge != null;
   return (
     <div className={district ? "results results--district" : "results"}>
+      {/* BUG-223: the gift strip (approved Screen B,
+          DRAFT line 3) stands above the pills, so a
+          gift holder reads, before any fact or price,
+          that the gift is ready to use on this home. */}
+      {giftHeld && !district && (
+        <p className="results-gift-strip" role="status">
+          {GIFT_STRIP_LINE}
+        </p>
+      )}
       {view.pills && (
         <div className="results-strip" aria-label="The short version">
           {view.pills.map((pill) => (
@@ -680,6 +723,7 @@ export default function ResultsPage({
                   warningsState={view.floodWarningsState}
                   reportHref={view.reportHref}
                   district={district}
+                  giftHeld={giftHeld}
                 />
               ))}
             </div>
@@ -739,9 +783,12 @@ export default function ResultsPage({
           <p className="buy-bar__actions">
             {/* Item 19 (parity fix batch): the buy-bar
                 button carries no price — the priced form
-                is only the results-head button. */}
+                is only the results-head button. BUG-223:
+                for a gift holder it carries the gift's
+                own words instead (approved Screen B,
+                DRAFT line 5). */}
             <ReportLink className="report-btn" href={view.buyBar.href}>
-              Get the full report
+              {giftHeld ? GIFT_REPORT_BUTTON_LABEL : "Get the full report"}
             </ReportLink>
             {shortlistCard && <ShortlistButton card={shortlistCard} />}
           </p>

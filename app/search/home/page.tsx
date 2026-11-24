@@ -1,5 +1,7 @@
 import { Suspense } from "react";
 
+import { cookies } from "next/headers";
+
 import CheckingScreen from "../../../components/CheckingScreen";
 import HomeList, { type PickerAddress } from "../../../components/HomeList";
 import { CheckCompletedBeacon } from "../../../components/JourneyBeacon";
@@ -9,6 +11,7 @@ import ShortlistButton from "../../../components/ShortlistButton";
 import WholeCheckFailure from "../../../components/WholeCheckFailure";
 import { displayText, type AddressResolution } from "../../../lib/address";
 import { homeKeyOf } from "../../../lib/bundle-cache";
+import { GIFT_COOKIE_NAME } from "../../../lib/gift";
 import {
   CHECKING_HEADING_HOME,
   CHECKING_HEADING_POSTCODE,
@@ -23,8 +26,11 @@ import {
 } from "../../../lib/journey";
 import { REPORT_PRICE_LABEL } from "../../../lib/site";
 import { sectionsAndStatesOf } from "../../../lib/journey-events";
-import { buildResultsView, resultsScopeLabel } from "../../../lib/results";
+import { buildResultsView, GIFT_FREE_LABEL, resultsScopeLabel } from "../../../lib/results";
 import { redirectOrRender } from "../../../lib/redirect-or-render";
+import { getDbPool } from "../../../lib/server/db";
+import { createDbFulfilmentClaimStore } from "../../../lib/server/fulfilment";
+import { claimedGiftForVisit, createDbGiftStore } from "../../../lib/server/gifts";
 import {
   checkResults,
   pickerRowsFor,
@@ -173,6 +179,26 @@ async function Results({
     return <WholeCheckFailure initialValue={postcode} />;
   }
   noteServedCheck(resolution, postcode);
+  // BUG-223/224: the visit's claimed gift — read from
+  // the cmnh-gift cookie the claim set, so the free
+  // page speaks of the free report to a gift holder
+  // instead of £4.99. Only where a report can be
+  // bought (rung 1, reportHref standing): rung 2 and
+  // the not-covered branch carry no buy prompts, so
+  // they pay no read. No cookie (or no standing gift
+  // behind it) costs no database call — the reader
+  // short-circuits. And the gift is one home's (BUG-224):
+  // once a gifted order stands for the token, the
+  // reader answers nothing, so the next home — and a
+  // back-navigation to one — shows £4.99 again.
+  const giftHeld =
+    view.reportHref !== null &&
+    (await claimedGiftForVisit(
+      createDbGiftStore(getDbPool()),
+      (await cookies()).get(GIFT_COOKIE_NAME)?.value,
+      new Date(),
+      createDbFulfilmentClaimStore(getDbPool()),
+    )) !== null;
   // M7.5: the shortlist card record, rung 1 only (ruling 4
   // — rung 2 has no home to shortlist, and the not-covered
   // branch below never reaches this component). The record
@@ -218,7 +244,7 @@ async function Results({
             {card && <ShortlistButton card={card} />}
             {view.reportHref && (
               <ReportLink className="report-btn" href={view.reportHref}>
-                Get the full report — {REPORT_PRICE_LABEL}
+                {giftHeld ? GIFT_FREE_LABEL : <>Get the full report — {REPORT_PRICE_LABEL}</>}
               </ReportLink>
             )}
           </div>
@@ -237,7 +263,7 @@ async function Results({
           }}
         />
       )}
-      <ResultsPage view={view} shortlistCard={card} />
+      <ResultsPage view={view} shortlistCard={card} giftHeld={giftHeld} />
       {completionBeacon(resolution, results.short)}
     </>
   );
