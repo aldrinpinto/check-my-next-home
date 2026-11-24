@@ -353,8 +353,8 @@ function uncoveredSkipSegment(stats) {
   );
   const total = entries.reduce((n, [, count]) => n + count, 0);
   if (total === 0) return "0 uncovered-area rows skipped";
-  return `${total} uncovered-area rows skipped (${entries
-    .map(([area, count]) => `${area} ${count}`)
+  return `${formatCount(total)} uncovered-area rows skipped (${entries
+    .map(([area, count]) => `${area} ${formatCount(count)}`)
     .join(" · ")})`;
 }
 
@@ -897,7 +897,7 @@ export async function runNational(
 
   const seconds = () => Math.round((Date.now() - startedAt) / 1000);
   const summary = (stamped) =>
-    `load-sold-prices · edition ${sourceDate} · national pass · ${total} sales filed · ${updateRecords.length} update rows merged · ${stats.malformed} malformed skipped · ${stats.duplicates} duplicates collapsed · ${stats.emptyPostcode} empty-postcode rows skipped · ${uncoveredSkipSegment(stats)} · ${stamped} no-sale postcodes stamped · ${linesRead} full-file lines read · golden homes OK · ${seconds()}s`;
+    `load-sold-prices · edition ${sourceDate} · national pass · ${formatCount(total)} sales filed · ${formatCount(updateRecords.length)} update rows merged · ${formatCount(stats.malformed)} malformed skipped · ${formatCount(stats.duplicates)} duplicates collapsed · ${formatCount(stats.emptyPostcode)} empty-postcode rows skipped · ${uncoveredSkipSegment(stats)} · ${formatCount(stamped)} no-sale postcodes stamped · ${formatCount(linesRead)} full-file lines read · golden homes OK · ${seconds()}s`;
 
   if (verifyOnly) {
     await client.query(`DROP TABLE IF EXISTS ${STAGE_TABLE}`);
@@ -992,7 +992,7 @@ export async function runUpdate(
   if (verifyOnly) {
     return {
       edition,
-      logLine: `load-sold-prices · edition ${edition} · monthly update · ${upserts} sales to add or correct · ${records.length - upserts} to delete · ${stats.malformed} malformed skipped · ${uncoveredSkipSegment(stats)} · verify only, nothing filed · ${seconds()}s`,
+      logLine: `load-sold-prices · edition ${edition} · monthly update · ${formatCount(upserts)} sales to add or correct · ${formatCount(records.length - upserts)} to delete · ${formatCount(stats.malformed)} malformed skipped · ${uncoveredSkipSegment(stats)} · verify only, nothing filed · ${seconds()}s`,
       applied: 0,
       deleted: 0,
       stats,
@@ -1029,7 +1029,7 @@ export async function runUpdate(
   }
   return {
     edition,
-    logLine: `load-sold-prices · edition ${edition} · monthly update · ${merged.upserted} sales added or corrected · ${merged.deleted} deleted · ${stats.malformed} malformed skipped · ${stats.emptyPostcode} empty-postcode rows skipped · ${uncoveredSkipSegment(stats)} · ${seconds()}s`,
+    logLine: `load-sold-prices · edition ${edition} · monthly update · ${formatCount(merged.upserted)} sales added or corrected · ${formatCount(merged.deleted)} deleted · ${formatCount(stats.malformed)} malformed skipped · ${formatCount(stats.emptyPostcode)} empty-postcode rows skipped · ${uncoveredSkipSegment(stats)} · ${seconds()}s`,
     applied: merged.upserted,
     deleted: merged.deleted,
     stats,
@@ -1281,10 +1281,10 @@ async function legacyMain() {
   checkGolden(rowsFor, "the parsed records");
 
   const counts = [...perPostcode.entries()]
-    .map(([pc, rows]) => `${pc} ${rows.length} sales`)
+    .map(([pc, rows]) => `${pc} ${formatCount(rows.length)} sales`)
     .join(" · ");
   const summary = () =>
-    `load-sold-prices · edition ${sourceDate} · ${counts} · ${updateCount} update rows merged · ${stats.malformed} malformed skipped · ${stats.duplicates} duplicates ignored`;
+    `load-sold-prices · edition ${sourceDate} · ${counts} · ${formatCount(updateCount)} update rows merged · ${formatCount(stats.malformed)} malformed skipped · ${formatCount(stats.duplicates)} duplicates ignored`;
 
   if (verifyOnly) {
     console.log(`${summary()} · golden homes OK (verify only, nothing filed)`);

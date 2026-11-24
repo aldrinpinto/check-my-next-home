@@ -71,7 +71,7 @@ import {
   removeEpcFromIndex,
   COUNT_MOVEMENT_TOLERANCE,
 } from "./picking-index-filing.mjs";
-import { createProgressLogger } from "./progress.mjs";
+import { createProgressLogger, formatCount } from "./progress.mjs";
 
 export const EPC_INDEX_FILE = "certificates.csv";
 
@@ -537,13 +537,13 @@ export async function loadEpcIndexFromCertificates(client, certificates, { editi
   const stats = await stageEpcIndex(client, certificates, { progress });
   const counts = await fileEpcIndex(client, { edition, log, progress });
   const refusalDetail = Object.entries(stats.refusals)
-    .map(([reason, count]) => `${reason} ${count}`)
+    .map(([reason, count]) => `${reason} ${formatCount(count)}`)
     .join(", ");
   log(
-    `Picking index (EPC parts) — edition ${edition}: ${stats.certificatesRead} certificates read, ${stats.refusedTotal} refused by the strict parser${refusalDetail === "" ? "" : ` (${refusalDetail})`}.`,
+    `Picking index (EPC parts) — edition ${edition}: ${formatCount(stats.certificatesRead)} certificates read, ${formatCount(stats.refusedTotal)} refused by the strict parser${refusalDetail === "" ? "" : ` (${refusalDetail})`}.`,
   );
   log(
-    `Filed: ${counts.postcodes} distinct postcodes, ${counts.homes} distinct homes, ${counts.streets} distinct streets-with-town.`,
+    `Filed: ${formatCount(counts.postcodes)} distinct postcodes, ${formatCount(counts.homes)} distinct homes, ${formatCount(counts.streets)} distinct streets-with-town.`,
   );
   return { stats, counts };
 }
@@ -605,7 +605,7 @@ export async function loadEpcIndex({ fileDir = null, killSwitch = false, log = c
       await removeEpcFromIndex(client, { progress });
       const { rows } = await client.query("SELECT count(*) AS homes FROM picking_index");
       log(
-        `Kill switch run: the served picking index now holds ${rows[0].homes} homes, rebuilt from the sales extract alone — every EPC-derived row is removed and every merged row keeps its sales parts.`,
+        `Kill switch run: the served picking index now holds ${formatCount(rows[0].homes)} homes, rebuilt from the sales extract alone — every EPC-derived row is removed and every merged row keeps its sales parts.`,
       );
       return { killed: true };
     }

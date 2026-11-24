@@ -69,7 +69,7 @@ import {
   recordRejection,
   COUNT_MOVEMENT_TOLERANCE,
 } from "./picking-index-filing.mjs";
-import { createProgressLogger } from "./progress.mjs";
+import { createProgressLogger, formatCount } from "./progress.mjs";
 
 // The same public endpoint the sold-prices loader uses.
 export const FULL_FILE_URL =
@@ -340,10 +340,10 @@ export async function loadPickingIndexFromLines(client, lines, { edition, log })
   const stats = await stagePickingIndex(client, lines, { progress });
   const counts = await filePickingIndex(client, { edition, log, progress });
   log(
-    `Picking index (sales parts) — edition ${edition}: ${stats.rowsRead} transactions read, ${stats.malformed} malformed lines skipped, ${stats.unusable} rows without a usable postcode or address skipped.`,
+    `Picking index (sales parts) — edition ${edition}: ${formatCount(stats.rowsRead)} transactions read, ${formatCount(stats.malformed)} malformed lines skipped, ${formatCount(stats.unusable)} rows without a usable postcode or address skipped.`,
   );
   log(
-    `Filed: ${counts.postcodes} distinct postcodes, ${counts.homes} distinct homes, ${counts.streets} distinct streets-with-town.`,
+    `Filed: ${formatCount(counts.postcodes)} distinct postcodes, ${formatCount(counts.homes)} distinct homes, ${formatCount(counts.streets)} distinct streets-with-town.`,
   );
   return { stats, counts };
 }

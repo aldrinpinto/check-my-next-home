@@ -699,7 +699,7 @@ async function main() {
       if (golden.length > 0) throw new Error(`golden checks failed: ${golden.join("; ")}`);
       if (verifyOnly) {
         console.log(
-          `load-streets · would file ${rows.length} street lines from fixture captures — golden homes OK (verify-only: nothing filed)`,
+          `load-streets · would file ${formatCount(rows.length)} street lines from fixture captures — golden homes OK (verify-only: nothing filed)`,
         );
         return;
       }
@@ -722,7 +722,7 @@ async function main() {
         await pool.end();
       }
       console.log(
-        `load-streets · ${rows.length} street lines filed from fixture captures — golden homes OK`,
+        `load-streets · ${formatCount(rows.length)} street lines filed from fixture captures — golden homes OK`,
       );
       return;
     }
@@ -793,13 +793,13 @@ async function main() {
           if (golden.length > 0) throw new Error(`golden checks failed: ${golden.join("; ")}`);
           if (verifyOnly) {
             console.log(
-              `load-streets · would file ${rows} street lines for area ${bbox.west},${bbox.south},${bbox.east},${bbox.north} (${waysRead} highway ways read) — golden homes OK (verify-only: nothing filed)`,
+              `load-streets · would file ${formatCount(rows)} street lines for area ${bbox.west},${bbox.south},${bbox.east},${bbox.north} (${formatCount(waysRead)} highway ways read) — golden homes OK (verify-only: nothing filed)`,
             );
             continue;
           }
           await fileStreetsScopedStream(pool, extracts, bbox, sourceDate ?? retrievedOn);
           console.log(
-            `load-streets · ${rows} street lines filed for area ${bbox.west},${bbox.south},${bbox.east},${bbox.north} (${waysRead} highway ways read) — golden homes OK`,
+            `load-streets · ${formatCount(rows)} street lines filed for area ${bbox.west},${bbox.south},${bbox.east},${bbox.north} (${formatCount(waysRead)} highway ways read) — golden homes OK`,
           );
         }
       } finally {
@@ -857,13 +857,13 @@ async function main() {
           if (golden.length > 0) throw new Error(`golden checks failed: ${golden.join("; ")}`);
         }
         console.log(
-          `load-streets · ${ex.country}: ${part.waysRead} highway ways read, ${part.rowsFiled} street lines staged`,
+          `load-streets · ${ex.country}: ${formatCount(part.waysRead)} highway ways read, ${formatCount(part.rowsFiled)} street lines staged`,
         );
         totalStaged += part.rowsFiled;
       }
       if (verifyOnly) {
         console.log(
-          `load-streets · would file ${totalStaged} street lines (${extracts.map((e) => e.country).join(" + ")}) — golden homes OK (verify-only: nothing filed)`,
+          `load-streets · would file ${formatCount(totalStaged)} street lines (${extracts.map((e) => e.country).join(" + ")}) — golden homes OK (verify-only: nothing filed)`,
         );
         return;
       }
@@ -872,7 +872,7 @@ async function main() {
       );
       const filed = await swapStagedStreets(pool);
       console.log(
-        `load-streets · ${filed} street lines filed (${extracts.map((e) => e.country).join(" + ")}) — golden homes OK`,
+        `load-streets · ${formatCount(filed)} street lines filed (${extracts.map((e) => e.country).join(" + ")}) — golden homes OK`,
       );
     } finally {
       if (pool) await pool.end();

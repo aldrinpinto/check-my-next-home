@@ -70,6 +70,7 @@ import { DatabaseSync } from "node:sqlite";
 import pg from "pg";
 import proj4 from "proj4";
 import yauzl from "yauzl";
+import { formatCount } from "./progress.mjs";
 
 export const ITEM = "load-flood-defences";
 
@@ -713,22 +714,22 @@ async function main() {
     const goldenSummary = homeResults
       .map((s) => {
         const miles = (s.nearest.metres / 1609.344).toFixed(3);
-        return `${s.postcode.split(" ")[0]} ${s.count} within 2 miles (nearest ${s.nearest.subType}, ${s.nearest.watercourse}, ${miles} mi)`;
+        return `${s.postcode.split(" ")[0]} ${formatCount(s.count)} within 2 miles (nearest ${s.nearest.subType}, ${s.nearest.watercourse}, ${miles} mi)`;
       })
       .join(" · ");
 
     if (verifyOnly) {
       return {
         summary:
-          `${ITEM} · ${SOURCE_NAME} · edition ${edition} · ${read} features verified, nothing filed ` +
+          `${ITEM} · ${SOURCE_NAME} · edition ${edition} · ${formatCount(read)} features verified, nothing filed ` +
           `— golden homes OK: ${goldenSummary}`,
       };
     }
     const invalidCount = await filer.finish(read);
     return {
       summary:
-        `${ITEM} · ${SOURCE_NAME} · edition ${edition} · ${read} features filed ` +
-        `(${invalidCount} invalid lines filed as published) — golden homes OK: ${goldenSummary}`,
+        `${ITEM} · ${SOURCE_NAME} · edition ${edition} · ${formatCount(read)} features filed ` +
+        `(${formatCount(invalidCount)} invalid lines filed as published) — golden homes OK: ${goldenSummary}`,
     };
   } catch (error) {
     if (filer) await filer.abort();

@@ -88,7 +88,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { createGoldenSift, createTotals } from "./flood-stream.mjs";
-import { createProgressLogger } from "./progress.mjs";
+import { createProgressLogger, formatCount } from "./progress.mjs";
 
 const ITEMS_URL =
   "https://environment.data.gov.uk/geoservices/datasets/b5aaa28d-6eb9-460e-8d6f-43caa71fbe0e/ogc/features/v1/collections/rofsw/items";
@@ -517,7 +517,7 @@ export async function readFixture(fixtureDir, { onItems = null, progress = null 
       done: part + 1,
       total: names.length,
       unit: "parts",
-      extra: `${totals.read} features read`,
+      extra: `${formatCount(totals.read)} features read`,
     });
   }
   if (totals.read === 0) throw new Error("contract failure: the surface water fixture is empty");
@@ -777,11 +777,13 @@ async function main() {
     throw error;
   }
 
-  const perLabel = VOCAB.map((label) => `${label} ${processed.perLabel[label]}`).join(" · ");
+  const perLabel = VOCAB.map((label) => `${label} ${formatCount(processed.perLabel[label])}`).join(
+    " · ",
+  );
   const summary = () =>
     `load-flood-surface-water · Environment Agency Risk of Flooding from Surface Water · edition ${processed.edition}` +
     (processed.captured ? ` (fixture captured ${processed.captured})` : "") +
-    ` · ${processed.filed} features filed (${processed.read} read · ${perLabel} · ${processed.geoless} without geometry counted)`;
+    ` · ${formatCount(processed.filed)} features filed (${formatCount(processed.read)} read · ${perLabel} · ${formatCount(processed.geoless)} without geometry counted)`;
 
   if (verifyOnly) {
     console.log(
@@ -792,10 +794,12 @@ async function main() {
 
   const activeFiler = filer;
   filer = null;
-  progress.stage(`filing ${processed.filed} features — counts, validity repair and swap`);
+  progress.stage(
+    `filing ${formatCount(processed.filed)} features — counts, validity repair and swap`,
+  );
   const invalidCount = await activeFiler.finishFiling(processed.filed);
   console.log(
-    `${summary()} · ${invalidCount} invalid geometries made valid · golden homes OK · ${Math.round((Date.now() - startedAt) / 1000)}s`,
+    `${summary()} · ${formatCount(invalidCount)} invalid geometries made valid · golden homes OK · ${Math.round((Date.now() - startedAt) / 1000)}s`,
   );
 }
 
