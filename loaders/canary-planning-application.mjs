@@ -37,6 +37,7 @@
 // — left to the parent so this build never edits canary.mjs
 // under a concurrent build.
 
+import { formatCount } from "./progress.mjs";
 const DATASET_JSON_URL = "https://www.planning.data.gov.uk/dataset/planning-application.json";
 const DATASET_PAGE_URL = "https://www.planning.data.gov.uk/dataset/planning-application";
 const PROBE_HEADERS = {
@@ -149,7 +150,7 @@ export function probePlanningApplication() {
     return {
       warning: true,
       logLine:
-        `canary planning-application · collection has started — ${entities} entities from ${providers} providers ` +
+        `canary planning-application · collection has started — ${formatCount(entities)} entities from ${formatCount(providers)} providers ` +
         "on planning.data.gov.uk: re-open M5.12 as a filing step (the next free migration number; field mapping in the M5.12 prep, Section 1.3)",
       sourceDate: null,
     };

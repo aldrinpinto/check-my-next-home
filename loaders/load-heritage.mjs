@@ -70,6 +70,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import pg from "pg";
+import { formatCount } from "./progress.mjs";
 
 const FILES_BASE = "https://files.planning.data.gov.uk/dataset";
 const SOURCE_HERITAGE =
@@ -643,16 +644,16 @@ async function main() {
 
   const summary = () =>
     `load-heritage · planning.data.gov.uk files retrieved ${sourceDate} (source of record: Historic England, NHLE) · ` +
-    `listed buildings: ${lb.filed.length} filed (${lb.current} current of ${lb.total} in file · ${lb.ended} ended excluded · ${lb.noPoint} without a point counted · ${lb.quarantined} outside the grade vocabulary quarantined · ${lb.duplicates} duplicates dropped) · ` +
-    `scheduled monuments: ${sm.filed.length} filed (${sm.current} current of ${sm.total} in file · ${sm.ended} ended excluded · ${sm.geoless} without geometry counted · ${sm.duplicates} duplicates dropped)` +
+    `listed buildings: ${formatCount(lb.filed.length)} filed (${formatCount(lb.current)} current of ${formatCount(lb.total)} in file · ${formatCount(lb.ended)} ended excluded · ${formatCount(lb.noPoint)} without a point counted · ${formatCount(lb.quarantined)} outside the grade vocabulary quarantined · ${formatCount(lb.duplicates)} duplicates dropped) · ` +
+    `scheduled monuments: ${formatCount(sm.filed.length)} filed (${formatCount(sm.current)} current of ${formatCount(sm.total)} in file · ${formatCount(sm.ended)} ended excluded · ${formatCount(sm.geoless)} without geometry counted · ${formatCount(sm.duplicates)} duplicates dropped)` +
     newLayers
       .map(
         (layer) =>
-          ` · ${layer.dataset}: ${layer.processed.filed.length} filed (${layer.processed.current} current of ${layer.processed.total} in file · ${layer.processed.ended} ended excluded · ${layer.processed.geoless} without geometry counted · ${layer.processed.duplicates} duplicates dropped)`,
+          ` · ${layer.dataset}: ${formatCount(layer.processed.filed.length)} filed (${formatCount(layer.processed.current)} current of ${formatCount(layer.processed.total)} in file · ${formatCount(layer.processed.ended)} ended excluded · ${formatCount(layer.processed.geoless)} without geometry counted · ${formatCount(layer.processed.duplicates)} duplicates dropped)`,
       )
       .join("") +
     (parks
-      ? ` · park-and-garden: ${parks.processed.filed.length} filed (${parks.processed.current} current of ${parks.processed.total} in file · ${parks.processed.ended} ended excluded · ${parks.processed.geoless} without geometry counted · ${parks.processed.duplicates} duplicates dropped)`
+      ? ` · park-and-garden: ${formatCount(parks.processed.filed.length)} filed (${formatCount(parks.processed.current)} current of ${formatCount(parks.processed.total)} in file · ${formatCount(parks.processed.ended)} ended excluded · ${formatCount(parks.processed.geoless)} without geometry counted · ${formatCount(parks.processed.duplicates)} duplicates dropped)`
       : " · park-and-garden: no fixture captured — the layer files nothing this run");
 
   if (verifyOnly) {

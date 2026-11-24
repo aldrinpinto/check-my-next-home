@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createProgressLogger, formatCount } from "../loaders/progress.mjs";
 import { readFixture } from "../loaders/load-flood-zones.mjs";
+import { postioVerdict } from "../loaders/canary-postio.mjs";
+import { pickingIndexVerdict } from "../loaders/canary-picking-index.mjs";
 
 // BUG-204: the shared progress helper every loader now
 // writes through, and the property the whole fix stands
@@ -323,5 +325,504 @@ describe("flood fixture progress at thousands scale (BUG-228)", () => {
     expect(lines).toHaveLength(1);
     expect(lines[0]).toMatch(/progress · fixture 1\/1 parts \(100%\) · 1,234 features read$/);
     expect(lines[0]).not.toMatch(/1234 features read/);
+  });
+});
+
+// BUG-231: the same defect as BUG-228 in every OTHER loader's
+// printed summary line — the BUG-204 progress lines were
+// already formatted, but the loaders' own summary() /
+// summaryLine() builders and the canary log lines still
+// printed raw counts. Every changed line now goes through
+// formatCount (or the file's existing toLocaleString
+// convention, where one was already used consistently).
+// These pins render the exact line templates the loaders
+// emit at thousands scale, and assert the raw unformatted
+// form never appears. The summaryLine builders are not
+// exported, so those pins are render-form only; the two
+// exported canary verdict functions get real call-site pins.
+describe("formatted loader summary counts (BUG-231)", () => {
+  it("formats the aqma filed and per-nation counts", () => {
+    const nationSummary = Object.entries({ E: 12_345, S: 1_234, W: 2_345 })
+      .map(
+        ([letter, n]) => `${{ E: "England", S: "Scotland", W: "Wales" }[letter]} ${formatCount(n)}`,
+      )
+      .join(" · ");
+    const line = `load-aqma · UK-AIR · edition 2026-11-01 · ${formatCount(15_924)} areas filed (${nationSummary})`;
+    expect(line).toContain("15,924 areas filed (England 12,345 · Scotland 1,234 · Wales 2,345)");
+    expect(line).not.toMatch(/15924 areas filed/);
+    expect(line).not.toMatch(/England 12345/);
+  });
+
+  it("formats the brownfield, built-up-areas, green-belt and priority-habitats summaries", () => {
+    const brownfield =
+      `load-brownfield · planning.data.gov.uk file retrieved 2026-11-01 · ` +
+      `${formatCount(12_345)} sites filed (${formatCount(11_234)} current of ${formatCount(12_345)} in file · ${formatCount(1_111)} ended excluded · ${formatCount(0)} without a point counted · ${formatCount(234)} duplicates dropped · ${formatCount(56)} same-site records collapsed) · ` +
+      `supplier gate: ${formatCount(1_234)} organisations with current sites`;
+    expect(brownfield).toContain("12,345 sites filed (11,234 current of 12,345 in file");
+    expect(brownfield).toContain("supplier gate: 1,234 organisations");
+    expect(brownfield).not.toMatch(/12345 sites filed/);
+    const bua =
+      `load-built-up-areas · ONS Built Up Areas (December 2024) Boundaries EW BGG (V2) · ` +
+      `${formatCount(12_345)} areas filed (${formatCount(12_345)} features in file · ${formatCount(1_234)} without geometry counted) · ` +
+      `golden points inside Hatfield Peverel, Newham and Ewell`;
+    expect(bua).toContain(
+      "12,345 areas filed (12,345 features in file · 1,234 without geometry counted)",
+    );
+    expect(bua).not.toMatch(/12345 areas filed/);
+    const greenBelt =
+      `load-green-belt · planning.data.gov.uk file retrieved 2026-11-01 · ` +
+      `${formatCount(12_345)} pieces filed (${formatCount(11_111)} current of ${formatCount(12_345)} in file · ${formatCount(1_234)} ended excluded · ${formatCount(0)} without geometry counted · ${formatCount(234)} duplicates dropped) · ` +
+      `named by the belt (green-belt-core), never by district`;
+    expect(greenBelt).toContain("12,345 pieces filed (11,111 current of 12,345 in file");
+    expect(greenBelt).not.toMatch(/12345 pieces filed/);
+    const phi =
+      `load-priority-habitats · Natural England · Priority Habitat Inventory 2026-11 (2026-11-01) · ` +
+      `${formatCount(12_345)} patches filed (${formatCount(12_345)} read · ${formatCount(1_234)} without geometry counted · ${formatCount(234)} duplicate UIDs dropped)`;
+    expect(phi).toContain("12,345 patches filed (12,345 read · 1,234 without geometry counted");
+    expect(phi).not.toMatch(/12345 patches filed/);
+  });
+
+  it("formats the census, lsoa-bases and claimant-count summary lines", () => {
+    const census = `load-census · 7 datasets · ${formatCount(12_345)} areas filed (counts only; Census Day 21 March 2021)`;
+    expect(census).toContain("12,345 areas filed");
+    expect(census).not.toMatch(/12345 areas filed/);
+    const lsoa = `load-lsoa-bases · 2 census totals (TS021 residents, TS054 households) · ${formatCount(12_345)} areas filed (Census Day 21 March 2021)`;
+    expect(lsoa).toContain("12,345 areas filed");
+    expect(lsoa).not.toMatch(/12345 areas filed/);
+    const claimant =
+      `load-claimant-count · Claimant Count (count + published % of residents aged 16–64) · ` +
+      `${formatCount(12_345)} area-months filed for 2025-10 and 2025-11`;
+    expect(claimant).toContain("12,345 area-months filed");
+    expect(claimant).not.toMatch(/12345 area-months/);
+  });
+
+  it("formats the charging-zones filed count", () => {
+    const line = `load-charging-zones · ${formatCount(1_234)} schemes filed (no schemes pending)`;
+    expect(line).toContain("1,234 schemes filed");
+    expect(line).not.toMatch(/1234 schemes filed/);
+  });
+
+  it("formats the company-ownership totals, snapshots, rejects and postcode drops", () => {
+    const rejectNote = `${formatCount(1_234)} CCOD row(s) rejected by name (Acme Ltd)`;
+    const line =
+      `load-company-ownership · HM Land Registry company ownership (CCOD/OCOD) + Companies House snapshots · ` +
+      `${formatCount(12_345)} company-owned titles filed (${formatCount(11_111)} CCOD, ${formatCount(1_234)} OCOD) · ` +
+      `${formatCount(11_111)} snapshots filed of ${formatCount(11_111)} filed company numbers · ` +
+      `missing snapshots: ${formatCount(1_234)} titles carry no company number, ${formatCount(234)} numbers not in the Companies House snapshot` +
+      ` · ${formatCount(1_234)} postcodes not in UK form (filed as no-postcode)` +
+      ` · ${rejectNote}`;
+    expect(line).toContain("12,345 company-owned titles filed (11,111 CCOD, 1,234 OCOD)");
+    expect(line).toContain("1,234 postcodes not in UK form");
+    expect(line).toContain("1,234 CCOD row(s) rejected by name");
+    expect(line).not.toMatch(/12345 company-owned titles/);
+  });
+
+  it("formats the council-tax authorities and not-yet-filed counts", () => {
+    const line = `${formatCount(12_345)} authorities filed for 2026-27 (${formatCount(11_111)} England, ${formatCount(1_234)} Wales); ${formatCount(234)} further authorities parsed but not yet filed — their state is "not published" until the spring pass`;
+    expect(line).toContain(
+      "12,345 authorities filed for 2026-27 (11,111 England, 1,234 Wales); 234 further authorities",
+    );
+    expect(line).not.toMatch(/12345 authorities filed/);
+  });
+
+  it("formats the crime per-postcode totals", () => {
+    const line =
+      `load-crime · latest month 2026-10 · window 2025-11..2026-10 · ` +
+      `CM3 2JT ${formatCount(1_234)} crimes · E16 1GN ${formatCount(12_345)} crimes`;
+    expect(line).toContain("CM3 2JT 1,234 crimes · E16 1GN 12,345 crimes");
+    expect(line).not.toMatch(/E16 1GN 12345 crimes/);
+  });
+
+  it("formats the crime-national window total, months, new counts and embedded artefacts", () => {
+    const windowTotal: number | null = 12_345_678;
+    const line = `load-crime-national · latest month 2026-10 · window 2025-11..2026-10 · England 12-month total ${windowTotal === null ? "not yet countable" : formatCount(windowTotal)} · ${formatCount(12)} of ${formatCount(12)} months on file (${formatCount(1_234)} new) · ${formatCount(1_234)} artefacts embedded · 12s`;
+    expect(line).toContain("England 12-month total 12,345,678");
+    expect(line).toContain("(1,234 new) · 1,234 artefacts embedded");
+    expect(line).not.toMatch(/total 12345678/);
+    const uncountable: number | null = null;
+    const uncountedLine = `England 12-month total ${uncountable === null ? "not yet countable" : formatCount(uncountable)}`;
+    expect(uncountedLine).toContain("not yet countable");
+  });
+
+  it("formats the dwp-uc summaryLine and stats.summary counts", () => {
+    const bits = ["people", "households"]
+      .map((series) => `${series}: ${formatCount(12_345)} areas for 2025-10, 2025-11`)
+      .join(" · ");
+    const line = `load-dwp-uc · Universal Credit (people + households, as published by DWP) · ${bits} · filed`;
+    expect(line).toContain("people: 12,345 areas");
+    expect(line).toContain("households: 12,345 areas");
+    expect(line).not.toMatch(/people: 12345 areas/);
+  });
+
+  it("formats the epc certificate and skipped counts", () => {
+    const line = `load-epc · CM3 2JT ${formatCount(12_345)} certificates (${formatCount(1_234)} withdrawn on the register, skipped) · E16 1GN ${formatCount(2_345)} certificates`;
+    expect(line).toContain(
+      "CM3 2JT 12,345 certificates (1,234 withdrawn on the register, skipped)",
+    );
+    expect(line).not.toMatch(/CM3 2JT 12345 certificates/);
+  });
+
+  it("formats the ev-chargers by-class values and all counts", () => {
+    const byClass = (obj: Record<string, number>) =>
+      Object.entries(obj)
+        .sort((a, b) => b[1] - a[1])
+        .map(([k, v]) => `${formatCount(v)} ${k}`)
+        .join(", ");
+    const line =
+      `${formatCount(12_345)} charging sites filed ` +
+      `(${formatCount(11_111)} chargers recorded at them, ${formatCount(1_234)} records grouped into their site; ` +
+      `read ${formatCount(12_345)} · excluded ${formatCount(1_234)} by access class (${byClass({ public: 1_234, private: 234 })}) · ${formatCount(234)} in Northern Ireland · ${formatCount(56)} with no position)`;
+    expect(line).toContain(
+      "12,345 charging sites filed (11,111 chargers recorded at them, 1,234 records grouped",
+    );
+    expect(line).toContain("1,234 by access class (1,234 public, 234 private)");
+    expect(line).not.toMatch(/12345 charging sites/);
+  });
+
+  it("formats the health template counts", () => {
+    const line =
+      `load-health · ODS 2026-11-01 · CQC directory 2026-11-01 · ratings as at 2026-11-01 · ` +
+      `${formatCount(12_345)} practices · ${formatCount(1_234)} branches ` +
+      `(${formatCount(234)} closed-by-date removed, ${formatCount(56)} COVID-named removed) · ` +
+      `${formatCount(2_345)} pharmacies · ${formatCount(1_234)} dentists · ${formatCount(345)} hospitals ` +
+      `(${formatCount(123)} carrying the Maternity group) · ` +
+      `${formatCount(12_345)} ratings joined · ${formatCount(234)} same-day ties withheld · ${formatCount(1_234)} excluded non-practices · ` +
+      `${formatCount(56)} CLINIC-named practices filed for review · ${formatCount(1_234)} without a directory position skipped`;
+    expect(line).toContain("12,345 practices · 1,234 branches (234 closed-by-date removed");
+    expect(line).toContain("12,345 ratings joined · 234 same-day ties withheld");
+    expect(line).not.toMatch(/12345 practices/);
+  });
+
+  it("formats the heritage listed-building, monument, layer and park counts", () => {
+    const line =
+      `load-heritage · planning.data.gov.uk files retrieved 2026-11-01 (source of record: Historic England, NHLE) · ` +
+      `listed buildings: ${formatCount(12_345)} filed (${formatCount(11_111)} current of ${formatCount(12_345)} in file · ${formatCount(1_234)} ended excluded · ${formatCount(234)} without a point counted · ${formatCount(56)} outside the grade vocabulary quarantined · ${formatCount(78)} duplicates dropped) · ` +
+      `scheduled monuments: ${formatCount(12_345)} filed (${formatCount(11_111)} current of ${formatCount(12_345)} in file · ${formatCount(1_234)} ended excluded · ${formatCount(234)} without geometry counted · ${formatCount(78)} duplicates dropped)` +
+      ` · parks-gardens: ${formatCount(1_234)} filed (${formatCount(1_111)} current of ${formatCount(1_234)} in file · ${formatCount(123)} ended excluded · ${formatCount(45)} without geometry counted · ${formatCount(67)} duplicates dropped)`;
+    expect(line).toContain("listed buildings: 12,345 filed (11,111 current of 12,345 in file");
+    expect(line).toContain("scheduled monuments: 12,345 filed (11,111 current of 12,345 in file");
+    expect(line).toContain("parks-gardens: 1,234 filed");
+    expect(line).not.toMatch(/listed buildings: 12345 filed/);
+  });
+
+  it("formats the mobile, noise and postcodes counts in the files' own toLocaleString convention", () => {
+    const mobile = `load-mobile · Connected Nations 2026-11 · ${(12_345).toLocaleString("en-GB")} authorities`;
+    expect(mobile).toContain("12,345 authorities");
+    expect(mobile).not.toMatch(/12345 authorities/);
+    const unmatched = ` — WARNING: ${(1_234).toLocaleString("en-GB")} councils matched no authority (Test Council ${(12_345).toLocaleString("en-GB")})`;
+    expect(unmatched).toContain("1,234 councils matched no authority (Test Council 12,345)");
+    expect(unmatched).not.toMatch(/1234 councils matched/);
+    const noise = `load-noise · Defra Round 4 · ${(12_345).toLocaleString("en-GB")} rows from /tmp/noise filed — golden homes OK`;
+    expect(noise).toContain("12,345 rows from");
+    expect(noise).not.toMatch(/12345 rows from/);
+    const postcodes =
+      `load-postcodes · edition 2026-11-01 (2026-11-01) · ${(1_234_567).toLocaleString("en-GB")} live postcodes filed · ` +
+      `${(12_345).toLocaleString("en-GB")} terminated skipped · ${(1_234).toLocaleString("en-GB")} without coordinates skipped · ${(234).toLocaleString("en-GB")} duplicates ignored · ` +
+      `postcode_cache ${(1_234_567).toLocaleString("en-GB")} → ${(1_234_567).toLocaleString("en-GB")} rows · golden homes OK · 12s`;
+    expect(postcodes).toContain("1,234,567 live postcodes filed");
+    expect(postcodes).toContain("1,234 without coordinates skipped · 234 duplicates ignored");
+    expect(postcodes).not.toMatch(/1234567 live postcodes/);
+  });
+
+  it("formats the nature-designations counts and geo notes", () => {
+    const geoNote = (n: number) => (n > 0 ? ` · ${formatCount(n)} without geometry counted` : "");
+    const line =
+      `load-nature-designations · Natural England ArcGIS services · ` +
+      `SSSI: ${formatCount(12_345)} features filed · ${formatCount(1_234)} sites (${formatCount(12_345)} read${geoNote(1_234)}) · ` +
+      `SAC: ${formatCount(1_234)} designated features filed · ${formatCount(234)} designated sites (${formatCount(1_234)} read · ${formatCount(56)} candidate features excluded${geoNote(78)}) · ` +
+      `SPA: ${formatCount(1_234)} features filed · ${formatCount(234)} sites (${formatCount(1_234)} read${geoNote(0)}) · ` +
+      `Ramsar: ${formatCount(1_234)} features filed · ${formatCount(234)} sites (${formatCount(1_234)} read${geoNote(0)}) · ` +
+      `ancient woodland: ${formatCount(12_345)} filed (${formatCount(11_111)} in the original inventory · ${formatCount(12_345)} in the revised inventory · ${formatCount(1_234)} originals replaced by the revision${geoNote(234)})`;
+    expect(line).toContain(
+      "SSSI: 12,345 features filed · 1,234 sites (12,345 read · 1,234 without geometry counted)",
+    );
+    expect(line).toContain("ancient woodland: 12,345 filed (11,111 in the original inventory");
+    expect(line).not.toMatch(/SSSI: 12345 features/);
+  });
+
+  it("formats the nurseries summary counts", () => {
+    const line =
+      `load-nurseries · Ofsted childcare register as at 2026-11-01 · ${formatCount(12_345)} group settings filed ` +
+      `(${formatCount(11_111)} full day care, ${formatCount(1_234)} sessional day care) · ` +
+      `of ${formatCount(12_345)} register rows: ${formatCount(1_234)} childminder-type never filed, ` +
+      `${formatCount(234)} on domestic premises (published redacted, never filed), ` +
+      `${formatCount(345)} out-of-school day care not filed, ${formatCount(456)} blank subtype not filed, ` +
+      `${formatCount(567)} other subtype not filed, ${formatCount(678)} not active, ${formatCount(789)} other type, ` +
+      `${formatCount(12)} duplicate URNs, ${formatCount(1_234)} unresolved postcodes not filed`;
+    expect(line).toContain(
+      "12,345 group settings filed (11,111 full day care, 1,234 sessional day care)",
+    );
+    expect(line).toContain("of 12,345 register rows: 1,234 childminder-type never filed");
+    expect(line).not.toMatch(/12345 group settings filed/);
+  });
+
+  it("formats the os-greenspace read, filed and mix counts", () => {
+    const mix = ["Play Area", "Playing Field"].map((f) => `${f} ${formatCount(1_234)}`).join(" · ");
+    const line = `load-os-greenspace · ${formatCount(12_345)} points filed (${formatCount(1_234)} centres · ${formatCount(11_111)} access; ${mix}; version 2026-11 · md5 abc) — golden homes OK`;
+    expect(line).toContain(
+      "12,345 points filed (1,234 centres · 11,111 access; Play Area 1,234 · Playing Field 1,234",
+    );
+    expect(line).not.toMatch(/12345 points filed/);
+    const verifyOnly = `load-os-greenspace · read ${formatCount(12_345)} sites and ${formatCount(11_111)} access points — would file ${formatCount(12_345)} points (${formatCount(1_234)} centres · ${formatCount(11_111)} access; ${mix}; version 2026-11 · md5 abc) — golden homes OK (verify-only: nothing filed)`;
+    expect(verifyOnly).toContain(
+      "read 12,345 sites and 11,111 access points — would file 12,345 points",
+    );
+    expect(verifyOnly).not.toMatch(/read 12345 sites/);
+  });
+
+  it("formats the osm-places per-country, fixture, by-type and dropped counts", () => {
+    const perCountry = [
+      `england ${formatCount(1_234_567)}`,
+      `scotland ${formatCount(234_567)}`,
+    ].join(" · ");
+    const byType = ["town", "village"].map((t) => `${t} ${formatCount(12_345)}`).join(" · ");
+    const line = `load-osm-places · ${perCountry} — would file ${formatCount(12_345)} places (${byType}; ${formatCount(1_234)} repeat elements and ${formatCount(234)} duplicate places dropped) — golden homes OK (verify-only: nothing filed)`;
+    expect(line).toContain("england 1,234,567 · scotland 234,567 — would file 12,345 places");
+    expect(line).toContain("1,234 repeat elements and 234 duplicate places dropped");
+    expect(line).not.toMatch(/would file 12345 places/);
+    const fixture = `fixture captures ${formatCount(12_345)} elements`;
+    expect(fixture).toBe("fixture captures 12,345 elements");
+    expect(fixture).not.toMatch(/captures 12345 elements/);
+  });
+
+  it("formats the planning-areas conservation, article-4 and gate counts", () => {
+    const line =
+      `load-planning-areas · planning.data.gov.uk files retrieved 2026-11-01 · ` +
+      `conservation areas: ${formatCount(12_345)} filed (${formatCount(11_111)} current of ${formatCount(12_345)} in file · ${formatCount(1_234)} ended excluded · ${formatCount(234)} without geometry counted · ${formatCount(56)} duplicates dropped) · ` +
+      `article 4 areas: ${formatCount(1_234)} filed (${formatCount(1_111)} current of ${formatCount(1_234)} in file · ${formatCount(123)} ended excluded · ${formatCount(45)} without geometry counted · ${formatCount(67)} duplicates dropped) · ` +
+      `article 4 directions: ${formatCount(1_234)} current checked (${formatCount(1_234)} in file · ${formatCount(123)} ended excluded) · ` +
+      `article 4 gate: ${formatCount(234)} organisations publish areas (gate filed)`;
+    expect(line).toContain("conservation areas: 12,345 filed (11,111 current of 12,345 in file");
+    expect(line).toContain("article 4 gate: 234 organisations publish areas");
+    expect(line).not.toMatch(/conservation areas: 12345 filed/);
+  });
+
+  it("formats the school-destinations KS4/KS5 and consortium counts", () => {
+    const line =
+      `load-school-destinations · Department for Education — Explore Education Statistics · release "2024-25" published 2026-11-01 · ` +
+      `cohort 2024 (v1) · ` +
+      `KS4 ${formatCount(12_345)} institutions (${formatCount(1_234)} consortium groups resolved) · ` +
+      `KS5 ${formatCount(2_345)} institutions (${formatCount(234)} consortium groups resolved)`;
+    expect(line).toContain("KS4 12,345 institutions (1,234 consortium groups resolved)");
+    expect(line).toContain("KS5 2,345 institutions (234 consortium groups resolved)");
+    expect(line).not.toMatch(/KS4 12345 institutions/);
+  });
+
+  it("formats the schools summary counts", () => {
+    const line =
+      `load-schools · GIAS 2026-11-01 · Ofsted as at 2026-11-01 · ${formatCount(12_345)} open schools · ` +
+      `${formatCount(1_234)} closed skipped · ${formatCount(2_345)} without coordinates ` +
+      `(${formatCount(1_234)} at postcode position, ${formatCount(1_111)} unfiled) · ` +
+      `${formatCount(123)} selective secondaries · ` +
+      `${formatCount(12_345)} Ofsted outcomes joined · ${formatCount(234)} admissions-policy mismatches logged · ` +
+      `${formatCount(345)} Welsh schools without an Ofsted row (Estyn territory, expected)`;
+    expect(line).toContain(
+      "12,345 open schools · 1,234 closed skipped · 2,345 without coordinates",
+    );
+    expect(line).toContain("123 selective secondaries · 12,345 Ofsted outcomes joined");
+    expect(line).not.toMatch(/12345 open schools/);
+  });
+
+  it("formats the transport family line and stats counts", () => {
+    const familyLine = ["bus", "rail"].map((f) => `${f} ${formatCount(12_345)}`).join(" · ");
+    const line =
+      `load-transport · NaPTAN · file of 2026-11-01 · ` +
+      `${formatCount(12_345)} rows read · ${formatCount(11_111)} active · ` +
+      `${formatCount(12_345)} transport stops filed (${familyLine}) · ` +
+      `${formatCount(1_234)} grid references converted · ` +
+      `${formatCount(234)} inactive or pending excluded · ` +
+      `${formatCount(345)} active sub-point or out-of-scope rows set aside · ` +
+      `${formatCount(456)} without a position counted · ` +
+      `${formatCount(567)} duplicate ATCO codes dropped`;
+    expect(line).toContain(
+      "12,345 rows read · 11,111 active · 12,345 transport stops filed (bus 12,345 · rail 12,345)",
+    );
+    expect(line).not.toMatch(/12345 rows read/);
+  });
+
+  it("formats the tribunal-building-safety rows, counts, documents and failures", () => {
+    const line =
+      `load-tribunal-building-safety: ${formatCount(12_345)} cases filed ` +
+      `(${formatCount(1_234)} remediation orders, ${formatCount(234)} remediation contribution orders, ${formatCount(345)} other building-safety) ` +
+      `from ${formatCount(11_111)} published documents · parse failures: ${formatCount(12)}` +
+      ` · ${formatCount(1_234)} cases name no full postcode` +
+      ` · ${formatCount(234)} dates from GOV.UK metadata where the header carries none` +
+      ` · enumerated ${formatCount(1_234)} of ${formatCount(12_345)} Building Safety Act category items on GOV.UK`;
+    expect(line).toContain(
+      "12,345 cases filed (1,234 remediation orders, 234 remediation contribution orders",
+    );
+    expect(line).toContain("from 11,111 published documents · parse failures: 12");
+    expect(line).toContain("enumerated 1,234 of 12,345 Building Safety Act category items");
+    expect(line).not.toMatch(/12345 cases filed/);
+  });
+
+  it("formats the runner's failure subject counts", () => {
+    const line = `[Check My Next Home] Loader run FAILED — load-schools, load-epc (${formatCount(2)} of ${formatCount(1_234)})`;
+    expect(line).toContain("(2 of 1,234)");
+    expect(line).not.toMatch(/\(2 of 1234\)/);
+  });
+});
+
+// BUG-231 (canary half): every printed canary log line that
+// carried a raw count now goes through formatCount. Render
+// pins, as above — except the two exported verdict
+// functions, which get real call-site pins through the
+// actual functions with synthetic inputs.
+describe("formatted canary log lines (BUG-231)", () => {
+  it("formats the ppd, police, epc, gias/ofsted and ods lines", () => {
+    const ppd = `canary ppd · head sample ${formatCount(12_345)} lines, ${formatCount(1_234)} malformed`;
+    expect(ppd).toContain("head sample 12,345 lines, 1,234 malformed");
+    expect(ppd).not.toMatch(/sample 12345 lines/);
+    const police = `canary police · latest month 2026-10 · golden-point response is an array (${formatCount(12_345)} records)`;
+    expect(police).toContain("(12,345 records)");
+    expect(police).not.toMatch(/\(12345 records\)/);
+    const epc = `canary epc · search + certificate shape OK (${formatCount(1_234)} stubs on page 1)`;
+    expect(epc).toContain("(1,234 stubs on page 1)");
+    expect(epc).not.toMatch(/\(1234 stubs on page 1\)/);
+    const epcDeltas = `array of ${formatCount(12_345)}`;
+    expect(epcDeltas).toBe("array of 12,345");
+    expect(epcDeltas).not.toMatch(/array of 12345/);
+    const gias = `canary gias · extract 2026-11-01 · all ${formatCount(12)} consumed columns present`;
+    expect(gias).toContain("all 12 consumed columns present");
+    const ofsted = `canary ofsted · file as at 2026-11-01 · all ${formatCount(12)} consumed columns present`;
+    expect(ofsted).toContain("all 12 consumed columns present");
+    const ods = `canary ods · epraccur ${formatCount(12_345)} rows, ${formatCount(1_234)} wrong-width`;
+    expect(ods).toContain("epraccur 12,345 rows, 1,234 wrong-width");
+    expect(ods).not.toMatch(/epraccur 12345 rows/);
+    const planning = `canary planning · file 12.3 MB, modified 2026-11-01 · all ${formatCount(12)} consumed columns present · ${formatCount(1_234)} applications`;
+    expect(planning).toContain("all 12 consumed columns present · 1,234 applications");
+    expect(planning).not.toMatch(/· 1234 applications/);
+  });
+
+  it("formats the nature, flood, aqma and clean-air-zone lines", () => {
+    const sssi = `canary sssi · ${formatCount(12_345)} features · edited 2026-11-01`;
+    expect(sssi).toContain("12,345 features");
+    expect(sssi).not.toMatch(/· 12345 features/);
+    const sac = `canary sac · ${formatCount(12_345)} features, ${formatCount(1_234)} designated (${formatCount(11_111)} candidate) · no staleness alarm by design`;
+    expect(sac).toContain("12,345 features, 1,234 designated (11,111 candidate)");
+    expect(sac).not.toMatch(/12345 features, 1234 designated/);
+    const spa = `canary spa · ${formatCount(1_234)} features · no staleness alarm by design`;
+    expect(spa).toContain("1,234 features");
+    const ramsar = `canary ramsar · ${formatCount(1_234)} features · no staleness alarm by design`;
+    expect(ramsar).toContain("1,234 features");
+    const ancient = `canary ancient-woodland · ${formatCount(12_345)} polygons · inventories last edited 2026-11-01 (original) / 2026-11-01 (revised)`;
+    expect(ancient).toContain("12,345 polygons");
+    expect(ancient).not.toMatch(/12345 polygons/);
+    const phi = `canary priority-habitats · ${formatCount(12_345)} patches · version 2026-11`;
+    expect(phi).toContain("12,345 patches");
+    expect(phi).not.toMatch(/12345 patches/);
+    const flood = `canary flood-rivers-sea · ${formatCount(12_345)} features · edition 2026-11-12`;
+    expect(flood).toContain("12,345 features");
+    expect(flood).not.toMatch(/· 12345 features/);
+    const warning = `edition is ${formatCount(1_234)} days old — beyond the ~200-day ambition (warn-only: the publisher promises updates only as needed)`;
+    expect(warning).toContain("edition is 1,234 days old");
+    expect(warning).not.toMatch(/is 1234 days old/);
+    const aqma = `canary aqma · ${formatCount(12_345)} areas · edition 2026-11-01 · England ${formatCount(11_111)} · Scotland ${formatCount(1_234)}`;
+    expect(aqma).toContain("12,345 areas · edition 2026-11-01 · England 11,111 · Scotland 1,234");
+    expect(aqma).not.toMatch(/12345 areas/);
+    const caz = `canary govuk-caz · ${formatCount(12)} of ${formatCount(12)} registered Clean Air Zones named on GOV.UK · ${formatCount(1_234)} table rows`;
+    expect(caz).toContain("12 of 12 registered Clean Air Zones named on GOV.UK · 1,234 table rows");
+    const cazWarning = `the table carries ${formatCount(1_234)} rows against the register's ${formatCount(12)} — a scheme may have been added or removed`;
+    expect(cazWarning).toContain("carries 1,234 rows against the register's 12");
+    const lez = `canary scotland-lez · ${formatCount(12)} of ${formatCount(12)} registered Low Emission Zones named on lowemissionzones.scot`;
+    expect(lez).toContain("12 of 12 registered Low Emission Zones");
+    const lezWarning = `the site says there are ${formatCount(12)} LEZs in Scotland against the register's ${formatCount(12)} — a scheme may have been added or removed`;
+    expect(lezWarning).toContain("there are 12 LEZs in Scotland against the register's 12");
+  });
+
+  it("formats the naptan, os-greenspace, open-charge-map and nomis lines", () => {
+    const naptan = `canary naptan · area 571: ${formatCount(12_345)} stops · newest edit 2026-11-01 · all ${formatCount(12)} consumed columns present`;
+    expect(naptan).toContain(
+      "area 571: 12,345 stops · newest edit 2026-11-01 · all 12 consumed columns present",
+    );
+    expect(naptan).not.toMatch(/571: 12345 stops/);
+    const greenspace = `canary os-greenspace · edition 2026-11 · GB GeoPackage ${formatCount(12_345_678)} bytes · md5 abc`;
+    expect(greenspace).toContain("GB GeoPackage 12,345,678 bytes");
+    expect(greenspace).not.toMatch(/GeoPackage 12345678 bytes/);
+    const ocm = `canary open-charge-map · credential answers · South tile ${formatCount(12_345)} records (first load ${formatCount(12_345)}) · membership share 32% · Birkdale ${formatCount(1_234)} fileable within 2 mi · Exeter ${formatCount(2_345)} fileable within 2 mi (first load ${formatCount(2_345)})`;
+    expect(ocm).toContain("South tile 12,345 records (first load 12,345)");
+    expect(ocm).toContain(
+      "Birkdale 1,234 fileable within 2 mi · Exeter 2,345 fileable within 2 mi",
+    );
+    expect(ocm).not.toMatch(/South tile 12345 records/);
+    const census = `canary nomis-census · 7 bulk files present · TS021/TS054 shapes OK · golden totals unchanged (${[12_345, 1_234, 2_345].map((v) => formatCount(v)).join(" / ")})`;
+    expect(census).toContain("golden totals unchanged (12,345 / 1,234 / 2,345)");
+    expect(census).not.toMatch(/unchanged \(12345 /);
+    const claimant = `canary nomis-claimant · latest month 2026-10 (${formatCount(1_234)} days past month end) · golden LSOAs return count + % (E01000001 ${formatCount(1_234)} / 4.5% · E01000002 ${formatCount(2_345)} / 5.6%)`;
+    expect(claimant).toContain("latest month 2026-10 (1,234 days past month end)");
+    expect(claimant).toContain("E01000001 1,234 / 4.5%");
+    expect(claimant).not.toMatch(/\(1234 days past month end\)/);
+    const uc = `people latest 2026-10 (${formatCount(1_234)} months old)`;
+    expect(uc).toContain("(1,234 months old)");
+    expect(uc).not.toMatch(/\(1234 months old\)/);
+  });
+
+  it("formats the council-tax, flood-defences and planning-application canary lines", () => {
+    const councilTax = `canary mhclg-council-tax · the StatsWales composition dataset was last updated 2026-11-01 (${formatCount(1_234)} days ago) — the Welsh annual update looks missed; check StatsWales before the next seed re-run`;
+    expect(councilTax).toContain("(1,234 days ago)");
+    expect(councilTax).not.toMatch(/\(1234 days ago\)/);
+    const defences = `canary flood-defences · the AIMS record still names AfA345 and carries the GeoPackage zip on the loader's file-download pattern (${formatCount(1_234)} resources on the record)`;
+    expect(defences).toContain("(1,234 resources on the record)");
+    expect(defences).not.toMatch(/\(1234 resources on the record\)/);
+    const planning = `canary planning-application · collection has started — ${formatCount(1_234)} entities from ${formatCount(12)} providers on planning.data.gov.uk: re-open M5.12 as a filing step (the next free migration number; field mapping in the M5.12 prep, Section 1.3)`;
+    expect(planning).toContain("collection has started — 1,234 entities from 12 providers");
+    expect(planning).not.toMatch(/— 1234 entities from/);
+  });
+
+  it("formats the postio balance through the real postioVerdict (call-site pin)", () => {
+    const healthy = postioVerdict({
+      configured: true,
+      reachable: true,
+      keyActive: true,
+      lookupsRemaining: 25_000,
+    });
+    expect(healthy.logLine).toContain("canary postio · key active, 25,000 lookups remaining");
+    expect(healthy.logLine).not.toMatch(/25000 lookups remaining/);
+    // Below 1,000 formatCount is identity — the low-balance
+    // branch (under the 100-lookup threshold) still reads plain.
+    const low = postioVerdict({
+      configured: true,
+      reachable: true,
+      keyActive: true,
+      lookupsRemaining: 42,
+    });
+    expect(low.warning).toBe(true);
+    expect(low.logLine).toContain("(42 lookups left, under the 100-lookup threshold)");
+  });
+
+  it("formats the picking-index ages and home counts through the real pickingIndexVerdict (call-site pin)", () => {
+    const now = new Date("2026-11-24T00:00:00Z");
+    const verdict = pickingIndexVerdict(
+      [
+        {
+          source: "sales",
+          edition: "2023-11",
+          loaded_at: "2023-11-24T00:00:00Z",
+          homes: 25_108_628,
+          previous_homes: null,
+          last_rejected_homes: 1_234_567,
+          last_rejected_at: "2023-11-24T00:00:00Z",
+        },
+        {
+          source: "epc",
+          edition: "2026-11",
+          loaded_at: "2026-11-20T00:00:00Z",
+          homes: 25_108_628,
+          previous_homes: null,
+          last_rejected_homes: null,
+          last_rejected_at: null,
+        },
+      ],
+      now,
+    );
+    expect(verdict.warning).toBe(true);
+    // 2023-11-24 → 2026-11-24 is 1,096 days (one leap year in the span).
+    expect(verdict.logLine).toContain(
+      "the sales edition in the picking index is 1,096 days old (edition 2023-11)",
+    );
+    expect(verdict.logLine).toContain("(1,234,567 distinct homes against the filed 25,108,628)");
+    expect(verdict.logLine).not.toMatch(/1096 days old/);
+    expect(verdict.logLine).not.toMatch(/1234567 distinct homes/);
+    expect(verdict.logLine).not.toMatch(/filed 25108628/);
   });
 });

@@ -106,6 +106,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import proj4 from "proj4";
+import { formatCount } from "./progress.mjs";
 
 const USER_AGENT = "CheckMyNextHome/1.0 (+https://checkmynexthome.co.uk)";
 
@@ -719,7 +720,7 @@ async function main() {
       ? filing.pending.map((scheme) => `${scheme.name} pending — no boundary published`).join("; ")
       : "no schemes pending";
   const summary = () =>
-    `load-charging-zones · ${filing.filed.length} schemes filed (${pendingLine})`;
+    `load-charging-zones · ${formatCount(filing.filed.length)} schemes filed (${pendingLine})`;
 
   if (verifyOnly) {
     console.log(`${summary()} · golden homes OK (verify only, nothing filed)`);

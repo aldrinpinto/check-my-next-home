@@ -62,6 +62,7 @@ import { join } from "node:path";
 import { Readable } from "node:stream";
 import pg from "pg";
 import yauzl from "yauzl";
+import { formatCount } from "./progress.mjs";
 
 const DSE_URL = (report) =>
   `https://www.odsdatasearchandexport.nhs.uk/api/getReport?report=${report}`;
@@ -821,12 +822,12 @@ async function main() {
 
   const summary = () =>
     `load-health · ODS ${odsDateStamp} · CQC directory ${directoryProducedOn} · ratings as at ${ratings.asAt} · ` +
-    `${count("gp_practice")} practices · ${count("gp_branch_surgery")} branches ` +
-    `(${stats.closedBranches} closed-by-date removed, ${stats.covidBranches} COVID-named removed) · ` +
-    `${count("pharmacy")} pharmacies · ${count("dentist")} dentists · ${count("hospital")} hospitals ` +
-    `(${points.filter((p) => (p.cqcPopulationGroups ?? "").split("|").includes("Maternity")).length} carrying the Maternity group) · ` +
-    `${joined} ratings joined · ${ties} same-day ties withheld · ${stats.excludedPractices} excluded non-practices · ` +
-    `${stats.clinicNamed} CLINIC-named practices filed for review · ${stats.noPosition} without a directory position skipped`;
+    `${formatCount(count("gp_practice"))} practices · ${formatCount(count("gp_branch_surgery"))} branches ` +
+    `(${formatCount(stats.closedBranches)} closed-by-date removed, ${formatCount(stats.covidBranches)} COVID-named removed) · ` +
+    `${formatCount(count("pharmacy"))} pharmacies · ${formatCount(count("dentist"))} dentists · ${formatCount(count("hospital"))} hospitals ` +
+    `(${formatCount(points.filter((p) => (p.cqcPopulationGroups ?? "").split("|").includes("Maternity")).length)} carrying the Maternity group) · ` +
+    `${formatCount(joined)} ratings joined · ${formatCount(ties)} same-day ties withheld · ${formatCount(stats.excludedPractices)} excluded non-practices · ` +
+    `${formatCount(stats.clinicNamed)} CLINIC-named practices filed for review · ${formatCount(stats.noPosition)} without a directory position skipped`;
 
   if (verifyOnly) {
     console.log(`${summary()} · golden homes OK (verify only, nothing filed)`);

@@ -36,6 +36,7 @@
 // A monthly pass keeps an edition at most ~31 days old;
 // 45 leaves headroom for a late download without crying
 // wolf, and still catches a missed month.
+import { formatCount } from "./progress.mjs";
 export const STALE_AFTER_DAYS = 45;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -80,10 +81,10 @@ export function pickingIndexVerdict(editions, now = new Date()) {
     const ageDays = Math.floor((now.getTime() - loadedAt) / DAY_MS);
     if (ageDays > STALE_AFTER_DAYS) {
       problems.push(
-        `the ${label} edition in the picking index is ${ageDays} days old (edition ${row.edition ?? "unnamed"}) — a monthly pass is overdue`,
+        `the ${label} edition in the picking index is ${formatCount(ageDays)} days old (edition ${row.edition ?? "unnamed"}) — a monthly pass is overdue`,
       );
     } else {
-      notes.push(`${label} edition ${row.edition ?? "unnamed"}, ${ageDays} days old`);
+      notes.push(`${label} edition ${row.edition ?? "unnamed"}, ${formatCount(ageDays)} days old`);
     }
     if (
       row.last_rejected_homes !== null &&
@@ -93,7 +94,7 @@ export function pickingIndexVerdict(editions, now = new Date()) {
       new Date(row.last_rejected_at).getTime() >= loadedAt
     ) {
       problems.push(
-        `a ${label} re-extract was refused on count movement (${row.last_rejected_homes} distinct homes against the filed ${row.homes}) — the filed edition keeps serving; the new source file needs a look before the next pass`,
+        `a ${label} re-extract was refused on count movement (${formatCount(row.last_rejected_homes)} distinct homes against the filed ${formatCount(row.homes)}) — the filed edition keeps serving; the new source file needs a look before the next pass`,
       );
     }
   }

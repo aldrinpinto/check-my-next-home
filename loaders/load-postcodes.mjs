@@ -547,7 +547,7 @@ async function main() {
       const after = await client.query("SELECT count(*)::int AS n FROM postcode_cache");
       console.log(
         `load-postcodes · edition ${edition.editionLabel} (${edition.sourceDate}) · ${counts.live.toLocaleString("en-GB")} live postcodes filed · ` +
-          `${counts.terminated.toLocaleString("en-GB")} terminated skipped · ${counts.noCoords} without coordinates skipped · ${counts.duplicates} duplicates ignored · ` +
+          `${counts.terminated.toLocaleString("en-GB")} terminated skipped · ${counts.noCoords.toLocaleString("en-GB")} without coordinates skipped · ${counts.duplicates.toLocaleString("en-GB")} duplicates ignored · ` +
           `postcode_cache ${cacheBefore.toLocaleString("en-GB")} → ${after.rows[0].n.toLocaleString("en-GB")} rows · golden homes OK · ${Math.round((Date.now() - startedAt) / 1000)}s`,
       );
     }
@@ -561,7 +561,7 @@ async function main() {
   if (verifyOnly) {
     console.log(
       `load-postcodes · edition ${edition.editionLabel} (${edition.sourceDate}) · verify only, nothing filed · ${counts.live.toLocaleString("en-GB")} live postcodes · ` +
-        `${counts.terminated.toLocaleString("en-GB")} terminated skipped · ${counts.noCoords} without coordinates skipped · ${counts.duplicates} duplicates · golden homes OK · ${Math.round((Date.now() - startedAt) / 1000)}s`,
+        `${counts.terminated.toLocaleString("en-GB")} terminated skipped · ${counts.noCoords.toLocaleString("en-GB")} without coordinates skipped · ${counts.duplicates.toLocaleString("en-GB")} duplicates · golden homes OK · ${Math.round((Date.now() - startedAt) / 1000)}s`,
     );
   }
 }

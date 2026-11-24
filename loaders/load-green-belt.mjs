@@ -39,6 +39,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import pg from "pg";
+import { formatCount } from "./progress.mjs";
 
 const FILE_URL = "https://files.planning.data.gov.uk/dataset/green-belt.csv";
 const SOURCE_GREEN_BELT = "MHCLG Green Belt (via planning.data.gov.uk)";
@@ -359,7 +360,7 @@ async function main() {
 
   const summary = () =>
     `load-green-belt · planning.data.gov.uk file retrieved ${sourceDate} · ` +
-    `${processed.filed.length} pieces filed (${processed.current} current of ${processed.total} in file · ${processed.ended} ended excluded · ${processed.geoless} without geometry counted · ${processed.duplicates} duplicates dropped) · ` +
+    `${formatCount(processed.filed.length)} pieces filed (${formatCount(processed.current)} current of ${formatCount(processed.total)} in file · ${formatCount(processed.ended)} ended excluded · ${formatCount(processed.geoless)} without geometry counted · ${formatCount(processed.duplicates)} duplicates dropped) · ` +
     `named by the belt (green-belt-core), never by district`;
 
   if (verifyOnly) {

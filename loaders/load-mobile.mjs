@@ -390,7 +390,7 @@ async function run() {
 
   const { release, rows } = await loadMobileRows({ fileDir });
   structuralChecks(rows, { full: !fileDir });
-  const base = `load-mobile · Connected Nations ${release.snapshotLabel}${release.revision ? ` (${release.revision})` : ""} · ${rows.length} authorities`;
+  const base = `load-mobile · Connected Nations ${release.snapshotLabel}${release.revision ? ` (${release.revision})` : ""} · ${rows.length.toLocaleString("en-GB")} authorities`;
   if (verifyOnly) {
     console.log(`${base} — structural checks OK (verify-only, nothing filed)`);
     return;
@@ -406,9 +406,9 @@ async function run() {
     }
     const unmatchedNote =
       result.unmatched.length > 0
-        ? ` — WARNING: ${result.unmatched.length} councils matched no authority (${result.unmatched
+        ? ` — WARNING: ${result.unmatched.length.toLocaleString("en-GB")} councils matched no authority (${result.unmatched
             .slice(0, 5)
-            .map((u) => `${u.council} ${u.n}`)
+            .map((u) => `${u.council} ${u.n.toLocaleString("en-GB")}`)
             .join(", ")}${result.unmatched.length > 5 ? ", …" : ""})`
         : "";
     console.log(

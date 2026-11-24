@@ -686,7 +686,7 @@ async function run() {
       const pointsByPostcode = pointsForSamples(samples, found);
       rows = samplesToRows(samples, pointsByPostcode);
       goldenBandChecks(rows);
-      note = `${rows.length} rows from ${fileDir}`;
+      note = `${rows.length.toLocaleString("en-GB")} rows from ${fileDir}`;
     } else {
       const workDir = process.env.NOISE_WORK_DIR ?? join(tmpdir(), "cmnh-noise-round4");
       const { samples, postcodes } = await sampleAll(pool, workDir);

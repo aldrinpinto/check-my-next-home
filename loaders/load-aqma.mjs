@@ -82,6 +82,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { createGoldenSift } from "./flood-stream.mjs";
+import { formatCount } from "./progress.mjs";
 
 const SERVICE_BASE =
   "https://ukair.maps.rcdo.co.uk/ukairserver/rest/services/AQMA/aqma_boundaries/MapServer";
@@ -624,11 +625,11 @@ async function main() {
 
   const edition = processed.edition;
   const nationSummary = Object.entries(processed.perNation)
-    .map(([letter, n]) => `${NATION_NAMES[letter]} ${n}`)
+    .map(([letter, n]) => `${NATION_NAMES[letter]} ${formatCount(n)}`)
     .join(" · ");
   const summary = () =>
     `load-aqma · ${SOURCE_NAME} · edition ${edition} · ` +
-    `${processed.filed} areas filed (${nationSummary})`;
+    `${formatCount(processed.filed)} areas filed (${nationSummary})`;
 
   if (verifyOnly) {
     console.log(`${summary()} · golden homes OK (verify only, nothing filed)`);

@@ -62,6 +62,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { formatCount } from "./progress.mjs";
 
 const NE_BASE = "https://services.arcgis.com/JJzESW51TqeY9uat/arcgis/rest/services";
 const SERVICE = "Priority_Habitats_Inventory_England";
@@ -631,7 +632,7 @@ async function main() {
 
     const summary = () =>
       `load-priority-habitats · Natural England · Priority Habitat Inventory ${versionLabel} (${versionDate(version)}) · ` +
-      `${state.filed} patches filed (${state.read} read · ${state.geoless} without geometry counted · ${state.duplicates} duplicate UIDs dropped)`;
+      `${formatCount(state.filed)} patches filed (${formatCount(state.read)} read · ${formatCount(state.geoless)} without geometry counted · ${formatCount(state.duplicates)} duplicate UIDs dropped)`;
 
     if (verifyOnly) {
       console.log(`${summary()} · golden homes OK (verify only, nothing filed)`);

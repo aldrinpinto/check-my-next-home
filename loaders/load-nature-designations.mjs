@@ -106,6 +106,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { createGoldenSift } from "./flood-stream.mjs";
+import { formatCount } from "./progress.mjs";
 
 const NE_BASE = "https://services.arcgis.com/JJzESW51TqeY9uat/arcgis/rest/services";
 const ORGANISATION = "Natural England";
@@ -1173,14 +1174,14 @@ async function main() {
     throw error;
   }
 
-  const geoNote = (n) => (n > 0 ? ` · ${n} without geometry counted` : "");
+  const geoNote = (n) => (n > 0 ? ` · ${formatCount(n)} without geometry counted` : "");
   const summary = () =>
     `load-nature-designations · Natural England ArcGIS services · ` +
-    `SSSI: ${sssi.filed} features filed · ${sssi.sites} sites (${sssi.read} read${geoNote(sssi.geoless)}) · ` +
-    `SAC: ${sac.filed} designated features filed · ${sac.sites} designated sites (${sac.read} read · ${sac.excluded} candidate features excluded${geoNote(sac.geoless)}) · ` +
-    `SPA: ${spa.filed} features filed · ${spa.sites} sites (${spa.read} read${geoNote(spa.geoless)}) · ` +
-    `Ramsar: ${ramsar.filed} features filed · ${ramsar.sites} sites (${ramsar.read} read${geoNote(ramsar.geoless)}) · ` +
-    `ancient woodland: ${awi.filed} filed (${awi.origRead} in the original inventory · ${awi.revRead} in the revised inventory · ${awi.replaced} originals replaced by the revision${geoNote(awi.geoless)})`;
+    `SSSI: ${formatCount(sssi.filed)} features filed · ${formatCount(sssi.sites)} sites (${formatCount(sssi.read)} read${geoNote(sssi.geoless)}) · ` +
+    `SAC: ${formatCount(sac.filed)} designated features filed · ${formatCount(sac.sites)} designated sites (${formatCount(sac.read)} read · ${formatCount(sac.excluded)} candidate features excluded${geoNote(sac.geoless)}) · ` +
+    `SPA: ${formatCount(spa.filed)} features filed · ${formatCount(spa.sites)} sites (${formatCount(spa.read)} read${geoNote(spa.geoless)}) · ` +
+    `Ramsar: ${formatCount(ramsar.filed)} features filed · ${formatCount(ramsar.sites)} sites (${formatCount(ramsar.read)} read${geoNote(ramsar.geoless)}) · ` +
+    `ancient woodland: ${formatCount(awi.filed)} filed (${formatCount(awi.origRead)} in the original inventory · ${formatCount(awi.revRead)} in the revised inventory · ${formatCount(awi.replaced)} originals replaced by the revision${geoNote(awi.geoless)})`;
 
   if (verifyOnly) {
     console.log(`${summary()} · golden homes OK (verify only, nothing filed)`);

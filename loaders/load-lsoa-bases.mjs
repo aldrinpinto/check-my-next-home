@@ -35,6 +35,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import yauzl from "yauzl";
+import { formatCount } from "./progress.mjs";
 
 const { Pool } = pg;
 
@@ -334,7 +335,7 @@ export async function loadLsoaBaseRows(source) {
 
 function summaryLine(rows, filed) {
   return (
-    `load-lsoa-bases · 2 census totals (TS021 residents, TS054 households) · ${rows.length} areas ${filed ? "filed" : "would file"} ` +
+    `load-lsoa-bases · 2 census totals (TS021 residents, TS054 households) · ${formatCount(rows.length)} areas ${filed ? "filed" : "would file"} ` +
     `(Census Day 21 March 2021)`
   );
 }

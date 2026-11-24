@@ -121,6 +121,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { formatCount } from "./progress.mjs";
 
 const { Pool } = pg;
 
@@ -740,7 +741,7 @@ async function main() {
         read += part.elementsRead;
         for (const row of part.rows) candidates.push(row);
       }
-      perCountry.push(`fixture captures ${read} elements`);
+      perCountry.push(`fixture captures ${formatCount(read)} elements`);
     } else if (pbfDir) {
       const present = [];
       for (const country of COUNTRIES) {
@@ -767,7 +768,7 @@ async function main() {
           country,
         );
         present.push(country);
-        perCountry.push(`${country} ${part.elementsRead}`);
+        perCountry.push(`${country} ${formatCount(part.elementsRead)}`);
         for (const row of part.rows) candidates.push(row);
       }
       if (present.length === 0) throw new Error(`no country extracts found in ${pbfDir}`);
@@ -811,7 +812,7 @@ async function main() {
             `${country}: downloaded extract hashes to ${actual} but Geofabrik publishes ${published} — refusing to file from an unverified extract`,
           );
         const part = await extractAndMap(dest, dataDate, workDir, EXTRACT_FLOORS[country], country);
-        perCountry.push(`${country} ${part.elementsRead}`);
+        perCountry.push(`${country} ${formatCount(part.elementsRead)}`);
         for (const row of part.rows) candidates.push(row);
       }
     }
@@ -823,11 +824,11 @@ async function main() {
     if (golden.length > 0) throw new Error(`golden checks failed: ${golden.join("; ")}`);
 
     const byType = PLACE_TYPES.map(
-      (t) => `${t} ${rows.filter((r) => r.placeType === t).length}`,
+      (t) => `${t} ${formatCount(rows.filter((r) => r.placeType === t).length)}`,
     ).join(" · ");
     if (verifyOnly) {
       console.log(
-        `load-osm-places · ${perCountry.join(" · ")} — would file ${rows.length} places (${byType}; ${droppedElements} repeat elements and ${droppedDuplicates} duplicate places dropped) — golden homes OK (verify-only: nothing filed)`,
+        `load-osm-places · ${perCountry.join(" · ")} — would file ${formatCount(rows.length)} places (${byType}; ${formatCount(droppedElements)} repeat elements and ${formatCount(droppedDuplicates)} duplicate places dropped) — golden homes OK (verify-only: nothing filed)`,
       );
       return;
     }
@@ -838,7 +839,7 @@ async function main() {
       await pool.end();
     }
     console.log(
-      `load-osm-places · ${rows.length} places filed (${byType}; ${droppedElements} repeat elements and ${droppedDuplicates} duplicate places dropped) — golden homes OK`,
+      `load-osm-places · ${formatCount(rows.length)} places filed (${byType}; ${formatCount(droppedElements)} repeat elements and ${formatCount(droppedDuplicates)} duplicate places dropped) — golden homes OK`,
     );
   } finally {
     rmSync(workDir, { recursive: true, force: true });

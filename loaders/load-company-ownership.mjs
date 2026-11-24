@@ -174,6 +174,7 @@ import { Readable } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
 import yauzl from "yauzl";
 import pg from "pg";
+import { formatCount } from "./progress.mjs";
 
 const { Pool } = pg;
 
@@ -1228,16 +1229,16 @@ function summaryLine(totals, filed) {
     .filter((r) => r.count > 0)
     .map(
       (r) =>
-        `${r.count} ${r.dataset.toUpperCase()} row(s) rejected by name (${r.names.join("; ")})`,
+        `${formatCount(r.count)} ${r.dataset.toUpperCase()} row(s) rejected by name (${r.names.join("; ")})`,
     )
     .join(" · ");
   return (
     `load-company-ownership · HM Land Registry company ownership (CCOD/OCOD) + Companies House snapshots · ` +
-    `${total} company-owned titles ${filed ? "filed" : "would file"} (${totals.ccod} CCOD, ${totals.ocod} OCOD) · ` +
-    `${totals.snapshots} snapshots ${filed ? "filed" : "would file"} of ${totals.numbersWanted} filed company numbers · ` +
-    `missing snapshots: ${totals.noNumber} titles carry no company number, ${totals.missingByNumber.length} numbers not in the Companies House snapshot` +
+    `${formatCount(total)} company-owned titles ${filed ? "filed" : "would file"} (${formatCount(totals.ccod)} CCOD, ${formatCount(totals.ocod)} OCOD) · ` +
+    `${formatCount(totals.snapshots)} snapshots ${filed ? "filed" : "would file"} of ${formatCount(totals.numbersWanted)} filed company numbers · ` +
+    `missing snapshots: ${formatCount(totals.noNumber)} titles carry no company number, ${formatCount(totals.missingByNumber.length)} numbers not in the Companies House snapshot` +
     (totals.postcodeDropped > 0
-      ? ` · ${totals.postcodeDropped} postcodes not in UK form (filed as no-postcode)`
+      ? ` · ${formatCount(totals.postcodeDropped)} postcodes not in UK form (filed as no-postcode)`
       : "") +
     (rejectNote ? ` · ${rejectNote}` : "")
   );

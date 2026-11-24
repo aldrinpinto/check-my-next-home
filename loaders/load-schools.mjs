@@ -43,6 +43,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import pg from "pg";
 import proj4 from "proj4";
+import { formatCount } from "./progress.mjs";
 
 proj4.defs(
   "EPSG:27700",
@@ -526,12 +527,12 @@ async function main() {
   checkGolden(schools, outcomes, fixtureMode);
 
   const summary = () =>
-    `load-schools · GIAS ${giasEdition} · Ofsted as at ${ofstedAsAt} · ${schools.length} open schools · ` +
-    `${closedCount} closed skipped · ${approximate.length + noPosition.length} without coordinates ` +
-    `(${approximate.length} at postcode position, ${noPosition.length} unfiled) · ` +
-    `${schools.filter((s) => s.phase === "Secondary" && s.admissionsPolicy === "Selective").length} selective secondaries · ` +
-    `${outcomes.size} Ofsted outcomes joined · ${policyMismatches} admissions-policy mismatches logged · ` +
-    `${welshWithoutOutcome} Welsh schools without an Ofsted row (Estyn territory, expected)`;
+    `load-schools · GIAS ${giasEdition} · Ofsted as at ${ofstedAsAt} · ${formatCount(schools.length)} open schools · ` +
+    `${formatCount(closedCount)} closed skipped · ${formatCount(approximate.length + noPosition.length)} without coordinates ` +
+    `(${formatCount(approximate.length)} at postcode position, ${formatCount(noPosition.length)} unfiled) · ` +
+    `${formatCount(schools.filter((s) => s.phase === "Secondary" && s.admissionsPolicy === "Selective").length)} selective secondaries · ` +
+    `${formatCount(outcomes.size)} Ofsted outcomes joined · ${formatCount(policyMismatches)} admissions-policy mismatches logged · ` +
+    `${formatCount(welshWithoutOutcome)} Welsh schools without an Ofsted row (Estyn territory, expected)`;
 
   if (verifyOnly) {
     console.log(`${summary()} · golden homes OK (verify only, nothing filed)`);

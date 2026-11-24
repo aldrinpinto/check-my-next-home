@@ -91,6 +91,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import pg from "pg";
 import proj4 from "proj4";
+import { formatCount } from "./progress.mjs";
 
 proj4.defs(
   "EPSG:27700",
@@ -497,16 +498,18 @@ async function main() {
       );
     checkGolden(filed);
 
-    const familyLine = FILE_FAMILIES.map((f) => `${f} ${stats.perFamily[f]}`).join(" · ");
+    const familyLine = FILE_FAMILIES.map((f) => `${f} ${formatCount(stats.perFamily[f])}`).join(
+      " · ",
+    );
     const summary = () =>
       `load-transport · ${SOURCE_TRANSPORT} · file of ${sourceDate} · ` +
-      `${stats.total} rows read · ${stats.active} active · ` +
-      `${filed.length} transport stops filed (${familyLine}) · ` +
-      `${stats.converted} grid references converted · ` +
-      `${stats.excludedStatus} inactive or pending excluded · ` +
-      `${stats.outOfScope} active sub-point or out-of-scope rows set aside · ` +
-      `${stats.noPosition} without a position counted · ` +
-      `${stats.duplicates} duplicate ATCO codes dropped`;
+      `${formatCount(stats.total)} rows read · ${formatCount(stats.active)} active · ` +
+      `${formatCount(filed.length)} transport stops filed (${familyLine}) · ` +
+      `${formatCount(stats.converted)} grid references converted · ` +
+      `${formatCount(stats.excludedStatus)} inactive or pending excluded · ` +
+      `${formatCount(stats.outOfScope)} active sub-point or out-of-scope rows set aside · ` +
+      `${formatCount(stats.noPosition)} without a position counted · ` +
+      `${formatCount(stats.duplicates)} duplicate ATCO codes dropped`;
 
     if (verifyOnly) {
       console.log(`${summary()} · golden homes OK (verify only, nothing filed)`);

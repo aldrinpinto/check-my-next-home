@@ -54,6 +54,7 @@ import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { formatCount } from "./progress.mjs";
 
 const API_BASE = "https://api.get-energy-performance-data.communities.gov.uk";
 const SOURCE_NAME = "Get energy performance of buildings data (MHCLG)";
@@ -576,9 +577,9 @@ async function main() {
     `load-epc · ${postcodes
       .map(
         (pc) =>
-          `${pc} ${answers.get(pc).certificateCount} certificates${
+          `${pc} ${formatCount(answers.get(pc).certificateCount)} certificates${
             skippedByPostcode.get(pc)
-              ? ` (${skippedByPostcode.get(pc)} withdrawn on the register, skipped)`
+              ? ` (${formatCount(skippedByPostcode.get(pc))} withdrawn on the register, skipped)`
               : ""
           }`,
       )

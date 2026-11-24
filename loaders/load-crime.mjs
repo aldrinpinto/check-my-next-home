@@ -56,6 +56,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { formatCount } from "./progress.mjs";
 
 const DATES_URL = "https://data.police.uk/api/crimes-street-dates";
 const CRIMES_URL = "https://data.police.uk/api/crimes-street/all-crime";
@@ -297,7 +298,7 @@ async function main() {
 
     const summary = () =>
       `load-crime · latest month ${latest} · window ${months[0]}..${latest} · ${postcodes
-        .map((pc) => `${pc} ${answers.get(pc).total} crimes`)
+        .map((pc) => `${pc} ${formatCount(answers.get(pc).total)} crimes`)
         .join(" · ")}`;
 
     if (verifyOnly) {

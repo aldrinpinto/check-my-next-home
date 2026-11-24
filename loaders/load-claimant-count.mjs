@@ -77,6 +77,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { formatCount } from "./progress.mjs";
 
 const { Pool } = pg;
 
@@ -526,7 +527,7 @@ function summaryLine(rows, filed) {
   const months = [...new Set(rows.map((r) => r.month))].sort();
   return (
     `load-claimant-count · Claimant Count (count + published % of residents aged 16–64) · ` +
-    `${rows.length} area-months ${filed ? "filed" : "would file"} for ${months.join(" and ")}`
+    `${formatCount(rows.length)} area-months ${filed ? "filed" : "would file"} for ${months.join(" and ")}`
   );
 }
 

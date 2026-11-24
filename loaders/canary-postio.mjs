@@ -34,6 +34,7 @@
 // and one run line. The probe spends nothing: /connect is
 // free, and no billable call is ever made by a probe.
 
+import { formatCount } from "./progress.mjs";
 export const POSTIO_API_BASE_URL = "https://api.postio.co.uk/v1";
 // The low-balance threshold, in lookups: at 2.6p a lookup,
 // 100 lookups ≈ £2.60 — roughly a busy day's picks. Below
@@ -91,14 +92,14 @@ export function postioVerdict(account) {
   ) {
     return {
       warning: true,
-      logLine: `canary postio · WARNING — the Postio balance is low (${account.lookupsRemaining} lookups left, under the ${POSTIO_LOW_BALANCE_LOOKUPS}-lookup threshold): top up before it reaches zero and picks start falling back (£10 ≈ 384 lookups, top-ups never expire)`,
+      logLine: `canary postio · WARNING — the Postio balance is low (${formatCount(account.lookupsRemaining)} lookups left, under the ${POSTIO_LOW_BALANCE_LOOKUPS}-lookup threshold): top up before it reaches zero and picks start falling back (£10 ≈ 384 lookups, top-ups never expire)`,
     };
   }
   return {
     logLine:
       account.lookupsRemaining === null || account.lookupsRemaining === undefined
         ? "canary postio · key active and the service reachable — balance not published by Postio (no balance endpoint), so a low balance cannot be read here; a zero balance still surfaces live as refused picks in the entry log"
-        : `canary postio · key active, ${account.lookupsRemaining} lookups remaining`,
+        : `canary postio · key active, ${formatCount(account.lookupsRemaining)} lookups remaining`,
   };
 }
 

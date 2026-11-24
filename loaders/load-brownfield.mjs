@@ -54,6 +54,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import pg from "pg";
+import { formatCount } from "./progress.mjs";
 
 const FILE_URL = "https://files.planning.data.gov.uk/dataset/brownfield-land.csv";
 const SOURCE_BROWNFIELD = "planning.data.gov.uk — brownfield land (Open Government Licence v3.0)";
@@ -338,8 +339,8 @@ async function main() {
 
   const summary = () =>
     `load-brownfield · planning.data.gov.uk file retrieved ${sourceDate} · ` +
-    `${processed.filed.length} sites filed (${processed.current} current of ${processed.total} in file · ${processed.ended} ended excluded · ${processed.noPoint} without a point counted · ${processed.duplicates} duplicates dropped · ${processed.siteDuplicates} same-site records collapsed) · ` +
-    `supplier gate: ${processed.publishers.size} organisations with current sites`;
+    `${formatCount(processed.filed.length)} sites filed (${formatCount(processed.current)} current of ${formatCount(processed.total)} in file · ${formatCount(processed.ended)} ended excluded · ${formatCount(processed.noPoint)} without a point counted · ${formatCount(processed.duplicates)} duplicates dropped · ${formatCount(processed.siteDuplicates)} same-site records collapsed) · ` +
+    `supplier gate: ${formatCount(processed.publishers.size)} organisations with current sites`;
 
   if (verifyOnly) {
     console.log(`${summary()} · golden homes OK (verify only, nothing filed)`);

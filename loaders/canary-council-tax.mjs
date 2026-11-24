@@ -35,6 +35,7 @@
 // runCanaryProbes by one import and one run line.
 
 import { currentTaxYear, nextTaxYear, RELEASES } from "./load-council-tax.mjs";
+import { formatCount } from "./progress.mjs";
 
 const PROBE_HEADERS = {
   Accept: "application/json",
@@ -121,7 +122,7 @@ export function councilTaxVerdict(fetched) {
       return {
         warning: true,
         logLine:
-          `canary mhclg-council-tax · the StatsWales composition dataset was last updated ${walesUpdated} (${ageDays} days ago) — ` +
+          `canary mhclg-council-tax · the StatsWales composition dataset was last updated ${walesUpdated} (${formatCount(ageDays)} days ago) — ` +
           `the Welsh annual update looks missed; check StatsWales before the next seed re-run` +
           (notes.length > 0 ? ` (also: ${notes.join("; ")})` : ""),
         sourceDate: filedUpdated,

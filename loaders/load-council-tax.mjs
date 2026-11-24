@@ -97,6 +97,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import pg from "pg";
 import yauzl from "yauzl";
+import { formatCount } from "./progress.mjs";
 
 const { Pool } = pg;
 
@@ -1235,8 +1236,8 @@ async function main() {
   const walesCount = rows.length - englandCount;
   const notYetFiled = england.area.size - englandCount + (walesRows.length - walesCount);
   const summary = args.all
-    ? `${rows.length} authorities filed for ${taxYear} (${englandCount} England, ${walesCount} Wales)`
-    : `${rows.length} authorities filed for ${taxYear} (${englandCount} England, ${walesCount} Wales); ${notYetFiled} further authorities parsed but not yet filed — their state is "not published" until the spring pass`;
+    ? `${formatCount(rows.length)} authorities filed for ${taxYear} (${formatCount(englandCount)} England, ${formatCount(walesCount)} Wales)`
+    : `${formatCount(rows.length)} authorities filed for ${taxYear} (${formatCount(englandCount)} England, ${formatCount(walesCount)} Wales); ${formatCount(notYetFiled)} further authorities parsed but not yet filed — their state is "not published" until the spring pass`;
   if (args.verifyOnly) {
     console.log(`Council tax verified for ${taxYear}: ${summary}. Nothing filed.`);
     return;

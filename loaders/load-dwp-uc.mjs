@@ -128,6 +128,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { formatCount } from "./progress.mjs";
 
 const { Pool } = pg;
 
@@ -1224,7 +1225,7 @@ export function createRunStats() {
       const bits = DATABASES.map(({ series }) => {
         const stats = bySeries.get(series);
         const months = [...stats.months].sort();
-        return `${series}: ${stats.count} areas for ${months.join(", ") || "no new month"}`;
+        return `${series}: ${formatCount(stats.count)} areas for ${months.join(", ") || "no new month"}`;
       });
       return `load-dwp-uc · Universal Credit (people + households, as published by DWP) · ${bits.join(" · ")} · ${filed ? "filed" : "would file"}`;
     },
@@ -1235,7 +1236,7 @@ function summaryLine(rows, filed) {
   const bits = DATABASES.map(({ series }) => {
     const inSeries = rows.filter((r) => r.series === series);
     const months = [...new Set(inSeries.map((r) => r.month))].sort();
-    return `${series}: ${inSeries.length} areas for ${months.join(", ") || "no new month"}`;
+    return `${series}: ${formatCount(inSeries.length)} areas for ${months.join(", ") || "no new month"}`;
   });
   return `load-dwp-uc · Universal Credit (people + households, as published by DWP) · ${bits.join(" · ")} · ${filed ? "filed" : "would file"}`;
 }

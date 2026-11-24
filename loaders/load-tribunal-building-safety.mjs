@@ -170,6 +170,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { inflateSync } from "node:zlib";
 import pg from "pg";
+import { formatCount } from "./progress.mjs";
 
 const { Pool } = pg;
 
@@ -850,17 +851,17 @@ async function main() {
   };
   const failureNames = failures.map((t) => (t.length > 60 ? `${t.slice(0, 57)}…` : t));
   const summary =
-    `load-tribunal-building-safety: ${rows.length} cases filed ` +
-    `(${counts.ro} remediation orders, ${counts.rco} remediation contribution orders, ${counts.other} other building-safety) ` +
-    `from ${builder.documents} published documents · parse failures: ${failures.length}` +
+    `load-tribunal-building-safety: ${formatCount(rows.length)} cases filed ` +
+    `(${formatCount(counts.ro)} remediation orders, ${formatCount(counts.rco)} remediation contribution orders, ${formatCount(counts.other)} other building-safety) ` +
+    `from ${formatCount(builder.documents)} published documents · parse failures: ${formatCount(failures.length)}` +
     (failures.length > 0 ? ` (${failureNames.join("; ")})` : "") +
-    ` · ${noPostcode} cases name no full postcode` +
+    ` · ${formatCount(noPostcode)} cases name no full postcode` +
     (metadataDateFallbacks > 0
-      ? ` · ${metadataDateFallbacks} dates from GOV.UK metadata where the header carries none`
+      ? ` · ${formatCount(metadataDateFallbacks)} dates from GOV.UK metadata where the header carries none`
       : "") +
     (categoryTotal !== null
-      ? ` · enumerated ${enumerated} of ${categoryTotal} Building Safety Act category items on GOV.UK`
-      : ` · fixture set of ${enumerated} captured documents`);
+      ? ` · enumerated ${formatCount(enumerated)} of ${formatCount(categoryTotal)} Building Safety Act category items on GOV.UK`
+      : ` · fixture set of ${formatCount(enumerated)} captured documents`);
 
   if (args.verifyOnly) {
     console.log(`${summary} — verified only, nothing filed.`);

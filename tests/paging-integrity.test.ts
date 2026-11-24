@@ -329,7 +329,7 @@ describe("canary probes — flood rivers & sea climate (M6.28)", () => {
     const result = await probeFloodProduct("flood-rivers-sea-climate");
     expect(result.warning).toBeUndefined();
     expect(result.sourceDate).toBe("2026-11-03");
-    expect(result.logLine).toContain("252932 features");
+    expect(result.logLine).toContain("252,932 features");
     expect(result.logLine).toContain("edition 2026-11-03");
     expect(result.logLine).toContain("Exeter anchor Low OK");
   });
@@ -407,7 +407,7 @@ describe("canary probes — flood surface water climate (M6.28)", () => {
     const result = await probeFloodSurfaceWaterClimate();
     expect(result.warning).toBeUndefined();
     expect(result.sourceDate).toBe("2026-11-10");
-    expect(result.logLine).toContain("406734 features");
+    expect(result.logLine).toContain("406,734 features");
     expect(result.logLine).toContain("edition 2026-11-10");
     expect(result.logLine).toContain("Exeter presence OK · Minerva anchor Low OK");
   });

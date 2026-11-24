@@ -91,6 +91,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import yauzl from "yauzl";
+import { formatCount } from "./progress.mjs";
 
 const { Pool } = pg;
 
@@ -887,7 +888,7 @@ export async function loadCensusRows(source) {
 
 function summaryLine(rows, filed) {
   return (
-    `load-census · 7 datasets · ${rows.length} areas ${filed ? "filed" : "would file"} ` +
+    `load-census · 7 datasets · ${formatCount(rows.length)} areas ${filed ? "filed" : "would file"} ` +
     `(counts only; Census Day 21 March 2021)`
   );
 }

@@ -106,6 +106,7 @@ import { Readable } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { formatCount } from "./progress.mjs";
 
 export const SOURCE_NAME = "Department for Education — Explore Education Statistics";
 const EES_BASE = "https://explore-education-statistics.service.gov.uk";
@@ -851,8 +852,8 @@ async function main() {
   const summary = () =>
     `load-school-destinations · ${SOURCE_NAME} · release "${discoveries.ks4.release}" published ${filing.published} · ` +
     `cohort ${collections.ks4.cohortYear} (${collections.ks4.version}) · ` +
-    `KS4 ${collections.ks4.filed.length} institutions (${collections.ks4.consortiumGroups} consortium groups resolved) · ` +
-    `KS5 ${collections.ks5.filed.length} institutions (${collections.ks5.consortiumGroups} consortium groups resolved)`;
+    `KS4 ${formatCount(collections.ks4.filed.length)} institutions (${formatCount(collections.ks4.consortiumGroups)} consortium groups resolved) · ` +
+    `KS5 ${formatCount(collections.ks5.filed.length)} institutions (${formatCount(collections.ks5.consortiumGroups)} consortium groups resolved)`;
 
   if (verifyOnly) {
     console.log(

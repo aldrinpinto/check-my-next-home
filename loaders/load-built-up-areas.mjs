@@ -55,6 +55,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { createGoldenSift } from "./flood-stream.mjs";
+import { formatCount } from "./progress.mjs";
 
 const SERVICE_URL =
   "https://services1.arcgis.com/ESMARspQHYMw9BZ9/arcgis/rest/services/main_ONS_BUA_2024_EW_V2/FeatureServer/0/query";
@@ -440,7 +441,7 @@ async function main() {
 
   const summary = () =>
     `load-built-up-areas · ONS Built Up Areas (December 2024) Boundaries EW BGG (V2) · ` +
-    `${processed.filed} areas filed (${processed.total} features in file · ${processed.geoless} without geometry counted) · ` +
+    `${formatCount(processed.filed)} areas filed (${formatCount(processed.total)} features in file · ${formatCount(processed.geoless)} without geometry counted) · ` +
     `golden points inside Hatfield Peverel, Newham and Ewell`;
 
   if (verifyOnly) {

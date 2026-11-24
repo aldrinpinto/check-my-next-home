@@ -32,6 +32,7 @@ import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import pg from "pg";
 import { runCanaryProbes } from "./canary.mjs";
+import { formatCount } from "./progress.mjs";
 
 const GOLDEN_POSTCODES = ["CM3 2JT", "E16 1GN", "KT17 1FH"];
 const ALERT_TO = process.env.ALERT_EMAIL_TO ?? "checkmynexthome@gmail.com";
@@ -297,7 +298,7 @@ export function summariseRun(kind, items) {
   const label = kind === "canary" ? "Canary" : "Loader run";
   const subject =
     status === "failed"
-      ? `[Check My Next Home] ${label} FAILED — ${failed.map((i) => i.item).join(", ")} (${failed.length} of ${counted.length})`
+      ? `[Check My Next Home] ${label} FAILED — ${failed.map((i) => i.item).join(", ")} (${formatCount(failed.length)} of ${formatCount(counted.length)})`
       : `[Check My Next Home] ${label === "Canary" ? "Canary" : "Loaders"} OK`;
   const lines = items.map((i) => {
     if (i.status === "succeeded") return `OK      ${i.item} — ${i.logLine ?? ""}`;

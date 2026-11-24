@@ -122,6 +122,7 @@ import { createHash } from "node:crypto";
 import pg from "pg";
 import proj4 from "proj4";
 import yauzl from "yauzl";
+import { formatCount } from "./progress.mjs";
 
 const { Pool } = pg;
 
@@ -898,17 +899,19 @@ async function main() {
       if (pool) await pool.end().catch(() => {});
       throw err;
     }
-    const mix = FILED_FUNCTIONS.map((f) => `${f} ${read.functionCounts[f] ?? 0}`).join(" · ");
+    const mix = FILED_FUNCTIONS.map((f) => `${f} ${formatCount(read.functionCounts[f] ?? 0)}`).join(
+      " · ",
+    );
     if (verifyOnly) {
       console.log(
-        `load-os-greenspace · read ${read.sitesRead} sites and ${read.accessRead} access points — would file ${filedRows} points (${centres} centres · ${read.accessFiled} access; ${mix}; version ${version} · md5 ${md5}) — golden homes OK (verify-only: nothing filed)`,
+        `load-os-greenspace · read ${formatCount(read.sitesRead)} sites and ${formatCount(read.accessRead)} access points — would file ${formatCount(filedRows)} points (${formatCount(centres)} centres · ${formatCount(read.accessFiled)} access; ${mix}; version ${version} · md5 ${md5}) — golden homes OK (verify-only: nothing filed)`,
       );
       return;
     }
     await filer.finishFiling();
     await pool.end();
     console.log(
-      `load-os-greenspace · ${filedRows} points filed (${centres} centres · ${read.accessFiled} access; ${mix}; version ${version} · md5 ${md5}) — golden homes OK`,
+      `load-os-greenspace · ${formatCount(filedRows)} points filed (${formatCount(centres)} centres · ${formatCount(read.accessFiled)} access; ${mix}; version ${version} · md5 ${md5}) — golden homes OK`,
     );
   } finally {
     rmSync(workDir, { recursive: true, force: true });

@@ -48,6 +48,7 @@ import {
   catalogueUrl as destinationsCatalogueUrl,
   parseCatalogue as parseDestinationsCatalogue,
 } from "./load-school-destinations.mjs";
+import { formatCount } from "./progress.mjs";
 
 const MONTHS = {
   January: "01",
@@ -221,7 +222,7 @@ function probePpd() {
     if (malformed / lines.length > 0.01)
       throw new Error(`${malformed} of ${lines.length} sampled PPD lines are malformed`);
     return {
-      logLine: `canary ppd · ${notes.join(" · ")} · head sample ${lines.length} lines, ${malformed} malformed`,
+      logLine: `canary ppd · ${notes.join(" · ")} · head sample ${formatCount(lines.length)} lines, ${formatCount(malformed)} malformed`,
     };
   })();
 }
@@ -251,7 +252,7 @@ function probePolice() {
     const body = await crimes.json();
     if (!Array.isArray(body)) throw new Error("the Police.uk crimes response is not an array");
     return {
-      logLine: `canary police · latest month ${latest} · golden-point response is an array (${body.length} records)`,
+      logLine: `canary police · latest month ${latest} · golden-point response is an array (${formatCount(body.length)} records)`,
     };
   })();
 }
@@ -293,7 +294,7 @@ function probeEpc() {
       if (!(key in data)) throw new Error(`the EPC certificate no longer carries ${key}`);
     }
     return {
-      logLine: `canary epc · search + certificate shape OK (${stubs.length} stubs on page 1)`,
+      logLine: `canary epc · search + certificate shape OK (${formatCount(stubs.length)} stubs on page 1)`,
     };
   })();
 }
@@ -315,7 +316,7 @@ function probeEpcDeltas() {
     try {
       const parsed = JSON.parse(text);
       shape = Array.isArray(parsed)
-        ? `array of ${parsed.length}`
+        ? `array of ${formatCount(parsed.length)}`
         : `object with keys ${Object.keys(parsed).slice(0, 6).join(", ")}`;
     } catch {
       /* recorded as unparseable */
@@ -344,7 +345,7 @@ function probeGias() {
         const missing = GIAS_CONSUMED.filter((c) => !columns.includes(c));
         if (missing.length > 0) throw new Error(`GIAS no longer carries: ${missing.join(", ")}`);
         return {
-          logLine: `canary gias · extract ${stamp} · all ${GIAS_CONSUMED.length} consumed columns present`,
+          logLine: `canary gias · extract ${stamp} · all ${formatCount(GIAS_CONSUMED.length)} consumed columns present`,
         };
       } catch (error) {
         lastError = error;
@@ -400,7 +401,7 @@ function probeOfsted() {
     if (missing.length > 0)
       throw new Error(`the Ofsted file no longer carries: ${missing.join(", ")}`);
     return {
-      logLine: `canary ofsted · file as at ${newest.date} · all ${OFSTED_CONSUMED.length} consumed columns present`,
+      logLine: `canary ofsted · file as at ${newest.date} · all ${formatCount(OFSTED_CONSUMED.length)} consumed columns present`,
       sourceDate: newest.date,
     };
   })();
@@ -437,7 +438,9 @@ function probeOds() {
         throw new Error(
           "the epraccur anchors are missing (golden practice F81149 or the ACTIVE + RO76 recipe)",
         );
-      notes.push(`${report} ${lines.length} rows, ${badWidth} wrong-width`);
+      notes.push(
+        `${report} ${formatCount(lines.length)} rows, ${formatCount(badWidth)} wrong-width`,
+      );
     }
     return { logLine: `canary ods · ${notes.join(" · ")}` };
   })();
@@ -686,10 +689,10 @@ function probePlanningDataset(dataset) {
         throw new Error(
           `the ${dataset} file holds ${n} ${spec.count.label} — outside the band ${spec.count.band[0]}–${spec.count.band[1]}`,
         );
-      countNote = ` · ${n} ${spec.count.label}`;
+      countNote = ` · ${formatCount(n)} ${spec.count.label}`;
     }
     return {
-      logLine: `canary ${dataset} · file ${sizeMB.toFixed(1)} MB, modified ${modifiedDate ?? "unknown"} · all ${consumed.length} consumed columns present${countNote}`,
+      logLine: `canary ${dataset} · file ${sizeMB.toFixed(1)} MB, modified ${modifiedDate ?? "unknown"} · all ${formatCount(consumed.length)} consumed columns present${countNote}`,
       sourceDate: modifiedDate,
     };
   })();
@@ -761,7 +764,10 @@ function probeSssi() {
     const { editDate } = await neLayerMeta("SSSI_England");
     if (!editDate || ageDays(editDate) > 130)
       throw new Error(`the SSSI data was last edited ${editDate} — beyond its continuous rhythm`);
-    return { logLine: `canary sssi · ${n} features · edited ${editDate}`, sourceDate: editDate };
+    return {
+      logLine: `canary sssi · ${formatCount(n)} features · edited ${editDate}`,
+      sourceDate: editDate,
+    };
   })();
 }
 
@@ -775,7 +781,7 @@ function probeSac() {
     );
     neBand(designated, 1800, 1950, "the designated SAC feature count");
     return {
-      logLine: `canary sac · ${total} features, ${designated} designated (${total - designated} candidate) · no staleness alarm by design`,
+      logLine: `canary sac · ${formatCount(total)} features, ${formatCount(designated)} designated (${formatCount(total - designated)} candidate) · no staleness alarm by design`,
     };
   })();
 }
@@ -784,7 +790,7 @@ function probeSpa() {
   return (async () => {
     const n = await neCount("Special_Protection_Areas_England");
     neBand(n, 950, 1250, "the SPA feature count");
-    return { logLine: `canary spa · ${n} features · no staleness alarm by design` };
+    return { logLine: `canary spa · ${formatCount(n)} features · no staleness alarm by design` };
   })();
 }
 
@@ -792,7 +798,7 @@ function probeRamsar() {
   return (async () => {
     const n = await neCount("Ramsar_England");
     neBand(n, 1150, 1450, "the Ramsar feature count");
-    return { logLine: `canary ramsar · ${n} features · no staleness alarm by design` };
+    return { logLine: `canary ramsar · ${formatCount(n)} features · no staleness alarm by design` };
   })();
 }
 
@@ -808,7 +814,7 @@ function probeAncientWoodland() {
         `neither woodland inventory has edited since ${freshest} — the county revision has stalled or the services moved`,
       );
     return {
-      logLine: `canary ancient-woodland · ${n} polygons · inventories last edited ${original.editDate} (original) / ${revised.editDate} (revised)`,
+      logLine: `canary ancient-woodland · ${formatCount(n)} polygons · inventories last edited ${original.editDate} (original) / ${revised.editDate} (revised)`,
       sourceDate: original.editDate,
     };
   })();
@@ -828,7 +834,7 @@ export function probeAncientWoodlandRevised() {
     neBand(n, 45406, 70000, "the revised woodland polygon count");
     const { editDate } = await neLayerMeta("Ancient_Woodland_Revised_England");
     return {
-      logLine: `canary ancient-woodland-revised · ${n} polygons · edited ${editDate}`,
+      logLine: `canary ancient-woodland-revised · ${formatCount(n)} polygons · edited ${editDate}`,
       sourceDate: editDate,
     };
   })();
@@ -878,7 +884,7 @@ function probePriorityHabitats() {
       throw new Error(
         `PHI version ${version} is ${ageMonths} months old — the twice-yearly cycle has slipped`,
       );
-    return { logLine: `canary priority-habitats · ${n} patches · version ${version}` };
+    return { logLine: `canary priority-habitats · ${formatCount(n)} patches · version ${version}` };
   })();
 }
 
@@ -1043,11 +1049,11 @@ export function probeFloodProduct(item) {
     }
     const edition = await floodEdition(spec);
     const age = Math.floor(ageDays(edition));
-    const base = `canary ${item} · ${matched} features · edition ${edition}${anchorNote}`;
+    const base = `canary ${item} · ${formatCount(matched)} features · edition ${edition}${anchorNote}`;
     const warnings = [];
     if (age > 200)
       warnings.push(
-        `edition is ${age} days old — beyond the ~200-day ambition (warn-only: the publisher promises updates only as needed)`,
+        `edition is ${formatCount(age)} days old — beyond the ~200-day ambition (warn-only: the publisher promises updates only as needed)`,
       );
     if (unknownCollections.length > 0)
       warnings.push(
@@ -1144,11 +1150,11 @@ export function probeFloodSurfaceWaterClimate() {
       );
     const edition = await floodEdition(spec);
     const age = Math.floor(ageDays(edition));
-    const base = `canary ${item} · ${matched} features · edition ${edition} · Exeter presence OK · Minerva anchor Low OK`;
+    const base = `canary ${item} · ${formatCount(matched)} features · edition ${edition} · Exeter presence OK · Minerva anchor Low OK`;
     const warnings = [];
     if (age > 200)
       warnings.push(
-        `edition is ${age} days old — beyond the ~200-day ambition (warn-only: the publisher promises updates only as needed)`,
+        `edition is ${formatCount(age)} days old — beyond the ~200-day ambition (warn-only: the publisher promises updates only as needed)`,
       );
     if (unknownCollections.length > 0)
       warnings.push(
@@ -1217,7 +1223,7 @@ function probeNaptan() {
         `the newest NaPTAN edit in area 571 is ${newestDate || "unreadable"} — beyond the 45-day freshness guard`,
       );
     return {
-      logLine: `canary naptan · area 571: ${rows} stops · newest edit ${newestDate} · all ${NAPTAN_CONSUMED.length} consumed columns present`,
+      logLine: `canary naptan · area 571: ${formatCount(rows)} stops · newest edit ${newestDate} · all ${formatCount(NAPTAN_CONSUMED.length)} consumed columns present`,
       sourceDate: newestDate,
     };
   })();
@@ -1299,7 +1305,7 @@ function probeOsGreenspace() {
       );
     const versionMatch = /^(\d{4})-(\d{2})$/.exec(version);
     const editionDate = versionMatch ? `${versionMatch[1]}-${versionMatch[2]}-01` : null;
-    const logLine = `canary os-greenspace · edition ${version} · GB GeoPackage ${entry.size} bytes · md5 ${entry.md5}`;
+    const logLine = `canary os-greenspace · edition ${version} · GB GeoPackage ${formatCount(entry.size)} bytes · md5 ${entry.md5}`;
     if (editionDate && ageDays(editionDate) > 240) {
       return {
         warning: true,
@@ -1475,7 +1481,7 @@ function probeOpenChargeMap() {
           `${exeterFileable} fileable-class records within 2 miles of the Exeter golden home — outside ±15% of the first load's ${OCM_BASELINE.exeterFileable}`,
         );
       return {
-        logLine: `canary open-charge-map · credential answers · South tile ${south.length} records (first load ${OCM_BASELINE.southTile}) · membership share ${(membershipShare * 100).toFixed(0)}% · Birkdale ${birkdaleFileable} fileable within 2 mi · Exeter ${exeterFileable} fileable within 2 mi (first load ${OCM_BASELINE.exeterFileable})`,
+        logLine: `canary open-charge-map · credential answers · South tile ${formatCount(south.length)} records (first load ${formatCount(OCM_BASELINE.southTile)}) · membership share ${(membershipShare * 100).toFixed(0)}% · Birkdale ${formatCount(birkdaleFileable)} fileable within 2 mi · Exeter ${formatCount(exeterFileable)} fileable within 2 mi (first load ${formatCount(OCM_BASELINE.exeterFileable)})`,
         sourceDate: new Date().toISOString().slice(0, 10),
       };
     } finally {
@@ -1607,7 +1613,11 @@ export function probeNomisCensus() {
         );
     }
     return {
-      logLine: `canary nomis-census · 7 bulk files present · TS021/TS054 shapes OK · golden totals unchanged (${Object.values(CENSUS_GOLDEN_TOTALS).join(" / ")})`,
+      logLine: `canary nomis-census · 7 bulk files present · TS021/TS054 shapes OK · golden totals unchanged (${Object.values(
+        CENSUS_GOLDEN_TOTALS,
+      )
+        .map((v) => formatCount(v))
+        .join(" / ")})`,
       sourceDate: "2021-03-21",
     };
   })();
@@ -1728,7 +1738,7 @@ export function probeNomisClaimant() {
         `the latest Claimant Count month is ${month} — its month end is ${age} days behind today, past the ~${CLAIMANT_STALE_DAYS}-day arm (a release was missed or the series changed)`,
       );
     return {
-      logLine: `canary nomis-claimant · latest month ${month} (${age} days past month end) · golden LSOAs return count + % (${CLAIMANT_GOLDEN_CODES.map((c) => `${c} ${rows[c].count} / ${rows[c].pct}%`).join(" · ")})`,
+      logLine: `canary nomis-claimant · latest month ${month} (${formatCount(age)} days past month end) · golden LSOAs return count + % (${CLAIMANT_GOLDEN_CODES.map((c) => `${c} ${formatCount(rows[c].count)} / ${rows[c].pct}%`).join(" · ")})`,
       sourceDate: `${month}-01`,
     };
   })();
@@ -1772,7 +1782,7 @@ export function probeStatXploreUc() {
         throw new Error(
           `the latest ${entry.series} month is ${latest} — ${age} months behind ${currentMonth}, past the ~${UC_STALE_MONTHS}-month arm (a quarterly release was missed or the series changed)`,
         );
-      bits.push(`${entry.series} latest ${latest} (${age} months old)`);
+      bits.push(`${entry.series} latest ${latest} (${formatCount(age)} months old)`);
     }
     const oldestLatest = discoveries.map((d) => d.months.at(-1).month).sort()[0];
     return {
@@ -1923,14 +1933,14 @@ export function probeAqma() {
       if (letter in perNation) perNation[letter] += 1;
     }
     const censusLine = Object.entries(perNation)
-      .map(([letter, n]) => `${AQMA_NATION_NAMES[letter]} ${n}`)
+      .map(([letter, n]) => `${AQMA_NATION_NAMES[letter]} ${formatCount(n)}`)
       .join(" · ");
-    const base = `canary aqma · ${countBody.count} areas · edition ${edition} · ${censusLine}`;
+    const base = `canary aqma · ${formatCount(countBody.count)} areas · edition ${edition} · ${censusLine}`;
     const warnings = [];
     const age = Math.floor(ageDays(edition));
     if (age > 200)
       warnings.push(
-        `edition is ${age} days old — beyond the ~200-day ambition (warn-only: declarations and revocations land in the GIS file only when UK-AIR republishes it)`,
+        `edition is ${formatCount(age)} days old — beyond the ~200-day ambition (warn-only: declarations and revocations land in the GIS file only when UK-AIR republishes it)`,
       );
     if (countBody.count < AQMA_BAND_LOW || countBody.count > AQMA_BAND_HIGH)
       warnings.push(
@@ -2014,7 +2024,7 @@ export function probeCazRegister() {
         "the GOV.UK Clean Air Zone guidance changed shape — the cities table was not found",
       );
     const rows = trCount - 1;
-    const base = `canary govuk-caz · ${cities.length - missing.length} of ${cities.length} registered Clean Air Zones named on GOV.UK · ${rows} table rows`;
+    const base = `canary govuk-caz · ${formatCount(cities.length - missing.length)} of ${formatCount(cities.length)} registered Clean Air Zones named on GOV.UK · ${formatCount(rows)} table rows`;
     const warnings = [];
     if (missing.length > 0)
       warnings.push(
@@ -2022,7 +2032,7 @@ export function probeCazRegister() {
       );
     if (rows !== cities.length)
       warnings.push(
-        `the table carries ${rows} rows against the register's ${cities.length} — a scheme may have been added or removed`,
+        `the table carries ${formatCount(rows)} rows against the register's ${formatCount(cities.length)} — a scheme may have been added or removed`,
       );
     const today = new Date().toISOString().slice(0, 10);
     if (warnings.length > 0)
@@ -2041,12 +2051,12 @@ export function probeScotlandLez() {
     const missing = cities.filter((city) => !html.includes(city));
     const countWord = /There are (\w+) LEZs in Scotland/.exec(html)?.[1]?.toLowerCase();
     const publishedCount = countWord ? NUMBER_WORDS[countWord] : undefined;
-    const base = `canary scotland-lez · ${cities.length - missing.length} of ${cities.length} registered Low Emission Zones named on lowemissionzones.scot`;
+    const base = `canary scotland-lez · ${formatCount(cities.length - missing.length)} of ${formatCount(cities.length)} registered Low Emission Zones named on lowemissionzones.scot`;
     const warnings = [];
     if (missing.length > 0) warnings.push(`no longer named on the site: ${missing.join(", ")}`);
     if (publishedCount !== undefined && publishedCount !== cities.length)
       warnings.push(
-        `the site says there are ${publishedCount} LEZs in Scotland against the register's ${cities.length} — a scheme may have been added or removed`,
+        `the site says there are ${formatCount(publishedCount)} LEZs in Scotland against the register's ${formatCount(cities.length)} — a scheme may have been added or removed`,
       );
     if (publishedCount === undefined)
       warnings.push(

@@ -107,6 +107,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { formatCount } from "./progress.mjs";
 
 const { Pool } = pg;
 
@@ -766,22 +767,23 @@ function summaryLine(counts, filed) {
   const byClass = (obj) =>
     Object.entries(obj)
       .sort((a, b) => b[1] - a[1])
-      .map(([k, v]) => `${v} ${k}`)
+      .map(([k, v]) => `${formatCount(v)} ${k}`)
       .join(", ");
   if (counts.usageExcluded > 0)
     excluded.push(
-      `${counts.usageExcluded} by access class (${byClass(counts.usageExcludedByClass)})`,
+      `${formatCount(counts.usageExcluded)} by access class (${byClass(counts.usageExcludedByClass)})`,
     );
   if (counts.statusExcluded > 0)
     excluded.push(
-      `${counts.statusExcluded} planned or removed (${byClass(counts.statusExcludedByClass)})`,
+      `${formatCount(counts.statusExcluded)} planned or removed (${byClass(counts.statusExcludedByClass)})`,
     );
-  if (counts.northernIreland > 0) excluded.push(`${counts.northernIreland} in Northern Ireland`);
-  if (counts.noPosition > 0) excluded.push(`${counts.noPosition} with no position`);
+  if (counts.northernIreland > 0)
+    excluded.push(`${formatCount(counts.northernIreland)} in Northern Ireland`);
+  if (counts.noPosition > 0) excluded.push(`${formatCount(counts.noPosition)} with no position`);
   return (
-    `${counts.sites} charging sites ${filed ? "filed" : "would file"} ` +
-    `(${counts.filedPois} chargers recorded at them, ${counts.merged} records grouped into their site; ` +
-    `read ${counts.read}${excluded.length > 0 ? ` · excluded ${excluded.join(" · ")}` : ""})`
+    `${formatCount(counts.sites)} charging sites ${filed ? "filed" : "would file"} ` +
+    `(${formatCount(counts.filedPois)} chargers recorded at them, ${formatCount(counts.merged)} records grouped into their site; ` +
+    `read ${formatCount(counts.read)}${excluded.length > 0 ? ` · excluded ${excluded.join(" · ")}` : ""})`
   );
 }
 

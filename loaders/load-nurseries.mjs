@@ -67,6 +67,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import pg from "pg";
+import { formatCount } from "./progress.mjs";
 
 const OFSTED_PAGE =
   "https://www.gov.uk/government/statistical-data-sets/childcare-providers-and-inspections-management-information";
@@ -469,14 +470,14 @@ async function main() {
   checkGolden(settings, fixtureMode);
 
   const summary = () =>
-    `load-nurseries · Ofsted childcare register as at ${asAt} · ${settings.length} group settings filed ` +
-    `(${settings.filter((s) => s.settingType === "Full day care").length} full day care, ` +
-    `${settings.filter((s) => s.settingType === "Sessional day care").length} sessional day care) · ` +
-    `of ${stats.total} register rows: ${stats.childminderTypes} childminder-type never filed, ` +
-    `${stats.domesticPremises} on domestic premises (published redacted, never filed), ` +
-    `${stats.outOfSchool} out-of-school day care not filed, ${stats.blankSubtype} blank subtype not filed, ` +
-    `${stats.otherSubtype} other subtype not filed, ${stats.notActive} not active, ${stats.otherType} other type, ` +
-    `${stats.duplicateUrns} duplicate URNs, ${stats.unresolvedPostcode} unresolved postcodes not filed`;
+    `load-nurseries · Ofsted childcare register as at ${asAt} · ${formatCount(settings.length)} group settings filed ` +
+    `(${formatCount(settings.filter((s) => s.settingType === "Full day care").length)} full day care, ` +
+    `${formatCount(settings.filter((s) => s.settingType === "Sessional day care").length)} sessional day care) · ` +
+    `of ${formatCount(stats.total)} register rows: ${formatCount(stats.childminderTypes)} childminder-type never filed, ` +
+    `${formatCount(stats.domesticPremises)} on domestic premises (published redacted, never filed), ` +
+    `${formatCount(stats.outOfSchool)} out-of-school day care not filed, ${formatCount(stats.blankSubtype)} blank subtype not filed, ` +
+    `${formatCount(stats.otherSubtype)} other subtype not filed, ${formatCount(stats.notActive)} not active, ${formatCount(stats.otherType)} other type, ` +
+    `${formatCount(stats.duplicateUrns)} duplicate URNs, ${formatCount(stats.unresolvedPostcode)} unresolved postcodes not filed`;
 
   if (verifyOnly) {
     console.log(`${summary()} · golden homes OK (verify only, nothing filed)`);

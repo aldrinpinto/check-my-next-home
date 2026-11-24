@@ -63,6 +63,7 @@ import pg from "pg";
 import yauzl from "yauzl";
 
 import { monthIndex, nationalForWindow, windowMonths } from "./load-crime.mjs";
+import { formatCount } from "./progress.mjs";
 
 const DATES_URL = "https://data.police.uk/api/crimes-street-dates";
 const ARCHIVE_URL = (month) => `https://data.police.uk/data/archive/${month}.zip`;
@@ -356,7 +357,7 @@ async function main() {
 
     const windowTotal = client ? ((await nationalForWindow(client, months))?.total ?? null) : null;
     console.log(
-      `load-crime-national · latest month ${latest} · window ${months[0]}..${latest} · England 12-month total ${windowTotal ?? "not yet countable"} · ${months.filter((m) => filed.has(m)).length} of ${months.length} months on file (${newlyCounted} new) · ${embedded} artefacts embedded${verifyOnly ? " · verify only, nothing filed" : ""} · ${Math.round((Date.now() - startedAt) / 1000)}s`,
+      `load-crime-national · latest month ${latest} · window ${months[0]}..${latest} · England 12-month total ${windowTotal === null ? "not yet countable" : formatCount(windowTotal)} · ${formatCount(months.filter((m) => filed.has(m)).length)} of ${formatCount(months.length)} months on file (${formatCount(newlyCounted)} new) · ${formatCount(embedded)} artefacts embedded${verifyOnly ? " · verify only, nothing filed" : ""} · ${Math.round((Date.now() - startedAt) / 1000)}s`,
     );
   } finally {
     if (client) await client.end();

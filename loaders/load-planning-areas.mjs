@@ -49,6 +49,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import pg from "pg";
+import { formatCount } from "./progress.mjs";
 
 const FILES_BASE = "https://files.planning.data.gov.uk/dataset";
 const SOURCE_AREAS = "planning.data.gov.uk (Open Government Licence v3.0)";
@@ -475,10 +476,10 @@ async function main() {
   ];
   const summary = () =>
     `load-planning-areas · planning.data.gov.uk files retrieved ${sourceDate} · ` +
-    `conservation areas: ${ca.filed.length} filed (${ca.current} current of ${ca.total} in file · ${ca.ended} ended excluded · ${ca.geoless} without geometry counted · ${ca.duplicates} duplicates dropped) · ` +
-    `article 4 areas: ${a4.filed.length} filed (${a4.current} current of ${a4.total} in file · ${a4.ended} ended excluded · ${a4.geoless} without geometry counted · ${a4.duplicates} duplicates dropped) · ` +
-    `article 4 directions: ${dirCurrent} current checked (${dirRows.length} in file · ${dirEnded} ended excluded) · ` +
-    `article 4 gate: ${publishers.size} organisations publish areas (gate filed)`;
+    `conservation areas: ${formatCount(ca.filed.length)} filed (${formatCount(ca.current)} current of ${formatCount(ca.total)} in file · ${formatCount(ca.ended)} ended excluded · ${formatCount(ca.geoless)} without geometry counted · ${formatCount(ca.duplicates)} duplicates dropped) · ` +
+    `article 4 areas: ${formatCount(a4.filed.length)} filed (${formatCount(a4.current)} current of ${formatCount(a4.total)} in file · ${formatCount(a4.ended)} ended excluded · ${formatCount(a4.geoless)} without geometry counted · ${formatCount(a4.duplicates)} duplicates dropped) · ` +
+    `article 4 directions: ${formatCount(dirCurrent)} current checked (${formatCount(dirRows.length)} in file · ${formatCount(dirEnded)} ended excluded) · ` +
+    `article 4 gate: ${formatCount(publishers.size)} organisations publish areas (gate filed)`;
 
   if (verifyOnly) {
     console.log(`${summary()} · golden homes OK (verify only, nothing filed)`);

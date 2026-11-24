@@ -32,6 +32,7 @@
 // Standalone module, wired into canary.mjs by one import
 // and one run line, like canary-planning-application.mjs.
 
+import { formatCount } from "./progress.mjs";
 const PACKAGE_URL =
   "https://www.data.gov.uk/api/3/action/package_show?id=aims-spatial-flood-defences-inc-standardised-attributes";
 const PACKAGE_NAME = "aims-spatial-flood-defences-inc-standardised-attributes";
@@ -126,7 +127,7 @@ export function probeFloodDefences() {
     return {
       logLine:
         "canary flood-defences · the AIMS record still names AfA345 and carries the GeoPackage zip " +
-        `on the loader's file-download pattern (${resources} resources on the record)`,
+        `on the loader's file-download pattern (${formatCount(resources)} resources on the record)`,
       sourceDate: null,
     };
   })();
