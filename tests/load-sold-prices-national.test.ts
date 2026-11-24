@@ -12,6 +12,7 @@ import {
   runUpdate,
   writeRunStamp,
 } from "../loaders/load-sold-prices.mjs";
+import { createProgressLogger } from "../loaders/progress.mjs";
 
 // Guards the sold-prices loader's NATIONAL mode and monthly
 // UPDATE mode (Price Paid national step, adopted prep gaps
@@ -467,6 +468,45 @@ describe("runNational — the whole register in one pass", () => {
     expect(cm.find((r) => r.paon === "39")).toBeUndefined();
     // One edition stamps the whole pass, the merged rows included.
     expect(new Set(client.live.map((r) => r.source_date))).toEqual(new Set([EDITION]));
+    expect(result.logLine).toContain(
+      `load-sold-prices · edition ${EDITION} · national pass · 39 sales filed`,
+    );
+  });
+
+  it("emits progress lines through the pass and the summary line is unchanged (BUG-204)", async () => {
+    const client = new FakeClient();
+    client.seedCache(["CM3 2JT", "CM3 2AA", "E16 1GN", "EH1 1AA", "BT1 1AA"]);
+    const lines: string[] = [];
+    const progress = createProgressLogger({
+      name: "load-sold-prices",
+      log: (line: string) => lines.push(line),
+    });
+    const result = await runNational(client as never, {
+      fullLines,
+      updateLines,
+      edition: EDITION,
+      progress,
+    });
+    // The fixture is small, so the intake count (every 2M
+    // lines) never fires — but the stage markers and the
+    // stamp's closing line do, in order.
+    expect(
+      lines.some((l) => /progress · intake complete — \d+ lines read, \d+ records staged/.test(l)),
+    ).toBe(true);
+    expect(lines.some((l) => /progress · update merged — \d+ upserted, \d+ deleted/.test(l))).toBe(
+      true,
+    );
+    expect(
+      lines.some((l) =>
+        /progress · swap started — filing 39 staged rows into the live register/.test(l),
+      ),
+    ).toBe(true);
+    expect(lines.some((l) => /progress · stamping 1 no-sale postcodes$/.test(l))).toBe(true);
+    expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
+    // The filed outcome and the summary line are exactly
+    // as the pass without a logger produces them.
+    expect(result.total).toBe(39);
+    expect(result.stamped).toBe(1);
     expect(result.logLine).toContain(
       `load-sold-prices · edition ${EDITION} · national pass · 39 sales filed`,
     );

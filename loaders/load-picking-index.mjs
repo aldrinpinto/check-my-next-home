@@ -69,6 +69,7 @@ import {
   recordRejection,
   COUNT_MOVEMENT_TOLERANCE,
 } from "./picking-index-filing.mjs";
+import { createProgressLogger } from "./progress.mjs";
 
 // The same public endpoint the sold-prices loader uses.
 export const FULL_FILE_URL =
@@ -218,7 +219,7 @@ export function partsFromRecord(record) {
 // stream, a web stream, or a test's array); `insertBatch`
 // receives arrays of stage rows. Nothing accumulates
 // beyond one batch.
-export async function streamPickingParts(lines, insertBatch) {
+export async function streamPickingParts(lines, insertBatch, { progress = null } = {}) {
   let rowsRead = 0;
   let malformed = 0;
   let unusable = 0;
@@ -226,6 +227,13 @@ export async function streamPickingParts(lines, insertBatch) {
   for await (const line of lines) {
     if (line.trim() === "") continue;
     rowsRead += 1;
+    // BUG-204: a line every 1M transactions read — the
+    // staging stream is the pass's long phase, and its
+    // total is the file's own line count, unknowable
+    // until the stream ends, so the line carries the
+    // count alone.
+    if (rowsRead % 1000000 === 0)
+      progress?.count({ label: "staging", done: rowsRead, unit: "transactions" });
     // A CRLF source read without a CRLF-aware splitter
     // leaves the \r on the line's end, where the parser
     // would reject the line: strip it here so any line
@@ -281,9 +289,9 @@ export function stageInsertFor(client) {
 // Stage a pass: truncate the stage, stream the lines
 // into it. Files nothing — the stage is scratch until
 // filePickingIndex swaps it in.
-export async function stagePickingIndex(client, lines) {
+export async function stagePickingIndex(client, lines, { progress = null } = {}) {
   await client.query("TRUNCATE picking_sales_stage");
-  return streamPickingParts(lines, stageInsertFor(client));
+  return streamPickingParts(lines, stageInsertFor(client), { progress });
 }
 
 // File the staged pass: the shared tolerance proof,
@@ -292,10 +300,14 @@ export async function stagePickingIndex(client, lines) {
 // index. A refused re-extract records its refusal (so
 // the canary can report it) and throws; the filed
 // edition keeps serving.
-export async function filePickingIndex(client, { edition, log = () => {} }) {
+export async function filePickingIndex(client, { edition, log = () => {}, progress = null }) {
+  // BUG-204: the rebuild's stage markers ride the
+  // caller's log when no logger is handed in.
+  const progressLogger = progress ?? createProgressLogger({ name: "load-picking-index", log });
   const outcome = await fileStagedExtract(client, {
     source: "sales",
     edition,
+    progress: progressLogger,
   });
   if (!outcome.filed) {
     await recordRejection(client, "sales", outcome.staged.homes);
@@ -322,8 +334,11 @@ export async function filePickingIndex(client, { edition, log = () => {} }) {
 // source file's edition (the live file's Last-Modified
 // date; "fixture" for a fixture directory).
 export async function loadPickingIndexFromLines(client, lines, { edition, log }) {
-  const stats = await stagePickingIndex(client, lines);
-  const counts = await filePickingIndex(client, { edition, log });
+  // BUG-204: one logger for the pass — the staging
+  // stream's count lines and the rebuild's markers.
+  const progress = createProgressLogger({ name: "load-picking-index", log });
+  const stats = await stagePickingIndex(client, lines, { progress });
+  const counts = await filePickingIndex(client, { edition, log, progress });
   log(
     `Picking index (sales parts) — edition ${edition}: ${stats.rowsRead} transactions read, ${stats.malformed} malformed lines skipped, ${stats.unusable} rows without a usable postcode or address skipped.`,
   );

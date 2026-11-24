@@ -73,6 +73,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
+import { createProgressLogger, formatCount } from "./progress.mjs";
 import pg from "pg";
 import yauzl from "yauzl";
 
@@ -382,7 +383,11 @@ const SWEEP_DELETE_SQL = `
 // failure anywhere simply starts again; the merge steps are
 // idempotent (the same answer written again), and the sweep is
 // unreachable until the merge has completed in full.
-export async function createBroadbandFiler(client) {
+/**
+ * @param {any} client
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ */
+export async function createBroadbandFiler(client, { progress = null } = {}) {
   async function transact(work) {
     await client.query("BEGIN");
     try {
@@ -442,24 +447,60 @@ export async function createBroadbandFiler(client) {
       await flushPending();
       let updated = 0;
       const chunks = Math.ceil(staged / MERGE_CHUNK);
+      // BUG-204: the merge is the first long phase a run
+      // reaches — a line every 25 chunks, and a closing
+      // line, so the log moves while it works.
+      const mergeTally = progress?.tally({
+        label: "merge",
+        total: chunks,
+        every: 25,
+        unit: "chunks",
+      });
       for (let i = 0; i < chunks; i++) {
         updated += await transact(async () => {
           const res = await client.query(MERGE_CHUNK_SQL, [MERGE_CHUNK]);
           return res.rowCount ?? 0;
         });
+        mergeTally?.tick(i + 1);
       }
+      mergeTally?.finish(chunks);
       // The stale-key sweep — only here, after the whole release
       // has merged. The scan walks the directory in postcode
       // order; each bounded batch deletes in its own transaction,
       // under the same NOT IN (stage) predicate as ever.
+      //
+      // BUG-204: the sweep is the phase that ran silent for
+      // hours — its total is one COUNT up front (one scan
+      // beside the ~346 the sweep itself performs), so the
+      // log can carry a real batch number and percentage.
+      const { rows: sweepCountRows } = await client.query(
+        "SELECT count(*)::int AS n FROM postcode_cache WHERE answers ? 'broadband'",
+      );
+      const sweepTotal = sweepCountRows[0]?.n ?? 0;
+      const sweepBatches = Math.ceil(sweepTotal / SWEEP_CHUNK);
+      progress?.stage(
+        `sweep started — ${formatCount(sweepTotal)} postcodes carry the broadband key (${formatCount(sweepBatches)} batches of ${formatCount(SWEEP_CHUNK)})`,
+      );
+      const sweepTally =
+        sweepBatches > 0
+          ? progress?.tally({ label: "sweep", total: sweepBatches, every: 10, unit: "batches" })
+          : null;
+      let sweepBatch = 0;
+      let removed = 0;
       let cursor = "";
       for (;;) {
         const { rows: batch } = await client.query(SWEEP_SCAN_SQL, [cursor, SWEEP_CHUNK]);
         if (batch.length === 0) break;
         cursor = batch[batch.length - 1].postcode;
-        await transact(() => client.query(SWEEP_DELETE_SQL, [batch.map((r) => r.postcode)]));
+        const deleted = await transact(() =>
+          client.query(SWEEP_DELETE_SQL, [batch.map((r) => r.postcode)]),
+        );
+        removed += deleted.rowCount ?? 0;
+        sweepBatch += 1;
+        sweepTally?.tick(sweepBatch, `${formatCount(removed)} stale keys removed`);
         if (batch.length < SWEEP_CHUNK) break;
       }
+      sweepTally?.finish(sweepBatch, `${formatCount(removed)} stale keys removed`);
       await client.query("DROP TABLE IF EXISTS broadband_stage");
       return updated;
     },
@@ -472,8 +513,13 @@ export async function createBroadbandFiler(client) {
 
 // The batch form over the streaming filer (the BUG-187 defences
 // precedent): file an already-collected rows array.
-export async function fileBroadband(client, rows) {
-  const filer = await createBroadbandFiler(client);
+/**
+ * @param {any} client
+ * @param {any[]} rows
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ */
+export async function fileBroadband(client, rows, { progress = null } = {}) {
+  const filer = await createBroadbandFiler(client, { progress });
   try {
     await filer.stageItems(rows);
     return await filer.finishFiling();
@@ -715,7 +761,19 @@ async function run() {
   if (fileAt >= 0 && !fileDir) throw new Error("--file needs a directory");
 
   if (verifyOnly) {
-    const { release, stats } = await streamBroadbandRows({ fileDir, trackPostcodes: true });
+    // BUG-204: the parse is the long phase of a verify-only
+    // run too — the same tally, counted in the sink.
+    const progress = createProgressLogger({ name: "load-broadband" });
+    const parseTally = progress.tally({ label: "parse", every: 100000, unit: "postcodes" });
+    let parsed = 0;
+    const { release, stats } = await streamBroadbandRows(
+      { fileDir, trackPostcodes: true },
+      async (batch) => {
+        parsed += batch.length;
+        parseTally.tick(parsed);
+      },
+    );
+    parseTally.finish(parsed);
     structuralCheckStats(
       {
         parsed: stats.parsed,
@@ -734,10 +792,20 @@ async function run() {
   try {
     const client = await pool.connect();
     try {
-      const filer = await createBroadbandFiler(client);
+      // BUG-204: one logger for the run — the parse tally
+      // below, the merge and sweep tallies inside the filer.
+      const progress = createProgressLogger({ name: "load-broadband" });
+      const filer = await createBroadbandFiler(client, { progress });
       let streamed;
       try {
-        streamed = await streamBroadbandRows({ fileDir }, (batch) => filer.stageItems(batch));
+        const parseTally = progress.tally({ label: "parse", every: 100000, unit: "postcodes" });
+        let parsed = 0;
+        streamed = await streamBroadbandRows({ fileDir }, async (batch) => {
+          await filer.stageItems(batch);
+          parsed += batch.length;
+          parseTally.tick(parsed);
+        });
+        parseTally.finish(parsed);
         // The duplicates figure is parsed minus staged, and the
         // staging counter only advances on a flush — flush the
         // pending tail before checking, or it reads as duplicates

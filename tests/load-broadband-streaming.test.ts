@@ -10,6 +10,7 @@ import {
   streamBroadbandRows,
   structuralCheckStats,
 } from "../loaders/load-broadband.mjs";
+import { createProgressLogger } from "../loaders/progress.mjs";
 
 // BUG-191: the broadband loader used to parse the whole Ofcom
 // release (~1.74M rows) into one in-memory array and merge it
@@ -128,6 +129,12 @@ function createFakeClient() {
           }
         }
         return { rows: [], rowCount: updated };
+      }
+      if (/SELECT count\(\*\)::int AS n FROM postcode_cache/.test(sql)) {
+        // BUG-204: the sweep's up-front COUNT — one scan
+        // beside the ~346 the sweep itself performs.
+        const n = [...cache.values()].filter((answers) => "broadband" in answers).length;
+        return { rows: [{ n }], rowCount: 1 };
       }
       if (/SELECT postcode FROM postcode_cache/.test(sql)) {
         const cursor = params[0] as string;
@@ -334,6 +341,52 @@ const syntheticRows = (n: number) =>
     answer: { snapshot: "2026-01", gigabit_capable_pct: i % 101 },
   }));
 const OLD_ANSWER = { snapshot: "2025-01", gigabit_capable_pct: 111 };
+
+describe("progress lines (BUG-204)", () => {
+  it(
+    "emits merge and sweep lines while filing, and the filed outcome is unchanged",
+    { timeout: 30_000 },
+    async () => {
+      const rows = syntheticRows(12_000);
+      const fake = createFakeClient();
+      // seedOldCache is scoped to the failure-semantics block,
+      // so the seed is repeated here: every row plus one stale
+      // postcode the release does not cover.
+      for (const row of rows)
+        fake.seedCache(row.postcode, { broadband: { ...OLD_ANSWER }, other: 1 });
+      fake.seedCache("ZZ9 9ZZ", { broadband: { ...OLD_ANSWER } });
+
+      const lines: string[] = [];
+      const progress = createProgressLogger({
+        name: "load-broadband",
+        log: (line: string) => lines.push(line),
+      });
+      const updated = await fileBroadband(fake as never, rows as never, { progress });
+
+      expect(updated).toBe(12_000);
+      expect(fake.cacheAnswers("ZZ9 9ZZ")?.broadband).toBeUndefined();
+      expect(fake.cacheAnswers(rows[0].postcode)?.other).toBe(1);
+      // The sweep's up-front COUNT was issued once.
+      expect(fake.statements.filter((s) => /count\(\*\)::int AS n/.test(s)).length).toBe(1);
+      // The merge's closing line (3 chunks of 5,000) and the
+      // sweep's opening line with its real batch count.
+      expect(lines.some((l) => /progress · merge 3\/3 chunks \(100%\)/.test(l))).toBe(true);
+      expect(
+        lines.some((l) =>
+          /progress · sweep started — 12,001 postcodes carry the broadband key \(3 batches of 5,000\)/.test(
+            l,
+          ),
+        ),
+      ).toBe(true);
+      expect(
+        lines.some((l) => /progress · sweep 3\/3 batches \(100%\) · 1 stale keys removed/.test(l)),
+      ).toBe(true);
+      // No progress line can be mistaken for the summary line:
+      // none starts with the loader name.
+      expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
+    },
+  );
+});
 
 describe("the filer's failure semantics (BUG-191)", () => {
   const seedOldCache = (

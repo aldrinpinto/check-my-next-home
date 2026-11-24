@@ -71,6 +71,7 @@ import {
   removeEpcFromIndex,
   COUNT_MOVEMENT_TOLERANCE,
 } from "./picking-index-filing.mjs";
+import { createProgressLogger } from "./progress.mjs";
 
 export const EPC_INDEX_FILE = "certificates.csv";
 
@@ -465,7 +466,7 @@ export function stageInsertFor(client) {
 // Stage a pass: truncate the stage, parse every
 // certificate, batch the parsed homes in. Refusals are
 // counted by reason and file nothing.
-export async function stageEpcIndex(client, certificates) {
+export async function stageEpcIndex(client, certificates, { progress = null } = {}) {
   await client.query("TRUNCATE picking_epc_stage");
   const insertBatch = stageInsertFor(client);
   let certificatesRead = 0;
@@ -473,6 +474,10 @@ export async function stageEpcIndex(client, certificates) {
   let batch = [];
   for await (const certificate of certificates) {
     certificatesRead += 1;
+    // BUG-204: a line every 500k certificates read — the
+    // staging stream is the pass's long phase.
+    if (certificatesRead % 500000 === 0)
+      progress?.count({ label: "staging", done: certificatesRead, unit: "certificates" });
     const outcome = parseEpcAddressLines(certificate);
     if ("refusal" in outcome) {
       refusals[outcome.refusal] = (refusals[outcome.refusal] ?? 0) + 1;
@@ -495,8 +500,15 @@ export async function stageEpcIndex(client, certificates) {
 // File the staged pass (the shared tolerance proof,
 // swap, union rebuild, edition record) and run the EPC
 // golden proof against the served index.
-export async function fileEpcIndex(client, { edition, log = () => {} }) {
-  const outcome = await fileStagedExtract(client, { source: "epc", edition });
+export async function fileEpcIndex(client, { edition, log = () => {}, progress = null }) {
+  // BUG-204: the rebuild's stage markers ride the
+  // caller's log when no logger is handed in.
+  const progressLogger = progress ?? createProgressLogger({ name: "load-epc-index", log });
+  const outcome = await fileStagedExtract(client, {
+    source: "epc",
+    edition,
+    progress: progressLogger,
+  });
   if (!outcome.filed) {
     await recordRejection(client, "epc", outcome.staged.homes);
     throw new Error(
@@ -519,8 +531,11 @@ export async function fileEpcIndex(client, { edition, log = () => {} }) {
 }
 
 export async function loadEpcIndexFromCertificates(client, certificates, { edition, log }) {
-  const stats = await stageEpcIndex(client, certificates);
-  const counts = await fileEpcIndex(client, { edition, log });
+  // BUG-204: one logger for the pass — the staging
+  // stream's count lines and the rebuild's markers.
+  const progress = createProgressLogger({ name: "load-epc-index", log });
+  const stats = await stageEpcIndex(client, certificates, { progress });
+  const counts = await fileEpcIndex(client, { edition, log, progress });
   const refusalDetail = Object.entries(stats.refusals)
     .map(([reason, count]) => `${reason} ${count}`)
     .join(", ");
@@ -584,7 +599,10 @@ export async function loadEpcIndex({ fileDir = null, killSwitch = false, log = c
   const client = await pool.connect();
   try {
     if (killSwitch) {
-      await removeEpcFromIndex(client);
+      // BUG-204: the kill switch rebuilds through the same
+      // shared path, so it carries the same markers.
+      const progress = createProgressLogger({ name: "load-epc-index", log });
+      await removeEpcFromIndex(client, { progress });
       const { rows } = await client.query("SELECT count(*) AS homes FROM picking_index");
       log(
         `Kill switch run: the served picking index now holds ${rows[0].homes} homes, rebuilt from the sales extract alone — every EPC-derived row is removed and every merged row keeps its sales parts.`,

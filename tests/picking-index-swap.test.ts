@@ -187,4 +187,36 @@ describe("the union rebuild — build under a fresh name, swap by rename", () =>
     expect(db.indexBuild).toBeNull();
     expect(db.indexRetired).toBeNull();
   });
+
+  it("emits the rebuild's stage markers through the caller's log, and the summary lines still land (BUG-204)", async () => {
+    const db = new FakePickingDb();
+    const lines: string[] = [];
+    await loadPickingIndexFromLines(db as never, salesLines, {
+      edition: "fixture",
+      log: (line: string) => lines.push(line),
+    });
+    // The rebuild's markers, in order — the fake returns
+    // no rowCount for the union insert, so the built line
+    // carries no count (never a crash, never a guess).
+    const markers = lines.filter((l) => l.includes(" progress · "));
+    expect(markers.map((l) => l.split(" progress · ")[1])).toEqual([
+      "building union from the sales + EPC extracts",
+      "union built",
+      "indexing the built union",
+      "swapping the built union in",
+      "rebuilding the streets and places tables",
+    ]);
+    // The summary lines are exactly as the pass without a
+    // logger produces them — and the swap shape is intact.
+    expect(lines.some((l) => l.startsWith("Picking index (sales parts) — edition fixture:"))).toBe(
+      true,
+    );
+    expect(lines.some((l) => l.startsWith("Filed: 2 distinct postcodes, 34 distinct homes"))).toBe(
+      true,
+    );
+    expect(swapShape(db.statements)).toEqual(EXPECTED_SWAP_SHAPE);
+    expect(db.index).toHaveLength(34);
+    expect(db.indexBuild).toBeNull();
+    expect(db.indexRetired).toBeNull();
+  });
 });

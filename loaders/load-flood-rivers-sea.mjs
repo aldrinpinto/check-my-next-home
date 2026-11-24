@@ -74,6 +74,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { createGoldenSift, createTotals } from "./flood-stream.mjs";
+import { createProgressLogger } from "./progress.mjs";
 
 const ITEMS_URL =
   "https://environment.data.gov.uk/geoservices/datasets/96ab4342-82c1-4095-87f1-0082e8d84ef1/ogc/features/v1/collections/rofrs_4band/items";
@@ -404,13 +405,26 @@ async function fetchRiversSeaPage(startIndex, expected, read, delaysMs = RETRY_D
 // retained (the returned items); the totals accumulate as
 // scalars either way. Without a sink the read returns every
 // item, as it always did — the shape the paging tests pin.
-export async function readLive({ delaysMs = RETRY_DELAYS_MS, onItems = null } = {}) {
+export async function readLive({
+  delaysMs = RETRY_DELAYS_MS,
+  onItems = null,
+  progress = null,
+} = {}) {
   const first = await fetchJson(`${ITEMS_URL}?limit=1&f=json`, "the rivers & sea count");
   const expected = first.numberMatched;
   if (!Number.isInteger(expected) || expected <= 0)
     throw new Error("contract failure: the rivers & sea items response carries no numberMatched");
   const edition = await fetchEdition();
   const totals = createTotals(VOCAB);
+  // BUG-204: the paged read is the run's long phase — the
+  // service's own count is the total, so the log carries a
+  // real percentage, a line every twentieth of the read.
+  const readTally = progress?.tally({
+    label: "read",
+    total: expected,
+    every: Math.max(1, Math.ceil(expected / 20)),
+    unit: "features",
+  });
   const sift = onItems ? createGoldenSift(HOMES) : null;
   const items = [];
   let startIndex = 0;
@@ -419,6 +433,7 @@ export async function readLive({ delaysMs = RETRY_DELAYS_MS, onItems = null } = 
     const batch = page.features;
     const processed = processFeatures(batch);
     totals.addBatch(processed, batch.length);
+    readTally?.tick(totals.read);
     if (onItems) {
       for (const item of processed.items) sift.offer(item);
       await onItems(processed.items, edition);
@@ -427,6 +442,7 @@ export async function readLive({ delaysMs = RETRY_DELAYS_MS, onItems = null } = 
     }
     startIndex += batch.length;
   }
+  readTally?.finish(totals.read);
   return {
     items: onItems ? sift.items : items,
     filed: totals.filed,
@@ -458,7 +474,7 @@ async function fixturePartNames(fixtureDir, fileName) {
 // sink, then released — the parts' feature arrays are never
 // concatenated in memory. The totals and the golden sift
 // are the same as the live read's.
-export async function readFixture(fixtureDir, { onItems = null } = {}) {
+export async function readFixture(fixtureDir, { onItems = null, progress = null } = {}) {
   const stamp = JSON.parse(await readFile(join(fixtureDir, "fixture.json"), "utf8"));
   if (!stamp.edition)
     throw new Error("contract failure: the rivers & sea fixture carries no edition stamp");
@@ -466,7 +482,7 @@ export async function readFixture(fixtureDir, { onItems = null } = {}) {
   const totals = createTotals(VOCAB);
   const sift = onItems ? createGoldenSift(HOMES) : null;
   const items = [];
-  for (const name of names) {
+  for (const [part, name] of names.entries()) {
     const body = JSON.parse(await readFile(join(fixtureDir, name), "utf8"));
     const features = body.features ?? [];
     const processed = processFeatures(features);
@@ -477,6 +493,15 @@ export async function readFixture(fixtureDir, { onItems = null } = {}) {
     } else {
       items.push(...processed.items);
     }
+    // BUG-204: a line per part — the fixture's own part
+    // count is the total, with the running feature count.
+    progress?.count({
+      label: "fixture",
+      done: part + 1,
+      total: names.length,
+      unit: "parts",
+      extra: `${totals.read} features read`,
+    });
   }
   if (totals.read === 0) throw new Error("contract failure: the rivers & sea fixture is empty");
   return {
@@ -679,6 +704,9 @@ async function main() {
   const fileAt = args.indexOf("--file");
   const fixtureMode = fileAt !== -1;
   const fixtureDir = fixtureMode ? args[fileAt + 1] : null;
+  // BUG-204: one logger for the run — the read tally
+  // and the filing marker below.
+  const progress = createProgressLogger({ name: "load-flood-rivers-sea" });
 
   // A filing run streams the read into the staging
   // transaction as it lands (BUG-187), so the database check
@@ -698,8 +726,8 @@ async function main() {
       if (filer) await filer.stageItems(items, edition);
     };
     processed = fixtureMode
-      ? await readFixture(fixtureDir, { onItems })
-      : await readLive({ onItems });
+      ? await readFixture(fixtureDir, { onItems, progress })
+      : await readLive({ onItems, progress });
 
     if (!fixtureMode) {
       const lo = Math.floor(SNAPSHOT * 0.9);
@@ -736,6 +764,7 @@ async function main() {
 
   const activeFiler = filer;
   filer = null;
+  progress.stage(`filing ${processed.filed} features — counts, validity repair and swap`);
   const invalidCount = await activeFiler.finishFiling(processed.filed);
   console.log(
     `${summary()} · ${invalidCount} invalid geometries made valid · golden homes OK · ${Math.round((Date.now() - startedAt) / 1000)}s`,

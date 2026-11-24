@@ -120,6 +120,8 @@ import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
 import pg from "pg";
 
+import { createProgressLogger } from "./progress.mjs";
+
 const { Pool } = pg;
 
 export const HOMES = {
@@ -652,6 +654,9 @@ async function main() {
   const retrievedOn = todayDate();
   const reuseDir = process.env.CMNH_STREETS_REUSE_DIR ?? null;
   const workDir = mkdtempSync(join(tmpdir(), "cmnh-streets-"));
+  // BUG-204: one logger for the run — the national
+  // staging tally and the swap marker below.
+  const progress = createProgressLogger({ name: "load-streets" });
   try {
     if (fixtureMode) {
       const fixtureDir = fileArg ?? DEFAULT_FIXTURE_DIR;
@@ -820,9 +825,21 @@ async function main() {
       for (const ex of extracts) {
         const candidates = goldenCandidates();
         let batch = [];
+        // BUG-204: England stages ~3M rows — a line every
+        // 100,000 staged, so the country's long stream is
+        // visible. (The per-country summary line below
+        // stays the closing line; the tally has no finish.)
+        const stageTally = progress.tally({
+          label: `${ex.country} staging`,
+          every: 100000,
+          unit: "street lines",
+        });
+        let stagedThisCountry = 0;
         const flush = async () => {
           if (batch.length === 0) return;
           if (pool) await stageStreets(pool, batch, ex.dataDate ?? retrievedOn);
+          stagedThisCountry += batch.length;
+          stageTally.tick(stagedThisCountry);
           batch = [];
         };
         const part = await streamCutRows(ex.ndjsonPath, async (row) => {
@@ -850,6 +867,9 @@ async function main() {
         );
         return;
       }
+      progress.stage(
+        `swap started — filing ${totalStaged} staged street lines into the live table`,
+      );
       const filed = await swapStagedStreets(pool);
       console.log(
         `load-streets · ${filed} street lines filed (${extracts.map((e) => e.country).join(" + ")}) — golden homes OK`,

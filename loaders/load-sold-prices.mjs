@@ -136,6 +136,7 @@ import { createInterface } from "node:readline";
 import { Readable } from "node:stream";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { createProgressLogger, formatCount } from "./progress.mjs";
 import pg from "pg";
 
 const FULL_FILE_URL =
@@ -626,10 +627,18 @@ export function decideUpdateAction(baseline, edition) {
 // recorded" instead of spawning a phantom full-file load. Paged
 // by postcode so no statement is unbounded; each page's UPDATE
 // is its own commit.
-export async function stampNoSalePostcodes(client, edition) {
+export async function stampNoSalePostcodes(client, edition, { progress = null } = {}) {
   const stamp = JSON.stringify({ edition, loadedAt: new Date().toISOString() });
   let stamped = 0;
   let last = "";
+  // BUG-204: the stamp walks every directory postcode that
+  // filed nothing — a line every 25,000 stamped, so the
+  // tail of the pass is visible too.
+  const stampTally = progress?.tally({
+    label: "stamping",
+    every: 25000,
+    unit: "no-sale postcodes",
+  });
   for (;;) {
     const res = await client.query(
       `SELECT postcode FROM postcode_cache
@@ -652,9 +661,11 @@ export async function stampNoSalePostcodes(client, edition) {
         [stamp, covered],
       );
       stamped += covered.length;
+      stampTally?.tick(stamped);
     }
     if (res.rows.length < STAMP_PAGE_ROWS) break;
   }
+  stampTally?.finish(stamped);
   return stamped;
 }
 
@@ -674,11 +685,18 @@ export async function stampNoSalePostcodes(client, edition) {
 // before anything is filed (BUG-188).
 /**
  * @param {any} client
- * @param {{ fullLines: AsyncIterable<string> | Iterable<string>, updateLines: Iterable<string>, edition: string | null, verifyOnly?: boolean, expectedFullBytes?: number | null }} options
+ * @param {{ fullLines: AsyncIterable<string> | Iterable<string>, updateLines: Iterable<string>, edition: string | null, verifyOnly?: boolean, expectedFullBytes?: number | null, progress?: any }} options
  */
 export async function runNational(
   client,
-  { fullLines, updateLines, edition, verifyOnly = false, expectedFullBytes = null },
+  {
+    fullLines,
+    updateLines,
+    edition,
+    verifyOnly = false,
+    expectedFullBytes = null,
+    progress = null,
+  },
 ) {
   const startedAt = Date.now();
   const stats = { malformed: 0, emptyPostcode: 0, duplicates: 0, uncovered: {} };
@@ -727,6 +745,17 @@ export async function runNational(
     if (!line) continue;
     linesRead += 1;
     lineBytes += Buffer.byteLength(line);
+    // BUG-204: a line every 2M lines read — and, where the
+    // source declared its size (the --file stat, or the
+    // live Content-Length), the share of those bytes
+    // consumed so far, which is the pass's real percentage.
+    if (linesRead % 2000000 === 0) {
+      const declared =
+        expectedFullBytes !== null && expectedFullBytes !== undefined
+          ? `${Math.min(100, Math.round(((lineBytes + linesRead) / expectedFullBytes) * 100))}% of declared ${formatCount(expectedFullBytes)} bytes`
+          : "";
+      progress?.count({ label: "intake", done: linesRead, unit: "lines", extra: declared });
+    }
     const record = toRecord(parsePpdLine(line));
     if (!record) {
       stats.malformed += 1;
@@ -742,6 +771,9 @@ export async function runNational(
     if (batch.length >= INSERT_BATCH_ROWS) await flush();
   }
   await flush();
+  progress?.stage(
+    `intake complete — ${formatCount(linesRead)} lines read, ${formatCount(recordsStaged)} records staged`,
+  );
 
   const stagedCount = async () =>
     (await client.query(`SELECT count(*)::int AS n FROM ${STAGE_TABLE}`)).rows[0].n;
@@ -806,6 +838,9 @@ export async function runNational(
     updateMatched += res.rows[0].n;
   }
   const merged = await mergeUpdateRecords(client, STAGE_TABLE, updateRecords, null, null);
+  progress?.stage(
+    `update merged — ${formatCount(merged.upserted)} upserted, ${formatCount(updateRecords.length - merged.upserted)} deleted`,
+  );
   const afterMerge = await stagedCount();
   if (afterMerge !== afterDedupe - updateMatched + merged.upserted)
     throw new Error(
@@ -884,6 +919,7 @@ export async function runNational(
   // the legacy loader proves its own filing. The source name
   // and the edition ride as parameters — the staging never
   // stored either (BUG-201).
+  progress?.stage(`swap started — filing ${formatCount(total)} staged rows into the live register`);
   try {
     await client.query("BEGIN");
     await client.query("TRUNCATE price_paid");
@@ -917,7 +953,7 @@ export async function runNational(
 
   // 7 — gap 2's bulk stamp, after the swap (it reads the new
   // register to decide who filed nothing).
-  const stamped = await stampNoSalePostcodes(client, sourceDate);
+  const stamped = await stampNoSalePostcodes(client, sourceDate, { progress });
   await client.query(`DROP TABLE IF EXISTS ${STAGE_TABLE}`);
   return {
     edition: sourceDate,
@@ -938,14 +974,22 @@ export async function runNational(
 // intake (BUG-184), exactly as in the national pass: the
 // monthly file carries TD rows most months, and this path never
 // had an area guard — without the skip it would FILE them.
-export async function runUpdate(client, { updateLines, edition, verifyOnly = false }) {
+export async function runUpdate(
+  client,
+  { updateLines, edition, verifyOnly = false, progress = null },
+) {
   const startedAt = Date.now();
   const stats = { malformed: 0, emptyPostcode: 0, uncovered: {} };
   const records = parseAllRecords(updateLines, stats);
+  const upserts = records.filter((r) => r.recordStatus !== "D").length;
+  // BUG-204: the update file is small enough to parse whole,
+  // so its progress is stage markers — parsed, then merging.
+  progress?.stage(
+    `update file parsed — ${formatCount(records.length)} records (${formatCount(upserts)} to add or correct, ${formatCount(records.length - upserts)} to delete)`,
+  );
   const seconds = () => Math.round((Date.now() - startedAt) / 1000);
 
   if (verifyOnly) {
-    const upserts = records.filter((r) => r.recordStatus !== "D").length;
     return {
       edition,
       logLine: `load-sold-prices · edition ${edition} · monthly update · ${upserts} sales to add or correct · ${records.length - upserts} to delete · ${stats.malformed} malformed skipped · ${uncoveredSkipSegment(stats)} · verify only, nothing filed · ${seconds()}s`,
@@ -974,6 +1018,7 @@ export async function runUpdate(client, { updateLines, edition, verifyOnly = fal
   // file's own edition (gap 6) — a postcode's rows may then span
   // editions, and the brain serves the newest among them.
   let merged;
+  progress?.stage("merging the update into the live register");
   try {
     await client.query("BEGIN");
     merged = await mergeUpdateRecords(client, "price_paid", records, edition);
@@ -1048,6 +1093,9 @@ async function modeMain(args) {
   const context = { sourceDate: parsed.edition };
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) throw new Error("DATABASE_URL is not set (see .env.example, Key K6)");
+  // BUG-204: one logger for the pass — the intake, merge,
+  // swap and stamp lines inside runNational / runUpdate.
+  const progress = createProgressLogger({ name: "load-sold-prices" });
   const client = new pg.Client({ connectionString });
   await client.connect();
   try {
@@ -1090,6 +1138,7 @@ async function modeMain(args) {
         edition: context.sourceDate,
         verifyOnly: parsed.verifyOnly,
         expectedFullBytes,
+        progress,
       });
       context.sourceDate = result.edition;
       if (parsed.verifyOnly) {
@@ -1136,6 +1185,7 @@ async function modeMain(args) {
       updateLines,
       edition,
       verifyOnly: parsed.verifyOnly,
+      progress,
     });
     if (parsed.verifyOnly) {
       console.log(result.logLine);

@@ -1,7 +1,6 @@
 // Shared filing machinery for the national picking index
 // (plan step M7.15B, migration 0030).
-//
-// Two loader passes — the sales parts pass
+//// Two loader passes — the sales parts pass
 // (load-picking-index.mjs) and the EPC certificate pass
 // (load-epc-index.mjs) — each refresh their own retained
 // extract and then rebuild the served union
@@ -39,6 +38,10 @@
 // truncated or wrong-edition source file must never
 // silently shrink the nation's picker.
 
+// (BUG-204: formatCount for the rebuild's progress lines
+// below — the only import this shared module takes.)
+import { formatCount } from "./progress.mjs";
+
 // The home key's own normalisation, mirrored from
 // lib/bundle-cache.ts's normKey + homeKeyOf rung 1 and
 // lib/address.ts's normText (the loaders are standalone
@@ -69,7 +72,6 @@ export function homeKeyForParts(parts) {
 // percent of homes a month) and far below any plausible
 // truncation or wrong-file accident.
 export const COUNT_MOVEMENT_TOLERANCE = 0.02;
-
 export function countMovementWithinTolerance(previousHomes, nextHomes) {
   if (previousHomes === null || previousHomes === undefined) return true;
   if (previousHomes === 0) return nextHomes === 0;
@@ -325,7 +327,7 @@ export const UNION_RETIRED_TABLE = "picking_index_retired";
 // hold (M7.15C). The place table (M7.15D) rebuilds
 // beside it on the same paths, under the same rule
 // for place names.
-export async function rebuildPickingIndex(client, { includeEpc = true } = {}) {
+export async function rebuildPickingIndex(client, { includeEpc = true, progress = null } = {}) {
   // A leftover under either swap name can only be a
   // relic of a process that died outside a transaction
   // (the build and the swap are transactional, so a
@@ -345,8 +347,20 @@ export async function rebuildPickingIndex(client, { includeEpc = true } = {}) {
        epc_edition text
      )`,
   );
+  // BUG-204: the rebuild's long steps are single
+  // statements a log cannot see inside — stage markers
+  // with the counts the statements return, so the log
+  // moves between them. (The insert's rowCount is a
+  // real pg result; a test fake returns no rowCount,
+  // and the line then carries no count — never a crash.)
+  progress?.stage(
+    includeEpc
+      ? "building union from the sales + EPC extracts"
+      : "building union from the sales extract alone (kill switch)",
+  );
+  let built;
   if (includeEpc) {
-    await client.query(
+    built = await client.query(
       `INSERT INTO ${UNION_BUILD_TABLE}
          (postcode, paon, saon, street, town, home_key, sources,
           sales_edition, epc_edition)
@@ -373,7 +387,7 @@ export async function rebuildPickingIndex(client, { includeEpc = true } = {}) {
            ON e.postcode = s.postcode AND e.home_key = s.home_key`,
     );
   } else {
-    await client.query(
+    built = await client.query(
       `INSERT INTO ${UNION_BUILD_TABLE}
          (postcode, paon, saon, street, town, home_key, sources,
           sales_edition, epc_edition)
@@ -385,6 +399,13 @@ export async function rebuildPickingIndex(client, { includeEpc = true } = {}) {
          FROM picking_sales_extract s`,
     );
   }
+  const builtRows = built?.rowCount;
+  progress?.stage(
+    builtRows === undefined || builtRows === null
+      ? "union built"
+      : `union built — ${formatCount(builtRows)} homes`,
+  );
+  progress?.stage("indexing the built union");
   await client.query(`ALTER TABLE ${UNION_BUILD_TABLE} ADD PRIMARY KEY (postcode, home_key)`);
   await client.query(
     `CREATE INDEX ${UNION_BUILD_TABLE}_postcode_idx
@@ -400,6 +421,7 @@ export async function rebuildPickingIndex(client, { includeEpc = true } = {}) {
   // the served names — all inside the caller's
   // transaction, so the exchange is atomic and a
   // failure anywhere in the filing undoes it whole.
+  progress?.stage("swapping the built union in");
   await client.query(`ALTER TABLE picking_index RENAME TO ${UNION_RETIRED_TABLE}`);
   await client.query(`ALTER TABLE ${UNION_BUILD_TABLE} RENAME TO picking_index`);
   await client.query(`DROP TABLE ${UNION_RETIRED_TABLE}`);
@@ -412,6 +434,7 @@ export async function rebuildPickingIndex(client, { includeEpc = true } = {}) {
     `ALTER INDEX ${UNION_BUILD_TABLE}_postcode_prefix_idx
        RENAME TO picking_index_postcode_prefix_idx`,
   );
+  progress?.stage("rebuilding the streets and places tables");
   await rebuildPickingStreets(client);
   await rebuildPickingPlaces(client);
 }
@@ -469,7 +492,7 @@ export async function recordRejection(client, source, rejectedHomes) {
 // rebuild the union (the rebuild stamps each union row
 // with the editions the editions table holds, so the new
 // edition must be recorded before it runs).
-export async function fileStagedExtract(client, { source, edition }) {
+export async function fileStagedExtract(client, { source, edition, progress = null }) {
   const current = await readEdition(client, source);
   const staged = await stagedCounts(client, source);
   if (!countMovementWithinTolerance(current?.homes ?? null, staged.homes)) {
@@ -488,7 +511,7 @@ export async function fileStagedExtract(client, { source, edition }) {
       counts,
       previousHomes: current?.homes ?? null,
     });
-    await rebuildPickingIndex(client);
+    await rebuildPickingIndex(client, { progress });
     await client.query("COMMIT");
     return { filed: true, counts, previousHomes: current?.homes ?? null };
   } catch (error) {
@@ -505,10 +528,10 @@ export async function fileStagedExtract(client, { source, edition }) {
 // EXTRACT is deliberately left in place — the switch
 // governs what serves, and a later EPC pass rebuilds
 // the full union from the retained extracts.
-export async function removeEpcFromIndex(client) {
+export async function removeEpcFromIndex(client, { progress = null } = {}) {
   await client.query("BEGIN");
   try {
-    await rebuildPickingIndex(client, { includeEpc: false });
+    await rebuildPickingIndex(client, { includeEpc: false, progress });
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK");
