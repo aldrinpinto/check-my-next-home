@@ -128,6 +128,35 @@ describe("kit tokens (app/globals.css)", () => {
   it("pins the one functional colour the palette lacks: error", () => {
     expect(css).toContain("--cmnh-error: #b3261e");
   });
+
+  // BUG-205/206: the results page's hierarchy dress —
+  // the subheading in the sample's subheading form,
+  // the detail bullet one list-indent step in.
+  const ruleBlock = (selector: string) => {
+    const start = css.indexOf(`${selector} {`);
+    expect(start).toBeGreaterThanOrEqual(0);
+    return css.slice(start, css.indexOf("}", start));
+  };
+
+  it("BUG-205: the results subheading wears the sample's subheading dress", () => {
+    const block = ruleBlock(".results-subheading");
+    expect(block).toContain("font-size: 1.02rem");
+    expect(block).toContain("font-weight: 800");
+    expect(block).toContain("text-transform: uppercase");
+    expect(block).toContain("letter-spacing: 0.08em");
+    expect(block).toContain("color: var(--cmnh-forest)");
+    expect(block).toContain("border: none");
+  });
+
+  it("BUG-206: a detail list item sits one list-indent step in", () => {
+    const block = ruleBlock(".results-list__item--sub");
+    expect(block).toContain("margin-left: 18px");
+  });
+
+  it("BUG-215: the payment consent label IS the small print", () => {
+    const block = ruleBlock(".report-payment__consent");
+    expect(block).toContain("font-size: 0.62rem");
+  });
 });
 
 describe("brand assets at their fixed destinations", () => {

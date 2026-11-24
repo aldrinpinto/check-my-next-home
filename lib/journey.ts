@@ -43,12 +43,7 @@ import type { AddressResolution } from "./address";
 import type { AreaBundle } from "./area-bundle";
 import type { CrimeBundle } from "./crime";
 import type { FloodBundle, ServedFloodLayer } from "./flood";
-import {
-  DISTANCE_BASIS_LABEL,
-  type CategoryAnswer,
-  type NearbyBundle,
-  type NearbyCategory,
-} from "./nearby";
+import { type CategoryAnswer, type NearbyBundle, type NearbyCategory } from "./nearby";
 import type { SoldPricesBundle } from "./sold-prices";
 
 // ------------------------------------------------------------------
@@ -942,7 +937,7 @@ function schoolsGroupResult(byCategory: Map<NearbyCategory, CategoryAnswer>): Ch
         line:
           `none within ${CHECKING_NEARBY_RADIUS_MILES} miles — nearest is ` +
           `${primary.beyondNearest.name}, ${formatMiles(primary.beyondNearest.miles)} ` +
-          `miles away (${DISTANCE_BASIS_LABEL})`,
+          `miles away`,
       };
     }
     const primaryLine = primary?.line;

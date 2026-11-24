@@ -2886,7 +2886,7 @@ describe("short bundle — 19 Birkdale Rise, CM3 2JT (rung 1)", () => {
       miles: 1.473,
     });
     expect(constraints.greenBelt.beyondLine).toBe(
-      "none within 2 miles — the nearest is London, 5.831 miles away (straight-line distance from the postcode point)",
+      "none within 2 miles — the nearest is London, 5.831 miles away",
     );
   });
 

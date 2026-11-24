@@ -191,11 +191,18 @@ function Block({
     case "list":
       // The bullet treatment (BUG-156): one fact per
       // item, an optional bold lead-in, the site's tick
-      // bullet — no line of its own.
+      // bullet — no line of its own. BUG-206: a detail
+      // item (`sub`) sits one level in under its group
+      // bullet.
       return (
         <ul className="results-list">
           {block.items.map((item) => (
-            <li className="results-list__item" key={item.text}>
+            <li
+              className={
+                item.sub ? "results-list__item results-list__item--sub" : "results-list__item"
+              }
+              key={item.text}
+            >
               {item.lead && (
                 <strong className="results-list__lead">
                   {item.lead.endsWith(":") ? `${item.lead} ` : `${item.lead} — `}

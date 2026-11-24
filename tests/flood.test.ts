@@ -623,7 +623,7 @@ describe("flood — the beyond form (nothing within the radius)", () => {
     expect(zones.proximity).toEqual([]);
     expect(zones.beyondNearest).toEqual({ displayLabel: "Flood Zone 2", miles: 4.317 });
     expect(zones.beyondLine).toBe(
-      "none within 2 miles — the nearest mapped edge is Flood Zone 2, 4.317 miles away (straight-line distance from the postcode point)",
+      "none within 2 miles — the nearest mapped edge is Flood Zone 2, 4.317 miles away",
     );
     // A layer with a band inside the radius serves proximity
     // and no beyond entry.

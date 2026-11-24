@@ -97,8 +97,7 @@ code, and locked in tests/nearby.test.ts:
 1. **19 Birkdale Rise CM3 2JT** — none-within: places
    empty, countWithin 0, beyondNearest Broomfield
    Hospital at 5.89 miles, line "none within 2 miles —
-   nearest is Broomfield Hospital, 5.89 miles away
-   (straight-line distance from the postcode point)".
+   nearest is Broomfield Hospital, 5.89 miles away".
    The honest beyond answer is the golden; no unit was
    invented to fill the radius.
 2. **6 Exeter Road E16 1GN** — within: Newham

@@ -55,7 +55,15 @@ import { REPORT_PRICE_LABEL } from "./site";
 // link, then the bold price line; the refund line is
 // removed from the block entirely (it stands in the
 // Terms, and on the success surface's failed state).
-// The tick is captured
+// BUG-215 (founder ruling, 24 Nov 2026) supersedes
+// BUG-145's block: the card is now a SINGLE checkbox
+// line in small print — the one line naming what the
+// report is with its Terms link, followed by the
+// change-of-mind sentence. The "Make my report now"
+// tick label, the separate small-print paragraph, the
+// Required pill and the bold price line are all gone;
+// the price stands on the Pay button alone. The tick
+// is captured
 // with the payment itself — tick and timestamp ride in
 // the payment's metadata (lib/server/payments.ts), so
 // M9.10's order record can read the consent back
@@ -82,7 +90,7 @@ export interface ReportPaymentView {
   termsLineLead: string;
   termsLinkLabel: string;
   termsHref: string;
-  honestyPriceLine: string;
+  consentTail: string;
   consentLabel: string;
   emailLabel: string;
   emailHelp: string;
@@ -111,13 +119,11 @@ export interface ReportPaymentView {
 // drift is recorded in M9.4's prep (deviation 2).
 export const PAYMENT_CONTENTS: PaymentContentLine[] = [
   { lead: "The breakdowns behind every headline", rest: null },
-  // HCR-03 (BUG-153): the same correction as the results
-  // strip — maps exist for the flood zones and surface
-  // water only, never "for each check".
-  {
-    lead: "The flood findings in full",
-    rest: ", with location maps for the flood zones and surface water",
-  },
+  // BUG-214 (founder ruling 24 Nov 2026): the flood
+  // line's tail is trimmed — the lead stands alone.
+  // (HCR-03, BUG-153, had named the mapped layers in
+  // the tail; the founder has now removed the tail.)
+  { lead: "The flood findings in full", rest: null },
   { lead: "The fuller EPC detail", rest: null },
   { lead: "Questions to ask the seller", rest: null },
   { lead: "One dated, print-ready document", rest: null },
@@ -143,11 +149,24 @@ export const PAYMENT_TERMS_LINK_LABEL = "Terms of service";
 export const PAYMENT_TERMS_HREF = "/terms";
 export const PAYMENT_TERMS_LINE = `${PAYMENT_TERMS_LINE_LEAD}${PAYMENT_TERMS_LINK_LABEL}.`;
 
-// The price restated inside the honesty area (M9.5,
-// gap 5): the tick is given against a stated price in
-// the same eyeline, not only against the Pay button's
-// label below the point where consent is given.
-export const PAYMENT_HONESTY_PRICE_LINE = `${REPORT_PRICE_LABEL} — one payment, no subscription, nothing further to pay.`;
+// The digital-content tick-box's label (BUG-215,
+// founder ruling 24 Nov 2026): the consent IS a
+// single line in small print — the one line naming
+// what the report is with its Terms link, followed by
+// the change-of-mind sentence. The BUG-145 tick label
+// ("Make my report now — …") is retired, with the
+// separate small-print paragraph, the Required pill
+// and the bold price line. The line is carried in
+// parts so the link is rendered, never typed into the
+// text: the terms lead, the link's label and target,
+// the tail sentence, and the composed line for
+// pinning. The tick is the buyer's agreement that the
+// report is made and delivered straight away and that
+// the usual 14-day change-of-mind right ends once it
+// is delivered (test T-PAY-06).
+export const PAYMENT_CONSENT_TAIL =
+  " I understand the 14-day change-of-mind right ends when it's delivered.";
+export const PAYMENT_CONSENT_LABEL = `${PAYMENT_TERMS_LINE}${PAYMENT_CONSENT_TAIL}`;
 
 // The refund reassurance — the Terms page's own
 // sentence, verbatim (the Refunds card in
@@ -162,17 +181,6 @@ export const PAYMENT_HONESTY_PRICE_LINE = `${REPORT_PRICE_LABEL} — one payment
 // answers a fulfilment failure.
 export const PAYMENT_REFUND_LINE =
   "If we cannot deliver your report, we refund the £4.99 in full, to the card you paid with — you do not need to ask.";
-
-// The digital-content tick-box's label. The M9.5 plan
-// text's wording stood until the founder re-dictated
-// the block (BUG-145, 22 Nov 2026): the tick now leads
-// the block and carries his exact words. The tick is
-// the buyer's agreement that the report is made and
-// delivered straight away and that the usual 14-day
-// change-of-mind right ends once it is delivered
-// (test T-PAY-06).
-export const PAYMENT_CONSENT_LABEL =
-  "Make my report now — I understand the 14-day change-of-mind right ends when it's delivered.";
 
 // The consent error (BUG-132, payment-flow parity
 // stack, 22 Nov 2026): shown directly under the tick
@@ -241,7 +249,7 @@ export function buildReportPaymentView(identity: ReportDoorIdentity): ReportPaym
     termsLineLead: PAYMENT_TERMS_LINE_LEAD,
     termsLinkLabel: PAYMENT_TERMS_LINK_LABEL,
     termsHref: PAYMENT_TERMS_HREF,
-    honestyPriceLine: PAYMENT_HONESTY_PRICE_LINE,
+    consentTail: PAYMENT_CONSENT_TAIL,
     consentLabel: PAYMENT_CONSENT_LABEL,
     emailLabel: PAYMENT_EMAIL_LABEL,
     emailHelp: PAYMENT_EMAIL_HELP,

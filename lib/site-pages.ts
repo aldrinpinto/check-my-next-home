@@ -168,7 +168,11 @@ export const HOW_WE_CHECK_CARDS: HowWeCheckCard[] = [
     ],
     howLabel: "How distances are measured:",
     howText:
-      "every distance on the site is straight-line — as the crow flies — from the home to the place. Walking and driving routes will usually be a little longer, and we say so wherever a distance appears.",
+      // BUG-211: the straight-line explanation lives
+      // once, here — the trailing "we say so wherever
+      // a distance appears" is gone with the lines
+      // that used to say so on the reports.
+      "every distance on the site is straight-line — as the crow flies — from the home to the place. Walking and driving routes will usually be a little longer.",
   },
 ];
 

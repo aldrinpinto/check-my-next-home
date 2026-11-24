@@ -568,7 +568,7 @@ describe("report — Section 7 additions (M8.10): brownfield & built-up area in 
     const area = areaWith();
     if (area.kind !== "area-bundle") throw new Error("expected an area bundle");
     area.sections.constraints.builtUpArea.beyondLine =
-      "none within 2 miles — the nearest is an unnamed built-up area, 3.1 miles away (straight-line distance from the postcode point)";
+      "none within 2 miles — the nearest is an unnamed built-up area, 3.1 miles away";
     area.sections.constraints.brownfield = {
       label: "Brownfield land",
       state: "served",
@@ -582,7 +582,7 @@ describe("report — Section 7 additions (M8.10): brownfield & built-up area in 
           planningPermissionStatus: "permissioned",
           statusLine: "the register records its planning permission status as permissioned",
           dwellingsLine: "the register publishes 9 net dwellings for the site",
-          line: "Universal Garage, The Street, Hatfield Peverel — 0.252 miles away (straight-line distance from the postcode point)",
+          line: "Universal Garage, The Street, Hatfield Peverel — 0.252 miles away",
         },
         {
           reference: null,
@@ -593,7 +593,7 @@ describe("report — Section 7 additions (M8.10): brownfield & built-up area in 
           planningPermissionStatus: null,
           statusLine: null,
           dwellingsLine: "the register publishes 10 to 25 net dwellings for the site",
-          line: "Former depot, Sample Street — 1.05 miles away (straight-line distance from the postcode point)",
+          line: "Former depot, Sample Street — 1.05 miles away",
         },
       ],
       countWithin: 2,
@@ -613,7 +613,7 @@ describe("report — Section 7 additions (M8.10): brownfield & built-up area in 
     const list = blocks[constraintsAt + 1];
     if (!list || list.type !== "list") throw new Error("expected the constraints list");
     expect(list.items[list.items.length - 1]).toBe(
-      "None within 2 miles — the nearest is an unnamed built-up area, 3.1 miles away (straight-line distance from the postcode point).",
+      "None within 2 miles — the nearest is an unnamed built-up area, 3.1 miles away.",
     );
     const text = sectionText(built, 7);
     expect(text).toContain("2 recorded brownfield sites within 2 miles of the postcode point.");
@@ -853,8 +853,7 @@ describe("report — Section 7 additions (M8.10): registered parks & gardens", (
       line: "no registered park and garden covers this postcode point in the national data",
       nearest: null,
       beyondNearest: { name: "Nonsuch Park", miles: 2.412 },
-      beyondLine:
-        "none within 2 miles — the nearest is Nonsuch Park, 2.412 miles away (straight-line distance from the postcode point)",
+      beyondLine: "none within 2 miles — the nearest is Nonsuch Park, 2.412 miles away",
     };
     const beyond = buildReportView(input({ area: area3 }));
     const beyondText = sectionText(beyond, 7);

@@ -469,7 +469,7 @@ describe("checking group derivation — the nearby part (schools & health)", () 
         category(
           "schools-primary",
           "none-within",
-          "none within 2 miles — nearest is Stamford Green Primary School and Nursery, 134.327 miles away (straight-line distance from the postcode point)",
+          "none within 2 miles — nearest is Stamford Green Primary School and Nursery, 134.327 miles away",
           {
             beyondNearest: { name: "Stamford Green Primary School and Nursery", miles: 134.327 },
           },
@@ -505,7 +505,7 @@ describe("checking group derivation — the nearby part (schools & health)", () 
         category(
           "schools-primary",
           "none-within",
-          "none within 2 miles — nearest is Cheam Fields Primary Academy, 14.671 miles away (straight-line distance from the postcode point)",
+          "none within 2 miles — nearest is Cheam Fields Primary Academy, 14.671 miles away",
           { beyondNearest: { name: "Cheam Fields Primary Academy", miles: 14.671 } },
         ),
         category("schools-secondary", "none-within"),
@@ -518,7 +518,7 @@ describe("checking group derivation — the nearby part (schools & health)", () 
     );
     expect(groups.schools).toEqual({
       state: "done",
-      line: "none within 2 miles — nearest is Cheam Fields Primary Academy, 14.7 miles away (straight-line distance from the postcode point)",
+      line: "none within 2 miles — nearest is Cheam Fields Primary Academy, 14.7 miles away",
     });
   });
 

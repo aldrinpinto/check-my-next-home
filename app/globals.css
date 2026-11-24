@@ -3113,6 +3113,18 @@ a.trunc-row:hover {
   margin: 2px 0;
 }
 
+/* BUG-206: a detail bullet sits one level in under its
+   group bullet — one list-indent step (the list's own
+   18px padding) to the right, margin so the whole
+   bullet shifts, not just its text. The Master shows
+   no sub-bullet indent (its census facts are prose,
+   and its report list is flat) — the step is the
+   site's own list indent, borrowed from the nearest
+   similar form. */
+.results-list__item--sub {
+  margin-left: 18px;
+}
+
 .results-list--row {
   font-size: var(--font-size-small);
   margin-bottom: 0;
@@ -3853,38 +3865,20 @@ a.picker__row {
   margin: 0 0 1.5rem;
 }
 
-/* The honesty area (M9.5, in the founder's Option A
-   form, 22 Nov 2026): the door's card dress, standing
-   above the email block — the digital-content
-   tick-box the Pay button waits on, the one line with
-   its Terms link, and the price restated. Its rhythm
-   is the sample's (PF-12): 15.5px lines at 1.6, the
-   gaps the sample's inline styles set, the consent
-   label in regular weight. BUG-145 (founder, 22 Nov
-   2026, as amended) re-formed the block: the tick
-   stands first, the one line drops to the page's
-   small print (the closing smallprint's 13px muted
-   form), the bold price line closes the block, and
-   the refund line is gone from the block entirely. */
-.report-payment__honesty-line {
-  font-size: 0.8125rem;
-  line-height: 1.55;
-  color: #4a5548;
-  margin: 0 0 0.5rem;
-}
-
-.report-payment__honesty-price {
-  font-size: 1rem;
-  line-height: 1.55;
-  font-weight: 700;
-  margin: 0;
-}
-
+/* The honesty area (M9.5): the door's card dress,
+   standing above the email block. BUG-215 (founder
+   ruling, 24 Nov 2026) supersedes BUG-145's block:
+   the card is a single checkbox line — the consent
+   label IS the small print, at the site's small-print
+   measure (0.62rem, BUG-128). The separate
+   small-print paragraph, the bold price line and the
+   tick's Required pill are gone with it (their rules
+   below are deleted, not left dead). */
 .report-payment__consent {
   display: flex;
   align-items: flex-start;
   gap: var(--space-2);
-  font-size: 0.96875rem;
+  font-size: 0.62rem;
   line-height: 1.55;
   cursor: pointer;
   margin-bottom: 0.875rem;
@@ -3915,7 +3909,7 @@ a.picker__row {
   padding: 11px 14px;
   font-size: 0.90625rem;
   line-height: 1.55;
-  /* BUG-145: the tick now leads its card, so the
+  /* BUG-215: the tick still leads its card, so the
      error's gap stands below it (the tick's own
      margin carries the gap above). */
   margin: 0 0 0.875rem;
@@ -3957,8 +3951,8 @@ a.picker__row {
 }
 
 /* The Required tag (PF-09): Sample 9's req-tag — the
-   cream-soft brass pill. The email field's tag and
-   the consent tick's (BUG-132) share it. */
+   cream-soft brass pill. The email field's tag stands
+   alone since BUG-215 removed the consent tick's. */
 .report-payment__req {
   display: inline-block;
   background: #fbf3d9;
@@ -4599,14 +4593,20 @@ a.picker__row {
   margin-bottom: var(--space-3);
 }
 .results-subheading {
-  /* BUG-156: a group subheading is a layer-3 heading in
-     the rulebook's terms — it carries NO line of its
-     own (the pre-fix page ruled subheadings like
-     sections); it stands in bold at body scale above
-     its group. */
+  /* BUG-205: a group subheading wears the sample's
+     subheading dress (.rpt-sub/.sect in the Master) —
+     Forest, tracked, uppercase, one weight step below
+     the section heading — so it stands above the item
+     names (1.02rem over the rows' .94rem leads) instead
+     of colliding with them at body scale (the pre-fix
+     0.98rem/700 read exactly like a place name). It
+     still carries NO line of its own (BUG-156). */
   margin: var(--space-4) 0 var(--space-2);
-  font-size: 0.98rem;
-  font-weight: 700;
+  font-size: 1.02rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--cmnh-forest);
   border: none;
 }
 /* The .upsell panel retired (parity fix batch, item 14):

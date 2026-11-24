@@ -1258,3 +1258,13 @@ describe("district page — the summary pills strip (BUG-167)", () => {
     expect(disclaimersAt).toBeGreaterThan(pillsAt);
   });
 });
+
+describe("district page — BUG-211 straight-line wording", () => {
+  it("no district line carries the straight-line parenthetical", async () => {
+    const bundle = await servedBundle();
+    const view = buildDistrictResultsView(bundle);
+    const html = renderToStaticMarkup(createElement(ResultsPage, { view }));
+    expect(html).not.toContain("(straight-line distance from the postcode point)");
+    expect(html).not.toContain("straight-line distance from the postcode point");
+  });
+});

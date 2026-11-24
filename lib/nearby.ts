@@ -1260,7 +1260,7 @@ async function buildCategory(
         latitude: nearest.latitude,
         longitude: nearest.longitude,
       };
-      answer.line = `none within ${radius} miles — nearest is ${nearest.name}, ${miles} miles away (${DISTANCE_BASIS_LABEL})`;
+      answer.line = `none within ${radius} miles — nearest is ${nearest.name}, ${miles} miles away`;
     } else {
       // No NAMED nearest exists to serve (the table holds
       // only unnamed points, or none near): the category

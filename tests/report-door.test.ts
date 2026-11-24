@@ -142,13 +142,11 @@ describe("report door — the holding page's contents (R5)", () => {
     const view = buildReportDoorView(HOME);
     expect(view.contentsHeading).toBe("What the detailed report adds");
     expect(view.contents).toContain(FLOOD_UPSELL_LEAD);
-    // Re-pinned (HCR-03, BUG-153): the lead names the
-    // mapped layers — "a location map for each check"
-    // promised a rivers & sea map the report never
-    // draws.
-    expect(FLOOD_UPSELL_LEAD).toBe(
-      "Plus the flood findings in full, with location maps for the flood zones and surface water",
-    );
+    // Re-pinned (BUG-214, founder ruling 24 Nov 2026):
+    // the mapped-layers tail is trimmed — the lead
+    // stands alone. (HCR-03, BUG-153, had named the
+    // mapped layers in the tail.)
+    expect(FLOOD_UPSELL_LEAD).toBe("Plus the flood findings in full");
     const text = JSON.stringify(view);
     expect(text).not.toContain("flood map pictures");
     expect(text).toContain("month by month");

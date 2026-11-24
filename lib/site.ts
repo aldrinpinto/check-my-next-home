@@ -65,7 +65,7 @@ export const DISCLAIMER_SHORT_FORM =
 // DISCLAIMER_CLOSING_LINK_LABEL + HOW_WE_CHECK_PATH, so the
 // pinned words and the link can never drift apart.
 export const DISCLAIMER_CLOSING_BLOCK =
-  "School places are never promised and catchments are not guaranteed — check council and school admissions, apply by 31 Oct (secondary) / 15 Jan (primary). GP lists and NHS dentist places open and close. Pet data from OpenStreetMap may be incomplete. Air quality, noise and solar are modelled. Distances are straight-line. This result is information, not advice. Full method, sources and disclaimers:";
+  "School places are never promised and catchments are not guaranteed — check council and school admissions, apply by 31 Oct (secondary) / 15 Jan (primary). GP lists and NHS dentist places open and close. Pet data from OpenStreetMap may be incomplete. Air quality, noise and solar are modelled. This result is information, not advice. Full method, sources and disclaimers:";
 export const DISCLAIMER_CLOSING_LINK_LABEL = "How we check";
 export const HOW_WE_CHECK_PATH = "/how-we-check";
 

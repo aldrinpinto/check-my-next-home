@@ -1,5 +1,5 @@
 import type { AddressQueryable, AddressResolution } from "./address";
-import { DISTANCE_BASIS_LABEL, RADIUS_MILES } from "./nearby";
+import { RADIUS_MILES } from "./nearby";
 
 // Flood (plan step M6.5, decision D25).
 //
@@ -1256,7 +1256,7 @@ function buildLayer(spec: LayerSpec, facts: FloodLayerFacts): ServedFloodLayer {
     const displayLabel = labelFor(spec.type, beyond.riskLabel, beyond.detail).displayLabel;
     const miles = round3(beyond.miles);
     layer.beyondNearest = { displayLabel, miles };
-    layer.beyondLine = `none within ${RADIUS_MILES} miles — the nearest mapped edge is ${displayLabel}, ${miles} miles away (${DISTANCE_BASIS_LABEL})`;
+    layer.beyondLine = `none within ${RADIUS_MILES} miles — the nearest mapped edge is ${displayLabel}, ${miles} miles away`;
   }
 
   return layer;

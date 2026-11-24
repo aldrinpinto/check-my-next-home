@@ -3888,7 +3888,7 @@ describe("air", () => {
     expect(aqma.pollutants).toEqual(["nitrogen dioxide (NO2)", "particulate matter (PM10)"]);
     expect(aqma.miles).toBe(0.93);
     expect(aqma.line).toBe(
-      "This postcode point is not inside an Air Quality Management Area. The nearest is the Sutton AQMA (London Borough of Sutton), declared for nitrogen dioxide (NO2) and particulate matter (PM10): its nearest boundary is 0.93 miles from the postcode point (straight-line distance from the postcode point).",
+      "This postcode point is not inside an Air Quality Management Area. The nearest is the Sutton AQMA (London Borough of Sutton), declared for nitrogen dioxide (NO2) and particulate matter (PM10): its nearest boundary is 0.93 miles from the postcode point.",
     );
     expect(aqma.basisLine).toBe(AQMA_BASIS);
   });
@@ -4849,9 +4849,7 @@ describe("brownfield land — points serving, gated absence", () => {
     const nearest = brownfield.within[0];
     expect(nearest.label).toBe("Universal Garage, The Street, Hatfield Peverel");
     expect(nearest.miles).toBe(0.252);
-    expect(nearest.line).toBe(
-      "Universal Garage, The Street, Hatfield Peverel — 0.252 miles away (straight-line distance from the postcode point)",
-    );
+    expect(nearest.line).toBe("Universal Garage, The Street, Hatfield Peverel — 0.252 miles away");
     expect(nearest.hectaresLine).toBe("the register records the site at 0.22 hectares");
     expect(nearest.statusLine).toBe(
       "the register records its planning permission status as permissioned",
@@ -4890,7 +4888,7 @@ describe("brownfield land — points serving, gated absence", () => {
       "no brownfield sites are recorded within 5 miles of the postcode point on the national register",
     );
     expect(brownfield.beyondLine).toBe(
-      "none within 5 miles — the nearest recorded site is Etwell House and former coach, Station Approach, 2.41 miles away (straight-line distance from the postcode point)",
+      "none within 5 miles — the nearest recorded site is Etwell House and former coach, Station Approach, 2.41 miles away",
     );
   });
 
@@ -5095,7 +5093,7 @@ describe("heritage — registered parks & gardens (M8.10)", () => {
       "no registered park and garden covers this postcode point in the national data",
     );
     expect(parks.beyondLine).toBe(
-      "none within 2 miles — the nearest is Nonsuch Park, 2.412 miles away (straight-line distance from the postcode point)",
+      "none within 2 miles — the nearest is Nonsuch Park, 2.412 miles away",
     );
   });
 });

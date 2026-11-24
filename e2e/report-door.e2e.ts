@@ -93,21 +93,31 @@ test.describe("report door — regression", () => {
       await expect(page.locator(".report-door__card h2").first()).toHaveText(
         "What the detailed report adds",
       );
-      // Re-pinned (HCR-03, BUG-153): the lead names the
-      // mapped layers — the report draws no rivers & sea
-      // map, so "for each check" is out.
+      // Re-pinned (BUG-214, founder ruling 24 Nov 2026):
+      // the mapped-layers tail is trimmed — the lead
+      // stands alone.
       await expect(page.locator(".report-door__card").first()).toContainText(
-        "Plus the flood findings in full, with location maps for the flood zones and surface water",
+        "Plus the flood findings in full",
       );
-      // BUG-131 (payment-flow parity stack, 22 Nov
-      // 2026): the one-payment price line is gone from
-      // the payment page — the honesty block below is
-      // the single money statement. (The door's holding
-      // state keeps its own price line; this is the
-      // paid state.)
+      // BUG-215 (founder ruling, 24 Nov 2026): the
+      // consent card is a single checkbox line in
+      // small print — the one line with its Terms link
+      // and the change-of-mind sentence. The old
+      // "Make my report now" label and the bold price
+      // line are gone; the price stands on the Pay
+      // button alone. This also retires the stale
+      // BUG-131-era assertion here — "The detailed
+      // report costs £4.99 — …" never stood in this
+      // block (no source rendered it).
       await expect(page.locator(".report-door__price")).toHaveCount(0);
       await expect(page.locator(".report-payment__honesty")).toContainText(
-        "The detailed report costs £4.99 — one payment, no subscription, nothing further to pay.",
+        "The report is information from official sources — not advice. By paying, you agree to our Terms of service. I understand the 14-day change-of-mind right ends when it's delivered.",
+      );
+      await expect(page.locator(".report-payment__honesty")).not.toContainText(
+        "Make my report now",
+      );
+      await expect(page.locator(".report-payment__honesty")).not.toContainText(
+        "one payment, no subscription",
       );
       // The paid state's own furniture (M9.4/M9.5): the
       // honesty block with the consent tick, and the

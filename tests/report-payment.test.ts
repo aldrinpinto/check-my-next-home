@@ -10,11 +10,11 @@ import {
   paymentElementKey,
   PAYMENT_CONSENT_ERROR_LINE,
   PAYMENT_CONSENT_LABEL,
+  PAYMENT_CONSENT_TAIL,
   PAYMENT_EMAIL_ERROR,
   PAYMENT_EMAIL_HELP,
   PAYMENT_EMAIL_LABEL,
   PAYMENT_EMAIL_PLACEHOLDER,
-  PAYMENT_HONESTY_PRICE_LINE,
   PAYMENT_REFUND_LINE,
   PAYMENT_TERMS_HREF,
   PAYMENT_TERMS_LINE,
@@ -72,12 +72,11 @@ describe("payment page — the view (Sample 9)", () => {
     expect(view.contentsHeading).toBe("What the detailed report adds");
     expect(view.contents).toEqual([
       { lead: "The breakdowns behind every headline", rest: null },
-      // Re-pinned (HCR-03, BUG-153): the tail names the
-      // mapped layers, as the results strip now does.
-      {
-        lead: "The flood findings in full",
-        rest: ", with location maps for the flood zones and surface water",
-      },
+      // Re-pinned (BUG-214, founder ruling 24 Nov 2026):
+      // the flood line's tail is trimmed — the lead
+      // stands alone. (HCR-03, BUG-153, had named the
+      // mapped layers in the tail.)
+      { lead: "The flood findings in full", rest: null },
       { lead: "The fuller EPC detail", rest: null },
       { lead: "Questions to ask the seller", rest: null },
       { lead: "One dated, print-ready document", rest: null },
@@ -143,7 +142,7 @@ describe("payment page — the view (Sample 9)", () => {
 // is refused — is tests/payment-intent.test.ts and
 // tests/payments.test.ts.
 describe("payment page — the honest pre-payment screen (M9.5, T-PAY-06)", () => {
-  it("carries the honesty area in its Option A form: the one line verbatim with its Terms link, the price restated — and no refund line (BUG-145 amendment)", () => {
+  it("carries the single-line consent in small print: the one line with its Terms link, the change-of-mind tail — and no price line, no refund line (BUG-215 supersedes BUG-145)", () => {
     const view = buildReportPaymentView(HOME);
     expect(view.termsLineLead).toBe(PAYMENT_TERMS_LINE_LEAD);
     expect(PAYMENT_TERMS_LINE_LEAD).toBe(
@@ -157,10 +156,21 @@ describe("payment page — the honest pre-payment screen (M9.5, T-PAY-06)", () =
     expect(PAYMENT_TERMS_LINE).toBe(
       "The report is information from official sources — not advice. By paying, you agree to our Terms of service.",
     );
-    expect(view.honestyPriceLine).toBe(PAYMENT_HONESTY_PRICE_LINE);
-    expect(PAYMENT_HONESTY_PRICE_LINE).toBe(
-      "£4.99 — one payment, no subscription, nothing further to pay.",
+    // BUG-215: the change-of-mind sentence is the
+    // consent line's tail, and the composed consent
+    // label is the whole single line.
+    expect(view.consentTail).toBe(PAYMENT_CONSENT_TAIL);
+    expect(PAYMENT_CONSENT_TAIL).toBe(
+      " I understand the 14-day change-of-mind right ends when it's delivered.",
     );
+    expect(view.consentLabel).toBe(PAYMENT_CONSENT_LABEL);
+    expect(PAYMENT_CONSENT_LABEL).toBe(
+      "The report is information from official sources — not advice. By paying, you agree to our Terms of service. I understand the 14-day change-of-mind right ends when it's delivered.",
+    );
+    // BUG-215: the bold price line is gone from the
+    // card — the view no longer carries it. The price
+    // stands on the Pay button alone.
+    expect("honestyPriceLine" in view).toBe(false);
     // BUG-145 (as amended, founder 22 Nov 2026): the
     // refund line is removed from the payment block
     // entirely — the view no longer carries it. The
@@ -204,31 +214,51 @@ describe("payment page — the honest pre-payment screen (M9.5, T-PAY-06)", () =
     expect(termsText).toContain(PAYMENT_REFUND_LINE);
   });
 
-  it("carries the tick-box label in the founder's BUG-145 wording, and never names the gift", () => {
+  it("the consent label IS the single line (BUG-215), the old tick label and price line are gone, and it never names the gift", () => {
     const view = buildReportPaymentView(HOME);
     expect(view.consentLabel).toBe(PAYMENT_CONSENT_LABEL);
     expect(PAYMENT_CONSENT_LABEL).toBe(
-      "Make my report now — I understand the 14-day change-of-mind right ends when it's delivered.",
+      "The report is information from official sources — not advice. By paying, you agree to our Terms of service. I understand the 14-day change-of-mind right ends when it's delivered.",
     );
+    // BUG-215 retires the BUG-145 tick label and the
+    // bold price line — neither stands anywhere in
+    // the view.
+    const text = JSON.stringify(view);
+    expect(text).not.toContain("Make my report now");
+    expect(text).not.toContain("one payment, no subscription");
     // D21: the gift is a surprise until the delivery
     // email — no honest-screen content may name it.
-    const text = JSON.stringify(view).toLowerCase();
-    expect(text).not.toContain("gift");
+    expect(text.toLowerCase()).not.toContain("gift");
   });
 
-  it("renders the tick first in its block, the small print below it, above the email block (BUG-145)", () => {
+  it("renders the consent as one checkbox line — the terms line and the change-of-mind tail inside the tick label, above the email block, with no price line in the card (BUG-215)", () => {
     const html = renderPaid();
-    const lineAt = html.indexOf(PAYMENT_TERMS_LINE_LEAD);
-    const priceAt = html.indexOf(PAYMENT_HONESTY_PRICE_LINE);
-    // The BUG-145 label carries an apostrophe, which
-    // the server renderer escapes — search in the
-    // rendered form.
-    const tickAt = html.indexOf(PAYMENT_CONSENT_LABEL.replaceAll("'", "&#x27;"));
+    // The label renders in parts (lead, link, tail),
+    // so the composed line never stands contiguously
+    // in the HTML — pin its parts in order, inside
+    // the tick label (after the checkbox, before the
+    // email block). The tail carries an apostrophe,
+    // which the server renderer escapes — search in
+    // the rendered form.
+    const boxAt = html.indexOf('id="payment-consent"');
+    const leadAt = html.indexOf(PAYMENT_TERMS_LINE_LEAD);
+    const linkAt = html.indexOf(`<a href="${PAYMENT_TERMS_HREF}">${PAYMENT_TERMS_LINK_LABEL}</a>.`);
+    const tailAt = html.indexOf(PAYMENT_CONSENT_TAIL.replaceAll("'", "&#x27;"));
     const emailAt = html.indexOf("Email address for delivery");
-    expect(tickAt).toBeGreaterThan(-1);
-    expect(lineAt).toBeGreaterThan(tickAt);
-    expect(priceAt).toBeGreaterThan(lineAt);
-    expect(emailAt).toBeGreaterThan(priceAt);
+    expect(boxAt).toBeGreaterThan(-1);
+    expect(leadAt).toBeGreaterThan(boxAt);
+    expect(linkAt).toBeGreaterThan(leadAt);
+    expect(tailAt).toBeGreaterThan(linkAt);
+    expect(emailAt).toBeGreaterThan(tailAt);
+    // The old BUG-145 block is gone: no "Make my
+    // report now" label, no bold price line, no
+    // separate small-print paragraph or price element
+    // in the card — and no Required pill on the tick
+    // (the email field keeps its own).
+    expect(html).not.toContain("Make my report now");
+    expect(html).not.toContain("one payment, no subscription, nothing further to pay.");
+    expect(html).not.toContain("report-payment__honesty-line");
+    expect(html).not.toContain("report-payment__honesty-price");
     // BUG-145 (as amended): the refund line stands
     // nowhere on the payment page — it lives in the
     // Terms (and on the success surface's failed
@@ -326,18 +356,26 @@ describe("payment page — the rendered page (the step's Check, rendered half)",
   it("renders the page's structure: heading, lede, tease, contents, honesty area, email block, card panel, Pay button", () => {
     const html = renderPaid();
     // BUG-131: the one-payment line is gone from the
-    // page altogether — the honesty block's own £4.99
-    // line is the single money statement.
+    // page altogether — and BUG-215 removes the
+    // honesty block's own £4.99 line too: the Pay
+    // button is the single money statement.
     expect(html).not.toContain("One payment. No subscription, nothing further to pay.");
+    expect(html).not.toContain("one payment, no subscription, nothing further to pay.");
+    expect(html).not.toContain("Make my report now");
     expect(html).toContain("The detailed report for 19 Birkdale Rise");
     expect(html).toContain("Hatfield Peverel, CM3 2JT");
     expect(html).toContain("What the detailed report adds");
     expect(html).toContain("<strong>The breakdowns behind every headline</strong>");
-    expect(html).toContain(
-      "<strong>The flood findings in full</strong>, with location maps for the flood zones and surface water",
-    );
+    expect(html).toContain("<strong>The flood findings in full</strong>");
+    expect(html).not.toContain("with location maps for the flood zones and surface water");
     expect(html).toContain(PAYMENT_TERMS_LINE_LEAD);
     expect(html).toContain(`<a href="${PAYMENT_TERMS_HREF}">${PAYMENT_TERMS_LINK_LABEL}</a>.`);
+    // BUG-215: the change-of-mind tail stands inside
+    // the tick label (apostrophe escaped by the
+    // server renderer).
+    expect(html).toContain(
+      "I understand the 14-day change-of-mind right ends when it&#x27;s delivered.",
+    );
     expect(html).toContain("Email address for delivery");
     expect(html).toContain("Required");
     expect(html).toContain(PAYMENT_EMAIL_HELP);

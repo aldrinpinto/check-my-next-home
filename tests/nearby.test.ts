@@ -1049,9 +1049,7 @@ describe("nearby bundle — 19 Birkdale Rise, CM3 2JT", () => {
       latitude: 51.774662,
       longitude: 0.466021,
     });
-    expect(ae.line).toBe(
-      "none within 2 miles — nearest is Broomfield Hospital, 5.89 miles away (straight-line distance from the postcode point)",
-    );
+    expect(ae.line).toBe("none within 2 miles — nearest is Broomfield Hospital, 5.89 miles away");
   });
 
   it("names Broomfield as the nearest maternity unit beyond the radius, in the same words (M6.24)", async () => {
@@ -1068,7 +1066,7 @@ describe("nearby bundle — 19 Birkdale Rise, CM3 2JT", () => {
       longitude: 0.466021,
     });
     expect(maternity.line).toBe(
-      "none within 2 miles — nearest is Broomfield Hospital, 5.89 miles away (straight-line distance from the postcode point)",
+      "none within 2 miles — nearest is Broomfield Hospital, 5.89 miles away",
     );
   });
 
@@ -1664,7 +1662,7 @@ describe("nearby bundle — sixth forms (M6.33, D51/D64)", () => {
     // Re-pinned (BUG-110): the sixth-forms radius is
     // five miles, so the beyond line names five.
     expect(cat.line).toBe(
-      "none within 5 miles — nearest is Bexley Grammar School, 5.484 miles away (straight-line distance from the postcode point)",
+      "none within 5 miles — nearest is Bexley Grammar School, 5.484 miles away",
     );
   });
 

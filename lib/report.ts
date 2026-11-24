@@ -2939,8 +2939,8 @@ function buildSection5Map(input: ReportInput): ReportMapModel | null {
     ...(onStreets ? { streets } : {}),
     pins,
     caption: onStreets
-      ? "The named places in this section, plotted over the street lines this check holds for the area — straight-line distances from the home, with rings at 1 and 2 miles. The picture is drawn from the filed street lines and the listed places; it is a diagram of the listed places, not a street map."
-      : "The named places in this section, plotted from their filed positions — straight-line distances from the home, with rings at 1 and 2 miles. The picture is drawn from the data this check holds; it is a diagram of the listed places, not a street map.",
+      ? "The named places in this section, plotted over the street lines this check holds for the area — with rings at 1 and 2 miles. The picture is drawn from the filed street lines and the listed places; it is a diagram of the listed places, not a street map."
+      : "The named places in this section, plotted from their filed positions — with rings at 1 and 2 miles. The picture is drawn from the data this check holds; it is a diagram of the listed places, not a street map.",
     ariaLabel: `Map of the ${pins.length} named places listed in this section, around ${resolution.rung === 1 ? resolution.address.label : home.postcode}, with rings at 1 and 2 miles`,
   };
 }
@@ -5408,9 +5408,7 @@ function section10(input: ReportInput, cert: ServedCertificate | null): ReportSe
   const chargers = category(input.nearby, "ev-chargers");
   if (chargers && chargers.places.length > 0) {
     sourceItem("EV chargers", [
-      seg(
-        "Open Charge Map and operator listings for the chargers named in Section 7; distances are straight-line from this postcode, calculated from each charger's published location.",
-      ),
+      seg("Open Charge Map and operator listings for the chargers named in Section 7."),
     ]);
   }
 
@@ -5489,10 +5487,14 @@ function section10(input: ReportInput, cert: ServedCertificate | null): ReportSe
   blocks.push({ type: "sub", text: "How to read this report" });
   const howToRead: ReportRichLine[] = [];
   if (input.nearby.kind === "distances") {
+    // BUG-211: the straight-line explanation lives once
+    // in How We Check, never on the report — the basis
+    // clause and the "always shorter" sentence are
+    // gone; the precision clause stands.
     howToRead.push([
       boldSeg("Distances"),
       seg(
-        ` are ${input.nearby.basisLabel.replace(" distance ", " distances ")}, shown to one decimal place, unless a line says otherwise (for example, a road distance or a walking time). Straight-line distance is always shorter than the route you would actually travel.`,
+        " are shown to one decimal place, unless a line says otherwise (for example, a road distance or a walking time).",
       ),
     ]);
   }

@@ -30,10 +30,12 @@ import { fireJourneyEvent } from "./JourneyBeacon";
 // (the step's Check, pinned by
 // tests/report-payment.test.ts). The flow on the page:
 // the buyer ticks the digital-content consent (M9.5)
-// — the consent block stands first in its card since
-// BUG-145 (founder, 22 Nov 2026), with the Option A
-// line and the price below it as small print and the
-// bold price line — gives the delivery email, and
+// — the consent block is a single checkbox line in
+// small print since BUG-215 (founder ruling, 24 Nov
+// 2026): the one line naming what the report is with
+// its Terms link, followed by the change-of-mind
+// sentence; the price stands on the Pay button alone
+// — gives the delivery email, and
 // pays. A shape-valid email WITH the tick standing
 // starts a payment on the server (POST
 // /api/payments/intent — the server re-resolves the
@@ -373,15 +375,19 @@ export default function ReportPaymentPage({
       ) : (
         <>
           <section className="report-door__card report-payment__honesty">
-            {/* BUG-145 (founder, 22 Nov 2026, as
-                amended): the consent tick stands FIRST
-                in the block; below it, as small print,
-                the one line naming what the report is
-                with its Terms link, then the bold price
-                line. The refund line is removed from
-                the block entirely — it stands in the
-                Terms. BUG-132's consent error still
-                answers directly under the tick line. */}
+            {/* BUG-215 (founder ruling, 24 Nov 2026):
+                the card is a SINGLE checkbox line in
+                small print — the one line naming what
+                the report is with its Terms link,
+                followed by the change-of-mind
+                sentence. This supersedes BUG-145's
+                block: the "Make my report now" tick
+                label, the separate small-print
+                paragraph, the Required pill and the
+                bold price line are all gone. The price
+                stands on the Pay button alone.
+                BUG-132's consent error still answers
+                directly under the tick line. */}
             <label
               className={`report-payment__consent${consentError ? " report-payment__consent--attention" : ""}`}
             >
@@ -394,21 +400,16 @@ export default function ReportPaymentPage({
                 aria-describedby={consentError ? "payment-consent-error" : undefined}
                 onChange={(event) => onConsentChange(event.target.checked)}
               />
-              <span>{view.consentLabel}</span>
-              {/* BUG-132: the tick is marked required in
-                  the email field's own visual language. */}
-              <span className="report-payment__req">Required</span>
+              <span>
+                {view.termsLineLead}
+                <a href={view.termsHref}>{view.termsLinkLabel}</a>.{view.consentTail}
+              </span>
             </label>
             {consentError && (
               <p className="report-payment__consent-error" id="payment-consent-error" role="alert">
                 {PAYMENT_CONSENT_ERROR_LINE}
               </p>
             )}
-            <p className="report-payment__honesty-line">
-              {view.termsLineLead}
-              <a href={view.termsHref}>{view.termsLinkLabel}</a>.
-            </p>
-            <p className="report-payment__honesty-price">{view.honestyPriceLine}</p>
           </section>
 
           <div className="field report-payment__email">

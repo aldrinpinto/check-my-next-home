@@ -242,7 +242,7 @@ export const baseNearby = nearbyWith({
       latitude: 51.774662,
       longitude: 0.466021,
     },
-    line: "none within 2 miles — nearest is Broomfield Hospital, 5.89 miles away (straight-line distance from the postcode point)",
+    line: "none within 2 miles — nearest is Broomfield Hospital, 5.89 miles away",
   }),
   station: category({
     category: "station",

@@ -28,12 +28,9 @@ import {
 // importers are untouched.
 export { floodBandOf, formatFiledDate, formatMiles, formatPounds };
 import {
-  DISTANCE_BASIS_LABEL,
   RADIUS_MILES,
-  SECONDARY_RADIUS_MILES,
   SELECTIVE_LIST_SIZE,
   SELECTIVE_SEARCH_MILES,
-  SIXTH_FORM_RADIUS_MILES,
   reportListSizeFor,
   type NearbyCategory,
 } from "./nearby";
@@ -618,30 +615,6 @@ function placeRow(
 // put "14.671 miles away" on the results page while
 // every other miles figure the site serves is the
 // uniform one decimal (formatMiles). The sentence is
-// the brain's own — the checking feed recomposes it
-// the same way (lib/journey.ts's schools group) —
-// only the number's dress changes. Recomposing from
-// the parts here keeps the brain's line, and with it
-// the bundle contract pins and the golden replay,
-// exactly where they stand.
-// The list radius a category serves (BUG-109/BUG-110):
-// secondaries and sixth forms serve to five miles,
-// everything else to the list radius.
-export function categoryRadiusMiles(category: NearbyCategory): number {
-  if (category === "schools-secondary") return SECONDARY_RADIUS_MILES;
-  if (category === "sixth-forms") return SIXTH_FORM_RADIUS_MILES;
-  if (category === "ev-chargers") return 5;
-  return RADIUS_MILES;
-}
-
-export function noneWithinBeyondLine(
-  name: string,
-  miles: number,
-  radiusMiles: number = RADIUS_MILES,
-): string {
-  return `none within ${radiusMiles} miles — nearest is ${name}, ${formatMiles(miles)} miles away (${DISTANCE_BASIS_LABEL})`;
-}
-
 export function placeGroupView(
   category: CategoryAnswer,
   presentation: CategoryPresentation,
@@ -705,18 +678,24 @@ export function placeGroupView(
     };
   }
   if (category.state === "none-within" && category.beyondNearest) {
-    // The essential-services form: the ruled line names the
-    // beyond nearest, and the row carries it with its miles.
-    // The line is recomposed from its parts at the display
-    // precision (noneWithinBeyondLine above), never the
-    // brain's three-decimal form verbatim.
+    // BUG-213: the row alone carries the nearest — no
+    // "None within" preamble line above it. The sample
+    // shows the named entry with its distance pill and
+    // no preamble (Sample 3 Tabs 1 and 4; View 7
+    // Section 5), even for a beyond-radius nearest
+    // (the sample's hospital at 5.8 mi, its vet at
+    // 2.3 mi). The preamble said the same place at
+    // the same distance as the row below it. The
+    // brain's line itself is untouched (the bundle
+    // contract pins and the golden replay stand), and
+    // the report keeps its own named none-within
+    // sentences — this is the free page's row form
+    // only. Where no row carries the nearest (the
+    // far-beyond guard nulls it past 25 miles), the
+    // fall-through below keeps the line as the sole
+    // statement.
     return {
       ...base,
-      line: noneWithinBeyondLine(
-        category.beyondNearest.name,
-        category.beyondNearest.miles,
-        categoryRadiusMiles(category.category),
-      ),
       rows: [
         placeRow(
           {
@@ -764,7 +743,9 @@ export type SectionBlock =
   // treatment extended to this page): one fact per item,
   // an optional bold lead-in per item (the census
   // headlines' labelled form), no line of its own.
-  | { type: "list"; items: { lead?: string; text: string }[] }
+  // BUG-206: `sub` marks a detail bullet — one level
+  // under its group bullet, indented one step in.
+  | { type: "list"; items: { lead?: string; text: string; sub?: boolean }[] }
   | { type: "subheading"; text: string }
   | { type: "upsell"; lead: string; detail: string | null }
   | { type: "notice"; variant: "warning" | "stale" | "gap"; text: string }
@@ -1692,9 +1673,10 @@ export const BUY_BAR_MYSTERY_EYEBROW = "A mystery extra";
 // rivers & sea check has none, so "for each check" is
 // out and the mapped layers are named instead. The
 // Master conforms; the door and payment pages read this
-// same constant.
-export const FLOOD_UPSELL_LEAD =
-  "Plus the flood findings in full, with location maps for the flood zones and surface water";
+// same constant. BUG-214 (founder ruling 24 Nov 2026):
+// the mapped-layers tail is trimmed — the lead stands
+// as "Plus the flood findings in full" alone.
+export const FLOOD_UPSELL_LEAD = "Plus the flood findings in full";
 export const FLOOD_UPSELL_DETAIL =
   "The defences near this home, and how the picture changes in the years ahead.";
 // D77(c) absence/failure copy, pinned.
@@ -2034,6 +2016,18 @@ export function buildResultsView(input: ResultsInput): ResultsView {
   {
     const blocks: SectionBlock[] = [];
     const vets = group("vets", NEARBY_CATEGORIES);
+    // BUG-205: the vets kind takes its own subheading
+    // like the other two kinds — FC-03's rule is each
+    // kind under its own subheading, and the report's
+    // own form already carries "Vets" (BUG-079). The
+    // push was never made, so the vet rows stood bare
+    // under the section heading. The Master itself
+    // carries no "Vets" subheading (Sample 3 names the
+    // kind inside the row, "Vet — ..."; View 7 names
+    // "Vets" as a row) — the subheading is restored
+    // per the product's own settled form, dressed per
+    // the sample's subheading treatment.
+    blocks.push({ type: "subheading", text: "Vets" });
     blocks.push(...vets.blocks);
     const vetCategory = categories.get("vets");
     if (vetCategory && vetCategory.state === "within")
@@ -2074,7 +2068,7 @@ export function buildResultsView(input: ResultsInput): ResultsView {
     const census = areaSections?.census;
     const imd = areaSections?.imd;
     if (census && census.state === "served") {
-      const items: { lead?: string; text: string }[] = [];
+      const items: { lead?: string; text: string; sub?: boolean }[] = [];
       const table = (code: string) => census.tables.find((t) => t.code === code);
       const rowPct = (code: string, label: string) =>
         table(code)?.rows.find((r) => r.label === label)?.pct ?? null;
@@ -2095,10 +2089,12 @@ export function buildResultsView(input: ResultsInput): ResultsView {
             lead: "Owning and renting",
             text: `${Math.round(owned / 10)} in 10 households own their home.`,
           },
-          { text: `${Math.round(outright)}% own outright.` },
-          { text: `${Math.round(mortgage)}% own with a mortgage.` },
-          { text: `${Math.round(social)}% rent from a social landlord.` },
-          { text: `${Math.round(priv)}% rent privately.` },
+          // BUG-206: the four detail bullets sit one level
+          // in under their group bullet.
+          { text: `${Math.round(outright)}% own outright.`, sub: true },
+          { text: `${Math.round(mortgage)}% own with a mortgage.`, sub: true },
+          { text: `${Math.round(social)}% rent from a social landlord.`, sub: true },
+          { text: `${Math.round(priv)}% rent privately.`, sub: true },
         );
       }
       const ethnic = table("ts021");
@@ -2125,17 +2121,23 @@ export function buildResultsView(input: ResultsInput): ResultsView {
       // vanishing silently — the age stands alone, or
       // with however many of the group facts are filed.
       if (ageText) {
-        const people: { lead?: string; text: string }[] = [
+        const people: { lead?: string; text: string; sub?: boolean }[] = [
           { lead: "The people here", text: `The typical age is ${ageText}.` },
         ];
-        if (white) people.push({ text: `${Math.round(white.pct)} in 100 residents are White.` });
+        if (white)
+          people.push({
+            text: `${Math.round(white.pct)} in 100 residents are White.`,
+            sub: true,
+          });
         if (white && others.length === 2)
           people.push({
             text: `The next largest groups are ${shortGroup(others[0].label)} (${others[0].pct} in 100) and ${shortGroup(others[1].label)} (${others[1].pct} in 100).`,
+            sub: true,
           });
         else if (white && others.length === 1)
           people.push({
             text: `The next largest group is ${shortGroup(others[0].label)} (${others[0].pct} in 100).`,
+            sub: true,
           });
         items.push(...people);
       }
@@ -2153,7 +2155,9 @@ export function buildResultsView(input: ResultsInput): ResultsView {
               lead: "The homes themselves",
               text: `Nearly ${Math.round(detSemi / 10)} in 10 are detached or semi-detached houses.`,
             },
-            { text: `About 1 in ${Math.round(100 / flat)} is a flat.` },
+            // BUG-206: the flat detail sits one level in
+            // under its group bullet.
+            { text: `About 1 in ${Math.round(100 / flat)} is a flat.`, sub: true },
           );
       }
       // NB-07: deprivation is served in its position in
@@ -2611,7 +2615,41 @@ export function buildResultsView(input: ResultsInput): ResultsView {
     // draw are gone. The EV group's own count line is
     // retired by the section's strip declaration (the
     // OBS-012 pass): the sample's EV row stands alone.
-    blocks.push(...group("ev-chargers", NEARBY_CATEGORIES).blocks);
+    // BUG-209: the EV row is composed here, not taken
+    // from the group — the group's none-within form
+    // emits BOTH its "None within 5 miles — nearest
+    // is ..." line and the beyond row, and the line
+    // duplicates the entry below it. The sample's
+    // Costs row is one row with the bold "EV charging"
+    // lead: "Nearest public charge point — <name>."
+    // with the distance pill (Sample 3, Costs). The
+    // entry stays in Costs — the Master puts it there,
+    // as a row among the Costs rows, never under the
+    // "EPC & energy" subheading above. Where no nearest
+    // serves, the group's own blocks stand unchanged
+    // (the empty line, or the could-not-pull line).
+    {
+      const evCategory = categories.get("ev-chargers");
+      const evNearest =
+        evCategory?.state === "within"
+          ? (evCategory.places[0] ?? null)
+          : evCategory?.state === "none-within"
+            ? evCategory.beyondNearest
+            : null;
+      if (evNearest) {
+        blocks.push({
+          type: "tagged-line",
+          lead: "EV charging",
+          texts: [`Nearest public charge point — ${evNearest.name}.`],
+          miles: {
+            text: `${formatMiles(evNearest.miles)} mi`,
+            band: distanceBand("ev", evNearest.miles),
+          },
+        });
+      } else {
+        blocks.push(...group("ev-chargers", NEARBY_CATEGORIES).blocks);
+      }
+    }
     const broadband = sections.broadband;
     // The sample's broadband row: the broadband fact and
     // the mobile fact joined in one row under the
@@ -2989,8 +3027,9 @@ export function buildResultsView(input: ResultsInput): ResultsView {
     // both the nearest A&E and the nearest maternity unit
     // (Broomfield at Birkdale, Epsom General at Minerva,
     // Newham at Exeter) served in both groups — each with
-    // its own "none within 2 miles" line where beyond —
-    // because the two categories read the same filed
+    // its own beyond row where beyond (BUG-213: the
+    // "None within" preamble line above the row is gone)
+    // — because the two categories read the same filed
     // hospitals independently. The A&E group leads (it is
     // the section's headline fact); the maternity group is
     // suppressed when its lead place IS the A&E lead

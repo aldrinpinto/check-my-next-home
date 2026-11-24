@@ -107,6 +107,23 @@ describe("report — the ten sections and the format", () => {
     expect(served).not.toContain("(straight-line distance from the postcode point)");
   });
 
+  it("BUG-213: the report keeps the named none-within statement where no entry carries the fact", () => {
+    // The free page drops the preamble where the row
+    // carries the nearest — but the report's
+    // none-within groups carry NO rows, so the named
+    // statement is the sole fact and it stays, in the
+    // sample's named form (Section 4's sentence and
+    // the short version's line).
+    expect(sectionText(view, 4)).toContain(
+      "There is no A&E within 2 miles of this home; Broomfield Hospital is the nearest, at 5.9 miles.",
+    );
+    const health = view.shortVersion?.groups.find((g) => g.heading === "Health");
+    const ae = health?.lines
+      .map((line) => line.map((segment) => segment.text).join(""))
+      .find((lineText) => lineText.includes("A&E"));
+    expect(ae).toBe("No A&E within 2 miles — nearest is Broomfield Hospital, 5.9 miles.");
+  });
+
   it("the masthead names the home, its place and the matched certificate's facts", () => {
     expect(view.masthead.title).toBe("19 Birkdale Rise");
     expect(view.masthead.addressLine).toBe("Chelmsford CM3 2JT");
@@ -447,7 +464,7 @@ describe("report — Section 5 and its map", () => {
               latitude: 51.8,
               longitude: 0.64,
             },
-            line: "none within 2 miles — nearest is Witham Station, 3.4 miles away (straight-line distance from the postcode point)",
+            line: "none within 2 miles — nearest is Witham Station, 3.4 miles away",
           }),
           supermarket: category({
             category: "supermarket",
@@ -916,6 +933,22 @@ describe("report — Section 10 and the closing notes", () => {
     // its topic name.
     expect(s9).toContain("EA flood defences");
     expect(s9).not.toContain("Source: HM Land Registry Price Paid Data, edition");
+  });
+
+  // BUG-211: the straight-line explanation lives once
+  // in How We Check, never on the report.
+  it("BUG-211: no report surface carries the straight-line parenthetical", () => {
+    expect(JSON.stringify(view)).not.toContain("(straight-line distance from the postcode point)");
+    expect(JSON.stringify(view)).not.toContain("straight-line distance from the postcode point");
+  });
+
+  it("BUG-211: the How-to-read Distances item keeps only the precision clause", () => {
+    // The lead and the precision clause are separate
+    // segments in the model, so the pin targets the
+    // clause's own contiguous text.
+    expect(s9).toContain("are shown to one decimal place, unless a line says otherwise");
+    expect(s9).not.toContain("Straight-line distance is always shorter");
+    expect(s9).not.toContain("straight-line");
   });
 });
 

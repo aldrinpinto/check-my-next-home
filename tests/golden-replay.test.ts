@@ -1451,7 +1451,7 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
       longitude: 0.466021,
     });
     expect(birkdale.line).toBe(
-      "none within 2 miles — nearest is Broomfield Hospital, 5.89 miles away (straight-line distance from the postcode point)",
+      "none within 2 miles — nearest is Broomfield Hospital, 5.89 miles away",
     );
     // The within arm at the other two universal homes:
     // the one unit inside the radius, at its filed

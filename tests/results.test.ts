@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import ResultsPage from "../components/ResultsPage";
 import type { AddressResolution } from "../lib/address";
-import type { AreaBundle } from "../lib/area-bundle";
+import type { AreaBundle, CensusSection, ImdSection } from "../lib/area-bundle";
 import { CHECK_PAGES, CHECK_PAGE_PATHS } from "../lib/check-pages";
 import type { CrimeBundle } from "../lib/crime";
 import type { FloodBundle, FloodLayerType, FloodLiveWarnings, FloodPointState } from "../lib/flood";
@@ -35,6 +35,7 @@ import {
 import type { ShortBundle, ShortFloodLayer, ShortSections } from "../lib/short-bundle";
 import type { ShortlistCard } from "../lib/shortlist";
 import { DISCLAIMER_CLOSING_BLOCK, DISCLAIMER_SHORT_FORM, HOW_WE_CHECK_PATH } from "../lib/site";
+import { HOW_WE_CHECK_CARDS } from "../lib/site-pages";
 import type { SoldPricesBundle } from "../lib/sold-prices";
 
 // M7.4 — the free results page's derivations: pill logic E2
@@ -206,7 +207,7 @@ const baseNearby = nearbyWith({
     places: [],
     countWithin: 0,
     beyondNearest: { latitude: 51.7, longitude: 0.6, name: "Broomfield Hospital", miles: 4.213 },
-    line: "none within 2 miles — nearest is Broomfield Hospital, 4.213 miles away (straight-line distance from the postcode point)",
+    line: "none within 2 miles — nearest is Broomfield Hospital, 4.213 miles away",
   }),
   maternity: category({
     category: "maternity",
@@ -214,7 +215,7 @@ const baseNearby = nearbyWith({
     places: [],
     countWithin: 0,
     beyondNearest: { latitude: 51.7, longitude: 0.6, name: "Broomfield Hospital", miles: 5.89 },
-    line: "none within 2 miles — nearest is Broomfield Hospital, 5.89 miles away (straight-line distance from the postcode point)",
+    line: "none within 2 miles — nearest is Broomfield Hospital, 5.89 miles away",
   }),
 });
 
@@ -799,7 +800,7 @@ describe("results — place groups", () => {
     expect(uncapped.grammarCountLine).toBeNull();
   });
 
-  it("none-within essential groups render the ruled line plus the beyond row", () => {
+  it("BUG-213: none-within groups render the beyond row alone — no preamble line", () => {
     const ae = (baseNearby as Extract<NearbyBundle, { kind: "distances" }>).categories.find(
       (c) => c.category === "ae",
     );
@@ -809,39 +810,41 @@ describe("results — place groups", () => {
       { heading: "A&E hospitals", groupLabel: "A&E hospitals", display: 1, family: "hospital" },
       true,
     );
-    expect(group.line).toContain("none within 2 miles");
+    // The sample shows the named entry with its pill
+    // and no preamble (Sample 3 Tab 4; View 7
+    // Section 5) — the old ruled form carried the
+    // line above the row saying the same place at
+    // the same distance.
+    expect(group.line).toBeNull();
     expect(group.rows).toHaveLength(1);
     expect(group.rows[0].name).toBe("Broomfield Hospital");
     expect(group.rows[0].band).toBe("green");
     expect(group.truncation).toBeNull();
   });
 
-  it("none-within: the served line rounds the beyond-nearest miles to one decimal (BUG-014 residual)", () => {
+  it("BUG-213: none-within — the beyond-nearest miles round to one decimal on the row (BUG-014 residual)", () => {
     // The brain's composed line carries its miles at
     // three decimals — the input below is the brain's
     // own form, verbatim — and the results page used to
-    // serve it untouched, so "14.671 miles away" stood
-    // beside one-decimal figures everywhere else
+    // recompose it as a preamble line at one decimal
     // (founder ruling, 20 Nov 2026: round it like
-    // everywhere else). The group now recomposes the
-    // line from its parts at the display precision; the
-    // brain's line itself is not touched.
+    // everywhere else). BUG-213 retires the preamble
+    // line; the rounding now lives on the row's pill,
+    // and the brain's line itself is not touched.
     const primary = category({
       category: "schools-primary",
       state: "none-within",
       places: [],
       countWithin: 0,
       beyondNearest: { name: "Far Away Place", miles: 14.671, latitude: 51.7, longitude: 0.6 },
-      line: "none within 2 miles — nearest is Far Away Place, 14.671 miles away (straight-line distance from the postcode point)",
+      line: "none within 2 miles — nearest is Far Away Place, 14.671 miles away",
     });
     const group = placeGroupView(
       primary,
       { heading: "Primary schools", groupLabel: "primary schools", display: 3, family: "school" },
       true,
     );
-    expect(group.line).toBe(
-      "none within 2 miles — nearest is Far Away Place, 14.7 miles away (straight-line distance from the postcode point)",
-    );
+    expect(group.line).toBeNull();
     expect(group.rows).toHaveLength(1);
     expect(group.rows[0].milesText).toBe("14.7 mi");
   });
@@ -2067,14 +2070,13 @@ describe("results — the built view", () => {
     // The flood upsell carries the founder's softened F4
     // wording — re-pinned (HCR-03, BUG-153): "a location
     // map for each check" promised maps the report does
-    // not draw (rivers & sea has none); the lead now
-    // names the mapped layers, as corrected sample→
-    // product.
+    // not draw (rivers & sea has none). BUG-214
+    // (founder ruling 24 Nov 2026): the mapped-layers
+    // tail is trimmed — the lead stands alone.
     const text = JSON.stringify(flood.blocks);
-    expect(text).toContain(
-      "Plus the flood findings in full, with location maps for the flood zones and surface water",
-    );
+    expect(text).toContain("Plus the flood findings in full");
     expect(text).not.toContain("for each check");
+    expect(text).not.toContain("with location maps for the flood zones");
     expect(text).toContain(
       "The defences near this home, and how the picture changes in the years ahead.",
     );
@@ -2600,10 +2602,11 @@ describe("results — nation gating (Scotland/NI gap check, fold-in workstream 6
     expect(JSON.stringify(primary.blocks)).toContain("Far Away Place");
     expect(JSON.stringify(primary.blocks)).toContain("14.7 mi");
     // BUG-014 residual (founder ruling, 20 Nov 2026):
-    // the group's line rides in the same blocks at the
-    // same precision — the brain's three-decimal form
-    // appears nowhere in the section.
-    expect(JSON.stringify(primary.blocks)).toContain("14.7 miles away");
+    // the row carries the beyond-nearest miles at one
+    // decimal — the brain's three-decimal form appears
+    // nowhere in the section. (BUG-213 retired the
+    // preamble line that used to carry "14.7 miles
+    // away" beside the row.)
     expect(JSON.stringify(primary.blocks)).not.toContain("14.671");
   });
 
@@ -2691,6 +2694,292 @@ describe("results — the wider-area view (rung 3)", () => {
     const html = renderToStaticMarkup(createElement(ResultsPage, { view }));
     expect(html).not.toContain('href="/report"');
     expect(html).toContain("Family Checks");
+  });
+});
+
+describe("results — BUG-205/206/209 hierarchy fixes", () => {
+  // BUG-205: the PETS section's three kinds each stand
+  // under their own subheading — the "Vets" subheading
+  // was never pushed, so the vet rows stood bare under
+  // the section heading.
+  it("BUG-205: the pets section carries Vets, Pet boarding and Pet shops subheadings, in that order", () => {
+    const view = buildResultsView(input());
+    const pets = section(view, "family", "pets");
+    const subs = pets.blocks
+      .filter((b) => b.type === "subheading")
+      .map((b) => (b as { text: string }).text);
+    expect(subs).toEqual(["Vets", "Pet boarding (kennels & catteries)", "Pet shops"]);
+    // The Vets subheading stands first, before the vets rows.
+    expect(pets.blocks[0]).toEqual({ type: "subheading", text: "Vets" });
+  });
+
+  it("BUG-205: the rendered page shows the Vets subheading as an h4", () => {
+    const view = buildResultsView(input());
+    const html = renderToStaticMarkup(createElement(ResultsPage, { view }));
+    expect(html).toContain('<h4 class="results-subheading">Vets</h4>');
+  });
+
+  // BUG-206: the census headlines' detail bullets sit
+  // one level in under their group bullet. The fixture
+  // mirrors the founder's screenshot (70% own, 38%
+  // outright, 32% mortgage, 14% social, 15% private;
+  // median age 43.6; 95 in 100 White, Mixed 2.6,
+  // Asian 1.3; 70% detached or semi, 14% flats;
+  // deprivation genuinely unfiled).
+  const servedCensus = {
+    state: "served",
+    line: null,
+    msoaCode: "E02012345",
+    msoaName: "Braintree 001",
+    residentsTotal: 8100,
+    householdsTotal: 3100,
+    medianAge: { value: 43.6, calculated: true, line: "The median age is 43.6." },
+    socialRented: { count: 434, total: 3100, pct: 14, line: "14% rent from a social landlord." },
+    tables: [
+      {
+        code: "ts054",
+        title: "Tenure",
+        total: 3100,
+        rows: [
+          { label: "Owned", count: 2170, pct: 70 },
+          { label: "Owned: Owns outright", count: 1178, pct: 38 },
+          { label: "Owned: Owns with a mortgage or loan", count: 992, pct: 32 },
+          { label: "Social rented", count: 434, pct: 14 },
+          { label: "Private rented", count: 465, pct: 15 },
+        ],
+        groups: null,
+      },
+      {
+        code: "ts021",
+        title: "Ethnic group",
+        total: 8100,
+        rows: [],
+        groups: [
+          { label: "White", count: 7695, pct: 95 },
+          { label: "Mixed or Multiple ethnic groups", count: 211, pct: 2.6 },
+          { label: "Asian, Asian British or Asian Welsh", count: 105, pct: 1.3 },
+        ],
+      },
+      {
+        code: "ts044",
+        title: "Accommodation type",
+        total: 3100,
+        rows: [
+          { label: "Detached", count: 1240, pct: 40 },
+          { label: "Semi-detached", count: 930, pct: 30 },
+          { label: "Whole house or bungalow: Flat, maisonette or apartment", count: 434, pct: 14 },
+        ],
+        groups: null,
+      },
+    ],
+    sourceLine: "Census 2021",
+  } as unknown as CensusSection;
+
+  const baseArea = areaBundle();
+  if (baseArea.kind !== "area-bundle") throw new Error("expected an area-bundle fixture");
+
+  const censusView = () =>
+    buildResultsView(
+      input({
+        area: {
+          ...baseArea,
+          sections: {
+            ...baseArea.sections,
+            census: servedCensus,
+            imd: {
+              state: "not-filed",
+              line: "No deprivation index figure is filed for this area.",
+              decile: null,
+            } as unknown as ImdSection,
+          },
+        },
+      }),
+    );
+
+  it("BUG-206: the census detail bullets carry sub: true under their group bullets; groups and Deprivation do not", () => {
+    const view = censusView();
+    const census = section(view, "neighbourhood", "census");
+    const list = census.blocks.find((b) => b.type === "list");
+    expect(list).toBeDefined();
+    if (list?.type !== "list") return;
+    const byText = (text: string) => list.items.find((i) => i.text === text);
+    expect(byText("7 in 10 households own their home.")?.sub).toBeUndefined();
+    expect(byText("38% own outright.")?.sub).toBe(true);
+    expect(byText("32% own with a mortgage.")?.sub).toBe(true);
+    expect(byText("14% rent from a social landlord.")?.sub).toBe(true);
+    expect(byText("15% rent privately.")?.sub).toBe(true);
+    expect(byText("The typical age is 43.6.")?.sub).toBeUndefined();
+    expect(byText("95 in 100 residents are White.")?.sub).toBe(true);
+    expect(
+      byText("The next largest groups are Mixed (2.6 in 100) and Asian (1.3 in 100).")?.sub,
+    ).toBe(true);
+    expect(byText("Nearly 7 in 10 are detached or semi-detached houses.")?.sub).toBeUndefined();
+    expect(byText("About 1 in 7 is a flat.")?.sub).toBe(true);
+    // Deprivation stands alone, with no sub-bullets.
+    expect(byText("No deprivation index figure is filed for this area.")?.sub).toBeUndefined();
+  });
+
+  it("BUG-206: the rendered page marks the detail bullets with the sub class", () => {
+    const view = censusView();
+    const html = renderToStaticMarkup(createElement(ResultsPage, { view }));
+    expect(html).toContain('class="results-list__item results-list__item--sub"');
+    expect(html).toContain("38% own outright.");
+    expect(html).toContain("About 1 in 7 is a flat.");
+  });
+
+  // BUG-209: in COSTS, the EV charging point is a row
+  // among the Costs rows with the bold "EV charging"
+  // lead (the sample's form) — never a bare place row
+  // under "EPC & energy" — and the "None within 5
+  // miles..." line is gone: it duplicated the entry
+  // below it.
+  const evBeyondView = () =>
+    buildResultsView(
+      input({
+        nearby: nearbyWith({
+          "ev-chargers": category({
+            category: "ev-chargers",
+            state: "none-within",
+            places: [],
+            countWithin: 0,
+            beyondNearest: {
+              name: "Shell Recharge/Ubitricity",
+              miles: 13.9,
+              latitude: 51.7,
+              longitude: 0.6,
+            },
+            line: "none within 5 miles — nearest is Shell Recharge/Ubitricity, 13.9 miles away",
+          }),
+        }),
+      }),
+    );
+
+  it("BUG-209: a beyond-nearest charger renders as the EV row in Costs, with no None-within line and no bare place row", () => {
+    const view = evBeyondView();
+    const costs = section(view, "home", "costs");
+    const evRow = costs.blocks.find(
+      (b) => b.type === "tagged-line" && (b as { lead?: string }).lead === "EV charging",
+    );
+    expect(evRow).toBeDefined();
+    if (evRow?.type !== "tagged-line") return;
+    expect(evRow.texts).toEqual(["Nearest public charge point — Shell Recharge/Ubitricity."]);
+    expect(evRow.miles).toEqual({ text: "13.9 mi", band: "red" });
+    const text = JSON.stringify(costs.blocks);
+    expect(text).not.toContain("None within 5 miles");
+    expect(text).not.toContain("nearest is Shell Recharge/Ubitricity, 13.9 miles away");
+    expect(costs.blocks.some((b) => b.type === "places")).toBe(false);
+  });
+
+  it("BUG-209: the rendered page shows the EV row with its 13.9 mi pill and no None-within line", () => {
+    const view = evBeyondView();
+    const html = renderToStaticMarkup(createElement(ResultsPage, { view }));
+    expect(html).toContain("EV charging");
+    expect(html).toContain("Nearest public charge point — Shell Recharge/Ubitricity.");
+    expect(html).toContain("13.9 mi");
+    expect(html).not.toContain("None within 5 miles");
+  });
+
+  it("BUG-209: a within-range charger renders the same EV row form with the nearest", () => {
+    const view = buildResultsView(
+      input({
+        nearby: nearbyWith({
+          "ev-chargers": category({
+            category: "ev-chargers",
+            state: "within",
+            places: [
+              { latitude: 51.7, longitude: 0.6, name: "Roam Charging", miles: 1.8, detail: null },
+            ],
+            countWithin: 1,
+          }),
+        }),
+      }),
+    );
+    const costs = section(view, "home", "costs");
+    const evRow = costs.blocks.find(
+      (b) => b.type === "tagged-line" && (b as { lead?: string }).lead === "EV charging",
+    );
+    expect(evRow).toBeDefined();
+    if (evRow?.type !== "tagged-line") return;
+    expect(evRow.texts).toEqual(["Nearest public charge point — Roam Charging."]);
+    expect(evRow.miles).toEqual({ text: "1.8 mi", band: "orange" });
+  });
+});
+
+describe("results — BUG-211 straight-line wording", () => {
+  // BUG-211: the straight-line explanation lives once,
+  // in How We Check — never on a report surface. The
+  // default fixture carries beyond-nearest lines (A&E,
+  // maternity) that used to print the parenthetical.
+  it("BUG-211: the free page carries no straight-line parenthetical anywhere", () => {
+    const view = buildResultsView(input());
+    const html = renderToStaticMarkup(createElement(ResultsPage, { view }));
+    expect(html).not.toContain("(straight-line distance from the postcode point)");
+    expect(html).not.toContain("straight-line distance from the postcode point");
+    expect(JSON.stringify(view)).not.toContain("straight-line distance from the postcode point");
+  });
+
+  it("BUG-211: the explanation lives exactly once, in How We Check, and not in the disclaimers", () => {
+    const howText = HOW_WE_CHECK_CARDS.map((c) => `${c.howLabel ?? ""} ${c.howText ?? ""}`).join(
+      " ",
+    );
+    expect(howText.match(/straight-line/g) ?? []).toHaveLength(1);
+    expect(howText).toContain("How distances are measured:");
+    expect(howText).toContain("every distance on the site is straight-line — as the crow flies");
+    expect(DISCLAIMER_CLOSING_BLOCK).not.toContain("straight-line");
+  });
+});
+
+describe("results — BUG-213 none-within preamble", () => {
+  // BUG-213: where the named entry below carries the
+  // nearest with its distance pill, the "None within"
+  // preamble line is gone — the sample shows the entry
+  // alone (Sample 3 Tabs 1 and 4; View 7 Section 5).
+  // The default fixture carries beyond-nearest A&E and
+  // maternity (4.2 and 5.9 miles) — both inside the
+  // 25-mile guard, so both render as rows.
+  it("BUG-213: the free page carries no None-within preamble where a named entry carries the nearest", () => {
+    const view = buildResultsView(input());
+    const html = renderToStaticMarkup(createElement(ResultsPage, { view }));
+    expect(html).not.toContain("None within");
+    expect(html).not.toContain("none within");
+    expect(JSON.stringify(view)).not.toContain("None within");
+    // The entries themselves still stand, with pills.
+    expect(html).toContain("Broomfield Hospital");
+    expect(html).toContain("4.2 mi");
+  });
+
+  it("BUG-213: a far-beyond nearest keeps its line as the sole statement — no row, no name", () => {
+    // Past the 25-mile guard the nearest is suppressed
+    // as a row (CI #205); the line is the only
+    // statement, in the settled unnamed no-finding
+    // form — it names no 30-mile "nearest". See the
+    // terminal report: the founder rules on whether a
+    // far-beyond nearest should ever be named.
+    const view = buildResultsView(
+      input({
+        nearby: nearbyWith({
+          gp: category({
+            category: "gp",
+            label: "GP surgeries",
+            state: "none-within",
+            places: [],
+            countWithin: 0,
+            beyondNearest: {
+              name: "Far Away Surgery",
+              miles: 30,
+              latitude: 51.7,
+              longitude: 0.6,
+            },
+            line: "none within 2 miles — nearest is Far Away Surgery, 30 miles away",
+          }),
+        }),
+      }),
+    );
+    const health = section(view, "nearby", "health");
+    const text = JSON.stringify(health.blocks);
+    expect(text).toContain("No GP surgeries within 2 miles of the postcode point");
+    expect(text).not.toContain("Far Away Surgery");
+    expect(text).not.toContain('"rows":[{"name"');
   });
 });
 
@@ -2837,7 +3126,7 @@ describe("results — the rendered page", () => {
 
   it("the closing disclaimer block is pinned verbatim (Final Design, website form)", () => {
     expect(DISCLAIMER_CLOSING_BLOCK).toBe(
-      "School places are never promised and catchments are not guaranteed — check council and school admissions, apply by 31 Oct (secondary) / 15 Jan (primary). GP lists and NHS dentist places open and close. Pet data from OpenStreetMap may be incomplete. Air quality, noise and solar are modelled. Distances are straight-line. This result is information, not advice. Full method, sources and disclaimers:",
+      "School places are never promised and catchments are not guaranteed — check council and school admissions, apply by 31 Oct (secondary) / 15 Jan (primary). GP lists and NHS dentist places open and close. Pet data from OpenStreetMap may be incomplete. Air quality, noise and solar are modelled. This result is information, not advice. Full method, sources and disclaimers:",
     );
   });
 });

@@ -10,12 +10,7 @@ import {
   type ResolvedAddress,
 } from "./address";
 import { improvementName } from "./epc-improvements";
-import {
-  BROWNFIELD_RADIUS_MILES,
-  DISTANCE_BASIS_LABEL,
-  RADIUS_MILES,
-  haversineMiles,
-} from "./nearby";
+import { BROWNFIELD_RADIUS_MILES, RADIUS_MILES, haversineMiles } from "./nearby";
 import { nationOfPostcode } from "./nation";
 import { COMPANY_OWNERSHIP_ENABLED } from "./site";
 
@@ -1073,7 +1068,7 @@ function buildPolygonLayer(
     const name = shapeName(beyond, spec.unnamedName);
     const miles = round3(beyond.miles);
     answer.beyondNearest = { name, miles };
-    answer.beyondLine = `none within ${RADIUS_MILES} miles — the nearest is ${name}, ${miles} miles away (${DISTANCE_BASIS_LABEL})`;
+    answer.beyondLine = `none within ${RADIUS_MILES} miles — the nearest is ${name}, ${miles} miles away`;
   }
   return answer;
 }
@@ -1257,7 +1252,7 @@ function toBrownfieldSite(row: BrownfieldRow): BrownfieldSite {
     planningPermissionStatus: row.planningPermissionStatus,
     statusLine,
     dwellingsLine,
-    line: `${label} — ${miles} miles away (${DISTANCE_BASIS_LABEL})`,
+    line: `${label} — ${miles} miles away`,
   };
 }
 
@@ -1301,7 +1296,7 @@ function buildBrownfield(
   // prove the absence the line states.
   if (covered && councilPublishes && countWithin === 0 && facts.nearestBeyond) {
     beyondNearest = toBrownfieldSite(facts.nearestBeyond);
-    beyondLine = `none within ${BROWNFIELD_RADIUS_MILES} miles — the nearest recorded site is ${beyondNearest.label}, ${beyondNearest.miles} miles away (${DISTANCE_BASIS_LABEL})`;
+    beyondLine = `none within ${BROWNFIELD_RADIUS_MILES} miles — the nearest recorded site is ${beyondNearest.label}, ${beyondNearest.miles} miles away`;
   }
   if (!covered) {
     return {
@@ -1635,7 +1630,7 @@ function buildHeritage(
   let beyondLine: string | null = null;
   if (covered && countWithin === 0 && listed.nearestBeyond) {
     beyondNearest = toListedPlace(listed.nearestBeyond);
-    beyondLine = `none within ${RADIUS_MILES} miles — the nearest listed building is ${beyondNearest.name ?? "an unnamed listed building"} (grade ${beyondNearest.grade}), ${beyondNearest.miles} miles away (${DISTANCE_BASIS_LABEL})`;
+    beyondLine = `none within ${RADIUS_MILES} miles — the nearest listed building is ${beyondNearest.name ?? "an unnamed listed building"} (grade ${beyondNearest.grade}), ${beyondNearest.miles} miles away`;
   }
 
   let atPoint: ListedAtPoint;
@@ -1987,8 +1982,8 @@ function buildNature(
           typesWithin: phi.typesWithin,
           line: phi.nearest
             ? round3(phi.nearest.miles) === 0
-              ? `priority habitat recorded at this postcode point: ${phi.nearest.habitat} (${DISTANCE_BASIS_LABEL})`
-              : `nearest recorded priority habitat: ${phi.nearest.habitat}, ${round3(phi.nearest.miles)} miles away (${DISTANCE_BASIS_LABEL})`
+              ? `priority habitat recorded at this postcode point: ${phi.nearest.habitat}`
+              : `nearest recorded priority habitat: ${phi.nearest.habitat}, ${round3(phi.nearest.miles)} miles away`
             : "no priority habitat is recorded near this postcode point",
           sourceName: phi.sourceName,
           sourceDate: phi.sourceDate,
@@ -2011,7 +2006,7 @@ function buildNature(
     placesWithinCount: within.length,
     beyondPlace: beyond,
     beyondLine: beyond
-      ? `no designated site within ${RADIUS_MILES} miles — the nearest is ${beyond.line}, ${beyond.miles} miles away (${DISTANCE_BASIS_LABEL})`
+      ? `no designated site within ${RADIUS_MILES} miles — the nearest is ${beyond.line}, ${beyond.miles} miles away`
       : null,
     placesLine:
       unfiledTypes.length === DESIGNATION_ORDER.length
@@ -4508,7 +4503,7 @@ function buildAqma(facts: AqmaFacts): AirAqmaBlock {
     return {
       ...filed,
       state: "nearest",
-      line: `This postcode point is not inside an Air Quality Management Area. The nearest is the ${nearest.name} (${nearest.authority}), declared for ${joinWords(pollutants)}: its nearest boundary is ${miles.toFixed(2)} miles from the postcode point (straight-line distance from the postcode point).`,
+      line: `This postcode point is not inside an Air Quality Management Area. The nearest is the ${nearest.name} (${nearest.authority}), declared for ${joinWords(pollutants)}: its nearest boundary is ${miles.toFixed(2)} miles from the postcode point.`,
       name: nearest.name,
       authority: nearest.authority,
       pollutants,

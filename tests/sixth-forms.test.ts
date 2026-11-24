@@ -451,7 +451,7 @@ describe("sixth forms — the beyond name (M6.33, D64 ruling 4)", () => {
       longitude: DISTANT_FLAGGED_SECONDARY.longitude,
     });
     expect(cat.line).toBe(
-      `none within 5 miles — nearest is Distant Flagged Secondary, ${milesOf(DISTANT_FLAGGED_SECONDARY)} miles away (straight-line distance from the postcode point)`,
+      `none within 5 miles — nearest is Distant Flagged Secondary, ${milesOf(DISTANT_FLAGGED_SECONDARY)} miles away`,
     );
   });
 
