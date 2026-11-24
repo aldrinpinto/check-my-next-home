@@ -383,6 +383,14 @@ const SWEEP_DELETE_SQL = `
 // failure anywhere simply starts again; the merge steps are
 // idempotent (the same answer written again), and the sweep is
 // unreachable until the merge has completed in full.
+// BUG-227: the sweep tally's trailing fact must read "1 stale key
+// removed" for exactly one removal — "1 stale keys removed" is
+// wrong. One helper serves the tick and the finish, so the two
+// can never drift apart again.
+function staleKeysRemoved(removed) {
+  return removed === 1 ? "1 stale key removed" : `${formatCount(removed)} stale keys removed`;
+}
+
 /**
  * @param {any} client
  * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
@@ -497,10 +505,10 @@ export async function createBroadbandFiler(client, { progress = null } = {}) {
         );
         removed += deleted.rowCount ?? 0;
         sweepBatch += 1;
-        sweepTally?.tick(sweepBatch, `${formatCount(removed)} stale keys removed`);
+        sweepTally?.tick(sweepBatch, staleKeysRemoved(removed));
         if (batch.length < SWEEP_CHUNK) break;
       }
-      sweepTally?.finish(sweepBatch, `${formatCount(removed)} stale keys removed`);
+      sweepTally?.finish(sweepBatch, staleKeysRemoved(removed));
       await client.query("DROP TABLE IF EXISTS broadband_stage");
       return updated;
     },

@@ -379,11 +379,38 @@ describe("progress lines (BUG-204)", () => {
         ),
       ).toBe(true);
       expect(
-        lines.some((l) => /progress · sweep 3\/3 batches \(100%\) · 1 stale keys removed/.test(l)),
+        lines.some((l) => /progress · sweep 3\/3 batches \(100%\) · 1 stale key removed/.test(l)),
       ).toBe(true);
       // No progress line can be mistaken for the summary line:
       // none starts with the loader name.
       expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
+    },
+  );
+
+  it(
+    "reads '2 stale keys removed' when the sweep removes two (BUG-227)",
+    { timeout: 30_000 },
+    async () => {
+      const rows = syntheticRows(12_000);
+      const fake = createFakeClient();
+      for (const row of rows)
+        fake.seedCache(row.postcode, { broadband: { ...OLD_ANSWER }, other: 1 });
+      fake.seedCache("ZZ9 9ZZ", { broadband: { ...OLD_ANSWER } });
+      fake.seedCache("ZZ9 9ZY", { broadband: { ...OLD_ANSWER } });
+
+      const lines: string[] = [];
+      const progress = createProgressLogger({
+        name: "load-broadband",
+        log: (line: string) => lines.push(line),
+      });
+      const updated = await fileBroadband(fake as never, rows as never, { progress });
+
+      expect(updated).toBe(12_000);
+      expect(fake.cacheAnswers("ZZ9 9ZZ")?.broadband).toBeUndefined();
+      expect(fake.cacheAnswers("ZZ9 9ZY")?.broadband).toBeUndefined();
+      expect(
+        lines.some((l) => /progress · sweep 3\/3 batches \(100%\) · 2 stale keys removed/.test(l)),
+      ).toBe(true);
     },
   );
 });

@@ -38,6 +38,19 @@ describe("the progress line format", () => {
     );
   });
 
+  it("formats the streets swap count with thousands separators (BUG-227)", () => {
+    const { lines, log } = collect();
+    const progress = createProgressLogger({ name: "load-streets", log });
+    progress.stage(
+      `swap started — filing ${formatCount(3_100_000)} staged street lines into the live table`,
+    );
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(
+      /progress · swap started — filing 3,100,000 staged street lines into the live table$/,
+    );
+    expect(lines[0]).not.toMatch(/filing 3100000 /);
+  });
+
   it("never starts with the loader name, so the runner keeps the summary line", () => {
     const { lines, log } = collect();
     const progress = createProgressLogger({ name: "load-broadband", log });
@@ -56,12 +69,20 @@ describe("the progress line format", () => {
       done: 3,
       total: 3,
       unit: "batches",
-      extra: "1 stale keys removed",
+      extra: "1 stale key removed",
+    });
+    progress.count({
+      label: "sweep",
+      done: 3,
+      total: 3,
+      unit: "batches",
+      extra: "2 stale keys removed",
     });
     expect(lines[0]).toMatch(/progress · intake 2,000,000 lines$/);
     expect(lines[0]).not.toContain("%");
     expect(lines[1]).toMatch(/progress · merge 25\/100 chunks \(25%\)$/);
-    expect(lines[2]).toMatch(/progress · sweep 3\/3 batches \(100%\) · 1 stale keys removed$/);
+    expect(lines[2]).toMatch(/progress · sweep 3\/3 batches \(100%\) · 1 stale key removed$/);
+    expect(lines[3]).toMatch(/progress · sweep 3\/3 batches \(100%\) · 2 stale keys removed$/);
   });
 
   it("clamps the percentage at 100 when done overshoots the total", () => {

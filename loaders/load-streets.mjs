@@ -120,7 +120,7 @@ import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
 import pg from "pg";
 
-import { createProgressLogger } from "./progress.mjs";
+import { createProgressLogger, formatCount } from "./progress.mjs";
 
 const { Pool } = pg;
 
@@ -868,7 +868,7 @@ async function main() {
         return;
       }
       progress.stage(
-        `swap started — filing ${totalStaged} staged street lines into the live table`,
+        `swap started — filing ${formatCount(totalStaged)} staged street lines into the live table`,
       );
       const filed = await swapStagedStreets(pool);
       console.log(
