@@ -8,6 +8,7 @@ import {
   type ContentSection,
   type GuideContent,
 } from "../lib/check-pages";
+import Breadcrumb from "./Breadcrumb";
 import BreadcrumbLd from "./BreadcrumbLd";
 import ReportBand from "./ReportBand";
 import SearchBlock from "./SearchBlock";
@@ -26,8 +27,14 @@ import SearchBlock from "./SearchBlock";
 //   cards · the sources line · the related-links block ·
 //   the search block (the checker).
 //
-// No visible breadcrumb exists (the samples show none); the
-// BreadcrumbList is structured data only.
+// BUG-229 (24 Nov 2026): the breadcrumb trail is drawn
+// visibly now (components/Breadcrumb), under the header
+// above the eyebrow, on every view below — the same trail
+// the BreadcrumbList carries as structured data. Guide
+// pages take Home → Guides → guide; check pages and the
+// hub take Home → page and Home → Guides (a check page
+// has no single honest parent, so no Guides middle item
+// is forced in front of it).
 
 // The new-tab promise (M8.7): a content link that leaves
 // the site opens in a new tab with the safe rel; the
@@ -94,6 +101,7 @@ export function CheckPageView({ page }: { page: CheckPageContent }) {
     <main className="site-pages">
       <div className="site-pages__inner">
         <BreadcrumbLd name={page.name} path={page.path} />
+        <Breadcrumb items={[{ label: "Home", href: "/" }, { label: page.name }]} />
         <p className="eyebrow">{page.eyebrow}</p>
         <h1>{page.h1}</h1>
         <p className="lead">{page.lead}</p>
@@ -135,6 +143,7 @@ export function GuidesHubView() {
     <main className="site-pages">
       <div className="site-pages__inner">
         <BreadcrumbLd name="Guides" path="/guides" />
+        <Breadcrumb items={[{ label: "Home", href: "/" }, { label: "Guides" }]} />
         <p className="eyebrow">Guides</p>
         <h1>Guides</h1>
         <p className="lead">
@@ -173,7 +182,18 @@ export function GuidePageView({ guide }: { guide: GuideContent }) {
   return (
     <main className="site-pages">
       <div className="site-pages__inner">
-        <BreadcrumbLd name={guide.name} path={guide.path} />
+        <BreadcrumbLd
+          name={guide.name}
+          path={guide.path}
+          parents={[{ name: "Guides", path: "/guides" }]}
+        />
+        <Breadcrumb
+          items={[
+            { label: "Home", href: "/" },
+            { label: "Guides", href: "/guides" },
+            { label: guide.name },
+          ]}
+        />
         <p className="eyebrow">{guide.eyebrow}</p>
         <h1>{guide.h1}</h1>
         <p className="lead">{guide.lead}</p>

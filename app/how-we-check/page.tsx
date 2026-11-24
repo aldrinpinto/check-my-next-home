@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 
+import Breadcrumb from "../../components/Breadcrumb";
 import BreadcrumbLd from "../../components/BreadcrumbLd";
 import HowWeCheckIcon from "../../components/HowWeCheckIcon";
 import ReportBand from "../../components/ReportBand";
@@ -30,6 +31,7 @@ export default function HowWeCheckPage() {
     <main className="site-pages">
       <div className="site-pages__inner">
         <BreadcrumbLd name="How we check" path="/how-we-check" />
+        <Breadcrumb items={[{ label: "Home", href: "/" }, { label: "How we check" }]} />
         <p className="eyebrow">{HOW_WE_CHECK_EYEBROW}</p>
         <h1>{HOW_WE_CHECK_H1}</h1>
         <p className="lead">

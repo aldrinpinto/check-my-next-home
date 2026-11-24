@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
+import Breadcrumb from "../../components/Breadcrumb";
 import BreadcrumbLd from "../../components/BreadcrumbLd";
 import { PAGE_SEO, pageMetadata } from "../../lib/seo";
 import {
@@ -61,6 +62,7 @@ export default function PrivacyPage() {
     <main className="site-pages">
       <div className="site-pages__inner">
         <BreadcrumbLd name="Privacy policy" path="/privacy" />
+        <Breadcrumb items={[{ label: "Home", href: "/" }, { label: "Privacy policy" }]} />
         {/* D5 (parity fix stack, 18 Nov 2026): the policy
             sits in the sample's 820px .privacy-wrap inside
             the 1080px measure. */}

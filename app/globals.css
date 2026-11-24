@@ -4853,6 +4853,60 @@ a.picker__row {
   color: var(--sp-brass);
   margin-bottom: 0.6rem;
 }
+/* BUG-229 (24 Nov 2026) — the visible breadcrumb trail:
+   one small line under the header, above the eyebrow.
+   Small print in the samples' own language (muted text,
+   Forest links, Brass separators); the current page is
+   plain text, never a link. On phones the line never
+   wraps: it is one row with overflow hidden, the leading
+   items never shrink, and only the current page's name
+   truncates with an ellipsis (its H1 stands directly
+   below, so nothing is lost). */
+.site-pages .breadcrumb {
+  margin-bottom: 0.9rem;
+}
+.site-pages .breadcrumb ol {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: var(--sp-muted);
+}
+.site-pages .breadcrumb li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  margin: 0;
+  flex-shrink: 0;
+  min-width: 0;
+}
+.site-pages .breadcrumb li:last-child {
+  flex-shrink: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.site-pages .breadcrumb li:last-child > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.site-pages .breadcrumb a {
+  color: var(--sp-forest);
+  text-decoration: none;
+}
+.site-pages .breadcrumb a:hover {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+}
+.site-pages .breadcrumb__sep {
+  color: var(--sp-brass);
+}
 .site-pages h1 {
   font-size: 2.5rem;
   max-width: 22ch;

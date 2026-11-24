@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
+import Breadcrumb from "../../components/Breadcrumb";
 import BreadcrumbLd from "../../components/BreadcrumbLd";
 import { PAGE_SEO, pageMetadata } from "../../lib/seo";
 import {
@@ -64,6 +65,7 @@ export default function TermsPage() {
     <main className="site-pages">
       <div className="site-pages__inner">
         <BreadcrumbLd name="Terms of service" path="/terms" />
+        <Breadcrumb items={[{ label: "Home", href: "/" }, { label: "Terms of service" }]} />
         <div className="privacy-wrap">
           <p className="eyebrow">{TERMS_EYEBROW}</p>
           <h1>{TERMS_H1}</h1>

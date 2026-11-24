@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 
+import Breadcrumb from "../../components/Breadcrumb";
 import BreadcrumbLd from "../../components/BreadcrumbLd";
 import SearchBlock from "../../components/SearchBlock";
 import { PAGE_SEO, pageMetadata } from "../../lib/seo";
@@ -27,6 +28,7 @@ export default function AboutPage() {
     <main className="site-pages">
       <div className="site-pages__inner">
         <BreadcrumbLd name="About" path="/about" />
+        <Breadcrumb items={[{ label: "Home", href: "/" }, { label: "About" }]} />
         {/* D1a (parity fix stack, 18 Nov 2026): the hero
             takes the sample's .about-hero wrap and the six
             cards its .about-grid — three across at the full

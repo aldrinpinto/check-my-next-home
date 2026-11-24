@@ -334,36 +334,44 @@ export const WEBSITE_SCHEMA = {
 
 // M7.8 — BreadcrumbList structured data for the content
 // pages (the check pages, the guides and the chrome pages).
-// The trail is the honest two-item form the step settled:
-// Home → this page. There is no /check index page to name
-// as a middle item, and the /guides hub (18 Nov 2026) is a
-// footer destination, not a breadcrumb parent — the guides
-// keep the two-item form, so no middle item is emitted.
-// This is structured data only: no visible breadcrumb trail
-// is rendered anywhere (the finalised samples show none).
+// The trail is the honest form the step settled: Home →
+// this page, with a middle item where the page genuinely
+// has a parent. There is no /check index page to name as
+// a middle item, so the check pages keep the two-item
+// form; the /guides hub IS the guides' parent, so a guide
+// page takes the three-item form Home → Guides → guide.
+// (BUG-229, 24 Nov 2026: the visible trail is drawn now,
+// and the structured data matches it. This supersedes the
+// M7.8 decision that the guides keep the two-item form —
+// the hub was then "a footer destination, not a breadcrumb
+// parent"; the founder's BUG-229 ruling makes it the
+// parent of the guide pages in the trail, visible and
+// structured alike. The hub stays footer-only in the
+// chrome: no Guides link in the header.)
+// The trail is rendered visibly too (components/Breadcrumb,
+// BUG-229) — the samples showed none before.
 export function breadcrumbSchema({
   name,
   path,
+  parents = [],
 }: {
   name: string; // the page's own short name, e.g. "Flood risk check"
   path: string; // the page's own path, e.g. "/check/flood-risk"
+  parents?: { name: string; path: string }[]; // middle items, e.g. Guides
 }) {
+  const trail = [
+    { name: "Home", item: `${SITE_URL}/` },
+    ...parents.map((parent) => ({ name: parent.name, item: `${SITE_URL}${parent.path}` })),
+    { name, item: `${SITE_URL}${path}` },
+  ];
   return {
     "@context": "https://schema.org",
     "@type": "BreadcrumbList",
-    itemListElement: [
-      {
-        "@type": "ListItem",
-        position: 1,
-        name: "Home",
-        item: `${SITE_URL}/`,
-      },
-      {
-        "@type": "ListItem",
-        position: 2,
-        name,
-        item: `${SITE_URL}${path}`,
-      },
-    ],
+    itemListElement: trail.map((entry, index) => ({
+      "@type": "ListItem",
+      position: index + 1,
+      name: entry.name,
+      item: entry.item,
+    })),
   } as const;
 }

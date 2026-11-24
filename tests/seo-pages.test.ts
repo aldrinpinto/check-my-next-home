@@ -202,6 +202,40 @@ describe("breadcrumb structured data (M7.8)", () => {
     });
     expect(JSON.parse(JSON.stringify(schema))["@context"]).toBe("https://schema.org");
   });
+
+  it("gives a guide page the three-item Home → Guides → guide form (BUG-229)", () => {
+    const schema = breadcrumbSchema({
+      name: "Is this area good for families?",
+      path: "/guides/is-this-area-good-for-families",
+      parents: [{ name: "Guides", path: "/guides" }],
+    });
+    expect(schema.itemListElement).toHaveLength(3);
+    expect(schema.itemListElement[0]).toMatchObject({
+      position: 1,
+      name: "Home",
+      item: `${SITE_URL}/`,
+    });
+    expect(schema.itemListElement[1]).toMatchObject({
+      position: 2,
+      name: "Guides",
+      item: `${SITE_URL}/guides`,
+    });
+    expect(schema.itemListElement[2]).toMatchObject({
+      position: 3,
+      name: "Is this area good for families?",
+      item: `${SITE_URL}/guides/is-this-area-good-for-families`,
+    });
+  });
+
+  it("keeps the two-item form when no parents are given (BUG-229)", () => {
+    const schema = breadcrumbSchema({ name: "Crime check", path: "/check/crime" });
+    expect(schema.itemListElement).toHaveLength(2);
+    expect(schema.itemListElement[1]).toMatchObject({
+      position: 2,
+      name: "Crime check",
+      item: `${SITE_URL}/check/crime`,
+    });
+  });
 });
 
 describe("the related-links mapping (M7.8)", () => {

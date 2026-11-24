@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
 
+import Breadcrumb from "../../components/Breadcrumb";
 import BreadcrumbLd from "../../components/BreadcrumbLd";
 import ContactForm from "../../components/ContactForm";
 import {
@@ -59,6 +60,7 @@ export default async function ContactPage({
     <main className="site-pages">
       <div className="site-pages__inner">
         <BreadcrumbLd name="Contact" path="/contact" />
+        <Breadcrumb items={[{ label: "Home", href: "/" }, { label: "Contact" }]} />
         {/* D5 (parity fix stack, 18 Nov 2026): the page
             sits in the sample's 720px .contact-wrap; the
             form keeps its card inside the wrap (the
