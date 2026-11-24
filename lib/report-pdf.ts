@@ -19,11 +19,8 @@ import { SITE_NAME, SITE_TAGLINE, SITE_URL } from "./site";
 // ground to white, and prints each Sources link's URL
 // beside its name. A cover page carries the home's
 // address and the facts date; every page's footer
-// carries the address, "Page X of Y" and the standing
-// line below. The file is named for the home.
-
-// The footer's standing line, verbatim (prep point 3).
-export const REPORT_PDF_FOOTER_LINE = "Facts, not scores";
+// carries the address and "Page X of Y". The file is
+// named for the home.
 
 // The postcode in its display form ("cm3  2jt" →
 // "CM3 2JT") — the form the masthead and the file name
@@ -118,8 +115,8 @@ function escapeHtml(value: string): string {
 }
 
 // The Chromium footer template (prep point 3): the
-// address at the left, "Page X of Y" at the centre, the
-// standing line at the right, on every page. Chromium
+// address at the left, "Page X of Y" at the right, on
+// every page. Chromium
 // fills the pageNumber/totalPages spans itself; the
 // template must carry its own styling (it renders
 // outside the page's CSS), in the report's muted ink.
@@ -131,6 +128,11 @@ function escapeHtml(value: string): string {
 // because the footer renders outside the page whose
 // CSS carries the fonts. Without the style the footer
 // still renders, in the fallback stack.
+// BUG-197 (founder ruling, 23 Nov 2026): the footer's
+// standing line ("Facts, not scores" — the tail of the
+// website footer's removed sentence) is removed too,
+// so the footer carries the address and the page count
+// alone, spread to the two ends of the row.
 export function reportPdfFooterHtml(view: ReportView, postcode: string, fontStyle = ""): string {
   const address = escapeHtml(reportPdfFooterAddress(view, postcode));
   return (
@@ -141,7 +143,6 @@ export function reportPdfFooterHtml(view: ReportView, postcode: string, fontStyl
     `-webkit-print-color-adjust: exact;">` +
     `<span>${address}</span>` +
     `<span>Page <span class="pageNumber"></span> of <span class="totalPages"></span></span>` +
-    `<span>${REPORT_PDF_FOOTER_LINE}</span>` +
     `</div>`
   );
 }
@@ -225,10 +226,9 @@ export function sampleReportPdfCover(): SampleReportPdfCover {
 }
 
 // The sample footer's template, in the bought twin's
-// shape (address, Page X of Y, the standing line): the
-// address names the document a sample before it names
-// the home, so every printed page carries the marking,
-// not only the cover.
+// shape (address, Page X of Y): the address names the
+// document a sample before it names the home, so every
+// printed page carries the marking, not only the cover.
 export function sampleReportPdfFooterHtml(fontStyle = ""): string {
   const address = escapeHtml(`Sample report — ${SAMPLE_HOME_TITLE} · ${SAMPLE_HOME_POSTCODE}`);
   return (
@@ -239,7 +239,6 @@ export function sampleReportPdfFooterHtml(fontStyle = ""): string {
     `-webkit-print-color-adjust: exact;">` +
     `<span>${address}</span>` +
     `<span>Page <span class="pageNumber"></span> of <span class="totalPages"></span></span>` +
-    `<span>${REPORT_PDF_FOOTER_LINE}</span>` +
     `</div>`
   );
 }

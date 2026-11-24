@@ -309,12 +309,18 @@ describe("report-pdf — the file name, the key, the cover, the footer", () => {
     expect(cover.brandLine).toBe(birkdaleView.masthead.brandLine);
   });
 
-  it("the footer carries the address, Page X of Y and the standing line", () => {
+  it("the footer carries the address and Page X of Y, and not the standing line (BUG-197)", () => {
     const html = reportPdfFooterHtml(birkdaleView, "CM3 2JT");
     expect(html).toContain("19 Birkdale Rise · CM3 2JT");
-    expect(html).toContain("Facts, not scores");
+    expect(html).not.toContain("Facts, not scores");
+    expect(html).not.toContain("Data from named official sources");
     expect(html).toContain('<span class="pageNumber"></span>');
     expect(html).toContain('<span class="totalPages"></span>');
+  });
+
+  it("exports no standing-line constant from the PDF module (BUG-197)", async () => {
+    const pdfModule = await import("../lib/report-pdf");
+    expect("REPORT_PDF_FOOTER_LINE" in pdfModule).toBe(false);
   });
 
   it("the footer carries the caller's inlined DM Sans style at its head (BUG-149(1))", () => {
@@ -669,12 +675,13 @@ describe("report-pdf — the render proof (the two golden reports, printed)", ()
       expect(squashed[0]).toContain(squash(golden.view.masthead.preparedLine));
       expect(squashed[0]).not.toContain(squash("The short version"));
 
-      // The footer on every page: the address, the
-      // page's own number of the total, the line.
+      // The footer on every page: the address and the
+      // page's own number of the total — and not the
+      // standing line (BUG-197).
       pages.forEach((_, i) => {
         expect(squashed[i]).toContain(squash(golden.footerAddress));
         expect(squashed[i]).toContain(squash(`Page ${i + 1} of ${pages.length}`));
-        expect(squashed[i]).toContain(squash("Facts, not scores"));
+        expect(squashed[i]).not.toContain(squash("Facts, not scores"));
       });
 
       // Sources prints the URLs beside the names —
@@ -817,7 +824,7 @@ describe("the sample report's PDF (M8.8)", () => {
   it("the footer names the document a sample on every page, in the twin's shape", () => {
     const html = sampleReportPdfFooterHtml();
     expect(html).toContain("Sample report — 12 Willow Close · MB3 4QX");
-    expect(html).toContain("Facts, not scores");
+    expect(html).not.toContain("Facts, not scores");
     expect(html).toContain('<span class="pageNumber"></span>');
     expect(html).toContain('<span class="totalPages"></span>');
   });
@@ -929,13 +936,13 @@ describe("the sample report's PDF (M8.8)", () => {
       expect(squashed[0]).not.toContain(squash("The short version"));
 
       // The footer on every page after the cover: the
-      // sample address, the page's own number of the
-      // total, the standing line.
+      // sample address and the page's own number of the
+      // total — and not the standing line (BUG-197).
       pages.forEach((_, i) => {
         if (i === 0) return;
         expect(squashed[i]).toContain(squash("Sample report — 12 Willow Close · MB3 4QX"));
         expect(squashed[i]).toContain(squash(`Page ${i + 1} of ${pages.length}`));
-        expect(squashed[i]).toContain(squash("Facts, not scores"));
+        expect(squashed[i]).not.toContain(squash("Facts, not scores"));
       });
 
       // The whole file names no real home (BUG-159's
