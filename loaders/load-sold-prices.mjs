@@ -82,6 +82,28 @@
 // occur there; its records are counted by parseAllRecords as
 // before.
 //
+// BUG-201 (24 Nov 2026): the first repair re-fire of that pass
+// died on the play server's disk — "No space left on device"
+// some 74 minutes in, ~6 GB into the swap's insert, with ~25 GB
+// consumed. The staging had been shaped for correctness, not
+// for the box: the edition stamp rewrote all 31.6M staged rows
+// (a dead-tuple doubling of the heap), two staging indexes rode
+// along (~2 GB plus their sort spill), and the ~50-character
+// source name was stored on every staged row — while at the
+// peak the staging, the old register and the new one all had
+// to coexist. The staging is now slim by construction: it
+// stores neither the source name nor the edition (each is one
+// constant per pass; the swap's insert-select writes both as
+// parameters), it is never rewritten after intake, and it
+// carries no indexes — the proofs and the merge read it by
+// sequential scan, and transaction-id uniqueness is enforced
+// where it ultimately lives, by the live table's own unique
+// index (migration 0003) inside the swap transaction, on top
+// of the dedupe and the count reconciliations. Peak staging is
+// the bare heap (~6 GB at the 2026-10 register's size) instead
+// of ~17 GB, and the pass's whole peak fits the box's ~25 GB
+// of steady-state free space with room to spare.
+//
 // --update applies ONE monthly update file to the live register:
 // A/C rows upsert by transaction id, D rows delete by id (a
 // category change arrives as a D for the old id plus an A under a
@@ -376,7 +398,7 @@ export function parseModeArgs(args) {
   return { mode, fileDir, edition, verifyOnly, rest };
 }
 
-function recordValues(record, sourceDate) {
+function recordValues(record, sourceDate, sourceName = SOURCE_NAME) {
   return [
     record.transactionId,
     record.postcode,
@@ -393,7 +415,7 @@ function recordValues(record, sourceDate) {
     record.county,
     record.ppdCategory,
     record.recordStatus,
-    SOURCE_NAME,
+    sourceName,
     sourceDate,
   ];
 }
@@ -401,15 +423,19 @@ function recordValues(record, sourceDate) {
 // One multi-row INSERT of parsed records into a table holding the
 // PRICE_PAID_COLUMNS shape (the live register or the staging
 // table). Batches are the caller's; 1,000 rows × 17 params stays
-// well under the wire protocol's parameter ceiling.
-async function insertRecords(client, table, records, sourceDate) {
+// well under the wire protocol's parameter ceiling. sourceName
+// defaults to the register's standing source name; the national
+// pass stages with null — the staging stores no per-row copy of
+// a pass-wide constant (BUG-201), and the swap writes the real
+// one as it files the rows.
+async function insertRecords(client, table, records, sourceDate, sourceName = SOURCE_NAME) {
   if (records.length === 0) return;
   const width = PRICE_PAID_COLUMNS.length;
   const tuples = [];
   const params = [];
   records.forEach((record, row) => {
     tuples.push(`(${PRICE_PAID_COLUMNS.map((_, col) => `$${row * width + col + 1}`).join(",")})`);
-    params.push(...recordValues(record, sourceDate));
+    params.push(...recordValues(record, sourceDate, sourceName));
   });
   await client.query(
     `INSERT INTO ${table}
@@ -436,12 +462,18 @@ async function deleteByGuids(client, table, guids) {
 // in-memory Map's delete-then-set, in SQL. A category change is
 // the source's own pair (D of the old id, A under a new id) and
 // lands as exactly one row in the new category.
-async function mergeUpdateRecords(client, table, records, sourceDate) {
+async function mergeUpdateRecords(client, table, records, sourceDate, sourceName = SOURCE_NAME) {
   const upserts = records.filter((r) => r.recordStatus !== "D");
   const guids = [...new Set(records.map((r) => r.transactionId))];
   await deleteByGuids(client, table, guids);
   for (let at = 0; at < upserts.length; at += INSERT_BATCH_ROWS) {
-    await insertRecords(client, table, upserts.slice(at, at + INSERT_BATCH_ROWS), sourceDate);
+    await insertRecords(
+      client,
+      table,
+      upserts.slice(at, at + INSERT_BATCH_ROWS),
+      sourceDate,
+      sourceName,
+    );
   }
   return {
     upserted: upserts.length,
@@ -650,6 +682,10 @@ export async function runNational(
 ) {
   const startedAt = Date.now();
   const stats = { malformed: 0, emptyPostcode: 0, duplicates: 0, uncovered: {} };
+  // The staging carries the register's column shape (one insert
+  // shape serves both tables) but stores neither the source
+  // name nor the edition in its rows — both stay null here and
+  // the swap writes the pass's constants as it files (BUG-201).
   await client.query(`DROP TABLE IF EXISTS ${STAGE_TABLE}`);
   await client.query(
     `CREATE TEMP TABLE ${STAGE_TABLE} (
@@ -684,7 +720,7 @@ export async function runNational(
   let lineBytes = 0;
   let recordsStaged = 0;
   const flush = async () => {
-    await insertRecords(client, STAGE_TABLE, batch, null);
+    await insertRecords(client, STAGE_TABLE, batch, null, null);
     batch = [];
   };
   for await (const line of fullLines) {
@@ -769,7 +805,7 @@ export async function runNational(
     );
     updateMatched += res.rows[0].n;
   }
-  const merged = await mergeUpdateRecords(client, STAGE_TABLE, updateRecords, null);
+  const merged = await mergeUpdateRecords(client, STAGE_TABLE, updateRecords, null, null);
   const afterMerge = await stagedCount();
   if (afterMerge !== afterDedupe - updateMatched + merged.upserted)
     throw new Error(
@@ -778,27 +814,28 @@ export async function runNational(
 
   // 4 — the edition settles once, over the whole staged set:
   // the file's publication date when the source gave one, else
-  // the newest sale date filed. One UPDATE stamps every row —
-  // the national pass is one edition, exactly as a legacy load
-  // stamps its whole set with its file's edition.
+  // the newest sale date filed. The staged rows are NOT stamped
+  // with it: the edition is one constant for the whole pass,
+  // and rewriting every staged row to carry it would double
+  // the staging heap in dead tuples (BUG-201). The swap's
+  // insert-select writes it — and the source name, likewise
+  // never staged — as parameters, so the filed rows carry
+  // exactly what the old stamp-then-copy wrote.
   let sourceDate = edition;
   if (!sourceDate) {
     const res = await client.query(`SELECT max(sale_date)::text AS newest FROM ${STAGE_TABLE}`);
     sourceDate = res.rows[0]?.newest ?? null;
   }
   if (!sourceDate) throw new Error("the full file filed no sales — nothing to swap in");
-  await client.query(`UPDATE ${STAGE_TABLE} SET source_date = $1`, [sourceDate]);
 
-  // 5 — the staging indexes: the postcode index the proofs and
-  // the swap read by, and the unique transaction index, whose
-  // build is itself the proof that no duplicate id survives.
-  await client.query(`CREATE INDEX price_paid_stage_postcode_idx ON ${STAGE_TABLE} (postcode)`);
-  await client.query(
-    `CREATE UNIQUE INDEX price_paid_stage_txn_idx ON ${STAGE_TABLE} (transaction_id) WHERE transaction_id IS NOT NULL`,
-  );
-
-  // 6 — proofs against staging, before anything live moves: the
-  // golden homes, and the zero-uncovered-row self-check.
+  // 5 — proofs against staging, before anything live moves: the
+  // golden homes, and the zero-uncovered-row self-check. The
+  // staging carries no indexes (BUG-201), so the proofs read it
+  // by sequential scan — the same rows, the same verdicts. No
+  // duplicate id can survive to be filed: the dedupe above
+  // collapsed them and the counts reconciled, and the live
+  // table's own unique index (migration 0003) rejects any
+  // survivor inside the swap transaction, rolling it back.
   // Uncovered-area rows were skipped at intake (BUG-184), so
   // this count must read zero; a row here means the skip itself
   // is broken, and the pass refuses on that defect — never on
@@ -840,11 +877,13 @@ export async function runNational(
     };
   }
 
-  // 7 — the swap: one transaction. Serving reads see the old
+  // 6 — the swap: one transaction. Serving reads see the old
   // register until commit and the new one after; there is no
   // moment with a half-filed register. The golden proof reads
   // the filed rows back from the live table before commit, as
-  // the legacy loader proves its own filing.
+  // the legacy loader proves its own filing. The source name
+  // and the edition ride as parameters — the staging never
+  // stored either (BUG-201).
   try {
     await client.query("BEGIN");
     await client.query("TRUNCATE price_paid");
@@ -855,8 +894,9 @@ export async function runNational(
           record_status, source_name, source_date)
        SELECT transaction_id, postcode, price, sale_date, property_type, new_build,
               tenure, paon, saon, street, locality, town, county, ppd_category,
-              record_status, source_name, source_date
+              record_status, $1, $2
          FROM ${STAGE_TABLE}`,
+      [SOURCE_NAME, sourceDate],
     );
     // The swap lands exactly the staged total or the whole
     // transaction rolls back (BUG-188): a short insert-select
@@ -875,7 +915,7 @@ export async function runNational(
     throw error;
   }
 
-  // 8 — gap 2's bulk stamp, after the swap (it reads the new
+  // 7 — gap 2's bulk stamp, after the swap (it reads the new
   // register to decide who filed nothing).
   const stamped = await stampNoSalePostcodes(client, sourceDate);
   await client.query(`DROP TABLE IF EXISTS ${STAGE_TABLE}`);

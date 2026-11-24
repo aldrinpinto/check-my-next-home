@@ -63,6 +63,7 @@ function valuesToRow(values: unknown[]): Row {
 class FakeClient {
   stage: Row[] | null = null;
   live: Row[] = [];
+  statements: { sql: string; params: unknown[] }[] = [];
   cache = new Map<string, { answers: Record<string, unknown> }>();
   runs: Row[] = [];
   items: Row[] = [];
@@ -77,6 +78,7 @@ class FakeClient {
 
   async query(text: string, params: unknown[] = []): Promise<{ rows: Row[]; rowCount?: number }> {
     const sql = text.replace(/\s+/g, " ").trim();
+    this.statements.push({ sql, params });
     if (sql === "BEGIN") {
       this.#snapshot = structuredClone(this.live);
       return { rows: [] };
@@ -98,13 +100,6 @@ class FakeClient {
       this.stage = [];
       return { rows: [] };
     }
-    if (sql.startsWith("CREATE UNIQUE INDEX")) {
-      const ids = (this.stage ?? []).map((r) => r.transaction_id).filter((id) => id !== null);
-      if (new Set(ids).size !== ids.length)
-        throw new Error("duplicate key value violates unique constraint");
-      return { rows: [] };
-    }
-    if (sql.startsWith("CREATE INDEX")) return { rows: [] };
     if (sql.startsWith("INSERT INTO price_paid_stage")) {
       const width = COLUMNS.length;
       for (let at = 0; at < params.length; at += width) {
@@ -128,10 +123,6 @@ class FakeClient {
     if (sql.startsWith("DELETE FROM price_paid_stage WHERE transaction_id = ANY")) {
       const guids = new Set(params[0] as string[]);
       this.stage = (this.stage as Row[]).filter((r) => !guids.has(r.transaction_id as string));
-      return { rows: [] };
-    }
-    if (sql.startsWith("UPDATE price_paid_stage SET source_date")) {
-      for (const row of this.stage as Row[]) row.source_date = params[0];
       return { rows: [] };
     }
     if (sql.startsWith("SELECT max(sale_date)::text AS newest FROM price_paid_stage")) {
@@ -164,7 +155,20 @@ class FakeClient {
     }
     if (sql.startsWith("INSERT INTO price_paid") && sql.includes("SELECT")) {
       if (this.failOnSwapInsert) throw new Error("armed failure on the swap insert");
-      this.live = (this.stage as Row[]).map(({ seq: _seq, ...row }) => ({ ...row }));
+      // The live table's unique transaction index (migration
+      // 0003) speaks at the swap: a duplicate id surviving the
+      // dedupe fails the insert and the transaction rolls back
+      // (BUG-201 — the staging builds no index of its own).
+      const ids = (this.stage as Row[]).map((r) => r.transaction_id).filter((id) => id !== null);
+      if (new Set(ids).size !== ids.length)
+        throw new Error("duplicate key value violates unique constraint");
+      // The swap writes the pass's source name and edition from
+      // its parameters — the staging never stored either.
+      this.live = (this.stage as Row[]).map(({ seq: _seq, ...row }) => ({
+        ...row,
+        source_name: params[0],
+        source_date: params[1],
+      }));
       return { rows: [], rowCount: this.live.length };
     }
     if (sql.startsWith("INSERT INTO price_paid")) {
@@ -695,6 +699,42 @@ describe("runNational — the whole register in one pass", () => {
     expect(result.stamped).toBe(0);
     expect(client.live).toEqual([{ transaction_id: "SENTINEL" }]);
     expect(client.cache.get("CM3 2AA")?.answers.soldPricesLoad).toBeUndefined();
+  });
+});
+
+describe("BUG-201 — the slim staging: no indexes, no edition rewrite, constants land at the swap", () => {
+  it("builds no index on the staging table and never rewrites it to stamp the edition", async () => {
+    const { client } = await nationalClient();
+    const sql = client.statements.map((s) => s.sql);
+    expect(sql.some((s) => /^CREATE (UNIQUE )?INDEX/.test(s))).toBe(false);
+    expect(sql.some((s) => s.startsWith("UPDATE price_paid_stage"))).toBe(false);
+  });
+
+  it("stages rows with the pass-wide constants absent, and writes them from the swap's parameters", async () => {
+    const { client } = await nationalClient();
+    const stageInserts = client.statements.filter((s) =>
+      s.sql.startsWith("INSERT INTO price_paid_stage"),
+    );
+    expect(stageInserts.length).toBeGreaterThan(0);
+    for (const { params } of stageInserts) {
+      for (let at = 0; at < params.length; at += COLUMNS.length) {
+        expect(params[at + 15]).toBeNull(); // source_name
+        expect(params[at + 16]).toBeNull(); // source_date
+      }
+    }
+    const swap = client.statements.find(
+      (s) => s.sql.startsWith("INSERT INTO price_paid") && s.sql.includes("SELECT"),
+    );
+    expect(swap?.params).toEqual([
+      "HM Land Registry Price Paid (full file + monthly update)",
+      EDITION,
+    ]);
+    // The filed rows carry the constants exactly as the old
+    // stamp-then-copy wrote them.
+    expect(new Set(client.live.map((r) => r.source_name))).toEqual(
+      new Set(["HM Land Registry Price Paid (full file + monthly update)"]),
+    );
+    expect(new Set(client.live.map((r) => r.source_date))).toEqual(new Set([EDITION]));
   });
 });
 
