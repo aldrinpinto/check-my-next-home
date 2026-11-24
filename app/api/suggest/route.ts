@@ -101,7 +101,21 @@ export async function GET(request: Request) {
     } finally {
       await bounded.close();
     }
-  } catch {
+  } catch (error) {
+    // BUG-203 (24 Nov 2026): this catch used to return
+    // the 500 in silence — a failed suggest left no
+    // trace at all, so the deploy's startup 500s and
+    // the vanishing panel were both undiagnosable.
+    // The failure is logged with the query's length
+    // and the error (never the typed words — the
+    // entry log's rule), so a 500 can be followed to
+    // its cause.
+    logEntry(req, "suggestions.failed", {
+      layer: "local",
+      reason: "suggest-failed",
+      qlen: q.length,
+      error: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json({ error: "suggest-failed" }, { status: 500 });
   }
 }

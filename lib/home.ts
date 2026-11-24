@@ -73,6 +73,17 @@ export const POSTCODE_BOX_NO_SUGGESTIONS_LINE =
 // replaces it the moment it lands, with the groups or
 // with the no-suggestions line above.
 export const POSTCODE_BOX_SEARCHING_LINE = "Searching…";
+// The suggestions panel's settled-failure line
+// (BUG-203, 24 Nov 2026): a suggestions fetch that
+// failed — after the coordinator's one retry — is an
+// ANSWER, not an absence: the panel opens on this
+// line instead of vanishing, so the visitor can tell
+// a failed fetch from a box still loading. A failed
+// fetch is not an empty answer and never sets the
+// settled-empty flag. The search itself stays one
+// button press away, and the line says so.
+export const POSTCODE_BOX_SUGGESTIONS_FAILED_LINE =
+  "Suggestions didn't load — try again in a moment, or use the button to search anyway.";
 
 // The small line under the hero's search row (the decided
 // sample page's, verbatim — fidelity pass 2). The hero's

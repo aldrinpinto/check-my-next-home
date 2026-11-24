@@ -10,6 +10,7 @@ import {
   POSTCODE_BOX_NO_SUGGESTIONS_LINE,
   POSTCODE_BOX_PLACEHOLDER,
   POSTCODE_BOX_SEARCHING_LINE,
+  POSTCODE_BOX_SUGGESTIONS_FAILED_LINE,
 } from "../lib/home";
 import { createSuggestCoordinator, type SuggestCoordinator } from "../lib/suggest-client";
 import {
@@ -233,6 +234,17 @@ export default function PostcodeBox({
   // loading. A failed fetch is not an empty answer and
   // never sets it.
   const [emptySettled, setEmptySettled] = useState(false);
+  // The settled-failure flag (BUG-203, 24 Nov 2026):
+  // a suggestions fetch that failed — after the
+  // coordinator's one retry — is an ANSWER, not an
+  // absence: the panel opens on the failure line so
+  // the visitor can tell a failed fetch from a box
+  // still loading, and from a settled empty answer.
+  // A failed fetch is not an empty answer and never
+  // sets the settled-empty flag; a fresh response
+  // clears this flag, and a fresh keystroke
+  // un-settles it, exactly as the empty flag is.
+  const [failedSettled, setFailedSettled] = useState(false);
   // The mid-flight flag (BUG-196): the coordinator
   // reports the current query in flight from its
   // keystroke until its response settles, and the
@@ -276,13 +288,23 @@ export default function PostcodeBox({
   const visibleGroups = typedLength >= 3 ? liveGroups : [];
   const visibleOpen = panelOpen && visibleGroups.length > 0;
   const emptyShown = panelOpen && emptySettled && typedLength >= 3 && visibleGroups.length === 0;
+  // The settled-failure panel (BUG-203): the panel
+  // OPENS on the failure line — the opposite of the
+  // old close — so a failed fetch is visible, never a
+  // vanish. Shown only for a settled failure (never
+  // alongside items, the empty line or the searching
+  // line: the retry holds the searching line while it
+  // is out, and the failure settles only once the
+  // retry has failed too).
+  const failedShown = panelOpen && failedSettled && typedLength >= 3 && visibleGroups.length === 0;
   // The mid-flight panel (BUG-196): while the current
   // query's answer is on its way the panel holds the
   // searching line instead of vanishing — shown from
   // the first keystroke, not only once a panel has
   // opened before, and never alongside items or the
   // settled-empty line.
-  const searchingShown = searching && typedLength >= 3 && visibleGroups.length === 0 && !emptyShown;
+  const searchingShown =
+    searching && typedLength >= 3 && visibleGroups.length === 0 && !emptyShown && !failedShown;
   const flatItems: SuggestionItem[] = visibleGroups.flatMap((group) =>
     group.items.filter((item): item is SuggestionItem => typeof item !== "string"),
   );
@@ -293,7 +315,8 @@ export default function PostcodeBox({
   // their hrefs — and their place names — for the
   // pick and the submit path, and the wider-list row
   // re-arms for the newly settled postcode); a settled
-  // failure closes the panel. The coordinator
+  // failure opens the panel on its honest line
+  // (BUG-203) instead of closing it. The coordinator
   // guarantees these fire only for the current query —
   // a superseded response is dropped inside it, never
   // here.
@@ -327,13 +350,15 @@ export default function PostcodeBox({
         setSupplementStage("idle");
         setLiveGroups(groups);
         setEmptySettled(groups.length === 0);
+        setFailedSettled(false);
         setPanelOpen(true);
         setActiveId(null);
       },
       onFailure: () => {
         setLiveGroups([]);
         setEmptySettled(false);
-        setPanelOpen(false);
+        setFailedSettled(true);
+        setPanelOpen(true);
         setActiveId(null);
         setSupplementTarget(null);
       },
@@ -460,7 +485,7 @@ export default function PostcodeBox({
   }
 
   function onFieldKeyDown(event: KeyboardEvent<HTMLInputElement>) {
-    if (event.key === "Escape" && emptyShown) {
+    if (event.key === "Escape" && (emptyShown || failedShown)) {
       setPanelOpen(false);
       return;
     }
@@ -692,7 +717,11 @@ export default function PostcodeBox({
     // A fresh keystroke un-settles the empty answer: the
     // no-suggestions line belongs to the settled query,
     // and the next response re-settles it either way.
+    // The failure line un-settles the same way
+    // (BUG-203): it belongs to the settled query too,
+    // and the next response re-settles it either way.
     setEmptySettled(false);
+    setFailedSettled(false);
     // BUG-033 (founder-found live, 20 Nov 2026): the
     // previous query's list drops the moment the text
     // changes. It used to stay rendered — and clickable
@@ -738,7 +767,7 @@ export default function PostcodeBox({
             onKeyDown={onFieldKeyDown}
             onBlur={() => setPanelOpen(false)}
             role="combobox"
-            aria-expanded={visibleOpen || emptyShown || searchingShown}
+            aria-expanded={visibleOpen || emptyShown || failedShown || searchingShown}
             aria-controls="postcode-suggestions"
             aria-activedescendant={activeId ?? undefined}
             aria-autocomplete="list"
@@ -784,6 +813,12 @@ export default function PostcodeBox({
         <div className="postcode-box__suggestions" id="postcode-suggestions">
           <p className="suggest__empty" role="status">
             {POSTCODE_BOX_NO_SUGGESTIONS_LINE}
+          </p>
+        </div>
+      ) : failedShown ? (
+        <div className="postcode-box__suggestions" id="postcode-suggestions">
+          <p className="suggest__failed" role="status">
+            {POSTCODE_BOX_SUGGESTIONS_FAILED_LINE}
           </p>
         </div>
       ) : searchingShown ? (

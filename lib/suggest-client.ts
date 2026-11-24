@@ -54,10 +54,39 @@
 //     edge orderings in the sequence guard, and the
 //     tests pin the no-double-fetch orderings around
 //     it.
+//
+// What BUG-203 adds (founder-found live, 24 Nov
+// 2026: the panel sometimes showed "Searching…"
+// then vanished with no dropdown — a failed fetch
+// settled as a failure, and the box closed on it):
+//
+//   * One retry for the current query's failure:
+//     a failed fetch — a statement timeout under
+//     load, a transient drop — is retried once,
+//     after SUGGEST_RETRY_MS, with the flight
+//     signal held so "Searching…" stays up while
+//     the retry is out. A retry that also fails
+//     settles the honest failure, and the box opens
+//     on its failure line instead of closing.
+//     One retry per value, ever: a persistently
+//     failing query settles, it does not retry
+//     forever. A keystroke or an unmount cancels a
+//     waiting retry, and the fix-5 cover counts a
+//     waiting retry as cover for its value.
 
 // The pause between the last keystroke and the fetch
 // (the entry-point build's ~140ms, unchanged).
 export const SUGGEST_DEBOUNCE_MS = 140;
+
+// The pause before a failed fetch's one retry (BUG-203,
+// 24 Nov 2026): a suggest request that fails — a
+// statement timeout under load, a transient network
+// drop — is usually clear on the next call, as the
+// deploy's own first-two-calls-500-then-five-200s
+// proved. The retry waits long enough for the
+// transient to pass and short enough that the panel
+// never sits on "Searching…" for it.
+export const SUGGEST_RETRY_MS = 300;
 
 // Suggestions start at 3 typed characters (D71) —
 // the read model's own floor (SUGGEST_MIN_CHARS in
@@ -94,8 +123,10 @@ export interface SuggestCoordinatorHandlers {
   // The current query's response settled with a
   // payload: repaint with it.
   onResponse: (data: SuggestPayload) => void;
-  // The current query's fetch failed: the box's
-  // settled-failure state (the panel closes).
+  // The current query's fetch failed — after the
+  // coordinator's one retry (BUG-203): the box's
+  // settled-failure state (the panel opens on its
+  // honest line, never closes silently).
   onFailure: () => void;
   // The current query is in flight (true from its
   // keystroke until its response settles): the box
@@ -133,6 +164,14 @@ export function createSuggestCoordinator(
   let current = "";
   let answeredFor: string | null = null;
   let disposed = false;
+  // The one retry (BUG-203): the value a retry is
+  // scheduled for, its timer, and the value that has
+  // already had its retry — one retry per value, so a
+  // persistently failing query settles honestly
+  // instead of retrying forever.
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  let retryFor: string | null = null;
+  let retriedFor: string | null = null;
 
   function issue(typed: string) {
     const mySeq = (seq += 1);
@@ -164,6 +203,29 @@ export function createSuggestCoordinator(
         ensureCurrent();
         return;
       }
+      if (failed && retriedFor !== typed) {
+        // BUG-203 (24 Nov 2026): the current query's
+        // fetch failed — a timeout under load, a
+        // transient drop — and the failure is the
+        // panel's vanish: the box closed on it with
+        // nothing to show. One retry, once, for this
+        // value: the flight signal HOLDS while it is
+        // out, so "Searching…" stays up and the panel
+        // never blinks away; a retry that also fails
+        // settles the honest failure below.
+        retriedFor = typed;
+        retryFor = typed;
+        retryTimer = setTimeout(() => {
+          retryTimer = null;
+          retryFor = null;
+          if (disposed) return;
+          // A keystroke landed while the retry waited —
+          // its own fetch covers the current value.
+          if (current !== typed) return;
+          issue(typed);
+        }, SUGGEST_RETRY_MS);
+        return;
+      }
       answeredFor = typed;
       handlers.onFlightChange(false);
       if (failed) handlers.onFailure();
@@ -174,31 +236,47 @@ export function createSuggestCoordinator(
   // Fix 5: after a superseded response is discarded,
   // the current value keeps a live fetch — issue one
   // on the spot if it is somehow neither outstanding,
-  // scheduled, nor already answered.
+  // scheduled, nor already answered. A retry waiting
+  // for the current value (BUG-203) is cover too: the
+  // value is neither bare nor in need of a second
+  // fetch while its retry is still to run.
   function ensureCurrent() {
     if (disposed) return;
     if (current.length < SUGGEST_CLIENT_MIN_CHARS) return;
     if (answeredFor === current) return;
     if (inFlight !== null && inFlight.value === current) return;
     if (pendingFor === current) return;
+    if (retryFor === current) return;
     issue(current);
   }
 
   return {
     type(typed: string) {
       if (disposed) return;
-      if (typed !== current) answeredFor = null;
+      if (typed !== current) {
+        answeredFor = null;
+        // A new value gets its own retry (BUG-203):
+        // the old value's retry, if one was waiting,
+        // belongs to text the visitor has already left.
+        retriedFor = null;
+      }
       current = typed;
       // The keystroke supersedes everything before
       // it: any in-flight response now belongs to the
       // old text (the sequence guard will drop it),
       // and its fetch is aborted — cancel-and-replace.
+      // A retry waiting for the old value dies with
+      // it: the keystroke's own fetch covers the new
+      // one.
       seq += 1;
       controller?.abort();
       controller = null;
       if (timer !== null) clearTimeout(timer);
       timer = null;
       pendingFor = null;
+      if (retryTimer !== null) clearTimeout(retryTimer);
+      retryTimer = null;
+      retryFor = null;
       if (typed.length < SUGGEST_CLIENT_MIN_CHARS) {
         handlers.onFlightChange(false);
         return;
@@ -219,6 +297,11 @@ export function createSuggestCoordinator(
       if (timer !== null) clearTimeout(timer);
       timer = null;
       pendingFor = null;
+      // A waiting retry dies with the box (BUG-203):
+      // it must not fetch — or settle — after unmount.
+      if (retryTimer !== null) clearTimeout(retryTimer);
+      retryTimer = null;
+      retryFor = null;
     },
   };
 }

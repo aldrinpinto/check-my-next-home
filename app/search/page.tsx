@@ -1,5 +1,4 @@
 import { Suspense } from "react";
-import { redirect } from "next/navigation";
 
 import { CheckCompletedBeacon } from "../../components/JourneyBeacon";
 import DistrictCheckingScreen from "../../components/DistrictCheckingScreen";
@@ -28,6 +27,7 @@ import {
 } from "../../lib/journey";
 import { sectionsAndStatesOf } from "../../lib/journey-events";
 import { buildDistrictResultsView, buildWiderAreaView } from "../../lib/results";
+import { redirectOrRender } from "../../lib/redirect-or-render";
 import {
   checkDistrictWider,
   placeChoiceUrl,
@@ -123,11 +123,13 @@ export default async function SearchPage({
       // unplaced notice, never a failure page.
       if (resolution.rung === 4) {
         const placeUrl = await placeChoiceUrl(params.outward);
-        redirect(placeUrl ?? UNPLACED_NOTICE_URL);
+        return await redirectOrRender(placeUrl ?? UNPLACED_NOTICE_URL);
       }
       if (resolution.rung === 1)
-        redirect(homeRoute(resolution.directory.postcode, homeKeyOf(resolution)));
-      redirect(homeRoute(resolution.directory.postcode));
+        return await redirectOrRender(
+          homeRoute(resolution.directory.postcode, homeKeyOf(resolution)),
+        );
+      return await redirectOrRender(homeRoute(resolution.directory.postcode));
     }
     // The wider-area checking screen (founder ruling,
     // 19 Nov 2026): the district results stream in
@@ -172,9 +174,9 @@ export default async function SearchPage({
     } catch {
       return <WholeCheckFailure initialValue={displayText(params.street)} />;
     }
-    if (rows.length === 0) redirect(UNPLACED_NOTICE_URL);
+    if (rows.length === 0) return await redirectOrRender(UNPLACED_NOTICE_URL);
     if (rows.length === 1) {
-      redirect(postcodeRoute(rows[0].postcode, { street: rows[0].street }));
+      return await redirectOrRender(postcodeRoute(rows[0].postcode, { street: rows[0].street }));
     }
     return (
       <StreetChoice
@@ -209,8 +211,9 @@ export default async function SearchPage({
     } catch {
       return <WholeCheckFailure initialValue={displayText(params.place)} />;
     }
-    if (!place || place.districts.length === 0) redirect(UNPLACED_NOTICE_URL);
-    if (place.districts.length === 1) redirect(widerAreaRoute(place.districts[0]));
+    if (!place || place.districts.length === 0) return await redirectOrRender(UNPLACED_NOTICE_URL);
+    if (place.districts.length === 1)
+      return await redirectOrRender(widerAreaRoute(place.districts[0]));
     // The rows' area descriptions and the bridge's
     // example postcode (fix batch, 19 Nov 2026 —
     // BUG-026/BUG-027): one set read over the place's
@@ -229,7 +232,7 @@ export default async function SearchPage({
     return <PlaceChoice place={displayText(place.place)} districts={areas} />;
   }
 
-  if (!params.postcode) redirect(UNPLACED_NOTICE_URL);
+  if (!params.postcode) return await redirectOrRender(UNPLACED_NOTICE_URL);
 
   // The postcode parameter is normalised before ANY use
   // (fix batch, 19 Nov 2026 — BUG-031): the resolver
@@ -256,17 +259,17 @@ export default async function SearchPage({
   }
 
   if (resolution.rung === 1) {
-    redirect(homeRoute(postcode, homeKeyOf(resolution)));
+    return await redirectOrRender(homeRoute(postcode, homeKeyOf(resolution)));
   }
   if (resolution.rung === 3) {
-    redirect(widerAreaRoute(resolution.outward, postcode));
+    return await redirectOrRender(widerAreaRoute(resolution.outward, postcode));
   }
   if (resolution.rung === 4) {
     // A bare place name in the postcode slot (founder fix
     // batch): a known place routes to the place page —
     // the same graceful route as the outward slot's.
     const placeUrl = await placeChoiceUrl(postcode);
-    redirect(placeUrl ?? UNPLACED_NOTICE_URL);
+    return await redirectOrRender(placeUrl ?? UNPLACED_NOTICE_URL);
   }
 
   // Rung 2. Founder ruling, 18 Nov 2026 (parity fix
@@ -284,14 +287,14 @@ export default async function SearchPage({
   // check opens with its list already narrowed to the
   // street, as the adopted design rules.
   if (resolution.street || resolution.building) {
-    redirect(
+    return await redirectOrRender(
       narrowedHomeRoute(postcode, {
         street: resolution.street,
         building: resolution.building,
       }),
     );
   }
-  redirect(homeRoute(postcode));
+  return await redirectOrRender(homeRoute(postcode));
 }
 
 // The wider-area results, streamed in behind the

@@ -21,6 +21,17 @@
 //                         truncated at it (D71 amendment —
 //                         the truncation is logged, never
 //                         silent);
+//   suggestions.failed    a suggestions call failed outright
+//                         (BUG-203 — the route's 500, with
+//                         the query's length and the error,
+//                         never the typed words);
+//   suggestions.group-failed
+//                         one fragment group read failed
+//                         (BUG-203 — a statement timeout on
+//                         one group, which the read model
+//                         skips so the other groups still
+//                         serve, instead of failing the
+//                         whole response);
 //   picker.list           the picker list's composition —
 //                         the local rows as filed (BUG-185:
 //                         a list build is local-only, always);
@@ -61,6 +72,8 @@ export type EntryEvent =
   | "suggestions.served"
   | "suggestions.limited"
   | "suggestions.ceiling"
+  | "suggestions.failed"
+  | "suggestions.group-failed"
   | "picker.list"
   | "picker.supplement"
   | "supplement.limited"

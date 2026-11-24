@@ -696,7 +696,34 @@ export async function suggestionsFor(
     // scrollable region. The filtered list is uncapped
     // too: words typed with the postcode narrow within
     // the full list, never within a capped slice of it.
-    const rows = [...(await source.addressesInPostcode(input.postcode))].sort(compareAddressParts);
+    //
+    // BUG-203 (24 Nov 2026): the homes read is the
+    // slowest read this branch issues, and under load
+    // it is the one that trips the statement timeout —
+    // which used to fail the whole response. A failed
+    // homes read now degrades to the postcode itself
+    // (the self-serve check below, a cheap indexed
+    // read): the visitor still gets the postcode to
+    // pick, and the failure is logged, never silent.
+    // Only when the postcode itself cannot be served
+    // either does the branch fail outright (the
+    // route's logged 500) — an empty answer must
+    // never be a failure wearing an empty answer's
+    // clothes.
+    let homesFailed = false;
+    let rows: LoadedAddressParts[];
+    try {
+      rows = [...(await source.addressesInPostcode(input.postcode))].sort(compareAddressParts);
+    } catch (error) {
+      homesFailed = true;
+      logEntry(req, "suggestions.group-failed", {
+        layer: "local",
+        reason: "group-failed",
+        group: "homes",
+        error: error instanceof Error ? error.message : String(error),
+      });
+      rows = [];
+    }
     const words = input.text.split(" ").filter(Boolean);
     const items: SuggestionItem[] = [];
     const seen = new Set<string>();
@@ -769,6 +796,13 @@ export async function suggestionsFor(
     if (items.length > 0 || selfServed === 1) {
       return { groups, postcodeList: { postcode: input.postcode } };
     }
+    // BUG-203: the homes read failed AND the postcode
+    // itself could not be served — the empty answer
+    // below would be a failure wearing an empty
+    // answer's clothes. Fail outright (the route's
+    // logged 500, the client's retry, then its honest
+    // failure line) instead of serving nothing.
+    if (homesFailed) throw new Error("suggest-homes-failed");
     return { groups };
   }
 
@@ -804,6 +838,19 @@ export async function suggestionsFor(
   // exactly a district (BUG-009, founder ruling
   // 20 Nov 2026 — not the M7.15D place-districts
   // group, which stays removed).
+  //
+  // BUG-203 (24 Nov 2026): the groups read
+  // sequentially under one statement timeout, and a
+  // timeout anywhere used to fail the whole response
+  // — the panel's vanish. Each group read now fails
+  // alone: a failed group is logged and skipped, and
+  // the groups that did serve still reach the
+  // visitor. Only an answer that would be EMPTY
+  // because a group failed — never a genuine empty
+  // answer — fails outright (the throw before the
+  // served log): an empty answer must never be a
+  // failure wearing an empty answer's clothes.
+  let groupFailed = false;
   const shape = input.outward ? "partial-postcode" : "text";
 
   // Postcodes: the first candidate the filed directory
@@ -824,7 +871,24 @@ export async function suggestionsFor(
   const candidates = parsed.length > 0 ? parsed : input.outward ? [input.outward] : [];
   if (candidates.length > 0 && input.outward) {
     for (const prefix of candidates) {
-      const postcodes = await source.postcodesByPrefix(prefix, SUGGEST_FRAGMENT_CEILING + 1);
+      let postcodes: string[];
+      try {
+        postcodes = await source.postcodesByPrefix(prefix, SUGGEST_FRAGMENT_CEILING + 1);
+      } catch (error) {
+        // BUG-203: the directory read failed — log it
+        // and stop the walk (the next candidate reads
+        // the same table under the same load); the
+        // streets, properties and places groups below
+        // still run on their own reads.
+        groupFailed = true;
+        logEntry(req, "suggestions.group-failed", {
+          layer: "local",
+          reason: "group-failed",
+          group: "postcodes",
+          error: error instanceof Error ? error.message : String(error),
+        });
+        break;
+      }
       if (postcodes.length === 0) continue;
       servedPrefix = prefix;
       if (postcodes.length > SUGGEST_FRAGMENT_CEILING) {
@@ -870,10 +934,40 @@ export async function suggestionsFor(
   // street as a choice, never served back as typed.
   let streetUnits: StreetSuggestion[] = [];
   if (streetWords.length > 0) {
-    streetUnits = await source.streetsByPrefix(streetWords, SUGGEST_STREET_CAP);
-    if (streetUnits.length <= SUGGEST_STREET_FUZZY_TRIGGER) {
+    let exactFailed = false;
+    try {
+      streetUnits = await source.streetsByPrefix(streetWords, SUGGEST_STREET_CAP);
+    } catch (error) {
+      // BUG-203: the exact tier failed — log it and
+      // skip the group (the fuzzy tier has nothing to
+      // top up); the other groups still serve.
+      groupFailed = true;
+      exactFailed = true;
+      logEntry(req, "suggestions.group-failed", {
+        layer: "local",
+        reason: "group-failed",
+        group: "streets",
+        error: error instanceof Error ? error.message : String(error),
+      });
+      streetUnits = [];
+    }
+    if (!exactFailed && streetUnits.length <= SUGGEST_STREET_FUZZY_TRIGGER) {
       const seen = new Set(streetUnits.map(streetUnitKey));
-      const fuzzy = await source.streetsByFuzzy(streetWords, SUGGEST_STREET_FUZZY_CAP);
+      let fuzzy: StreetSuggestion[] = [];
+      try {
+        fuzzy = await source.streetsByFuzzy(streetWords, SUGGEST_STREET_FUZZY_CAP);
+      } catch (error) {
+        // BUG-203: the fuzzy tier failed — log it and
+        // keep the exact rows (a missing top-up is
+        // not a missing group).
+        groupFailed = true;
+        logEntry(req, "suggestions.group-failed", {
+          layer: "local",
+          reason: "group-failed",
+          group: "streets-fuzzy",
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
       for (const unit of fuzzy) {
         if (streetUnits.length >= SUGGEST_STREET_CAP) break;
         if (seen.has(streetUnitKey(unit))) continue;
@@ -899,10 +993,27 @@ export async function suggestionsFor(
     unit.postcodes.map((postcode) => ({ streetNorm: norm(unit.street), postcode })),
   );
   if (servedPrefix !== null || streetPostcodes.length > 0) {
-    const rows = await source.propertiesMatching(
-      { postcodePrefix: servedPrefix, streetPostcodes },
-      PROPERTIES_FETCH_LIMIT,
-    );
+    let rows: LoadedAddressParts[];
+    try {
+      rows = await source.propertiesMatching(
+        { postcodePrefix: servedPrefix, streetPostcodes },
+        PROPERTIES_FETCH_LIMIT,
+      );
+    } catch (error) {
+      // BUG-203: the properties read is the heaviest
+      // read this branch issues (two 2,000-row scans)
+      // and the one likeliest to trip the timeout —
+      // log it and skip the group; the postcodes,
+      // streets and places groups still serve.
+      groupFailed = true;
+      logEntry(req, "suggestions.group-failed", {
+        layer: "local",
+        reason: "group-failed",
+        group: "properties",
+        error: error instanceof Error ? error.message : String(error),
+      });
+      rows = [];
+    }
     const sorted = [...rows].sort((a, b) =>
       a.postcode === b.postcode ? compareAddressParts(a, b) : a.postcode < b.postcode ? -1 : 1,
     );
@@ -933,11 +1044,41 @@ export async function suggestionsFor(
   let placeUnits: PlaceSuggestion[] = [];
   let exactPlaceUnits: PlaceSuggestion[] = [];
   if (streetWords.length > 0) {
-    exactPlaceUnits = await source.placesByPrefix(streetWords, SUGGEST_PLACE_CAP);
+    let exactFailed = false;
+    try {
+      exactPlaceUnits = await source.placesByPrefix(streetWords, SUGGEST_PLACE_CAP);
+    } catch (error) {
+      // BUG-203: the exact tier failed — log it and
+      // skip the group (the fuzzy tier has nothing to
+      // top up); the other groups still serve.
+      groupFailed = true;
+      exactFailed = true;
+      logEntry(req, "suggestions.group-failed", {
+        layer: "local",
+        reason: "group-failed",
+        group: "places",
+        error: error instanceof Error ? error.message : String(error),
+      });
+      exactPlaceUnits = [];
+    }
     placeUnits = [...exactPlaceUnits];
-    if (placeUnits.length <= SUGGEST_PLACE_FUZZY_TRIGGER) {
+    if (!exactFailed && placeUnits.length <= SUGGEST_PLACE_FUZZY_TRIGGER) {
       const seen = new Set(placeUnits.map((unit) => placeNormOf(unit.place)));
-      const fuzzy = await source.placesByFuzzy(streetWords, SUGGEST_PLACE_FUZZY_CAP);
+      let fuzzy: PlaceSuggestion[] = [];
+      try {
+        fuzzy = await source.placesByFuzzy(streetWords, SUGGEST_PLACE_FUZZY_CAP);
+      } catch (error) {
+        // BUG-203: the fuzzy tier failed — log it and
+        // keep the exact rows (a missing top-up is
+        // not a missing group).
+        groupFailed = true;
+        logEntry(req, "suggestions.group-failed", {
+          layer: "local",
+          reason: "group-failed",
+          group: "places-fuzzy",
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
       for (const unit of fuzzy) {
         if (placeUnits.length >= SUGGEST_PLACE_CAP) break;
         if (seen.has(placeNormOf(unit.place))) continue;
@@ -983,6 +1124,15 @@ export async function suggestionsFor(
   // field's shape does not move — it has stood in the
   // line since M7.15D — and its count is the honest
   // one again now a Districts group can serve.
+  //
+  // BUG-203: an answer that would be EMPTY because a
+  // group read failed is not an empty answer — it is
+  // a failure wearing one. Fail outright (the route's
+  // logged 500, the client's retry, then its honest
+  // failure line) instead of serving nothing. A
+  // genuinely empty answer — no group failed — still
+  // serves empty, exactly as before.
+  if (groups.length === 0 && groupFailed) throw new Error("suggest-groups-failed");
   logEntry(req, "suggestions.served", {
     layer: "local",
     reason: groups.length > 0 ? "ok" : "empty",

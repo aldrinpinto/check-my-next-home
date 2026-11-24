@@ -1,5 +1,4 @@
 import { Suspense } from "react";
-import { redirect } from "next/navigation";
 
 import CheckingScreen from "../../../components/CheckingScreen";
 import HomeList, { type PickerAddress } from "../../../components/HomeList";
@@ -25,6 +24,7 @@ import {
 import { REPORT_PRICE_LABEL } from "../../../lib/site";
 import { sectionsAndStatesOf } from "../../../lib/journey-events";
 import { buildResultsView, resultsScopeLabel } from "../../../lib/results";
+import { redirectOrRender } from "../../../lib/redirect-or-render";
 import {
   checkResults,
   pickerRowsFor,
@@ -256,7 +256,7 @@ export default async function HomePage({
 }) {
   const params = await searchParams;
   const postcode = params.postcode;
-  if (!postcode) redirect(SEARCH_ROUTE);
+  if (!postcode) return await redirectOrRender(SEARCH_ROUTE);
   const homeKey = params.home ?? null;
   const req = newRequestId();
 
@@ -287,17 +287,18 @@ export default async function HomePage({
     // postcode's own check, whose home list carries every
     // home (fold-in 1; the picker page it used to name was
     // removed 18 Nov 2026).
-    if (homeKey) redirect(homeRoute(postcode));
-    redirect(SEARCH_ROUTE);
+    if (homeKey) return await redirectOrRender(homeRoute(postcode));
+    return await redirectOrRender(SEARCH_ROUTE);
   }
   if (narrowed?.rung === 1) {
     // The narrowing named one home outright (a building
     // that is a single home): its own check, canonically.
-    redirect(homeRoute(postcode, homeKeyOf(narrowed)));
+    return await redirectOrRender(homeRoute(postcode, homeKeyOf(narrowed)));
   }
   if (narrowed?.rung === 2) resolution = narrowed;
-  if (resolution.rung === 3) redirect(widerAreaRoute(resolution.outward, postcode));
-  if (resolution.rung === 4) redirect(SEARCH_ROUTE);
+  if (resolution.rung === 3)
+    return await redirectOrRender(widerAreaRoute(resolution.outward, postcode));
+  if (resolution.rung === 4) return await redirectOrRender(SEARCH_ROUTE);
 
   // The identity the URLs on this page carry: a transient
   // token while the home is Postio-only, its home key once
@@ -311,7 +312,7 @@ export default async function HomePage({
     const promoted = await promoteTransientIfFiled(postcode, homeKey, resolution, req).catch(
       () => null,
     );
-    if (promoted) redirect(homeRoute(postcode, promoted));
+    if (promoted) return await redirectOrRender(homeRoute(postcode, promoted));
   }
   const routeKey = viaToken ? homeKey : resolution.rung === 1 ? homeKeyOf(resolution) : null;
 

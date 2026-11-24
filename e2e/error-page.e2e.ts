@@ -82,3 +82,67 @@ test.describe("the single error page — regression", () => {
     },
   );
 });
+
+// BUG-186 (24 Nov 2026): a redirecting journey URL
+// loaded directly — a refresh, a shared link, a
+// bookmark — served the error page instead of its
+// destination. The route's loading boundary flushes
+// the shell with HTTP 200 before the page's async
+// resolution completes, so a redirect() thrown from
+// the page cannot produce an HTTP 307 for a plain
+// load; the throw lands on the error boundary. A
+// client-side navigation still got the 307, which is
+// why the fault hid: every pick worked, every direct
+// load of a redirecting URL did not. The fix renders
+// a client-side navigation to the same URL for plain
+// loads (lib/redirect-or-render.tsx). These specs pin
+// the plain-load landing on both journey routes that
+// redirect — the home check and the postcode form.
+//
+// The witness shape is a pick the directory does not
+// hold: live, AL10 0AR's Aragon House — a terminated
+// postcode, its sale filed, its directory row skipped
+// by the loader's rule — whose pick resolves to
+// nothing. The fixture database holds no such
+// postcode, so the specs use a postcode the directory
+// cannot hold at all: the same null resolution, the
+// same redirect branch, and the landing — never the
+// error page — is what they pin. (Whether the
+// terminated postcode's home itself serves is the
+// founder's ruling on the directory data, not this
+// fix: the home cannot serve until that is decided.)
+test.describe("BUG-186 — a redirecting journey URL loaded directly lands, never the error page", () => {
+  test(
+    "a full page load of a pick the directory does not hold lands on the landing, never the error page",
+    { tag: "@regression" },
+    async ({ page }) => {
+      // A home key for a postcode the directory does
+      // not file: the resolution is null, the page
+      // redirects — first to the postcode's own check,
+      // then, the postcode itself unplaceable, to the
+      // landing with the unplaced notice.
+      await page.goto("/search/home?postcode=ZZ9+9ZZ&home=FOO");
+      await page.waitForURL("**/?unplaced=unplaced");
+      await expect(page.locator("h1")).not.toHaveText(HEADLINE);
+      await expect(page.getByText(LINE)).toHaveCount(0);
+      // The landing's search box is the way forward,
+      // and it holds nothing of the failed pick.
+      await expect(page.locator("#postcode")).toHaveValue("");
+    },
+  );
+
+  test(
+    "a full page load of an unplaceable postcode on the postcode form lands the same way",
+    { tag: "@regression" },
+    async ({ page }) => {
+      // The same trap in the postcode form's own
+      // redirect (rung 4 — unplaceable): a direct load
+      // used to serve the error page here too.
+      await page.goto("/search?postcode=ZZ9+9ZZ");
+      await page.waitForURL("**/?unplaced=unplaced");
+      await expect(page.locator("h1")).not.toHaveText(HEADLINE);
+      await expect(page.getByText(LINE)).toHaveCount(0);
+      await expect(page.locator("#postcode")).toHaveValue("");
+    },
+  );
+});

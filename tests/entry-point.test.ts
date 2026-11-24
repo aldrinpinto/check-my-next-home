@@ -699,6 +699,157 @@ describe("BUG-010 — a failed full postcode serves a settled empty response", (
 });
 
 // ------------------------------------------------------------------
+// BUG-203 (24 Nov 2026): a suggestions fetch that failed
+// — a statement timeout under load, the deploy's own
+// first-two-CM3-calls-500 — settled as a failure, and
+// the box closed on it: the panel's vanish. The read
+// model ran its group reads sequentially under one
+// timeout, so a timeout anywhere failed the whole
+// response. Each group read now fails alone: a failed
+// group is logged and skipped, the groups that did
+// serve still reach the visitor, and only an answer
+// that would be EMPTY because a group failed fails
+// outright (the route's logged 500). A genuinely empty
+// answer — no group failed — still serves empty.
+// ------------------------------------------------------------------
+
+describe("BUG-203 — a failed group read fails alone, never the whole response", () => {
+  // The witness world: a twelve-postcode directory, three
+  // homes on High Street in ZZ1 1AA, and a street the
+  // fragment shapes can lose. Each read can be made to
+  // throw the timeout error, one method at a time.
+  function flakySource(fail: Set<string>): SuggestionSource {
+    const directory = Array.from({ length: 12 }, (_, i) => `ZZ1 1A${String.fromCharCode(65 + i)}`);
+    const homes: LoadedAddressParts[] = ["1", "2", "3"].map((paon) => ({
+      postcode: "ZZ1 1AA",
+      paon,
+      saon: null,
+      street: "HIGH STREET",
+      locality: null,
+      town: "EXETER",
+    }));
+    const timeout = () => {
+      throw new Error("canceling statement due to statement timeout");
+    };
+    return {
+      async postcodesByPrefix(prefix, limit) {
+        if (fail.has("postcodesByPrefix")) timeout();
+        return directory
+          .filter((postcode) => postcode.startsWith(prefix))
+          .sort()
+          .slice(0, limit);
+      },
+      async addressesInPostcode(postcode) {
+        if (fail.has("addressesInPostcode")) timeout();
+        return postcode === "ZZ1 1AA" ? homes : [];
+      },
+      async streetsByPrefix(words) {
+        if (fail.has("streetsByPrefix")) timeout();
+        return words[0] === "HIGH"
+          ? [{ street: "HIGH STREET", town: "EXETER", postcodes: ["ZZ1 1AA"], homes: 3 }]
+          : [];
+      },
+      async streetsByFuzzy() {
+        if (fail.has("streetsByFuzzy")) timeout();
+        return [];
+      },
+      async placesByPrefix() {
+        if (fail.has("placesByPrefix")) timeout();
+        return [];
+      },
+      async placesByFuzzy() {
+        if (fail.has("placesByFuzzy")) timeout();
+        return [];
+      },
+      async placeDistricts() {
+        return [];
+      },
+      async propertiesMatching(query, limit) {
+        if (fail.has("propertiesMatching")) timeout();
+        if (query.postcodePrefix === null) return [];
+        return homes
+          .filter((parts) => parts.postcode.startsWith(query.postcodePrefix as string))
+          .slice(0, limit);
+      },
+    };
+  }
+
+  it("a failed properties read skips the group — the postcodes still serve", async () => {
+    // The properties read is the heaviest this branch
+    // issues (two 2,000-row scans) and the likeliest to
+    // trip the timeout; its failure must not take the
+    // postcodes down with it.
+    const result = await suggestionsFor(
+      "ZZ1 1",
+      flakySource(new Set(["propertiesMatching"])),
+      "b203a",
+    );
+    expect(result.groups.map((group) => group.label)).toEqual(["Postcodes"]);
+    expect(result.groups[0].items).toHaveLength(12);
+    const failed = logsFor("b203a").find((l) => l.includes("event=suggestions.group-failed"));
+    expect(failed).toContain("group=properties");
+    const served = logsFor("b203a").find((l) => l.includes("event=suggestions.served"));
+    expect(served).toContain("reason=ok");
+    expect(served).toContain("homes=0");
+  });
+
+  it("a failed streets read skips the group — the postcodes and properties still serve", async () => {
+    const result = await suggestionsFor(
+      "High ZZ1 1",
+      flakySource(new Set(["streetsByPrefix"])),
+      "b203b",
+    );
+    expect(result.groups.map((group) => group.label)).toEqual(["Postcodes", "Properties"]);
+    expect(result.groups[1].items).toHaveLength(3);
+    const failed = logsFor("b203b").find((l) => l.includes("event=suggestions.group-failed"));
+    expect(failed).toContain("group=streets");
+  });
+
+  it("a failed homes read degrades a full postcode to the postcode itself", async () => {
+    const result = await suggestionsFor(
+      "ZZ1 1AA",
+      flakySource(new Set(["addressesInPostcode"])),
+      "b203c",
+    );
+    expect(result.groups.map((group) => group.label)).toEqual(["Postcodes"]);
+    expect(result.groups[0].items).toEqual([{ label: "ZZ1 1AA", href: homeRoute("ZZ1 1AA") }]);
+    expect(result.postcodeList).toEqual({ postcode: "ZZ1 1AA" });
+    const failed = logsFor("b203c").find((l) => l.includes("event=suggestions.group-failed"));
+    expect(failed).toContain("group=homes");
+  });
+
+  it("a failed homes read on an unfiled postcode fails outright — never an empty answer", async () => {
+    await expect(
+      suggestionsFor("ZZ1 1ZZ", flakySource(new Set(["addressesInPostcode"])), "b203d"),
+    ).rejects.toThrow("suggest-homes-failed");
+    const failed = logsFor("b203d").find((l) => l.includes("event=suggestions.group-failed"));
+    expect(failed).toContain("group=homes");
+  });
+
+  it("every fragment read failing fails outright — never an empty answer", async () => {
+    await expect(
+      suggestionsFor(
+        "ZZ1 1",
+        flakySource(new Set(["postcodesByPrefix", "propertiesMatching"])),
+        "b203e",
+      ),
+    ).rejects.toThrow("suggest-groups-failed");
+    const failed = logsFor("b203e").filter((l) => l.includes("event=suggestions.group-failed"));
+    expect(failed.some((l) => l.includes("group=postcodes"))).toBe(true);
+    // No served line: the answer never served.
+    expect(logsFor("b203e").some((l) => l.includes("event=suggestions.served"))).toBe(false);
+  });
+
+  it("a genuinely empty answer still serves empty — no group failed, nothing thrown", async () => {
+    const result = await suggestionsFor("ZZ9 9", flakySource(new Set()), "b203f");
+    expect(result.groups).toEqual([]);
+    const served = logsFor("b203f").find((l) => l.includes("event=suggestions.served"));
+    expect(served).toContain("reason=empty");
+    expect(logsFor("b203f").some((l) => l.includes("event=suggestions.group-failed"))).toBe(false);
+  });
+});
+
+// ------------------------------------------------------------------
 // (b) POSTIO ONLY — Minerva KT17 1FH
 // ------------------------------------------------------------------
 

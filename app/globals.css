@@ -1356,6 +1356,18 @@ body:has(.main--home) .site-footer {
   color: var(--colour-muted);
 }
 
+/* The panel's settled-failure line (BUG-203, 24 Nov
+   2026): a fetch that failed — after the coordinator's
+   one retry — opens the panel on this line in the
+   settled-empty line's own dress, so a failed fetch
+   is visible, never a vanish. It is a state, never a
+   result: no items, nothing clickable, and the next
+   response replaces it the moment it lands. */
+.suggest__failed {
+  padding: var(--space-3);
+  color: var(--colour-muted);
+}
+
 .suggest__list {
   list-style: none;
   /* D71 amendment (18 Nov 2026): a full postcode's Homes
