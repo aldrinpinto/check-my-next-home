@@ -273,22 +273,81 @@ export async function rebuildPickingPlaces(client) {
   );
 }
 
+// The union's build and retired names (BUG-202). A
+// rebuild constructs the new union under the build
+// name and swaps it into the served name by rename —
+// it never deletes and re-inserts the served table.
+// The retired name holds the old union between the
+// swap's two renames and is dropped in the same
+// transaction.
+export const UNION_BUILD_TABLE = "picking_index_build";
+export const UNION_RETIRED_TABLE = "picking_index_retired";
+
 // Rebuild the served union from the two extracts. Runs
 // inside the caller's transaction. With includeEpc
 // false the union is built from the sales extract alone
-// — the kill switch's rebuild. The street table
-// rebuilds at the end, from the union just written —
-// every path that changes the union (both filing
-// passes and the EPC kill switch) refreshes the streets
-// with it, so the suggestions can never name a street
-// the served index does not hold (M7.15C). The place
-// table (M7.15D) rebuilds beside it on the same paths,
-// under the same rule for place names.
+// — the kill switch's rebuild.
+//
+// The shape (BUG-202, the loader staging audit's
+// slimming): the old rebuild deleted the union's
+// 25.1M rows and re-inserted the join beside them in
+// one transaction — a second heap copy plus the WAL
+// for both halves of the churn, about a 10 GB
+// transient on top of the retained stage. The new
+// shape builds the union under a fresh name and swaps
+// by rename:
+//   - the build table is created inside the caller's
+//     transaction, so its bulk insert and one-shot
+//     index builds write no WAL (the same-transaction
+//     creation rule Postgres applies to a fresh table);
+//   - its indexes are built once, on the finished
+//     copy, under build names — the primary key and
+//     postcode index of migration 0030, the pattern
+//     index of migration 0035;
+//   - the swap is two renames and a drop inside the
+//     same transaction, and the build's indexes are
+//     renamed to the served names the migrations gave
+//     them, so the table that serves carries exactly
+//     the name, shape and index names readers and
+//     later migrations expect. A reader sees the old
+//     union under the served name or the new one —
+//     never a missing or half-built table — and any
+//     failure rolls the whole transaction back,
+//     renames included, leaving the old union serving.
+// The peak is one extra union copy, with no dead
+// tuples left behind in the served table.
+//
+// The street table rebuilds at the end, from the
+// union just swapped in — every path that changes the
+// union (both filing passes and the EPC kill switch)
+// refreshes the streets with it, so the suggestions
+// can never name a street the served index does not
+// hold (M7.15C). The place table (M7.15D) rebuilds
+// beside it on the same paths, under the same rule
+// for place names.
 export async function rebuildPickingIndex(client, { includeEpc = true } = {}) {
-  await client.query("DELETE FROM picking_index");
+  // A leftover under either swap name can only be a
+  // relic of a process that died outside a transaction
+  // (the build and the swap are transactional, so a
+  // failed pass leaves neither) — clear the ground.
+  await client.query(`DROP TABLE IF EXISTS ${UNION_BUILD_TABLE}`);
+  await client.query(`DROP TABLE IF EXISTS ${UNION_RETIRED_TABLE}`);
+  await client.query(
+    `CREATE TABLE ${UNION_BUILD_TABLE} (
+       postcode text NOT NULL,
+       paon text,
+       saon text,
+       street text,
+       town text,
+       home_key text NOT NULL,
+       sources text[] NOT NULL,
+       sales_edition text,
+       epc_edition text
+     )`,
+  );
   if (includeEpc) {
     await client.query(
-      `INSERT INTO picking_index
+      `INSERT INTO ${UNION_BUILD_TABLE}
          (postcode, paon, saon, street, town, home_key, sources,
           sales_edition, epc_edition)
        SELECT COALESCE(s.postcode, e.postcode),
@@ -315,7 +374,7 @@ export async function rebuildPickingIndex(client, { includeEpc = true } = {}) {
     );
   } else {
     await client.query(
-      `INSERT INTO picking_index
+      `INSERT INTO ${UNION_BUILD_TABLE}
          (postcode, paon, saon, street, town, home_key, sources,
           sales_edition, epc_edition)
        SELECT s.postcode, s.paon, s.saon, s.street, s.town, s.home_key,
@@ -326,6 +385,33 @@ export async function rebuildPickingIndex(client, { includeEpc = true } = {}) {
          FROM picking_sales_extract s`,
     );
   }
+  await client.query(`ALTER TABLE ${UNION_BUILD_TABLE} ADD PRIMARY KEY (postcode, home_key)`);
+  await client.query(
+    `CREATE INDEX ${UNION_BUILD_TABLE}_postcode_idx
+       ON ${UNION_BUILD_TABLE} (postcode)`,
+  );
+  await client.query(
+    `CREATE INDEX ${UNION_BUILD_TABLE}_postcode_prefix_idx
+       ON ${UNION_BUILD_TABLE} (postcode text_pattern_ops)`,
+  );
+  // THE SWAP: the served name moves to the retired
+  // table, the build takes the served name, the
+  // retired table drops, and the build's indexes take
+  // the served names — all inside the caller's
+  // transaction, so the exchange is atomic and a
+  // failure anywhere in the filing undoes it whole.
+  await client.query(`ALTER TABLE picking_index RENAME TO ${UNION_RETIRED_TABLE}`);
+  await client.query(`ALTER TABLE ${UNION_BUILD_TABLE} RENAME TO picking_index`);
+  await client.query(`DROP TABLE ${UNION_RETIRED_TABLE}`);
+  await client.query(`ALTER INDEX ${UNION_BUILD_TABLE}_pkey RENAME TO picking_index_pkey`);
+  await client.query(
+    `ALTER INDEX ${UNION_BUILD_TABLE}_postcode_idx
+       RENAME TO picking_index_postcode_idx`,
+  );
+  await client.query(
+    `ALTER INDEX ${UNION_BUILD_TABLE}_postcode_prefix_idx
+       RENAME TO picking_index_postcode_prefix_idx`,
+  );
   await rebuildPickingStreets(client);
   await rebuildPickingPlaces(client);
 }

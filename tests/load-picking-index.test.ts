@@ -431,7 +431,7 @@ describe("the tolerance refusal and the atomic swap", () => {
     });
     const beforeIndex = JSON.stringify(db.index);
     const beforeEditions = JSON.stringify(db.editions);
-    db.failOn = "INSERT INTO picking_index (postcode";
+    db.failOn = "INSERT INTO picking_index_build (postcode";
     await expect(
       loadPickingIndexFromLines(db as never, fixtureLines, {
         edition: "fixture-2",

@@ -118,6 +118,19 @@ export class FakePickingDb {
   salesExtract: PickingPartsRow[] = [];
   epcExtract: PickingPartsRow[] = [];
   index: PickingIndexRow[] = [];
+  // The union's build copy (BUG-202): the rows of
+  // picking_index_build while a rebuild constructs the
+  // new union under its build name; null while no such
+  // table exists. The retired copy
+  // (picking_index_retired) likewise — the old union's
+  // rows between the swap's renames and its drop.
+  indexBuild: PickingIndexRow[] | null = null;
+  indexRetired: PickingIndexRow[] | null = null;
+  // Every statement issued, in order, whitespace-
+  // normalised — the swap-shape pins read it. A record
+  // of what was asked, not state: a rollback does not
+  // un-issue a statement, so snapshots leave it alone.
+  statements: string[] = [];
   // The derived street table (migration 0031): rebuilt
   // from the index by the filing machinery's hook on
   // every union rebuild, kill switch included.
@@ -146,6 +159,8 @@ export class FakePickingDb {
       salesExtract: this.salesExtract,
       epcExtract: this.epcExtract,
       index: this.index,
+      indexBuild: this.indexBuild,
+      indexRetired: this.indexRetired,
       streets: this.streets,
       places: this.places,
       editions: this.editions,
@@ -160,10 +175,52 @@ export class FakePickingDb {
     this.salesExtract = state.salesExtract;
     this.epcExtract = state.epcExtract;
     this.index = state.index;
+    this.indexBuild = state.indexBuild ?? null;
+    this.indexRetired = state.indexRetired ?? null;
     this.streets = state.streets ?? [];
     this.places = state.places ?? [];
     this.editions = state.editions;
     this.snapshot = null;
+  }
+
+  // The union the filing machinery's join computes
+  // from the two extracts as they stand: on a
+  // collision the sales parts win and the row carries
+  // both provenances; with includeEpc false (the kill
+  // switch) the sales extract alone, EPC provenance
+  // nowhere. Shared by the build insert's simulation.
+  private computeUnionRows(includeEpc: boolean): PickingIndexRow[] {
+    const salesEdition =
+      this.editions.find((e) => e.source === "sales")?.edition ?? null;
+    const epcEdition =
+      this.editions.find((e) => e.source === "epc")?.edition ?? null;
+    const byKey = new Map<string, PickingIndexRow>();
+    for (const row of this.salesExtract) {
+      byKey.set(`${row.postcode}\u0001${row.home_key}`, {
+        ...row,
+        sources: ["sales"],
+        sales_edition: salesEdition,
+        epc_edition: null,
+      });
+    }
+    if (includeEpc) {
+      for (const row of this.epcExtract) {
+        const key = `${row.postcode}\u0001${row.home_key}`;
+        const existing = byKey.get(key);
+        if (existing) {
+          existing.sources = ["sales", "epc"];
+          existing.epc_edition = epcEdition;
+        } else {
+          byKey.set(key, {
+            ...row,
+            sources: ["epc"],
+            sales_edition: null,
+            epc_edition: epcEdition,
+          });
+        }
+      }
+    }
+    return [...byKey.values()];
   }
 
   async query(
@@ -171,6 +228,7 @@ export class FakePickingDb {
     params: unknown[] = [],
   ): Promise<{ rows: Record<string, unknown>[] }> {
     const sql = text.replace(/\s+/g, " ").trim();
+    this.statements.push(sql);
     if (this.failOn !== null && sql.includes(this.failOn)) {
       throw new Error(`fake picking db: injected failure on ${this.failOn}`);
     }
@@ -272,43 +330,81 @@ export class FakePickingDb {
       return { rows: [] };
     }
 
-    if (sql === "DELETE FROM picking_index") {
+    // The union rebuild's build-and-swap shape
+    // (BUG-202): the new union is constructed under its
+    // build name, indexed once, and swapped into the
+    // served name by rename — the served table is never
+    // deleted or inserted into.
+    if (sql === "DROP TABLE IF EXISTS picking_index_build") {
+      this.indexBuild = null;
+      return { rows: [] };
+    }
+    if (sql === "DROP TABLE IF EXISTS picking_index_retired") {
+      this.indexRetired = null;
+      return { rows: [] };
+    }
+    if (sql.startsWith("CREATE TABLE picking_index_build")) {
+      if (this.indexBuild !== null) {
+        throw new Error(
+          "fake picking db: relation \"picking_index_build\" already exists",
+        );
+      }
+      this.indexBuild = [];
+      return { rows: [] };
+    }
+    if (sql.startsWith("INSERT INTO picking_index_build (postcode")) {
+      if (this.indexBuild === null) {
+        throw new Error(
+          "fake picking db: insert into a picking_index_build that does not exist",
+        );
+      }
+      this.indexBuild = this.computeUnionRows(sql.includes("FULL OUTER JOIN"));
+      return { rows: [] };
+    }
+    if (sql === "ALTER TABLE picking_index_build ADD PRIMARY KEY (postcode, home_key)") {
+      // Postgres refuses the key over duplicate homes.
+      // The union's join can never produce one — the
+      // fake holds the same line.
+      const seen = new Set<string>();
+      for (const row of this.indexBuild ?? []) {
+        const key = `${row.postcode}\u0001${row.home_key}`;
+        if (seen.has(key)) {
+          throw new Error(
+            "fake picking db: duplicate home for the build's primary key",
+          );
+        }
+        seen.add(key);
+      }
+      return { rows: [] };
+    }
+    if (sql.startsWith("CREATE INDEX picking_index_build_")) {
+      return { rows: [] };
+    }
+    if (sql === "ALTER TABLE picking_index RENAME TO picking_index_retired") {
+      // Between the swap's two renames the served name
+      // is vacant; nothing reads in that window (the
+      // street and place rebuilds run after it), so the
+      // fake simply holds the old rows under the
+      // retired name and serves none under the name.
+      this.indexRetired = this.index;
       this.index = [];
       return { rows: [] };
     }
-    if (sql.startsWith("INSERT INTO picking_index (postcode")) {
-      const salesEdition =
-        this.editions.find((e) => e.source === "sales")?.edition ?? null;
-      const epcEdition =
-        this.editions.find((e) => e.source === "epc")?.edition ?? null;
-      const includeEpc = sql.includes("FULL OUTER JOIN");
-      const byKey = new Map<string, PickingIndexRow>();
-      for (const row of this.salesExtract) {
-        byKey.set(`${row.postcode}\u0001${row.home_key}`, {
-          ...row,
-          sources: ["sales"],
-          sales_edition: salesEdition,
-          epc_edition: null,
-        });
+    if (sql === "ALTER TABLE picking_index_build RENAME TO picking_index") {
+      if (this.indexBuild === null) {
+        throw new Error(
+          "fake picking db: rename of a picking_index_build that does not exist",
+        );
       }
-      if (includeEpc) {
-        for (const row of this.epcExtract) {
-          const key = `${row.postcode}\u0001${row.home_key}`;
-          const existing = byKey.get(key);
-          if (existing) {
-            existing.sources = ["sales", "epc"];
-            existing.epc_edition = epcEdition;
-          } else {
-            byKey.set(key, {
-              ...row,
-              sources: ["epc"],
-              sales_edition: null,
-              epc_edition: epcEdition,
-            });
-          }
-        }
-      }
-      this.index = [...byKey.values()];
+      this.index = this.indexBuild;
+      this.indexBuild = null;
+      return { rows: [] };
+    }
+    if (sql === "DROP TABLE picking_index_retired") {
+      this.indexRetired = null;
+      return { rows: [] };
+    }
+    if (sql.startsWith("ALTER INDEX picking_index_build_")) {
       return { rows: [] };
     }
 
