@@ -12,7 +12,6 @@ import {
   PAYMENT_DECLINED_FALLBACK_LINE,
   PAYMENT_HOME_NOT_FOUND_LINE,
   PAYMENT_START_FAILED_LINE,
-  PAYMENT_TAKEN_LINE,
   type ReportPaymentView,
   type StartedPayment,
 } from "../lib/report-payment";
@@ -36,7 +35,17 @@ import { fireJourneyEvent } from "./JourneyBeacon";
 // its Terms link, followed by the change-of-mind
 // sentence; the price stands on the Pay button alone
 // — gives the delivery email, and
-// pays. A shape-valid email WITH the tick standing
+// pays. Sample 2 "Checkout alongside" (founder,
+// 24 Nov 2026) lays the page out in two columns on
+// desktop — the selling points (mystery tease +
+// contents card) on the left, one sticky checkout
+// card on the right carrying the consent, the email
+// and the payment panel; on phones the checkout card
+// stacks first, straight after the address. The
+// Card and Revolut Pay method rows stand visible in
+// the checkout card from the start; only the Pay
+// button waits for the tick and a shape-valid email.
+// A shape-valid email WITH the tick standing
 // starts a payment on the server (POST
 // /api/payments/intent — the server re-resolves the
 // home, the translator sets the amount, and the email
@@ -69,9 +78,11 @@ import { fireJourneyEvent } from "./JourneyBeacon";
 // to the success surface, which shows the gift-applied
 // banner; and a confirmed payment moves to the success
 // surface too (Sample 10, lib/report-success.ts),
-// which reads the fulfilment state server-side — the
-// interim taken line below is only the moment between
-// the provider's confirmation and that navigation.
+// which reads the fulfilment state server-side. BUG-217
+// (24 Nov 2026): no interim line stands between the
+// provider's confirmation and that navigation — the
+// buyer goes straight from the payment screen to the
+// success surface.
 
 // The provider library's promises, one per publishable
 // key (the default set's and the test lane's): the
@@ -181,14 +192,13 @@ export default function ReportPaymentPage({
   // the payment's metadata, not a time invented later.
   const [consentAt, setConsentAt] = useState<string | null>(null);
   const [started, setStarted] = useState<StartedPayment | null>(null);
-  const [paid, setPaid] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const creatingFor = useRef<string | null>(null);
   // The claim reference of the payment this page
   // started — the success surface's key, kept from the
-  // intent answer (the started payment's own state is
-  // retired by the paid flag before navigation reads
-  // it, so the reference rides in a ref of its own).
+  // intent answer in a ref of its own, so the navigation
+  // after a confirmed payment reads it without waiting
+  // on a state round-trip.
   const startedRef = useRef<string | null>(null);
   // The provider's browser library, loaded lazily on
   // the client only — the key arrives as page data from
@@ -209,9 +219,7 @@ export default function ReportPaymentPage({
   // not count — unticking the box or editing the email
   // retires the old payment without any state surgery
   // (liveStartedPayment, lib/report-payment.ts).
-  const activeIntent = paid
-    ? null
-    : liveStartedPayment(started, { emailValid, email: normalised, consentAt });
+  const activeIntent = liveStartedPayment(started, { emailValid, email: normalised, consentAt });
 
   // The element initialises from the key of the set
   // that created the standing payment (the lane's key
@@ -229,7 +237,7 @@ export default function ReportPaymentPage({
   // start leaves the notice standing and the start
   // button as the retry.
   useEffect(() => {
-    if (paid || !emailValid || consentAt === null) {
+    if (!emailValid || consentAt === null) {
       creatingFor.current = null;
       return;
     }
@@ -300,7 +308,7 @@ export default function ReportPaymentPage({
     return () => {
       live = false;
     };
-  }, [emailValid, normalised, started, consentAt, paid, postcode, homeKey, attempt]);
+  }, [emailValid, normalised, started, consentAt, postcode, homeKey, attempt]);
 
   function onConsentChange(checked: boolean) {
     // Ticking stamps the consent with its moment;
@@ -342,200 +350,228 @@ export default function ReportPaymentPage({
       <h1>{view.heading}</h1>
       {view.subline && <p className="type-lead report-door__subline">{view.subline}</p>}
 
-      {/* BUG-133: the mystery tease stands directly
-          under the intro, above the contents card — in
-          the first screenful, where a tease belongs. It
-          stood below the email block until this stack. */}
-      {!paid && (
-        <div className="report-payment__tease">
-          <span className="buy-bar__mystery-eyebrow">{view.teaseEyebrow}</span>
-          <p className="report-payment__tease-line">{view.teaseLine}</p>
-        </div>
-      )}
-
-      <section className="report-door__card">
-        <h2>{view.contentsHeading}</h2>
-        <ul className="report-door__list">
-          {view.contents.map((line) => (
-            <li key={line.lead}>
-              <strong>{line.lead}</strong>
-              {line.rest}
-            </li>
-          ))}
-        </ul>
-        {/* BUG-131: no one-payment line closes this
-            card — the honesty block below is the single
-            money statement on the page. */}
-      </section>
-
-      {paid ? (
-        <p className="report-payment__taken" role="status">
-          {PAYMENT_TAKEN_LINE}
-        </p>
-      ) : (
-        <>
-          <section className="report-door__card report-payment__honesty">
-            {/* BUG-215 (founder ruling, 24 Nov 2026):
-                the card is a SINGLE checkbox line in
-                small print — the one line naming what
-                the report is with its Terms link,
-                followed by the change-of-mind
-                sentence. This supersedes BUG-145's
-                block: the "Make my report now" tick
-                label, the separate small-print
-                paragraph, the Required pill and the
-                bold price line are all gone. The price
-                stands on the Pay button alone.
-                BUG-132's consent error still answers
-                directly under the tick line. */}
-            <label
-              className={`report-payment__consent${consentError ? " report-payment__consent--attention" : ""}`}
-            >
-              <input
-                className="report-payment__consent-box"
-                id="payment-consent"
-                name="consent"
-                type="checkbox"
-                checked={consentAt !== null}
-                aria-describedby={consentError ? "payment-consent-error" : undefined}
-                onChange={(event) => onConsentChange(event.target.checked)}
-              />
-              <span>
-                {view.termsLineLead}
-                <a href={view.termsHref}>{view.termsLinkLabel}</a>.{view.consentTail}
-              </span>
-            </label>
-            {consentError && (
-              <p className="report-payment__consent-error" id="payment-consent-error" role="alert">
-                {PAYMENT_CONSENT_ERROR_LINE}
-              </p>
-            )}
-          </section>
-
-          <div className="field report-payment__email">
-            <label className="field__label" htmlFor="payment-email">
-              {view.emailLabel} <span className="report-payment__req">Required</span>
-            </label>
-            <p className="field__hint">{view.emailHelp}</p>
-            <input
-              className="field__input"
-              id="payment-email"
-              name="email"
-              type="email"
-              autoComplete="email"
-              placeholder={view.emailPlaceholder}
-              value={email}
-              aria-invalid={emailError || undefined}
-              aria-describedby={emailError ? "payment-email-error" : undefined}
-              onChange={(event) => {
-                setEmail(event.target.value);
-                setEmailError(false);
-                setNotice(null);
-              }}
-              onBlur={() => {
-                if (email.trim() !== "" && !emailValid) setEmailError(true);
-              }}
-            />
-            {emailError && (
-              <p
-                className="field__message field__message--error"
-                id="payment-email-error"
-                role="alert"
-              >
-                {view.emailError}
-              </p>
-            )}
+      {/* Sample 2 "Checkout alongside" (founder,
+          24 Nov 2026): two columns on desktop — the
+          selling points on the left, one checkout card
+          on the right (sticky); on phones the checkout
+          card stacks first, straight after the address. */}
+      <div className="report-payment__layout">
+        <div className="report-payment__selling">
+          {/* BUG-133: the mystery tease stands directly
+              under the intro, above the contents card — in
+              the first screenful, where a tease belongs. It
+              stood below the email block until this stack. */}
+          <div className="report-payment__tease">
+            <span className="buy-bar__mystery-eyebrow">{view.teaseEyebrow}</span>
+            <p className="report-payment__tease-line">{view.teaseLine}</p>
           </div>
 
-          <section className="report-payment__panel">
-            <div className="report-payment__panel-head">
-              <span className="report-payment__panel-title">{view.cardTitle}</span>
-              <span className="report-payment__panel-powered">
-                Powered by <strong>Stripe</strong>
-              </span>
+          <section className="report-door__card">
+            <h2>{view.contentsHeading}</h2>
+            <ul className="report-door__list">
+              {view.contents.map((line) => (
+                <li key={line.lead}>
+                  <strong>{line.lead}</strong>
+                  {line.rest}
+                </li>
+              ))}
+            </ul>
+            {/* BUG-131: no one-payment line closes this
+                card — the honesty block below is the single
+                money statement on the page. */}
+          </section>
+        </div>
+
+        <div className="report-payment__checkout">
+          {/* The checkout card (Sample 2): the head
+              carries no price — the price shows only on
+              the Pay button — then the plain one-payment
+              line, the BUG-215 consent, the email block
+              and the payment panel, in that order. */}
+          <section className="report-door__card report-payment__checkout-card">
+            <div className="report-payment__checkout-head">
+              <h2>Detailed report</h2>
             </div>
-            {notice && (
-              <p className="field__message field__message--error" role="alert">
-                {notice}
-              </p>
-            )}
-            {activeIntent && stripePromise ? (
-              <Elements
-                stripe={stripePromise}
-                options={{
-                  clientSecret: activeIntent.clientSecret,
-                  // PF-13: the element is dressed in the
-                  // page's own livery — Sample 9's drawn
-                  // fields (labels #3C4257 at 13.5px/500,
-                  // inputs on #CBD2DC at 8px radius) over
-                  // the page's text face — instead of the
-                  // provider's unthemed default.
-                  appearance: {
-                    theme: "stripe",
-                    variables: {
-                      fontFamily:
-                        '"DM Sans", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
-                      colorPrimary: "#2f5d3e",
-                      colorText: "#30313d",
-                      borderRadius: "8px",
-                    },
-                    rules: {
-                      ".Label": { color: "#3c4257", fontSize: "13.5px", fontWeight: "500" },
-                      ".Input": {
-                        border: "1px solid #cbd2dc",
-                        boxShadow: "0 1px 2px rgba(16, 24, 40, 0.05)",
-                      },
-                    },
-                  },
-                }}
-              >
-                <PaySection
-                  view={view}
-                  consented={consentAt !== null}
-                  orderRef={activeIntent.intentId || null}
-                  onPaid={() => {
-                    setPaid(true);
-                    // The success surface reads the
-                    // fulfilment claim server-side; the
-                    // claim's reference is the payment's
-                    // own id.
-                    if (startedRef.current) {
-                      window.location.assign(
-                        `/report/success?order=${encodeURIComponent(startedRef.current)}`,
-                      );
-                    }
+            <p className="report-payment__one-payment">{view.onePaymentLine}</p>
+
+            <>
+              <section className="report-payment__honesty">
+                {/* BUG-215 (founder ruling, 24 Nov 2026):
+                    the card is a SINGLE checkbox line in
+                    small print — the one line naming what
+                    the report is with its Terms link,
+                    followed by the change-of-mind
+                    sentence. This supersedes BUG-145's
+                    block: the "Make my report now" tick
+                    label, the separate small-print
+                    paragraph, the Required pill and the
+                    bold price line are all gone. The price
+                    stands on the Pay button alone.
+                    BUG-132's consent error still answers
+                    directly under the tick line. */}
+                <label
+                  className={`report-payment__consent${consentError ? " report-payment__consent--attention" : ""}`}
+                >
+                  <input
+                    className="report-payment__consent-box"
+                    id="payment-consent"
+                    name="consent"
+                    type="checkbox"
+                    checked={consentAt !== null}
+                    aria-describedby={consentError ? "payment-consent-error" : undefined}
+                    onChange={(event) => onConsentChange(event.target.checked)}
+                  />
+                  <span>
+                    {view.termsLineLead}
+                    <a href={view.termsHref}>{view.termsLinkLabel}</a>.{view.consentTail}
+                  </span>
+                </label>
+                {consentError && (
+                  <p
+                    className="report-payment__consent-error"
+                    id="payment-consent-error"
+                    role="alert"
+                  >
+                    {PAYMENT_CONSENT_ERROR_LINE}
+                  </p>
+                )}
+              </section>
+
+              <div className="field report-payment__email">
+                <label className="field__label" htmlFor="payment-email">
+                  {view.emailLabel} <span className="report-payment__req">Required</span>
+                </label>
+                <p className="field__hint">{view.emailHelp}</p>
+                <input
+                  className="field__input"
+                  id="payment-email"
+                  name="email"
+                  type="email"
+                  autoComplete="email"
+                  placeholder={view.emailPlaceholder}
+                  value={email}
+                  aria-invalid={emailError || undefined}
+                  aria-describedby={emailError ? "payment-email-error" : undefined}
+                  onChange={(event) => {
+                    setEmail(event.target.value);
+                    setEmailError(false);
+                    setNotice(null);
+                  }}
+                  onBlur={() => {
+                    if (email.trim() !== "" && !emailValid) setEmailError(true);
                   }}
                 />
-              </Elements>
-            ) : (
-              <>
-                {/* The element's mount point: the provider's
-                    card fields render inside its own iframes
-                    here once a payment has started — until
-                    then this page's DOM holds no card field
-                    of any kind. */}
-                <div data-payment-element-mount />
-                {/* BUG-132: the button is NOT disabled
-                    while the tick stands unticked — it
-                    wears the disabled dress (aria-disabled)
-                    so an attempt can be answered with the
-                    consent error instead of silence. No
-                    payment can start unticked either way:
-                    the start effect requires the consent. */}
-                <button
-                  type="button"
-                  className="btn btn--brass report-payment__pay"
-                  onClick={onStartClick}
-                  aria-disabled={consentAt === null || undefined}
-                >
-                  {view.payLabel}
-                </button>
-                <p className="report-payment__smallprint">{view.closingLine}</p>
-              </>
-            )}
+                {emailError && (
+                  <p
+                    className="field__message field__message--error"
+                    id="payment-email-error"
+                    role="alert"
+                  >
+                    {view.emailError}
+                  </p>
+                )}
+              </div>
+
+              <section className="report-payment__panel">
+                <div className="report-payment__panel-head">
+                  <span className="report-payment__panel-title">{view.cardTitle}</span>
+                  <span className="report-payment__panel-powered">
+                    Powered by <strong>Stripe</strong>
+                  </span>
+                </div>
+                {notice && (
+                  <p className="field__message field__message--error" role="alert">
+                    {notice}
+                  </p>
+                )}
+                {activeIntent && stripePromise ? (
+                  <Elements
+                    stripe={stripePromise}
+                    options={{
+                      clientSecret: activeIntent.clientSecret,
+                      // PF-13: the element is dressed in the
+                      // page's own livery — Sample 9's drawn
+                      // fields (labels #3C4257 at 13.5px/500,
+                      // inputs on #CBD2DC at 8px radius) over
+                      // the page's text face — instead of the
+                      // provider's unthemed default.
+                      appearance: {
+                        theme: "stripe",
+                        variables: {
+                          fontFamily:
+                            '"DM Sans", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+                          colorPrimary: "#2f5d3e",
+                          colorText: "#30313d",
+                          borderRadius: "8px",
+                        },
+                        rules: {
+                          ".Label": { color: "#3c4257", fontSize: "13.5px", fontWeight: "500" },
+                          ".Input": {
+                            border: "1px solid #cbd2dc",
+                            boxShadow: "0 1px 2px rgba(16, 24, 40, 0.05)",
+                          },
+                        },
+                      },
+                    }}
+                  >
+                    <PaySection
+                      view={view}
+                      consented={consentAt !== null}
+                      orderRef={activeIntent.intentId || null}
+                      onPaid={() => {
+                        // The success surface reads the
+                        // fulfilment claim server-side; the
+                        // claim's reference is the payment's
+                        // own id.
+                        if (startedRef.current) {
+                          window.location.assign(
+                            `/report/success?order=${encodeURIComponent(startedRef.current)}`,
+                          );
+                        }
+                      }}
+                    />
+                  </Elements>
+                ) : (
+                  <>
+                    {/* Sample 2: the payment methods are
+                        visible from the start — these rows
+                        are the page's own static list, not
+                        the provider's element (the element
+                        still mounts only once a payment has
+                        started, below). */}
+                    <ul className="report-payment__methods" aria-label="Payment methods">
+                      <li className="report-payment__method">Card</li>
+                      <li className="report-payment__method">Revolut Pay</li>
+                    </ul>
+                    {/* The element's mount point: the provider's
+                        card fields render inside its own iframes
+                        here once a payment has started — until
+                        then this page's DOM holds no card field
+                        of any kind. */}
+                    <div data-payment-element-mount />
+                    {/* BUG-132: the button is NOT disabled
+                        while the tick stands unticked — it
+                        wears the disabled dress (aria-disabled)
+                        so an attempt can be answered with the
+                        consent error instead of silence. No
+                        payment can start unticked either way:
+                        the start effect requires the consent. */}
+                    <button
+                      type="button"
+                      className="btn btn--brass report-payment__pay"
+                      onClick={onStartClick}
+                      aria-disabled={consentAt === null || undefined}
+                    >
+                      {view.payLabel}
+                    </button>
+                    <p className="report-payment__smallprint">{view.closingLine}</p>
+                  </>
+                )}
+              </section>
+            </>
           </section>
-        </>
-      )}
+        </div>
+      </div>
     </main>
   );
 }

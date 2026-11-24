@@ -1,9 +1,8 @@
 import type { Metadata } from "next";
 
-import BreadcrumbLd from "../../components/BreadcrumbLd";
-import SampleReportDocument from "../../components/SampleReportDocument";
+import SampleReportBody from "../../components/SampleReportBody";
 import { getSampleReportView } from "../../lib/server/sample-report";
-import { SAMPLE_REPORT_PDF_PATH } from "../../lib/report-pdf";
+import { getSampleReportBody } from "../../lib/server/sample-report-html";
 import { PAGE_SEO, pageMetadata, SAMPLE_REPORT_INDEXABLE } from "../../lib/seo";
 
 // M7.8 — the Sample report (Final Sample Master view 7):
@@ -40,22 +39,35 @@ export const metadata: Metadata = pageMetadata({
 // The sample is generated from the filed data at request
 // time (cached per process by its seam), like the bought
 // report's own view.
+//
+// BUG-219: the page stays force-dynamic — removing it
+// would make Next statically generate the page at build
+// time, and the build has no database (the view seam
+// would live-generate and the build would fail). What
+// changes is the body: when the bake has written the
+// pre-rendered body (lib/server/sample-report-html.ts),
+// the page serves it verbatim inside the same shell
+// instead of re-rendering the whole document per hit.
+// The layout, header, footer and head still render per
+// hit, exactly as today — so the served document is
+// identical either way, and the visual guard photographs
+// the same page.
 export const dynamic = "force-dynamic";
 
 export default async function SampleReportPage() {
+  const body = await getSampleReportBody();
+  if (body !== null) {
+    return (
+      <main className="site-pages">
+        <div className="site-pages__inner" dangerouslySetInnerHTML={{ __html: body }} />
+      </main>
+    );
+  }
   const view = await getSampleReportView();
   return (
     <main className="site-pages">
       <div className="site-pages__inner">
-        <BreadcrumbLd name="Sample report" path="/sample-report" />
-        <SampleReportDocument view={view} />
-        <p className="sample-download">
-          Prefer it as one file?{" "}
-          <a href={SAMPLE_REPORT_PDF_PATH} download>
-            Download this sample report as a PDF
-          </a>{" "}
-          — the same document, marked SAMPLE on its cover.
-        </p>
+        <SampleReportBody view={view} />
       </div>
     </main>
   );

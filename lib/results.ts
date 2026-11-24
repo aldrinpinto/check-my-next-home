@@ -28,6 +28,7 @@ import {
 // importers are untouched.
 export { floodBandOf, formatFiledDate, formatMiles, formatPounds };
 import {
+  BROWNFIELD_RADIUS_MILES,
   RADIUS_MILES,
   SELECTIVE_LIST_SIZE,
   SELECTIVE_SEARCH_MILES,
@@ -168,14 +169,18 @@ function signedPounds(diff: number): string {
 }
 
 // The planning rows' compact facts (parity fix batch,
-// item 26): the Master's constraints row joins short
-// facts — "Not in a conservation area • Not in the green
-// belt • Inside the Millbrook built-up area" — composed
-// here from each layer's state and inside name. A state
-// with no compact fact (not published, sparse coverage,
-// not filed) returns null and the caller falls back to
-// the layer's own line.
-function polygonFact(layer: ShortPolygonLayer): string | null {
+// item 26; BUG-212): the grouped constraints rows take
+// each layer's short fact — "Not in a conservation area •
+// Not in the green belt • Inside the Millbrook built-up
+// area" — composed here from each layer's state and inside
+// name. A state with no compact fact (not published,
+// sparse coverage, not filed) returns null and the caller
+// falls back to the layer's own line. Shared by the free
+// page and the paid report (the full bundle's polygon
+// layers carry the same three fields).
+export function polygonFact(
+  layer: Pick<ShortPolygonLayer, "layer" | "state" | "insideName">,
+): string | null {
   const inside = layer.insideName;
   switch (layer.layer) {
     case "conservation_area":
@@ -213,10 +218,14 @@ function beyondNearestLine(feature: string, name: string, miles: number): string
   return `The nearest ${feature} is ${name}, ${formatMiles(miles)} miles away.`;
 }
 
-const POLYGON_FEATURE_NAMES: Record<string, string> = {
+export const POLYGON_FEATURE_NAMES: Record<string, string> = {
   conservation_area: "conservation area",
   article_4_area: "Article 4 area",
   green_belt: "green belt",
+  // BUG-212: built-up areas need their own feature name —
+  // the fallback "area" would read "the nearest area is
+  // Newham", which names nothing.
+  built_up_area: "built-up area",
   ancient_woodland: "ancient woodland",
 };
 
@@ -283,6 +292,123 @@ export function sentenceStart(text: string): string {
 export function sentenceLine(text: string): string {
   const composed = sentenceStart(text);
   return /[.!?]$/.test(composed) ? composed : `${composed}.`;
+}
+
+// ------------------------------------------------------------------
+// BUG-212 — the planning-constraints grouping (Sample 2
+// "Grouped by answer", founder pick 24 Nov 2026), shared by
+// the free page (lib/results.ts) and the paid report
+// (lib/report.ts) so both surfaces draw the same groups in
+// the same order from the same facts. A finding is a layer
+// that answered (inside, none-found, served); an
+// uncheckable layer is one the data could not answer
+// (not-published, sparse-coverage, not-filed). The findings
+// group is headed "Nothing found" when every finding is a
+// proven none, else "Findings"; the uncheckable group
+// always sits last, and Article 4 sits last inside it (the
+// founder's pick names the Article 4 entry the section's
+// last entry). Distances are one-decimal pills on the
+// concern band (nearness is the concern, BUG-126); the
+// "(straight-line distance from the postcode point)"
+// parenthetical never appears here (BUG-211 owns that
+// wording; How We Check carries it once).
+// ------------------------------------------------------------------
+
+// The Article 4 uncheckable entry, in Sample 2's exact
+// wording (founder-approved copy). It carries NO link —
+// founder correction 24 Nov ~11:04: "lets not give
+// council link... its a wrong link". The planning-
+// applications link the check carries is a different
+// destination (applications asked for, not directions in
+// force), so it must not stand here.
+export const ARTICLE4_UNCHECKABLE_TEXT =
+  "This council does not publish its Article 4 directions to the national dataset, so no finding can be made from the data — this is a gap in the data, not a clear result. The answer lives on the council's own planning register.";
+
+export interface PlanningConstraintInput {
+  key: "conservation" | "article4" | "greenBelt" | "builtUp" | "brownfield";
+  label: string;
+  feature: string;
+  state: "inside" | "none-found" | "served" | "not-published" | "sparse-coverage" | "not-filed";
+  fact: string | null;
+  line: string;
+  nearestName: string | null;
+  nearestMiles: number | null;
+  beyond: boolean;
+  radiusMiles: number;
+  radiusInLine: boolean;
+}
+
+export interface PlanningConstraintRow {
+  label: string;
+  text: string;
+  tag: "Clear" | "Can't be checked" | null;
+  tagTone: "g" | "grey" | null;
+  miles: number | null;
+}
+
+export interface PlanningConstraintGroups {
+  findingsHead: "Nothing found" | "Findings" | null;
+  findings: PlanningConstraintRow[];
+  uncheckable: PlanningConstraintRow[];
+}
+
+const PLANNING_UNCHECKABLE_STATES = new Set(["not-published", "sparse-coverage", "not-filed"]);
+
+export function groupPlanningConstraints(
+  inputs: PlanningConstraintInput[],
+): PlanningConstraintGroups {
+  const findings: PlanningConstraintRow[] = [];
+  const uncheckableInputs = inputs.filter((input) => PLANNING_UNCHECKABLE_STATES.has(input.state));
+  // Article 4 last inside the uncheckable group (the
+  // founder's pick names it the section's last entry);
+  // the rest keep their layer order.
+  const orderedUncheckable = [
+    ...uncheckableInputs.filter((input) => input.key !== "article4"),
+    ...uncheckableInputs.filter((input) => input.key === "article4"),
+  ];
+  const uncheckable: PlanningConstraintRow[] = orderedUncheckable.map((input) => ({
+    label: input.label,
+    text:
+      input.key === "article4" && input.state === "not-published"
+        ? ARTICLE4_UNCHECKABLE_TEXT
+        : sentenceLine(input.line),
+    tag: "Can't be checked",
+    tagTone: "grey",
+    miles: null,
+  }));
+  for (const input of inputs) {
+    if (PLANNING_UNCHECKABLE_STATES.has(input.state)) continue;
+    // A finding: the fact, then the named nearest where
+    // one serves. An inside finding names no nearest (the
+    // home is in the designation; the nearest is the
+    // designation itself). The beyond clause frames the
+    // radius only where the fact does not already state it
+    // (brownfield's line carries its 5 miles); the miles
+    // themselves ride the pill, never the text.
+    const showNearest =
+      input.nearestName !== null && (input.state === "none-found" || input.state === "served");
+    const fact = input.fact ?? sentenceLine(input.line).replace(/\.$/, "");
+    let clause = "";
+    if (showNearest) {
+      const radius =
+        input.beyond && !input.radiusInLine ? `, and none within ${input.radiusMiles} miles` : "";
+      clause = `${radius} — the nearest ${input.feature} is ${input.nearestName}`;
+    }
+    findings.push({
+      label: input.label,
+      text: sentenceLine(`${fact}${clause}`),
+      tag: input.state === "none-found" ? "Clear" : null,
+      tagTone: input.state === "none-found" ? "g" : null,
+      miles: showNearest ? input.nearestMiles : null,
+    });
+  }
+  const findingsHead =
+    findings.length === 0
+      ? null
+      : findings.every((finding) => finding.tag === "Clear")
+        ? "Nothing found"
+        : "Findings";
+  return { findingsHead, findings, uncheckable };
 }
 
 export interface TruncationView {
@@ -690,10 +816,13 @@ export function placeGroupView(
     // contract pins and the golden replay stand), and
     // the report keeps its own named none-within
     // sentences — this is the free page's row form
-    // only. Where no row carries the nearest (the
-    // far-beyond guard nulls it past 25 miles), the
+    // only. Where no row carries the nearest (no
+    // beyond-nearest was filed at all), the
     // fall-through below keeps the line as the sole
-    // statement.
+    // statement — the far-beyond guard's null no
+    // longer lands here: the display layer restores
+    // the suppressed nearest upstream (BUG-213 ruling),
+    // so it renders as a named row with its red pill.
     return {
       ...base,
       rows: [
@@ -860,11 +989,6 @@ export interface ResultsSectionView {
   heading: string;
   blocks: SectionBlock[];
   sourceLine: string | null;
-  // Sample 28's two-tier section head (WA-01): the
-  // numbered small label, the serif section title and
-  // the grain pill. District views only — home sections
-  // leave it unset and keep the one-tier heading.
-  districtHead?: { label: string; title: string; grain?: string | null } | null;
 }
 
 export interface ResultsTabView {
@@ -1779,21 +1903,45 @@ function linesSection(
   heading: string,
   blocks: SectionBlock[],
   sourceLine: string | null = null,
-  districtHead: ResultsSectionView["districtHead"] = null,
 ): ResultsSectionView {
-  return { key, heading, blocks, sourceLine, districtHead };
+  return { key, heading, blocks, sourceLine };
 }
 
 // The beyond-nearest radius guard (BEYOND_NEAREST_RADIUS_MILES,
 // farBeyondLine, suppressFarBeyond) lives in lib/journey.ts
-// since the fix batch of 19 Nov 2026 (BUG-002): the results
-// layer's sections and pills have applied it since CI #205,
-// and the checking screen's feed derivation now applies the
-// SAME transformation — one guard, both consumers, so the
-// feed can never name a "nearest" the results page itself
-// suppresses. It is imported above and re-exported here so
-// this module's existing importers are untouched.
+// since the fix batch of 19 Nov 2026 (BUG-002): the checking
+// screen's feed derivation applies it, and the results layer
+// applies it to the bundle the summary pills read — so no
+// pill is ever struck from a far pointer. It is imported
+// above and re-exported here so this module's existing
+// importers are untouched.
+//
+// BUG-213 far-beyond ruling (founder, 24 Nov 2026): the
+// free page's GROUPS do not suppress the far-beyond
+// nearest — they name it. The guard itself is untouched
+// (its function, and the checking feed that derives
+// through it in lib/journey.ts's nearbyCheckingGroups,
+// keep the unnamed line); only this display layer
+// restores the suppressed pointer, so placeGroupView
+// renders it as a named row and the distance pill
+// colours by the group's own family band (GP "everyday":
+// red past 1.5 miles, so red at 30). The split is
+// deliberate: pills keep the guard, groups name the
+// nearest.
 export { BEYOND_NEAREST_RADIUS_MILES, suppressFarBeyond };
+
+function nameFarBeyondForDisplay(category: CategoryAnswer): CategoryAnswer {
+  const suppressed = suppressFarBeyond(category);
+  // The guard nulled a beyond-nearest this category
+  // carried: restore it for the free page's groups, so
+  // the row names the place and its pill. Where the
+  // guard did not suppress (within radius, or no
+  // beyond-nearest at all), the category passes through
+  // unchanged.
+  if (suppressed.beyondNearest === null && category.beyondNearest)
+    return { ...suppressed, beyondNearest: category.beyondNearest };
+  return suppressed;
+}
 
 export function buildResultsView(input: ResultsInput): ResultsView {
   const { resolution, flood, crime, area, short } = input;
@@ -1811,9 +1959,12 @@ export function buildResultsView(input: ResultsInput): ResultsView {
   const nearby = input.nearby.kind === "distances" ? input.nearby : null;
   // The gated categories are treated as absent everywhere
   // in this view — sections and pills alike (gap check
-  // Section 3: one gate feeds both consumers). Beyond
-  // rows past the sane radius are suppressed at the same
-  // point, for the same reason (CI #205 fix).
+  // Section 3: one gate feeds both consumers). The guard
+  // runs on the bundle the summary pills read
+  // (effectiveNearby), so no pill is ever struck from a far
+  // pointer (CI #205 fix); the groups read the display
+  // map below, where the far-beyond nearest is restored
+  // and named (BUG-213 ruling).
   const effectiveNearby = nearby
     ? {
         ...nearby,
@@ -1821,7 +1972,9 @@ export function buildResultsView(input: ResultsInput): ResultsView {
       }
     : null;
   const categories = new Map<string, CategoryAnswer>(
-    (effectiveNearby?.categories ?? []).map((category) => [category.category, category]),
+    (nearby?.categories ?? [])
+      .filter((c) => !gated.has(c.category))
+      .map((category) => [category.category, nameFarBeyondForDisplay(category)]),
   );
   const areaSections = area.kind === "area-bundle" ? area.sections : null;
 
@@ -2771,90 +2924,86 @@ export function buildResultsView(input: ResultsInput): ResultsView {
   {
     const blocks: SectionBlock[] = [];
     const constraints = sections.constraints;
-    // The Master's planning rows (parity fix batch, item
-    // 26): compact FACTS-tagged rows — the constraints row
-    // joins the layers' short facts; a layer with no
-    // compact fact (Article 4 not published, a sparse or
-    // unfiled layer) states its own line as a further text
-    // instead, exactly as the sample's second line does.
-    // Beyond-nearest facts recompose in the named,
-    // 1-decimal form. Brownfield keeps its own line (a
-    // count fact, not a polygon state) with its beyond
-    // fact recomposed the same way.
+    // BUG-212 (Sample 2 "Grouped by answer", founder pick
+    // 24 Nov 2026): the constraints group — the four
+    // polygon layers and brownfield, grouped by answer.
+    // Findings first (each its own named row with its tag
+    // and distance pill), then anything the data could not
+    // check, Article 4 last. The joined compact facts and
+    // the separate brownfield row are gone; the FACTS badge
+    // is replaced by the per-row tags.
     {
-      const layers = [
+      const keyByLayer: Record<string, PlanningConstraintInput["key"]> = {
+        conservation_area: "conservation",
+        article_4_area: "article4",
+        green_belt: "greenBelt",
+        built_up_area: "builtUp",
+      };
+      const inputs: PlanningConstraintInput[] = [
         constraints.conservationArea,
         constraints.article4,
         constraints.greenBelt,
         constraints.builtUpArea,
-      ];
-      const facts: string[] = [];
-      const extraTexts: string[] = [];
-      for (const layer of layers) {
-        const fact = polygonFact(layer);
-        if (fact) facts.push(fact);
-        else extraTexts.push(layer.line);
-        const nearest = layer.nearest;
-        if (layer.beyondLine && nearest && nearest.name && layer.state !== "inside")
-          extraTexts.push(
-            beyondNearestLine(
-              POLYGON_FEATURE_NAMES[layer.layer] ?? "area",
-              nearest.name,
-              nearest.miles,
-            ),
-          );
-        else if (layer.beyondLine && layer.state !== "inside") extraTexts.push(layer.beyondLine);
-      }
-      // HCR-18 (BUG-156 bullet treatment): the joined
-      // facts stay prose as the row's headline; the
-      // absence and beyond-nearest lines take bullets
-      // beneath it — not four findings stacked as running
-      // prose. HCR-05: the brownfield line leaves this
-      // row entirely — it stands as its own row below.
-      const texts: string[] = [];
-      if (facts.length > 0) texts.push(facts.join(" • "));
-      blocks.push({
-        type: "tagged-line",
-        lead: "Planning constraints",
-        texts,
-        bullets: extraTexts.length > 0 ? extraTexts : undefined,
-        tag: "FACTS",
-        tagTone: "grey",
-      });
-    }
-    {
-      // HCR-05 (BUG-153): brownfield's own row, restored —
-      // the count, the named nearest, and its inverted
-      // distance pill (BUG-126: nearness is the concern,
-      // the "concern" family). In the none-within state
-      // the nearest the brain names is the beyond nearest,
-      // carried by the short bundle in the same slot.
+      ].map((layer) => ({
+        key: keyByLayer[layer.layer] ?? "conservation",
+        label: layer.label,
+        feature: POLYGON_FEATURE_NAMES[layer.layer] ?? "area",
+        state: layer.state,
+        fact: polygonFact(layer),
+        line: layer.line,
+        nearestName: layer.nearest?.name ?? null,
+        nearestMiles: layer.nearest ? layer.nearest.miles : null,
+        beyond: layer.beyondLine !== null,
+        radiusMiles: RADIUS_MILES,
+        radiusInLine: false,
+      }));
       const brownfield = constraints.brownfield;
-      const texts: string[] = [brownfield.line];
-      let miles: { text: string; band: DistanceBand } | undefined;
-      if (brownfield.nearest) {
-        if ((brownfield.countWithin ?? 0) > 0) {
-          texts.push(
-            `The nearest recorded brownfield site is ${brownfield.nearest.label}, ${formatMiles(brownfield.nearest.miles)} miles away.`,
-          );
-          miles = {
-            text: `${formatMiles(brownfield.nearest.miles)} mi`,
-            band: distanceBand("concern", brownfield.nearest.miles),
-          };
-        } else if (brownfield.beyondLine) {
-          texts.push(
-            `The nearest recorded brownfield site is ${brownfield.nearest.label}, ${formatMiles(brownfield.nearest.miles)} miles away.`,
-          );
-        }
-      } else if (brownfield.beyondLine) texts.push(brownfield.beyondLine);
-      blocks.push({
-        type: "tagged-line",
-        lead: "Brownfield land",
-        texts,
-        tag: "FACTS",
-        tagTone: "grey",
-        miles,
+      inputs.push({
+        key: "brownfield",
+        label: "Brownfield land",
+        feature: "recorded brownfield site",
+        state: brownfield.state,
+        fact: brownfield.line,
+        line: brownfield.line,
+        nearestName: brownfield.nearest?.label ?? null,
+        nearestMiles: brownfield.nearest ? brownfield.nearest.miles : null,
+        beyond: brownfield.beyondLine !== null,
+        radiusMiles: BROWNFIELD_RADIUS_MILES,
+        radiusInLine: true,
       });
+      const groups = groupPlanningConstraints(inputs);
+      blocks.push({ type: "subheading", text: "Planning constraints" });
+      if (groups.findingsHead) {
+        blocks.push({ type: "subheading", text: groups.findingsHead });
+        for (const finding of groups.findings) {
+          blocks.push({
+            type: "tagged-line",
+            lead: finding.label,
+            texts: [finding.text],
+            tag: finding.tag ?? undefined,
+            tagTone: finding.tagTone ?? undefined,
+            miles:
+              finding.miles !== null
+                ? {
+                    text: `${formatMiles(finding.miles)} mi`,
+                    band: distanceBand("concern", finding.miles),
+                  }
+                : undefined,
+          });
+        }
+      }
+      if (groups.uncheckable.length > 0) {
+        blocks.push({ type: "subheading", text: "Could not be checked" });
+        for (const entry of groups.uncheckable) {
+          blocks.push({
+            type: "tagged-line",
+            lead: entry.label,
+            texts: [entry.text],
+            tag: entry.tag ?? undefined,
+            tagTone: entry.tagTone ?? undefined,
+          });
+        }
+      }
     }
     {
       const nature = sections.nature;
@@ -3022,30 +3171,24 @@ export function buildResultsView(input: ResultsInput): ResultsView {
   }
   {
     const blocks: SectionBlock[] = [];
-    // Item 28 (parity fix batch): the same hospital must
-    // not appear twice in its section. A hospital that is
-    // both the nearest A&E and the nearest maternity unit
-    // (Broomfield at Birkdale, Epsom General at Minerva,
-    // Newham at Exeter) served in both groups — each with
-    // its own beyond row where beyond (BUG-213: the
-    // "None within" preamble line above the row is gone)
-    // — because the two categories read the same filed
-    // hospitals independently. The A&E group leads (it is
-    // the section's headline fact); the maternity group is
-    // suppressed when its lead place IS the A&E lead
-    // place. The A&E group's count row is likewise
-    // cleared by the section's strip declaration
-    // (OBS-012) — the section's merged truncRow below is
-    // its one upsell.
-    const aeCategory = categories.get("ae");
-    const maternityCategory = categories.get("maternity");
-    const leadName = (category: CategoryAnswer | undefined): string | null =>
-      category?.places[0]?.name ?? category?.beyondNearest?.name ?? null;
-    const aeLead = leadName(aeCategory);
-    const maternityDuplicatesAe =
-      aeLead !== null && maternityCategory !== undefined && leadName(maternityCategory) === aeLead;
+    // BUG-213 ruling (founder, 24 Nov 2026): the maternity
+    // group never renders as visible rows on the free
+    // page — it sits behind the section's strip in every
+    // case, as the Master's Hospitals section shows the
+    // A&E row only with "Plus maternity, community
+    // hospital & more hospitals" below it. This retires
+    // item 28's dedup (the maternity group was suppressed
+    // only when its lead place WAS the A&E lead place, so
+    // a different nearest maternity unit served as a
+    // second visible row). The A&E group leads (it is the
+    // section's headline fact). The A&E group's count row
+    // is likewise cleared by the section's strip
+    // declaration (OBS-012) — the section's merged
+    // truncRow below is its one upsell. Where the nation
+    // gates A&E (Wales, Scotland, NI) the strip is
+    // skipped as before and the section carries the
+    // A&E not-covered line alone.
     blocks.push(...group("ae", FAMILY_CATEGORIES).blocks);
-    if (!maternityDuplicatesAe) blocks.push(...group("maternity", FAMILY_CATEGORIES).blocks);
     if (!gated.has("ae"))
       blocks.push({
         type: "upsell",
@@ -3293,11 +3436,6 @@ function districtAirValue(value: number): string {
 function districtCensusSection(bundle: DistrictServed): ResultsSectionView {
   const census = bundle.sections.census;
   const outward = bundle.outward;
-  const head = {
-    label: "2 · People",
-    title: "The neighbourhood in numbers",
-    grain: "Census 2021 · District",
-  };
   if (census.state !== "served") {
     return linesSection(
       "census",
@@ -3309,7 +3447,6 @@ function districtCensusSection(bundle: DistrictServed): ResultsSectionView {
         },
       ],
       null,
-      head,
     );
   }
   // Sample 28's row form (WA-03, as corrected): each
@@ -3459,13 +3596,12 @@ function districtCensusSection(bundle: DistrictServed): ResultsSectionView {
       : `Census 2021 figures summed across the ${census.msoaCount} Census areas this ` +
         `district's postcodes fall in. Facts as published, in the Census's own words — no scores.`,
   });
-  return linesSection("census", "The neighbourhood in numbers", blocks, census.sourceLine, head);
+  return linesSection("census", "The neighbourhood in numbers", blocks, census.sourceLine);
 }
 
 function districtCrimeSection(bundle: DistrictServed): ResultsSectionView {
   const crime = bundle.sections.crime;
   const outward = bundle.outward;
-  const head = { label: "3 · Safety", title: "Crime", grain: "Last 12 months · District" };
   if (crime.state !== "served" || crime.total == null || crime.per1000 == null) {
     return linesSection(
       "crime",
@@ -3477,7 +3613,6 @@ function districtCrimeSection(bundle: DistrictServed): ResultsSectionView {
         },
       ],
       null,
-      head,
     );
   }
   // Sample 28's tile contents (WA-07): the counts, the
@@ -3539,7 +3674,7 @@ function districtCrimeSection(bundle: DistrictServed): ResultsSectionView {
       value: districtCount(rest.reduce((sum, category) => sum + category.count, 0)),
     });
   }
-  return linesSection("crime", "Crime", blocks, crime.sourceLine, head);
+  return linesSection("crime", "Crime", blocks, crime.sourceLine);
 }
 
 // WA-05/WA-06: one flood layer's card — serif title,
@@ -3578,18 +3713,12 @@ function districtFloodCard(
 function districtFloodSection(bundle: DistrictServed): ResultsSectionView {
   const flood = bundle.sections.flood;
   const outward = bundle.outward;
-  const head = {
-    label: "10 · Flood — District roll-up",
-    title: `Flood risk across ${outward}`,
-    grain: "Share of postcodes · District",
-  };
   if (flood.state !== "served") {
     return linesSection(
       "flood",
       "Flood",
       [{ type: "line", text: flood.line ?? "Flood answers are not filed for this district yet." }],
       null,
-      head,
     );
   }
   const blocks: SectionBlock[] = [];
@@ -3668,7 +3797,7 @@ function districtFloodSection(bundle: DistrictServed): ResultsSectionView {
   // WA-14: the honesty line in the sample's bandbox,
   // under the sample's standing lead.
   blocks.push({ type: "bandbox", lead: "The standing honesty line:", text: flood.honestyLine });
-  return linesSection("flood", "Flood", blocks, null, head);
+  return linesSection("flood", "Flood", blocks, null);
 }
 
 // Council tax and Connectivity are their own sections
@@ -3701,24 +3830,7 @@ function districtCouncilTaxSection(bundle: DistrictServed): ResultsSectionView {
       text: `${name} — its council tax charges are not filed yet.`,
     });
   }
-  // The serif title counts the district's councils, in
-  // the sample's form ("Two councils"); small counts
-  // spelled, larger counted.
-  const councilCount = tax.councils.length + tax.unfiledCouncils.length;
-  const countWord =
-    councilCount === 1
-      ? "One"
-      : councilCount === 2
-        ? "Two"
-        : councilCount === 3
-          ? "Three"
-          : districtCount(councilCount);
-  return linesSection("council-tax", "Council tax", blocks, null, {
-    label: "6 · Council tax",
-    title:
-      councilCount > 0 ? `${countWord} council${councilCount === 1 ? "" : "s"}` : "Council tax",
-    grain: null,
-  });
+  return linesSection("council-tax", "Council tax", blocks, null);
 }
 
 function districtConnectivitySection(bundle: DistrictServed): ResultsSectionView {
@@ -3766,11 +3878,7 @@ function districtConnectivitySection(bundle: DistrictServed): ResultsSectionView
       });
     }
   }
-  return linesSection("connectivity", "Connectivity", blocks, connectivity.sourceLine, {
-    label: "7 · Connectivity",
-    title: "Broadband & mobile",
-    grain: null,
-  });
+  return linesSection("connectivity", "Connectivity", blocks, connectivity.sourceLine);
 }
 
 export function buildDistrictResultsView(bundle: DistrictServed): ResultsView {
@@ -4065,13 +4173,7 @@ export function buildDistrictResultsView(bundle: DistrictServed): ResultsView {
     {
       id: "family",
       label: "Family Checks",
-      sections: [
-        linesSection("schools", "Schools", schoolsBlocks, sections.schools.sourceLine, {
-          label: "8 · Schools",
-          title: "In the district",
-          grain: null,
-        }),
-      ],
+      sections: [linesSection("schools", "Schools", schoolsBlocks, sections.schools.sourceLine)],
     },
     {
       id: "neighbourhood",
@@ -4082,11 +4184,6 @@ export function buildDistrictResultsView(bundle: DistrictServed): ResultsView {
           "The district itself",
           districtBlocks,
           sections.district.sourceLine,
-          {
-            label: "1 · The place",
-            title: "The district itself",
-            grain: `Across ${outward} as a whole`,
-          },
         ),
         districtCensusSection(bundle),
         districtCrimeSection(bundle),
@@ -4095,28 +4192,15 @@ export function buildDistrictResultsView(bundle: DistrictServed): ResultsView {
           "Deprivation",
           deprivationBlocks,
           sections.deprivation.sourceLine,
-          {
-            label: "5 · Deprivation",
-            title: `How ${outward}'s small areas spread`,
-            grain: "Spread · No score",
-          },
         ),
-        linesSection("air", "Air quality", airBlocks, sections.air.sourceLine, {
-          label: "11 · Air",
-          title: "Air quality — a range",
-          grain: "Modelled · District range",
-        }),
+        linesSection("air", "Air quality", airBlocks, sections.air.sourceLine),
       ],
     },
     {
       id: "home",
       label: "Home, Costs & Risks",
       sections: [
-        linesSection("sold-prices", "Sold prices", soldBlocks, sections.soldPrices.sourceLine, {
-          label: "4 · Prices",
-          title: "Sold prices",
-          grain: "District-wide · Not a valuation",
-        }),
+        linesSection("sold-prices", "Sold prices", soldBlocks, sections.soldPrices.sourceLine),
         districtCouncilTaxSection(bundle),
         districtConnectivitySection(bundle),
         districtFloodSection(bundle),
@@ -4125,13 +4209,7 @@ export function buildDistrictResultsView(bundle: DistrictServed): ResultsView {
     {
       id: "nearby",
       label: "What's Nearby",
-      sections: [
-        linesSection("everyday", "Everyday counts", everydayBlocks, null, {
-          label: "9 · Everyday",
-          title: `Counts in ${outward}`,
-          grain: null,
-        }),
-      ],
+      sections: [linesSection("everyday", "Everyday counts", everydayBlocks, null)],
     },
   ];
 

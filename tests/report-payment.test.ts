@@ -1,9 +1,12 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import ReportPaymentPage from "../components/ReportPaymentPage";
 import type { ReportDoorIdentity } from "../lib/report-door";
+import * as reportPayment from "../lib/report-payment";
 import {
   buildReportPaymentView,
   liveStartedPayment,
@@ -15,6 +18,7 @@ import {
   PAYMENT_EMAIL_HELP,
   PAYMENT_EMAIL_LABEL,
   PAYMENT_EMAIL_PLACEHOLDER,
+  PAYMENT_ONE_PAYMENT_LINE,
   PAYMENT_REFUND_LINE,
   PAYMENT_TERMS_HREF,
   PAYMENT_TERMS_LINE,
@@ -87,6 +91,15 @@ describe("payment page — the view (Sample 9)", () => {
     // money statement. The rendered absence is pinned
     // in the structure test below.
     expect(view.payLabel).toBe("Pay £4.99");
+  });
+
+  it("carries the checkout card's plain one-payment line (Sample 2, founder 24 Nov 2026) — no £4.99 prefix", () => {
+    const view = buildReportPaymentView(HOME);
+    expect(view.onePaymentLine).toBe(PAYMENT_ONE_PAYMENT_LINE);
+    expect(PAYMENT_ONE_PAYMENT_LINE).toBe("One payment, no subscription, nothing further to pay.");
+    // The price shows only on the Pay button: no
+    // bold price line anywhere in the view.
+    expect(JSON.stringify(view)).not.toContain("£4.99 — one payment");
   });
 
   it("carries Sample 9's email block verbatim — label, help, placeholder, error", () => {
@@ -254,9 +267,15 @@ describe("payment page — the honest pre-payment screen (M9.5, T-PAY-06)", () =
     // report now" label, no bold price line, no
     // separate small-print paragraph or price element
     // in the card — and no Required pill on the tick
-    // (the email field keeps its own).
+    // (the email field keeps its own). Sample 2
+    // restores the plain one-payment line in the
+    // checkout card (no £4.99 prefix — the price
+    // shows only on the Pay button), so the
+    // absence pin is the bold price line, not the
+    // sentence itself.
     expect(html).not.toContain("Make my report now");
-    expect(html).not.toContain("one payment, no subscription, nothing further to pay.");
+    expect(html).not.toContain("£4.99 — one payment");
+    expect(html).toContain("One payment, no subscription, nothing further to pay.");
     expect(html).not.toContain("report-payment__honesty-line");
     expect(html).not.toContain("report-payment__honesty-price");
     // BUG-145 (as amended): the refund line stands
@@ -353,14 +372,18 @@ describe("payment page — the honest pre-payment screen (M9.5, T-PAY-06)", () =
 });
 
 describe("payment page — the rendered page (the step's Check, rendered half)", () => {
-  it("renders the page's structure: heading, lede, tease, contents, honesty area, email block, card panel, Pay button", () => {
+  it("renders the page's Sample 2 structure: heading, tease, contents on the left; checkout card on the right with the one-payment line, consent, email block, method rows and Pay button", () => {
     const html = renderPaid();
-    // BUG-131: the one-payment line is gone from the
-    // page altogether — and BUG-215 removes the
-    // honesty block's own £4.99 line too: the Pay
-    // button is the single money statement.
-    expect(html).not.toContain("One payment. No subscription, nothing further to pay.");
-    expect(html).not.toContain("one payment, no subscription, nothing further to pay.");
+    // Sample 2 (founder, 24 Nov 2026): the plain
+    // one-payment line stands in the checkout card
+    // (no £4.99 prefix — the price shows only on the
+    // Pay button). BUG-215's bold price line stays
+    // gone, as does the old "Make my report now"
+    // tick label. No hint line under the Pay button.
+    expect(html).toContain("One payment, no subscription, nothing further to pay.");
+    expect(html).not.toContain("£4.99 — one payment");
+    expect(html).not.toContain("Tick the box and add your email to pay.");
+    expect(html).not.toContain("Tick the box to pay.");
     expect(html).not.toContain("Make my report now");
     expect(html).toContain("The detailed report for 19 Birkdale Rise");
     expect(html).toContain("Hatfield Peverel, CM3 2JT");
@@ -386,6 +409,38 @@ describe("payment page — the rendered page (the step's Check, rendered half)",
     expect(html).toContain(
       "Payment is handled securely by Stripe, and we never see your card details.",
     );
+    // Sample 2: the two-column layout, the checkout
+    // card and the method rows stand in the markup,
+    // in order — tease, contents, checkout head,
+    // one-payment line, tick, email, methods, Pay.
+    expect(html).toContain("report-payment__layout");
+    expect(html).toContain("report-payment__checkout-card");
+    expect(html).toContain("report-payment__methods");
+    const teaseAt = html.indexOf(BUY_BAR_MYSTERY_LINE);
+    const contentsAt = html.indexOf("What the detailed report adds");
+    const headAt = html.indexOf("Detailed report</h2>");
+    const onePaymentAt = html.indexOf("One payment, no subscription, nothing further to pay.");
+    const boxAt = html.indexOf('id="payment-consent"');
+    const emailAt = html.indexOf("Email address for delivery");
+    const methodsAt = html.indexOf("report-payment__methods");
+    const payAt = html.indexOf("Pay £4.99");
+    expect(teaseAt).toBeGreaterThan(-1);
+    expect(contentsAt).toBeGreaterThan(teaseAt);
+    expect(headAt).toBeGreaterThan(contentsAt);
+    expect(onePaymentAt).toBeGreaterThan(headAt);
+    expect(boxAt).toBeGreaterThan(onePaymentAt);
+    expect(emailAt).toBeGreaterThan(boxAt);
+    expect(methodsAt).toBeGreaterThan(emailAt);
+    expect(payAt).toBeGreaterThan(methodsAt);
+    // The method rows are visible before any input:
+    // Card first, Revolut Pay second.
+    const cardAt = html.indexOf(">Card</li>");
+    const revolutAt = html.indexOf(">Revolut Pay</li>");
+    expect(cardAt).toBeGreaterThan(methodsAt);
+    expect(revolutAt).toBeGreaterThan(cardAt);
+    // The email field's Required is the page's only
+    // one (BUG-215 removed the tick's).
+    expect(html.match(/Required/g)?.length).toBe(1);
   });
 
   it("the email field and the consent tick-box are the ONLY inputs in our own DOM — the card element is a mount point, not fields", () => {
@@ -438,5 +493,55 @@ describe("the payment element's key — the test lane (M9.6)", () => {
     );
     expect(paymentElementKey(null, "pk_default")).toBe("pk_default");
     expect(paymentElementKey(null, null)).toBeNull();
+  });
+});
+
+describe("no interim screen between Pay and the success page (BUG-217)", () => {
+  // The founder's report (24 Nov 2026): between the
+  // payment screen and "Your report is being prepared"
+  // an intermediate screen flashed for a fraction of a
+  // second. The cause was the PAYMENT_TAKEN_LINE interim
+  // render — onPaid set paid, React re-rendered the
+  // taken line, and only then did the navigation to
+  // /report/success commit. The fix removes the interim
+  // state entirely: a confirmed payment navigates
+  // straight from the payment screen.
+  //
+  // Note on the proof: this repo's unit harness has no
+  // DOM environment (no jsdom, happy-dom or
+  // testing-library installed), so no test here can
+  // click Pay against a mocked confirmPayment. What is
+  // pinned instead is the invariant that makes the
+  // flash impossible: the taken line and the paid branch
+  // no longer exist anywhere the page can render them,
+  // and the direct navigation stands.
+  const ROOT = process.cwd();
+  const read = (path: string) => readFileSync(join(ROOT, path), "utf8");
+  const TAKEN_LINE = "Payment taken — your report will arrive by email.";
+
+  it("the rendered payment page never contains the taken line or its element", () => {
+    const html = renderPaid();
+    expect(html).not.toContain(TAKEN_LINE);
+    expect(html).not.toContain("report-payment__taken");
+  });
+
+  it("the component carries no interim paid state at all — no taken line, no paid flag, no paid branch", () => {
+    const source = read("components/ReportPaymentPage.tsx");
+    expect(source).not.toContain("PAYMENT_TAKEN_LINE");
+    expect(source).not.toContain(TAKEN_LINE);
+    expect(source).not.toContain("setPaid");
+    expect(source).not.toContain("{paid ?");
+    expect(source).not.toContain("report-payment__taken");
+  });
+
+  it("lib/report-payment.ts no longer exports the taken line", () => {
+    expect("PAYMENT_TAKEN_LINE" in reportPayment).toBe(false);
+    expect(read("lib/report-payment.ts")).not.toContain("PAYMENT_TAKEN_LINE");
+  });
+
+  it("a confirmed payment still navigates straight to the success surface — the navigation is untouched", () => {
+    const source = read("components/ReportPaymentPage.tsx");
+    expect(source).toContain("window.location.assign(");
+    expect(source).toContain("`/report/success?order=${encodeURIComponent(startedRef.current)}`");
   });
 });

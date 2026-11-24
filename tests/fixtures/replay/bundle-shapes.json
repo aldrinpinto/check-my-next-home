@@ -7188,7 +7188,10 @@
           "label": "string",
           "layer": "string",
           "line": "string",
-          "nearest": "null",
+          "nearest": {
+            "miles": "number",
+            "name": "string"
+          },
           "sourceLine": "string",
           "state": "string"
         },
@@ -7489,7 +7492,10 @@
           "label": "string",
           "layer": "string",
           "line": "string",
-          "nearest": "null",
+          "nearest": {
+            "miles": "number",
+            "name": "string"
+          },
           "sourceLine": "string",
           "state": "string"
         },
@@ -7768,7 +7774,10 @@
           "label": "string",
           "layer": "string",
           "line": "string",
-          "nearest": "null",
+          "nearest": {
+            "miles": "number",
+            "name": "string"
+          },
           "sourceLine": "string",
           "state": "string"
         },
@@ -8125,7 +8134,10 @@
           "label": "string",
           "layer": "string",
           "line": "string",
-          "nearest": "null",
+          "nearest": {
+            "miles": "number",
+            "name": "string"
+          },
           "sourceLine": "string",
           "state": "string"
         },
@@ -8322,7 +8334,10 @@
           "label": "string",
           "layer": "string",
           "line": "string",
-          "nearest": "null",
+          "nearest": {
+            "miles": "number",
+            "name": "string"
+          },
           "sourceLine": "string",
           "state": "string"
         },

@@ -544,7 +544,14 @@ function shortPolygonLayer(answer: PolygonLayerAnswer): ShortPolygonLayer {
     state: answer.state,
     line: answer.line,
     insideName: answer.insideName,
-    nearest: answer.nearest,
+    // BUG-212: the nearest the brain names travels in this
+    // one slot whether it stands within the radius or
+    // beyond it (the beyond nearest where no nearer area
+    // stands) — the brownfield precedent
+    // (ShortBrownfield.nearest, below). The within/beyond
+    // distinction stays recoverable from beyondLine, which
+    // only serves when no nearest stands within the radius.
+    nearest: answer.nearest ?? answer.beyondNearest,
     beyondLine: answer.beyondLine,
     sourceLine: answer.sourceLine,
   };

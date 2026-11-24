@@ -69,6 +69,24 @@ import { REPORT_PRICE_LABEL } from "./site";
 // M9.10's order record can read the consent back
 // (test T-PAY-06).
 //
+// Sample 2 "Checkout alongside" (founder, 24 Nov
+// 2026) re-forms the page's LAYOUT, not its copy:
+// the selling points (mystery tease + contents card)
+// stand on the left and a single sticky checkout card
+// on the right (desktop); on phones the checkout card
+// stacks first, straight after the address. The
+// checkout card carries, in order: the "Detailed
+// report" head with no price, the plain one-payment
+// line (below, no £4.99 prefix — the price shows only
+// on the Pay button), the BUG-215 single-line consent,
+// the email block, and the payment panel; the Card and
+// Revolut Pay method rows stand visible from the
+// start. The founder's two changes on the sample: no
+// hint line under the Pay button, and no bold £4.99 at
+// the top right of the checkout box (the real page
+// never had the hint; the closing line under the
+// button stays).
+//
 // NOT here, by the plan's own assignment: the
 // standalone Payment failed page (Sample 12 is M9.7's
 // — a declined card is answered inline here, in the
@@ -92,6 +110,7 @@ export interface ReportPaymentView {
   termsHref: string;
   consentTail: string;
   consentLabel: string;
+  onePaymentLine: string;
   emailLabel: string;
   emailHelp: string;
   emailPlaceholder: string;
@@ -168,6 +187,13 @@ export const PAYMENT_CONSENT_TAIL =
   " I understand the 14-day change-of-mind right ends when it's delivered.";
 export const PAYMENT_CONSENT_LABEL = `${PAYMENT_TERMS_LINE}${PAYMENT_CONSENT_TAIL}`;
 
+// The plain one-payment line (Sample 2, founder
+// 24 Nov 2026): the checkout card's money line, with
+// no £4.99 prefix — the price shows only on the Pay
+// button. It is the same sentence the old bold price
+// line carried, without the price.
+export const PAYMENT_ONE_PAYMENT_LINE = "One payment, no subscription, nothing further to pay.";
+
 // The refund reassurance — the Terms page's own
 // sentence, verbatim (the Refunds card in
 // lib/site-pages.ts); a test pins the two copies equal
@@ -220,19 +246,14 @@ export const PAYMENT_HOME_NOT_FOUND_LINE =
 export const PAYMENT_DECLINED_FALLBACK_LINE =
   "Your payment didn't go through — check the card details and try again.";
 
-// The interim completion line: shown when a payment
-// confirms, until M9.6 builds Sample 10's success
-// surface beside the fulfilment call and replaces it.
-// The page is unreachable in the holding state, so no
-// visitor can meet this line before M9.6 settles it.
-export const PAYMENT_TAKEN_LINE = "Payment taken — your report will arrive by email.";
-
-// M9.6: the interim line above is REPLACED — a confirmed
-// payment (and a gift-applied order) moves the buyer to
-// the success surface (lib/report-success.ts, Sample
-// 10), which reads the fulfilment state server-side.
-// The constant stands only for the brief moment between
-// the provider's confirmation and that navigation.
+// BUG-217 (founder ruling, 24 Nov 2026): there is no
+// interim line between a confirmed payment and the
+// success surface — the buyer navigates straight from
+// the payment screen to /report/success
+// (components/ReportPaymentPage.tsx, onPaid). The
+// taken-line constant this comment replaces painted for
+// a frame while the success route fetched server-side,
+// so it is deleted outright, not moved.
 
 // The free-window form's failure line (M9.6), in the
 // payment page's error-line manner: name the failure,
@@ -251,6 +272,7 @@ export function buildReportPaymentView(identity: ReportDoorIdentity): ReportPaym
     termsHref: PAYMENT_TERMS_HREF,
     consentTail: PAYMENT_CONSENT_TAIL,
     consentLabel: PAYMENT_CONSENT_LABEL,
+    onePaymentLine: PAYMENT_ONE_PAYMENT_LINE,
     emailLabel: PAYMENT_EMAIL_LABEL,
     emailHelp: PAYMENT_EMAIL_HELP,
     emailPlaceholder: PAYMENT_EMAIL_PLACEHOLDER,

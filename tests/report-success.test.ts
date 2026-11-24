@@ -253,6 +253,27 @@ describe("the success surface — viewing only (named test (k))", () => {
     expect(html).toContain(SUCCESS_MYSTERY_LINE);
   });
 
+  it("the preparing surface still carries the check-another-home box (BUG-216)", () => {
+    // The refresher's beat runs in this state, so the
+    // box must be present here — and stay usable across
+    // the beat (the e2e spec pins the staying-usable
+    // half against the served app).
+    const html = text(
+      renderToStaticMarkup(
+        createElement(ReportSuccessPage, {
+          view: buildReportSuccessView({
+            state: "preparing",
+            kind: "paid",
+            identity: HOME,
+            email: EMAIL,
+          }),
+        }),
+      ),
+    );
+    expect(html).toContain("Check another home");
+    expect(html).toContain('id="postcode"');
+  });
+
   it("the gifted surface shows the banner and never the mystery extra", () => {
     const html = text(
       renderToStaticMarkup(

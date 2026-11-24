@@ -2888,6 +2888,14 @@ describe("short bundle — 19 Birkdale Rise, CM3 2JT (rung 1)", () => {
     expect(constraints.greenBelt.beyondLine).toBe(
       "none within 2 miles — the nearest is London, 5.831 miles away",
     );
+    // BUG-212: the beyond nearest travels in the same
+    // nearest slot (the brownfield precedent) so the
+    // grouped rows can name it — the within/beyond
+    // distinction stays recoverable from beyondLine.
+    expect(constraints.greenBelt.nearest).toEqual({
+      name: "London",
+      miles: 5.831,
+    });
   });
 
   it("constraints M6.21: the built-up area slims through the polygon pick; brownfield skims in the listed form; no new headline opens", async () => {

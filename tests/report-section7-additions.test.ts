@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { BuildingSafetySection, ServedConstruction } from "../lib/area-bundle";
 import { buildReportView, type ReportView } from "../lib/report";
+import { ARTICLE4_UNCHECKABLE_TEXT } from "../lib/results";
 import type { SoldPricesBundle } from "../lib/sold-prices";
 import { areaWith, birkdale, input, soldServed } from "./fixtures/report-inputs";
 
@@ -555,20 +556,34 @@ describe("report — Section 7 additions (M8.10): brownfield & built-up area in 
     if (!line || line.type !== "line") throw new Error("expected the brownfield line");
     expect(line.text).toBe("No brownfield site filed within 2 miles.");
     expect(blocks[subAt + 2]?.type).not.toBe("rows");
-    // The summary bullet has left the constraints list.
+    // BUG-212: the constraints list is gone — the group
+    // is sub3 heads + rows — and brownfield still stands
+    // as its own block below (it is not in the group).
     const constraintsAt = blocks.findIndex(
       (b) => b.type === "sub" && b.text === "Planning constraints & land",
     );
-    const list = blocks[constraintsAt + 1];
-    if (!list || list.type !== "list") throw new Error("expected the constraints list");
-    expect(list.items.join(" ")).not.toContain("brownfield");
+    const head = blocks[constraintsAt + 1];
+    if (!head || head.type !== "sub3") throw new Error("expected the findings head");
+    expect(head.text).toBe("Findings");
+    const rows = blocks[constraintsAt + 2];
+    if (!rows || rows.type !== "rows") throw new Error("expected the findings rows");
+    expect(rows.rows.map((row) => row.name).join(" ")).not.toContain("Brownfield");
   });
 
-  it("served sites render as rows with the register's own facts, and the built-up beyond line joins the list", () => {
+  it("served sites render as rows with the register's own facts, and the built-up beyond nearest composes into its finding row", () => {
     const area = areaWith();
     if (area.kind !== "area-bundle") throw new Error("expected an area bundle");
-    area.sections.constraints.builtUpArea.beyondLine =
-      "none within 2 miles — the nearest is an unnamed built-up area, 3.1 miles away";
+    area.sections.constraints.builtUpArea = {
+      ...area.sections.constraints.builtUpArea,
+      layer: "built_up_area",
+      label: "Built-up area",
+      state: "none-found",
+      line: "the postcode point is outside every built-up area",
+      insideName: null,
+      nearest: null,
+      beyondNearest: { name: "Newham", miles: 3.1 },
+      beyondLine: "none within 2 miles — the nearest is Newham, 3.1 miles away",
+    };
     area.sections.constraints.brownfield = {
       label: "Brownfield land",
       state: "served",
@@ -610,12 +625,24 @@ describe("report — Section 7 additions (M8.10): brownfield & built-up area in 
     const constraintsAt = blocks.findIndex(
       (b) => b.type === "sub" && b.text === "Planning constraints & land",
     );
-    const list = blocks[constraintsAt + 1];
-    if (!list || list.type !== "list") throw new Error("expected the constraints list");
-    expect(list.items[list.items.length - 1]).toBe(
-      "None within 2 miles — the nearest is an unnamed built-up area, 3.1 miles away.",
+    const head = blocks[constraintsAt + 1];
+    if (!head || head.type !== "sub3") throw new Error("expected the findings head");
+    expect(head.text).toBe("Findings");
+    const constraintRows = blocks[constraintsAt + 2];
+    if (!constraintRows || constraintRows.type !== "rows")
+      throw new Error("expected the findings rows");
+    const builtUp = constraintRows.rows.find((row) => row.name === "Built-up area");
+    if (!builtUp) throw new Error("expected the built-up row");
+    // BUG-212: the beyond nearest composes into the
+    // finding row (named, 1-decimal, pill) — the raw
+    // beyond line never stands in the report.
+    expect(builtUp.detail).toBe(
+      "Outside any built-up area, and none within 2 miles — the nearest built-up area is Newham.",
     );
+    expect(builtUp.tag).toBe("Clear");
+    expect(builtUp.dist).toBe("3.1 mi");
     const text = sectionText(built, 7);
+    expect(text).not.toContain("straight-line distance");
     expect(text).toContain("2 recorded brownfield sites within 2 miles of the postcode point.");
     const brownfieldAt = blocks.findIndex((b) => b.type === "sub" && b.text === "Brownfield land");
     const rows = blocks[brownfieldAt + 2];
@@ -650,6 +677,141 @@ describe("report — Section 7 additions (M8.10): brownfield & built-up area in 
       "This council does not supply the national brownfield register, so no finding can be made from the data — the council's own brownfield register is the record.",
     );
     expect(text).not.toContain("no brownfield sites are recorded");
+  });
+});
+
+// --- planning constraints grouping (BUG-212) --------------
+
+// Sample 2 "Grouped by answer" (founder pick 24 Nov
+// 2026), on the paid report: the four polygon layers group
+// by answer — findings first, each its own named row with
+// its tag and distance pill, then anything the data could
+// not check, Article 4 last. Brownfield is NOT in this
+// group: it keeps its own full block below. The Birkdale
+// base case carries a within nearest (conservation), a
+// beyond nearest (green belt), an inside finding
+// (built-up) and one uncheckable layer (Article 4).
+describe("report — Section 7 additions (M8.10): planning constraints grouping (BUG-212)", () => {
+  function birkdaleArea() {
+    const area = areaWith();
+    if (area.kind !== "area-bundle") throw new Error("expected an area bundle");
+    area.sections.constraints.conservationArea = {
+      ...area.sections.constraints.conservationArea,
+      layer: "conservation_area",
+      label: "Conservation area",
+      state: "none-found",
+      line: "no conservation area found in the national data, checked 10 November 2026",
+      insideName: null,
+      nearest: { name: "Chelmer and Blackwater Navigation", miles: 1.473 },
+      beyondNearest: null,
+      beyondLine: null,
+    };
+    area.sections.constraints.article4 = {
+      ...area.sections.constraints.article4,
+      layer: "article_4_area",
+      label: "Article 4 directions",
+      state: "not-published",
+      line: "Article 4 directions are not published by this council to the national dataset, so no finding can be made from the data — the answer lives on the council's own planning register",
+      insideName: null,
+      nearest: null,
+      beyondNearest: null,
+      beyondLine: null,
+    };
+    area.sections.constraints.greenBelt = {
+      ...area.sections.constraints.greenBelt,
+      layer: "green_belt",
+      label: "Green belt",
+      state: "none-found",
+      line: "no green belt covers this postcode point in the national data",
+      insideName: null,
+      nearest: null,
+      beyondNearest: { name: "London", miles: 5.831 },
+      beyondLine: "none within 2 miles — the nearest is London, 5.831 miles away",
+    };
+    area.sections.constraints.builtUpArea = {
+      ...area.sections.constraints.builtUpArea,
+      layer: "built_up_area",
+      label: "Built-up area",
+      state: "inside",
+      line: "the postcode point falls inside the Hatfield Peverel built-up area",
+      insideName: "Hatfield Peverel",
+      nearest: null,
+      beyondNearest: null,
+      beyondLine: null,
+    };
+    return area;
+  }
+
+  it("groups the findings under one head, each its own named row with its tag and pill", () => {
+    const blocks = section7(buildReportView(input({ area: birkdaleArea() }))).blocks;
+    const constraintsAt = blocks.findIndex(
+      (b) => b.type === "sub" && b.text === "Planning constraints & land",
+    );
+    const head = blocks[constraintsAt + 1];
+    if (!head || head.type !== "sub3") throw new Error("expected the findings head");
+    expect(head.text).toBe("Findings");
+    const rows = blocks[constraintsAt + 2];
+    if (!rows || rows.type !== "rows") throw new Error("expected the findings rows");
+    expect(rows.rows).toHaveLength(3);
+    expect(rows.rows[0].name).toBe("Conservation area");
+    expect(rows.rows[0].detail).toBe(
+      "Not in a conservation area — the nearest conservation area is Chelmer and Blackwater Navigation.",
+    );
+    expect(rows.rows[0].tag).toBe("Clear");
+    expect(rows.rows[0].dist).toBe("1.5 mi");
+    expect(rows.rows[0].distBand).toBe("orange");
+    expect(rows.rows[1].name).toBe("Green belt");
+    expect(rows.rows[1].detail).toBe(
+      "Not in the green belt, and none within 2 miles — the nearest green belt is London.",
+    );
+    expect(rows.rows[1].tag).toBe("Clear");
+    expect(rows.rows[1].dist).toBe("5.8 mi");
+    expect(rows.rows[1].distBand).toBe("green");
+    expect(rows.rows[2].name).toBe("Built-up area");
+    expect(rows.rows[2].detail).toBe("Inside the Hatfield Peverel built-up area.");
+    expect(rows.rows[2].tag).toBeNull();
+    expect(rows.rows[2].dist).toBeNull();
+  });
+
+  it("puts what could not be checked last, Article 4 as the group's last row — with no link on it", () => {
+    const blocks = section7(buildReportView(input({ area: birkdaleArea() }))).blocks;
+    const constraintsAt = blocks.findIndex(
+      (b) => b.type === "sub" && b.text === "Planning constraints & land",
+    );
+    const uncheckableHead = blocks[constraintsAt + 3];
+    if (!uncheckableHead || uncheckableHead.type !== "sub3")
+      throw new Error("expected the uncheckable head");
+    expect(uncheckableHead.text).toBe("Could not be checked");
+    const rows = blocks[constraintsAt + 4];
+    if (!rows || rows.type !== "rows") throw new Error("expected the uncheckable rows");
+    expect(rows.rows).toHaveLength(1);
+    expect(rows.rows[0].name).toBe("Article 4 directions");
+    expect(rows.rows[0].detail).toBe(ARTICLE4_UNCHECKABLE_TEXT);
+    expect(rows.rows[0].tag).toBe("Can't be checked");
+    expect(rows.rows[0].dist).toBeNull();
+    // The distinguisher note follows the group, and no
+    // link stands on the Article 4 row (founder
+    // correction 24 Nov: no council link).
+    const note = blocks[constraintsAt + 5];
+    if (!note || note.type !== "note") throw new Error("expected the distinguisher note");
+    expect(note.text).toContain("Planning constraints are the designations already in force");
+    expect(JSON.stringify(blocks.slice(constraintsAt, constraintsAt + 5))).not.toContain("http");
+  });
+
+  it("carries no constraints list and no straight-line parenthetical anywhere in Section 7", () => {
+    const built = buildReportView(input({ area: birkdaleArea() }));
+    const text = sectionText(built, 7);
+    expect(text).not.toContain("straight-line distance");
+    expect(text).not.toContain("5.831 miles away");
+    const blocks = section7(built).blocks;
+    const constraintsAt = blocks.findIndex(
+      (b) => b.type === "sub" && b.text === "Planning constraints & land",
+    );
+    const applicationsAt = blocks.findIndex(
+      (b) => b.type === "sub" && b.text === "Planning applications",
+    );
+    const group = blocks.slice(constraintsAt, applicationsAt);
+    expect(group.some((b) => b.type === "list")).toBe(false);
   });
 });
 

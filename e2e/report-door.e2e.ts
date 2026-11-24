@@ -119,6 +119,18 @@ test.describe("report door — regression", () => {
       await expect(page.locator(".report-payment__honesty")).not.toContainText(
         "one payment, no subscription",
       );
+      // Sample 2 "Checkout alongside" (founder,
+      // 24 Nov 2026): the checkout card carries the
+      // plain one-payment line (no £4.99 prefix — the
+      // price shows only on the Pay button), no hint
+      // line under the Pay button, and the Card and
+      // Revolut Pay method rows visible from the start.
+      const checkout = page.locator(".report-payment__checkout-card");
+      await expect(checkout).toContainText("One payment, no subscription, nothing further to pay.");
+      await expect(checkout).not.toContainText("£4.99 — one payment");
+      await expect(checkout).not.toContainText("Tick the box and add your email to pay.");
+      await expect(checkout.locator(".report-payment__method").first()).toHaveText("Card");
+      await expect(checkout.locator(".report-payment__method").nth(1)).toHaveText("Revolut Pay");
       // The paid state's own furniture (M9.4/M9.5): the
       // honesty block with the consent tick, and the
       // delivery-email field — the holding page's state

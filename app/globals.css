@@ -3848,7 +3848,8 @@ a.picker__row {
 
 /* The payment page (M9.4; Final Sample Master, Sample 9):
    the door's paid state, in the door's own 640px wrap and
-   card dress. The email block wears the kit's field
+   card dress — widened by Sample 2 below, which splits
+   the page in two. The email block wears the kit's field
    classes under the sample's field dress (PF-08); the
    card panel is the sample's stripe-panel — a bordered
    white panel whose head carries the panel title and
@@ -3856,6 +3857,98 @@ a.picker__row {
    render inside its own iframes within the panel;
    nothing card-shaped is styled here, because no card
    field is ours. */
+
+/* Sample 2 "Checkout alongside" (founder, 24 Nov
+   2026): the page splits — the selling points
+   (mystery tease + contents card) on the left, one
+   checkout card on the right. The door's 640px wrap
+   is too narrow for the split, so this page alone
+   takes the 64rem wrap; on phones the columns stack
+   and the checkout card comes first, straight after
+   the address. The checkout card's head carries no
+   price (the price shows only on the Pay button);
+   the one-payment line is plain 14px muted; the
+   consent label is the landed BUG-215 small print
+   (0.62rem, above). The method rows are the page's
+   own static list, visible from the start. The panel
+   flattens inside the checkout card (no second
+   border, no second white box) — its head and its
+   closing smallprint keep their own dress. */
+.report-payment {
+  max-width: 64rem;
+}
+
+.report-payment__layout {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.report-payment__checkout {
+  order: -1;
+}
+
+@media (min-width: 56.25rem) {
+  .report-payment__layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 23rem;
+    gap: 1.5rem;
+    align-items: start;
+  }
+
+  .report-payment__checkout {
+    order: 0;
+    position: sticky;
+    top: 1rem;
+  }
+}
+
+.report-payment__checkout-head {
+  border-bottom: 1px dashed #e3dcc4;
+  padding-bottom: 0.75rem;
+  margin-bottom: 0.875rem;
+}
+
+.report-payment__checkout-head h2 {
+  font-family: var(--font-family-display);
+  font-size: 1.1875rem;
+  font-weight: 700;
+  line-height: 1.35;
+  color: var(--cmnh-forest-deep);
+  margin: 0;
+}
+
+.report-payment__one-payment {
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: #4a5548;
+  margin: 0 0 0.875rem;
+}
+
+.report-payment__methods {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.report-payment__method {
+  border: 1px solid #e3dcc4;
+  border-radius: 8px;
+  background: var(--cmnh-white);
+  padding: 0.625rem 0.875rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--cmnh-forest-deep);
+}
+
+.report-payment__checkout-card .report-payment__panel {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  margin-top: 1.375rem;
+}
 
 /* The lede (PF-03): 16.5px at 1.6, the gap below it
    carried as its own bottom margin. */
@@ -4098,11 +4191,6 @@ a.picker__row {
   color: #4a5548;
   text-align: center;
   margin: 14px 4px 0;
-}
-
-.report-payment__taken {
-  margin-top: var(--space-5);
-  font-weight: 700;
 }
 
 /* The success surface (M9.6; Final Sample Master,
@@ -6523,15 +6611,17 @@ a.picker__row {
 }
 
 /* --- Sample 28 district dress (BUG-160 as corrected,
-   WA-01..15) -------------------------------------------------
-   The district page's own sample system: the two-tier
-   section head (a numbered label with NO line above it,
-   the serif title, the grain pill), the .source line,
-   the fact rows, the stat tiles, the crime panel, the
-   flood cards, the warnings strip, the bandbox and the
-   boxed disclaimers panel. Scoped to the district view
-   (.results--district) wherever a class could meet the
-   home pages. */
+   WA-01..15; BUG-218 removes the section heads) --------
+   The district page's own sample system: NO section
+   heads (BUG-218: the numbered label, serif title and
+   grain pill are gone — sections open straight on their
+   content), the .source line, the fact rows, the stat
+   tiles, the crime panel, the flood cards, the warnings
+   strip, the bandbox and the boxed disclaimers panel.
+   The .district-sect classes below now dress only the
+   place/street choosers' count lines. Scoped to the
+   district view (.results--district) wherever a class
+   could meet the home pages. */
 
 .district-sect {
   margin: 18px 0 2px;

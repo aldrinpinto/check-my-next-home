@@ -1268,3 +1268,84 @@ describe("district page — BUG-211 straight-line wording", () => {
     expect(html).not.toContain("straight-line distance from the postcode point");
   });
 });
+
+describe("district page — no section kickers or titles (BUG-218)", () => {
+  // The founder's ruling (24 Nov 2026): on the district
+  // page every section loses its numbered kicker AND its
+  // title, on all four tabs. The grain pill goes with the
+  // head — it sat inside the title row and its scope note
+  // is already carried in each section's own lines.
+  const KICKERS = [
+    "1 · The place",
+    "2 · People",
+    "3 · Safety",
+    "4 · Prices",
+    "5 · Deprivation",
+    "6 · Council tax",
+    "7 · Connectivity",
+    "8 · Schools",
+    "9 · Everyday",
+    "10 · Flood — District roll-up",
+    "11 · Air",
+  ];
+
+  it("renders no numbered kicker, no section title and no grain pill on any of the four tabs", async () => {
+    const bundle = await servedBundle();
+    const view = buildDistrictResultsView(bundle);
+    const html = renderToStaticMarkup(createElement(ResultsPage, { view }));
+    // All four tab panels render (hidden ones included),
+    // so one full-page read covers every section.
+    expect(html).not.toContain("district-sect");
+    expect(html).not.toContain("district-sect-title");
+    expect(html).not.toContain("district-grain");
+    expect(html).not.toContain("results-section__heading");
+    for (const kicker of KICKERS) {
+      expect(html, `kicker ${kicker}`).not.toContain(kicker);
+    }
+    // Titles that appear nowhere else on the page: the
+    // schools title, the deprivation title, the air
+    // title, the flood title and the council-tax title
+    // (the fixture's two councils made it "Two
+    // councils"). The other five titles also name the
+    // About-these-checks pills, so their absence cannot
+    // be pinned by string — the class pins above cover
+    // them.
+    expect(html).not.toContain("In the district");
+    expect(html).not.toContain("How ZZ9's small areas spread");
+    expect(html).not.toContain("Air quality — a range");
+    expect(html).not.toContain("Flood risk across ZZ9");
+    expect(html).not.toContain("Two councils");
+  });
+
+  it("keeps every section's content, source lines, tabs and bridge", async () => {
+    const bundle = await servedBundle();
+    const view = buildDistrictResultsView(bundle);
+    const html = renderToStaticMarkup(createElement(ResultsPage, { view }));
+    // The eleven sections still stand, across the four tabs.
+    expect(view.tabs.flatMap((tab) => tab.sections)).toHaveLength(11);
+    // Content rows survive: the schools count, the sold
+    // median tile and coverage line, the district tiles
+    // and the source lines.
+    expect(html).toContain("schools are filed inside ZZ9.");
+    expect(html).toContain("median sold price");
+    expect(html).toContain("Sales are filed for 2 of the district&#x27;s 4 postcodes so far");
+    expect(html).toContain("district-source");
+    expect(html).toContain("Checking one home in ZZ9?");
+    for (const label of [
+      "Family Checks",
+      "The Neighbourhood",
+      "Home, Costs &amp; Risks",
+      "What&#x27;s Nearby",
+    ]) {
+      expect(html).toContain(label);
+    }
+  });
+
+  it("carries no district head in the view model", async () => {
+    const bundle = await servedBundle();
+    const view = buildDistrictResultsView(bundle);
+    for (const section of view.tabs.flatMap((tab) => tab.sections)) {
+      expect("districtHead" in section).toBe(false);
+    }
+  });
+});

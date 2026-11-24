@@ -8,8 +8,10 @@ import type { AreaBundle, CensusSection, ImdSection } from "../lib/area-bundle";
 import { CHECK_PAGES, CHECK_PAGE_PATHS } from "../lib/check-pages";
 import type { CrimeBundle } from "../lib/crime";
 import type { FloodBundle, FloodLayerType, FloodLiveWarnings, FloodPointState } from "../lib/flood";
+import { nearbyCheckingGroups } from "../lib/journey";
 import type { CategoryAnswer, NearbyBundle, NearbyCategory } from "../lib/nearby";
 import {
+  ARTICLE4_UNCHECKABLE_TEXT,
   BROADBAND_CAVEAT,
   CATCHMENT_LINK,
   FLOOD_ROFRS_ABSENCE_LINE,
@@ -2475,6 +2477,152 @@ describe("results — the built view", () => {
   });
 });
 
+// BUG-212 — the planning-constraints grouping (Sample 2
+// "Grouped by answer", founder pick 24 Nov 2026): the
+// four polygon layers and brownfield group by answer on
+// the free page — findings first, each its own named row
+// with its tag and distance pill, then anything the data
+// could not check, Article 4 last. The Birkdale base case
+// carries a within nearest (conservation), a beyond
+// nearest (green belt), an inside finding (built-up) and
+// two uncheckable layers (brownfield, Article 4), so it
+// exercises every group and the Article 4-last order.
+describe("results — planning constraints grouping (BUG-212)", () => {
+  function birkdaleSections() {
+    const sections = shortSections();
+    sections.constraints = {
+      state: "served",
+      conservationArea: {
+        layer: "conservation_area",
+        label: "Conservation area",
+        state: "none-found",
+        line: "no conservation area found in the national data, checked 10 November 2026",
+        insideName: null,
+        nearest: { name: "Chelmer and Blackwater Navigation", miles: 1.473 },
+        beyondLine: null,
+        sourceLine: "conservation area data",
+      },
+      article4: {
+        layer: "article_4_area",
+        label: "Article 4 directions",
+        state: "not-published",
+        line: "Article 4 directions are not published by this council to the national dataset, so no finding can be made from the data — the answer lives on the council's own planning register",
+        insideName: null,
+        nearest: null,
+        beyondLine: null,
+        sourceLine: "Article 4 data",
+      },
+      greenBelt: {
+        layer: "green_belt",
+        label: "Green belt",
+        state: "none-found",
+        line: "no green belt covers this postcode point in the national data",
+        insideName: null,
+        nearest: { name: "London", miles: 5.831 },
+        beyondLine: "none within 2 miles — the nearest is London, 5.831 miles away",
+        sourceLine: "green belt data",
+      },
+      builtUpArea: {
+        layer: "built_up_area",
+        label: "Built-up area",
+        state: "inside",
+        line: "the postcode point falls inside the Hatfield Peverel built-up area",
+        insideName: "Hatfield Peverel",
+        nearest: null,
+        beyondLine: null,
+        sourceLine: "built-up area data",
+      },
+      brownfield: {
+        state: "not-published",
+        line: "this council does not supply the national brownfield register, so no finding can be made from the data — the council's own brownfield register is the record",
+        countWithin: null,
+        nearest: null,
+        beyondLine: null,
+        sourceLine: null,
+      },
+    } as unknown as ShortSections["constraints"];
+    return sections;
+  }
+
+  function planningBlocks() {
+    const view = buildResultsView(
+      input({
+        short: { rung: 1, kind: "short-bundle", postcode: "CM3 2JT", sections: birkdaleSections() },
+      }),
+    );
+    return section(view, "home", "planning-protection").blocks;
+  }
+
+  it("groups the findings under one head, each its own named row with its tag and pill", () => {
+    const blocks = planningBlocks();
+    expect(blocks[0]).toEqual({ type: "subheading", text: "Planning constraints" });
+    expect(blocks[1]).toEqual({ type: "subheading", text: "Findings" });
+    const conservation = blocks[2];
+    if (conservation?.type !== "tagged-line") throw new Error("expected the conservation row");
+    expect(conservation.lead).toBe("Conservation area");
+    expect(conservation.texts).toEqual([
+      "Not in a conservation area — the nearest conservation area is Chelmer and Blackwater Navigation.",
+    ]);
+    expect(conservation.tag).toBe("Clear");
+    expect(conservation.tagTone).toBe("g");
+    expect(conservation.miles).toEqual({ text: "1.5 mi", band: "orange" });
+    const greenBelt = blocks[3];
+    if (greenBelt?.type !== "tagged-line") throw new Error("expected the green belt row");
+    expect(greenBelt.lead).toBe("Green belt");
+    expect(greenBelt.texts).toEqual([
+      "Not in the green belt, and none within 2 miles — the nearest green belt is London.",
+    ]);
+    expect(greenBelt.tag).toBe("Clear");
+    expect(greenBelt.miles).toEqual({ text: "5.8 mi", band: "green" });
+    const builtUp = blocks[4];
+    if (builtUp?.type !== "tagged-line") throw new Error("expected the built-up row");
+    expect(builtUp.lead).toBe("Built-up area");
+    expect(builtUp.texts).toEqual(["Inside the Hatfield Peverel built-up area."]);
+    expect(builtUp.tag).toBeUndefined();
+    expect(builtUp.miles).toBeUndefined();
+  });
+
+  it("puts what could not be checked last, Article 4 as the section's last constraints row — with no link on it", () => {
+    const blocks = planningBlocks();
+    expect(blocks[5]).toEqual({ type: "subheading", text: "Could not be checked" });
+    const brownfield = blocks[6];
+    if (brownfield?.type !== "tagged-line") throw new Error("expected the brownfield row");
+    expect(brownfield.lead).toBe("Brownfield land");
+    expect(brownfield.texts).toEqual([
+      "This council does not supply the national brownfield register, so no finding can be made from the data — the council's own brownfield register is the record.",
+    ]);
+    expect(brownfield.tag).toBe("Can't be checked");
+    expect(brownfield.tagTone).toBe("grey");
+    const article4 = blocks[7];
+    if (article4?.type !== "tagged-line") throw new Error("expected the Article 4 row");
+    expect(article4.lead).toBe("Article 4 directions");
+    expect(article4.texts).toEqual([ARTICLE4_UNCHECKABLE_TEXT]);
+    expect(article4.tag).toBe("Can't be checked");
+    // Article 4 is the group's last row: the next block
+    // is the nature row, and no link stands anywhere in
+    // the group (founder correction 24 Nov: no council
+    // link — "its a wrong link").
+    const next = blocks[8];
+    if (next?.type !== "tagged-line") throw new Error("expected the nature row");
+    expect(next.lead).toBe("Nature designations");
+    expect(JSON.stringify(blocks.slice(0, 8))).not.toContain("http");
+  });
+
+  it("carries no joined constraints row, no FACTS badge on the group rows, and no straight-line parenthetical", () => {
+    const blocks = planningBlocks();
+    const text = JSON.stringify(blocks);
+    expect(blocks.some((b) => b.type === "tagged-line" && b.lead === "Planning constraints")).toBe(
+      false,
+    );
+    for (const row of blocks.slice(2, 8)) {
+      if (row.type === "tagged-line") expect(row.tag).not.toBe("FACTS");
+    }
+    expect(text).not.toContain("straight-line distance");
+    expect(text).not.toContain("5.831 miles away");
+    expect(text).not.toContain("1.473 miles away");
+  });
+});
+
 describe("results — nation gating (Scotland/NI gap check, fold-in workstream 6)", () => {
   const resolutionFor = (lsoaCode: string, postcode: string): AddressResolution => ({
     rung: 2,
@@ -2610,7 +2758,15 @@ describe("results — nation gating (Scotland/NI gap check, fold-in workstream 6
     expect(JSON.stringify(primary.blocks)).not.toContain("14.671");
   });
 
-  it("beyond radius (CI #205 fix): a nearest beyond 25 miles serves the no-finding line, in England too", () => {
+  it("beyond radius (BUG-213 ruling): a nearest beyond 25 miles is named as a row with a red pill, in England too", () => {
+    // Founder ruling 24 Nov 2026: the far-beyond nearest
+    // is NAMED on the free page — the CI #205 guard still
+    // suppresses it for the checking feed and the summary
+    // pills, but the groups render it as a row (the same
+    // row form as a within-guard beyond-nearest), its
+    // distance pill red at these miles. The unnamed
+    // no-finding lines — including the supermarket's
+    // map-gap caveat — are gone from the groups.
     const far = (key: string, label: string, miles: number) =>
       category({
         category: key as never,
@@ -2631,32 +2787,42 @@ describe("results — nation gating (Scotland/NI gap check, fold-in workstream 6
         }),
       }),
     );
-    // Re-pinned (HCR-08): the no-finding lines render
-    // sentence-cased at the composition boundary — FC-12
-    // settles the same form ("None within…" opens with a
-    // capital; the ruled sentences are otherwise
-    // untouched).
     const transport = section(view, "nearby", "transport");
-    expect(JSON.stringify(transport.blocks)).toContain(
-      "No stations within 2 miles of the postcode point",
-    );
-    expect(JSON.stringify(transport.blocks)).toContain(
-      "No bus stops within 2 miles of the postcode point",
-    );
+    const transportText = JSON.stringify(transport.blocks);
+    expect(transportText).toContain("Far Away Place");
+    expect(transportText).toContain("279.3 mi");
+    expect(transportText).toContain("Bus stop — Far Away Place");
+    expect(transportText).toContain("308.4 mi");
+    expect(transportText).not.toContain("No stations within 2 miles of the postcode point");
+    expect(transportText).not.toContain("No bus stops within 2 miles of the postcode point");
     const shops = section(view, "nearby", "shops");
-    expect(JSON.stringify(shops.blocks)).toContain(
-      "No supermarkets recorded within 2 miles on the map data we hold — a gap in the map is not proof that none exists",
-    );
+    const shopsText = JSON.stringify(shops.blocks);
+    expect(shopsText).toContain("Supermarket — Far Away Place");
+    expect(shopsText).toContain("306.3 mi");
+    expect(shopsText).not.toContain("a gap in the map is not proof that none exists");
     const hospitals = section(view, "nearby", "hospitals");
-    expect(JSON.stringify(hospitals.blocks)).toContain(
-      "No A&E hospitals within 2 miles of the postcode point",
-    );
+    const hospitalsText = JSON.stringify(hospitals.blocks);
+    expect(hospitalsText).toContain("Far Away Place — A&E department");
+    expect(hospitalsText).toContain("324.3 mi");
+    expect(hospitalsText).not.toContain("No A&E hospitals within 2 miles of the postcode point");
+    // Every far-beyond row carries a red pill (station,
+    // bus-stop and supermarket on the everyday family,
+    // A&E on the hospital family — all red past their
+    // thresholds), and the brain's three-decimal miles
+    // appear nowhere: the rows render one decimal.
+    const html = renderToStaticMarkup(createElement(ResultsPage, { view }));
+    expect(html).toContain("place-row__miles--red");
     const text = allText(view);
-    expect(text).not.toContain("Far Away Place");
-    expect(text).not.toMatch(/\d{3}\.\d+ mi/);
-    // The pill builder reads the same suppressed view: no
-    // A&E pill is struck from a 324-mile pointer.
-    expect(view.pills?.map((pill) => pill.label) ?? []).not.toContain("A&E");
+    expect(text).not.toContain("279.258");
+    expect(text).not.toContain("308.378");
+    expect(text).not.toContain("306.32");
+    expect(text).not.toContain("324.328");
+    // The pill builder still reads the suppressed view:
+    // no A&E pill — and no Train station pill — is struck
+    // from a 324/279-mile pointer.
+    const pillLabels = view.pills?.map((pill) => pill.label) ?? [];
+    expect(pillLabels).not.toContain("A&E");
+    expect(pillLabels).not.toContain("Train station");
   });
 });
 
@@ -2936,7 +3102,9 @@ describe("results — BUG-213 none-within preamble", () => {
   // alone (Sample 3 Tabs 1 and 4; View 7 Section 5).
   // The default fixture carries beyond-nearest A&E and
   // maternity (4.2 and 5.9 miles) — both inside the
-  // 25-mile guard, so both render as rows.
+  // 25-mile guard; the A&E row renders and the maternity
+  // group sits behind the strip (BUG-213 hospitals
+  // ruling, below).
   it("BUG-213: the free page carries no None-within preamble where a named entry carries the nearest", () => {
     const view = buildResultsView(input());
     const html = renderToStaticMarkup(createElement(ResultsPage, { view }));
@@ -2948,42 +3116,135 @@ describe("results — BUG-213 none-within preamble", () => {
     expect(html).toContain("4.2 mi");
   });
 
-  it("BUG-213: a far-beyond nearest keeps its line as the sole statement — no row, no name", () => {
-    // Past the 25-mile guard the nearest is suppressed
-    // as a row (CI #205); the line is the only
-    // statement, in the settled unnamed no-finding
-    // form — it names no 30-mile "nearest". See the
-    // terminal report: the founder rules on whether a
-    // far-beyond nearest should ever be named.
+  it("BUG-213 far-beyond ruling: a far-beyond GP is named as a row with a red pill — the unnamed line is gone", () => {
+    // Founder ruling 24 Nov 2026: past the 25-mile guard
+    // the nearest GP is NAMED on the free page — the row
+    // carries the name and a red distance pill. The
+    // checking feed keeps the guard (see the feed pin
+    // below), and the summary pills keep it too.
+    const bundle = nearbyWith({
+      gp: category({
+        category: "gp",
+        label: "GP surgeries",
+        state: "none-within",
+        places: [],
+        countWithin: 0,
+        beyondNearest: {
+          name: "Far Away Surgery",
+          miles: 30,
+          latitude: 51.7,
+          longitude: 0.6,
+        },
+        line: "none within 2 miles — nearest is Far Away Surgery, 30 miles away",
+      }),
+    });
+    const view = buildResultsView(input({ nearby: bundle }));
+    const health = section(view, "nearby", "health");
+    const text = JSON.stringify(health.blocks);
+    expect(text).toContain("GP — Far Away Surgery");
+    expect(text).toContain("30 mi");
+    expect(text).toContain('"band":"red"');
+    expect(text).not.toContain("No GP surgeries within 2 miles of the postcode point");
+    expect(text).not.toContain("None within");
+    const html = renderToStaticMarkup(createElement(ResultsPage, { view }));
+    expect(html).toContain("Far Away Surgery");
+    expect(html).toContain("place-row__miles--red");
+    // The checking screen is unchanged: its feed still
+    // runs the guard, so the same GP lands on the
+    // unnamed no-finding line there, never the name.
+    const feed = nearbyCheckingGroups(bundle);
+    expect(feed.health.state).toBe("done");
+    expect(feed.health.line).toBe("no GP surgeries within 2 miles of the postcode point");
+    expect(feed.health.line).not.toContain("Far Away Surgery");
+  });
+});
+
+describe("results — BUG-213 hospitals maternity behind the strip", () => {
+  // BUG-213 ruling (founder, 24 Nov 2026): the maternity
+  // group never renders as visible rows on the free page —
+  // it sits behind the section's strip ("Plus maternity,
+  // community hospital & more hospitals") in every case,
+  // as Sample 3 Tab 4 shows the A&E row only. This
+  // retires item 28's dedup, which suppressed the
+  // maternity group only when its lead place WAS the A&E
+  // lead place — a different nearest maternity unit used
+  // to serve as a second visible row.
+  it("BUG-213: a different nearest maternity unit renders behind the strip, not as a row", () => {
     const view = buildResultsView(
       input({
         nearby: nearbyWith({
-          gp: category({
-            category: "gp",
-            label: "GP surgeries",
+          ae: category({
+            category: "ae",
             state: "none-within",
             places: [],
             countWithin: 0,
             beyondNearest: {
-              name: "Far Away Surgery",
-              miles: 30,
+              name: "Broomfield Hospital",
+              miles: 4.213,
               latitude: 51.7,
               longitude: 0.6,
             },
-            line: "none within 2 miles — nearest is Far Away Surgery, 30 miles away",
+            line: "none within 2 miles — nearest is Broomfield Hospital, 4.213 miles away",
+          }),
+          maternity: category({
+            category: "maternity",
+            state: "within",
+            places: [
+              {
+                name: "St Peter's Hospital",
+                miles: 3.4,
+                latitude: 51.7,
+                longitude: 0.6,
+                detail: null,
+                cqcRating: { rating: "Good", date: "2024-12-19" },
+              },
+            ],
+            countWithin: 1,
           }),
         }),
       }),
     );
-    const health = section(view, "nearby", "health");
-    const text = JSON.stringify(health.blocks);
-    expect(text).toContain("No GP surgeries within 2 miles of the postcode point");
-    expect(text).not.toContain("Far Away Surgery");
-    expect(text).not.toContain('"rows":[{"name"');
+    const hospitals = section(view, "nearby", "hospitals");
+    const text = JSON.stringify(hospitals.blocks);
+    // The A&E row stands, and the strip speaks for maternity.
+    expect(text).toContain("Broomfield Hospital");
+    expect(text).toContain("Plus maternity, community hospital & more hospitals");
+    // No maternity group anywhere in the section — neither
+    // its heading nor its place name.
+    expect(text).not.toContain("Maternity units");
+    expect(text).not.toContain("St Peter's Hospital");
+    const html = renderToStaticMarkup(createElement(ResultsPage, { view }));
+    expect(html).not.toContain("St Peter's Hospital");
+  });
+
+  it("BUG-213: the identical-nearest case (Birkdale) is unchanged — one A&E row plus the strip", () => {
+    const view = buildResultsView(input());
+    const hospitals = section(view, "nearby", "hospitals");
+    const placesBlocks = hospitals.blocks.filter((block) => block.type === "places");
+    expect(placesBlocks).toHaveLength(1);
+    const only = placesBlocks[0];
+    expect(only?.type).toBe("places");
+    if (only?.type === "places") expect(only.group.heading).toBe("A&E hospitals");
+    const text = JSON.stringify(hospitals.blocks);
+    expect(text).toContain("Broomfield Hospital");
+    expect(text).toContain("Plus maternity, community hospital & more hospitals");
+    expect(text).not.toContain("Maternity units");
   });
 });
 
 describe("results — the rendered page", () => {
+  it("keeps the one-tier section headings on the home surface (BUG-218: district only)", () => {
+    const view = buildResultsView(input());
+    const html = renderToStaticMarkup(createElement(ResultsPage, { view }));
+    // Every home section still renders its single
+    // <h3 class="results-section__heading"> — the
+    // district page's removal (BUG-218) must not leak
+    // into the per-home report.
+    const headings = html.match(/results-section__heading/g) ?? [];
+    expect(headings).toHaveLength(view.tabs.flatMap((tab) => tab.sections).length);
+    expect(html).not.toContain("district-sect");
+  });
+
   it("renders the D75 pills, the closing block, the buy bar and the calculators", () => {
     const view = buildResultsView(input());
     const html = renderToStaticMarkup(createElement(ResultsPage, { view }));

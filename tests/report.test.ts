@@ -2393,6 +2393,94 @@ describe("report — the print-check batch (founder's PDF print check, 21 Nov 20
     expect(JSON.stringify(s3u)).not.toContain("selective schools within 10 miles");
   });
 
+  it("the short version's selective bullet carries the Master's lead, caps at the nearest five, and states the true total (BUG-220)", () => {
+    // The founder's screenshot case: eleven grammar
+    // schools within 10 miles, out to 9.6 miles.
+    const selective = [
+      { name: "Selective One", miles: 5.5 },
+      { name: "Selective Two", miles: 5.8 },
+      { name: "Selective Three", miles: 6.3 },
+      { name: "Selective Four", miles: 6.7 },
+      { name: "Selective Five", miles: 6.8 },
+      { name: "Selective Six", miles: 7.3 },
+      { name: "Selective Seven", miles: 8.6 },
+      { name: "Selective Eight", miles: 9.3 },
+      { name: "Selective Nine", miles: 9.3 },
+      { name: "Selective Ten", miles: 9.5 },
+      { name: "Selective Eleven", miles: 9.6 },
+    ];
+    const capped = buildReportView(
+      input({
+        nearby: nearbyWith({
+          "schools-secondary": category({
+            category: "schools-secondary",
+            label: "secondary schools",
+            state: "within",
+            places: [
+              {
+                name: "Maltings Academy",
+                miles: 1.8,
+                detail: "Ages 11–18",
+                latitude: 51.79,
+                longitude: 0.62,
+              },
+            ],
+            countWithin: 1,
+            selectiveSchools: selective,
+            nearestSelective: selective[0],
+          }),
+        }),
+      }),
+    );
+    const education = capped.shortVersion?.groups.find((g) => g.heading === "Education");
+    const lines = (education?.lines ?? []).map((line) =>
+      line.map((segment) => segment.text).join(""),
+    );
+    expect(lines).toContain(
+      "Selective schools within 10 miles: Selective One, 5.5 miles; Selective Two, 5.8 miles; Selective Three, 6.3 miles; Selective Four, 6.7 miles; Selective Five, 6.8 miles — Grammar school, entry by test.",
+    );
+    expect(lines).toContain(
+      "There are 11 selective schools within 10 miles of this home — the 5 nearest are shown.",
+    );
+    expect(JSON.stringify(capped.shortVersion)).not.toContain("Selective Eleven");
+
+    // At five or fewer the whole set shows, the lead
+    // still stands, and no count line stands.
+    const uncapped = buildReportView(
+      input({
+        nearby: nearbyWith({
+          "schools-secondary": category({
+            category: "schools-secondary",
+            label: "secondary schools",
+            state: "within",
+            places: [
+              {
+                name: "Maltings Academy",
+                miles: 1.8,
+                detail: "Ages 11–18",
+                latitude: 51.79,
+                longitude: 0.62,
+              },
+            ],
+            countWithin: 1,
+            selectiveSchools: selective.slice(0, 3),
+            nearestSelective: selective[0],
+          }),
+        }),
+      }),
+    );
+    const educationU = uncapped.shortVersion?.groups.find((g) => g.heading === "Education");
+    const linesU = (educationU?.lines ?? []).map((line) =>
+      line.map((segment) => segment.text).join(""),
+    );
+    expect(linesU).toContain(
+      "Selective schools within 10 miles: Selective One, 5.5 miles; Selective Two, 5.8 miles; Selective Three, 6.3 miles — Grammar school, entry by test.",
+    );
+    expect(JSON.stringify(uncapped.shortVersion)).not.toContain(
+      "selective schools within 10 miles of",
+    );
+  });
+
   it("transport entries carry their kind, and a same-name bus-stop pair prints as one entry for both directions (items 12 and 13)", () => {
     const withStops = buildReportView(
       input({

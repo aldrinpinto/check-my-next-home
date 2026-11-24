@@ -569,21 +569,18 @@ function Section({
       data-section={section.key}
       data-warnings-state={section.key === "flood" ? (warningsState ?? undefined) : undefined}
     >
-      {district && section.districtHead ? (
-        // WA-01: Sample 28's two-tier head — the numbered
-        // label (NO line above it: the district page's
-        // sections are separated by whitespace, not the
-        // home rulebook's rule), the serif title, the
-        // grain pill at the right.
-        <>
-          <h3 className="district-sect">{section.districtHead.label}</h3>
-          <div className="district-sect-head2">
-            <span className="district-sect-title">{section.districtHead.title}</span>
-            {section.districtHead.grain && (
-              <span className="district-grain">{section.districtHead.grain}</span>
-            )}
-          </div>
-        </>
+      {district ? (
+        // BUG-218 (founder, 24 Nov 2026): the district
+        // page carries no section kicker and no section
+        // title — Sample 28's two-tier head (the
+        // numbered label, the serif title, the grain
+        // pill) is removed entirely; a district section
+        // opens straight on its content. The grain pill
+        // goes with the head: its scope note is already
+        // carried in each section's own content lines.
+        // The one-tier heading below is the HOME
+        // surface's and is untouched.
+        <></>
       ) : (
         <h3 className="results-section__heading">{section.heading}</h3>
       )}
@@ -622,8 +619,8 @@ export default function ResultsPage({
 }) {
   // The district (wider-area) view is the one carrying a
   // bridge; it wears Sample 28's own dress (BUG-160 as
-  // corrected by the wider-area audit): the two-tier
-  // section heads, the .source lines, the boxed
+  // corrected by the wider-area audit): no section heads
+  // at all (BUG-218), the .source lines, the boxed
   // disclaimers panel at the foot, and no D9 short form
   // (Sample 28 does not draw one).
   const district = view.bridge != null;

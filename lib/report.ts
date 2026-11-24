@@ -37,15 +37,19 @@ import {
   type ServedFloodWarning,
 } from "./flood";
 import { formatFiledDate, formatMiles, formatPounds, nationOfLsoa } from "./journey";
-import { SELECTIVE_LIST_SIZE, SELECTIVE_SEARCH_MILES } from "./nearby";
+import { RADIUS_MILES, SELECTIVE_LIST_SIZE, SELECTIVE_SEARCH_MILES } from "./nearby";
 import type { CategoryAnswer, NearbyBundle, NearbyCategory, NearbyPlace } from "./nearby";
 import { nationOfPostcode } from "./nation";
 import {
   CATCHMENT_LINK,
+  POLYGON_FEATURE_NAMES,
   distanceBand,
+  groupPlanningConstraints,
+  polygonFact,
   reportRoute,
   type DistanceBand,
   type DistanceFamily,
+  type PlanningConstraintInput,
 } from "./results";
 import { REPORT_DOOR_STATE, type ReportDoorState } from "./site";
 import type { ServedSale, SoldPricesBundle } from "./sold-prices";
@@ -1061,6 +1065,7 @@ function buildShortVersion(
   const primary = nearestOf(primaryAnswer);
   const secondaryPlaces = secondaryAnswer?.places ?? [];
   const secondary = nearestOf(secondaryAnswer);
+  const selectiveSchools = secondaryAnswer?.selectiveSchools ?? [];
   const educationLines: (ReportRichLine | null)[] = [
     primary
       ? [
@@ -1089,15 +1094,22 @@ function buildShortVersion(
             seg("."),
           ]
         : null,
-    secondaryAnswer && (secondaryAnswer.selectiveSchools ?? []).length > 0
+    selectiveSchools.length > 0
       ? [
           // BUG-108: every selective secondary within the
           // grammar search, nearest first, each with its
-          // distance.
-          ...(secondaryAnswer.selectiveSchools ?? []).flatMap((school, index) => [
-            seg(index === 0 ? `${school.name}, ` : `; ${school.name}, `),
-            boldSeg(`${formatMiles(school.miles)} miles`),
-          ]),
+          // distance. BUG-220: the bullet carries the
+          // Master's lead ("Selective schools within 10
+          // miles:") and lists the nearest five only
+          // (BUG-140) — the count line below states the
+          // true total where the list is cut.
+          seg(`Selective schools within ${SELECTIVE_SEARCH_MILES} miles: `),
+          ...selectiveSchools
+            .slice(0, SELECTIVE_LIST_SIZE)
+            .flatMap((school, index) => [
+              seg(index === 0 ? `${school.name}, ` : `; ${school.name}, `),
+              boldSeg(`${formatMiles(school.miles)} miles`),
+            ]),
           seg(" — "),
           boldSeg("Grammar school"),
           seg(", entry by test."),
@@ -1105,6 +1117,17 @@ function buildShortVersion(
       : secondaryAnswer?.nearestSelectiveLine
         ? [seg(sentenceLine(secondaryAnswer.nearestSelectiveLine))]
         : null,
+    // BUG-220 (BUG-140): where the selective list is cut
+    // at the nearest five, a count line states the true
+    // total within the grammar search, so the cap never
+    // reads as the whole picture.
+    selectiveSchools.length > SELECTIVE_LIST_SIZE
+      ? [
+          seg(
+            `There are ${count(selectiveSchools.length)} selective schools within ${SELECTIVE_SEARCH_MILES} miles of ${rung1 ? "this home" : "this postcode"} — the ${SELECTIVE_LIST_SIZE} nearest are shown.`,
+          ),
+        ]
+      : null,
   ];
   add("Education", educationLines);
 
@@ -3712,24 +3735,75 @@ function section7(input: ReportInput): ReportSectionView {
       text: "Broadband and mobile: the exact package at this home varies by provider.",
     });
 
-  // Planning constraints & land: the four polygon layers
-  // print as one bullet list, not a stack of paragraphs
-  // (item 23b), with the built-up area's beyond line in
-  // the list where it serves — the full form (M8.10,
-  // item (j)) the same layers print in their own blocks
-  // elsewhere. Brownfield leaves the list for its own
-  // full form below.
+  // Planning constraints & land (BUG-212, Sample 2
+  // "Grouped by answer", founder pick 24 Nov 2026): the
+  // four polygon layers print as grouped rows — findings
+  // first (each its own named row with its tag and
+  // distance pill), then anything the data could not
+  // check, Article 4 last — the same grouping the free
+  // page draws (lib/results.ts groupPlanningConstraints).
+  // Brownfield stays out of this group: it keeps its own
+  // full form below (the count line and its site rows),
+  // so grouping it here would duplicate it.
   const constraints = sections.constraints;
   blocks.push({ type: "sub", text: "Planning constraints & land" });
-  const constraintLines = [
-    constraints.conservationArea,
-    constraints.article4,
-    constraints.greenBelt,
-    constraints.builtUpArea,
-  ].map((layer) => sentenceLine(layer.line));
-  if (constraints.builtUpArea.beyondLine)
-    constraintLines.push(sentenceLine(constraints.builtUpArea.beyondLine));
-  blocks.push({ type: "list", items: constraintLines });
+  {
+    const keyByLayer: Record<string, PlanningConstraintInput["key"]> = {
+      conservation_area: "conservation",
+      article_4_area: "article4",
+      green_belt: "greenBelt",
+      built_up_area: "builtUp",
+    };
+    const inputs: PlanningConstraintInput[] = [
+      constraints.conservationArea,
+      constraints.article4,
+      constraints.greenBelt,
+      constraints.builtUpArea,
+    ].map((layer) => {
+      const nearest = layer.nearest ?? layer.beyondNearest;
+      return {
+        key: keyByLayer[layer.layer] ?? "conservation",
+        label: layer.label,
+        feature: POLYGON_FEATURE_NAMES[layer.layer] ?? "area",
+        state: layer.state,
+        fact: polygonFact(layer),
+        line: layer.line,
+        nearestName: nearest?.name ?? null,
+        nearestMiles: nearest ? nearest.miles : null,
+        beyond: layer.beyondLine !== null,
+        radiusMiles: RADIUS_MILES,
+        radiusInLine: false,
+      };
+    });
+    const groups = groupPlanningConstraints(inputs);
+    if (groups.findingsHead) {
+      blocks.push({ type: "sub3", text: groups.findingsHead });
+      blocks.push({
+        type: "rows",
+        rows: groups.findings.map((finding) => ({
+          name: finding.label,
+          detail: finding.text,
+          tag: finding.tag,
+          dist: finding.miles !== null ? `${formatMiles(finding.miles)} mi` : null,
+          distBand: finding.miles !== null ? distanceBand("concern", finding.miles) : undefined,
+          extra: [],
+        })),
+      });
+    }
+    if (groups.uncheckable.length > 0) {
+      blocks.push({ type: "sub3", text: "Could not be checked" });
+      blocks.push({
+        type: "rows",
+        rows: groups.uncheckable.map((entry) => ({
+          name: entry.label,
+          detail: entry.text,
+          tag: entry.tag,
+          dist: null,
+          extra: [],
+        })),
+      });
+    }
+  }
   // The planning group's small print (BUG-125, founder
   // ruling 22 Nov 2026): a one-line distinguisher after
   // the block, telling the reader what kind of fact the

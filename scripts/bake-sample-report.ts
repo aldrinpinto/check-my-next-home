@@ -5,7 +5,13 @@
 // a finished view instead of regenerating the merged
 // bundles live on the first hit after every restart —
 // the live generation was 28.7 MB of page and ~13 s of
-// wait, measured on the play server, 23 Nov 2026.
+// wait, measured on the play server, 23 Nov 2026. BUG-219
+// extends the bake: the page's body is rendered from the
+// same view and written beside it
+// (lib/server/sample-report-html.ts's
+// BAKED_SAMPLE_REPORT_HTML_PATH), so the page serves
+// pre-rendered HTML instead of re-rendering the whole
+// document on every hit.
 //
 // WHY AT CONTAINER START, NOT IMAGE BUILD: generation
 // reads the filed data through the real pipeline, and
@@ -65,6 +71,22 @@ export async function main(): Promise<number> {
   await writeFile(BAKED_SAMPLE_REPORT_PATH, json);
   console.log(
     `bake-sample-report: wrote the sample view (${json.length} chars) to ${BAKED_SAMPLE_REPORT_PATH}`,
+  );
+  // BUG-219: render the page's body from the same view and
+  // write it beside the view JSON, so the page serves
+  // pre-rendered HTML instead of re-rendering the whole
+  // document on every hit. The render uses the same
+  // fragment the live page renders
+  // (components/SampleReportBody.tsx), so the served
+  // document is identical either way. A failure here fails
+  // the bake — the page then falls back to its live
+  // render, today's behaviour — never a down site.
+  const { BAKED_SAMPLE_REPORT_HTML_PATH } = await import("../lib/server/sample-report-html");
+  const { renderSampleReportBody } = await import("../lib/server/sample-report-render");
+  const html = renderSampleReportBody(view);
+  await writeFile(BAKED_SAMPLE_REPORT_HTML_PATH, html);
+  console.log(
+    `bake-sample-report: wrote the sample body (${html.length} chars) to ${BAKED_SAMPLE_REPORT_HTML_PATH}`,
   );
   return 0;
 }
