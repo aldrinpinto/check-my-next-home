@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createGoldenSift } from "../loaders/flood-stream.mjs";
+import { createProgressLogger } from "../loaders/progress.mjs";
 import {
   checkGolden as zonesCheckGolden,
   readFixture as zonesReadFixture,
@@ -81,7 +82,11 @@ type ReadResult = {
 type OnItems = (items: Item[], edition: string) => Promise<void>;
 type OgcModule = {
   readFixture: (dir: string, opts?: { onItems?: OnItems }) => Promise<ReadResult>;
-  readLive: (opts: { delaysMs: number[]; onItems?: OnItems }) => Promise<ReadResult>;
+  readLive: (opts: {
+    delaysMs: number[];
+    onItems?: OnItems;
+    progress?: ReturnType<typeof createProgressLogger>;
+  }) => Promise<ReadResult>;
   checkGolden: (processed: { items: Item[] }) => void;
 };
 
@@ -151,7 +156,11 @@ const squareAt = (i: number) => {
   };
 };
 
-async function expectLiveStreaming(mod: OgcModule, stub: LiveStub) {
+async function expectLiveStreaming(
+  mod: OgcModule,
+  stub: LiveStub,
+  progress?: ReturnType<typeof createProgressLogger>,
+) {
   const realFetch = globalThis.fetch;
   globalThis.fetch = (async (url: string) => {
     const text = String(url);
@@ -183,6 +192,7 @@ async function expectLiveStreaming(mod: OgcModule, stub: LiveStub) {
       onItems: async (items) => {
         sunk.push(...items);
       },
+      progress,
     });
     expect(streamed.read).toBe(stub.total);
     expect(streamed.expected).toBe(stub.total);
@@ -217,6 +227,32 @@ describe("load-flood-zones streaming (BUG-187)", () => {
         geometry: squareAt(i),
       }),
     });
+  });
+  it("load-flood-zones: the live read emits a heartbeat mid-read (BUG-248)", async () => {
+    const lines: string[] = [];
+    const progress = createProgressLogger({
+      name: "load-flood-zones",
+      log: (line: string) => lines.push(line),
+    });
+    await expectLiveStreaming(
+      mod,
+      {
+        wmsName: "Flood_Zones_2_3_Rivers_and_Sea_03_11_2026",
+        total: 260,
+        pageSize: 250,
+        edition: "2026-11-03",
+        feature: (i) => ({
+          properties: { flood_zone: "FZ3", flood_source: "river", origin: "modelled" },
+          geometry: squareAt(i),
+        }),
+      },
+      progress,
+    );
+    // The first 250-feature page crosses the heartbeat's
+    // halfway mark (130 of 260), so exactly one heartbeat
+    // lands — and no health line looks like a summary.
+    expect(lines.some((l) => /heartbeat · read · 250\/260 · /.test(l))).toBe(true);
+    expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
   });
 });
 

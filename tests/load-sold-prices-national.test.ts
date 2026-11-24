@@ -719,9 +719,24 @@ describe("runNational — the whole register in one pass", () => {
     const sentinel = [{ transaction_id: "SENTINEL", postcode: "CM3 2JT" } as Row];
     client.live = structuredClone(sentinel);
     client.failOnSwapInsert = true;
+    // BUG-248: the swap reports itself before the error
+    // propagates — one failure line, first error line only.
+    const lines: string[] = [];
+    const progress = createProgressLogger({
+      name: "load-sold-prices",
+      log: (line: string) => lines.push(line),
+    });
     await expect(
-      runNational(client as never, { fullLines, updateLines, edition: EDITION }),
+      runNational(client as never, { fullLines, updateLines, edition: EDITION, progress }),
     ).rejects.toThrow(/armed failure/);
+    expect(
+      lines.some((l) =>
+        /^20\d\d-\d\d-\d\dT\d\d:\d\d:\d\d\.\d\d\dZ load-sold-prices failed · swap · filed 0 of \d+ · armed failure on the swap insert · resume from re-run the national pass from the start \(the swap rolled back, the live register is untouched\)$/.test(
+          l,
+        ),
+      ),
+    ).toBe(true);
+    expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
     expect(client.live).toEqual(sentinel);
   });
 

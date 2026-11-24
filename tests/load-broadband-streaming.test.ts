@@ -448,9 +448,21 @@ describe("the filer's failure semantics (BUG-191)", () => {
       seedOldCache(fake, rows);
       fake.failOnMergeCall(2);
 
-      await expect(fileBroadband(fake as never, rows as never)).rejects.toThrow(
+      // BUG-248: the merge reports itself before the error
+      // propagates — one failure line, first error line only.
+      const lines: string[] = [];
+      const progress = createProgressLogger({
+        name: "load-broadband",
+        log: (line: string) => lines.push(line),
+      });
+      await expect(fileBroadband(fake as never, rows as never, { progress })).rejects.toThrow(
         /simulated mid-merge failure/,
       );
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toMatch(
+        /^20\d\d-\d\d-\d\dT\d\d:\d\d:\d\d\.\d\d\dZ load-broadband failed · merge · filed 5,000 of 12,000 · simulated mid-merge failure · resume from re-run from scratch \(merge is idempotent, staged rows re-merge\)$/,
+      );
+      expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
 
       // One chunk (5,000 postcodes) merged and committed; the rest
       // still hold their whole old answers; nothing is mixed.

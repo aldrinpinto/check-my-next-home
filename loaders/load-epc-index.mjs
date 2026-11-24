@@ -476,8 +476,14 @@ export async function stageEpcIndex(client, certificates, { progress = null } = 
     certificatesRead += 1;
     // BUG-204: a line every 500k certificates read — the
     // staging stream is the pass's long phase.
-    if (certificatesRead % 500000 === 0)
+    if (certificatesRead % 500000 === 0) {
       progress?.count({ label: "staging", done: certificatesRead, unit: "certificates" });
+      // BUG-248: the staging stream is the pass's long phase —
+      // a heartbeat every 5,000,000 certificates or 15
+      // minutes. The 1,000-row stage inserts are too
+      // fine-grained for a slow-batch watch.
+      progress?.heartbeat({ stage: "staging", done: certificatesRead, every: 5_000_000 });
+    }
     const outcome = parseEpcAddressLines(certificate);
     if ("refusal" in outcome) {
       refusals[outcome.refusal] = (refusals[outcome.refusal] ?? 0) + 1;
@@ -511,19 +517,43 @@ export async function fileEpcIndex(client, { edition, log = () => {}, progress =
   });
   if (!outcome.filed) {
     await recordRejection(client, "epc", outcome.staged.homes);
-    throw new Error(
+    // BUG-248: a refusal is a failed run — one line, at the
+    // tolerance proof, with no re-run to offer.
+    const refusal = new Error(
       `epc index: the re-extract was refused — its distinct home count (${outcome.staged.homes}) moves beyond the ${COUNT_MOVEMENT_TOLERANCE * 100}% tolerance against the filed edition (${outcome.previousHomes}); the filed edition keeps serving`,
     );
+    progressLogger.failed({
+      stage: "tolerance proof",
+      filed: 0,
+      total: outcome.previousHomes ?? null,
+      error: refusal,
+      resume: "no re-run — the re-extract is outside tolerance; check the source file",
+    });
+    throw refusal;
   }
   const rowsByPostcode = {};
-  for (const golden of GOLDEN_EPC_ROWS) {
-    const { rows } = await client.query(
-      "SELECT postcode, paon, saon, street, town, home_key, sources FROM picking_index WHERE postcode = $1",
-      [golden.postcode],
-    );
-    rowsByPostcode[golden.postcode] = rows;
+  try {
+    for (const golden of GOLDEN_EPC_ROWS) {
+      const { rows } = await client.query(
+        "SELECT postcode, paon, saon, street, town, home_key, sources FROM picking_index WHERE postcode = $1",
+        [golden.postcode],
+      );
+      rowsByPostcode[golden.postcode] = rows;
+    }
+    verifyGoldenEpcRows(rowsByPostcode);
+  } catch (err) {
+    // BUG-248: the proof runs after the swap has committed,
+    // so the new edition is already serving — investigate
+    // before any re-run.
+    progressLogger.failed({
+      stage: "golden proof",
+      filed: outcome.counts.homes,
+      total: outcome.counts.homes,
+      error: err,
+      resume: "the new edition is filed — investigate before re-running",
+    });
+    throw err;
   }
-  verifyGoldenEpcRows(rowsByPostcode);
   log(
     "Golden proof: Beaulieu (CM1 6ER) serves its 49 certificate homes from the index, and Flat 4, Minerva House (KT17 1FH) carries the register's PAON form.",
   );
@@ -534,7 +564,23 @@ export async function loadEpcIndexFromCertificates(client, certificates, { editi
   // BUG-204: one logger for the pass — the staging
   // stream's count lines and the rebuild's markers.
   const progress = createProgressLogger({ name: "load-epc-index", log });
-  const stats = await stageEpcIndex(client, certificates, { progress });
+  // BUG-248: the staging stream fails before anything is
+  // filed — the stage is truncated and re-streamed on a
+  // re-run. The filing phase reports its own failures
+  // (tolerance proof, swap, golden proof), so it is not
+  // wrapped again here.
+  let stats;
+  try {
+    stats = await stageEpcIndex(client, certificates, { progress });
+  } catch (err) {
+    progress.failed({
+      stage: "staging",
+      filed: 0,
+      error: err,
+      resume: "re-run the pass from the start (the stage is truncated and re-streamed)",
+    });
+    throw err;
+  }
   const counts = await fileEpcIndex(client, { edition, log, progress });
   const refusalDetail = Object.entries(stats.refusals)
     .map(([reason, count]) => `${reason} ${formatCount(count)}`)

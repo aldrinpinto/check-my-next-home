@@ -405,6 +405,11 @@ export async function rebuildPickingIndex(client, { includeEpc = true, progress 
       ? "union built"
       : `union built — ${formatCount(builtRows)} homes`,
   );
+  // BUG-248: the rebuild's four long statements each earn a
+  // heartbeat (done = stage index of 4) — the log moves
+  // between the markers instead of sitting silent for the
+  // whole build.
+  progress?.heartbeat({ stage: "rebuild", done: 1, total: 4, every: 1 });
   progress?.stage("indexing the built union");
   await client.query(`ALTER TABLE ${UNION_BUILD_TABLE} ADD PRIMARY KEY (postcode, home_key)`);
   await client.query(
@@ -415,6 +420,7 @@ export async function rebuildPickingIndex(client, { includeEpc = true, progress 
     `CREATE INDEX ${UNION_BUILD_TABLE}_postcode_prefix_idx
        ON ${UNION_BUILD_TABLE} (postcode text_pattern_ops)`,
   );
+  progress?.heartbeat({ stage: "rebuild", done: 2, total: 4, every: 1 });
   // THE SWAP: the served name moves to the retired
   // table, the build takes the served name, the
   // retired table drops, and the build's indexes take
@@ -434,9 +440,11 @@ export async function rebuildPickingIndex(client, { includeEpc = true, progress 
     `ALTER INDEX ${UNION_BUILD_TABLE}_postcode_prefix_idx
        RENAME TO picking_index_postcode_prefix_idx`,
   );
+  progress?.heartbeat({ stage: "rebuild", done: 3, total: 4, every: 1 });
   progress?.stage("rebuilding the streets and places tables");
   await rebuildPickingStreets(client);
   await rebuildPickingPlaces(client);
+  progress?.heartbeat({ stage: "rebuild", done: 4, total: 4, every: 1 });
 }
 
 // Record a filed edition and its proof counts on the
@@ -515,6 +523,15 @@ export async function fileStagedExtract(client, { source, edition, progress = nu
     await client.query("COMMIT");
     return { filed: true, counts, previousHomes: current?.homes ?? null };
   } catch (error) {
+    // BUG-248: the swap is atomic — on a rollback nothing
+    // is filed, and the filed edition keeps serving.
+    progress?.failed({
+      stage: "filing",
+      filed: 0,
+      error,
+      resume:
+        "re-run the pass from the start (the swap rolled back, the filed edition keeps serving)",
+    });
     await client.query("ROLLBACK");
     throw error;
   }
@@ -534,6 +551,15 @@ export async function removeEpcFromIndex(client, { progress = null } = {}) {
     await rebuildPickingIndex(client, { includeEpc: false, progress });
     await client.query("COMMIT");
   } catch (error) {
+    // BUG-248: the kill switch rebuilds atomically too — on a
+    // rollback the sales-only index is untouched.
+    progress?.failed({
+      stage: "filing",
+      filed: 0,
+      error,
+      resume:
+        "re-run the pass from the start (the swap rolled back, the served index keeps serving)",
+    });
     await client.query("ROLLBACK");
     throw error;
   }

@@ -73,7 +73,12 @@ import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
-import { createProgressLogger, formatCount } from "./progress.mjs";
+import {
+  createBatchWatch,
+  createProgressLogger,
+  formatCount,
+  formatDuration,
+} from "./progress.mjs";
 import pg from "pg";
 import yauzl from "yauzl";
 
@@ -464,12 +469,37 @@ export async function createBroadbandFiler(client, { progress = null } = {}) {
         every: 25,
         unit: "chunks",
       });
-      for (let i = 0; i < chunks; i++) {
-        updated += await transact(async () => {
-          const res = await client.query(MERGE_CHUNK_SQL, [MERGE_CHUNK]);
-          return res.rowCount ?? 0;
+      // BUG-248: a chunk that takes more than 3x the recent
+      // average earns a warning; the heartbeat fires every 10
+      // chunks or 15 minutes, whichever comes first.
+      const mergeWatch = createBatchWatch();
+      try {
+        for (let i = 0; i < chunks; i++) {
+          const started = Date.now();
+          updated += await transact(async () => {
+            const res = await client.query(MERGE_CHUNK_SQL, [MERGE_CHUNK]);
+            return res.rowCount ?? 0;
+          });
+          const { tookMs, averageMs, slow } = mergeWatch.observe(Date.now() - started);
+          mergeTally?.tick(i + 1);
+          progress?.heartbeat({ stage: "merge", done: i + 1, total: chunks });
+          if (slow) {
+            progress?.warning({
+              what: "merge chunk duration",
+              value: `chunk ${i + 1} took ${formatDuration(tookMs)}`,
+              threshold: `3x recent average ${formatDuration(averageMs)}`,
+            });
+          }
+        }
+      } catch (err) {
+        progress?.failed({
+          stage: "merge",
+          filed: updated,
+          total: staged,
+          error: err,
+          resume: "re-run from scratch (merge is idempotent, staged rows re-merge)",
         });
-        mergeTally?.tick(i + 1);
+        throw err;
       }
       mergeTally?.finish(chunks);
       // The stale-key sweep — only here, after the whole release
@@ -496,17 +526,42 @@ export async function createBroadbandFiler(client, { progress = null } = {}) {
       let sweepBatch = 0;
       let removed = 0;
       let cursor = "";
-      for (;;) {
-        const { rows: batch } = await client.query(SWEEP_SCAN_SQL, [cursor, SWEEP_CHUNK]);
-        if (batch.length === 0) break;
-        cursor = batch[batch.length - 1].postcode;
-        const deleted = await transact(() =>
-          client.query(SWEEP_DELETE_SQL, [batch.map((r) => r.postcode)]),
-        );
-        removed += deleted.rowCount ?? 0;
-        sweepBatch += 1;
-        sweepTally?.tick(sweepBatch, staleKeysRemoved(removed));
-        if (batch.length < SWEEP_CHUNK) break;
+      // BUG-248: the sweep's batches get the same watch as the
+      // merge's chunks — slow-batch warning, heartbeat, and a
+      // failure line that names the sweep as the stage.
+      const sweepWatch = createBatchWatch();
+      try {
+        for (;;) {
+          const started = Date.now();
+          const { rows: batch } = await client.query(SWEEP_SCAN_SQL, [cursor, SWEEP_CHUNK]);
+          if (batch.length === 0) break;
+          cursor = batch[batch.length - 1].postcode;
+          const deleted = await transact(() =>
+            client.query(SWEEP_DELETE_SQL, [batch.map((r) => r.postcode)]),
+          );
+          removed += deleted.rowCount ?? 0;
+          sweepBatch += 1;
+          const { tookMs, averageMs, slow } = sweepWatch.observe(Date.now() - started);
+          sweepTally?.tick(sweepBatch, staleKeysRemoved(removed));
+          progress?.heartbeat({ stage: "sweep", done: sweepBatch, total: sweepBatches });
+          if (slow) {
+            progress?.warning({
+              what: "sweep batch duration",
+              value: `batch ${sweepBatch} took ${formatDuration(tookMs)}`,
+              threshold: `3x recent average ${formatDuration(averageMs)}`,
+            });
+          }
+          if (batch.length < SWEEP_CHUNK) break;
+        }
+      } catch (err) {
+        progress?.failed({
+          stage: "sweep",
+          filed: updated,
+          total: staged,
+          error: err,
+          resume: "re-run from scratch (sweep re-runs after the merge)",
+        });
+        throw err;
       }
       sweepTally?.finish(sweepBatch, staleKeysRemoved(removed));
       await client.query("DROP TABLE IF EXISTS broadband_stage");
@@ -774,13 +829,28 @@ async function run() {
     const progress = createProgressLogger({ name: "load-broadband" });
     const parseTally = progress.tally({ label: "parse", every: 100000, unit: "postcodes" });
     let parsed = 0;
-    const { release, stats } = await streamBroadbandRows(
-      { fileDir, trackPostcodes: true },
-      async (batch) => {
-        parsed += batch.length;
-        parseTally.tick(parsed);
-      },
-    );
+    let release;
+    let stats;
+    try {
+      ({ release, stats } = await streamBroadbandRows(
+        { fileDir, trackPostcodes: true },
+        async (batch) => {
+          parsed += batch.length;
+          parseTally.tick(parsed);
+          // BUG-248: the parse is the long phase — a heartbeat
+          // every 1,000,000 postcodes or 15 minutes.
+          progress.heartbeat({ stage: "parse", done: parsed, every: 1_000_000 });
+        },
+      ));
+    } catch (err) {
+      progress.failed({
+        stage: "parse",
+        filed: parsed,
+        error: err,
+        resume: "re-run from scratch (verify-only files nothing)",
+      });
+      throw err;
+    }
     parseTally.finish(parsed);
     structuralCheckStats(
       {
@@ -805,13 +875,16 @@ async function run() {
       const progress = createProgressLogger({ name: "load-broadband" });
       const filer = await createBroadbandFiler(client, { progress });
       let streamed;
+      let parsed = 0;
       try {
         const parseTally = progress.tally({ label: "parse", every: 100000, unit: "postcodes" });
-        let parsed = 0;
         streamed = await streamBroadbandRows({ fileDir }, async (batch) => {
           await filer.stageItems(batch);
           parsed += batch.length;
           parseTally.tick(parsed);
+          // BUG-248: the parse is the first long phase — a
+          // heartbeat every 1,000,000 postcodes or 15 minutes.
+          progress.heartbeat({ stage: "parse", done: parsed, every: 1_000_000 });
         });
         parseTally.finish(parsed);
         // The duplicates figure is parsed minus staged, and the
@@ -829,6 +902,15 @@ async function run() {
           { full: !fileDir },
         );
       } catch (err) {
+        // BUG-248: the parse (and the structural check after
+        // it) fails before anything is filed — the resume is
+        // a clean re-run.
+        progress.failed({
+          stage: "parse",
+          filed: parsed,
+          error: err,
+          resume: "re-run from scratch (nothing is filed until the merge)",
+        });
         await filer.abortFiling();
         throw err;
       }

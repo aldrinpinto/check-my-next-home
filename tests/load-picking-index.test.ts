@@ -410,12 +410,20 @@ describe("the tolerance refusal and the atomic swap", () => {
       ppdLine({ id: "x1", postcode: "TS1 1AA", paon: "1", street: "ONLY ROAD" }),
       ppdLine({ id: "x2", postcode: "TS1 1AA", paon: "2", street: "ONLY ROAD" }),
     ];
+    // BUG-248: the refusal is a failed run — one line, at the
+    // tolerance proof, with no re-run to offer.
+    const lines: string[] = [];
     await expect(
       loadPickingIndexFromLines(db as never, tiny, {
         edition: "truncated",
-        log: () => {},
+        log: (line: string) => lines.push(line),
       }),
     ).rejects.toThrow(/refused/);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(
+      /^20\d\d-\d\d-\d\dT\d\d:\d\d:\d\d\.\d\d\dZ load-picking-index failed · tolerance proof · filed 0 of 34 · picking index: the sales re-extract was refused — its distinct home count \(2\) moves beyond the 2% tolerance against the filed edition \(34\); the filed edition keeps serving · resume from no re-run — the re-extract is outside tolerance; check the source file$/,
+    );
+    expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
     // Nothing swapped; the refusal is on the record.
     expect(JSON.stringify(db.index)).toBe(before);
     const edition = db.editions.find((e) => e.source === "sales");

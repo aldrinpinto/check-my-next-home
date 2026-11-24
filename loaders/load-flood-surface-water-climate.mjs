@@ -103,7 +103,12 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { createGoldenSift, createTotals } from "./flood-stream.mjs";
-import { createProgressLogger, formatCount } from "./progress.mjs";
+import {
+  createBatchWatch,
+  createProgressLogger,
+  formatCount,
+  formatDuration,
+} from "./progress.mjs";
 
 const ITEMS_URL =
   "https://environment.data.gov.uk/geoservices/datasets/e5b38de2-99b3-44ee-b10c-b244926878ef/ogc/features/v1/collections/rofsw_cc01/items";
@@ -391,12 +396,34 @@ export async function readLive({
   const sift = onItems ? createGoldenSift(HOMES) : null;
   const items = [];
   let startIndex = 0;
+  // BUG-248: the paged read is the run's long phase — a
+  // heartbeat every half of the read or 15 minutes, and a
+  // warning for a page that takes more than 3x the recent
+  // average. The fixture read is not wired: it is local,
+  // fast, and its line count is pinned by test.
+  const readWatch = createBatchWatch();
+  const heartbeatEvery = Math.max(1, Math.ceil(expected / 2));
   while (totals.read < expected) {
+    const started = Date.now();
     const page = await fetchSurfaceWaterClimatePage(startIndex, expected, totals.read, delaysMs);
     const batch = page.features;
     const processed = processFeatures(batch);
     totals.addBatch(processed, batch.length);
+    const { tookMs, averageMs, slow } = readWatch.observe(Date.now() - started);
     readTally?.tick(totals.read);
+    progress?.heartbeat({
+      stage: "read",
+      done: totals.read,
+      total: expected,
+      every: heartbeatEvery,
+    });
+    if (slow) {
+      progress?.warning({
+        what: "read page duration",
+        value: `page at startIndex ${startIndex} took ${formatDuration(tookMs)}`,
+        threshold: `3x recent average ${formatDuration(averageMs)}`,
+      });
+    }
     if (onItems) {
       for (const item of processed.items) sift.offer(item);
       await onItems(processed.items, edition);
@@ -689,6 +716,14 @@ async function main() {
       );
     checkGolden(processed);
   } catch (error) {
+    // BUG-248: the read, sanity band, reconciliation and
+    // golden checks all fail before anything is filed.
+    progress.failed({
+      stage: "read",
+      filed: 0,
+      error,
+      resume: "re-run the loader from the start (nothing is filed until the swap)",
+    });
     if (filer) await filer.abortFiling();
     throw error;
   }
@@ -713,7 +748,22 @@ async function main() {
   progress.stage(
     `filing ${formatCount(processed.filed)} features — counts, validity repair and swap`,
   );
-  const invalidCount = await activeFiler.finishFiling(processed.filed);
+  let invalidCount;
+  try {
+    invalidCount = await activeFiler.finishFiling(processed.filed);
+  } catch (err) {
+    // BUG-248: the filing swap is atomic — on a rollback
+    // the live layer is untouched.
+    progress.failed({
+      stage: "filing",
+      filed: 0,
+      total: processed.filed,
+      error: err,
+      resume:
+        "re-run the loader from the start (the swap rolled back, the live layer is untouched)",
+    });
+    throw err;
+  }
   console.log(
     `${summary()} · ${formatCount(invalidCount)} invalid geometries made valid · golden homes OK · ${Math.round((Date.now() - startedAt) / 1000)}s`,
   );

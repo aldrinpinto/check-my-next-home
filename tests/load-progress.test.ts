@@ -3,7 +3,17 @@ import { mkdtemp, open, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { createProgressLogger, formatCount } from "../loaders/progress.mjs";
+import {
+  DISK_FREE_WARN_GB,
+  HEARTBEAT_EVERY_BATCHES,
+  HEARTBEAT_EVERY_MS,
+  RSS_WARN_MB,
+  SLOW_BATCH_FACTOR,
+  createBatchWatch,
+  createProgressLogger,
+  formatCount,
+  formatDuration,
+} from "../loaders/progress.mjs";
 import { readFixture } from "../loaders/load-flood-zones.mjs";
 import { postioVerdict } from "../loaders/canary-postio.mjs";
 import { pickingIndexVerdict } from "../loaders/canary-picking-index.mjs";
@@ -824,5 +834,204 @@ describe("formatted canary log lines (BUG-231)", () => {
     expect(verdict.logLine).not.toMatch(/1096 days old/);
     expect(verdict.logLine).not.toMatch(/1234567 distinct homes/);
     expect(verdict.logLine).not.toMatch(/filed 25108628/);
+  });
+});
+
+// BUG-248: loader health lines — heartbeat, warning and
+// failure, in the same timestamped shape as the progress
+// lines. Render-form pins through the real logger, with a
+// controllable clock and fixed resources so the cadence
+// and the thresholds are exact, never machine-dependent.
+describe("loader health lines (BUG-248)", () => {
+  const START = Date.parse("2026-11-24T00:00:00Z");
+  const stamp = (ms: number) => new Date(ms).toISOString();
+  // A logger whose clock only moves when the test moves it
+  // and whose resources are fixed: the healthy default is
+  // 512 MB RSS and 120.5 GB free, comfortably inside both
+  // thresholds, so a heartbeat on its own emits exactly
+  // one line.
+  const healthLogger = (
+    resources: { rssMb: number | null; diskGb: number | null } = {
+      rssMb: 512,
+      diskGb: 120.5,
+    },
+  ) => {
+    const lines: string[] = [];
+    let now = START;
+    const progress = createProgressLogger({
+      name: "load-broadband",
+      log: (line: string) => lines.push(line),
+      now: () => now,
+      resourceReader: () => resources,
+    });
+    return {
+      lines,
+      progress,
+      advance: (ms: number) => {
+        now += ms;
+      },
+    };
+  };
+
+  it("renders the heartbeat line in the approved shape", () => {
+    const { lines, progress } = healthLogger();
+    expect(progress.heartbeat({ stage: "sweep", done: 10, total: 346 })).toBe(true);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toBe(
+      `${stamp(START)} load-broadband heartbeat · sweep · 10/346 · 0s · RSS 512 MB · disk 120.5 GB free`,
+    );
+  });
+
+  it("renders the heartbeat count alone when the total is unknown", () => {
+    const { lines, progress } = healthLogger();
+    expect(progress.heartbeat({ stage: "parse", done: 10000000 })).toBe(true);
+    expect(lines[0]).toContain("heartbeat · parse · 10,000,000 · 0s ·");
+  });
+
+  it("fires the heartbeat at the batch boundary and not before", () => {
+    const { lines, progress } = healthLogger();
+    expect(progress.heartbeat({ stage: "sweep", done: 9, total: 346 })).toBe(false);
+    expect(progress.heartbeat({ stage: "sweep", done: 10, total: 346 })).toBe(true);
+    expect(progress.heartbeat({ stage: "sweep", done: 11, total: 346 })).toBe(false);
+    expect(progress.heartbeat({ stage: "sweep", done: 20, total: 346 })).toBe(true);
+    expect(lines).toHaveLength(2);
+  });
+
+  it("fires the heartbeat at the 15-minute boundary and not before", () => {
+    const { lines, progress, advance } = healthLogger();
+    expect(progress.heartbeat({ stage: "sweep", done: 10, total: 346 })).toBe(true);
+    advance(HEARTBEAT_EVERY_MS - 1);
+    expect(progress.heartbeat({ stage: "sweep", done: 11, total: 346 })).toBe(false);
+    advance(1);
+    expect(progress.heartbeat({ stage: "sweep", done: 11, total: 346 })).toBe(true);
+    expect(lines).toHaveLength(2);
+    expect(lines[1]).toContain("· 15m 0s ·");
+  });
+
+  it("never fires a first heartbeat on its own", () => {
+    const { lines, progress } = healthLogger();
+    expect(progress.heartbeat({ stage: "merge", done: 1, total: 3 })).toBe(false);
+    expect(lines).toHaveLength(0);
+  });
+
+  it("throttles the heartbeat per stage, not per logger", () => {
+    const { lines, progress } = healthLogger();
+    expect(progress.heartbeat({ stage: "merge", done: 10, total: 100 })).toBe(true);
+    expect(progress.heartbeat({ stage: "sweep", done: 1, total: 346 })).toBe(false);
+    expect(progress.heartbeat({ stage: "sweep", done: 10, total: 346 })).toBe(true);
+    expect(lines).toHaveLength(2);
+  });
+
+  it("renders the elapsed time in the heartbeat", () => {
+    const { lines, progress, advance } = healthLogger();
+    advance(95_000);
+    expect(progress.heartbeat({ stage: "sweep", done: 10, total: 346 })).toBe(true);
+    expect(lines[0]).toContain("· 1m 35s ·");
+  });
+
+  it("warns once when the disk drops under 15 GB, and never at the threshold", () => {
+    const { lines, progress } = healthLogger({ rssMb: 512, diskGb: 15 });
+    expect(progress.heartbeat({ stage: "sweep", done: 10, total: 346 })).toBe(true);
+    expect(lines).toHaveLength(1);
+    const low = healthLogger({ rssMb: 512, diskGb: 12.4 });
+    expect(low.progress.heartbeat({ stage: "sweep", done: 10, total: 346 })).toBe(true);
+    expect(low.lines).toHaveLength(2);
+    expect(low.lines[1]).toBe(
+      `${stamp(START)} load-broadband warning · disk free · 12.4 GB (threshold 15 GB)`,
+    );
+    // A second heartbeat does not repeat the warning.
+    expect(low.progress.heartbeat({ stage: "sweep", done: 20, total: 346 })).toBe(true);
+    expect(low.lines).toHaveLength(3);
+  });
+
+  it("warns once when RSS passes 4 GB, and never at the threshold", () => {
+    const at = healthLogger({ rssMb: 4096, diskGb: 120.5 });
+    expect(at.progress.heartbeat({ stage: "sweep", done: 10, total: 346 })).toBe(true);
+    expect(at.lines).toHaveLength(1);
+    const over = healthLogger({ rssMb: 4512, diskGb: 120.5 });
+    expect(over.progress.heartbeat({ stage: "sweep", done: 10, total: 346 })).toBe(true);
+    expect(over.lines).toHaveLength(2);
+    expect(over.lines[1]).toBe(
+      `${stamp(START)} load-broadband warning · RSS · 4,512 MB (threshold 4,096 MB)`,
+    );
+    expect(over.progress.heartbeat({ stage: "sweep", done: 20, total: 346 })).toBe(true);
+    expect(over.lines).toHaveLength(3);
+  });
+
+  it("renders a warning line in the approved shape", () => {
+    const { lines, progress } = healthLogger();
+    progress.warning({
+      what: "sweep batch duration",
+      value: "batch 47 took 6m 12s",
+      threshold: "3x recent average 2m 4s",
+    });
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toBe(
+      `${stamp(START)} load-broadband warning · sweep batch duration · batch 47 took 6m 12s (threshold 3x recent average 2m 4s)`,
+    );
+  });
+
+  it("renders the failure line with the first error line only", () => {
+    const { lines, progress } = healthLogger();
+    progress.failed({
+      stage: "merge",
+      filed: 1234,
+      total: 5000,
+      error: new Error("boom\nline two\nline three"),
+      resume: "re-run from scratch (merge is idempotent, staged rows re-merge)",
+    });
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toBe(
+      `${stamp(START)} load-broadband failed · merge · filed 1,234 of 5,000 · boom · resume from re-run from scratch (merge is idempotent, staged rows re-merge)`,
+    );
+    expect(lines[0]).not.toContain("line two");
+  });
+
+  it("renders the failure line without an 'of' when the total is unknown, and from a plain string", () => {
+    const { lines, progress } = healthLogger();
+    progress.failed({
+      stage: "parse",
+      filed: 7,
+      error: "plain string failure",
+      resume: "re-run from scratch (nothing is filed until the merge)",
+    });
+    expect(lines[0]).toBe(
+      `${stamp(START)} load-broadband failed · parse · filed 7 · plain string failure · resume from re-run from scratch (nothing is filed until the merge)`,
+    );
+  });
+
+  it("never lets a health line look like a summary line", () => {
+    const { lines, progress } = healthLogger({ rssMb: 5120, diskGb: 12.4 });
+    progress.heartbeat({ stage: "sweep", done: 10, total: 346 });
+    progress.warning({ what: "disk free", value: "12.4 GB", threshold: "15 GB" });
+    progress.failed({ stage: "merge", filed: 1, error: "x", resume: "re-run" });
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
+    expect(lines.every((l) => /^\d{4}-\d\d-\d\dT/.test(l))).toBe(true);
+  });
+
+  it("formats durations for heartbeats and batch warnings", () => {
+    expect(formatDuration(0)).toBe("0s");
+    expect(formatDuration(45_000)).toBe("45s");
+    expect(formatDuration(59_000)).toBe("59s");
+    expect(formatDuration(60_000)).toBe("1m 0s");
+    expect(formatDuration(95_000)).toBe("1m 35s");
+    expect(formatDuration(3_599_000)).toBe("59m 59s");
+    expect(formatDuration(3_600_000)).toBe("1h 0m");
+    expect(formatDuration(3_661_000)).toBe("1h 1m");
+  });
+
+  it("watches batches: the first is never slow, a batch past 3x is, the boundary is not", () => {
+    const watch = createBatchWatch({});
+    expect(watch.observe(100)).toEqual({ tookMs: 100, averageMs: null, slow: false });
+    expect(watch.observe(300)).toEqual({ tookMs: 300, averageMs: 100, slow: false });
+    expect(watch.observe(301)).toEqual({ tookMs: 301, averageMs: 200, slow: false });
+    // Average of 100, 300, 301 is 233.67 — 702 beats 3x it (701).
+    expect(watch.observe(702).slow).toBe(true);
+    expect(SLOW_BATCH_FACTOR).toBe(3);
+    expect(HEARTBEAT_EVERY_BATCHES).toBe(10);
+    expect(HEARTBEAT_EVERY_MS).toBe(15 * 60 * 1000);
+    expect(DISK_FREE_WARN_GB).toBe(15);
+    expect(RSS_WARN_MB).toBe(4096);
   });
 });

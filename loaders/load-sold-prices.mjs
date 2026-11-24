@@ -136,7 +136,12 @@ import { createInterface } from "node:readline";
 import { Readable } from "node:stream";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { createProgressLogger, formatCount } from "./progress.mjs";
+import {
+  createBatchWatch,
+  createProgressLogger,
+  formatCount,
+  formatDuration,
+} from "./progress.mjs";
 import pg from "pg";
 
 const FULL_FILE_URL =
@@ -639,7 +644,13 @@ export async function stampNoSalePostcodes(client, edition, { progress = null } 
     every: 25000,
     unit: "no-sale postcodes",
   });
+  // BUG-248: the stamp's pages get a slow-page warning and a
+  // heartbeat (every 10 pages or 15 minutes) — the tail of
+  // the pass is the part that used to run silent.
+  const stampWatch = createBatchWatch();
+  let pages = 0;
   for (;;) {
+    const started = Date.now();
     const res = await client.query(
       `SELECT postcode FROM postcode_cache
         WHERE postcode > $1
@@ -662,6 +673,16 @@ export async function stampNoSalePostcodes(client, edition, { progress = null } 
       );
       stamped += covered.length;
       stampTally?.tick(stamped);
+    }
+    pages += 1;
+    const { tookMs, averageMs, slow } = stampWatch.observe(Date.now() - started);
+    progress?.heartbeat({ stage: "stamping", done: pages, every: 10 });
+    if (slow) {
+      progress?.warning({
+        what: "stamp page duration",
+        value: `page ${pages} took ${formatDuration(tookMs)}`,
+        threshold: `3x recent average ${formatDuration(averageMs)}`,
+      });
     }
     if (res.rows.length < STAMP_PAGE_ROWS) break;
   }
@@ -737,163 +758,187 @@ export async function runNational(
   let linesRead = 0;
   let lineBytes = 0;
   let recordsStaged = 0;
-  const flush = async () => {
-    await insertRecords(client, STAGE_TABLE, batch, null, null);
-    batch = [];
-  };
-  for await (const line of fullLines) {
-    if (!line) continue;
-    linesRead += 1;
-    lineBytes += Buffer.byteLength(line);
-    // BUG-204: a line every 2M lines read — and, where the
-    // source declared its size (the --file stat, or the
-    // live Content-Length), the share of those bytes
-    // consumed so far, which is the pass's real percentage.
-    if (linesRead % 2000000 === 0) {
-      const declared =
-        expectedFullBytes !== null && expectedFullBytes !== undefined
-          ? `${Math.min(100, Math.round(((lineBytes + linesRead) / expectedFullBytes) * 100))}% of declared ${formatCount(expectedFullBytes)} bytes`
-          : "";
-      progress?.count({ label: "intake", done: linesRead, unit: "lines", extra: declared });
-    }
-    const record = toRecord(parsePpdLine(line));
-    if (!record) {
-      stats.malformed += 1;
-      continue;
-    }
-    if (record.postcode.trim() === "") {
-      stats.emptyPostcode += 1;
-      continue;
-    }
-    if (skipUncoveredRecord(record, stats)) continue;
-    batch.push(record);
-    recordsStaged += 1;
-    if (batch.length >= INSERT_BATCH_ROWS) await flush();
-  }
-  await flush();
-  progress?.stage(
-    `intake complete — ${formatCount(linesRead)} lines read, ${formatCount(recordsStaged)} records staged`,
-  );
-
-  const stagedCount = async () =>
-    (await client.query(`SELECT count(*)::int AS n FROM ${STAGE_TABLE}`)).rows[0].n;
-
-  // 1b — the source-completeness guard (BUG-188): when the
-  // caller declared the full file's size, the lines consumed
-  // must account for exactly that many bytes — one terminator
-  // per line, LF or CRLF, the final terminator present or not.
-  // Anything else means the source under-delivered (or over-
-  // delivered) and the register this pass would file is not the
-  // register the source describes; refuse before the swap.
-  if (expectedFullBytes !== null && expectedFullBytes !== undefined) {
-    const honestSizes = new Set([
-      lineBytes + linesRead, // LF, final newline present
-      lineBytes + linesRead - 1, // LF, no final newline
-      lineBytes + 2 * linesRead, // CRLF, final newline present
-      lineBytes + 2 * linesRead - 2, // CRLF, no final newline
-    ]);
-    if (!honestSizes.has(expectedFullBytes))
-      throw new Error(
-        `the full file under-delivered: its source declared ${expectedFullBytes} bytes but the pass read ${linesRead} lines accounting for ${lineBytes + linesRead} of them — refusing to file a partial register (BUG-188)`,
-      );
-  }
-
-  // 1c — the staged count must equal the parsed count: a batch
-  // insert that landed short is a silent hole of exactly the
-  // BUG-188 shape, caught here instead of after the swap.
-  const afterIntake = await stagedCount();
-  if (afterIntake !== recordsStaged)
-    throw new Error(
-      `the national pass staged ${afterIntake} rows from ${recordsStaged} parsed records — refusing to file a register it cannot account for (BUG-188)`,
-    );
-
-  // 2 — duplicate transaction ids in the full file collapse to
-  // the last row filed (the legacy loader's Map semantics), in
-  // SQL: seq is insertion order, so the greatest seq survives.
-  const deduped = await client.query(
-    `DELETE FROM ${STAGE_TABLE} a USING ${STAGE_TABLE} b
-      WHERE a.transaction_id = b.transaction_id AND a.seq < b.seq`,
-  );
-  stats.duplicates = deduped.rowCount ?? 0;
-  const afterDedupe = await stagedCount();
-  if (afterDedupe !== recordsStaged - stats.duplicates)
-    throw new Error(
-      `the national pass holds ${afterDedupe} staged rows after collapsing ${stats.duplicates} duplicates from ${recordsStaged} parsed records — refusing to file a register it cannot account for (BUG-188)`,
-    );
-
-  // 3 — the monthly update file merged over the staged full
-  // file, by transaction id (the register's standing definition:
-  // full file + monthly update, the SOURCE_NAME's own words).
-  // The merge is reconciled too: staged rows whose id the update
-  // names are counted before the merge, and the staged total
-  // after it must be that count removed and the upserts added.
-  const updateRecords = parseAllRecords(updateLines, stats);
-  const updateGuids = [...new Set(updateRecords.map((r) => r.transactionId))];
-  let updateMatched = 0;
-  for (let at = 0; at < updateGuids.length; at += GUID_CHUNK) {
-    const res = await client.query(
-      `SELECT count(*)::int AS n FROM ${STAGE_TABLE} WHERE transaction_id = ANY($1)`,
-      [updateGuids.slice(at, at + GUID_CHUNK)],
-    );
-    updateMatched += res.rows[0].n;
-  }
-  const merged = await mergeUpdateRecords(client, STAGE_TABLE, updateRecords, null, null);
-  progress?.stage(
-    `update merged — ${formatCount(merged.upserted)} upserted, ${formatCount(updateRecords.length - merged.upserted)} deleted`,
-  );
-  const afterMerge = await stagedCount();
-  if (afterMerge !== afterDedupe - updateMatched + merged.upserted)
-    throw new Error(
-      `the national pass holds ${afterMerge} staged rows after the update merge (expected ${afterDedupe - updateMatched + merged.upserted}: ${afterDedupe} staged − ${updateMatched} replaced or deleted + ${merged.upserted} upserted) — refusing to file a register it cannot account for (BUG-188)`,
-    );
-
-  // 4 — the edition settles once, over the whole staged set:
-  // the file's publication date when the source gave one, else
-  // the newest sale date filed. The staged rows are NOT stamped
-  // with it: the edition is one constant for the whole pass,
-  // and rewriting every staged row to carry it would double
-  // the staging heap in dead tuples (BUG-201). The swap's
-  // insert-select writes it — and the source name, likewise
-  // never staged — as parameters, so the filed rows carry
-  // exactly what the old stamp-then-copy wrote.
+  // BUG-248: the pass's later steps read these — they are
+  // assigned inside the intake-and-staging wrap below, and the
+  // wrap's catch reports them when a step refuses.
+  let updateRecords;
   let sourceDate = edition;
-  if (!sourceDate) {
-    const res = await client.query(`SELECT max(sale_date)::text AS newest FROM ${STAGE_TABLE}`);
-    sourceDate = res.rows[0]?.newest ?? null;
-  }
-  if (!sourceDate) throw new Error("the full file filed no sales — nothing to swap in");
+  let total = 0;
+  try {
+    const flush = async () => {
+      await insertRecords(client, STAGE_TABLE, batch, null, null);
+      batch = [];
+    };
+    for await (const line of fullLines) {
+      if (!line) continue;
+      linesRead += 1;
+      lineBytes += Buffer.byteLength(line);
+      // BUG-204: a line every 2M lines read — and, where the
+      // source declared its size (the --file stat, or the
+      // live Content-Length), the share of those bytes
+      // consumed so far, which is the pass's real percentage.
+      if (linesRead % 2000000 === 0) {
+        const declared =
+          expectedFullBytes !== null && expectedFullBytes !== undefined
+            ? `${Math.min(100, Math.round(((lineBytes + linesRead) / expectedFullBytes) * 100))}% of declared ${formatCount(expectedFullBytes)} bytes`
+            : "";
+        progress?.count({ label: "intake", done: linesRead, unit: "lines", extra: declared });
+        // BUG-248: the intake is the longest phase — a heartbeat
+        // every 10,000,000 lines or 15 minutes. The 1,000-row
+        // staging flushes are too fine-grained for a slow-batch
+        // watch (3x on ~50 ms is noise), so there is none here.
+        progress?.heartbeat({ stage: "intake", done: linesRead, every: 10_000_000 });
+      }
+      const record = toRecord(parsePpdLine(line));
+      if (!record) {
+        stats.malformed += 1;
+        continue;
+      }
+      if (record.postcode.trim() === "") {
+        stats.emptyPostcode += 1;
+        continue;
+      }
+      if (skipUncoveredRecord(record, stats)) continue;
+      batch.push(record);
+      recordsStaged += 1;
+      if (batch.length >= INSERT_BATCH_ROWS) await flush();
+    }
+    await flush();
+    progress?.stage(
+      `intake complete — ${formatCount(linesRead)} lines read, ${formatCount(recordsStaged)} records staged`,
+    );
 
-  // 5 — proofs against staging, before anything live moves: the
-  // golden homes, and the zero-uncovered-row self-check. The
-  // staging carries no indexes (BUG-201), so the proofs read it
-  // by sequential scan — the same rows, the same verdicts. No
-  // duplicate id can survive to be filed: the dedupe above
-  // collapsed them and the counts reconciled, and the live
-  // table's own unique index (migration 0003) rejects any
-  // survivor inside the swap transaction, rolling it back.
-  // Uncovered-area rows were skipped at intake (BUG-184), so
-  // this count must read zero; a row here means the skip itself
-  // is broken, and the pass refuses on that defect — never on
-  // the source's data.
-  const stagedFor = async (pc) => filedRowsFor(client, STAGE_TABLE, pc);
-  const goldenStaged = {};
-  for (const pc of ["CM3 2JT", "E16 1GN"]) goldenStaged[pc] = await stagedFor(pc);
-  checkGolden((pc) => goldenStaged[pc] ?? null, "the staged records");
-  const guard = await client.query(
-    `SELECT count(*)::int AS n FROM ${STAGE_TABLE}
+    const stagedCount = async () =>
+      (await client.query(`SELECT count(*)::int AS n FROM ${STAGE_TABLE}`)).rows[0].n;
+
+    // 1b — the source-completeness guard (BUG-188): when the
+    // caller declared the full file's size, the lines consumed
+    // must account for exactly that many bytes — one terminator
+    // per line, LF or CRLF, the final terminator present or not.
+    // Anything else means the source under-delivered (or over-
+    // delivered) and the register this pass would file is not the
+    // register the source describes; refuse before the swap.
+    if (expectedFullBytes !== null && expectedFullBytes !== undefined) {
+      const honestSizes = new Set([
+        lineBytes + linesRead, // LF, final newline present
+        lineBytes + linesRead - 1, // LF, no final newline
+        lineBytes + 2 * linesRead, // CRLF, final newline present
+        lineBytes + 2 * linesRead - 2, // CRLF, no final newline
+      ]);
+      if (!honestSizes.has(expectedFullBytes))
+        throw new Error(
+          `the full file under-delivered: its source declared ${expectedFullBytes} bytes but the pass read ${linesRead} lines accounting for ${lineBytes + linesRead} of them — refusing to file a partial register (BUG-188)`,
+        );
+    }
+
+    // 1c — the staged count must equal the parsed count: a batch
+    // insert that landed short is a silent hole of exactly the
+    // BUG-188 shape, caught here instead of after the swap.
+    const afterIntake = await stagedCount();
+    if (afterIntake !== recordsStaged)
+      throw new Error(
+        `the national pass staged ${afterIntake} rows from ${recordsStaged} parsed records — refusing to file a register it cannot account for (BUG-188)`,
+      );
+
+    // 2 — duplicate transaction ids in the full file collapse to
+    // the last row filed (the legacy loader's Map semantics), in
+    // SQL: seq is insertion order, so the greatest seq survives.
+    const deduped = await client.query(
+      `DELETE FROM ${STAGE_TABLE} a USING ${STAGE_TABLE} b
+      WHERE a.transaction_id = b.transaction_id AND a.seq < b.seq`,
+    );
+    stats.duplicates = deduped.rowCount ?? 0;
+    const afterDedupe = await stagedCount();
+    if (afterDedupe !== recordsStaged - stats.duplicates)
+      throw new Error(
+        `the national pass holds ${afterDedupe} staged rows after collapsing ${stats.duplicates} duplicates from ${recordsStaged} parsed records — refusing to file a register it cannot account for (BUG-188)`,
+      );
+
+    // 3 — the monthly update file merged over the staged full
+    // file, by transaction id (the register's standing definition:
+    // full file + monthly update, the SOURCE_NAME's own words).
+    // The merge is reconciled too: staged rows whose id the update
+    // names are counted before the merge, and the staged total
+    // after it must be that count removed and the upserts added.
+    updateRecords = parseAllRecords(updateLines, stats);
+    const updateGuids = [...new Set(updateRecords.map((r) => r.transactionId))];
+    let updateMatched = 0;
+    for (let at = 0; at < updateGuids.length; at += GUID_CHUNK) {
+      const res = await client.query(
+        `SELECT count(*)::int AS n FROM ${STAGE_TABLE} WHERE transaction_id = ANY($1)`,
+        [updateGuids.slice(at, at + GUID_CHUNK)],
+      );
+      updateMatched += res.rows[0].n;
+    }
+    const merged = await mergeUpdateRecords(client, STAGE_TABLE, updateRecords, null, null);
+    progress?.stage(
+      `update merged — ${formatCount(merged.upserted)} upserted, ${formatCount(updateRecords.length - merged.upserted)} deleted`,
+    );
+    const afterMerge = await stagedCount();
+    if (afterMerge !== afterDedupe - updateMatched + merged.upserted)
+      throw new Error(
+        `the national pass holds ${afterMerge} staged rows after the update merge (expected ${afterDedupe - updateMatched + merged.upserted}: ${afterDedupe} staged − ${updateMatched} replaced or deleted + ${merged.upserted} upserted) — refusing to file a register it cannot account for (BUG-188)`,
+      );
+
+    // 4 — the edition settles once, over the whole staged set:
+    // the file's publication date when the source gave one, else
+    // the newest sale date filed. The staged rows are NOT stamped
+    // with it: the edition is one constant for the whole pass,
+    // and rewriting every staged row to carry it would double
+    // the staging heap in dead tuples (BUG-201). The swap's
+    // insert-select writes it — and the source name, likewise
+    // never staged — as parameters, so the filed rows carry
+    // exactly what the old stamp-then-copy wrote.
+    if (!sourceDate) {
+      const res = await client.query(`SELECT max(sale_date)::text AS newest FROM ${STAGE_TABLE}`);
+      sourceDate = res.rows[0]?.newest ?? null;
+    }
+    if (!sourceDate) throw new Error("the full file filed no sales — nothing to swap in");
+
+    // 5 — proofs against staging, before anything live moves: the
+    // golden homes, and the zero-uncovered-row self-check. The
+    // staging carries no indexes (BUG-201), so the proofs read it
+    // by sequential scan — the same rows, the same verdicts. No
+    // duplicate id can survive to be filed: the dedupe above
+    // collapsed them and the counts reconciled, and the live
+    // table's own unique index (migration 0003) rejects any
+    // survivor inside the swap transaction, rolling it back.
+    // Uncovered-area rows were skipped at intake (BUG-184), so
+    // this count must read zero; a row here means the skip itself
+    // is broken, and the pass refuses on that defect — never on
+    // the source's data.
+    const stagedFor = async (pc) => filedRowsFor(client, STAGE_TABLE, pc);
+    const goldenStaged = {};
+    for (const pc of ["CM3 2JT", "E16 1GN"]) goldenStaged[pc] = await stagedFor(pc);
+    checkGolden((pc) => goldenStaged[pc] ?? null, "the staged records");
+    const guard = await client.query(
+      `SELECT count(*)::int AS n FROM ${STAGE_TABLE}
       WHERE regexp_replace(split_part(postcode, ' ', 1), '[0-9].*$', '') = ANY($1)`,
-    [[...UNCOVERED_AREAS]],
-  );
-  if (guard.rows[0].n > 0)
-    throw new Error(
-      `the national pass staged ${guard.rows[0].n} rows for Scotland or Northern Ireland postcodes despite the intake skip (BUG-184) — the loader is defective, refusing to file them`,
+      [[...UNCOVERED_AREAS]],
     );
-  const totalRes = await client.query(`SELECT count(*)::int AS n FROM ${STAGE_TABLE}`);
-  const total = totalRes.rows[0].n;
-  if (total !== afterMerge)
-    throw new Error(
-      `the national pass holds ${total} staged rows at the proofs against ${afterMerge} reconciled after the update merge — refusing to file a register it cannot account for (BUG-188)`,
-    );
+    if (guard.rows[0].n > 0)
+      throw new Error(
+        `the national pass staged ${guard.rows[0].n} rows for Scotland or Northern Ireland postcodes despite the intake skip (BUG-184) — the loader is defective, refusing to file them`,
+      );
+    const totalRes = await client.query(`SELECT count(*)::int AS n FROM ${STAGE_TABLE}`);
+    total = totalRes.rows[0].n;
+    if (total !== afterMerge)
+      throw new Error(
+        `the national pass holds ${total} staged rows at the proofs against ${afterMerge} reconciled after the update merge — refusing to file a register it cannot account for (BUG-188)`,
+      );
+  } catch (err) {
+    // BUG-248: intake, dedupe, merge and proofs all fail
+    // before anything is filed — one line, at the stage
+    // that refused, and a re-run from the start.
+    progress?.failed({
+      stage: "intake and staging",
+      filed: recordsStaged,
+      error: err,
+      resume:
+        "re-run the national pass from the start (staging is rebuilt, nothing is filed until the swap)",
+    });
+    throw err;
+  }
 
   const seconds = () => Math.round((Date.now() - startedAt) / 1000);
   const summary = (stamped) =>
@@ -947,13 +992,37 @@ export async function runNational(
     checkGolden((pc) => filed[pc] ?? null, "the filed rows");
     await client.query("COMMIT");
   } catch (error) {
+    // BUG-248: the swap files everything or nothing — on a
+    // rollback nothing is filed, and the re-run starts over.
+    progress?.failed({
+      stage: "swap",
+      filed: 0,
+      total,
+      error,
+      resume:
+        "re-run the national pass from the start (the swap rolled back, the live register is untouched)",
+    });
     await client.query("ROLLBACK");
     throw error;
   }
 
   // 7 — gap 2's bulk stamp, after the swap (it reads the new
   // register to decide who filed nothing).
-  const stamped = await stampNoSalePostcodes(client, sourceDate, { progress });
+  // BUG-248: the swap has committed by here, so a stamp
+  // failure resumes at the stamp alone.
+  let stamped;
+  try {
+    stamped = await stampNoSalePostcodes(client, sourceDate, { progress });
+  } catch (err) {
+    progress?.failed({
+      stage: "stamping",
+      filed: total,
+      total,
+      error: err,
+      resume: "re-run the stamp only (the swap already committed; the stamp is idempotent)",
+    });
+    throw err;
+  }
   await client.query(`DROP TABLE IF EXISTS ${STAGE_TABLE}`);
   return {
     edition: sourceDate,
@@ -1001,7 +1070,18 @@ export async function runUpdate(
 
   const baseline = await lastAppliedEdition(client);
   const decision = decideUpdateAction(baseline, edition);
-  if (decision.action === "refuse") throw new Error(decision.reason);
+  if (decision.action === "refuse") {
+    // BUG-248: the gate refused this edition — a failed run,
+    // with no re-run to offer.
+    progress?.failed({
+      stage: "update gate",
+      filed: 0,
+      total: upserts,
+      error: decision.reason,
+      resume: "no re-run — the edition gate refused this file",
+    });
+    throw new Error(decision.reason);
+  }
   if (decision.action === "noop") {
     return {
       edition,
@@ -1024,6 +1104,15 @@ export async function runUpdate(
     merged = await mergeUpdateRecords(client, "price_paid", records, edition);
     await client.query("COMMIT");
   } catch (error) {
+    // BUG-248: the merge files everything or nothing — on a
+    // rollback nothing is filed, and the re-run starts over.
+    progress?.failed({
+      stage: "update merge",
+      filed: 0,
+      total: upserts,
+      error,
+      resume: "re-run the monthly update (the merge rolled back, the live register is untouched)",
+    });
     await client.query("ROLLBACK");
     throw error;
   }
@@ -1098,6 +1187,10 @@ async function modeMain(args) {
   const progress = createProgressLogger({ name: "load-sold-prices" });
   const client = new pg.Client({ connectionString });
   await client.connect();
+  // BUG-248: set the moment a run starts — the catch below
+  // reports only the failures the run itself never reached,
+  // so a run's own failed line is never doubled.
+  let runStarted = false;
   try {
     if (parsed.mode === "national") {
       let fullLines;
@@ -1132,6 +1225,7 @@ async function modeMain(args) {
           throw new Error(`the monthly update download failed: HTTP ${updateResponse.status}`);
         updateLines = (await updateResponse.text()).split(/\r?\n/);
       }
+      runStarted = true;
       const result = await runNational(client, {
         fullLines,
         updateLines,
@@ -1181,6 +1275,7 @@ async function modeMain(args) {
       updateLines = (await response.text()).split(/\r?\n/);
     }
     context.sourceDate = edition;
+    runStarted = true;
     const result = await runUpdate(client, {
       updateLines,
       edition,
@@ -1201,6 +1296,18 @@ async function modeMain(args) {
       console.log(result.logLine);
     }
   } catch (error) {
+    // BUG-248: a failure the run itself already reported (its
+    // own failed line, at the stage it failed in) is not
+    // reported again here — this line covers only the failures
+    // before the run started (a download, a source read).
+    if (!runStarted) {
+      progress.failed({
+        stage: parsed.mode,
+        filed: 0,
+        error,
+        resume: `re-run the --${parsed.mode} pass from the start`,
+      });
+    }
     if (!parsed.verifyOnly) {
       await writeRunStamp(client, {
         mode: parsed.mode,

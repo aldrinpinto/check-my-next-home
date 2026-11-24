@@ -120,7 +120,12 @@ import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
 import pg from "pg";
 
-import { createProgressLogger, formatCount } from "./progress.mjs";
+import {
+  createBatchWatch,
+  createProgressLogger,
+  formatCount,
+  formatDuration,
+} from "./progress.mjs";
 
 const { Pool } = pg;
 
@@ -734,22 +739,42 @@ async function main() {
     // local or downloaded extract, made once here —
     // every mode then reads cuts, never extracts.
     const extracts = [];
-    for (const country of countries) {
-      const reused = await reusedCut(country, reuseDir);
-      if (reused) {
-        console.log(
-          `load-streets · ${country}: reusing the completed cut at ${reused.path} — download and cut skipped`,
-        );
-        extracts.push({ country, ndjsonPath: reused.path, dataDate: reused.dataDate });
-        continue;
+    // BUG-248: a download + cut is the pass's first long
+    // phase — a heartbeat per country resolved, and one
+    // failure line if a download or cut fails.
+    try {
+      for (const country of countries) {
+        const reused = await reusedCut(country, reuseDir);
+        if (reused) {
+          console.log(
+            `load-streets · ${country}: reusing the completed cut at ${reused.path} — download and cut skipped`,
+          );
+          extracts.push({ country, ndjsonPath: reused.path, dataDate: reused.dataDate });
+        } else {
+          const got = pbfDir
+            ? await localCountry(country, pbfDir)
+            : await downloadCountry(country, workDir);
+          if (!got) continue;
+          console.log(`load-streets · cutting ${country} (extract dated ${got.dataDate})…`);
+          const ndjsonPath = await cutExtract(got.path, workDir, country);
+          extracts.push({ country, ndjsonPath, dataDate: got.dataDate });
+        }
+        progress.heartbeat({
+          stage: "extracts",
+          done: extracts.length,
+          total: countries.length,
+          every: 1,
+        });
       }
-      const got = pbfDir
-        ? await localCountry(country, pbfDir)
-        : await downloadCountry(country, workDir);
-      if (!got) continue;
-      console.log(`load-streets · cutting ${country} (extract dated ${got.dataDate})…`);
-      const ndjsonPath = await cutExtract(got.path, workDir, country);
-      extracts.push({ country, ndjsonPath, dataDate: got.dataDate });
+    } catch (err) {
+      progress.failed({
+        stage: "extracts",
+        filed: 0,
+        error: err,
+        resume:
+          "re-run the pass from the start (cuts are rebuilt; a reused cut is picked up again)",
+      });
+      throw err;
     }
     if (extracts.length === 0) throw new Error("no country extracts were read");
 
@@ -767,40 +792,58 @@ async function main() {
       // filing a single area.)
       const pool = verifyOnly ? null : new Pool({ connectionString: process.env.DATABASE_URL });
       try {
+        // BUG-248: areas file one by one, each in its own
+        // transaction — the failure line names the area it
+        // died in and how many rows earlier areas filed.
+        let areasDone = 0;
+        let areasFiled = 0;
         for (const bbox of bboxes) {
-          let rows = 0;
-          let waysRead = 0;
-          let sourceDate = null;
-          const candidates = goldenCandidates();
-          for (const ex of extracts) {
-            const part = await streamCutRows(ex.ndjsonPath, (row) => {
-              candidates.take(row);
-              if (wayMeetsBbox(row.points, bbox)) rows++;
-            });
-            waysRead += part.waysRead;
-            sourceDate = ex.dataDate;
-          }
-          const inScope = (key) => {
-            const home = HOMES[key];
-            return (
-              home.lon >= bbox.west &&
-              home.lon <= bbox.east &&
-              home.lat >= bbox.south &&
-              home.lat <= bbox.north
-            );
-          };
-          const golden = goldenChecks(candidates.rows, inScope);
-          if (golden.length > 0) throw new Error(`golden checks failed: ${golden.join("; ")}`);
-          if (verifyOnly) {
+          try {
+            let rows = 0;
+            let waysRead = 0;
+            let sourceDate = null;
+            const candidates = goldenCandidates();
+            for (const ex of extracts) {
+              const part = await streamCutRows(ex.ndjsonPath, (row) => {
+                candidates.take(row);
+                if (wayMeetsBbox(row.points, bbox)) rows++;
+              });
+              waysRead += part.waysRead;
+              sourceDate = ex.dataDate;
+            }
+            const inScope = (key) => {
+              const home = HOMES[key];
+              return (
+                home.lon >= bbox.west &&
+                home.lon <= bbox.east &&
+                home.lat >= bbox.south &&
+                home.lat <= bbox.north
+              );
+            };
+            const golden = goldenChecks(candidates.rows, inScope);
+            if (golden.length > 0) throw new Error(`golden checks failed: ${golden.join("; ")}`);
+            areasDone += 1;
+            progress.heartbeat({ stage: "areas", done: areasDone, total: bboxes.length, every: 1 });
+            if (verifyOnly) {
+              console.log(
+                `load-streets · would file ${formatCount(rows)} street lines for area ${bbox.west},${bbox.south},${bbox.east},${bbox.north} (${formatCount(waysRead)} highway ways read) — golden homes OK (verify-only: nothing filed)`,
+              );
+              continue;
+            }
+            await fileStreetsScopedStream(pool, extracts, bbox, sourceDate ?? retrievedOn);
             console.log(
-              `load-streets · would file ${formatCount(rows)} street lines for area ${bbox.west},${bbox.south},${bbox.east},${bbox.north} (${formatCount(waysRead)} highway ways read) — golden homes OK (verify-only: nothing filed)`,
+              `load-streets · ${formatCount(rows)} street lines filed for area ${bbox.west},${bbox.south},${bbox.east},${bbox.north} (${formatCount(waysRead)} highway ways read) — golden homes OK`,
             );
-            continue;
+            areasFiled += rows;
+          } catch (err) {
+            progress.failed({
+              stage: `area ${bbox.west},${bbox.south},${bbox.east},${bbox.north}`,
+              filed: areasFiled,
+              error: err,
+              resume: "re-run the pass from the start (each area files in its own transaction)",
+            });
+            throw err;
           }
-          await fileStreetsScopedStream(pool, extracts, bbox, sourceDate ?? retrievedOn);
-          console.log(
-            `load-streets · ${formatCount(rows)} street lines filed for area ${bbox.west},${bbox.south},${bbox.east},${bbox.north} (${formatCount(waysRead)} highway ways read) — golden homes OK`,
-          );
         }
       } finally {
         if (pool) await pool.end();
@@ -823,43 +866,75 @@ async function main() {
       if (pool) await resetStreetStage(pool);
       let totalStaged = 0;
       for (const ex of extracts) {
-        const candidates = goldenCandidates();
-        let batch = [];
-        // BUG-204: England stages ~3M rows — a line every
-        // 100,000 staged, so the country's long stream is
-        // visible. (The per-country summary line below
-        // stays the closing line; the tally has no finish.)
-        const stageTally = progress.tally({
-          label: `${ex.country} staging`,
-          every: 100000,
-          unit: "street lines",
-        });
-        let stagedThisCountry = 0;
-        const flush = async () => {
-          if (batch.length === 0) return;
-          if (pool) await stageStreets(pool, batch, ex.dataDate ?? retrievedOn);
-          stagedThisCountry += batch.length;
-          stageTally.tick(stagedThisCountry);
-          batch = [];
-        };
-        const part = await streamCutRows(ex.ndjsonPath, async (row) => {
-          candidates.take(row);
-          batch.push(row);
-          if (batch.length >= STREAM_BATCH) await flush();
-        });
-        await flush();
-        if (part.rowsFiled < EXTRACT_FLOORS[ex.country])
-          throw new Error(
-            `${ex.country}: staged ${part.rowsFiled} street lines but the floor is ${EXTRACT_FLOORS[ex.country]} — the read does not reconcile`,
+        // BUG-248: a country's staging fails before anything
+        // serves — the stage is reset at the next run's
+        // start, and the swap is the only point that files.
+        try {
+          const candidates = goldenCandidates();
+          let batch = [];
+          // BUG-204: England stages ~3M rows — a line every
+          // 100,000 staged, so the country's long stream is
+          // visible. (The per-country summary line below
+          // stays the closing line; the tally has no finish.)
+          const stageTally = progress.tally({
+            label: `${ex.country} staging`,
+            every: 100000,
+            unit: "street lines",
+          });
+          let stagedThisCountry = 0;
+          // BUG-248: the 5,000-row staging flushes get a
+          // slow-batch watch; the heartbeat fires every
+          // 1,000,000 staged rows or 15 minutes.
+          const flushWatch = createBatchWatch();
+          const flush = async () => {
+            if (batch.length === 0) return;
+            const started = Date.now();
+            if (pool) await stageStreets(pool, batch, ex.dataDate ?? retrievedOn);
+            const { tookMs, averageMs, slow } = flushWatch.observe(Date.now() - started);
+            stagedThisCountry += batch.length;
+            stageTally.tick(stagedThisCountry);
+            progress.heartbeat({
+              stage: `${ex.country} staging`,
+              done: stagedThisCountry,
+              every: 1_000_000,
+            });
+            if (slow) {
+              progress.warning({
+                what: `${ex.country} staging flush duration`,
+                value: `flush of ${formatCount(batch.length)} rows took ${formatDuration(tookMs)}`,
+                threshold: `3x recent average ${formatDuration(averageMs)}`,
+              });
+            }
+            batch = [];
+          };
+          const part = await streamCutRows(ex.ndjsonPath, async (row) => {
+            candidates.take(row);
+            batch.push(row);
+            if (batch.length >= STREAM_BATCH) await flush();
+          });
+          await flush();
+          if (part.rowsFiled < EXTRACT_FLOORS[ex.country])
+            throw new Error(
+              `${ex.country}: staged ${part.rowsFiled} street lines but the floor is ${EXTRACT_FLOORS[ex.country]} — the read does not reconcile`,
+            );
+          if (ex.country === "england") {
+            const golden = goldenChecks(candidates.rows, () => true);
+            if (golden.length > 0) throw new Error(`golden checks failed: ${golden.join("; ")}`);
+          }
+          console.log(
+            `load-streets · ${ex.country}: ${formatCount(part.waysRead)} highway ways read, ${formatCount(part.rowsFiled)} street lines staged`,
           );
-        if (ex.country === "england") {
-          const golden = goldenChecks(candidates.rows, () => true);
-          if (golden.length > 0) throw new Error(`golden checks failed: ${golden.join("; ")}`);
+          totalStaged += part.rowsFiled;
+        } catch (err) {
+          progress.failed({
+            stage: `${ex.country} staging`,
+            filed: totalStaged,
+            error: err,
+            resume:
+              "re-run the pass from the start (the stage is reset at the next run's start, nothing serves until the swap)",
+          });
+          throw err;
         }
-        console.log(
-          `load-streets · ${ex.country}: ${formatCount(part.waysRead)} highway ways read, ${formatCount(part.rowsFiled)} street lines staged`,
-        );
-        totalStaged += part.rowsFiled;
       }
       if (verifyOnly) {
         console.log(
@@ -870,7 +945,22 @@ async function main() {
       progress.stage(
         `swap started — filing ${formatCount(totalStaged)} staged street lines into the live table`,
       );
-      const filed = await swapStagedStreets(pool);
+      let filed;
+      try {
+        filed = await swapStagedStreets(pool);
+      } catch (err) {
+        // BUG-248: the swap is atomic — on a failure the
+        // live table is untouched.
+        progress.failed({
+          stage: "swap",
+          filed: 0,
+          total: totalStaged,
+          error: err,
+          resume:
+            "re-run the pass from the start (the swap is atomic, the live table is untouched)",
+        });
+        throw err;
+      }
       console.log(
         `load-streets · ${formatCount(filed)} street lines filed (${extracts.map((e) => e.country).join(" + ")}) — golden homes OK`,
       );

@@ -232,8 +232,14 @@ export async function streamPickingParts(lines, insertBatch, { progress = null }
     // total is the file's own line count, unknowable
     // until the stream ends, so the line carries the
     // count alone.
-    if (rowsRead % 1000000 === 0)
+    if (rowsRead % 1000000 === 0) {
       progress?.count({ label: "staging", done: rowsRead, unit: "transactions" });
+      // BUG-248: the staging stream is the pass's long phase —
+      // a heartbeat every 10,000,000 transactions or 15
+      // minutes. The 1,000-row stage inserts are too
+      // fine-grained for a slow-batch watch.
+      progress?.heartbeat({ stage: "staging", done: rowsRead, every: 10_000_000 });
+    }
     // A CRLF source read without a CRLF-aware splitter
     // leaves the \r on the line's end, where the parser
     // would reject the line: strip it here so any line
@@ -311,19 +317,43 @@ export async function filePickingIndex(client, { edition, log = () => {}, progre
   });
   if (!outcome.filed) {
     await recordRejection(client, "sales", outcome.staged.homes);
-    throw new Error(
+    // BUG-248: a refusal is a failed run — one line, at the
+    // tolerance proof, with no re-run to offer.
+    const refusal = new Error(
       `picking index: the sales re-extract was refused — its distinct home count (${outcome.staged.homes}) moves beyond the ${COUNT_MOVEMENT_TOLERANCE * 100}% tolerance against the filed edition (${outcome.previousHomes}); the filed edition keeps serving`,
     );
+    progressLogger.failed({
+      stage: "tolerance proof",
+      filed: 0,
+      total: outcome.previousHomes ?? null,
+      error: refusal,
+      resume: "no re-run — the re-extract is outside tolerance; check the source file",
+    });
+    throw refusal;
   }
   const rowsByPostcode = {};
-  for (const golden of GOLDEN_PICKING_ROWS) {
-    const { rows } = await client.query(
-      "SELECT postcode, paon, saon, street, town, home_key FROM picking_index WHERE postcode = $1",
-      [golden.postcode],
-    );
-    rowsByPostcode[golden.postcode] = rows;
+  try {
+    for (const golden of GOLDEN_PICKING_ROWS) {
+      const { rows } = await client.query(
+        "SELECT postcode, paon, saon, street, town, home_key FROM picking_index WHERE postcode = $1",
+        [golden.postcode],
+      );
+      rowsByPostcode[golden.postcode] = rows;
+    }
+    verifyGoldenPickingRows(rowsByPostcode);
+  } catch (err) {
+    // BUG-248: the proof runs after the swap has committed,
+    // so the new edition is already serving — investigate
+    // before any re-run.
+    progressLogger.failed({
+      stage: "golden proof",
+      filed: outcome.counts.homes,
+      total: outcome.counts.homes,
+      error: err,
+      resume: "the new edition is filed — investigate before re-running",
+    });
+    throw err;
   }
-  verifyGoldenPickingRows(rowsByPostcode);
   log(
     "Golden proof: 19 Birkdale Rise (CM3 2JT) and 6 Exeter Road (E16 1GN) are in the served index in the register's own parts.",
   );
@@ -337,7 +367,23 @@ export async function loadPickingIndexFromLines(client, lines, { edition, log })
   // BUG-204: one logger for the pass — the staging
   // stream's count lines and the rebuild's markers.
   const progress = createProgressLogger({ name: "load-picking-index", log });
-  const stats = await stagePickingIndex(client, lines, { progress });
+  // BUG-248: the staging stream fails before anything is
+  // filed — the stage is truncated and re-streamed on a
+  // re-run. The filing phase reports its own failures
+  // (tolerance proof, swap, golden proof), so it is not
+  // wrapped again here.
+  let stats;
+  try {
+    stats = await stagePickingIndex(client, lines, { progress });
+  } catch (err) {
+    progress.failed({
+      stage: "staging",
+      filed: 0,
+      error: err,
+      resume: "re-run the pass from the start (the stage is truncated and re-streamed)",
+    });
+    throw err;
+  }
   const counts = await filePickingIndex(client, { edition, log, progress });
   log(
     `Picking index (sales parts) — edition ${edition}: ${formatCount(stats.rowsRead)} transactions read, ${formatCount(stats.malformed)} malformed lines skipped, ${formatCount(stats.unusable)} rows without a usable postcode or address skipped.`,
