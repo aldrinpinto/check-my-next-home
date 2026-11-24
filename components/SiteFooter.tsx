@@ -26,6 +26,19 @@ import { SITE_NAME, SITE_TAGLINE } from "../lib/site";
 // footer set is therefore: How we check · Sample report ·
 // About · Guides · Contact.
 //
+// BUG-230 (founder-approved prep, 24 Nov 2026): the one
+// long middle line becomes four labeled groups — Product,
+// Guides, Company, Legal — side by side on desktop,
+// stacked on a phone (see .site-footer__nav in
+// app/globals.css). The Guides group lists the three
+// guides individually under a "Guides" heading that links
+// to the /guides hub: this supersedes the 18 Nov ruling
+// that the footer carry ONE Guides link (the hub link
+// stays, as the group heading; the header still carries
+// no Guides). No "·" separator survives in the grouped
+// form — the separator spans are gone, so one can never
+// strand at a line start on a phone.
+//
 // Chrome unification (founder ruling, 18 Nov 2026): this is
 // the ONE footer on every page. The content chrome's
 // stacked footer — and its long closing line as footer
@@ -39,19 +52,48 @@ import { SITE_NAME, SITE_TAGLINE } from "../lib/site";
 // app/globals.css). The same sentence in the paid
 // report PDF's footer (lib/report-pdf.ts) is a separate
 // surface and stands untouched by that ruling.
-const FOOTER_LINKS = [
-  { label: "How we check", href: "/how-we-check" },
-  { label: "Sample report", href: "/sample-report" },
-  { label: "About", href: "/about" },
-  { label: "Guides", href: "/guides" },
-  { label: "Contact", href: "/contact" },
-  { label: "Privacy policy", href: "/privacy" },
-  // M9.4 — Terms of service joins after Privacy policy:
-  // the site carries the words before the first paid
-  // report is sold (the 18 Nov 2026 Terms adoption), and
-  // the Final Sample Master's footer is conformed in the
-  // same build.
-  { label: "Terms of service", href: "/terms" },
+type FooterGroup = {
+  heading: string;
+  headingHref?: string;
+  links: readonly { label: string; href: string }[];
+};
+
+const FOOTER_GROUPS: readonly FooterGroup[] = [
+  {
+    heading: "Product",
+    links: [
+      { label: "How we check", href: "/how-we-check" },
+      { label: "Sample report", href: "/sample-report" },
+    ],
+  },
+  {
+    heading: "Guides",
+    headingHref: "/guides",
+    links: [
+      { label: "Buying a leasehold flat", href: "/guides/buying-a-leasehold-flat" },
+      { label: "Checks before buying a house", href: "/guides/checks-before-buying-a-house" },
+      { label: "Is this area good for families", href: "/guides/is-this-area-good-for-families" },
+    ],
+  },
+  {
+    heading: "Company",
+    links: [
+      { label: "About", href: "/about" },
+      { label: "Contact", href: "/contact" },
+    ],
+  },
+  {
+    heading: "Legal",
+    links: [
+      { label: "Privacy policy", href: "/privacy" },
+      // M9.4 — Terms of service joins after Privacy policy:
+      // the site carries the words before the first paid
+      // report is sold (the 18 Nov 2026 Terms adoption), and
+      // the Final Sample Master's footer is conformed in the
+      // same build.
+      { label: "Terms of service", href: "/terms" },
+    ],
+  },
 ] as const;
 
 // Footer batch (founder, folded into the BUG-185 build
@@ -109,25 +151,33 @@ export default function SiteFooter() {
           </span>
         </span>
         <nav className="site-footer__nav" aria-label="Footer">
-          {FOOTER_LINKS.map((item, index) => (
-            <span key={item.href}>
-              {index > 0 && (
-                <span className="site-footer__sep" aria-hidden="true">
-                  {" · "}
-                </span>
-              )}
-              <Link className="site-footer__link" href={item.href}>
-                {item.label}
-              </Link>
-            </span>
+          {FOOTER_GROUPS.map((group) => (
+            <div key={group.heading} className="site-footer__group">
+              <p className="site-footer__group-heading">
+                {group.headingHref ? (
+                  <Link className="site-footer__link" href={group.headingHref}>
+                    {group.heading}
+                  </Link>
+                ) : (
+                  group.heading
+                )}
+              </p>
+              <ul className="site-footer__group-links">
+                {group.links.map((item) => (
+                  <li key={item.href}>
+                    <Link className="site-footer__link" href={item.href}>
+                      {item.label}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
           ))}
         </nav>
       </div>
       <div className="site-footer__bottom">
         <div className="site-footer__legal">
-          <p className="site-footer__copyright">
-            © {new Date().getFullYear()} {SITE_NAME}
-          </p>
+          <p className="site-footer__copyright">© 2027 {SITE_NAME}</p>
           <span className="site-footer__social">
             {FOOTER_SOCIALS.map((social) => (
               <a

@@ -286,35 +286,54 @@ describe("header and footer shells", () => {
     expect(header).toContain('src="/brand/logo-mark.svg"');
   });
 
-  it("renders the footer's sample form: the middle links (fidelity pass 2)", () => {
-    // The footer's set, in order — D77(g) as amended by the
-    // founder's ruling of 18 Nov 2026: Guides joins between
-    // About and Contact, pointing at the /guides hub, and
-    // chrome unification adds Privacy policy after Contact.
-    // M9.4 adds Terms of service after Privacy policy (the
-    // 18 Nov 2026 Terms adoption — the words stand before
-    // the first paid report is sold). The header's set
-    // above carries no Guides (its own pin stands): the
-    // ruling is footer-only.
+  it("renders the grouped footer (BUG-230): four labeled groups, no separators", () => {
+    // BUG-230 (founder-approved prep, 24 Nov 2026): the one
+    // long middle line becomes four labeled groups —
+    // Product, Guides, Company, Legal — in that order. The
+    // Guides group lists the three guides individually
+    // under a "Guides" heading that links to the /guides
+    // hub; this supersedes the 18 Nov 2026 ruling that the
+    // footer carry ONE Guides link (the header's own pin
+    // above still stands: no Guides in the header). No "·"
+    // separator survives anywhere in the footer.
+    const headings = ["Product", "Guides", "Company", "Legal"];
+    let lastIndex = -1;
+    for (const heading of headings) {
+      const index = footer.indexOf(`>${heading}<`);
+      expect(index, heading).toBeGreaterThan(lastIndex);
+      lastIndex = index;
+    }
     const labels = [
       "How we check",
       "Sample report",
-      "About",
       "Guides",
+      "Buying a leasehold flat",
+      "Checks before buying a house",
+      "Is this area good for families",
+      "About",
       "Contact",
       "Privacy policy",
       "Terms of service",
     ];
-    let lastIndex = -1;
+    lastIndex = -1;
     for (const label of labels) {
       const index = footer.indexOf(`>${label}<`);
       expect(index, label).toBeGreaterThan(lastIndex);
       lastIndex = index;
     }
     expect(footer).toContain('href="/guides"');
+    expect(footer).toContain('href="/guides/buying-a-leasehold-flat"');
+    expect(footer).toContain('href="/guides/checks-before-buying-a-house"');
+    expect(footer).toContain('href="/guides/is-this-area-good-for-families"');
     expect(footer).toContain('href="/contact"');
     expect(footer).toContain('href="/privacy"');
     expect(footer).toContain('href="/terms"');
+    expect(footer.match(/site-footer__group"/g)).toHaveLength(4);
+    expect(footer.match(/site-footer__group-heading"/g)).toHaveLength(4);
+    expect(footer.match(/site-footer__group-links"/g)).toHaveLength(4);
+    // No separator anywhere in the grouped form.
+    expect(footer).not.toContain("·");
+    expect(footer).not.toContain("site-footer__sep");
     // BUG-197 (founder-directed 23 Nov 2026): the sources
     // line is removed from the footer — the sentence
     // stands nowhere in it. (The paid report PDF's
@@ -322,6 +341,55 @@ describe("header and footer shells", () => {
     // surface and is not this ruling's to remove.)
     expect(footer).not.toContain("Data from named official sources. Facts, not scores.");
     expect(footer).not.toContain("site-footer__sources");
+    // The groups stack vertically on a phone: the nav
+    // takes the column direction at the 40rem breakpoint
+    // and the brand block sits above it.
+    const css = read("app/globals.css");
+    expect(css).toMatch(
+      /@media \(max-width: 40rem\) \{\s*\.site-footer__inner \{[^}]*flex-direction: column;[^}]*\}[\s\S]*?\.site-footer__nav \{[^}]*flex-direction: column;/,
+    );
+  });
+
+  it("footer v4 conform (BUG-230): tagline 0.5625rem, © 2027, uppercase headings with one Brass dash, brand block top-aligned", () => {
+    // Approved draft v4 (founder, 24 Nov 2026): the tagline
+    // is 0.5625rem — clearly smaller than the 0.78125rem
+    // footer links — and the © line reads 2027 (launch
+    // year, not the rendering year). The group headings
+    // wear the tagline form (uppercase, letter-spaced,
+    // semi-bold) with one short Brass dash each; the
+    // Guides heading is a link but carries no underline,
+    // so the dash is its only line. The brand block
+    // top-aligns with the group headings.
+    expect(footer).toContain("© 2027 Check My Next Home");
+    const css = read("app/globals.css");
+    expect(css).toContain("font-size: 0.5625rem;");
+    expect(css).toContain(`.site-footer__inner {
+  max-width: var(--container-wide);
+  margin: 0 auto;
+  padding: 1.625rem var(--space-4) var(--space-2);
+  display: flex;
+  flex-wrap: wrap;
+  /* Approved draft v4 (24 Nov 2026): the brand block
+     top-aligns with the group headings. */
+  align-items: flex-start;`);
+    expect(css).toContain(`.site-footer__group-heading {
+  margin: 0 0 var(--space-2);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  line-height: 1.3;
+  text-transform: uppercase;`);
+    expect(css).toContain(`.site-footer__group-heading::after {
+  content: "";
+  display: block;
+  width: 1.5rem;
+  height: 2px;
+  margin-top: 0.375rem;
+  background: var(--cmnh-brass);
+}`);
+    expect(css).toContain(`.site-footer__group-heading .site-footer__link:hover {
+  text-decoration: none;
+}`);
   });
 
   it("places the bottom row after the main footer row, carrying no sources line (BUG-197)", () => {
@@ -353,7 +421,7 @@ describe("header and footer shells", () => {
     expect(legalAt).toBeGreaterThan(bottomAt);
     expect(copyrightAt).toBeGreaterThan(legalAt);
     expect(footer).not.toContain("site-footer__sources");
-    expect(footer).toContain(`© ${new Date().getFullYear()} ${SITE_NAME}`);
+    expect(footer).toContain(`© 2027 ${SITE_NAME}`);
     expect(footer).toContain('href="https://www.instagram.com/checkmynexthome"');
     expect(footer).toContain('href="https://www.facebook.com/checkmynexthome"');
     expect(footer).toContain('aria-label="Check My Next Home on Instagram"');

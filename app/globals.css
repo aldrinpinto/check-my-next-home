@@ -522,7 +522,9 @@ p {
   padding: 1.625rem var(--space-4) var(--space-2);
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  /* Approved draft v4 (24 Nov 2026): the brand block
+     top-aligns with the group headings. */
+  align-items: flex-start;
   justify-content: space-between;
   gap: var(--space-4) var(--space-7);
   font-size: 0.78125rem;
@@ -540,9 +542,12 @@ p {
 }
 
 .site-footer .brand__tagline {
-  /* The sample's footer tagline is Brass itself. */
+  /* The sample's footer tagline is Brass itself.
+     Approved draft v4 (24 Nov 2026): 0.5625rem — a
+     little smaller again, clearly smaller than the
+     0.78125rem footer links. */
   color: var(--cmnh-brass);
-  font-size: 0.6875rem;
+  font-size: 0.5625rem;
 }
 
 .site-footer__link {
@@ -554,6 +559,81 @@ p {
   color: var(--colour-on-dark);
   text-decoration: underline;
   text-decoration-thickness: 2px;
+}
+
+/* BUG-230 (24 Nov 2026): the grouped footer — the nav is
+   four labeled groups side by side on desktop, stacked
+   vertically on a phone (the 40rem rule below). The
+   headings wear the small-print measure (0.6875rem)
+   in the footer's near-white; the links
+   keep the existing footer link style. No separator
+   survives in this form. */
+.site-footer__nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4) var(--space-7);
+}
+
+.site-footer__group {
+  flex: 1 1 10rem;
+}
+
+.site-footer__group-heading {
+  margin: 0 0 var(--space-2);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  line-height: 1.3;
+  text-transform: uppercase;
+  color: var(--colour-on-dark);
+}
+
+/* The heading's single short Brass dash (approved draft
+   v4): one dash under every group heading, Guides
+   included. */
+.site-footer__group-heading::after {
+  content: "";
+  display: block;
+  width: 1.5rem;
+  height: 2px;
+  margin-top: 0.375rem;
+  background: var(--cmnh-brass);
+}
+
+.site-footer__group-heading .site-footer__link {
+  /* The Guides heading is a link to the hub, but it
+     reads as a heading first: same near-white as the
+     other headings, not the links' Brass pale. Its
+     underline is removed outright, hover included, so
+     the heading's dash is the only line it ever carries
+     (approved draft v4 — the v2 "two lines" finding). */
+  color: var(--colour-on-dark);
+  text-decoration: none;
+}
+
+.site-footer__group-heading .site-footer__link:hover {
+  text-decoration: none;
+}
+
+.site-footer__group-links {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+@media (max-width: 40rem) {
+  .site-footer__inner {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .site-footer__nav {
+    flex-direction: column;
+    width: 100%;
+  }
 }
 
 /* The footer's bottom row (chrome unification, 18 Nov

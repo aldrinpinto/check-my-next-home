@@ -73,22 +73,23 @@ test.describe("SEO pages — regression", () => {
   );
 
   test(
-    "the guides are reached from the footer's hub link only — never the header, never individually",
+    "the guides are listed in the footer's Guides group — never the header",
     { tag: "@regression" },
     async ({ page }) => {
-      // The founder's ruling of 18 Nov 2026 supersedes the
-      // M7.8 landers-only form for the footer only: the
-      // footer carries ONE Guides link, to the /guides hub;
-      // no individual guide is linked from the chrome, and
-      // the header carries no guides link at all.
+      // BUG-230 (founder-approved prep, 24 Nov 2026)
+      // supersedes the 18 Nov 2026 ruling that the footer
+      // carry ONE Guides link: the footer's Guides group
+      // lists the three guides individually under a
+      // "Guides" heading that links to the /guides hub.
+      // The header carries no guides link at all.
       await page.goto("/");
       await expect(page.locator('header a[href^="/guides"]')).toHaveCount(0);
       await expect(page.locator('footer a[href="/guides"]')).toHaveCount(1);
-      await expect(page.locator('footer a[href^="/guides/"]')).toHaveCount(0);
+      await expect(page.locator('footer a[href^="/guides/"]')).toHaveCount(3);
       await page.goto("/check/crime");
       await expect(page.locator('header a[href^="/guides"]')).toHaveCount(0);
       await expect(page.locator('footer a[href="/guides"]')).toHaveCount(1);
-      await expect(page.locator('footer a[href^="/guides/"]')).toHaveCount(0);
+      await expect(page.locator('footer a[href^="/guides/"]')).toHaveCount(3);
     },
   );
 
