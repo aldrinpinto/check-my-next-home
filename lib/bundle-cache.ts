@@ -398,6 +398,22 @@ const GUARDS: Record<
       // table wholesale, so any movement in it can move a
       // destinations block.
       destinationsFiled: await countOf(db, "SELECT count(*)::int AS n FROM school_destinations"),
+      // The OSM places count (BUG-344(d)): the OSM loader
+      // is a runner class whose stamp moves on runner
+      // runs, but a re-filing can also be hand-run
+      // (`load:osm-places`), moving no stamp — the filed
+      // count closes that hole, on the M6.33/M6.34
+      // pattern. The count is over the whole filed table:
+      // a filing swaps the table wholesale, so any
+      // movement in it can move a nearby answer. Without
+      // it a hand-run re-file — the BUG-239 name
+      // correction, say — kept serving the stale cached
+      // bundle indefinitely. (Named residual, the
+      // tribunal decisions' own: a same-count content
+      // change from a hand run moves neither stamp nor
+      // count; the quarterly runner's stamp closes it on
+      // the primary path.)
+      osmPointsFiled: await countOf(db, "SELECT count(*)::int AS n FROM osm_points"),
     };
   },
 

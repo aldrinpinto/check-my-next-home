@@ -8,6 +8,7 @@ import { buildReportView, reportViewGate } from "../../../lib/report";
 import { effectiveReportDoorState } from "../../../lib/report-door";
 import { reportRoute } from "../../../lib/results";
 import { pageMetadata } from "../../../lib/seo";
+import { verifyReportViewAccess } from "../../../lib/server/report-view-access";
 import { checkReport, resolutionForRoute } from "../../../lib/server/serve";
 
 // The bought report's page (plan step M8.1) — the
@@ -32,6 +33,16 @@ import { checkReport, resolutionForRoute } from "../../../lib/server/serve";
 // that no longer resolves falls back to the door too,
 // never an error page and never a guessed home (the
 // /report pattern).
+//
+// BUG-324 (25 Nov 2026): a paid door state alone no
+// longer opens the report — the page also requires the
+// delivery email's signed download token as ?token=,
+// verified by lib/server/report-view-access.ts against
+// the order behind it (the token genuine and in date,
+// its delivery standing, its claim fulfilled for this
+// home). A reader without one — a typed URL, a stale
+// link, a token for another home — is sent to the door
+// the same way, before any bundle is assembled.
 export const metadata: Metadata = pageMetadata({
   title: "Detailed report | Check My Next Home",
   description: "The detailed report for the home you checked.",
@@ -44,7 +55,7 @@ export const dynamic = "force-dynamic";
 export default async function ReportViewPage({
   searchParams,
 }: {
-  searchParams: Promise<{ postcode?: string; home?: string }>;
+  searchParams: Promise<{ postcode?: string; home?: string; token?: string }>;
 }) {
   const params = await searchParams;
   const postcode = params.postcode ?? null;
@@ -58,6 +69,17 @@ export default async function ReportViewPage({
     // guessed home.
     resolution = await resolutionForRoute(postcode, null).catch(() => null);
   }
+  // BUG-324: the token is verified against the REQUESTED
+  // identity (the URL's own postcode and home key), not
+  // the resolved one — a token minted for another home,
+  // or for the whole postcode where a home was named,
+  // does not open this report. No token, no access; a
+  // verification that cannot be read denies, never
+  // serves.
+  const token = params.token ?? null;
+  const accessVerified = token
+    ? await verifyReportViewAccess(token, postcode, homeKey).catch(() => false)
+    : false;
   // The gate reads the effective state for the resolved
   // nation (an unresolved identity has no nation — the
   // checked-in state applies, and the resolution failure
@@ -71,6 +93,7 @@ export default async function ReportViewPage({
             nationOfLsoa(resolution.directory.lsoaCode))
         : nationOfLsoa(null),
     ),
+    accessVerified,
   );
   if (gate.action === "door") redirect(gate.href);
   if (!resolution || (resolution.rung !== 1 && resolution.rung !== 2))

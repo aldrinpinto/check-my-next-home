@@ -53,7 +53,6 @@
 // the order record, and the sweep is its road back.
 
 import type { GiftRecord } from "../gift";
-import { homeRoute } from "../journey";
 import {
   failedPaymentEmail,
   fulfilmentFailureEmail,
@@ -62,6 +61,7 @@ import {
   saleAlertEmail,
 } from "../order-emails";
 import type { ReportDoorIdentity } from "../report-door";
+import { reportRoute } from "../results";
 import { REPORT_PRICE_PENCE, SITE_URL } from "../site";
 import { getDbPool } from "./db";
 import type { FulfilmentClaim, FulfilmentClaimStore } from "./fulfilment";
@@ -293,7 +293,13 @@ export function createOrderNotices(deps: OrderNoticesDeps): OrderNotices {
           to: input.email,
           email: failedPaymentEmail({
             homeAddressLine: names.addressLine,
-            paymentUrl: `${deps.origin}${homeRoute(input.postcode, input.homeKey)}`,
+            // BUG-331: the button is "Try the payment
+            // again", so it opens the payment page for
+            // this home (reportRoute) — not the free
+            // results page (homeRoute), which made the
+            // buyer find the buy bar and click through
+            // themselves.
+            paymentUrl: `${deps.origin}${reportRoute(input.postcode, input.homeKey)}`,
           }),
         });
         if (!result.sent) warn("failed-payment-email", new Error(result.reason));

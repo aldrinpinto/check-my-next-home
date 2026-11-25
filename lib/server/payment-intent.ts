@@ -52,7 +52,13 @@
 //     order is claimed for the home the server resolved,
 //     never for a client-sent address.
 
-import { isEmailShape, normaliseEmail } from "../gift";
+import {
+  giftServedState,
+  isEmailShape,
+  normaliseEmail,
+  type GiftGoneReason,
+  type GiftRecord,
+} from "../gift";
 import { isNotCoveredNation, type Nation } from "../journey";
 import type { PaymentsRouter, ReportPaymentConsent } from "./payments";
 
@@ -105,6 +111,22 @@ function readConsent(raw: unknown): ReportPaymentConsent | null {
   if (!ISO_TIMESTAMP.test(candidate.timestamp)) return null;
   if (Number.isNaN(Date.parse(candidate.timestamp))) return null;
   return { ticked: true, timestamp: candidate.timestamp };
+}
+
+// BUG-325 follow-up — why the visit's gift was gone:
+// the record the intent route read for the visit's
+// gift, reduced through the claim route's own served
+// state (lib/gift.ts's precedence: the void stands
+// first, redemption is final, expiry ends everything
+// unredeemed). Only the two causes the payment page
+// can name come back — a voided gift, a live gift, or
+// no record at all carries no reason, and the page
+// keeps the both-causes line.
+export function giftGoneReasonFor(record: GiftRecord | null, now: Date): GiftGoneReason | null {
+  const served = giftServedState(record, now);
+  if (served === "expired") return "expired";
+  if (served === "already-used") return "already-used";
+  return null;
 }
 
 export interface StartReportPaymentDeps {

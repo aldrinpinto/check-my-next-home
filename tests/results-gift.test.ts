@@ -4,9 +4,11 @@ import { describe, expect, it } from "vitest";
 
 import ResultsPage from "../components/ResultsPage";
 import {
+  BUY_BAR_BUTTON_LABEL,
   BUY_BAR_HEADING,
   BUY_BAR_LINE,
   BUY_BAR_MYSTERY_LINE,
+  BUY_BAR_ONE_PAYMENT_LINE,
   GIFT_FREE_LABEL,
   GIFT_PILL_LABEL,
   GIFT_REPORT_BUTTON_LABEL,
@@ -34,6 +36,12 @@ const VIEW: ResultsView = {
     line: BUY_BAR_LINE,
     mysteryLine: BUY_BAR_MYSTERY_LINE,
     href: REPORT_HREF,
+    // BUG-336: the priced button label and the
+    // one-payment line ride the shape; the gift render
+    // keeps its own button words and shows no payment
+    // line (a gift holder pays nothing).
+    buttonLabel: BUY_BAR_BUTTON_LABEL,
+    onePaymentLine: BUY_BAR_ONE_PAYMENT_LINE,
   },
   calculators: null,
   checkLinks: [],
@@ -115,7 +123,7 @@ describe("free page — the gift state (BUG-223, approved Screen B)", () => {
     expect(GIFT_PILL_LABEL).not.toBe(GIFT_FREE_LABEL);
   });
 
-  it("without a gift the page is the ordinary £4.99 page: no strip, priced chip, plain buy-bar button", () => {
+  it("without a gift the page is the ordinary £4.99 page: no strip, priced chip, priced buy-bar button (BUG-336)", () => {
     const html = render(false);
     expect(html).not.toContain("results-gift-strip");
     expect(html).not.toContain(GIFT_FREE_LABEL);
@@ -123,7 +131,11 @@ describe("free page — the gift state (BUG-223, approved Screen B)", () => {
     expect(html).toContain(REPORT_PRICE_LABEL);
     expect(html).toContain("Plus 2 more primary schools");
     expect(html).toContain("Get the full report →");
-    expect(html).toContain(">Get the full report</a>");
+    // BUG-336 supersedes the old unpriced buy-bar
+    // button: the button carries the price, with the
+    // one-payment line beneath it.
+    expect(html).toContain(">Get the full report — £4.99</a>");
+    expect(html).toContain("One payment, no subscription, nothing further to pay.");
   });
 
   it("the gift state is one home's (BUG-224): the same render without the gift is the £4.99 page", () => {

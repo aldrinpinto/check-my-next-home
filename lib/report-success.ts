@@ -132,6 +132,15 @@ export interface ReportSuccessView {
   mysteryLine: string | null;
   // Gifted-only: the gift-applied banner's line.
   giftBannerLine: string | null;
+  // BUG-337 (25 Nov 2026): the ready state's receipt
+  // line — the order reference, the amount paid and
+  // the card used, so the buyer has something to quote
+  // if the report or the email goes missing. Ready +
+  // paid only: a gifted or free claim paid nothing, and
+  // no other state has a payment to receipt. Null
+  // everywhere else, including a ready paid view whose
+  // receipt was never passed in.
+  receiptLine: string | null;
   shortlistHref: string;
   shortlistLabel: string;
 }
@@ -217,6 +226,45 @@ export const SUCCESS_MYSTERY_LINE = "There's a little extra waiting in that emai
 // there is nothing to pay.
 export const GIFT_APPLIED_BANNER_LINE =
   "Your free report gift has been applied — there's nothing to pay for this report.";
+
+// BUG-337 (25 Nov 2026): the receipt — what the ready
+// paid view quotes back. The order reference is the
+// payment's own reference; the amount is the one price
+// in pence; the card is the brand and last 4 digits
+// read back from the payment (lib/server/payments.ts's
+// intentStatus card), null where the payment carries
+// no card to name (a wallet payment, or a read-back
+// that could not reach the card) — the line then quotes
+// the reference and the amount alone, never a guessed
+// card. NEW WORDING, not a sample's: Sample 10 draws
+// no receipt, so the Master is conformed in this
+// stack.
+export interface ReportReceipt {
+  orderRef: string;
+  amountPence: number;
+  cardBrand: string | null;
+  cardLast4: string | null;
+}
+
+const RECEIPT_CARD_BRAND_NAMES: Record<string, string> = {
+  visa: "Visa",
+  mastercard: "Mastercard",
+  amex: "Amex",
+  discover: "Discover",
+  diners: "Diners Club",
+  jcb: "JCB",
+  unionpay: "UnionPay",
+};
+
+export function formatReceiptLine(receipt: ReportReceipt): string {
+  const amount = `£${(receipt.amountPence / 100).toFixed(2)}`;
+  const card =
+    receipt.cardBrand && receipt.cardLast4
+      ? ` with ${RECEIPT_CARD_BRAND_NAMES[receipt.cardBrand.toLowerCase()] ?? receipt.cardBrand.charAt(0).toUpperCase() + receipt.cardBrand.slice(1)} ending in ${receipt.cardLast4}`
+      : "";
+  return `Order ${receipt.orderRef} — ${amount} paid${card}.`;
+}
+
 export const SUCCESS_SHORTLIST_LABEL = "See your shortlist";
 
 export function buildReportSuccessView(input: {
@@ -234,6 +282,23 @@ export function buildReportSuccessView(input: {
   // (M9.7): the re-send posts it. Ready state only —
   // the builder nulls it in every other state.
   orderRef?: string | null;
+  // The view token, where one was minted for this order
+  // (BUG-324): the delivery email's signed download
+  // token, carried on the "View your report" link so
+  // the view route's gate can tell this buyer from a
+  // typed URL. Ready state only, like the reference —
+  // and absent where no delivery stands, in which case
+  // the plain view link stands (the gate sends the
+  // buyer to the door, where the emailed link still
+  // opens the report).
+  viewToken?: string | null;
+  // BUG-337: the receipt, where one was read back for
+  // this order (the success route reads it from the
+  // payment's intent status for ready paid claims).
+  // The builder renders it only for ready + paid —
+  // a receipt passed in for any other state or kind is
+  // ignored, like the token above.
+  receipt?: ReportReceipt | null;
 }): ReportSuccessView {
   const ready = input.state === "ready";
   const failed = input.state === "failed";
@@ -276,6 +341,7 @@ export function buildReportSuccessView(input: {
       ? reportViewRoute(
           identity.kind === "generic" ? "" : identity.postcode,
           identity.kind === "home" ? identity.homeKey : null,
+          input.viewToken ?? null,
         )
       : null,
     viewLabel: SUCCESS_VIEW_LABEL,
@@ -307,6 +373,8 @@ export function buildReportSuccessView(input: {
     mysteryLine: !failed && !refunded && input.kind === "paid" ? SUCCESS_MYSTERY_LINE : null,
     giftBannerLine:
       !failed && !refunded && input.kind === "gifted" ? GIFT_APPLIED_BANNER_LINE : null,
+    receiptLine:
+      ready && input.kind === "paid" && input.receipt ? formatReceiptLine(input.receipt) : null,
     shortlistHref: "/shortlist",
     shortlistLabel: SUCCESS_SHORTLIST_LABEL,
   };

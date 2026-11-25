@@ -293,18 +293,23 @@ export function mergeSampleBundles(candidates: SampleCandidate[]): MergedSampleB
     candidates[pickWinner(candidates, (c) => floodScore(c.bundles.flood), byNumber)];
   sources.flood = floodWinner.id;
 
+  // BUG-342: the sample's own listing clean-up runs on
+  // the merged bundles, before composition — the seam
+  // needs no change to pick it up, and every consumer of
+  // the merge gets the deduped lists.
+  const mergedBundles: SampleCandidate["bundles"] = {
+    nearby,
+    flood: floodWinner.bundles.flood,
+    area,
+    // Sold prices are the primary's throughout (the
+    // brief's ruling: Birkdale is the primary source for
+    // sold prices, and Sections 1/2 and Section 7's
+    // mortgage facts must agree with each other).
+    sold: primary.bundles.sold,
+    crime: crimeWinner.bundles.crime,
+  };
   return {
-    bundles: {
-      nearby,
-      flood: floodWinner.bundles.flood,
-      area,
-      // Sold prices are the primary's throughout (the
-      // brief's ruling: Birkdale is the primary source for
-      // sold prices, and Sections 1/2 and Section 7's
-      // mortgage facts must agree with each other).
-      sold: primary.bundles.sold,
-      crime: crimeWinner.bundles.crime,
-    },
+    bundles: cleanSampleNearbyListings(mergedBundles),
     sources,
   };
 }
@@ -575,6 +580,110 @@ export function suppressSampleNames(
       // The drop emptied the category: it serves the
       // builder's own empty-answer form for the reduced
       // filing, never a bare "within" with nothing in it.
+      const form = emptyAnswerForm(next.category, next.countWithin);
+      next = { ...next, state: form.state, line: form.line };
+    }
+    return next;
+  });
+  if (!changed) return bundles;
+  return { ...bundles, nearby: { ...bundles.nearby, categories } };
+}
+
+// ------------------------------------------------------------------
+// Sample listing clean-up (BUG-342, 25 Nov 2026)
+// ------------------------------------------------------------------
+
+// The audit found the sample listing the same place twice
+// (Royal Docks Academy; Appleby Centre) and a maths
+// tutoring business as a nursery. The sample carries no
+// fixed listing data of its own (BUG-159: it is generated
+// from the pipeline run over the candidate homes), so the
+// duplicates arrive with the pipeline's lists — a place
+// the filing carries twice, or two registrations of one
+// centre — and the misclassification arrives with a stale
+// nursery filing: the BUG-240 loader no longer files a
+// provider that is not on the Early Years Register, but
+// the live table still holds the pre-BUG-240 rows. The
+// pipeline serves filed rows verbatim and carries no
+// register flag to filter on, so the sample cleans its
+// own lists at the bundle layer, before composition —
+// the same layer the name suppression above stands on.
+// Pure: the input bundles are never mutated.
+
+// A provider that is not a nursery, whatever the stale
+// filing says: one exact name, never a pattern (the
+// BUG-239 placeName form). "Maths Tutoring By Pearl Lily
+// And Co Accountants" is on the Voluntary Childcare
+// Register only — tutoring, not a nursery — and the
+// BUG-240 loader already refuses it; this drops it from
+// the sample until the live table is re-filed.
+const SAMPLE_NURSERY_EXCLUDED_NAMES = new Set(["Maths Tutoring By Pearl Lily And Co Accountants"]);
+
+// The sample's place key: the pipeline's name normal
+// form (lower case, punctuation becomes spaces, runs
+// collapsed), with a leading "the" stripped — the
+// sample is an editorial composite, and two
+// registrations of one centre ("THE APPLEBY CENTRE" /
+// "APPLEBY CENTRE", two dental registrations at 63
+// Appleby Road) read as one place twice there. The
+// pipeline itself keeps serving both registrations:
+// whether two registrations at one address are one
+// place for the live product is a founder ruling, not
+// a serving rule.
+function samplePlaceKey(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ")
+    .replace(/^the /, "");
+}
+
+// Drop every repeated listing from the merged bundles'
+// nearby lists, and the excluded tutoring business from
+// the nurseries list: within a category the nearest
+// filing of a name wins (the lists arrive
+// distance-ordered), and a dropped within-radius place
+// leaves the count with it (countWithin decrements), so
+// no count line can promise a place the list no longer
+// serves; a category the drop empties serves the
+// builder's own empty-answer form for the reduced filing
+// (lib/nearby.ts's emptyAnswerForm). Nothing is renamed
+// and no other figure is adjusted.
+export function cleanSampleNearbyListings(
+  bundles: SampleCandidate["bundles"],
+): SampleCandidate["bundles"] {
+  if (bundles.nearby.kind !== "distances") return bundles;
+  let changed = false;
+  const categories = bundles.nearby.categories.map((answer) => {
+    let next: CategoryAnswer = answer;
+    const seen = new Set<string>();
+    const keptPlaces = answer.places.filter((place) => {
+      if (answer.category === "nurseries" && SAMPLE_NURSERY_EXCLUDED_NAMES.has(place.name)) {
+        changed = true;
+        return false;
+      }
+      const key = samplePlaceKey(place.name);
+      if (seen.has(key)) {
+        changed = true;
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+    if (keptPlaces.length !== answer.places.length) {
+      changed = true;
+      const radius = servingRadiusMiles(answer.category);
+      const droppedCounted = answer.places.filter(
+        (place, at) => !keptPlaces.includes(place) && place.miles <= radius,
+      ).length;
+      next = {
+        ...next,
+        places: keptPlaces,
+        countWithin: Math.max(0, answer.countWithin - droppedCounted),
+      };
+    }
+    if (answer.places.length > 0 && next.places.length === 0 && next.state === "within") {
       const form = emptyAnswerForm(next.category, next.countWithin);
       next = { ...next, state: form.state, line: form.line };
     }

@@ -737,8 +737,14 @@ describe("flood — the golden homes (measured on the serving basis)", () => {
       ["FZ2", 0.841],
       ["FZ3", 0.845],
     ]);
+    // BUG-343: the rivers & sea absence reads as Very low
+    // — the free pill's band — with its source (below the
+    // lowest band the Agency publishes), never as "no band
+    // is published". The point state stays
+    // "no-band-published": the three absences stay three
+    // distinct states.
     expect(rofrs.line).toBe(
-      "no likelihood band is published for this point on the Environment Agency's map of flooding from rivers and the sea",
+      "the postcode point is below the lowest band the Environment Agency publishes on its map of flooding from rivers and the sea — Very low",
     );
     expect(prox(rofrs)).toEqual([
       ["Low", 0.841],
@@ -1615,6 +1621,17 @@ describe("flood — recorded defences (M6.27, D49/D54)", () => {
     fileDefences(EXETER, defencesFacts({ totalWithin: DEFENCES_LIST_CAP, defences: many }));
     const exact = await defencesBlock(EXETER);
     expect(exact.overflowLine).toBeNull();
+  });
+
+  it("the overflow line has a singular form — one more defence, not defences (BUG-344(c))", async () => {
+    const many = Array.from({ length: DEFENCES_LIST_CAP }, (_, i) =>
+      defenceRow({ assetId: String(1000 + i), miles: 0.01 * (i + 1) }),
+    );
+    fileDefences(EXETER, defencesFacts({ totalWithin: DEFENCES_LIST_CAP + 1, defences: many }));
+    const block = await defencesBlock(EXETER);
+    expect(block.defences).toHaveLength(DEFENCES_LIST_CAP);
+    expect(block.totalWithin).toBe(DEFENCES_LIST_CAP + 1);
+    expect(block.overflowLine).toBe("and 1 more recorded defence within two miles");
   });
 
   it("the bridge serves only where the rivers & sea layer is filed — the other arm", async () => {

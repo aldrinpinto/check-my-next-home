@@ -1,3 +1,4 @@
+import PostcodeBox from "../../components/PostcodeBox";
 import ReportDoorPage from "../../components/ReportDoorPage";
 import ReportPaymentPage from "../../components/ReportPaymentPage";
 import ReportWindowPage from "../../components/ReportWindowPage";
@@ -11,7 +12,7 @@ import {
   effectiveReportDoorState,
   type ReportDoorIdentity,
 } from "../../lib/report-door";
-import { buildReportPaymentView } from "../../lib/report-payment";
+import { buildReportPaymentView, PAYMENT_NO_HOME_LINE } from "../../lib/report-payment";
 import { resultsScopeLabel } from "../../lib/results";
 import { paymentPublishableKey } from "../../lib/server/payments";
 import { resolutionForRoute } from "../../lib/server/serve";
@@ -146,6 +147,23 @@ export default async function ReportPage({
   // milestone lifts the hold.
   const doorState = effectiveReportDoorState(nation);
   if (doorState === "paid") {
+    // BUG-329: a generic visit — no postcode, or a
+    // home that does not resolve — renders NO
+    // checkout: the door's plain line that no home
+    // was named, with the postcode box so the buyer
+    // can name one. The generic form stays only as a
+    // way back into a check, never as a payment page.
+    // The intent route's home-not-found guard stays
+    // as the backstop behind this.
+    if (identity.kind === "generic") {
+      return (
+        <main className="journey-page report-door">
+          <h1>The detailed report</h1>
+          <p className="type-lead report-door__subline">{PAYMENT_NO_HOME_LINE}</p>
+          <PostcodeBox bare />
+        </main>
+      );
+    }
     // BUG-223: the visit's claimed gift, read from the
     // cmnh-gift cookie the claim set — so the payment
     // page shows the gift-applied state to a gift

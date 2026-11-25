@@ -92,6 +92,13 @@ function paymentSucceededPayload(intentId: string, email: string = BUYER): strin
         id: intentId,
         object: "payment_intent",
         status: "succeeded",
+        // BUG-330: the webhook refuses a succeeded
+        // payment whose amount is not £4.99 in GBP, so
+        // the genuine payment this helper models carries
+        // both — the amount and currency the intent
+        // route creates.
+        amount: REPORT_PRICE_PENCE,
+        currency: "gbp",
         metadata: {
           email,
           postcode: POSTCODE,

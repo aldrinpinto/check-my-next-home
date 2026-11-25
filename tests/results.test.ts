@@ -10,9 +10,12 @@ import type { CrimeBundle } from "../lib/crime";
 import type { FloodBundle, FloodLayerType, FloodLiveWarnings, FloodPointState } from "../lib/flood";
 import { nearbyCheckingGroups } from "../lib/journey";
 import type { CategoryAnswer, NearbyBundle, NearbyCategory } from "../lib/nearby";
+import { PAYMENT_ONE_PAYMENT_LINE } from "../lib/report-payment";
 import {
   ARTICLE4_UNCHECKABLE_TEXT,
   BROADBAND_CAVEAT,
+  BUY_BAR_BUTTON_LABEL,
+  BUY_BAR_ONE_PAYMENT_LINE,
   CATCHMENT_LINK,
   FLOOD_ROFRS_ABSENCE_LINE,
   FLOOD_ROFSW_ABSENCE_LINE,
@@ -2339,6 +2342,30 @@ describe("results — the built view", () => {
     expect(view.buyBar?.href).toBe(reportRoute("CM3 2JT", "19||BIRKDALE RISE"));
   });
 
+  it("the buy bar prices the decision where it is made (BUG-336)", () => {
+    const view = buildResultsView(input());
+    // The button carries the price in the header
+    // button's form; the one-payment line stands
+    // beneath it.
+    expect(view.buyBar?.buttonLabel).toBe("Get the full report — £4.99");
+    expect(view.buyBar?.buttonLabel).toBe(BUY_BAR_BUTTON_LABEL);
+    expect(view.buyBar?.onePaymentLine).toBe(
+      "One payment, no subscription, nothing further to pay.",
+    );
+    // The bar's copy of the line is the payment page's
+    // own line, verbatim — the two can never drift (the
+    // shape cannot import it: that module imports this
+    // module, so the pin below is the guard).
+    expect(view.buyBar?.onePaymentLine).toBe(PAYMENT_ONE_PAYMENT_LINE);
+    expect(BUY_BAR_ONE_PAYMENT_LINE).toBe(PAYMENT_ONE_PAYMENT_LINE);
+    // And the rendered bar shows both, in that order.
+    const html = renderToStaticMarkup(
+      createElement(ResultsPage, { view: buildResultsView(input()) }),
+    );
+    expect(html).toContain("Get the full report — £4.99");
+    expect(html).toContain("One payment, no subscription, nothing further to pay.");
+  });
+
   it("the company-ownership line does NOT render while the flag is off (the bundle key is absent) — and renders from the key when present (D77(d))", () => {
     const off = buildResultsView(input());
     const offText = JSON.stringify(section(off, "home", "planning-protection").blocks);
@@ -3375,17 +3402,18 @@ describe("results — the rendered page", () => {
       '<a class="trunc-row trunc-row--merged" href="/report?postcode=CM3+2JT&amp;home=19%7C%7CBIRKDALE+RISE"><span class="trunc-row__main"><span class="trunc-row__lead">Plus 3 more primary schools</span><span class="trunc-row__detail">All 5, with their Ofsted ratings and inspection dates.</span></span><span class="trunc-row__cta"><span class="trunc-row__price">£4.99</span> <span class="trunc-row__arrow">Get the full report →</span></span></a>',
     );
     // The buy bar: the mystery tease rides inside it, and
-    // its button is the UNPRICED form on the contract href
-    // (item 19: the priced form is only the results-head
-    // button).
+    // its button is the PRICED form on the contract href
+    // (BUG-336 supersedes item 19's unpriced form: the
+    // buy decision is priced where it is made), with
+    // the one-payment line beneath it.
     expect(html).toContain("A mystery extra");
     expect(html).toContain(
       "Every report comes with a mystery extra, on us — it arrives in your email with your report.",
     );
     expect(html).toContain(
-      '<a class="report-btn" href="/report?postcode=CM3+2JT&amp;home=19%7C%7CBIRKDALE+RISE">Get the full report</a>',
+      '<a class="report-btn" href="/report?postcode=CM3+2JT&amp;home=19%7C%7CBIRKDALE+RISE">Get the full report — £4.99</a>',
     );
-    expect(html).not.toContain("Get the full report — £4.99");
+    expect(html).toContain("One payment, no subscription, nothing further to pay.");
     // The buy bar and the calculators sit below the tabs.
     expect(html).toContain("Get the full detailed report for this home");
     expect(html).toContain("the flood findings with location maps");

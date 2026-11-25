@@ -1914,6 +1914,19 @@ export const BUY_BAR_LINE =
 export const BUY_BAR_MYSTERY_LINE =
   "Every report comes with a mystery extra, on us — it arrives in your email with your report.";
 export const BUY_BAR_MYSTERY_EYEBROW = "A mystery extra";
+// BUG-336 (25 Nov 2026): the buy band prices the
+// decision where it is made. The button carries the
+// price in the header button's existing form ("Get the
+// full report — £4.99"), and the one-payment line
+// stands beneath it. The line is lib/report-payment.ts's
+// PAYMENT_ONE_PAYMENT_LINE verbatim — but this module
+// cannot import it: that module imports this module's
+// buy-bar constants, so importing back would cycle.
+// This copy is pinned equal to it by
+// tests/results.test.ts; if the payment page's line
+// ever changes, change this one with it.
+export const BUY_BAR_BUTTON_LABEL = `Get the full report — ${REPORT_PRICE_LABEL}`;
+export const BUY_BAR_ONE_PAYMENT_LINE = "One payment, no subscription, nothing further to pay.";
 // HCR-03 (BUG-153, founder ruling): corrected
 // sample→product — the report draws location maps for
 // the flood-zone and surface-water checks only; the
@@ -1987,7 +2000,19 @@ export interface ResultsView {
   // buy bar's button and every section upsell read it.
   // Null on the wider-area view, which offers no report.
   reportHref: string | null;
-  buyBar: { heading: string; line: string; mysteryLine: string; href: string } | null;
+  buyBar: {
+    heading: string;
+    line: string;
+    mysteryLine: string;
+    href: string;
+    // BUG-336: the priced button label and the
+    // one-payment line, for the render. The gift
+    // variant keeps its own button words (the
+    // component picks) and carries no payment line —
+    // a gift holder pays nothing.
+    buttonLabel: string;
+    onePaymentLine: string;
+  } | null;
   // Null on the wider-area view (M7.10 G2): there is no
   // home there, so the home-specific calculators are
   // suppressed like the buy bar. The nation rides with the
@@ -3441,6 +3466,8 @@ export function buildResultsView(input: ResultsInput): ResultsView {
             line: BUY_BAR_LINE,
             mysteryLine: BUY_BAR_MYSTERY_LINE,
             href: reportHref,
+            buttonLabel: BUY_BAR_BUTTON_LABEL,
+            onePaymentLine: BUY_BAR_ONE_PAYMENT_LINE,
           }
         : null,
     calculators: {

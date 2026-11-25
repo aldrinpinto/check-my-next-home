@@ -45,6 +45,14 @@ function eventPayload(input: {
   intentId: string;
   status: string;
   email?: string;
+  // BUG-330 — the event's amount and currency are part
+  // of the payload under test: the webhook refuses a
+  // succeeded payment whose amount is not £4.99 in GBP.
+  // The default is the genuine £4.99 payment the intent
+  // route creates, so the existing pins keep the shape
+  // they were written against.
+  amount?: number | null;
+  currency?: string | null;
 }): string {
   return JSON.stringify({
     type: input.type,
@@ -53,6 +61,8 @@ function eventPayload(input: {
       object: {
         id: input.intentId,
         status: input.status,
+        ...(input.amount === null ? {} : { amount: input.amount ?? 499 }),
+        ...(input.currency === null ? {} : { currency: input.currency ?? "gbp" }),
         metadata: {
           email: input.email ?? EMAIL,
           postcode: POSTCODE,

@@ -367,7 +367,25 @@ export function deliveryEmail(input: {
   homeAddressLine: string;
   downloadUrl: string;
   giftClaimUrl: string | null;
+  // BUG-337 (25 Nov 2026): the receipt, repeated from
+  // the success page — the order reference and the
+  // amount paid. Paid deliveries only (the delivery
+  // service passes it for kind "paid"); the card line
+  // is page-only, because the delivery service never
+  // sees the card. NEW WORDING, not a sample's: view 11
+  // draws no receipt, so the Master is conformed in
+  // this stack. It mirrors the success page's receipt
+  // line (lib/report-success.ts's formatReceiptLine)
+  // with the card clause left off — a shared import
+  // would cycle (that module imports this one's
+  // DeliveryKind), so the two wordings are pinned
+  // equal by tests/download.test.ts and
+  // tests/report-success.test.ts.
+  receipt?: { orderRef: string; amountPence: number } | null;
 }): ComposedEmail {
+  const receiptLine = input.receipt
+    ? `Order ${input.receipt.orderRef} — £${(input.receipt.amountPence / 100).toFixed(2)} paid.`
+    : null;
   const subject = `Your detailed report for ${input.homeTitle}`;
   const heading = `Your report for ${input.homeTitle} is ready`;
   const intro =
@@ -388,6 +406,12 @@ export function deliveryEmail(input: {
     "",
     afterLink,
   ];
+  // BUG-337: the receipt line stands under the link
+  // note, in both bodies — the buyer's something to
+  // quote if the report goes missing.
+  if (receiptLine) {
+    textParts.push("", receiptLine);
+  }
   // View 11's drawn dress: a cream sheet on a white
   // ground, the forest-deep brand band, the report
   // link as a full-width brass button, the line under
@@ -402,6 +426,13 @@ export function deliveryEmail(input: {
     `<a href="${escapeHtml(input.downloadUrl)}" style="display:block;text-align:center;background-color:#C29A3B;color:#FFFFFF;text-decoration:none;font-weight:700;font-size:16.5px;padding:15px 20px;border-radius:11px;margin:20px 0 14px;">${DOWNLOAD_EMAIL_LINK_LINE}</a>`,
     `<p style="font-size:13.5px;color:#4A5548;line-height:1.6;text-align:center;margin:10px 0 4px;">${escapeHtml(afterLink)}</p>`,
   ];
+  // BUG-337: the receipt line, under the link note, in
+  // the HTML body too.
+  if (receiptLine) {
+    contentHtml.push(
+      `<p style="font-size:13.5px;color:#4A5548;line-height:1.6;text-align:center;margin:10px 0 4px;">${escapeHtml(receiptLine)}</p>`,
+    );
+  }
   if (input.giftClaimUrl) {
     textParts.push(
       "",

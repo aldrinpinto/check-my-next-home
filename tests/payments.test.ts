@@ -167,7 +167,13 @@ function contractSuite(
       if (!created.ok) return;
       expect(created.clientSecret).toContain(created.intentId);
       const status = await payments.intentStatus(created.intentId);
-      expect(status).toEqual({
+      // BUG-337: the read-back carries the card too —
+      // but its exact value is implementation territory
+      // (the stub names none, the fake names its test
+      // card), pinned exactly in each implementation's
+      // own suite below. The contract pins the shape
+      // and that a card key is always present.
+      expect(status).toMatchObject({
         ok: true,
         intentId: created.intentId,
         status: expect.any(String),
@@ -179,6 +185,7 @@ function contractSuite(
         // the fake's own suite below.
         metadata: expect.any(Object),
       });
+      expect(status.ok && "card" in status).toBe(true);
     });
 
     it("verifies a properly signed success event and reads its identity back", async () => {
@@ -424,6 +431,9 @@ describe("payments translator — the fake's own promises", () => {
         amount: REPORT_PRICE_PENCE,
         currency: PAYMENT_CURRENCY,
         status: "requires_confirmation",
+        // BUG-337: the standard test card, until setCard
+        // says otherwise.
+        card: { brand: "visa", last4: "4242" },
       },
     ]);
     fake.setStatus("pi_fake_1", "succeeded");
@@ -442,11 +452,106 @@ describe("payments translator — the fake's own promises", () => {
         consent_tick: "true",
         consent_timestamp: CONSENT.timestamp,
       },
+      // BUG-337: the card off the created record.
+      card: { brand: "visa", last4: "4242" },
     });
     await expect(fake.intentStatus("pi_fake_99")).resolves.toEqual({
       ok: false,
       reason: "unknown-intent",
     });
+  });
+
+  it("names the card setCard sets — and none where setCard clears it (BUG-337)", async () => {
+    const fake = createFakePayments();
+    const created = await fake.createReportIntent({
+      email: EMAIL,
+      postcode: POSTCODE,
+      homeKey: HOME_KEY,
+      consent: CONSENT,
+    });
+    if (!created.ok) throw new Error("creation failed");
+    fake.setCard(created.intentId, { brand: "mastercard", last4: "5555" });
+    const status = await fake.intentStatus(created.intentId);
+    expect(status).toMatchObject({
+      ok: true,
+      card: { brand: "mastercard", last4: "5555" },
+    });
+    fake.setCard(created.intentId, null);
+    await expect(fake.intentStatus(created.intentId)).resolves.toMatchObject({
+      ok: true,
+      card: null,
+    });
+  });
+});
+
+// BUG-337 — the Stripe adapter reads the card by
+// expanding payment_method on the retrieve: brand and
+// last 4 digits only, null where the method names no
+// card.
+describe("payments translator — the Stripe adapter reads the card off the expanded payment method (BUG-337)", () => {
+  function cardClient(
+    paymentMethod: unknown,
+    seen: Record<string, unknown>[] = [],
+  ): StripeClientSlice {
+    return {
+      paymentIntents: {
+        async create() {
+          return { id: "pi_stub_1", client_secret: "pi_stub_1_secret_stub", status: "succeeded" };
+        },
+        async retrieve(id, params) {
+          seen.push({ id, params });
+          return {
+            id,
+            status: "succeeded",
+            metadata: {},
+            payment_method: paymentMethod as never,
+          };
+        },
+      },
+      webhooks: {
+        constructEvent() {
+          throw new Error("the stub never verifies");
+        },
+      },
+    };
+  }
+
+  it("expands payment_method and returns the card's brand and last 4 digits", async () => {
+    const seen: Record<string, unknown>[] = [];
+    const payments = createStripePayments({
+      apiKey: "sk_test_throwaway",
+      webhookSecret: WEBHOOK_SECRET,
+      client: cardClient({ card: { brand: "visa", last4: "4242" } }, seen),
+    });
+    const status = await payments.intentStatus("pi_stub_1");
+    expect(status).toEqual({
+      ok: true,
+      intentId: "pi_stub_1",
+      status: "succeeded",
+      metadata: {},
+      card: { brand: "visa", last4: "4242" },
+    });
+    expect(seen[0]?.params).toEqual({ expand: ["payment_method"] });
+  });
+
+  it("names no card where the method is unexpanded, not a card, or missing its fields", async () => {
+    for (const paymentMethod of [
+      "pm_stub_1",
+      { card: undefined },
+      { card: { brand: "visa" } },
+      { card: { last4: "4242" } },
+      null,
+    ]) {
+      const payments = createStripePayments({
+        apiKey: "sk_test_throwaway",
+        webhookSecret: WEBHOOK_SECRET,
+        client: cardClient(paymentMethod),
+      });
+      await expect(payments.intentStatus("pi_stub_1")).resolves.toMatchObject({
+        ok: true,
+        card: null,
+      });
+    }
   });
 });
 

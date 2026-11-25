@@ -1,3 +1,4 @@
+import { canonicalEmail, isEmailShape, normaliseEmail, type GiftGoneReason } from "./gift";
 import { BUY_BAR_MYSTERY_EYEBROW, BUY_BAR_MYSTERY_LINE, GIFT_REPORT_BUTTON_LABEL } from "./results";
 import { REPORT_DOOR_CONTENTS_HEADING, type ReportDoorIdentity } from "./report-door";
 import { REPORT_PRICE_LABEL } from "./site";
@@ -251,6 +252,43 @@ export const PAYMENT_EMAIL_PLACEHOLDER = "you@example.co.uk";
 export const PAYMENT_EMAIL_ERROR =
   "That email address doesn't look quite right — check it and try again, so your report reaches you.";
 
+// BUG-327 (25 Nov 2026): a blank field is told it is
+// empty, not that it "doesn't look quite right" — the
+// one line above answers only a mistyped address. New
+// copy, in the site's plain voice, for the founder's
+// review: it names the empty field and what the
+// address is for.
+export const PAYMENT_EMAIL_EMPTY_ERROR = "Enter the email address you want the report sent to.";
+
+// BUG-327: the email error as the page now stands —
+// one derivation for the start handler, the blur check
+// and the tests, so a blank field and a mistyped one
+// can never share a line again. Blank first: a field
+// with nothing in it is empty, whatever its shape.
+export function emailErrorFor(email: string): string | null {
+  if (email.trim() === "") return PAYMENT_EMAIL_EMPTY_ERROR;
+  if (!isEmailShape(normaliseEmail(email))) return PAYMENT_EMAIL_ERROR;
+  return null;
+}
+
+// BUG-334: the gift applies while the entered email
+// still matches the email the gift is bound to — the
+// value-driven rule, factored here so it is pinnable
+// without a browser. "Matches" is the canonical match
+// (BUG-267): a variant of the bound address (+tag,
+// dots, googlemail.com) is the same mailbox, so the
+// gift still applies; only a genuinely different
+// address leaves it. The page's gift state follows
+// this value and nothing else — no click, no flag, no
+// page-load finality: re-entering the bound email
+// revives the gift form on the same page load.
+export function giftEmailMatches(boundEmail: string | null, enteredEmail: string): boolean {
+  return (
+    boundEmail !== null &&
+    canonicalEmail(normaliseEmail(enteredEmail)) === canonicalEmail(boundEmail)
+  );
+}
+
 export const PAYMENT_CARD_TITLE = "Card payment";
 export const PAYMENT_CLOSING_LINE =
   "Payment is handled securely by Stripe, and we never see your card details.";
@@ -268,15 +306,14 @@ export const PAYMENT_CLOSING_LINE =
 // ordering word (line 7: "By ordering, you agree to
 // our " + the Terms link + the paid tail). The button
 // starts the gifted order, never a payment (line 6).
-// The panel keeps the sample's own head for a gift
-// holder — "Detailed report" (approved Screen C,
-// drawn in the Sample 2 layout, whose checkout card
-// is headed so). The paid page's panel is still the
-// card panel ("Card payment") on current main: the
-// Sample 2 rebuild is a separate folded-ready stack,
-// and this title is already its head, so the gift
-// variant slots into that layout unchanged.
-export const PAYMENT_GIFT_CARD_TITLE = "Detailed report";
+// BUG-333 (25 Nov 2026): the panel keeps the paid
+// page's own head — "Card payment" — for a gift
+// holder too. Screen C's "Detailed report" panel head
+// repeated the checkout card's own head above it, so
+// the phrase stood twice on the page; the panel
+// heading beside "Powered by Stripe" carries its own
+// name instead. The gift variant therefore overrides
+// no panel title: cardTitle stays PAYMENT_CARD_TITLE.
 export const PAYMENT_GIFT_LINE =
   "Your free report gift has been applied — there's nothing to pay for this report.";
 export const PAYMENT_GIFT_TERMS_LINE_LEAD =
@@ -308,6 +345,70 @@ export const PAYMENT_HOME_NOT_FOUND_LINE =
   "We couldn't find that home — go back to your free check and start again from there.";
 export const PAYMENT_DECLINED_FALLBACK_LINE =
   "Your payment didn't go through — check the card details and try again.";
+
+// BUG-339 (25 Nov 2026): the ONE decline message, in
+// the site's voice — the declined card is answered
+// here, never by the provider's own line under the
+// card field, so two messages can never stand at
+// once. It names the decline, states plainly that
+// nothing was charged, and gives the next step (try
+// again, or a different card); the page renders a
+// link back to the free check beside it. New copy,
+// composed in the site's plain voice for the
+// founder's review: the first sentence is the site's
+// own decline line as the live pass recorded it, the
+// next step is the audit's proposed wording.
+export const PAYMENT_DECLINED_LINE =
+  "Your card has been declined — nothing has been charged. Check the card details and try again, or use a different card.";
+
+// BUG-326 (25 Nov 2026): the card panel could not
+// load — the provider's script failed — so the page
+// says so plainly instead of leaving a dead Pay
+// button. The audit's proposed wording, verbatim; the
+// retry button beside it re-runs the load.
+export const PAYMENT_CARD_LOAD_FAILED_LINE =
+  "The card panel couldn't load — check your connection and try again";
+
+// BUG-325 (25 Nov 2026): the gift the visit arrived
+// with is no longer available at intent time — the
+// server answered a payment, not a gift — so the page
+// reconciles to the paid form and says so plainly.
+// New copy, composed in the site's plain voice for
+// the founder's review. This line names both ways a
+// gift can go (expired, or already used) and stands
+// where the server's answer carries no reason; where
+// it carries one, paymentGiftGoneLine below names the
+// one that happened, in this line's own wording.
+export const PAYMENT_GIFT_NO_LONGER_AVAILABLE_LINE =
+  "Your free report gift is no longer available — it has expired or has already been used. This report costs £4.99, so tick the box to pay for it.";
+
+// BUG-325 follow-up (25 Nov 2026): the intent answer
+// carries the reason the gift was gone, so the line
+// names the one that happened — the cause clause alone
+// changes, everything else is the line above, verbatim.
+export const PAYMENT_GIFT_GONE_EXPIRED_LINE =
+  "Your free report gift is no longer available — it has expired. This report costs £4.99, so tick the box to pay for it.";
+export const PAYMENT_GIFT_GONE_ALREADY_USED_LINE =
+  "Your free report gift is no longer available — it has already been used. This report costs £4.99, so tick the box to pay for it.";
+
+// The gift-gone line for the reason the server
+// carried, or the both-causes line where it carried
+// none (a voided gift, or a reason that could not be
+// read — the page never claims a cause it was not
+// given).
+export function paymentGiftGoneLine(reason: GiftGoneReason | null | undefined): string {
+  if (reason === "expired") return PAYMENT_GIFT_GONE_EXPIRED_LINE;
+  if (reason === "already-used") return PAYMENT_GIFT_GONE_ALREADY_USED_LINE;
+  return PAYMENT_GIFT_NO_LONGER_AVAILABLE_LINE;
+}
+
+// BUG-329 (25 Nov 2026): no home was named — the
+// payment page renders no checkout for a generic
+// visit. New copy, composed in the site's plain voice
+// for the founder's review: it says what is missing
+// and points at the postcode box that names one.
+export const PAYMENT_NO_HOME_LINE =
+  "No home was named for this report — enter a postcode below to start a check.";
 
 // BUG-217 (founder ruling, 24 Nov 2026): there is no
 // interim line between a confirmed payment and the
@@ -360,12 +461,11 @@ export function buildReportPaymentView(
   // and the closing line is empty, because Screen C
   // draws none. The heading, the contents card, the
   // tease and the consent's tail are the paid page's
-  // own and stand unchanged; the panel takes the
-  // sample's own "Detailed report" head (see above).
+  // own and stand unchanged; the panel head is the
+  // paid page's own too ("Card payment", BUG-333).
   const gifted = gift
     ? {
         termsLineLead: PAYMENT_GIFT_TERMS_LINE_LEAD,
-        cardTitle: PAYMENT_GIFT_CARD_TITLE,
         payLabel: GIFT_REPORT_BUTTON_LABEL,
         closingLine: "",
         giftEmail: gift.email,

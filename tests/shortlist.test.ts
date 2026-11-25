@@ -180,7 +180,7 @@ const FLOOD_BIRKDALE = {
     floodLayer({
       layer: "rofrs",
       pointState: "no-band-published",
-      line: "no likelihood band is published for this point on the Environment Agency's map of flooding from rivers and the sea",
+      line: "the postcode point is below the lowest band the Environment Agency publishes on its map of flooding from rivers and the sea — Very low",
     }),
     floodLayer({
       layer: "rofsw",

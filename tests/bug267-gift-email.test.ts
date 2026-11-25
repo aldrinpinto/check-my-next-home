@@ -313,10 +313,12 @@ describe("the gift payment form locks the delivery email to the claimant (BUG-28
   });
 
   it("abandoning the gift is the paid form: the button honestly reads Pay £4.99", () => {
-    // Abandonment is giftActive=false — the escape sets
-    // giftAbandoned, and effectivePayLabel answers the
-    // paid label for exactly that state (the same state
-    // as an email edited away).
+    // Leaving the gift is giftActive=false — the
+    // email edited away from the bound address
+    // (BUG-334: the flip is value-driven, never the
+    // escape click alone) — and effectivePayLabel
+    // answers the paid label for exactly that state
+    // (the same state as an email edited away).
     const gifted = buildReportPaymentView(HOME, { email: GIFT_FRIEND });
     expect(effectivePayLabel(gifted, false, false)).toBe("Pay £4.99");
   });

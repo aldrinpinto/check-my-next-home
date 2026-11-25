@@ -152,6 +152,35 @@ function normAddress(text) {
     .replace(/\s+/g, " ");
 }
 
+// A source spelling the product corrects at filing —
+// the OSM loader's NAME_CORRECTIONS form (BUG-239):
+// one exact source string to its correction, so a
+// re-file from a fresh bulk file keeps the fix instead
+// of re-filing the typo. The map is removed entry by
+// entry as the corrections land upstream in the
+// register itself.
+//   - "East of England Stratigic Health Authority
+//     Offices, 8 Collingwood Road, Witham" — the
+//     register's own spelling of the site address (the
+//     filed string whole: the name plus its street);
+//     "Stratigic" is a typo for "Strategic"
+//     (BUG-344(b), 25 Nov 2026).
+const SITE_ADDRESS_CORRECTIONS = new Map([
+  [
+    "East of England Stratigic Health Authority Offices, 8 Collingwood Road, Witham",
+    "East of England Strategic Health Authority Offices, 8 Collingwood Road, Witham",
+  ],
+]);
+
+// The filed site address: the register's string, with
+// the recorded correction applied. Every other address
+// files verbatim — the map is one exact string, never a
+// pattern.
+export function siteAddress(row) {
+  const raw = (row["site-address"] ?? "").trim();
+  return SITE_ADDRESS_CORRECTIONS.get(raw) ?? raw;
+}
+
 const CONSUMED = [
   "entity",
   "reference",
@@ -202,7 +231,14 @@ export function processSites(rows, { progress = null } = {}) {
       noPoint += 1;
       continue;
     }
-    placeable.push({ row, lat: point.lat, lng: point.lng });
+    // BUG-344(b): the recorded spelling correction rides
+    // on the row from here, so the dedupe key, the golden
+    // checks and the filing all read the corrected address.
+    placeable.push({
+      row: { ...row, "site-address": siteAddress(row) },
+      lat: point.lat,
+      lng: point.lng,
+    });
   }
   processTally?.finish(rows.length);
   const byKey = new Map();

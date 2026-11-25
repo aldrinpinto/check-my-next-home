@@ -242,6 +242,13 @@ export function classifyTags(tags) {
 //     is "Latneys Boarding Kennels and Cattery".
 const NAME_CORRECTIONS = new Map([
   ["Latneys Boarding Kennelsl and Cattery", "Latneys Boarding Kennels and Cattery"],
+  // BUG-344(e) (25 Nov 2026): "Hatfield Tandori" — OSM
+  // node 1203700697, 26a Maldon Road, Hatfield Peverel:
+  // the missing "o" is a typo in the name tag; the
+  // business's own spelling is "Hatfield Tandoori" (its
+  // own site, hatfieldtandoorionline.com, and the Food
+  // Hygiene Ratings entry for the same address).
+  ["Hatfield Tandori", "Hatfield Tandoori"],
 ]);
 
 // The recorded name: the name tag trimmed, NULL when absent

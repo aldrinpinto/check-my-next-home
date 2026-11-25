@@ -788,17 +788,24 @@ export default function ResultsPage({
             {view.buyBar.mysteryLine}
           </p>
           <p className="buy-bar__actions">
-            {/* Item 19 (parity fix batch): the buy-bar
-                button carries no price — the priced form
-                is only the results-head button. BUG-223:
-                for a gift holder it carries the gift's
-                own words instead (approved Screen B,
-                DRAFT line 5). */}
+            {/* BUG-336 (25 Nov 2026): the buy-bar button
+                carries the price — the view's priced
+                label, in the header button's form — with
+                the one-payment line beneath it, so the
+                buy decision is priced where it is made.
+                A gift holder keeps the gift's own words
+                and no payment line: nothing is paid.
+                (The unpriced form stood here under the
+                parity batch's item 19; that item's
+                "priced form is only the results-head
+                button" is superseded for this bar by
+                the audit fix.) */}
             <ReportLink className="report-btn" href={view.buyBar.href}>
-              {giftHeld ? GIFT_REPORT_BUTTON_LABEL : "Get the full report"}
+              {giftHeld ? GIFT_REPORT_BUTTON_LABEL : view.buyBar.buttonLabel}
             </ReportLink>
             {shortlistCard && <ShortlistButton card={shortlistCard} />}
           </p>
+          {!giftHeld && <p className="buy-bar__one-payment">{view.buyBar.onePaymentLine}</p>}
         </div>
       )}
       {view.calculators && (

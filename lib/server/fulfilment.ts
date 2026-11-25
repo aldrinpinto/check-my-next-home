@@ -595,6 +595,24 @@ export async function processWebhookEvent(
     return { kind: "logged" };
   }
 
+  // BUG-330 — the price is the order's own: a succeeded
+  // payment for any other amount, in any other currency,
+  // is not a £4.99 report sale. The translator's verdict
+  // carries the amount and the currency off the event
+  // (lib/server/payments.ts's webhookObjectFields), so
+  // the comparison is made here, before any claim is
+  // taken: a mismatch — or an amount the event does not
+  // carry at all — is logged and refused, and the
+  // payment fulfils nothing. The refusal is visible in
+  // the event log (written above, before this point)
+  // and in this warning, rather than silently fulfilled.
+  if (verdict.amount !== REPORT_PRICE_PENCE || verdict.currency !== PAYMENT_CURRENCY) {
+    console.warn(
+      `webhook amount-mismatch outcome=refused payment=${verdict.intentId} amount=${verdict.amount} currency=${verdict.currency}`,
+    );
+    return { kind: "logged" };
+  }
+
   // The claim is taken BEFORE any delivery machinery
   // can run — the worker fulfils claims, never events.
   const claimed = await deps.claims.claim({
@@ -631,12 +649,14 @@ export async function processWebhookEvent(
   // flag, and the consent pair threaded from the
   // payment's metadata (extending T-PAY-06's proof
   // from metadata to record). The amount is pinned
-  // from the one price (REPORT_PRICE_PENCE, GBP): true
-  // for every order the site can currently take — the
-  // prep's recorded limit stands in migration 0043's
-  // header (a varying price must first extend the
-  // translator's verdict to read the amount off the
-  // event). Insert-or-nothing, so a redelivery's
+  // from the one price (REPORT_PRICE_PENCE, GBP) — and
+  // BUG-330 has already read the event's own amount and
+  // currency above and refused any mismatch, so the
+  // pinned price is the verified price, not an
+  // assumption. A varying price would still need the
+  // record to carry the event's amount rather than the
+  // pin (the prep's recorded limit stands in migration
+  // 0043's header). Insert-or-nothing, so a redelivery's
   // record attempt is a no-op; a failed write is
   // logged and swallowed — the claim stands, and the
   // worker's notices backfill the record at delivery.

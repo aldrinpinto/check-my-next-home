@@ -9,24 +9,34 @@ import type { ReportDoorIdentity } from "../lib/report-door";
 import * as reportPayment from "../lib/report-payment";
 import {
   buildReportPaymentView,
+  emailErrorFor,
+  giftEmailMatches,
   liveStartedPayment,
   paymentElementKey,
+  PAYMENT_CARD_LOAD_FAILED_LINE,
   PAYMENT_CLOSING_LINE,
   PAYMENT_CONSENT_ERROR_LINE,
   PAYMENT_CONSENT_LABEL,
   PAYMENT_CONSENT_TAIL,
+  PAYMENT_DECLINED_LINE,
+  PAYMENT_EMAIL_EMPTY_ERROR,
   PAYMENT_EMAIL_ERROR,
   PAYMENT_EMAIL_HELP,
   PAYMENT_EMAIL_LABEL,
   PAYMENT_EMAIL_PLACEHOLDER,
   PAYMENT_GIFT_LINE,
+  PAYMENT_GIFT_GONE_ALREADY_USED_LINE,
+  PAYMENT_GIFT_GONE_EXPIRED_LINE,
+  PAYMENT_GIFT_NO_LONGER_AVAILABLE_LINE,
   PAYMENT_GIFT_TERMS_LINE_LEAD,
+  PAYMENT_NO_HOME_LINE,
   PAYMENT_ONE_PAYMENT_LINE,
   PAYMENT_REFUND_LINE,
   PAYMENT_TERMS_HREF,
   PAYMENT_TERMS_LINE,
   PAYMENT_TERMS_LINE_LEAD,
   PAYMENT_TERMS_LINK_LABEL,
+  paymentGiftGoneLine,
   type StartedPayment,
 } from "../lib/report-payment";
 import { GIFT_APPLIED_BANNER_LINE } from "../lib/report-success";
@@ -610,10 +620,14 @@ describe("payment page — the gift variant (BUG-223, approved Screen C)", () =>
     expect(view.termsLineLead).toContain("By ordering, you agree to our ");
     expect(view.termsLineLead).not.toContain("By paying");
     expect(view.termsLineLead).not.toContain("By claiming");
-    // Screen C draws no closing line under the button,
-    // and the panel keeps its "Detailed report" title.
+    // Screen C draws no closing line under the button.
+    // BUG-333 (25 Nov 2026): the panel keeps the paid
+    // page's own head — "Card payment" — for a gift
+    // holder too; the gift variant no longer overrides
+    // it to "Detailed report", which repeated the
+    // checkout card's own head above it.
     expect(view.closingLine).toBe("");
-    expect(view.cardTitle).toBe("Detailed report");
+    expect(view.cardTitle).toBe("Card payment");
     expect(view.giftEmail).toBe(GIFT_FRIEND);
     expect(view.giftLine).toBe(PAYMENT_GIFT_LINE);
     // The heading, contents card and tease are the paid
@@ -654,7 +668,15 @@ describe("payment page — the gift variant (BUG-223, approved Screen C)", () =>
     expect(html).toContain("A mystery extra");
     expect(html).toContain(BUY_BAR_MYSTERY_LINE);
     expect(html).not.toContain("Pay £4.99");
-    expect(html).not.toContain("Card payment");
+    // BUG-333 (25 Nov 2026): the panel head beside
+    // "Powered by Stripe" is the panel's own name —
+    // "Card payment" — and the phrase "Detailed
+    // report" stands once on the page, as the checkout
+    // card's head above it. (The heading itself reads
+    // "The detailed report for …" with a lowercase d,
+    // so the capital-D count is the head alone.)
+    expect(html).toContain("Card payment");
+    expect(html.match(/Detailed report/g)?.length).toBe(1);
     expect(html).not.toContain("Powered by");
     expect(html).not.toContain("Payment is handled securely by Stripe");
     expect(html).not.toContain("report-payment__smallprint");
@@ -666,5 +688,313 @@ describe("payment page — the gift variant (BUG-223, approved Screen C)", () =>
     expect(html).toContain('value=""');
     expect(html).toContain("Pay £4.99");
     expect(html).toContain("Powered by");
+  });
+});
+
+// BUG-327 + BUG-328 — the start handler's errors: a
+// blank email and a mistyped one are told apart, and
+// a missing email AND a missing tick are named
+// together, on the first click.
+describe("payment page — the start handler's errors (BUG-327, BUG-328)", () => {
+  it("a blank field gets the empty line, a mistyped one the 'doesn't look quite right' line", () => {
+    expect(emailErrorFor("")).toBe(PAYMENT_EMAIL_EMPTY_ERROR);
+    expect(PAYMENT_EMAIL_EMPTY_ERROR).toBe("Enter the email address you want the report sent to.");
+    expect(emailErrorFor("   ")).toBe(PAYMENT_EMAIL_EMPTY_ERROR);
+    expect(emailErrorFor("aldrin@")).toBe(PAYMENT_EMAIL_ERROR);
+    expect(emailErrorFor("buyer@example.co.uk")).toBeNull();
+  });
+
+  it("the component evaluates both checks before returning — the email error and the consent error are set together (source pin)", () => {
+    // The harness has no DOM environment, so the
+    // click itself is pinned in source, as BUG-217's
+    // proofs are: onStartClick derives the email
+    // error, sets the consent error where the tick is
+    // missing, and returns once on the joint check —
+    // never an email return before the consent check.
+    const source = readFileSync(join(process.cwd(), "components/ReportPaymentPage.tsx"), "utf8");
+    const startClick = source.slice(source.indexOf("function onStartClick()"));
+    expect(startClick).toContain("const emailErr = emailErrorFor(email);");
+    expect(startClick).toContain("if (consentAt === null) {");
+    expect(startClick).toContain("if (emailErr || consentAt === null) {");
+    // The joint return sits after BOTH sets: the
+    // consent error is set before the single return.
+    const consentSet = startClick.indexOf("setConsentError(true)");
+    const jointReturn = startClick.indexOf("if (emailErr || consentAt === null) {");
+    expect(consentSet).toBeGreaterThan(-1);
+    expect(jointReturn).toBeGreaterThan(consentSet);
+    // No early email-only return survives: the old
+    // shape was `if (!emailValid) { setEmailError...
+    // return; }` ahead of the consent check.
+    expect(startClick).not.toContain("setEmailError(true)");
+  });
+});
+
+// BUG-334 — the gift follows the field's value, and
+// nothing else: "Use a different email" only unlocks
+// the field, and re-entering the bound email revives
+// the gift form on the same page load.
+describe("payment page — the gift follows the field's value (BUG-334)", () => {
+  it("giftEmailMatches: the bound email and its variants match, nothing else does", () => {
+    expect(giftEmailMatches(GIFT_FRIEND, GIFT_FRIEND)).toBe(true);
+    expect(giftEmailMatches(GIFT_FRIEND, "friend+tag@example.co.uk")).toBe(true);
+    expect(giftEmailMatches(GIFT_FRIEND, "FRIEND@Example.CO.UK")).toBe(true);
+    expect(giftEmailMatches(GIFT_FRIEND, "someone-else@example.co.uk")).toBe(false);
+    expect(giftEmailMatches(GIFT_FRIEND, "")).toBe(false);
+    expect(giftEmailMatches(null, GIFT_FRIEND)).toBe(false);
+  });
+
+  it("the escape only unlocks the field — no abandonment flag, no consent clear, no paid flip on the click (source pin)", () => {
+    const source = readFileSync(join(process.cwd(), "components/ReportPaymentPage.tsx"), "utf8");
+    expect(source).toContain("function onUseDifferentEmail() {");
+    expect(source).not.toContain("giftAbandoned");
+    expect(source).not.toContain("onAbandonGift");
+    const escape = source.slice(source.indexOf("function onUseDifferentEmail()"));
+    expect(escape.slice(0, 600)).toContain("setEmailUnlocked(true);");
+    expect(escape.slice(0, 600)).toContain("emailRef.current?.focus();");
+    expect(escape.slice(0, 600)).not.toContain("setConsentAt(null)");
+    // The revive: the onChange handler re-ticks and
+    // re-locks when the value returns to the bound
+    // email after leaving it.
+    expect(source).toContain("const nowMatching = giftEmailMatches(view.giftEmail, next);");
+    expect(source).toContain("if (view.giftEmail !== null && nowMatching && !wasMatching) {");
+    expect(source).toContain("setEmailUnlocked(false);");
+  });
+});
+
+// BUG-335 + BUG-325 — the paid flow starts ONLY on
+// the Pay button click, never on the consent tick;
+// and a gift visit whose intent answers as a payment
+// reconciles to the paid form.
+describe("payment page — the paid flow starts on the Pay click only (BUG-335, BUG-325)", () => {
+  const ROOT = process.cwd();
+  const read = (path: string) => readFileSync(join(ROOT, path), "utf8");
+
+  it("no effect creates an intent: the one intent fetch lives inside the click handler", () => {
+    const source = read("components/ReportPaymentPage.tsx");
+    // The tick-effect is gone: no useEffect body
+    // touches the intent endpoint, and the endpoint
+    // is fetched from exactly one place — the click
+    // handler startPayment, called only from
+    // onStartClick.
+    expect(source.match(/fetch\("\/api\/payments\/intent"/g)).toHaveLength(1);
+    const fetchAt = source.indexOf('fetch("/api/payments/intent"');
+    expect(fetchAt).toBeGreaterThan(source.indexOf("async function startPayment()"));
+    expect(source).toContain("void startPayment();");
+    expect(source).not.toContain("if (giftActive && attempt === 0)");
+    expect(source).not.toContain("starts on the tick");
+  });
+
+  it("a gift visit whose intent answers as a payment reconciles to the paid form: gift lost, consent cleared, plain line (source pin)", () => {
+    const source = read("components/ReportPaymentPage.tsx");
+    expect(source).toContain("const giftVisit = giftActive;");
+    expect(source).toContain("if (giftVisit) {");
+    // The reconcile branch runs to the success path's
+    // setNotice(null) — everything inside it is the
+    // gift-gone handling, and the payment this click
+    // created is NOT kept: the branch returns before
+    // setStarted, so the buyer's knowing tick and next
+    // Pay click start a fresh one under the new
+    // consent.
+    const reconcile = source.slice(
+      source.indexOf("if (giftVisit) {"),
+      source.indexOf("setNotice(null);", source.indexOf("if (giftVisit) {")),
+    );
+    expect(reconcile).toContain("setGiftLost(true);");
+    expect(reconcile).toContain("setConsentAt(null);");
+    // BUG-325 follow-up: the line is selected by the
+    // reason the intent answer carried — the one that
+    // happened — not the both-causes line directly.
+    expect(reconcile).toContain("setNotice(paymentGiftGoneLine(data.giftGoneReason));");
+    expect(reconcile).not.toContain("setStarted({");
+    expect(PAYMENT_GIFT_NO_LONGER_AVAILABLE_LINE).toBe(
+      "Your free report gift is no longer available — it has expired or has already been used. This report costs £4.99, so tick the box to pay for it.",
+    );
+  });
+
+  it("a declined card retires the payment and the retry is a fresh one (source pin)", () => {
+    const source = read("components/ReportPaymentPage.tsx");
+    expect(source).toContain("function onDeclined() {");
+    const retired = source.slice(source.indexOf("function onDeclined()"));
+    expect(retired.slice(0, 800)).toContain("setStarted(null);");
+    expect(retired.slice(0, 800)).toContain("setDeclined(true);");
+    // The element re-keys per attempt, so a fresh
+    // payment gets a fresh element, never the retired
+    // payment's state.
+    expect(source).toContain("key={attempt}");
+  });
+});
+
+// BUG-325 follow-up — the gift-gone line names the
+// one that happened where the server carried the
+// reason, and keeps the both-causes line where it
+// carried none. The specific lines keep the
+// both-causes line's wording otherwise — the cause
+// clause alone changes.
+describe("payment page — the gift-gone line names the reason (BUG-325 follow-up)", () => {
+  it("names expiry where the gift expired", () => {
+    expect(paymentGiftGoneLine("expired")).toBe(PAYMENT_GIFT_GONE_EXPIRED_LINE);
+    expect(PAYMENT_GIFT_GONE_EXPIRED_LINE).toBe(
+      "Your free report gift is no longer available — it has expired. This report costs £4.99, so tick the box to pay for it.",
+    );
+  });
+
+  it("names already-used where the gift was already used", () => {
+    expect(paymentGiftGoneLine("already-used")).toBe(PAYMENT_GIFT_GONE_ALREADY_USED_LINE);
+    expect(PAYMENT_GIFT_GONE_ALREADY_USED_LINE).toBe(
+      "Your free report gift is no longer available — it has already been used. This report costs £4.99, so tick the box to pay for it.",
+    );
+  });
+
+  it("keeps the both-causes line where no reason was carried", () => {
+    expect(paymentGiftGoneLine(undefined)).toBe(PAYMENT_GIFT_NO_LONGER_AVAILABLE_LINE);
+    expect(paymentGiftGoneLine(null)).toBe(PAYMENT_GIFT_NO_LONGER_AVAILABLE_LINE);
+  });
+});
+
+// BUG-326 — if the card provider's script fails to
+// load, the page says so and offers a retry, and
+// keeps the Pay button out of the way.
+describe("payment page — the card panel failing to load (BUG-326)", () => {
+  it("the failure line is the audit's wording, and the component watches the provider promise for a null resolution (source pin)", () => {
+    expect(PAYMENT_CARD_LOAD_FAILED_LINE).toBe(
+      "The card panel couldn't load — check your connection and try again",
+    );
+    const source = readFileSync(join(process.cwd(), "components/ReportPaymentPage.tsx"), "utf8");
+    expect(source).toContain("setStripeFailed(stripe === null);");
+    expect(source).toContain("PAYMENT_CARD_LOAD_FAILED_LINE");
+    // The retry drops the dead promise from the
+    // per-key cache and re-runs the load — it never
+    // replays the same resolved-null promise.
+    expect(source).toContain("function onRetryCardPanel() {");
+    expect(source).toContain("stripePromises.delete(elementKey);");
+    expect(source).toContain("setStripeLoadAttempt((value) => value + 1);");
+    // The failed branch renders the line and the
+    // retry INSTEAD of the element — no Pay button
+    // stands while the panel is dead.
+    const failed = source.slice(source.indexOf("stripeFailed ? ("));
+    expect(failed.slice(0, 900)).toContain("onRetryCardPanel");
+    expect(failed.slice(0, 900)).not.toContain("<PaySection");
+  });
+});
+
+// BUG-339 + BUG-340 + BUG-341 — one decline message,
+// the first error field in view, one source of truth
+// for card-field errors.
+describe("payment page — the decline and the card-field errors (BUG-339, BUG-340, BUG-341)", () => {
+  const ROOT = process.cwd();
+  const read = (path: string) => readFileSync(join(ROOT, path), "utf8");
+
+  it("the decline line is the site's own, with its next step — and the provider's decline line never reaches the page", () => {
+    expect(PAYMENT_DECLINED_LINE).toBe(
+      "Your card has been declined — nothing has been charged. Check the card details and try again, or use a different card.",
+    );
+    const source = read("components/ReportPaymentPage.tsx");
+    expect(source).toContain('if (result.error.code === "card_declined") {');
+    // The decline branch retires the payment and
+    // hands the message to the parent — it never sets
+    // a card error from the provider's message, so
+    // Stripe's "Your card was declined." can never
+    // stand under the field beside the site's line.
+    const decline = source.slice(source.indexOf('if (result.error.code === "card_declined") {'));
+    expect(decline.slice(0, 300)).toContain("onDeclined();");
+    expect(decline.slice(0, 300)).not.toContain("setCardError");
+    // The parent renders the one line with the link
+    // back to the free check.
+    expect(source).toContain("{PAYMENT_DECLINED_LINE}");
+    expect(source).toContain("Back to your free check");
+  });
+
+  it("one source of truth for card-field errors: the field-change event refreshes the one error the field and the summary both read", () => {
+    const source = read("components/ReportPaymentPage.tsx");
+    // The change event carries no error
+    // (StripePaymentElementChangeEvent: empty,
+    // complete, collapsed, value) — the error
+    // arrives on the fieldchange event, whose
+    // state.error is the one card error.
+    expect(source).not.toContain("event.error ?");
+    expect(source).toContain("setCardError(event.state.error ? event.state.error.message : null);");
+    // The same state renders under the field and
+    // above Pay — never two wordings.
+    expect(source.match(/\{cardError &&/g)?.length).toBe(2);
+    // Editing clears the stale error at once (the
+    // "invalid card" surviving a corrected number
+    // until the next Pay click is the folded-in
+    // defect this closes): the field handler sets
+    // null where the provider reports no error, and
+    // the change handler clears it once the element
+    // reports complete.
+    expect(source).toContain("event.state.error ? event.state.error.message : null");
+    expect(source).toContain("if (event.complete) setCardError(null);");
+  });
+
+  it("a failed submit scrolls to and focuses the first field with an error (source pin)", () => {
+    const source = read("components/ReportPaymentPage.tsx");
+    // The card panel: the confirm form scrolls back
+    // into view and the provider's first field takes
+    // focus — the page never jumps past the panel to
+    // the optional section below it.
+    expect(source).toContain('formRef.current?.scrollIntoView({ block: "center" });');
+    // getElement(PaymentElement) is typed as the
+    // broad StripeElement union, so the focus call is
+    // narrowed to the members that carry focus()
+    // (StripeElementBase) before it runs.
+    expect(source).not.toContain("getElement(PaymentElement)?.focus();");
+    expect(source).toContain(
+      'if (paymentElement && "focus" in paymentElement) paymentElement.focus();',
+    );
+    // The start handler: the first errored field —
+    // email, else the tick — takes focus.
+    expect(source).toContain("const target = emailErr ? emailRef.current : consentRef.current;");
+    expect(source).toContain('target?.scrollIntoView({ block: "center" });');
+    expect(source).toContain("target?.focus();");
+  });
+
+  it("no site code rewrites an expiry: the 13/99 → 01/39 rewrite is the provider element's own behaviour", () => {
+    // The component carries no expiry normalisation
+    // of its own — no month parsing, no rewrite, no
+    // expiry field handling anywhere in our code; the
+    // card fields live inside the provider's
+    // cross-origin iframes. The finding is recorded
+    // where the change handler lives, so a future
+    // reader does not "fix" the provider's element
+    // by guessing.
+    const source = read("components/ReportPaymentPage.tsx");
+    // The phrase stands across a comment line-break,
+    // so it is pinned in its two halves.
+    expect(source).toContain("13/99 → 01/39 rewrite is the provider's");
+    expect(source).toContain("element's own behaviour");
+    expect(source).not.toContain("exp_month");
+    expect(source).not.toContain("expiryMonth");
+    expect(source).not.toContain("cardExpiry");
+  });
+});
+
+// BUG-329 — the generic payment view renders no
+// checkout: the door's plain line that no home was
+// named, with the postcode box so the buyer can name
+// one. The generic form stays only as a way back into
+// a check, never as a payment page.
+describe("payment page — the generic visit renders no checkout (BUG-329)", () => {
+  it("the line is plain, and the route renders it with the postcode box ahead of any payment page", () => {
+    expect(PAYMENT_NO_HOME_LINE).toBe(
+      "No home was named for this report — enter a postcode below to start a check.",
+    );
+    const source = readFileSync(join(process.cwd(), "app/report/page.tsx"), "utf8");
+    expect(source).toContain('if (identity.kind === "generic") {');
+    expect(source).toContain("PAYMENT_NO_HOME_LINE");
+    expect(source).toContain("<PostcodeBox bare />");
+    // The generic branch stands inside the paid
+    // branch and returns before the payment page is
+    // ever rendered for the visit.
+    const paidBranch = source.slice(source.indexOf('if (doorState === "paid") {'));
+    expect(paidBranch.indexOf('if (identity.kind === "generic") {')).toBeGreaterThan(-1);
+    expect(paidBranch.indexOf('if (identity.kind === "generic") {')).toBeLessThan(
+      paidBranch.indexOf("<ReportPaymentPage"),
+    );
+    // The intent route's home-not-found guard stays
+    // as the backstop behind this — the route file
+    // still answers it, untouched by this stack.
+    const intent = readFileSync(join(process.cwd(), "app/api/payments/intent/route.ts"), "utf8");
+    expect(intent).toContain('"home-not-found"');
   });
 });

@@ -295,6 +295,94 @@ function round3(miles: number): number {
   return Math.round(miles * 1000) / 1000;
 }
 
+// The name normal form for the served-list dedupe below:
+// the OSM loader's normaliseName (loaders/load-osm-places.mjs),
+// in the brain's own words — lower case, accents stripped,
+// "&" read as "and", apostrophes dropped, punctuation
+// becomes spaces, runs collapsed. The leading "the" is
+// KEPT here: two registrations at one address that differ
+// only by it ("THE APPLEBY CENTRE" / "APPLEBY CENTRE") are
+// two filed rows, and the pipeline serves both — collapsing
+// them is the sample's editorial call (lib/sample-report.ts),
+// not the pipeline's.
+function normalisePlaceName(name: string): string {
+  return name
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/['’]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+// The dedupe radius (BUG-342, 25 Nov 2026): the OSM
+// loader's 30 metres, in miles — the same twin distance
+// its dedupePlaces uses, so a place the filing carries
+// twice (a node and a way, a re-filed row) collapses
+// here exactly as it does there. Name alone never
+// dedupes: two branches of one name farther apart than
+// this are two places, and both serve.
+const DEDUPE_RADIUS_MILES = 30 / 1609.344;
+
+// The categories the dedupe runs on (BUG-342): schools,
+// nurseries and health — the categories the audit's
+// duplicates sat in, where one name at one point is one
+// place and a twin filing is a filing artefact. It
+// deliberately does NOT run on the rest: bus-stop and
+// station count filed rows — two directions of one stop,
+// two modes of one station at one point are two real
+// rows, and the locked counts (63 stops, 72 stations)
+// pin that basis; supermarket pins the same for the
+// Lidl twin at one point; ev-chargers counts
+// chargepoints at one site; and the OSM loader already
+// dedupes its own twins at filing for the remaining
+// OSM categories. Widening this set needs a locked
+// test's say-so, not a hunch.
+const DEDUPE_CATEGORIES: ReadonlySet<NearbyCategory> = new Set([
+  "schools-primary",
+  "schools-secondary",
+  "sixth-forms",
+  "nurseries",
+  "gp",
+  "dentist",
+  "pharmacy",
+  "ae",
+  "maternity",
+]);
+
+type MeasuredPoint = { point: NearbyPoint; raw: number };
+
+// Drop the second and later filings of one place from a
+// distance-sorted measured list: the same normalised name
+// at effectively the same point (within the dedupe
+// radius of a kept point). Unnamed points never dedupe —
+// a nameless point carries nothing to match on — and the
+// nearest filing always wins, because the list arrives
+// distance-sorted. Pure: the input list is never mutated.
+function dedupeMeasured(measured: MeasuredPoint[]): MeasuredPoint[] {
+  const kept: MeasuredPoint[] = [];
+  for (const m of measured) {
+    const name = m.point.name;
+    if (name === null || name === "") {
+      kept.push(m);
+      continue;
+    }
+    const key = normalisePlaceName(name);
+    const twin = kept.find(
+      (k) =>
+        k.point.name !== null &&
+        k.point.name !== "" &&
+        normalisePlaceName(k.point.name) === key &&
+        haversineMiles(k.point.latitude, k.point.longitude, m.point.latitude, m.point.longitude) <=
+          DEDUPE_RADIUS_MILES,
+    );
+    if (!twin) kept.push(m);
+  }
+  return kept;
+}
+
 export type NearbyCategory =
   | "schools-primary"
   | "schools-secondary"
@@ -1137,13 +1225,17 @@ async function buildCategory(
   // Every other category serves the list radius.
   const radius = servingRadiusMiles(key);
   const within = await source.pointsWithin(key, latitude, longitude, radius);
-  const measured = within
+  const sorted = within
     .map((point) => ({
       point,
       raw: haversineMiles(latitude, longitude, point.latitude, point.longitude),
     }))
     .filter((m) => m.raw <= radius)
     .sort((a, b) => a.raw - b.raw || (a.point.name ?? "").localeCompare(b.point.name ?? ""));
+  // The served-list dedupe (BUG-342) runs only on the
+  // categories in DEDUPE_CATEGORIES — the rest serve
+  // their filed rows verbatim, twins included.
+  const measured = DEDUPE_CATEGORIES.has(key) ? dedupeMeasured(sorted) : sorted;
   const named = measured.filter((m) => m.point.name !== null && m.point.name !== "");
   // The pet categories' two-nearest rule (BUG-079): a
   // vet, a pet shop or a boarding place is a service a
@@ -1169,7 +1261,15 @@ async function buildCategory(
           m.point.name !== "",
       )
       .sort((a, b) => a.raw - b.raw || (a.point.name ?? "").localeCompare(b.point.name ?? ""));
-    listed = [...named, ...widerNamed];
+    // A wider twin of a within-radius filing (the same
+    // name at effectively the same point, just outside
+    // the radius) is the same place twice — the dedupe
+    // runs over the merged list, nearest first, where
+    // the category is in DEDUPE_CATEGORIES; the pet
+    // categories are not, so they keep both filings.
+    listed = DEDUPE_CATEGORIES.has(key)
+      ? dedupeMeasured([...named, ...widerNamed])
+      : [...named, ...widerNamed];
   }
   const places: NearbyPlace[] = listed
     .slice(

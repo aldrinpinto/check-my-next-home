@@ -81,14 +81,19 @@ import type { ServedSale, SoldPricesBundle } from "./sold-prices";
 // report is reached at REPORT_VIEW_ROUTE ("/report/view")
 // with the journey family's own parameters — ?postcode=
 // and, for a single home, &home= (the homeKeyOf key, as
-// reportRoute builds for the door). M8.6's safe download
-// links, M8.7's tester unlock and M9's payment wiring all
-// land on this route and these parameters; nothing later
-// needs a second shape. While REPORT_DOOR_STATE holds,
-// the route serves nobody: app/report/view/page.tsx
-// redirects to the door (reportRoute) before any bundle
-// is assembled, so the complete pages exist behind the
-// door and the door is not weakened (scope note (i)).
+// reportRoute builds for the door) — and, since BUG-324,
+// &token= carrying the delivery email's signed download
+// token, which the gate reads before serving. M8.6's safe
+// download links, M8.7's tester unlock and M9's payment
+// wiring all land on this route and these parameters;
+// nothing later needs a second shape. While
+// REPORT_DOOR_STATE holds, the route serves nobody: app/
+// report/view/page.tsx redirects to the door
+// (reportRoute) before any bundle is assembled, so the
+// complete pages exist behind the door and the door is
+// not weakened (scope note (i)). Since BUG-324 the
+// route serves nobody without a verified token either —
+// a paid door state alone no longer opens it.
 // The flip is the reviewed constant's own change at
 // M8.7/M9.6, in the same commit as the lines it gates
 // (the M7.6 pattern).
@@ -136,23 +141,42 @@ export const REPORT_VIEW_ROUTE = "/report/view";
 
 // The buyer-route seam's address builder, on reportRoute's
 // own pattern: the postcode always, the home key where the
-// report is for one home.
-export function reportViewRoute(postcode: string, homeKey?: string | null): string {
+// report is for one home, and — since BUG-324 — the view
+// token where the caller holds one (the delivery email's
+// signed download token, minted by
+// lib/server/report-view-access.ts): the token rides as
+// &token=, and the view route's gate reads it.
+export function reportViewRoute(
+  postcode: string,
+  homeKey?: string | null,
+  token?: string | null,
+): string {
   const params = new URLSearchParams({ postcode });
   if (homeKey) params.set("home", homeKey);
+  if (token) params.set("token", token);
   return `${REPORT_VIEW_ROUTE}?${params.toString()}`;
 }
 
 // The door gate for the view route, factored out of the
 // page so the seam is testable without a server: while
 // the door state is "holding" the answer is the door's
-// own href for the same identity; any later state serves.
+// own href for the same identity; in any later state the
+// answer is still the door UNLESS the reader's access
+// has been verified — the BUG-324 fix. A verified reader
+// is one holding the delivery email's signed token for
+// a fulfilled order for this home, as
+// lib/server/report-view-access.ts proves it; the page
+// does the proving and passes the answer in. The gate
+// itself stays pure: it decides from the door state and
+// the verified flag, and never reads a token or a claim.
 export function reportViewGate(
   postcode: string,
   homeKey: string | null,
   doorState: ReportDoorState = REPORT_DOOR_STATE,
+  accessVerified = false,
 ): { action: "door"; href: string } | { action: "serve" } {
   if (doorState === "holding") return { action: "door", href: reportRoute(postcode, homeKey) };
+  if (!accessVerified) return { action: "door", href: reportRoute(postcode, homeKey) };
   return { action: "serve" };
 }
 
@@ -2072,7 +2096,13 @@ function destinationsFacts(place: NearbyPlace): { bullets: string[]; notes: stri
     const employment = shareText(stage.employment);
     if (employment) shares.push(`employment: ${employment}`);
     if (shares.length > 0) bullets.push(`${label} destinations — ${shares.join("; ")}.`);
-    notes.push(stage.sustainedLine);
+    // BUG-344(a): the D65 field set carries the sustained
+    // line on both stages, so a school serving KS4 and KS5
+    // pushed it twice and it printed twice. The line is
+    // one explanation for the school, so it stands once,
+    // in stage order — the data model keeps the line on
+    // both stages, untouched.
+    if (!notes.includes(stage.sustainedLine)) notes.push(stage.sustainedLine);
   }
   return { bullets, notes };
 }

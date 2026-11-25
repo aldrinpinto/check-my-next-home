@@ -223,6 +223,25 @@ describe("the delivery email (view 11)", () => {
     expect(without.text).not.toContain("/gift/");
     expect(without.html).not.toContain("/gift/");
   });
+
+  it("repeats the receipt — order reference and amount, no card — when one is passed (BUG-337)", () => {
+    const receipt = { orderRef: "pi_3Ufl8WQ0IvxPpfqF2uaVmCv3", amountPence: 499 };
+    const email = deliveryEmail({ ...base, giftClaimUrl: null, receipt });
+    expect(email.text).toContain("Order pi_3Ufl8WQ0IvxPpfqF2uaVmCv3 — £4.99 paid.");
+    expect(email.html).toContain("Order pi_3Ufl8WQ0IvxPpfqF2uaVmCv3 — £4.99 paid.");
+    // The card line is page-only: the delivery service
+    // never sees the card, so no card words ride here.
+    expect(email.text).not.toContain("Visa");
+    expect(email.text).not.toContain("ending in");
+    expect(email.html).not.toContain("ending in");
+  });
+
+  it("carries no receipt line when none is passed — free and gifted deliveries pay nothing", () => {
+    const email = deliveryEmail({ ...base, giftClaimUrl: null });
+    expect(email.text).not.toContain("Order ");
+    expect(email.text).not.toContain("paid.");
+    expect(email.html).not.toContain("paid.");
+  });
 });
 
 describe("the re-issue email (view 34)", () => {

@@ -27,8 +27,15 @@
 // error text is never relayed.
 
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 
 import { homeKeyOf } from "../../../../lib/bundle-cache";
+import {
+  canonicalEmail,
+  GIFT_COOKIE_NAME,
+  isGiftTokenForm,
+  type GiftGoneReason,
+} from "../../../../lib/gift";
 import { nationOfLsoa } from "../../../../lib/journey";
 import { nationOfPostcode } from "../../../../lib/nation";
 import { REPORT_DOOR_HOLDING_STATE_LINE } from "../../../../lib/report-door";
@@ -42,6 +49,7 @@ import { createDbGiftStore, giftSourceTestOrder } from "../../../../lib/server/g
 import { createDbOrderStore } from "../../../../lib/server/orders";
 import { getPaymentsRouter } from "../../../../lib/server/payments";
 import {
+  giftGoneReasonFor,
   startReportPayment,
   type ResolvedPaymentHome,
 } from "../../../../lib/server/payment-intent";
@@ -214,9 +222,37 @@ export async function POST(request: Request) {
   if ("gifted" in result) {
     return NextResponse.json({ gifted: true, ref: result.ref });
   }
+  // BUG-325 follow-up: where the visit arrived with a
+  // gift and the answer is a payment, say WHY the gift
+  // was gone. The visit's gift token rides the
+  // cmnh-gift cookie; its record — bound to the email
+  // this request carries, by the BUG-267 canonical
+  // match — reduces through the served state's own
+  // precedence (lib/server/payment-intent.ts's
+  // giftGoneReasonFor). A lookup that cannot be read,
+  // a token that names no gift, a gift bound to
+  // another email, or a standing that names neither
+  // cause leaves the answer without a reason, and the
+  // page keeps its both-causes line. The reason is
+  // display-only: it never changes the payment, and a
+  // failed lookup never fails the start.
+  let giftGoneReason: GiftGoneReason | null = null;
+  try {
+    const token = (await cookies()).get(GIFT_COOKIE_NAME)?.value;
+    const email = typeof body.email === "string" ? body.email : null;
+    if (token && isGiftTokenForm(token) && email) {
+      const record = await gifts.getByToken(token);
+      if (record?.claimantEmail && canonicalEmail(record.claimantEmail) === canonicalEmail(email)) {
+        giftGoneReason = giftGoneReasonFor(record, new Date());
+      }
+    }
+  } catch {
+    giftGoneReason = null;
+  }
   return NextResponse.json({
     intentId: result.intentId,
     clientSecret: result.clientSecret,
     publishableKey: result.publishableKey,
+    ...(giftGoneReason ? { giftGoneReason } : {}),
   });
 }

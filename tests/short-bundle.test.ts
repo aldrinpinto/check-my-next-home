@@ -2305,8 +2305,11 @@ describe("short bundle — 19 Birkdale Rise, CM3 2JT (rung 1)", () => {
       "Environment Agency — Flood Map for Planning (Flood Zones 2 and 3) — data to 21 October 2026",
     );
     expect(rofrs.pointState).toBe("no-band-published");
+    // BUG-343: the absence reads as Very low — the free
+    // pill's band — with its source, never as "no band is
+    // published". The point state is unchanged.
     expect(rofrs.line).toBe(
-      "no likelihood band is published for this point on the Environment Agency's map of flooding from rivers and the sea",
+      "the postcode point is below the lowest band the Environment Agency publishes on its map of flooding from rivers and the sea — Very low",
     );
     expect(rofrs.sourceLine).toContain("data to 3 November 2026");
     expect(rofsw.pointState).toBe("below-lowest-band");

@@ -66,6 +66,15 @@ function eventPayload(input: {
   // default stays live, so the existing pins keep the
   // shape they were written against.
   livemode?: boolean;
+  // BUG-330 — the event's amount and currency are part
+  // of the payload under test: the webhook refuses a
+  // succeeded payment whose amount is not £4.99 in GBP.
+  // The default is the genuine £4.99 payment the intent
+  // route creates, so the existing pins keep the shape
+  // they were written against; pass null to model an
+  // event that carries no amount or currency at all.
+  amount?: number | null;
+  currency?: string | null;
 }): string {
   return JSON.stringify({
     type: input.type,
@@ -74,6 +83,8 @@ function eventPayload(input: {
       object: {
         id: input.intentId,
         status: input.status,
+        ...(input.amount === null ? {} : { amount: input.amount ?? 499 }),
+        ...(input.currency === null ? {} : { currency: input.currency ?? "gbp" }),
         metadata: {
           email: EMAIL,
           postcode: POSTCODE,
@@ -435,7 +446,10 @@ describe("the failed-payment email — Sample 40, once per intent", () => {
     expect(email?.subject).toBe("Your payment didn't go through");
     expect(email?.text).toContain("You have not been charged");
     expect(email?.text).toContain(ADDRESS_LINE);
-    expect(email?.text).toContain(`${ORIGIN}/search/home?postcode=CM3`);
+    // BUG-331: the "Try the payment again" button opens
+    // the payment page for this home (reportRoute), not
+    // the free results page (homeRoute) it used to open.
+    expect(email?.text).toContain(`${ORIGIN}/report?postcode=CM3+2JT&home=19%7C%7CBIRKDALE+RISE`);
     // A different payment failing is a different lost
     // sale: it gets its own email.
     await failed(world, "pi_fail_2");

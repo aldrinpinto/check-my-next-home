@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { processSites } from "../loaders/load-brownfield.mjs";
+import { processSites, siteAddress } from "../loaders/load-brownfield.mjs";
 import { createProgressLogger } from "../loaders/progress.mjs";
 
 // Guards the brownfield loader (plan step M6.21, decision
@@ -242,5 +242,42 @@ describe("progress logging (BUG-265)", () => {
     expect(lines[0]).toMatch(/progress · process 5,000\/10,001 rows \(50%\)$/);
     expect(lines[1]).toMatch(/progress · process 10,000\/10,001 rows \(100%\)$/);
     expect(lines[2]).toMatch(/progress · process 10,001\/10,001 rows \(100%\)$/);
+  });
+});
+
+describe("recorded spelling correction (BUG-344(b))", () => {
+  it("files the Stratigic site address as Strategic — one exact string, never a pattern", () => {
+    // The register's own spelling ("Stratigic") is a typo
+    // for "Strategic"; the live register carries it, and
+    // the fixture keeps it — the loader corrects it at
+    // filing, so a re-file keeps the fix instead of
+    // re-filing the typo. The map keys the filed string
+    // whole (name plus street), as filed.
+    expect(
+      siteAddress({
+        "site-address":
+          "East of England Stratigic Health Authority Offices, 8 Collingwood Road, Witham",
+      }),
+    ).toBe("East of England Strategic Health Authority Offices, 8 Collingwood Road, Witham");
+    // Every other address files verbatim.
+    expect(siteAddress({ "site-address": "Universal Garage, The Street, Hatfield Peverel" })).toBe(
+      "Universal Garage, The Street, Hatfield Peverel",
+    );
+    expect(siteAddress({})).toBe("");
+  });
+
+  it("the fixture's typo'd row files corrected, and the filing set is unchanged", () => {
+    const processed = processSites(all, {});
+    expect(processed.filed).toHaveLength(334);
+    expect(processed.total).toBe(520);
+    const corrected = processed.filed.filter(
+      (f) =>
+        f.row["site-address"] ===
+        "East of England Strategic Health Authority Offices, 8 Collingwood Road, Witham",
+    );
+    expect(corrected).toHaveLength(1);
+    expect(processed.filed.some((f) => (f.row["site-address"] ?? "").includes("Stratigic"))).toBe(
+      false,
+    );
   });
 });

@@ -10,6 +10,8 @@ import {
   type NearbyDataSource,
   type NearbyPoint,
 } from "../lib/nearby";
+import { buildReportView } from "../lib/report";
+import { input } from "./fixtures/report-inputs";
 import { BANNED_WORDING } from "./banned-wording";
 
 // Guards the destinations serving (plan step M6.34,
@@ -188,6 +190,33 @@ describe("school destinations serving (M6.34, D51/D65)", () => {
     expect(DESTINATIONS_SUSTAINED_LINE).toBe(
       "Sustained means the student stayed in the destination for at least six months of the following school year.",
     );
+  });
+
+  it("BUG-344(a): a school serving both stages prints the sustained line once in the report — the data model still carries it on both stages", async () => {
+    const source = new FakeSource();
+    source.rows = [sixthFormSchool];
+    const { bundle, answer } = await secondaryPlaces(source);
+    const place = answer.places[0];
+    // The wrong fix would empty one stage's line: both
+    // stages still carry it (D65), only the report's
+    // notes dedupe it.
+    expect(place.destinations?.ks4?.state).toBe("served");
+    if (place.destinations?.ks4?.state === "served")
+      expect(place.destinations.ks4.sustainedLine).toBe(DESTINATIONS_SUSTAINED_LINE);
+    expect(place.destinations?.ks5?.state).toBe("served");
+    if (place.destinations?.ks5?.state === "served")
+      expect(place.destinations.ks5.sustainedLine).toBe(DESTINATIONS_SUSTAINED_LINE);
+    const view = buildReportView(input({ nearby: bundle }));
+    const section3 = view.sections.find((s) => s.number === 3);
+    const rowsBlock = section3?.blocks.find((b) => b.type === "rows");
+    if (!rowsBlock || rowsBlock.type !== "rows") throw new Error("no rows block in Section 3");
+    const row = rowsBlock.rows.find((r) => r.name === "Glyn School");
+    expect(row?.notes).toEqual([DESTINATIONS_SUSTAINED_LINE]);
+    // Both stages' destination shares still print as
+    // bullets — only the shared explanation dedupes.
+    expect(row?.bullets?.some((line) => line.startsWith("KS4 destinations —"))).toBe(true);
+    expect(row?.bullets?.some((line) => line.startsWith("KS5 destinations —"))).toBe(true);
+    expect(JSON.stringify(section3).split(DESTINATIONS_SUSTAINED_LINE).length - 1).toBe(1);
   });
 
   it("the KS5 stage serves only where the marker is exactly true — false and null carry no block, even with a KS5 row filed", async () => {

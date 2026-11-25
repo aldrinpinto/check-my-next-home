@@ -145,6 +145,23 @@ describe("the D21 tests — the gift block is the only paid-only part", () => {
     });
     expect(outcome.downloadUrl).toBe(`${DOWNLOAD_ORIGIN}${downloadPath(token)}`);
   });
+
+  it("(d) a paid report's delivery email repeats the receipt — and a free one's carries none (BUG-337)", async () => {
+    const paid = harness();
+    await paid.service.deliverReport(deliverInput("paid"));
+    const paidMail = paid.sent.find((m) => m.kind === "delivery")!;
+    expect(paidMail.email.text).toContain("Order order-fixture-1 — £4.99 paid.");
+    expect(paidMail.email.html).toContain("Order order-fixture-1 — £4.99 paid.");
+    // No card words: the delivery service never sees
+    // the card, so the card line is page-only.
+    expect(paidMail.email.text).not.toContain("ending in");
+
+    const free = harness();
+    await free.service.deliverReport(deliverInput("free"));
+    const freeMail = free.sent.find((m) => m.kind === "delivery")!;
+    expect(freeMail.email.text).not.toContain("Order order-fixture-1");
+    expect(freeMail.email.text).not.toContain("paid.");
+  });
 });
 
 describe("re-issue", () => {

@@ -246,14 +246,26 @@ describe("report door — the nation hold (Road B, M9.6)", () => {
   });
 
   it("the view gate follows the same effective state: a free nation's report serves (BUG-106 interim-free door)", () => {
-    expect(reportViewGate("EH2 2PF", null, effectiveReportDoorState("scotland"))).toEqual({
-      action: "serve",
-    });
-    expect(reportViewGate("BT1 5GS", null, effectiveReportDoorState("northern-ireland"))).toEqual({
-      action: "serve",
-    });
-    expect(reportViewGate("CM3 2JT", null, effectiveReportDoorState("england"))).toEqual({
-      action: "serve",
-    });
+    // BUG-324: the state alone no longer opens the
+    // report — a free nation's reader still serves, but
+    // only holding the free delivery's token (the window
+    // fulfilment path mints one over the free delivery,
+    // exactly as the paid path does over a paid one).
+    // Without a verified token the gate doors, in every
+    // nation; the holding state doors whatever the
+    // token says.
+    for (const [postcode, nation, href] of [
+      ["EH2 2PF", "scotland", "/report?postcode=EH2+2PF"],
+      ["BT1 5GS", "northern-ireland", "/report?postcode=BT1+5GS"],
+      ["CM3 2JT", "england", "/report?postcode=CM3+2JT"],
+    ] as const) {
+      expect(reportViewGate(postcode, null, effectiveReportDoorState(nation), true)).toEqual({
+        action: "serve",
+      });
+      expect(reportViewGate(postcode, null, effectiveReportDoorState(nation))).toEqual({
+        action: "door",
+        href,
+      });
+    }
   });
 });

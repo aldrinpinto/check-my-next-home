@@ -4,17 +4,24 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { loadStripe, type Stripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
 
-import { canonicalEmail, isEmailShape, normaliseEmail } from "../lib/gift";
+import { isEmailShape, normaliseEmail, type GiftGoneReason } from "../lib/gift";
+import { homeRoute } from "../lib/journey";
 import {
   effectivePayLabel,
+  emailErrorFor,
+  giftEmailMatches,
   liveStartedPayment,
   paymentElementKey,
   paymentGiftLockedNote,
+  PAYMENT_CARD_LOAD_FAILED_LINE,
   PAYMENT_CONSENT_ERROR_LINE,
   PAYMENT_DECLINED_FALLBACK_LINE,
+  PAYMENT_DECLINED_LINE,
+  PAYMENT_EMAIL_ERROR,
   PAYMENT_GIFT_USE_DIFFERENT_EMAIL,
   PAYMENT_HOME_NOT_FOUND_LINE,
   PAYMENT_START_FAILED_LINE,
+  paymentGiftGoneLine,
   type ReportPaymentView,
   type StartedPayment,
 } from "../lib/report-payment";
@@ -49,7 +56,10 @@ import { AmexMark, DiscoverMark, MastercardMark, RevolutMark, VisaMark } from ".
 // Card and Revolut Pay method rows stand visible in
 // the checkout card from the start; only the Pay
 // button waits for the tick and a shape-valid email.
-// A shape-valid email WITH the tick standing
+// BUG-335 (25 Nov 2026): the paid flow starts ONLY on
+// the Pay button click, never on the consent tick —
+// the tick authorises, the button pays. Clicking Pay
+// with the tick standing and a shape-valid email
 // starts a payment on the server (POST
 // /api/payments/intent — the server re-resolves the
 // home, the translator sets the amount, and the email
@@ -95,25 +105,31 @@ import { AmexMark, DiscoverMark, MastercardMark, RevolutMark, VisaMark } from ".
 // gift-applied line stands under the heading, the
 // consent's lead and the button speak of the free
 // report, never of paying, and the card panel keeps
-// its "Detailed report" title with no "Powered by
-// Stripe". The consent tick stands TICKED on arrival
-// for a gift holder — Screen C draws it ticked, and
-// the founder approved the screen as drawn — but the
-// order still starts only when the claimant clicks
-// "Get my free report": the start effect stays gated
-// on the button for a gift holder, so the order is
-// never placed on page load. The gift applies while
-// the entered email still matches the bound email —
-// editing away from it reverts the page to its paid
-// form and clears the tick in the same keystroke, so
-// a pre-ticked consent can never cover a paid order.
-// The mystery tease stands for a gift holder too:
-// Screen C draws it, and the founder approved it as
-// drawn. The consent tick's legal function (the report
-// is made straight away; the 14-day change-of-mind
-// right ends on delivery) holds for a gifted report
-// too — only its paying word is swapped for the
-// ordering word.
+// its "Card payment" title with no "Powered by
+// Stripe" (BUG-333: the panel head is the paid page's
+// own, never "Detailed report" twice). The consent
+// tick stands TICKED on arrival for a gift holder —
+// Screen C draws it ticked, and the founder approved
+// the screen as drawn — but the order still starts
+// only when the claimant clicks "Get my free report".
+// The gift applies while the entered email still
+// matches the bound email — editing away from it
+// reverts the page to its paid form and clears the
+// tick in the same keystroke, so a pre-ticked consent
+// can never cover a paid order; re-entering the bound
+// email revives the gift form on the same page load
+// (BUG-334). The mystery tease stands for a gift
+// holder too: Screen C draws it, and the founder
+// approved it as drawn. The consent tick's legal
+// function (the report is made straight away; the
+// 14-day change-of-mind right ends on delivery) holds
+// for a gifted report too — only its paying word is
+// swapped for the ordering word. BUG-325: the
+// visit-time gift state never outlives the server's
+// answer — if the intent answers as a payment for a
+// gift visit, the page reconciles to the paid form,
+// clears the pre-ticked consent, and says the gift is
+// no longer available.
 
 // The provider library's promises, one per publishable
 // key (the default set's and the test lane's): the
@@ -137,6 +153,7 @@ function PaySection({
   consented,
   orderRef,
   onPaid,
+  onDeclined,
 }: {
   view: ReportPaymentView;
   // BUG-267: the button's label as the page now
@@ -154,17 +171,49 @@ function PaySection({
   // routes from it.
   orderRef: string | null;
   onPaid: () => void;
+  // BUG-339: a declined card retires the payment it
+  // was confirmed against — the parent clears the
+  // started payment, so the retry starts a FRESH
+  // payment instead of re-confirming the dead one.
+  onDeclined: () => void;
 }) {
   const stripe = useStripe();
   const elements = useElements();
-  const [error, setError] = useState<string | null>(null);
+  // BUG-341: the ONE source of truth for card-field
+  // errors — updated on every change event from the
+  // provider's element, and read by both the field
+  // error under the element and the summary above Pay,
+  // so the two can never disagree. BUG-339: editing
+  // clears it at once — a corrected number never
+  // waits for the next Pay click to lose its stale
+  // "invalid".
+  const [cardError, setCardError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const formRef = useRef<HTMLFormElement | null>(null);
+
+  function focusFirstCardField() {
+    // BUG-340: a failed submit keeps the card fields
+    // in view — the panel scrolls back to the buyer
+    // and the provider's first field takes focus —
+    // instead of jumping past the panel to the
+    // optional section below it.
+    // getElement(PaymentElement) is typed as the broad
+    // StripeElement union, and only the members built
+    // on StripeElementBase carry focus() — the
+    // messaging and display-only members do not — so
+    // the call is narrowed to the members that have
+    // it. The element mounted here is a Payment
+    // Element, which does carry focus().
+    formRef.current?.scrollIntoView({ block: "center" });
+    const paymentElement = elements?.getElement(PaymentElement);
+    if (paymentElement && "focus" in paymentElement) paymentElement.focus();
+  }
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
     if (!stripe || !elements || busy || !consented) return;
     setBusy(true);
-    setError(null);
+    setCardError(null);
     const returnUrl = orderRef
       ? `${window.location.origin}/report/return?order=${encodeURIComponent(orderRef)}`
       : `${window.location.origin}/report/return`;
@@ -174,21 +223,84 @@ function PaySection({
       redirect: "if_required",
     });
     if (result.error) {
-      // The provider's buyer-facing wording, or our own
-      // fallback line — never a raw error object.
-      setError(result.error.message ?? PAYMENT_DECLINED_FALLBACK_LINE);
+      // BUG-339: a decline is answered once, in the
+      // site's own voice — the provider's decline
+      // line never reaches the page (the parent
+      // renders PAYMENT_DECLINED_LINE with its next
+      // step and the link back to the free check).
+      // The decline retires this payment: the retry
+      // is a fresh payment, never a re-confirmation
+      // of the dead one.
+      if (result.error.code === "card_declined") {
+        setBusy(false);
+        onDeclined();
+        return;
+      }
+      // Any other confirm error is a field error —
+      // the provider's field wording, carried as the
+      // one card error above: the summary above Pay
+      // and the field error are the same state
+      // (BUG-341). The payment stands, so the buyer
+      // fixes the field and tries again against it.
+      setCardError(result.error.message ?? PAYMENT_DECLINED_FALLBACK_LINE);
       setBusy(false);
+      focusFirstCardField();
       return;
     }
     onPaid();
   }
 
   return (
-    <form onSubmit={onSubmit} noValidate>
-      <PaymentElement />
-      {error && (
+    <form ref={formRef} onSubmit={onSubmit} noValidate>
+      <PaymentElement
+        onChange={(event) => {
+          // BUG-341: the change event carries no error
+          // — only empty, complete, collapsed and value
+          // (StripePaymentElementChangeEvent) — so the
+          // one card error is refreshed here only by
+          // what the event actually reports: a complete
+          // element is well-formed, so no field error
+          // can stand. The error itself arrives on the
+          // fieldchange event below.
+          if (event.complete) setCardError(null);
+        }}
+        onFieldChange={(event) => {
+          // BUG-341: every field change refreshes the
+          // one card error — a field error appears as
+          // it is typed (including a too-short CVC,
+          // once the provider reports it), and a
+          // corrected field clears its error at once
+          // (state.error is null on correction).
+          // BUG-341 note: the provider's element
+          // reports its fields as one combined
+          // element — there is no per-field CVC-length
+          // signal beyond the error it surfaces here,
+          // and no site code rewrites an expiry: the
+          // 13/99 → 01/39 rewrite is the provider's
+          // element's own behaviour, not this page's.
+          // The provider's types mark this event as
+          // needing beta access — without it the
+          // handler never fires, and the change
+          // handler above is the only clear path.
+          setCardError(event.state.error ? event.state.error.message : null);
+        }}
+      />
+      {cardError && (
         <p className="field__message field__message--error" role="alert">
-          {error}
+          {cardError}
+        </p>
+      )}
+      {/* BUG-341: the summary above Pay is the same
+          state as the field error — never a second
+          wording ("invalid" under the field against
+          "incomplete" above Pay is the defect this
+          closes). BUG-339: Pay is never left disabled
+          with no message — while the provider is
+          still loading, the panel says so. */}
+      {cardError && <p className="field__message field__message--error">{cardError}</p>}
+      {!stripe && (
+        <p className="field__message" role="status">
+          Loading the card panel...
         </p>
       )}
       <button
@@ -218,7 +330,11 @@ export default function ReportPaymentPage({
   // gift holder — the gift is tied to that email, and
   // the intent's gift recognition keys on it.
   const [email, setEmail] = useState(view.giftEmail ?? "");
-  const [emailError, setEmailError] = useState(false);
+  // BUG-327: the email error carries WHICH line, not
+  // just that there is one — a blank field and a
+  // mistyped one are answered differently
+  // (emailErrorFor, lib/report-payment.ts).
+  const [emailError, setEmailError] = useState<string | null>(null);
   // BUG-132: the consent error — set when the buyer
   // tries to pay with the tick standing unticked,
   // cleared the moment the box is ticked. Until this
@@ -233,21 +349,46 @@ export default function ReportPaymentPage({
   // the payment's metadata, not a time invented later.
   // BUG-223: for a gift holder the tick stands ticked
   // on arrival (approved Screen C, as drawn) — the
-  // start effect below stays gated on the button for a
-  // gift holder, so the tick alone never places the
-  // order.
+  // order still starts only when the claimant clicks
+  // "Get my free report", so the tick alone never
+  // places the order (BUG-335: the paid flow starts
+  // only on the Pay click, never on the tick).
   const [consentAt, setConsentAt] = useState<string | null>(
     view.giftEmail !== null ? new Date().toISOString() : null,
   );
   const [started, setStarted] = useState<StartedPayment | null>(null);
+  // The start-click count: every Pay click that
+  // reaches for a payment counts, including retries
+  // after a failed start or a decline.
   const [attempt, setAttempt] = useState(0);
-  // BUG-287: the gift abandoned for this order — the
-  // visitor chose "Use a different email". Final for
-  // this page load: the gift itself stays live
-  // server-side (the claim stands), so reloading the
-  // page restores the gift form, but this visit's
-  // order is paid.
-  const [giftAbandoned, setGiftAbandoned] = useState(false);
+  // BUG-325: the visit's gift, lost at intent time —
+  // the server answered a payment for a gift visit, so
+  // the gift is gone for this page load and the page
+  // stays on its paid form. Set only by the server's
+  // answer, never by anything the visitor clicks:
+  // the visit-time gift state must never outlive it.
+  const [giftLost, setGiftLost] = useState(false);
+  // BUG-339: a declined card — the message stands at
+  // this level so it survives the card panel
+  // unmounting when the dead payment is retired.
+  const [declined, setDeclined] = useState(false);
+  // BUG-334: the email field's one-shot unlock — the
+  // visitor chose "Use a different email", so the
+  // locked field opens for typing. Unlocking alone
+  // abandons nothing: the gift stands until the
+  // field's value actually changes away from the
+  // bound email, and re-entering it re-locks the
+  // field with the gift form revived.
+  const [emailUnlocked, setEmailUnlocked] = useState(false);
+  // BUG-326: the provider's script failed to load —
+  // the card panel cannot mount, so the page says so
+  // with a retry instead of leaving a dead Pay
+  // button. stripeLoadAttempt re-runs the load on
+  // retry (the failed promise is dropped from the
+  // per-key cache first, or the retry would replay
+  // the same dead promise).
+  const [stripeFailed, setStripeFailed] = useState(false);
+  const [stripeLoadAttempt, setStripeLoadAttempt] = useState(0);
   const creatingFor = useRef<string | null>(null);
   // The claim reference of the payment this page
   // started — the success surface's key, kept from the
@@ -255,6 +396,12 @@ export default function ReportPaymentPage({
   // after a confirmed payment reads it without waiting
   // on a state round-trip.
   const startedRef = useRef<string | null>(null);
+  // BUG-340: the first field with an error takes
+  // focus on a failed submit — the email field, the
+  // consent tick, and (inside PaySection) the card
+  // panel's first field.
+  const emailRef = useRef<HTMLInputElement | null>(null);
+  const consentRef = useRef<HTMLInputElement | null>(null);
   // The provider's browser library, loaded lazily on
   // the client only — the key arrives as page data from
   // the server (never a build-time public variable),
@@ -268,29 +415,27 @@ export default function ReportPaymentPage({
   const normalised = normaliseEmail(email);
   const emailValid = isEmailShape(normalised);
 
-  // BUG-223: the gift applies while the entered email
-  // still matches the email the gift is bound to. A
-  // gift holder who edits away from it sees the paid
-  // page again — the gift is tied to that email
-  // (Sample 22) and no other. BUG-267: "matches" is
-  // the canonical match — a variant of the bound
-  // address (+tag, dots, googlemail.com) is the same
-  // mailbox, so the gift still applies and the tick
-  // stands; only a genuinely different address reverts
-  // the page to its paid form.
-  const giftApplies =
-    view.giftEmail !== null && canonicalEmail(normalised) === canonicalEmail(view.giftEmail);
+  // BUG-223 + BUG-334: the gift applies while the
+  // entered email still matches the email the gift is
+  // bound to (giftEmailMatches, lib/report-payment.ts
+  // — the canonical match, BUG-267). The rule is
+  // value-driven and nothing else: no click abandons
+  // the gift, and re-entering the bound email revives
+  // the gift form on the same page load.
+  const giftApplies = giftEmailMatches(view.giftEmail, email);
 
-  // BUG-287: the gift in force on this page — the
-  // email match AND not abandoned. While it stands the
-  // delivery email field is locked to the claimant
-  // address (no variant can be typed, no different
-  // email can be typed); abandoning switches the page
-  // to its paid form for this order. Retyping the
-  // bound address after abandoning does NOT revive
-  // it on this page load — the visitor chose to pay,
-  // and reloading restores the gift form.
-  const giftActive = giftApplies && !giftAbandoned;
+  // BUG-287 + BUG-325: the gift in force on this page
+  // — the email match, unless the server has said at
+  // intent time that the gift is gone. While it
+  // stands the delivery email field is locked to the
+  // claimant address (until the visitor unlocks it to
+  // type); losing it switches the page to its paid
+  // form for this order. The gift itself stays live
+  // server-side (the claim stands) unless the server
+  // said otherwise, so reloading restores the gift
+  // form — except after a BUG-325 reconcile, where
+  // the server has already answered that it is gone.
+  const giftActive = giftApplies && !giftLost;
 
   // The payment that belongs to the page as it now
   // stands: a payment started for any other address, or
@@ -314,105 +459,175 @@ export default function ReportPaymentPage({
   // where the intent answer carried one — the test
   // lane, M9.6), falling back to the page's own key.
   const elementKey = paymentElementKey(activeIntent, publishableKey);
-  const stripePromise = useMemo(
-    () => (typeof window !== "undefined" && elementKey ? stripePromiseFor(elementKey) : null),
-    [elementKey],
-  );
+  const stripePromise = useMemo(() => {
+    // BUG-326: the attempt is read only to key this
+    // memo — the retry drops the cached promise
+    // first, so the re-run loads the provider fresh.
+    void stripeLoadAttempt;
+    return typeof window !== "undefined" && elementKey ? stripePromiseFor(elementKey) : null;
+  }, [elementKey, stripeLoadAttempt]);
 
-  // A shape-valid email with the tick standing starts
-  // its payment on the server; the answer lands in
-  // state from the fetch, never synchronously. A failed
-  // start leaves the notice standing and the start
-  // button as the retry.
+  // BUG-326: watch the provider promise's resolution.
+  // A null resolution is the script failing to load —
+  // the card panel cannot mount, and the page must
+  // say so (stripeFailed) instead of leaving a dead
+  // Pay button. While the promise is still in flight
+  // the failure is not set: the panel is loading, not
+  // dead. The flag resets when the promise identity
+  // changes — adjusted during render, the endorsed
+  // reset-on-change pattern, never inside the effect
+  // (a synchronous setState there is a cascading
+  // render).
+  const [prevStripePromise, setPrevStripePromise] = useState(stripePromise);
+  if (prevStripePromise !== stripePromise) {
+    setPrevStripePromise(stripePromise);
+    setStripeFailed(false);
+  }
   useEffect(() => {
-    if (!emailValid || consentAt === null) {
-      creatingFor.current = null;
-      return;
-    }
-    // BUG-223: a gift order starts only when the
-    // claimant clicks "Get my free report" — the tick
-    // stands ticked on arrival for a gift holder
-    // (approved Screen C), and without this gate the
-    // pre-filled email plus the ticked consent would
-    // place the order on page load, before the
-    // claimant has confirmed anything. The paid flow
-    // is untouched: it still starts on the tick. The
-    // gate reads the gift in force (BUG-287): an
-    // abandoned gift does not gate, so the paid flow
-    // starts on the tick once the visitor has chosen
-    // to pay.
-    if (giftActive && attempt === 0) {
-      creatingFor.current = null;
-      return;
-    }
-    if (
-      liveStartedPayment(started, { emailValid, email: normalised, consentAt }) ||
-      creatingFor.current === `${normalised}|${consentAt}`
-    ) {
-      return;
-    }
-    creatingFor.current = `${normalised}|${consentAt}`;
+    if (!stripePromise) return;
     let live = true;
-    (async () => {
-      try {
-        const response = await fetch("/api/payments/intent", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            postcode,
-            homeKey,
-            email: normalised,
-            consent: { ticked: true, timestamp: consentAt },
-          }),
-        });
-        const data = (await response.json().catch(() => null)) as {
-          clientSecret?: string;
-          intentId?: string;
-          publishableKey?: string | null;
-          gifted?: boolean;
-          ref?: string;
-          error?: string;
-        } | null;
-        if (!live) return;
-        if (response.ok && data?.gifted && data.ref) {
-          // Gift recognition: no payment was created —
-          // the order stands claimed as a gifted
-          // fulfilment, and the success surface (which
-          // carries the gift-applied banner) is where
-          // the buyer belongs.
-          window.location.assign(`/report/success?order=${encodeURIComponent(data.ref)}`);
-          return;
-        }
-        if (response.ok && data?.clientSecret) {
-          setNotice(null);
-          startedRef.current = data.intentId ?? null;
-          setStarted({
-            clientSecret: data.clientSecret,
-            email: normalised,
-            consentAt,
-            publishableKey: data.publishableKey ?? null,
-            intentId: data.intentId ?? "",
-          });
-          // The funnel's second step: a payment stands
-          // started for this page (M9.6, Amendment B).
-          fireJourneyEvent("checkout_started");
-        } else {
-          setNotice(
-            data?.error === "home-not-found"
-              ? PAYMENT_HOME_NOT_FOUND_LINE
-              : PAYMENT_START_FAILED_LINE,
-          );
-        }
-      } catch {
-        if (live) setNotice(PAYMENT_START_FAILED_LINE);
-      } finally {
-        if (creatingFor.current === `${normalised}|${consentAt}`) creatingFor.current = null;
-      }
-    })();
+    stripePromise
+      .then((stripe) => {
+        if (live) setStripeFailed(stripe === null);
+      })
+      .catch(() => {
+        if (live) setStripeFailed(true);
+      });
     return () => {
       live = false;
     };
-  }, [emailValid, normalised, started, consentAt, postcode, homeKey, attempt, giftActive]);
+  }, [stripePromise]);
+
+  function onRetryCardPanel() {
+    // BUG-326: the retry re-runs the load from scratch
+    // — the dead promise is dropped from the per-key
+    // cache first, and the attempt count re-keys the
+    // memo above so a fresh loadStripe runs.
+    if (elementKey) stripePromises.delete(elementKey);
+    setStripeFailed(false);
+    setStripeLoadAttempt((value) => value + 1);
+  }
+
+  // BUG-335: the paid flow starts ONLY here, on the
+  // Pay button click — never on the consent tick, and
+  // never on page load. The tick authorises; this
+  // click pays. The answer lands in state from the
+  // fetch, never synchronously. A failed start leaves
+  // the notice standing and the Pay button as the
+  // retry — and the retry is a FRESH payment per
+  // attempt: no started payment is ever reused across
+  // attempts, and a declined payment is retired
+  // outright (onDeclined, below), never re-confirmed.
+  async function startPayment() {
+    if (creatingFor.current) return;
+    if (consentAt === null) return;
+    if (liveStartedPayment(started, { emailValid, email: normalised, consentAt })) return;
+    const consentTimestamp = consentAt;
+    // BUG-325: whether this click arrived as a gift
+    // visit — read BEFORE the fetch, because the
+    // answer may reconcile the page away from it.
+    const giftVisit = giftActive;
+    creatingFor.current = `${normalised}|${consentTimestamp}`;
+    setAttempt((value) => value + 1);
+    try {
+      const response = await fetch("/api/payments/intent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          postcode,
+          homeKey,
+          email: normalised,
+          consent: { ticked: true, timestamp: consentTimestamp },
+        }),
+      });
+      const data = (await response.json().catch(() => null)) as {
+        clientSecret?: string;
+        intentId?: string;
+        publishableKey?: string | null;
+        gifted?: boolean;
+        ref?: string;
+        error?: string;
+        // BUG-325 follow-up: why the visit's gift was
+        // gone — expired, or already used — where the
+        // server could tell. Absent, the line names
+        // both causes, as before.
+        giftGoneReason?: GiftGoneReason;
+      } | null;
+      if (response.ok && data?.gifted && data.ref) {
+        // Gift recognition: no payment was created —
+        // the order stands claimed as a gifted
+        // fulfilment, and the success surface (which
+        // carries the gift-applied banner) is where
+        // the buyer belongs.
+        window.location.assign(`/report/success?order=${encodeURIComponent(data.ref)}`);
+        return;
+      }
+      if (response.ok && data?.clientSecret) {
+        if (giftVisit) {
+          // BUG-325: the server answered a payment
+          // for a gift visit — the gift's standing
+          // changed between page load and this click.
+          // The server's answer is the authority: the
+          // page reconciles to the paid form — the gift
+          // line goes, the card methods and the
+          // "Powered by Stripe" line show, and the
+          // pre-ticked consent is cleared so the
+          // buyer ticks knowingly for £4.99, with a
+          // plain line saying the gift is gone. The
+          // follow-up names the one that happened
+          // where the answer carried the reason
+          // (expired, or already used); without one
+          // the line names both, as before. The
+          // payment this click created is NOT kept:
+          // it was created under a consent that no
+          // longer stands, so the buyer's knowing
+          // tick and next Pay click start a fresh one.
+          setGiftLost(true);
+          setConsentAt(null);
+          setNotice(paymentGiftGoneLine(data.giftGoneReason));
+          return;
+        }
+        setNotice(null);
+        setDeclined(false);
+        startedRef.current = data.intentId ?? null;
+        setStarted({
+          clientSecret: data.clientSecret,
+          email: normalised,
+          consentAt: consentTimestamp,
+          publishableKey: data.publishableKey ?? null,
+          intentId: data.intentId ?? "",
+        });
+        // The funnel's second step: a payment stands
+        // started for this page (M9.6, Amendment B).
+        fireJourneyEvent("checkout_started");
+      } else {
+        setNotice(
+          data?.error === "home-not-found"
+            ? PAYMENT_HOME_NOT_FOUND_LINE
+            : PAYMENT_START_FAILED_LINE,
+        );
+      }
+    } catch {
+      setNotice(PAYMENT_START_FAILED_LINE);
+    } finally {
+      creatingFor.current = null;
+    }
+  }
+
+  function onDeclined() {
+    // BUG-339: a declined card retires this payment —
+    // the dead intent is never re-confirmed, and the
+    // derivation above retires it on an email edit or
+    // an untick just the same. The retry is the next
+    // Pay click, which starts a FRESH payment. The
+    // decline message stands at this level (the
+    // `declined` flag, rendered in the panel) so it
+    // survives the card panel unmounting with the
+    // retired payment.
+    startedRef.current = null;
+    setStarted(null);
+    setDeclined(true);
+  }
 
   function onConsentChange(checked: boolean) {
     // Ticking stamps the consent with its moment;
@@ -423,32 +638,47 @@ export default function ReportPaymentPage({
     if (checked) setConsentError(false);
   }
 
-  function onAbandonGift() {
-    // BUG-287: the visitor explicitly abandons the gift
-    // for this order — the field unlocks, the tick
-    // clears in the same click (a pre-ticked consent
-    // must never cover a paid order), and the page
-    // becomes its paid form with the button honestly
-    // "Pay £4.99" (effectivePayLabel). Final for this
-    // page load; the gift itself stays live
-    // server-side, so reloading restores the gift form.
-    setGiftAbandoned(true);
-    setConsentAt(null);
-    setNotice(null);
+  function onUseDifferentEmail() {
+    // BUG-334: the escape ONLY unlocks the field and
+    // focuses it — it does NOT flip the page to paid
+    // and does NOT abandon the gift. The flip happens
+    // only when the field's value actually changes
+    // away from the bound email (the onChange handler
+    // below); while the value still matches, the gift
+    // form stands — gift line, ticked consent, "Get
+    // my free report".
+    setEmailUnlocked(true);
+    emailRef.current?.focus();
   }
 
   function onStartClick() {
-    if (!emailValid) {
-      setEmailError(true);
-      return;
+    // BUG-328: BOTH checks are evaluated before any
+    // return — a missing email AND a missing tick are
+    // named together, on the first click. BUG-327: a
+    // blank field gets the empty line, a mistyped one
+    // the "doesn't look quite right" line
+    // (emailErrorFor, lib/report-payment.ts).
+    const emailErr = emailErrorFor(email);
+    if (emailErr) {
+      setEmailError(emailErr);
+    } else {
+      setEmailError(null);
     }
     if (consentAt === null) {
       // BUG-132: an attempt without the tick is answered
       // where the tick stands — the message under the
-      // tick line, and the tick outlined. No payment
-      // starts: the start effect still requires the
-      // consent to stand.
+      // tick line, and the tick outlined.
       setConsentError(true);
+    }
+    if (emailErr || consentAt === null) {
+      // BUG-340: the first field with an error takes
+      // focus — the buyer lands on what to fix, not
+      // past the card panel. No payment starts: the
+      // click handler is the only start, and it
+      // requires both the email and the consent.
+      const target = emailErr ? emailRef.current : consentRef.current;
+      target?.scrollIntoView({ block: "center" });
+      target?.focus();
       return;
     }
     if (!publishableKey && !giftActive) {
@@ -459,12 +689,13 @@ export default function ReportPaymentPage({
       setNotice(PAYMENT_START_FAILED_LINE);
       return;
     }
-    // A valid address with the tick standing starts its
-    // payment through the effect above; the button is
-    // the affordance for a buyer whose card panel has
-    // not mounted yet — and the retry when a start has
-    // failed.
-    setAttempt((value) => value + 1);
+    // BUG-335: this click — and only this click —
+    // starts the payment. The button is the affordance
+    // for a buyer whose card panel has not mounted
+    // yet — and the retry when a start has failed or
+    // a card has been declined (a fresh payment per
+    // attempt, startPayment above).
+    void startPayment();
   }
 
   return (
@@ -545,6 +776,7 @@ export default function ReportPaymentPage({
                   className={`report-payment__consent${consentError ? " report-payment__consent--attention" : ""}`}
                 >
                   <input
+                    ref={consentRef}
                     className="report-payment__consent-box"
                     id="payment-consent"
                     name="consent"
@@ -575,6 +807,7 @@ export default function ReportPaymentPage({
                 </label>
                 <p className="field__hint">{view.emailHelp}</p>
                 <input
+                  ref={emailRef}
                   className="field__input"
                   id="payment-email"
                   name="email"
@@ -582,41 +815,57 @@ export default function ReportPaymentPage({
                   autoComplete="email"
                   placeholder={view.emailPlaceholder}
                   value={email}
-                  // BUG-287: while a claimed gift applies
-                  // the field is locked to the claimant
-                  // address — read-only, so no variant and
-                  // no different email can be typed at
-                  // all. The lock is a UI lock, not a
-                  // trust boundary: the server still
-                  // enforces the match (giftFor /
-                  // findClaimedByEmail, lib/server/
-                  // payment-intent.ts + gifts.ts).
-                  readOnly={giftActive}
-                  aria-readonly={giftActive || undefined}
-                  aria-invalid={emailError || undefined}
+                  // BUG-287 + BUG-334: while a claimed
+                  // gift applies the field is locked to
+                  // the claimant address — read-only,
+                  // until the visitor chooses "Use a
+                  // different email", which unlocks it
+                  // for typing (and only unlocks it:
+                  // the gift stands until the value
+                  // actually changes away). The lock is
+                  // a UI lock, not a trust boundary: the
+                  // server still enforces the match
+                  // (giftFor / findClaimedByEmail,
+                  // lib/server/payment-intent.ts +
+                  // gifts.ts).
+                  readOnly={giftActive && !emailUnlocked}
+                  aria-readonly={(giftActive && !emailUnlocked) || undefined}
+                  aria-invalid={emailError !== null || undefined}
                   aria-describedby={emailError ? "payment-email-error" : undefined}
                   onChange={(event) => {
-                    setEmail(event.target.value);
-                    setEmailError(false);
+                    const next = event.target.value;
+                    // The match is read off the values,
+                    // not the state being set: was the
+                    // field on the bound email before
+                    // this keystroke, and is it on it
+                    // now.
+                    const wasMatching = giftEmailMatches(view.giftEmail, email);
+                    const nowMatching = giftEmailMatches(view.giftEmail, next);
+                    setEmail(next);
+                    setEmailError(null);
                     setNotice(null);
                     // BUG-223: the tick stands ticked on
                     // arrival for a gift holder — and the
                     // moment the email leaves the bound
                     // address, the tick clears in the same
                     // keystroke, so a pre-ticked consent
-                    // can never cover a paid order. (An
-                    // effect could not do this: the start
-                    // effect would still see the tick
-                    // standing in the same commit.)
-                    if (
-                      view.giftEmail !== null &&
-                      canonicalEmail(event.target.value) !== canonicalEmail(view.giftEmail)
-                    ) {
+                    // can never cover a paid order.
+                    if (view.giftEmail !== null && !nowMatching) {
                       setConsentAt(null);
+                    }
+                    // BUG-334: the value returning to
+                    // the bound email revives the gift
+                    // form on the same page load — the
+                    // tick stands ticked again as on
+                    // arrival, and the field locks again
+                    // to the claimant address.
+                    if (view.giftEmail !== null && nowMatching && !wasMatching) {
+                      if (consentAt === null) setConsentAt(new Date().toISOString());
+                      setEmailUnlocked(false);
                     }
                   }}
                   onBlur={() => {
-                    if (email.trim() !== "" && !emailValid) setEmailError(true);
+                    if (email.trim() !== "" && !emailValid) setEmailError(PAYMENT_EMAIL_ERROR);
                   }}
                 />
                 {emailError && (
@@ -625,18 +874,19 @@ export default function ReportPaymentPage({
                     id="payment-email-error"
                     role="alert"
                   >
-                    {view.emailError}
+                    {emailError}
                   </p>
                 )}
-                {/* BUG-287: the locked-field form — the
-                    note names whose gift it is, and the
-                    escape abandons the gift for this
-                    order, switching the page to its paid
-                    form (field editable, button honestly
-                    "Pay £4.99"). The escape is explicit
-                    and final for this page load; the gift
-                    itself stays live server-side, so
-                    reloading restores the gift form. */}
+                {/* BUG-287 + BUG-334: the locked-field
+                    form — the note names whose gift it
+                    is, and the escape unlocks the field
+                    so a different email can be typed.
+                    The escape abandons nothing on its
+                    own: the gift stands until the
+                    field's value actually changes away
+                    from the bound email, and re-entering
+                    it revives the gift form on the same
+                    page load. */}
                 {giftActive && view.giftEmail !== null && (
                   <>
                     <p className="report-payment__gift-note">
@@ -645,7 +895,7 @@ export default function ReportPaymentPage({
                     <button
                       type="button"
                       className="report-payment__gift-escape"
-                      onClick={onAbandonGift}
+                      onClick={onUseDifferentEmail}
                     >
                       {PAYMENT_GIFT_USE_DIFFERENT_EMAIL}
                     </button>
@@ -669,54 +919,102 @@ export default function ReportPaymentPage({
                     {notice}
                   </p>
                 )}
+                {/* BUG-339: the ONE decline message, in
+                    the site's voice, with its next step
+                    and the link back to the free check —
+                    the provider's decline line never
+                    stands beside it. It renders at this
+                    level so it survives the card panel
+                    unmounting when the dead payment is
+                    retired; the retry is the Pay button
+                    below, starting a fresh payment. */}
+                {declined && (
+                  <p className="field__message field__message--error" role="alert">
+                    {PAYMENT_DECLINED_LINE}{" "}
+                    {postcode && <a href={homeRoute(postcode, homeKey)}>Back to your free check</a>}
+                  </p>
+                )}
                 {activeIntent && stripePromise ? (
-                  <Elements
-                    stripe={stripePromise}
-                    options={{
-                      clientSecret: activeIntent.clientSecret,
-                      // PF-13: the element is dressed in the
-                      // page's own livery — Sample 9's drawn
-                      // fields (labels #3C4257 at 13.5px/500,
-                      // inputs on #CBD2DC at 8px radius) over
-                      // the page's text face — instead of the
-                      // provider's unthemed default.
-                      appearance: {
-                        theme: "stripe",
-                        variables: {
-                          fontFamily:
-                            '"DM Sans", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
-                          colorPrimary: "#2f5d3e",
-                          colorText: "#30313d",
-                          borderRadius: "8px",
-                        },
-                        rules: {
-                          ".Label": { color: "#3c4257", fontSize: "13.5px", fontWeight: "500" },
-                          ".Input": {
-                            border: "1px solid #cbd2dc",
-                            boxShadow: "0 1px 2px rgba(16, 24, 40, 0.05)",
+                  stripeFailed ? (
+                    <>
+                      {/* BUG-326: the card panel could
+                          not load — the provider's
+                          script failed — so the page
+                          says so and offers the retry,
+                          and keeps the Pay button out of
+                          the way until the panel is
+                          alive. Never a disabled Pay
+                          button as the only signal. */}
+                      <p className="field__message field__message--error" role="alert">
+                        {PAYMENT_CARD_LOAD_FAILED_LINE}
+                      </p>
+                      <button
+                        type="button"
+                        className="btn btn--brass report-payment__pay"
+                        onClick={onRetryCardPanel}
+                      >
+                        Try again
+                      </button>
+                    </>
+                  ) : (
+                    <Elements
+                      // A fresh payment per attempt gets a
+                      // fresh element: the attempt count
+                      // re-keys the tree, so a retry never
+                      // inherits the retired payment's
+                      // element state.
+                      key={attempt}
+                      stripe={stripePromise}
+                      options={{
+                        clientSecret: activeIntent.clientSecret,
+                        // PF-13: the element is dressed in the
+                        // page's own livery — Sample 9's drawn
+                        // fields (labels #3C4257 at 13.5px/500,
+                        // inputs on #CBD2DC at 8px radius) over
+                        // the page's text face — instead of the
+                        // provider's unthemed default.
+                        appearance: {
+                          theme: "stripe",
+                          variables: {
+                            fontFamily:
+                              '"DM Sans", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+                            colorPrimary: "#2f5d3e",
+                            colorText: "#30313d",
+                            borderRadius: "8px",
+                          },
+                          rules: {
+                            ".Label": { color: "#3c4257", fontSize: "13.5px", fontWeight: "500" },
+                            ".Input": {
+                              border: "1px solid #cbd2dc",
+                              boxShadow: "0 1px 2px rgba(16, 24, 40, 0.05)",
+                            },
                           },
                         },
-                      },
-                    }}
-                  >
-                    <PaySection
-                      view={view}
-                      payLabel={payLabel}
-                      consented={consentAt !== null}
-                      orderRef={activeIntent.intentId || null}
-                      onPaid={() => {
-                        // The success surface reads the
-                        // fulfilment claim server-side; the
-                        // claim's reference is the payment's
-                        // own id.
-                        if (startedRef.current) {
-                          window.location.assign(
-                            `/report/success?order=${encodeURIComponent(startedRef.current)}`,
-                          );
-                        }
                       }}
-                    />
-                  </Elements>
+                    >
+                      <PaySection
+                        view={view}
+                        payLabel={payLabel}
+                        consented={consentAt !== null}
+                        orderRef={activeIntent.intentId || null}
+                        onPaid={() => {
+                          // The success surface reads the
+                          // fulfilment claim server-side; the
+                          // claim's reference is the payment's
+                          // own id.
+                          if (startedRef.current) {
+                            window.location.assign(
+                              `/report/success?order=${encodeURIComponent(startedRef.current)}`,
+                            );
+                          }
+                        }}
+                        // BUG-339: a declined card retires
+                        // this payment — the retry is a fresh
+                        // payment from the next Pay click.
+                        onDeclined={onDeclined}
+                      />
+                    </Elements>
+                  )
                 ) : (
                   <>
                     {/* Sample 2: the payment methods are
@@ -766,7 +1064,7 @@ export default function ReportPaymentPage({
                         so an attempt can be answered with the
                         consent error instead of silence. No
                         payment can start unticked either way:
-                        the start effect requires the consent. */}
+                        the click handler requires the consent. */}
                     <button
                       type="button"
                       className="btn btn--brass report-payment__pay"

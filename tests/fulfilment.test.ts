@@ -39,6 +39,15 @@ function eventPayload(input: {
   livemode?: boolean;
   test?: boolean;
   email?: string;
+  // BUG-330 — the event's amount and currency are part
+  // of the payload under test: the webhook refuses a
+  // succeeded payment whose amount is not £4.99 in GBP.
+  // The default is the genuine £4.99 payment the intent
+  // route creates, so the existing pins keep the shape
+  // they were written against; pass null to model an
+  // event that carries no amount or currency at all.
+  amount?: number | null;
+  currency?: string | null;
 }): string {
   return JSON.stringify({
     type: input.type,
@@ -47,6 +56,8 @@ function eventPayload(input: {
       object: {
         id: input.intentId,
         status: input.status,
+        ...(input.amount === null ? {} : { amount: input.amount ?? 499 }),
+        ...(input.currency === null ? {} : { currency: input.currency ?? "gbp" }),
         metadata: {
           email: input.email ?? EMAIL,
           postcode: POSTCODE,
@@ -285,6 +296,71 @@ describe("processWebhookEvent — log first, claim once (Amendment A)", () => {
     });
     expect(outcome).toEqual({ kind: "logged" });
     expect(claims.claims.size).toBe(0);
+  });
+
+  it("refuses a succeeded payment whose amount is not £4.99 — logged, never claimed (BUG-330)", async () => {
+    const { deps, live, log, claims, paidEvents } = webhookHarness();
+    const payload = eventPayload({
+      type: "payment_intent.succeeded",
+      intentId: "pi_wrong_amount_1",
+      status: "succeeded",
+      livemode: true,
+      amount: 4999,
+    });
+    const outcome = await processWebhookEvent(deps, {
+      payload,
+      signature: live.signWebhook(payload),
+    });
+    expect(outcome).toEqual({ kind: "logged" });
+    expect(claims.claims.size).toBe(0);
+    expect(paidEvents).toHaveLength(0);
+    // The refusal is visible in the event log — the
+    // mismatched payment is not silently fulfilled.
+    expect(log.records).toHaveLength(1);
+    expect(log.records[0]).toEqual(
+      expect.objectContaining({
+        eventType: "payment_intent.succeeded",
+        intentId: "pi_wrong_amount_1",
+      }),
+    );
+  });
+
+  it("refuses a succeeded payment in another currency, even at 499 (BUG-330)", async () => {
+    const { deps, live, log, claims, paidEvents } = webhookHarness();
+    const payload = eventPayload({
+      type: "payment_intent.succeeded",
+      intentId: "pi_wrong_currency_1",
+      status: "succeeded",
+      livemode: true,
+      currency: "usd",
+    });
+    const outcome = await processWebhookEvent(deps, {
+      payload,
+      signature: live.signWebhook(payload),
+    });
+    expect(outcome).toEqual({ kind: "logged" });
+    expect(claims.claims.size).toBe(0);
+    expect(paidEvents).toHaveLength(0);
+    expect(log.records).toHaveLength(1);
+  });
+
+  it("refuses a succeeded payment carrying no amount at all (BUG-330)", async () => {
+    const { deps, live, claims, paidEvents } = webhookHarness();
+    const payload = eventPayload({
+      type: "payment_intent.succeeded",
+      intentId: "pi_no_amount_1",
+      status: "succeeded",
+      livemode: true,
+      amount: null,
+      currency: null,
+    });
+    const outcome = await processWebhookEvent(deps, {
+      payload,
+      signature: live.signWebhook(payload),
+    });
+    expect(outcome).toEqual({ kind: "logged" });
+    expect(claims.claims.size).toBe(0);
+    expect(paidEvents).toHaveLength(0);
   });
 });
 

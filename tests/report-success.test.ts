@@ -59,6 +59,33 @@ describe("buildReportSuccessView", () => {
     expect(view.emailLead).toContain("We've sent");
   });
 
+  it("a ready view carries the minted view token on the view link (BUG-324)", () => {
+    const view = buildReportSuccessView({
+      state: "ready",
+      kind: "paid",
+      identity: HOME,
+      email: EMAIL,
+      viewToken: "d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1.1795000000000.sig",
+    });
+    expect(view.viewHref).toBe(
+      "/report/view?postcode=CM3+2JT&home=19%7C%7CBIRKDALE+RISE&token=d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1.1795000000000.sig",
+    );
+  });
+
+  it("a view token changes nothing outside the ready state (BUG-324)", () => {
+    // No delivery stands behind a preparing claim, so
+    // no token is minted — but even a token passed in
+    // is ignored: the link itself stays null.
+    const preparing = buildReportSuccessView({
+      state: "preparing",
+      kind: "paid",
+      identity: HOME,
+      email: EMAIL,
+      viewToken: "d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1.1795000000000.sig",
+    });
+    expect(preparing.viewHref).toBeNull();
+  });
+
   it("the mystery extra is PAID-only: gifted and free views never carry it", () => {
     for (const kind of ["gifted", "free"] as const) {
       const view = buildReportSuccessView({ state: "ready", kind, identity: HOME, email: EMAIL });
@@ -209,6 +236,115 @@ describe("buildReportSuccessView — the failed state and the email truth (M9.7)
     expect(html).toContain(PAYMENT_REFUND_LINE);
     expect(html).not.toContain("Your report by email");
     expect(html).not.toContain("We've sent");
+  });
+});
+
+describe("the success surface — the receipt line (BUG-337)", () => {
+  const RECEIPT = {
+    orderRef: "pi_3Ufl8WQ0IvxPpfqF2uaVmCv3",
+    amountPence: 499,
+    cardBrand: "visa",
+    cardLast4: "4242",
+  };
+
+  it("a ready PAID view with a receipt quotes the order, the amount and the card", () => {
+    const view = buildReportSuccessView({
+      state: "ready",
+      kind: "paid",
+      identity: HOME,
+      email: EMAIL,
+      receipt: RECEIPT,
+    });
+    expect(view.receiptLine).toBe(
+      "Order pi_3Ufl8WQ0IvxPpfqF2uaVmCv3 — £4.99 paid with Visa ending in 4242.",
+    );
+  });
+
+  it("a receipt with no card quotes the order and the amount alone — never a guessed card", () => {
+    const view = buildReportSuccessView({
+      state: "ready",
+      kind: "paid",
+      identity: HOME,
+      email: EMAIL,
+      receipt: { ...RECEIPT, cardBrand: null, cardLast4: null },
+    });
+    expect(view.receiptLine).toBe("Order pi_3Ufl8WQ0IvxPpfqF2uaVmCv3 — £4.99 paid.");
+  });
+
+  it("the receipt is ready + paid only: no line while preparing, failed, or for a free or gifted claim", () => {
+    const preparing = buildReportSuccessView({
+      state: "preparing",
+      kind: "paid",
+      identity: HOME,
+      email: EMAIL,
+      receipt: RECEIPT,
+    });
+    expect(preparing.receiptLine).toBeNull();
+    const failed = buildReportSuccessView({
+      state: "failed",
+      kind: "paid",
+      identity: HOME,
+      email: EMAIL,
+      receipt: RECEIPT,
+    });
+    expect(failed.receiptLine).toBeNull();
+    for (const kind of ["free", "gifted"] as const) {
+      const view = buildReportSuccessView({
+        state: "ready",
+        kind,
+        identity: HOME,
+        email: EMAIL,
+        receipt: RECEIPT,
+      });
+      expect(view.receiptLine).toBeNull();
+    }
+  });
+
+  it("a ready paid view without a receipt carries no line", () => {
+    const view = buildReportSuccessView({
+      state: "ready",
+      kind: "paid",
+      identity: HOME,
+      email: EMAIL,
+    });
+    expect(view.receiptLine).toBeNull();
+  });
+
+  it("the receipt renders on the ready page, under the lede", () => {
+    const html = text(
+      renderToStaticMarkup(
+        createElement(ReportSuccessPage, {
+          view: buildReportSuccessView({
+            state: "ready",
+            kind: "paid",
+            identity: HOME,
+            email: EMAIL,
+            receipt: RECEIPT,
+          }),
+        }),
+      ),
+    );
+    expect(html).toContain(
+      "Order pi_3Ufl8WQ0IvxPpfqF2uaVmCv3 — £4.99 paid with Visa ending in 4242.",
+    );
+    expect(html).toContain('class="report-success__receipt"');
+  });
+
+  it("the preparing page shows the honest wait line (BUG-345) — and no receipt", () => {
+    const html = text(
+      renderToStaticMarkup(
+        createElement(ReportSuccessPage, {
+          view: buildReportSuccessView({
+            state: "preparing",
+            kind: "paid",
+            identity: HOME,
+            email: EMAIL,
+          }),
+        }),
+      ),
+    );
+    expect(html).toContain("Your report is still being made — usually ready in about a minute.");
+    expect(html).not.toContain("report-success__receipt");
   });
 });
 

@@ -36,6 +36,16 @@ import {
 } from "./fixtures/report-inputs";
 import { REPORT_DOOR_STATE } from "../lib/site";
 import type { SoldPricesBundle } from "../lib/sold-prices";
+import { createDownloadSigner } from "../lib/server/download-links";
+import { createMemoryFulfilmentClaimStore } from "../lib/server/fulfilment";
+import { createFakePayments, createPaymentsRouter } from "../lib/server/payments";
+import { createMemoryDeliveryStore } from "../lib/server/report-deliveries";
+import {
+  reportViewTokenForOrder,
+  verifyReportViewAccess,
+  type ReportViewAccessDeps,
+} from "../lib/server/report-view-access";
+import { DOWNLOAD_NOW, DOWNLOAD_SECRET } from "./fixtures/download";
 
 // M8.1 — the on-screen report: the view builder's
 // derivations against fabricated bundles at the frozen
@@ -1046,17 +1056,253 @@ describe("report — states, nations and the door seam", () => {
     expect(reportViewRoute("CM3 2JT", "19|BIRKDALE RISE")).toBe(
       "/report/view?postcode=CM3+2JT&home=19%7CBIRKDALE+RISE",
     );
-    // M9.6 landed the door on "paid": the gate serves by
-    // default now, and still doors under an explicit
-    // holding state — the seam's contract is unchanged,
-    // only the constant moved.
+    // BUG-324: the token rides as &token= on the view
+    // route, where the caller holds one.
+    expect(reportViewRoute("CM3 2JT", "19|BIRKDALE RISE", "tok.123.sig")).toBe(
+      "/report/view?postcode=CM3+2JT&home=19%7CBIRKDALE+RISE&token=tok.123.sig",
+    );
+    // M9.6 landed the door on "paid" — but BUG-324
+    // means a paid door state alone no longer serves:
+    // the gate serves only a verified reader. The old
+    // pin (paid with no order → serve) is replaced by
+    // these four: paid + no token → door; paid + a
+    // verified token → serve; holding → door whatever
+    // the token says (Scotland/Northern Ireland hold
+    // unchanged).
     expect(REPORT_DOOR_STATE).toBe("paid");
-    expect(reportViewGate("CM3 2JT", null)).toEqual({ action: "serve" });
+    expect(reportViewGate("CM3 2JT", null)).toEqual({
+      action: "door",
+      href: "/report?postcode=CM3+2JT",
+    });
+    expect(reportViewGate("CM3 2JT", null, "paid")).toEqual({
+      action: "door",
+      href: "/report?postcode=CM3+2JT",
+    });
+    expect(reportViewGate("CM3 2JT", null, "paid", true)).toEqual({ action: "serve" });
     expect(reportViewGate("CM3 2JT", null, "holding")).toEqual({
       action: "door",
       href: "/report?postcode=CM3+2JT",
     });
-    expect(reportViewGate("CM3 2JT", null, "paid")).toEqual({ action: "serve" });
+    expect(reportViewGate("CM3 2JT", null, "holding", true)).toEqual({
+      action: "door",
+      href: "/report?postcode=CM3+2JT",
+    });
+  });
+});
+
+// BUG-324 — the view route's access check, over memory
+// stores and the fixture's throwaway signer: the mint
+// the success page feeds its button, and the four
+// checks the gate rests on (a genuine token, a standing
+// delivery, a fulfilled claim for this identity).
+describe("report — BUG-324: the view token opens only its own fulfilled order", () => {
+  const VIEW_EMAIL = "buyer@example.co.uk";
+  const VIEW_POSTCODE = "CM3 2JT";
+  const VIEW_HOME_KEY = "19||BIRKDALE RISE";
+  const DAY_MS = 24 * 60 * 60 * 1000;
+
+  function viewAccessWorld(opts?: { refunded?: boolean; signer?: boolean }) {
+    const signer = opts?.signer === false ? null : createDownloadSigner(DOWNLOAD_SECRET);
+    const deliveries = createMemoryDeliveryStore(() => DOWNLOAD_NOW);
+    const claims = createMemoryFulfilmentClaimStore();
+    const live = createFakePayments({ webhookSecret: "whsec_view_throwaway" });
+    const payments = createPaymentsRouter({
+      live: { payments: live, webhookConfigured: true, publishableKey: "pk_x" },
+      test: null,
+      testEmails: [],
+    });
+    const deps: ReportViewAccessDeps = {
+      signer,
+      deliveries,
+      claims,
+      payments,
+      completedFullRefund: async () => opts?.refunded ?? false,
+      giftVoided: async () => false,
+      now: () => DOWNLOAD_NOW,
+    };
+    return { signer, deliveries, claims, deps };
+  }
+
+  // A paid order, claimed and fulfilled over a standing
+  // delivery — the shape the worker leaves behind.
+  async function fulfilledOrder(
+    world: ReturnType<typeof viewAccessWorld>,
+    ref: string,
+    homeKey: string | null = VIEW_HOME_KEY,
+  ) {
+    await world.claims.claim({
+      ref,
+      kind: "paid",
+      email: VIEW_EMAIL,
+      postcode: VIEW_POSTCODE,
+      homeKey,
+      now: DOWNLOAD_NOW,
+    });
+    const delivery = await world.deliveries.record({
+      email: VIEW_EMAIL,
+      kind: "paid",
+      pdfKey: "reports/key.pdf",
+      fileName: "report.pdf",
+      homeTitle: "19 Birkdale Rise",
+      homeAddressLine: "19 Birkdale Rise, Hatfield Peverel CM3 2JT",
+      orderRef: ref,
+      now: DOWNLOAD_NOW,
+    });
+    await world.claims.markFulfilled(ref, {
+      deliveryId: delivery.id,
+      mailSent: true,
+      now: DOWNLOAD_NOW,
+    });
+    return delivery;
+  }
+
+  it("mints a token over the order's standing delivery, and the token opens the report for that home", async () => {
+    const world = viewAccessWorld();
+    await fulfilledOrder(world, "pi_view_1");
+    const token = await reportViewTokenForOrder("pi_view_1", world.deps);
+    expect(token).not.toBeNull();
+    // The token is the download token's own shape — the
+    // view's standing is the PDF's, not a weaker one.
+    expect(token).toMatch(/^[A-Za-z0-9_-]{24,64}\.\d{10,16}\.[A-Za-z0-9_-]{32,64}$/);
+    expect(await verifyReportViewAccess(token!, VIEW_POSTCODE, VIEW_HOME_KEY, world.deps)).toBe(
+      true,
+    );
+    // And the gate serves on that verified answer.
+    expect(reportViewGate(VIEW_POSTCODE, VIEW_HOME_KEY, "paid", true)).toEqual({
+      action: "serve",
+    });
+  });
+
+  it("no delivery stands → no token, and a made-up token opens nothing", async () => {
+    const world = viewAccessWorld();
+    expect(await reportViewTokenForOrder("pi_ghost", world.deps)).toBeNull();
+    expect(
+      await verifyReportViewAccess("made.up.token", VIEW_POSTCODE, VIEW_HOME_KEY, world.deps),
+    ).toBe(false);
+    expect(await verifyReportViewAccess("", VIEW_POSTCODE, VIEW_HOME_KEY, world.deps)).toBe(false);
+  });
+
+  it("a token for another home — or another postcode — does not open this one", async () => {
+    const world = viewAccessWorld();
+    await fulfilledOrder(world, "pi_view_2");
+    const token = await reportViewTokenForOrder("pi_view_2", world.deps);
+    expect(token).not.toBeNull();
+    expect(await verifyReportViewAccess(token!, VIEW_POSTCODE, "1||OTHER STREET", world.deps)).toBe(
+      false,
+    );
+    expect(await verifyReportViewAccess(token!, "EX1 1AA", VIEW_HOME_KEY, world.deps)).toBe(false);
+    // A differently-cased or spaced postcode is the
+    // same postcode, and still opens.
+    expect(await verifyReportViewAccess(token!, "cm32jt", VIEW_HOME_KEY, world.deps)).toBe(true);
+  });
+
+  it("a withdrawn delivery never opens the report — and mints no fresh token", async () => {
+    const world = viewAccessWorld();
+    const delivery = await fulfilledOrder(world, "pi_view_3");
+    const token = await reportViewTokenForOrder("pi_view_3", world.deps);
+    expect(token).not.toBeNull();
+    await world.deliveries.withdraw(delivery.id, "re_view_1", DOWNLOAD_NOW);
+    expect(await verifyReportViewAccess(token!, VIEW_POSTCODE, VIEW_HOME_KEY, world.deps)).toBe(
+      false,
+    );
+    expect(await reportViewTokenForOrder("pi_view_3", world.deps)).toBeNull();
+  });
+
+  it("a tampered or expired token does not open the report", async () => {
+    const world = viewAccessWorld();
+    await fulfilledOrder(world, "pi_view_4");
+    const token = await reportViewTokenForOrder("pi_view_4", world.deps);
+    expect(token).not.toBeNull();
+    const [id, expiry, sig] = token!.split(".");
+    const tampered = `${id}.${expiry}.${sig.startsWith("a") ? "b" : "a"}${sig.slice(1)}`;
+    expect(await verifyReportViewAccess(tampered, VIEW_POSTCODE, VIEW_HOME_KEY, world.deps)).toBe(
+      false,
+    );
+    // Past the token's seventh day: spent, like the
+    // PDF link it is.
+    const late: ReportViewAccessDeps = {
+      ...world.deps,
+      now: () => new Date(DOWNLOAD_NOW.getTime() + 8 * DAY_MS),
+    };
+    expect(await verifyReportViewAccess(token!, VIEW_POSTCODE, VIEW_HOME_KEY, late)).toBe(false);
+  });
+
+  it("a claim that is not fulfilled yet does not open the report", async () => {
+    const world = viewAccessWorld();
+    await world.claims.claim({
+      ref: "pi_view_5",
+      kind: "paid",
+      email: VIEW_EMAIL,
+      postcode: VIEW_POSTCODE,
+      homeKey: VIEW_HOME_KEY,
+      now: DOWNLOAD_NOW,
+    });
+    await world.deliveries.record({
+      email: VIEW_EMAIL,
+      kind: "paid",
+      pdfKey: "reports/key.pdf",
+      fileName: "report.pdf",
+      homeTitle: "19 Birkdale Rise",
+      homeAddressLine: "19 Birkdale Rise, Hatfield Peverel CM3 2JT",
+      orderRef: "pi_view_5",
+      now: DOWNLOAD_NOW,
+    });
+    // The mint is delivery-only, so a token exists —
+    // but the gate's claim check still denies it.
+    const token = await reportViewTokenForOrder("pi_view_5", world.deps);
+    expect(token).not.toBeNull();
+    expect(await verifyReportViewAccess(token!, VIEW_POSTCODE, VIEW_HOME_KEY, world.deps)).toBe(
+      false,
+    );
+  });
+
+  it("a delivery whose order has no claim does not open the report", async () => {
+    const world = viewAccessWorld();
+    await world.deliveries.record({
+      email: VIEW_EMAIL,
+      kind: "paid",
+      pdfKey: "reports/key.pdf",
+      fileName: "report.pdf",
+      homeTitle: "19 Birkdale Rise",
+      homeAddressLine: "19 Birkdale Rise, Hatfield Peverel CM3 2JT",
+      orderRef: "pi_no_claim",
+      now: DOWNLOAD_NOW,
+    });
+    const token = await reportViewTokenForOrder("pi_no_claim", world.deps);
+    expect(token).not.toBeNull();
+    expect(await verifyReportViewAccess(token!, VIEW_POSTCODE, VIEW_HOME_KEY, world.deps)).toBe(
+      false,
+    );
+  });
+
+  it("no signer → no token and no access", async () => {
+    const world = viewAccessWorld({ signer: false });
+    await fulfilledOrder(world, "pi_view_6");
+    expect(await reportViewTokenForOrder("pi_view_6", world.deps)).toBeNull();
+    expect(
+      await verifyReportViewAccess("any.token.here", VIEW_POSTCODE, VIEW_HOME_KEY, world.deps),
+    ).toBe(false);
+  });
+
+  it("a whole-postcode order (homeKey null) matches its null — and no home key", async () => {
+    const world = viewAccessWorld();
+    await fulfilledOrder(world, "pi_view_7", null);
+    const token = await reportViewTokenForOrder("pi_view_7", world.deps);
+    expect(token).not.toBeNull();
+    expect(await verifyReportViewAccess(token!, VIEW_POSTCODE, null, world.deps)).toBe(true);
+    expect(await verifyReportViewAccess(token!, VIEW_POSTCODE, VIEW_HOME_KEY, world.deps)).toBe(
+      false,
+    );
+  });
+
+  it("a completed full refund denies even a fulfilled claim", async () => {
+    const world = viewAccessWorld({ refunded: true });
+    await fulfilledOrder(world, "pi_view_8");
+    const token = await reportViewTokenForOrder("pi_view_8", world.deps);
+    expect(token).not.toBeNull();
+    expect(await verifyReportViewAccess(token!, VIEW_POSTCODE, VIEW_HOME_KEY, world.deps)).toBe(
+      false,
+    );
   });
 });
 

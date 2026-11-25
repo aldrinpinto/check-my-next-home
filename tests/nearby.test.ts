@@ -1121,8 +1121,13 @@ describe("nearby bundle — 19 Birkdale Rise, CM3 2JT", () => {
       ["ALDI", 1.14],
       ["Lidl", 1.941],
     ]);
+    // BUG-344(e): the OSM name tag spells it "Tandori";
+    // the business's own spelling is "Tandoori" (its own
+    // site hatfieldtandoorionline.com, and the Food Hygiene
+    // Ratings entry for the same address), and the loader
+    // files the correction.
     expect(top(bundle, "food-and-drink")).toEqual([
-      ["Hatfield Tandori", 0.109],
+      ["Hatfield Tandoori", 0.109],
       ["D's Cafe Diner", 0.158],
       ["Duke of Wellington", 0.218],
     ]);
@@ -1722,5 +1727,77 @@ describe("served detail comma spacing (BUG-246)", () => {
     );
     expect(normaliseCommaSpacing("High Street, ,London")).toBe("High Street, London");
     expect(normaliseCommaSpacing("1,000, 2,000 homes")).toBe("1,000, 2,000 homes");
+  });
+});
+
+describe("served-list dedupe (BUG-342)", () => {
+  // The audit's sample listed the same place twice. The
+  // pipeline serves filed rows verbatim, so a place the
+  // filing carries twice (a node and a way, a re-filed
+  // row) serves twice — unless the brain collapses it.
+  // The dedupe is name + point, and only on the
+  // schools, nurseries and health categories: the same
+  // normalised name at effectively the same point
+  // (within the OSM loader's 30 metres) serves once,
+  // nearest first; name alone never dedupes, and unnamed
+  // points never dedupe. Bus stops, stations,
+  // supermarkets and chargers keep their filed rows
+  // verbatim — two directions, two modes, two chargers
+  // at one point are real rows, and the locked counts
+  // pin that basis.
+  const HOME = { lat: 51.776176, lng: 0.60387 };
+  const north = (miles: number) => HOME.lat + miles / 69.0;
+  type DedupeRow = { name: string | null; lat: number; lng: number };
+  const dedupeSource = (rows: DedupeRow[]): NearbyDataSource => ({
+    async pointsWithin(category, latitude, longitude, radiusMiles): Promise<NearbyPoint[]> {
+      if (category !== "nurseries") return [];
+      return rows
+        .filter((r) => haversineMiles(latitude, longitude, r.lat, r.lng) <= radiusMiles)
+        .map((r) => ({ name: r.name, latitude: r.lat, longitude: r.lng, detail: null }));
+    },
+    async nearestPoint(): Promise<NearbyPoint | null> {
+      return null;
+    },
+    async filedCount(): Promise<number> {
+      return 1000;
+    },
+    async industrialSiteFacts() {
+      return { filedCount: 0, dataYear: null, sourceName: null, sourceDate: null, sites: [] };
+    },
+    async destinationsRelease() {
+      return { filedCount: 0, ks4: null, ks5: null };
+    },
+  });
+
+  it("serves one filing of a place the source carries twice at the same point", async () => {
+    const source = dedupeSource([
+      { name: "Twin Nursery", lat: north(0.5), lng: HOME.lng },
+      // The twin filing, 10 metres north — inside the
+      // 30-metre dedupe radius.
+      { name: "Twin Nursery", lat: north(0.5) + 10 / 111320, lng: HOME.lng },
+      { name: "Other Nursery", lat: north(0.6), lng: HOME.lng },
+    ]);
+    const resolution = await resolveAddressInput("19 Birkdale Rise, CM3 2JT", addressSource);
+    const bundle = await buildNearbyBundle(resolution, source);
+    if (bundle.kind !== "distances") throw new Error("expected distances");
+    const nurseries = bundle.categories.find((c) => c.category === "nurseries");
+    expect(nurseries?.places.map((p) => p.name)).toEqual(["Twin Nursery", "Other Nursery"]);
+    expect(nurseries?.places[0]?.miles).toBe(0.5);
+    // The count stands on the deduped filing, so no count
+    // line can promise a place the list no longer serves.
+    expect(nurseries?.countWithin).toBe(2);
+  });
+
+  it("keeps two branches of one name that stand apart — name alone never dedupes", async () => {
+    const source = dedupeSource([
+      { name: "Twin Nursery", lat: north(0.5), lng: HOME.lng },
+      { name: "Twin Nursery", lat: north(1.5), lng: HOME.lng },
+    ]);
+    const resolution = await resolveAddressInput("19 Birkdale Rise, CM3 2JT", addressSource);
+    const bundle = await buildNearbyBundle(resolution, source);
+    if (bundle.kind !== "distances") throw new Error("expected distances");
+    const nurseries = bundle.categories.find((c) => c.category === "nurseries");
+    expect(nurseries?.places.map((p) => p.name)).toEqual(["Twin Nursery", "Twin Nursery"]);
+    expect(nurseries?.countWithin).toBe(2);
   });
 });

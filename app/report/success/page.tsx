@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import ReportSuccessPage from "../../../components/ReportSuccessPage";
 import { buildReportSuccessView } from "../../../lib/report-success";
 import { pageMetadata } from "../../../lib/seo";
+import { REPORT_PRICE_PENCE } from "../../../lib/site";
 import { getDbPool } from "../../../lib/server/db";
 import { createDbFulfilmentClaimStore } from "../../../lib/server/fulfilment";
 import { createDbGiftStore } from "../../../lib/server/gifts";
@@ -16,6 +17,7 @@ import {
 } from "../../../lib/server/payments";
 import { createDbRefundStore, refundTriggerMet } from "../../../lib/server/refunds";
 import { identityForOrder } from "../../../lib/server/report-identity";
+import { reportViewTokenForOrder } from "../../../lib/server/report-view-access";
 
 // The success surface's route (plan steps M9.6 and
 // M9.7; Sample 10): /report/success?order=<the order's
@@ -128,6 +130,41 @@ export default async function ReportSuccessRoute({
   if (reading.kind === "claim") {
     const claim = reading.claim;
     const identity = await identityForOrder(claim.postcode, claim.homeKey);
+    // BUG-324: the "View your report" button carries the
+    // delivery email's signed download token, minted over
+    // this order's standing delivery, so the view route's
+    // gate can tell this buyer from a typed URL. Only a
+    // fulfilled claim has a delivery to mint over — a
+    // preparing or failed claim mints nothing, and a
+    // mint that cannot be read fails closed to the plain
+    // link (the gate sends the buyer to the door, where
+    // the emailed link still opens the report).
+    const viewToken =
+      claim.status === "fulfilled" ? await reportViewTokenForOrder(ref).catch(() => null) : null;
+    // BUG-337: the receipt for a ready PAID claim — the
+    // order reference, the one price, and the card off
+    // the payment's intent status. The reference and the
+    // amount are known even where the status read fails
+    // or names no card, so the line still quotes those
+    // two; only the card clause drops. Gifted and free
+    // claims paid nothing and get no receipt.
+    const receipt =
+      claim.status === "fulfilled" && claim.kind === "paid"
+        ? await payments
+            .intentStatus(ref)
+            .then((status) => ({
+              orderRef: ref,
+              amountPence: REPORT_PRICE_PENCE,
+              cardBrand: status.ok ? (status.card?.brand ?? null) : null,
+              cardLast4: status.ok ? (status.card?.last4 ?? null) : null,
+            }))
+            .catch(() => ({
+              orderRef: ref,
+              amountPence: REPORT_PRICE_PENCE,
+              cardBrand: null,
+              cardLast4: null,
+            }))
+        : null;
     const view = buildReportSuccessView({
       state:
         claim.status === "fulfilled"
@@ -142,6 +179,8 @@ export default async function ReportSuccessRoute({
       email: claim.email,
       mailSent: claim.mailSent,
       orderRef: ref,
+      viewToken,
+      receipt,
     });
     return <ReportSuccessPage view={view} />;
   }

@@ -47,8 +47,11 @@ import { RADIUS_MILES } from "./nearby";
 //   - The three absences are three distinct named facts, never
 //     one shared line and never "no flood risk": zones — the
 //     point is not in Flood Zone 2 or 3 (Zone 1 is named only
-//     as the EA's name for that remainder); rivers & sea — no
-//     likelihood band is published for this point; surface
+//     as the EA's name for that remainder); rivers & sea — the
+//     point sits below the lowest band the Agency publishes,
+//     which reads as Very low (BUG-343: the free pill reads
+//     this absence as Very low, and the paid section must
+//     never show less than the free page); surface
 //     water — no band reaches this point, below the lowest
 //     band the product publishes.
 //   - Proximity is part of every layer's answer, never a bare
@@ -1184,7 +1187,18 @@ function pointLine(spec: LayerSpec, covering: ServedFloodLabel | null): string {
     case "flood_zone":
       return "the postcode point is not in Flood Zone 2 or Flood Zone 3 on the Environment Agency's planning map";
     case "rofrs":
-      return "no likelihood band is published for this point on the Environment Agency's map of flooding from rivers and the sea";
+      // BUG-343 (25 Nov 2026): the free page's flood pill
+      // reads this absence as "Very low" (lib/journey.ts's
+      // floodBandOf maps the no-band-published state to
+      // Very low, and lib/results.ts renders it as such),
+      // so the paid section must carry the same band
+      // instead of taking it away — the point sits below
+      // the lowest band the Agency publishes, which is
+      // the Very low case, and the line says so with its
+      // source. The point state stays "no-band-published":
+      // the three absences stay three distinct states, and
+      // the free page's own rendering keys off it.
+      return "the postcode point is below the lowest band the Environment Agency publishes on its map of flooding from rivers and the sea — Very low";
     case "rofsw":
       return "no surface-water band reaches this point — below the lowest band this product publishes";
   }
@@ -1346,7 +1360,14 @@ function buildDefencesBlock(
     bridgeLine: rofrsFacts.filedCount > 0 ? FLOOD_DEFENCES_BRIDGE : null,
     defences,
     totalWithin: facts.totalWithin,
-    overflowLine: overflow > 0 ? `and ${overflow} more recorded defences within two miles` : null,
+    // BUG-344(c) (25 Nov 2026): the overflow line has a
+    // singular form — one more defence, not defences.
+    overflowLine:
+      overflow === 1
+        ? "and 1 more recorded defence within two miles"
+        : overflow > 0
+          ? `and ${overflow} more recorded defences within two miles`
+          : null,
   };
 }
 

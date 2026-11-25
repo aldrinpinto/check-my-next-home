@@ -40,6 +40,14 @@ export default function ReportSuccessPage({ view }: { view: ReportSuccessView })
       </p>
       <p className="type-lead report-payment__lede">{view.lede}</p>
 
+      {/* BUG-337 (25 Nov 2026): the ready paid state's
+          receipt line — order reference, amount, card —
+          under the lede. Ready + paid only; the builder
+          nulls it everywhere else. NEW WORDING: Sample
+          10 draws no receipt, so the Master is conformed
+          in this stack. */}
+      {view.receiptLine && <p className="report-success__receipt">{view.receiptLine}</p>}
+
       {/* BUG-260 (24 Nov 2026): the preparing state's
           visible progress — the ring spins while the
           refresher polls, so the ~minute wait never reads

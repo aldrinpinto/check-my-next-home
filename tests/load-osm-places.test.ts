@@ -276,6 +276,12 @@ describe("the group mapping, the priority and the recorded detail (rulings 3 and
     expect(placeName({ name: "Latneys Boarding Kennelsl and Cattery" })).toBe(
       "Latneys Boarding Kennels and Cattery",
     );
+    // BUG-344(e): OSM node 1203700697 carries "Tandori";
+    // the business's own spelling is "Tandoori" (its own
+    // site hatfieldtandoorionline.com, and the Food Hygiene
+    // Ratings entry for the same address) — the same
+    // correction mechanism, one exact string.
+    expect(placeName({ name: "Hatfield Tandori" })).toBe("Hatfield Tandoori");
     // Every other name files verbatim — the map is one
     // exact string, never a pattern.
     expect(placeName({ name: "Latneys Boarding Kennels and Cattery" })).toBe(
@@ -430,6 +436,12 @@ describe("the fixture recomputation — the golden figures", () => {
     // and the loader corrects it at filing.
     expect(boarding.row.name).toBe("Latneys Boarding Kennels and Cattery");
     expect(boarding.d).toBeCloseTo(0.782, 1);
+    // BUG-344(e): the filed food & drink name is the
+    // business's own spelling — the fixture's OSM node
+    // carries the typo ("Tandori") and the loader
+    // corrects it at filing.
+    const tandoori = nearestNamed("birkdale", "food_and_drink");
+    expect(tandoori.row.name).toBe("Hatfield Tandoori");
     const library = nearestNamed("birkdale", "library");
     expect(library.row.name).toBe("Hatfield Peverel Library");
     expect(library.d).toBeCloseTo(0.462, 1);

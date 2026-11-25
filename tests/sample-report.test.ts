@@ -8,6 +8,7 @@ import { defaultDeposit, mortgageMonthly, stampDuty } from "../lib/calculators";
 import { buildReportView } from "../lib/report";
 import {
   anonymiseSampleView,
+  cleanSampleNearbyListings,
   fictioniseSampleOwnSale,
   mergeSampleBundles,
   sampleReportInput,
@@ -15,7 +16,14 @@ import {
   type SampleCandidate,
   type SampleHomeIdentity,
 } from "../lib/sample-report";
-import { baseNearby, birkdale, crimeServed, floodServed, input } from "./fixtures/report-inputs";
+import {
+  baseNearby,
+  birkdale,
+  crimeServed,
+  floodServed,
+  input,
+  nearbyWith,
+} from "./fixtures/report-inputs";
 
 // BUG-159 — the sample report is the REAL generated report.
 //
@@ -511,5 +519,104 @@ describe("Section 3 counts come from the lists they head (BUG-240)", () => {
       checked += 1;
     }
     expect(checked).toBeGreaterThan(0);
+  });
+});
+
+describe("the sample listing clean-up (BUG-342)", () => {
+  function dirtyBundles() {
+    const fixture = input();
+    const place = (name: string, miles: number) => ({
+      name,
+      miles,
+      detail: null,
+      latitude: 51.5,
+      longitude: 0.02,
+    });
+    return {
+      nearby: nearbyWith({
+        dentist: {
+          label: "dentists",
+          state: "within" as const,
+          places: [
+            place("THE APPLEBY CENTRE", 0.3),
+            place("APPLEBY CENTRE", 0.4),
+            place("Other Dental", 0.5),
+          ],
+          countWithin: 3,
+        },
+        nurseries: {
+          label: "nurseries",
+          state: "within" as const,
+          places: [
+            place("Maths Tutoring By Pearl Lily And Co Accountants", 0.2),
+            place("Shining Stars", 0.3),
+          ],
+          countWithin: 2,
+        },
+        "schools-secondary": {
+          label: "secondary schools",
+          state: "within" as const,
+          places: [
+            place("Rokeby School", 0.33),
+            place("Royal Docks Academy", 0.66),
+            place("Royal Docks Academy", 0.67),
+          ],
+          countWithin: 3,
+        },
+      }),
+      flood: fixture.flood,
+      area: fixture.area,
+      sold: fixture.sold,
+      crime: fixture.crime,
+    };
+  }
+
+  function byKey(bundles: ReturnType<typeof dirtyBundles>, key: string) {
+    if (bundles.nearby.kind !== "distances") throw new Error("expected distances");
+    return bundles.nearby.categories.find((c) => c.category === key);
+  }
+
+  it("dedupes a place listed twice, keeping the nearest filing", () => {
+    const cleaned = cleanSampleNearbyListings(dirtyBundles());
+    // The two Appleby registrations read as one place
+    // twice: the nearest filing wins, the count follows.
+    expect(byKey(cleaned, "dentist")?.places.map((p) => p.name)).toEqual([
+      "THE APPLEBY CENTRE",
+      "Other Dental",
+    ]);
+    expect(byKey(cleaned, "dentist")?.countWithin).toBe(2);
+    // The exact-name twin likewise serves once.
+    expect(byKey(cleaned, "schools-secondary")?.places.map((p) => p.name)).toEqual([
+      "Rokeby School",
+      "Royal Docks Academy",
+    ]);
+    expect(byKey(cleaned, "schools-secondary")?.countWithin).toBe(2);
+  });
+
+  it("moves the tutoring business out of the nurseries list", () => {
+    const cleaned = cleanSampleNearbyListings(dirtyBundles());
+    expect(byKey(cleaned, "nurseries")?.places.map((p) => p.name)).toEqual(["Shining Stars"]);
+    expect(byKey(cleaned, "nurseries")?.countWithin).toBe(1);
+  });
+
+  it("never mutates the bundles it is given", () => {
+    const bundles = dirtyBundles();
+    const before = JSON.stringify(bundles);
+    cleanSampleNearbyListings(bundles);
+    expect(JSON.stringify(bundles)).toBe(before);
+  });
+
+  it("runs inside the merge, so the seam needs no change to pick it up", () => {
+    const candidate: SampleCandidate = {
+      id: "primary",
+      resolution: birkdale,
+      bundles: dirtyBundles(),
+    };
+    const merged = mergeSampleBundles([candidate]);
+    if (merged.bundles.nearby.kind !== "distances") throw new Error("expected distances");
+    const nurseries = merged.bundles.nearby.categories.find((c) => c.category === "nurseries");
+    expect(nurseries?.places.map((p) => p.name)).toEqual(["Shining Stars"]);
+    const dentist = merged.bundles.nearby.categories.find((c) => c.category === "dentist");
+    expect(dentist?.places.map((p) => p.name)).toEqual(["THE APPLEBY CENTRE", "Other Dental"]);
   });
 });

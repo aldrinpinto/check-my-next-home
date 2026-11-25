@@ -1158,8 +1158,11 @@ describe("matrix — flood", () => {
       "the postcode point is not in Flood Zone 2 or Flood Zone 3 on the Environment Agency's planning map",
     );
     expect(byLayer.get("rofrs")?.pointState).toBe("no-band-published");
+    // BUG-343: the absence reads as Very low — the free
+    // pill's band — with its source, never as "no band is
+    // published". The point state is unchanged.
     expect(byLayer.get("rofrs")?.line).toBe(
-      "no likelihood band is published for this point on the Environment Agency's map of flooding from rivers and the sea",
+      "the postcode point is below the lowest band the Environment Agency publishes on its map of flooding from rivers and the sea — Very low",
     );
     expect(byLayer.get("rofsw")?.pointState).toBe("below-lowest-band");
     expect(byLayer.get("rofsw")?.line).toBe(

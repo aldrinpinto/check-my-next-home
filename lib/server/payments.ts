@@ -112,6 +112,15 @@ export type IntentStatusResult =
       // names its home and delivery email from them —
       // never from anything a client sent.
       metadata: Record<string, string>;
+      // BUG-337 (25 Nov 2026): the card the payment
+      // was made with — brand and last 4 digits — for
+      // the success page's receipt line. Null where
+      // the payment carries no card to name (a wallet
+      // payment, or a payment method that is not a
+      // card). The real adapter reads it by expanding
+      // payment_method on the retrieve; the fake reads
+      // it from its created record.
+      card?: { brand: string; last4: string } | null;
     }
   | { ok: false; reason: string };
 
@@ -252,6 +261,24 @@ function stringMetadata(raw: unknown): Record<string, string> {
   return metadata;
 }
 
+// BUG-337: the card off an expanded payment method —
+// its brand and last 4 digits, and nothing else. A
+// method that is not an expanded object, or a card
+// without both fields, names no card: null, never a
+// partial or guessed one. The brand is the provider's
+// own lowercase word ("visa"); the receipt formats it
+// for display (lib/report-success.ts).
+function readCard(paymentMethod: unknown): { brand: string; last4: string } | null {
+  if (typeof paymentMethod !== "object" || paymentMethod === null) return null;
+  const card = (paymentMethod as Record<string, unknown>).card;
+  if (typeof card !== "object" || card === null) return null;
+  const brand = (card as Record<string, unknown>).brand;
+  const last4 = (card as Record<string, unknown>).last4;
+  if (typeof brand !== "string" || brand === "") return null;
+  if (typeof last4 !== "string" || last4 === "") return null;
+  return { brand, last4 };
+}
+
 // The event-object fields the translator names beyond
 // the payment itself (M9.8, gap 2), read from the
 // verified object in ONE place so the Stripe adapter
@@ -311,10 +338,18 @@ export interface StripeClientSlice {
       client_secret: string | null;
       status: string;
     }>;
-    retrieve(id: string): Promise<{
+    retrieve(
+      id: string,
+      params?: { expand?: string[] },
+    ): Promise<{
       id: string;
       status: string;
       metadata?: Record<string, unknown>;
+      // BUG-337: the payment method, expanded on the
+      // retrieve — a string id where it is not expanded,
+      // the method object where it is. Only its card's
+      // brand and last 4 digits are ever read (below).
+      payment_method?: string | { card?: { brand?: string; last4?: string } } | null;
     }>;
   };
   webhooks: {
@@ -369,12 +404,20 @@ export function createStripePayments(config: {
     },
     async intentStatus(intentId) {
       try {
-        const intent = await client.paymentIntents.retrieve(intentId);
+        // BUG-337: the payment method is expanded on
+        // the retrieve so the receipt can name the card
+        // — the only extra read the status makes, and
+        // the only card fields ever taken are the brand
+        // and last 4 digits (readCard, below).
+        const intent = await client.paymentIntents.retrieve(intentId, {
+          expand: ["payment_method"],
+        });
         return {
           ok: true,
           intentId: intent.id,
           status: intent.status,
           metadata: stringMetadata(intent.metadata),
+          card: readCard(intent.payment_method),
         };
       } catch {
         return { ok: false, reason: "provider-error" };
@@ -431,6 +474,12 @@ export interface FakePayments extends Payments {
     amount: number;
     currency: string;
     status: string;
+    // BUG-337: the card the fake's payment was made
+    // with — the standard test card, unless setCard
+    // says otherwise. intentStatus reads the receipt's
+    // card from here, the way the real adapter reads
+    // it from the expanded payment method.
+    card: { brand: string; last4: string } | null;
   }[];
   // Sign a webhook payload the way the fake's verifier
   // expects — the documented scheme's shape: a
@@ -441,6 +490,11 @@ export interface FakePayments extends Payments {
   // payment, a failed one) so status read-backs can be
   // exercised.
   setStatus(intentId: string, status: string): void;
+  // BUG-337: set the card a created intent's read-back
+  // names — a different test card, or null for a payment
+  // with no card to name. The standard test card stands
+  // until this is called.
+  setCard(intentId: string, card: { brand: string; last4: string } | null): void;
 }
 
 export function createFakePayments(config?: { webhookSecret?: string }): FakePayments {
@@ -463,6 +517,10 @@ export function createFakePayments(config?: { webhookSecret?: string }): FakePay
       const record = created.find((entry) => entry.intentId === intentId);
       if (record) record.status = status;
     },
+    setCard(intentId, card) {
+      const record = created.find((entry) => entry.intentId === intentId);
+      if (record) record.card = card;
+    },
     async createReportIntent(input) {
       counter += 1;
       const intentId = `pi_fake_${counter}`;
@@ -477,6 +535,9 @@ export function createFakePayments(config?: { webhookSecret?: string }): FakePay
         amount: REPORT_PRICE_PENCE,
         currency: PAYMENT_CURRENCY,
         status: "requires_confirmation",
+        // BUG-337: the standard test card — the 4242
+        // card every sandbox purchase in the audit used.
+        card: { brand: "visa", last4: "4242" },
       };
       created.push(record);
       return {
@@ -500,7 +561,7 @@ export function createFakePayments(config?: { webhookSecret?: string }): FakePay
       };
       if (record.homeKey) metadata[PAYMENT_METADATA_HOME_KEY] = record.homeKey;
       if (record.testOrder) metadata[PAYMENT_METADATA_TEST] = "true";
-      return { ok: true, intentId, status: record.status, metadata };
+      return { ok: true, intentId, status: record.status, metadata, card: record.card };
     },
     verifyWebhookEvent(input) {
       const parts = new Map(

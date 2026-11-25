@@ -9,7 +9,19 @@ import {
   type Payments,
   type PaymentsRouter,
 } from "../lib/server/payments";
-import { startReportPayment, type PaymentResolver } from "../lib/server/payment-intent";
+import {
+  giftGoneReasonFor,
+  startReportPayment,
+  type PaymentResolver,
+} from "../lib/server/payment-intent";
+import {
+  claimedExpiredGift,
+  claimedGift,
+  giftRecord,
+  redeemedGift,
+  GIFT_FRIEND,
+  GIFT_NOW,
+} from "./fixtures/gift";
 
 // M9.4/M9.5 — starting a report payment (the
 // orchestration behind POST /api/payments/intent): the
@@ -86,6 +98,8 @@ describe("startReportPayment", () => {
         amount: REPORT_PRICE_PENCE,
         currency: "gbp",
         status: "requires_confirmation",
+        // BUG-337: the fake's standard test card.
+        card: { brand: "visa", last4: "4242" },
       },
     ]);
   });
@@ -347,6 +361,54 @@ describe("startReportPayment — gift recognition (M9.6)", () => {
     );
     expect(result.ok).toBe(true);
     expect(fake.created).toHaveLength(1);
+  });
+});
+
+// BUG-325 follow-up — why the visit's gift was gone,
+// from the record the intent route read for it: the
+// claim route's own served-state precedence, reduced
+// to the two causes the payment page can name.
+describe("giftGoneReasonFor — the reason a gift was gone at intent time", () => {
+  it("a redeemed gift reads already-used", () => {
+    expect(giftGoneReasonFor(redeemedGift(), GIFT_NOW)).toBe("already-used");
+  });
+
+  it("a claimed gift past its 30 days reads expired", () => {
+    expect(giftGoneReasonFor(claimedExpiredGift(), GIFT_NOW)).toBe("expired");
+  });
+
+  it("a live claimed gift carries no reason", () => {
+    expect(giftGoneReasonFor(claimedGift(), GIFT_NOW)).toBeNull();
+  });
+
+  it("a voided gift carries no reason — it names neither cause (M9.8)", () => {
+    const voided = giftRecord({
+      status: "voided",
+      claimantEmail: GIFT_FRIEND,
+      claimedAt: new Date(GIFT_NOW.getTime() - 24 * 60 * 60 * 1000),
+      voidedAt: GIFT_NOW,
+    });
+    expect(giftGoneReasonFor(voided, GIFT_NOW)).toBeNull();
+  });
+
+  it("an unclaimed gift carries no reason", () => {
+    expect(giftGoneReasonFor(giftRecord(), GIFT_NOW)).toBeNull();
+  });
+
+  it("no record carries no reason", () => {
+    expect(giftGoneReasonFor(null, GIFT_NOW)).toBeNull();
+  });
+
+  it("redemption is final even past the 30 days — already-used, never expired", () => {
+    const dayMs = 24 * 60 * 60 * 1000;
+    const redeemedLate = giftRecord({
+      status: "redeemed",
+      claimantEmail: GIFT_FRIEND,
+      claimedAt: new Date(GIFT_NOW.getTime() - 30 * dayMs),
+      redeemedAt: new Date(GIFT_NOW.getTime() - 29 * dayMs),
+      issuedAt: new Date(GIFT_NOW.getTime() - 31 * dayMs),
+    });
+    expect(giftGoneReasonFor(redeemedLate, GIFT_NOW)).toBe("already-used");
   });
 });
 

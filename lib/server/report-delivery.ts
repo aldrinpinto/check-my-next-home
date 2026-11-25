@@ -58,6 +58,7 @@ import {
   type DeliveryRecord,
 } from "../download";
 import { giftClaimPath, normaliseEmail } from "../gift";
+import { REPORT_PRICE_PENCE } from "../site";
 import { getDbPool } from "./db";
 import { getDownloadSigner, type DownloadSigner } from "./download-links";
 import { createDbGiftStore, type GiftStore } from "./gifts";
@@ -176,6 +177,15 @@ export function createReportDeliveryService(deps: ReportDeliveryDeps): ReportDel
         homeAddressLine: delivery.homeAddressLine,
         downloadUrl,
         giftClaimUrl: gift ? `${input.origin}${giftClaimPath(gift.token)}` : null,
+        // BUG-337: the receipt rides the delivery email
+        // for a PAID delivery — the order reference and
+        // the one price. Free and gifted deliveries paid
+        // nothing and carry none; the card line is
+        // page-only (the service never sees the card).
+        receipt:
+          input.kind === "paid" && delivery.orderRef
+            ? { orderRef: delivery.orderRef, amountPence: REPORT_PRICE_PENCE }
+            : null,
       });
       const mail = await deps.mailer.sendDeliveryEmail({ to: delivery.email, email });
       return { delivery, downloadUrl, mail };
@@ -220,6 +230,12 @@ export function createReportDeliveryService(deps: ReportDeliveryDeps): ReportDel
         giftClaimUrl: delivery.giftToken
           ? `${input.origin}${giftClaimPath(delivery.giftToken)}`
           : null,
+        // BUG-337: a re-sent delivery email repeats the
+        // paid receipt, exactly as the first send does.
+        receipt:
+          delivery.kind === "paid" && delivery.orderRef
+            ? { orderRef: delivery.orderRef, amountPence: REPORT_PRICE_PENCE }
+            : null,
       });
       return deps.mailer.sendDeliveryEmail({ to: delivery.email, email });
     },

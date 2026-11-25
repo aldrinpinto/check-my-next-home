@@ -117,6 +117,15 @@ export interface GiftRecord {
 export type GiftServedState =
   "not-recognised" | "claim" | "claimed-guard" | "already-used" | "expired" | "voided";
 
+// The BUG-325 follow-up's reason: why the visit's gift
+// was gone at intent time — the two ways a gift can go
+// that the payment page can name (expired, or already
+// used). A voided gift names neither (M9.8: a voided
+// gift never reads "expired", never "already used"), so
+// it carries no reason and the page keeps the
+// both-causes line.
+export type GiftGoneReason = "expired" | "already-used";
+
 // The served state for the claim route, in the plan's
 // precedence: the void stands first among the stored
 // states (a refund's act, never re-read as expiry even

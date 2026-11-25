@@ -1621,7 +1621,7 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
     expect(birkdale.state).toBe("served");
     expect(birkdale.totalWithin).toBe(26);
     expect(birkdale.defences).toHaveLength(25);
-    expect(birkdale.overflowLine).toBe("and 1 more recorded defences within two miles");
+    expect(birkdale.overflowLine).toBe("and 1 more recorded defence within two miles");
     expect(birkdale.caveat).toContain("Flood defences reduce the chance of flooding");
     expect(birkdale.bridgeLine).toContain("already counts the flood defences in place");
     const bFirst = birkdale.defences[0];
