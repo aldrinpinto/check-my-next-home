@@ -21,13 +21,15 @@
 //     the equal-length stretch immediately before it.
 //   - Revenue counts PAID orders only, at the order
 //     record's own amounts (M9.10's fields, as the plan
-//     directs now that the record has landed).
+//     directs now that the record has landed) — and
+//     never a fully-refunded order (BUG-349).
 //   - The funnel counts journeys, not people, and says
-//     so on the panel; its steps read the journey
-//     events, which carry no kind and no test flag —
-//     the plan's stated limit — while its Paid and
-//     Delivered steps re-base onto the order tables
-//     when a kind is chosen (plan section 3.3).
+//     so on the panel; its first five steps read the
+//     journey events, which carry no kind and no test
+//     flag — the plan's stated limit — while its Paid
+//     and Delivered steps always re-base onto the order
+//     tables (plan section 3.3; BUG-351: the events are
+//     a larger set than the tables).
 //   - Refunds are read from M9.8's refund record, the
 //     single source; this module invents no refund
 //     facts of its own.
@@ -405,6 +407,23 @@ export interface AdminEventCounts {
   failedSearches: number;
 }
 
+// A search type, as the demand panel names it. Defined
+// here (not imported from lib/server/search-counting.ts)
+// because that module imports AdminCounting from this
+// one — an import the other way would be a type cycle.
+export type AdminPurchaseType = "postcode" | "street" | "wider-area";
+
+// One page error in the period: its count, plus the
+// route and time of its latest occurrence (BUG-356),
+// so the panel can say where it happened instead of
+// pointing at an unwired Sentry.
+export interface AdminPageError {
+  name: string;
+  count: number;
+  route: string | null;
+  lastAt: Date | null;
+}
+
 export interface AdminSlice {
   events: AdminEventCounts;
   // Every order standing in the period, unsliced — the
@@ -426,20 +445,42 @@ export interface AdminSlice {
   refundedInFull: Set<string>;
   // Each order's gift, where one stands.
   giftByOrder: Map<string, GiftRecord | null>;
+  // Each paid order's search type, read from the
+  // purchase rows in search_counts (BUG-352): the
+  // counting shelf's bought figures carry historical
+  // rows flagged before BUG-290's livemode rule, so
+  // the demand panel derives bought from the order
+  // tables through this map instead.
+  purchaseTypeByOrder: Map<string, AdminPurchaseType>;
+  // Each gift's source order test standing, for gifts
+  // whose order stands outside the period (BUG-353):
+  // the orphan branch of adminGiftCounts reads this
+  // map so the toggle applies there too.
+  giftTestByToken: Map<string, boolean>;
   // The search counting (migration 0044), read for the
   // same window.
   counting: AdminCounting;
   // Check completions split by nation and rung (the
   // plan's demand split, from the journey events).
   checksByNationRung: { nation: string; rung: number | null; checks: number }[];
-  // Page errors in the period, by error name.
-  pageErrors: { name: string; count: number }[];
+  // Page errors in the period, by error name — each
+  // with the route and time of its latest occurrence
+  // (BUG-356), so the panel can say where it happened
+  // instead of pointing at an unwired Sentry.
+  pageErrors: AdminPageError[];
 }
 
 export interface AdminCounting {
   checksByPostcode: { postcode: string; checks: number }[];
   checksByStreet: { label: string; checks: number }[];
   checksByType: Record<"postcode" | "street" | "wider-area", number>;
+  // The shelf's bought figures are NOT the demand
+  // panel's source (BUG-352): historical purchase rows
+  // were flagged before BUG-290's livemode rule, so
+  // the "How people searched" bought column derives
+  // from the order tables (purchaseTypeByOrder) instead.
+  // The shelf still returns them, and
+  // tests/search-counting.test.ts pins them.
   purchasesByType: Record<"postcode" | "street" | "wider-area", number>;
   purchasesByTypeTest: Record<"postcode" | "street" | "wider-area", number>;
 }
@@ -451,6 +492,24 @@ export const EMPTY_COUNTING: AdminCounting = {
   purchasesByType: { postcode: 0, street: 0, "wider-area": 0 },
   purchasesByTypeTest: { postcode: 0, street: 0, "wider-area": 0 },
 };
+
+// Join error counts to their latest occurrences (the
+// seam's second page_error read). A count with no
+// latest occurrence reads nulls, never a guess.
+export function attachPageErrorDetail(
+  counts: { name: string; count: number }[],
+  latestByName: Map<string, { route: string | null; lastAt: Date | null }>,
+): AdminPageError[] {
+  return counts.map((error) => {
+    const latest = latestByName.get(error.name);
+    return {
+      name: error.name,
+      count: error.count,
+      route: latest?.route ?? null,
+      lastAt: latest?.lastAt ?? null,
+    };
+  });
+}
 
 export interface AdminSliceInput {
   range: AdminRangeKey;
@@ -482,17 +541,47 @@ function claimInSlice(
 // A delivery's slice standing: its kind names itself;
 // its test standing rides on its order (a delivery the
 // books cannot tie to an order counts as a real one).
+// A withdrawn delivery never stands (BUG-349): the
+// refund withdrew it, so it is not a delivery the
+// owner still holds.
 function deliveryInSlice(
   delivery: DeliveryRecord,
   ordersByRef: Map<string, OrderRecord>,
   input: AdminSliceInput,
 ): boolean {
+  if (delivery.withdrawnAt !== null) return false;
   if (input.kind !== "all" && delivery.kind !== input.kind) return false;
   if (input.testExcluded && delivery.orderRef) {
     const order = ordersByRef.get(delivery.orderRef);
     if (order?.testOrder) return false;
   }
   return true;
+}
+
+// How many of the slice's orders stand delivered: the
+// order tables are the one reading for the glance
+// "Reports delivered" card and the funnel's Delivered
+// step (BUG-351). Delivery records cannot be the
+// reading — they include deliveries whose orders
+// predate the window (and so carry no test standing
+// the slice can see), and the journey events are a
+// larger set than the order tables. A refunded order
+// reads "refunded", never "delivered", so this also
+// carries BUG-349's withdrawn-delivery half for both
+// figures.
+function deliveredOrdersInSlice(data: AdminSlice, slice: AdminSliceInput): number {
+  const claimsByRef = new Map(data.claims.map((claim) => [claim.ref, claim]));
+  return data.orders.filter((order) => {
+    if (!orderInSlice(order, slice)) return false;
+    const claim = claimsByRef.get(order.ref) ?? null;
+    return (
+      orderStatusOf({
+        order,
+        claim,
+        refundedInFull: data.refundedInFull.has(order.ref),
+      }) === "delivered"
+    );
+  }).length;
 }
 
 // ------------------------------------------------------------------
@@ -520,21 +609,20 @@ export function adminGlance(input: {
   const checks = current.events.checkCompleted;
   const prevChecks = previous ? previous.events.checkCompleted : null;
 
-  const delivered = current.deliveries.filter((delivery) =>
-    deliveryInSlice(delivery, new Map(current.orders.map((o) => [o.ref, o])), slice),
-  ).length;
-  const prevDelivered = previous
-    ? previous.deliveries.filter((delivery) =>
-        deliveryInSlice(delivery, new Map(previous.orders.map((o) => [o.ref, o])), slice),
-      ).length
-    : null;
+  const delivered = deliveredOrdersInSlice(current, slice);
+  const prevDelivered = previous ? deliveredOrdersInSlice(previous, slice) : null;
 
-  const revenueOf = (orders: OrderRecord[]) =>
+  // Revenue counts PAID orders only, at the order
+  // record's own amounts — and never a fully-refunded
+  // order (BUG-349): the money went back, so it is
+  // not revenue the owner still holds.
+  const revenueOf = (orders: OrderRecord[], refunded: Set<string>) =>
     orders
-      .filter((order) => order.kind === "paid")
+      .filter((order) => order.kind === "paid" && !refunded.has(order.ref))
       .reduce((sum, order) => sum + (order.amount ?? 0), 0);
-  const revenue = revenueOf(curOrders);
-  const prevRevenue = prevOrders ? revenueOf(prevOrders) : null;
+  const revenue = revenueOf(curOrders, current.refundedInFull);
+  const prevRevenue =
+    previous && prevOrders ? revenueOf(prevOrders, previous.refundedInFull) : null;
 
   // Conversion: paid completions over completed checks.
   // The numerator is the funnel's Paid step, read the
@@ -660,13 +748,13 @@ export interface AdminFunnel {
 }
 
 // The funnel's Paid step, and the conversion card's
-// numerator — one reading, shared. All kinds with test
-// orders included reads the checkout_paid events (the
-// funnel's own source); any narrower slice re-bases
-// onto the claims table, the only shelf that knows an
-// order's kind and test standing (plan section 3.3).
+// numerator — one reading, shared. Paid always
+// re-bases onto the claims table, the only shelf that
+// knows an order's kind and test standing (plan
+// section 3.3): the checkout_paid events are a larger
+// set than the paid claims, so reading them inflates
+// Paid whenever test orders are included (BUG-351).
 export function adminPaidCount(data: AdminSlice, slice: AdminSliceInput): number {
-  if (slice.kind === "all" && !slice.testExcluded) return data.events.checkoutPaid;
   const ordersByRef = new Map(data.orders.map((order) => [order.ref, order]));
   return data.claims.filter(
     (claim) => claim.kind === "paid" && claimInSlice(claim, ordersByRef, slice),
@@ -688,23 +776,19 @@ export function adminFunnel(input: { current: AdminSlice; slice: AdminSliceInput
   const ordersByRef = new Map(current.orders.map((order) => [order.ref, order]));
   const events = current.events;
 
-  let paid: number;
-  let delivered: number;
-  if (slice.kind === "all" && !slice.testExcluded) {
-    paid = events.checkoutPaid;
-    delivered = events.reportDelivered;
-  } else {
-    // A narrower slice re-bases the last two steps onto
-    // the order tables (plan section 3.3): the events
-    // carry neither a kind nor a test flag.
-    paid =
-      slice.kind === "gifted" || slice.kind === "free" || slice.kind === "free-ni"
-        ? 0
-        : adminPaidCount(current, slice);
-    delivered = current.deliveries.filter((delivery) =>
-      deliveryInSlice(delivery, ordersByRef, slice),
-    ).length;
-  }
+  // The first five steps read the journey events (the
+  // plan's stated limit — the events carry neither a
+  // kind nor a test flag). The last two always re-base
+  // onto the order tables (plan section 3.3): Paid
+  // onto the paid claims, Delivered onto the delivered
+  // orders — the events are a larger set than either
+  // table (BUG-351). A kind with no payment step has
+  // no Paid to show.
+  const paid =
+    slice.kind === "gifted" || slice.kind === "free" || slice.kind === "free-ni"
+      ? 0
+      : adminPaidCount(current, slice);
+  const delivered = deliveredOrdersInSlice(current, slice);
 
   const counts = [
     events.pageViews,
@@ -764,6 +848,20 @@ export const ADMIN_STATUS_LABELS: Record<AdminOrderStatusKey, string> = {
   "email-not-sent": "Paid — email not sent",
   preparing: "Preparing",
 };
+
+// The one status list the filter offers (BUG-350):
+// the page and the component both read this, so a
+// status can never again exist in the table without
+// appearing in the filter. Every key of
+// ADMIN_STATUS_LABELS, in table order.
+export const ADMIN_STATUS_FILTER_KEYS: AdminOrderStatusKey[] = [
+  "delivered",
+  "payment-failed",
+  "delivery-failed",
+  "refunded",
+  "email-not-sent",
+  "preparing",
+];
 
 export const ADMIN_STATUS_TONES: Record<AdminOrderStatusKey, "green" | "red" | "amber" | "grey"> = {
   delivered: "green",
@@ -968,15 +1066,21 @@ export function adminOrderRows(input: {
     }
   }
 
-  return rows
-    .filter((row) => input.status === "all" || row.statusKey === input.status)
-    .filter(
-      (row) =>
-        query.length === 0 ||
-        row.homeLabel.toLowerCase().includes(query) ||
-        row.email.toLowerCase().includes(query),
-    )
-    .sort((a, b) => b.at.getTime() - a.at.getTime());
+  return (
+    rows
+      .filter((row) => input.status === "all" || row.statusKey === input.status)
+      .filter(
+        (row) =>
+          query.length === 0 ||
+          row.homeLabel.toLowerCase().includes(query) ||
+          row.email.toLowerCase().includes(query),
+      )
+      // Newest first; same-second rows fall back to the
+      // reference, so the page order is deterministic
+      // between loads (BUG-354: the sort alone let ties
+      // shuffle with the database's own order).
+      .sort((a, b) => b.at.getTime() - a.at.getTime() || b.ref.localeCompare(a.ref))
+  );
 }
 
 // ------------------------------------------------------------------
@@ -1030,11 +1134,26 @@ export function adminDemand(input: { data: AdminSlice; slice: AdminSliceInput })
       conversion: row.checks === 0 ? "0%" : formatPercent((bought / row.checks) * 100),
     };
   });
-  const purchases = { ...data.counting.purchasesByType };
-  if (!slice.testExcluded) {
-    for (const key of Object.keys(purchases) as (keyof typeof purchases)[]) {
-      purchases[key] += data.counting.purchasesByTypeTest[key];
-    }
+  // Bought by search type reads the order tables, never
+  // the counting shelf (BUG-352): the shelf's purchase
+  // counters carry historical rows flagged before
+  // BUG-290's livemode rule, so its bought figures
+  // cannot be trusted. Each paid order in the slice
+  // contributes one purchase under the search type its
+  // own purchase row carries; an order with no purchase
+  // row counts under no type — the bought total can
+  // sit below the paid orders, by design, and is never
+  // topped up from the shelf.
+  const purchases: Record<"postcode" | "street" | "wider-area", number> = {
+    postcode: 0,
+    street: 0,
+    "wider-area": 0,
+  };
+  for (const order of data.orders) {
+    if (order.kind !== "paid") continue;
+    if (!orderInSlice(order, slice)) continue;
+    const type = data.purchaseTypeByOrder.get(order.ref);
+    if (type) purchases[type] += 1;
   }
   const searchTypes = SEARCH_TYPE_ROWS.map((row) => {
     const searches = data.counting.checksByType[row.key];
@@ -1165,12 +1284,18 @@ export function adminGiftCounts(input: {
     // order, where the books carry one; a gift no order
     // in the period names (an older or seeded row)
     // counts under the all-kinds and paid slices only —
-    // gifts are a paid order's creature.
+    // gifts are a paid order's creature — and, while
+    // test orders are excluded, only where its source
+    // order is not a test order (BUG-353: the toggle
+    // applies to the orphan branch too, through
+    // giftTestByToken; a gift whose source cannot be
+    // resolved reads as real, per the BUG-290 rule).
     const order = gift.orderRef ? ordersByRef.get(gift.orderRef) : undefined;
     if (order) {
       if (!orderInSlice(order, slice)) continue;
-    } else if (slice.kind !== "all" && slice.kind !== "paid") {
-      continue;
+    } else {
+      if (slice.kind !== "all" && slice.kind !== "paid") continue;
+      if (slice.testExcluded && (data.giftTestByToken.get(gift.token) ?? false)) continue;
     }
     if (gift.status === "voided") continue;
     const state = giftServedState(gift, now);
@@ -1263,7 +1388,7 @@ export function adminOrderDetail(input: {
             value:
               order.consentTick === null
                 ? "Not recorded"
-                : `${order.consentTick ? "Ticked" : "Not ticked"}${order.consentTimestamp ? ` at ${order.consentTimestamp}` : ""}`,
+                : `${order.consentTick ? "Ticked" : "Not ticked"}${order.consentTimestamp ? ` at ${whenLabel(new Date(order.consentTimestamp), now)}` : ""}`,
           },
         ]
       : []),

@@ -24,11 +24,12 @@
 
 import type { Pool } from "pg";
 
-import type { AdminEventCounts, AdminSlice } from "../admin";
+import type { AdminEventCounts, AdminPurchaseType, AdminSlice } from "../admin";
+import { attachPageErrorDetail } from "../admin";
 import type { GiftRecord } from "../gift";
 import { getDbPool } from "./db";
 import { createDbFulfilmentClaimStore, type FulfilmentClaimStore } from "./fulfilment";
-import { createDbGiftStore, type GiftStore } from "./gifts";
+import { createDbGiftStore, giftSourceTestOrder, type GiftStore } from "./gifts";
 import {
   findOrders,
   ownerResendOrder,
@@ -45,7 +46,11 @@ import {
 import { createDbDeliveryStore, type DeliveryStore } from "./report-deliveries";
 import { getReportDeliveryService } from "./report-delivery";
 import { createDbRefundStore, createRefundProcessing, type RefundStore } from "./refunds";
-import { createDbSearchCountingStore, type SearchCountingStore } from "./search-counting";
+import {
+  createDbSearchCountingStore,
+  hourBucket,
+  type SearchCountingStore,
+} from "./search-counting";
 
 export interface AdminDataDeps {
   pool: Pool;
@@ -136,6 +141,7 @@ export async function readAdminSlice(
     counting,
     nationRungRows,
     errorRows,
+    errorLatestRows,
   ] = await Promise.all([
     readEventCounts(deps.pool, window.from, window.to),
     deps.orders.listInPeriod(window),
@@ -157,6 +163,16 @@ export async function readAdminSlice(
           GROUP BY error_name ORDER BY n DESC LIMIT 3`,
       [window.from, window.to],
     ),
+    // The latest occurrence of each page error (BUG-356):
+    // one row per error name, so the panel can name the
+    // route and time instead of pointing at Sentry.
+    deps.pool.query(
+      `SELECT DISTINCT ON (error_name) error_name, route_pattern, occurred_at FROM journey_events
+          WHERE event = 'page_error' AND occurred_at >= $1 AND occurred_at < $2
+            AND error_name IS NOT NULL
+          ORDER BY error_name, occurred_at DESC`,
+      [window.from, window.to],
+    ),
   ]);
 
   // The period's orders name their payments and their
@@ -174,6 +190,49 @@ export async function readAdminSlice(
   const giftByOrder = new Map<string, GiftRecord | null>();
   for (const order of orders) {
     giftByOrder.set(order.ref, await deps.gifts.getByOrderRef(order.ref));
+  }
+
+  // Each paid order's search type (BUG-352): one read
+  // of the purchase rows for its postcode and hour
+  // bucket (the previous hour as a boundary fallback),
+  // preferring the counter matching the order's own
+  // test standing — so the demand panel derives bought
+  // from the order tables, never the counting shelf.
+  const purchaseTypeByOrder = new Map<string, AdminPurchaseType>();
+  for (const order of orders) {
+    if (order.kind !== "paid") continue;
+    const hour = hourBucket(order.createdAt);
+    const prevHour = new Date(hour.getTime() - 60 * 60 * 1000);
+    const { rows } = await deps.pool.query(
+      `SELECT search_type, count AS n FROM search_counts
+          WHERE postcode = $1 AND bucket IN ($2, $3) AND counter IN ('purchase', 'purchase-test')
+          ORDER BY CASE WHEN counter = $4 THEN 0 ELSE 1 END, bucket DESC, n DESC LIMIT 1`,
+      [
+        order.postcode.trim().toUpperCase(),
+        hour,
+        prevHour,
+        order.testOrder ? "purchase-test" : "purchase",
+      ],
+    );
+    const type = (rows[0] as unknown as { search_type: string } | undefined)?.search_type;
+    if (type === "postcode" || type === "street" || type === "wider-area") {
+      purchaseTypeByOrder.set(order.ref, type);
+    }
+  }
+
+  // Each orphan gift's source order test standing
+  // (BUG-353): only for gifts whose order stands
+  // outside the period — the composition already sees
+  // the in-period orders. An unresolvable source reads
+  // as real, per the BUG-290 rule, and gets no entry.
+  const orderRefs = new Set(orders.map((order) => order.ref));
+  const giftTestByToken = new Map<string, boolean>();
+  for (const gift of gifts) {
+    if (!gift.orderRef || orderRefs.has(gift.orderRef)) continue;
+    giftTestByToken.set(
+      gift.token,
+      await giftSourceTestOrder({ gifts: deps.gifts, orders: deps.orders }, gift.token),
+    );
   }
 
   // The completed-full-refund standing, read through
@@ -199,15 +258,28 @@ export async function readAdminSlice(
     gifts,
     refundsByPayment,
     giftByOrder,
+    purchaseTypeByOrder,
+    giftTestByToken,
     refundedInFull,
     counting,
     checksByNationRung: (
       nationRungRows.rows as unknown as { nation: string | null; rung: number | null; n: number }[]
     ).map((row) => ({ nation: row.nation ?? "unknown", rung: row.rung, checks: row.n })),
-    pageErrors: (errorRows.rows as unknown as { error_name: string; n: number }[]).map((row) => ({
-      name: row.error_name,
-      count: row.n,
-    })),
+    pageErrors: attachPageErrorDetail(
+      (errorRows.rows as unknown as { error_name: string; n: number }[]).map((row) => ({
+        name: row.error_name,
+        count: row.n,
+      })),
+      new Map(
+        (
+          errorLatestRows.rows as unknown as {
+            error_name: string;
+            route_pattern: string | null;
+            occurred_at: Date;
+          }[]
+        ).map((row) => [row.error_name, { route: row.route_pattern, lastAt: row.occurred_at }]),
+      ),
+    ),
   };
 }
 

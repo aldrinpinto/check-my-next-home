@@ -11,6 +11,7 @@ import type { Metadata } from "next";
 
 import { AdminPage, type AdminFilters } from "../../components/AdminPage";
 import {
+  ADMIN_STATUS_FILTER_KEYS,
   adminCaption,
   adminClock,
   adminDemand,
@@ -44,13 +45,11 @@ export const dynamic = "force-dynamic";
 const PAGE_SIZE = 10;
 const RANGE_KEYS: AdminRangeKey[] = ["today", "h24", "d7", "d30", "custom"];
 const KIND_KEYS: AdminKindKey[] = ["all", "paid", "free", "gifted", "free-ni"];
-const STATUS_KEYS: AdminOrderStatusKey[] = [
-  "delivered",
-  "payment-failed",
-  "delivery-failed",
-  "refunded",
-  "email-not-sent",
-];
+// The status filter offers the one shared list
+// (BUG-350) — the component reads the same constant,
+// so a status can never again exist in the table
+// without appearing in the filter.
+const STATUS_KEYS = ADMIN_STATUS_FILTER_KEYS;
 
 export default async function AdminRoute({
   searchParams,

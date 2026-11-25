@@ -107,7 +107,7 @@ export async function noteCheckServe(input: {
   }
 }
 
-function hourBucket(now: Date): Date {
+export function hourBucket(now: Date): Date {
   const bucket = new Date(now);
   bucket.setMinutes(0, 0, 0);
   return bucket;

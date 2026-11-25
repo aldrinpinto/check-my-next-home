@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  ADMIN_STATUS_FILTER_KEYS,
+  ADMIN_STATUS_LABELS,
   EMPTY_COUNTING,
   adminCaption,
   adminDemand,
@@ -10,6 +12,7 @@ import {
   adminNeedsHuman,
   adminOrderDetail,
   adminOrderRows,
+  attachPageErrorDetail,
   failedPayments,
   resolveAdminPeriod,
   type AdminSlice,
@@ -173,6 +176,8 @@ function slice(overrides: Partial<AdminSlice> = {}): AdminSlice {
     refundsByPayment: new Map(),
     refundedInFull: new Set(),
     giftByOrder: new Map(),
+    purchaseTypeByOrder: new Map(),
+    giftTestByToken: new Map(),
     counting: EMPTY_COUNTING,
     checksByNationRung: [],
     pageErrors: [],
@@ -296,6 +301,35 @@ describe("admin — at a glance", () => {
     expect(cards[3].value).toBe("—");
     expect(cards[0].delta).toBeNull();
   });
+
+  it("a fully-refunded order leaves the revenue and delivered figures", () => {
+    const cards = adminGlance({
+      current: slice({
+        events: {
+          pageViews: 0,
+          reportPageViews: 0,
+          checkStarted: 0,
+          checkCompleted: 1,
+          checkoutStarted: 0,
+          checkoutPaid: 1,
+          reportDelivered: 1,
+          failedSearches: 0,
+        },
+        orders: [order()],
+        claims: [claim()],
+        deliveries: [delivery()],
+        refundedInFull: new Set(["pi_1"]),
+      }),
+      previous: null,
+      slice: ALL,
+      compareNoun: "the previous 7 days",
+    });
+    // The events say 1 delivered and 1 paid, but the
+    // order stands refunded — the tables win (BUG-349,
+    // BUG-351): no delivered order, no revenue.
+    expect(cards[1].value).toBe("0");
+    expect(cards[2].value).toBe("£0.00");
+  });
 });
 
 describe("admin — failed payments", () => {
@@ -332,7 +366,7 @@ describe("admin — failed payments", () => {
 });
 
 describe("admin — the funnel", () => {
-  it("reads the event steps under all kinds with test orders included, and names the deliveries that skip payment", () => {
+  it("reads the first five steps off the events and re-bases Paid and Delivered onto the order tables, and names the deliveries that skip payment", () => {
     const funnel = adminFunnel({
       current: slice({
         events: {
@@ -345,15 +379,20 @@ describe("admin — the funnel", () => {
           reportDelivered: 10,
           failedSearches: 0,
         },
-        deliveries: [delivery({ id: "d2", kind: "free", orderRef: null })],
+        orders: [order()],
+        claims: [claim()],
+        deliveries: [delivery(), delivery({ id: "d2", kind: "free", orderRef: null })],
       }),
       slice: { ...ALL, testExcluded: false },
     });
-    expect(funnel.steps.map((step) => step.count)).toEqual([100, 60, 50, 30, 20, 8, 10]);
+    // The events say 8 paid and 10 delivered, but the
+    // order tables carry 1 paid claim and 1 delivered
+    // order — the tables win (BUG-351).
+    expect(funnel.steps.map((step) => step.count)).toEqual([100, 60, 50, 30, 20, 1, 1]);
     expect(funnel.extraLine).toBe("Plus 1 free-window delivery that skipped the payment steps.");
   });
 
-  it("a gifted slice re-bases Paid to zero and Delivered onto the deliveries shelf", () => {
+  it("a gifted slice re-bases Paid to zero and Delivered onto the delivered orders", () => {
     const funnel = adminFunnel({
       current: slice({
         deliveries: [delivery({ kind: "gifted" })],
@@ -365,6 +404,19 @@ describe("admin — the funnel", () => {
     expect(funnel.steps[5].count).toBe(0);
     expect(funnel.steps[6].count).toBe(1);
     expect(funnel.extraLine).toBeNull();
+  });
+
+  it("a refunded order's delivery does not count as delivered", () => {
+    const funnel = adminFunnel({
+      current: slice({
+        orders: [order()],
+        claims: [claim()],
+        deliveries: [delivery()],
+        refundedInFull: new Set(["pi_1"]),
+      }),
+      slice: ALL,
+    });
+    expect(funnel.steps[6].count).toBe(0);
   });
 });
 
@@ -451,18 +503,40 @@ describe("admin — the orders table", () => {
       }),
     ).toHaveLength(2);
   });
+
+  it("orders sharing a timestamp sort deterministically by reference", () => {
+    const rows = adminOrderRows({
+      data: slice({
+        orders: [order({ ref: "pi_2" }), order()],
+        claims: [claim({ ref: "pi_2" }), claim()],
+        deliveries: [delivery({ id: "d2", orderRef: "pi_2" }), delivery()],
+      }),
+      slice: ALL,
+      status: "all",
+      search: "",
+      now: NOW,
+    });
+    expect(rows.map((row) => row.ref)).toEqual(["pi_2", "pi_1"]);
+  });
 });
 
 describe("admin — where people are looking", () => {
-  it("joins the counting's checks to the orders' purchases, and folds test purchases in only when included", () => {
+  it("derives bought by search type from the order tables, and ignores the counting shelf's bought figures", () => {
     const data = slice({
-      orders: [order()],
+      orders: [order(), order({ ref: "pi_2", testOrder: true })],
+      purchaseTypeByOrder: new Map([
+        ["pi_1", "postcode"],
+        ["pi_2", "postcode"],
+      ]),
       counting: {
         checksByPostcode: [{ postcode: "CM3 2JT", checks: 4 }],
         checksByStreet: [{ label: "Birkdale Rise, Hatfield Peverel", checks: 3 }],
         checksByType: { postcode: 10, street: 3, "wider-area": 2 },
-        purchasesByType: { postcode: 1, street: 0, "wider-area": 0 },
-        purchasesByTypeTest: { postcode: 1, street: 0, "wider-area": 0 },
+        // Deliberately wrong: the panel must not read
+        // these (BUG-352 — the shelf carries historical
+        // rows flagged before BUG-290's livemode rule).
+        purchasesByType: { postcode: 9, street: 4, "wider-area": 0 },
+        purchasesByTypeTest: { postcode: 7, street: 0, "wider-area": 0 },
       },
       checksByNationRung: [{ nation: "england", rung: 1, checks: 7 }],
       events: {
@@ -565,6 +639,28 @@ describe("admin — gifts", () => {
     });
     expect(counts).toEqual({ issued: 1, claimed: 1, redeemed: 1, expired: 1 });
   });
+
+  it("an orphan gift from a test order is out while test orders are excluded; an unresolvable source still counts", () => {
+    const data = slice({
+      gifts: [
+        gift({ token: "tok_orphan", orderRef: "pi_old" }),
+        gift({ token: "tok_ghost", orderRef: "pi_gone" }),
+      ],
+      giftTestByToken: new Map([["tok_orphan", true]]),
+    });
+    expect(adminGiftCounts({ data, slice: ALL, now: NOW })).toEqual({
+      issued: 1,
+      claimed: 0,
+      redeemed: 0,
+      expired: 0,
+    });
+    expect(adminGiftCounts({ data, slice: { ...ALL, testExcluded: false }, now: NOW })).toEqual({
+      issued: 2,
+      claimed: 0,
+      redeemed: 0,
+      expired: 0,
+    });
+  });
 });
 
 describe("admin — the order detail", () => {
@@ -590,6 +686,10 @@ describe("admin — the order detail", () => {
     expect(lines["When we heard"]).toBe("Today 09:59");
     expect(lines["Gift consequence"]).toBe("The gift was voided before it was claimed.");
     expect(lines["Consequences applied"]).toContain("Yes");
+    // The consent time reads in the page's friendly form,
+    // not the stored ISO stamp (BUG-357).
+    const facts = Object.fromEntries(detail.facts.map((line) => [line.label, line.value]));
+    expect(facts["Consent"]).toBe("Ticked at Today 09:12");
     // A refunded order's delivery stands withdrawn: no resend.
     expect(detail.resend.available).toBe(false);
     expect(detail.resend.note).toContain("refunded");
@@ -609,5 +709,36 @@ describe("admin — the order detail", () => {
     });
     expect(detail.resend).toEqual({ available: true, note: null });
     expect(detail.logLines[0].value).toBe("Delivery email — sent");
+  });
+});
+
+describe("admin — the status filter", () => {
+  it("lists every order status, so no status can go missing from the filter again", () => {
+    expect([...ADMIN_STATUS_FILTER_KEYS].sort()).toEqual(Object.keys(ADMIN_STATUS_LABELS).sort());
+    expect(ADMIN_STATUS_FILTER_KEYS).toContain("preparing");
+  });
+});
+
+describe("admin — page errors", () => {
+  it("joins error counts to their latest occurrence; a missing latest reads null", () => {
+    expect(
+      attachPageErrorDetail(
+        [
+          { name: "CheckRequestFailed", count: 11 },
+          { name: "OtherError", count: 2 },
+        ],
+        new Map([
+          ["CheckRequestFailed", { route: "/search", lastAt: AT("2026-11-23T10:41:00.000Z") }],
+        ]),
+      ),
+    ).toEqual([
+      {
+        name: "CheckRequestFailed",
+        count: 11,
+        route: "/search",
+        lastAt: AT("2026-11-23T10:41:00.000Z"),
+      },
+      { name: "OtherError", count: 2, route: null, lastAt: null },
+    ]);
   });
 });

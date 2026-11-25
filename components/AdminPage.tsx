@@ -15,6 +15,7 @@
 import {
   ADMIN_KIND_LABELS,
   ADMIN_RANGE_LABELS,
+  ADMIN_STATUS_FILTER_KEYS,
   ADMIN_STATUS_LABELS,
   ADMIN_STATUS_TONES,
   adminTimeLabel,
@@ -30,6 +31,7 @@ import {
   type AdminOrderDetail,
   type AdminOrderRow,
   type AdminOrderStatusKey,
+  type AdminPageError,
   type AdminRangeKey,
 } from "../lib/admin";
 import { AdminResendButton } from "./AdminResendButton";
@@ -57,7 +59,7 @@ export interface AdminPageModel {
   pageCount: number;
   demand: AdminDemand;
   needs: AdminHumanItem[];
-  pageErrors: { name: string; count: number }[];
+  pageErrors: AdminPageError[];
   gifts: AdminGiftCounts;
   detail: (AdminOrderDetail & { email: string }) | null;
   now: Date;
@@ -65,14 +67,11 @@ export interface AdminPageModel {
 
 const RANGE_KEYS: AdminRangeKey[] = ["today", "h24", "d7", "d30", "custom"];
 const KIND_KEYS: AdminKindKey[] = ["all", "paid", "free", "gifted", "free-ni"];
-const STATUS_KEYS: (AdminOrderStatusKey | "all")[] = [
-  "all",
-  "delivered",
-  "payment-failed",
-  "delivery-failed",
-  "refunded",
-  "email-not-sent",
-];
+// The status filter offers the one shared list
+// (BUG-350) — the page reads the same constant, so a
+// status can never again exist in the table without
+// appearing in the filter.
+const STATUS_KEYS: (AdminOrderStatusKey | "all")[] = ["all", ...ADMIN_STATUS_FILTER_KEYS];
 const PAGE_SIZE = 10;
 
 function adminHref(
@@ -245,7 +244,9 @@ export function AdminPage({ model }: { model: AdminPageModel }) {
             </div>
             <p className="adm-note-text">
               Aggregate counts per step, not tracked individuals — the same person can appear at
-              several steps. We count journeys, not people.
+              several steps. We count journeys, not people. Completions can outnumber starts: a
+              wider-area check, a shared link, or a return to results already open counts as
+              completed without starting a fresh check.
             </p>
             {model.funnel.extraLine ? (
               <p className="adm-note-text">{model.funnel.extraLine}</p>
@@ -530,9 +531,14 @@ export function AdminPage({ model }: { model: AdminPageModel }) {
               <p className="adm-note-text">
                 Page errors in this period:{" "}
                 {model.pageErrors
-                  .map((error) => `${formatCount(error.count)} × ${error.name}`)
-                  .join(", ")}{" "}
-                — the deep dive stays in Sentry.
+                  .map((error) => {
+                    const detail = error.lastAt
+                      ? ` — most recently${error.route ? ` on ${error.route}` : ""}, ${adminTimeLabel(error.lastAt, model.now)}`
+                      : "";
+                    return `${formatCount(error.count)} × ${error.name}${detail}`;
+                  })
+                  .join("; ")}
+                .
               </p>
             ) : null}
           </section>
@@ -556,7 +562,8 @@ export function AdminPage({ model }: { model: AdminPageModel }) {
             </div>
             <p className="adm-note-text">
               Every paid report carries one gift link. Expired = issued more than 30 days ago and
-              never redeemed.
+              never redeemed. Counts follow the test toggle above — with test orders excluded, only
+              gifts from real orders are counted.
             </p>
           </section>
         </div>
