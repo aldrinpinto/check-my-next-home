@@ -4552,14 +4552,21 @@ a.picker__row {
    complete to 88%, and fades out with the rest. The
    walls and the door grow from their bottom edge, the
    roof drops 16px into place, the sun scales up from
-   0.4. */
+   0.4. BUG-293: longhands, not the "animation"
+   shorthand — the shorthand's identical selector list
+   let the build step merge this rule with the
+   reduced-motion "animation: none" and serve
+   "animation: none" for everyone. Do not collapse
+   back to shorthand. */
 .report-success__house-foundations,
 .report-success__house-walls,
 .report-success__house-roof,
 .report-success__house-door,
 .report-success__house-sun {
   transform-box: fill-box;
-  animation: 3.8s ease-in-out infinite;
+  animation-duration: 3.8s;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
 }
 .report-success__house-foundations {
   animation-name: report-success-house-foundations;
