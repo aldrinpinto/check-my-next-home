@@ -85,14 +85,19 @@ test.describe("results page — smoke", () => {
       // batch) withholds the England figure, and with no
       // England figure no Crime pill serves at all (item
       // 8's unit pins). The good facts then fill in D75
-      // priority order — Flood, Noise, Deprivation, and
-      // EPC: this home's matched certificate is band B,
-      // which is a good fact (the unit suite's pill
-      // fixtures carry headlineBand C, a "neither", which
-      // is why the unit pins never show the EPC pill; the
-      // seeded corpus's band is B). The strip here is
-      // therefore five pills: Schools · Flood · Noise ·
-      // Deprivation · EPC. (CI #220 never observed the
+      // priority order — Flood, Air quality, Noise,
+      // Deprivation, and EPC: this home's matched
+      // certificate is band B, which is a good fact (the
+      // unit suite's pill fixtures carry headlineBand C,
+      // a "neither", which is why the unit pins never show
+      // the EPC pill; the seeded corpus's band is B). The
+      // air pill sits immediately after Crime in D75
+      // priority order (founder ruling 25 Nov 2026,
+      // UK-limit-only), so with Crime absent it follows
+      // Flood — and the strip holds five, so EPC is
+      // displaced. The strip here is therefore five pills:
+      // Schools · Flood · Air quality · Noise ·
+      // Deprivation. (CI #220 never observed the
       // count — it failed at nth(2) on the absent Crime
       // pill; the four-pill form pinned in the #220 fix
       // round was an inference from those unit fixtures,
@@ -105,11 +110,11 @@ test.describe("results page — smoke", () => {
       await expect(pills.nth(0).locator(".pill__figure")).toHaveText("0.3 / 1.9 mi");
       await expect(pills.nth(1)).toContainText("Flood");
       await expect(pills.nth(1)).toContainText("Very low");
-      await expect(pills.nth(2)).toContainText("Noise");
-      await expect(pills.nth(3)).toContainText("Deprivation");
-      await expect(pills.nth(3)).toContainText("8 of 10");
-      await expect(pills.nth(4)).toContainText("EPC");
-      await expect(pills.nth(4).locator(".pill__figure")).toHaveText("B");
+      await expect(pills.nth(2)).toContainText("Air quality");
+      await expect(pills.nth(2).locator(".pill__figure")).toHaveText("Well within UK legal limits");
+      await expect(pills.nth(3)).toContainText("Noise");
+      await expect(pills.nth(4)).toContainText("Deprivation");
+      await expect(pills.nth(4)).toContainText("8 of 10");
       await expect(page.locator(".results-strip .place-row__miles")).toHaveCount(0);
 
       // The D9 short form, verbatim, beside the results.
