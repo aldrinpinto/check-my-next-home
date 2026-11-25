@@ -6,6 +6,7 @@ import {
   classifyAddressInput,
   createAddressSource,
   flatKeyOf,
+  headingForHome,
   normalisePostcode,
   parsePaon,
   resolveAddressInput,
@@ -282,6 +283,16 @@ describe("address part parsing", () => {
     expect(flatKeyOf("Flat 12A")).toBe("12A");
     expect(flatKeyOf("")).toBeNull();
     expect(flatKeyOf(null)).toBeNull();
+  });
+});
+
+describe("headingForHome", () => {
+  it("joins a label and a postcode with a comma", () => {
+    expect(headingForHome("19 Birkdale Rise", "CM3 2JT")).toBe("19 Birkdale Rise, CM3 2JT");
+  });
+
+  it("falls back to the postcode alone when the label is empty", () => {
+    expect(headingForHome("", "MK10 1AA")).toBe("MK10 1AA");
   });
 });
 

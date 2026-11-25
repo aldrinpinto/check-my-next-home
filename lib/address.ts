@@ -282,6 +282,14 @@ export function labelForAddressParts(parts: LoadedAddressParts): string {
   return toResolved(parts).label;
 }
 
+// The heading for a home: its label and postcode ("19 Birkdale Rise,
+// CM3 2JT"). When the label is empty — a postcode-only delivery point
+// with no house name, number or street — the postcode alone, with no
+// leading comma ("MK10 1AA", never ", MK10 1AA").
+export function headingForHome(label: string, postcode: string): string {
+  return label === "" ? postcode : `${label}, ${postcode}`;
+}
+
 function addressKey(parts: LoadedAddressParts): string {
   return [parts.paon ?? "", parts.saon ?? "", parts.street ?? ""].join("|");
 }

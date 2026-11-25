@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 
+import { headingForHome } from "../lib/address";
 import {
   POSTCODE_BOX_BUTTON,
   POSTCODE_BOX_BUTTON_BARE,
@@ -468,7 +469,7 @@ export default function PostcodeBox({
             n += 1;
             if (row.source === "postio" && row.udprn) udprns.set(id, row.udprn);
             else if (row.homeKey) hrefs.set(id, homeRoute(target.postcode, row.homeKey));
-            return { id, label: `${row.label}, ${target.postcode}` };
+            return { id, label: headingForHome(row.label, target.postcode) };
           });
           hrefByIdRef.current = hrefs;
           udprnByIdRef.current = udprns;

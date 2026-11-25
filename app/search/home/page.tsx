@@ -9,7 +9,7 @@ import ReportLink from "../../../components/ReportLink";
 import ResultsPage from "../../../components/ResultsPage";
 import ShortlistButton from "../../../components/ShortlistButton";
 import WholeCheckFailure from "../../../components/WholeCheckFailure";
-import { displayText, type AddressResolution } from "../../../lib/address";
+import { displayText, headingForHome, type AddressResolution } from "../../../lib/address";
 import { homeKeyOf } from "../../../lib/bundle-cache";
 import { GIFT_COOKIE_NAME } from "../../../lib/gift";
 import {
@@ -242,7 +242,7 @@ async function Results({
   // the Master carries both.
   const heading =
     resolution.rung === 1
-      ? `${resolution.address.label}, ${postcode}`
+      ? headingForHome(resolution.address.label, postcode)
       : resultsScopeLabel(resolution);
   return (
     <>
