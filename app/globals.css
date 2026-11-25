@@ -581,10 +581,18 @@ p {
    headings wear the small-print measure (0.6875rem)
    in the footer's near-white; the links
    keep the existing footer link style. No separator
-   survives in this form. */
+   survives in this form.
+   BUG-266 (25 Nov 2026): the nav never wraps on desktop —
+   `wrap` let it fall 2+2 at 1280px, and with no flex-grow
+   it sized to its content and sat right-of-centre, leaving
+   the empty dark-green area. `nowrap` keeps the four groups
+   on one row; the grow fills the space between the brand
+   and the inner's right edge. The 40rem rule below still
+   stacks the groups on a phone. */
 .site-footer__nav {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  flex: 1 1 auto;
   gap: var(--space-4) var(--space-7);
 }
 
