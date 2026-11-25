@@ -844,6 +844,13 @@ a:hover {
   cursor: not-allowed;
 }
 
+/* BUG-287: a read-only field wears the disabled
+   dress — it reads as locked, and the cursor says so. */
+.field__input[readonly] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .field__message {
   font-size: var(--font-size-small);
   margin-top: var(--space-2);
@@ -1525,6 +1532,15 @@ body:has(.main--home) .site-footer {
 .suggest__item {
   display: block;
   width: 100%;
+  /* BUG-289: the kit's 44px tap-target floor — the
+     same min-height the retired .picker__row carried
+     (min-height 2.75rem with this padding), so a
+     single-line option measures 44px, not 40px.
+     Multi-line options grow past it; border-box
+     keeps the floor exact. Lifts both surfaces that
+     share the class: the picker dropdown's home
+     options and the search-box suggestions. */
+  min-height: var(--tap-target);
   padding: var(--space-2) var(--space-3);
   font: inherit;
   text-align: left;
@@ -2848,6 +2864,16 @@ button.postio-row:hover {
   .checking__row-spinner,
   .checking__spinner,
   .checking__ticker-text {
+    animation: none;
+  }
+  /* BUG-271 (Draft 1): the house stands complete and
+     still — with the animation off, every part shows at
+     its base state, which is the finished house. */
+  .report-success__house-foundations,
+  .report-success__house-walls,
+  .report-success__house-roof,
+  .report-success__house-door,
+  .report-success__house-sun {
     animation: none;
   }
   .checking__seal-seg,
@@ -4351,6 +4377,28 @@ a.picker__row {
   font-weight: 600;
 }
 
+/* BUG-287: the locked-field form — the note naming
+   whose gift it is, and the quiet escape link that
+   abandons the gift for this order. */
+.report-payment__gift-note {
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: #4a5548;
+  margin-top: 10px;
+  margin-bottom: 0;
+}
+
+.report-payment__gift-escape {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--cmnh-forest);
+  font: inherit;
+  font-size: 0.875rem;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 /* The card panel (PF-07): the sample's stripe-panel —
    its padding, its serif panel title, and the Powered
    by line at 12.5px with Stripe in forest. */
@@ -4488,18 +4536,165 @@ a.picker__row {
 }
 
 /* BUG-260 (24 Nov 2026): the preparing state's visible
-   progress — the checking screen's own 17px ring beside
-   the line, so the ~minute wait never reads as a stuck
-   page. The ring is the same .checking__spinner the
-   checking screen wears; the line is plain words, no
-   faked percentage and no time claim. */
+   progress — the house building itself while the
+   refresher polls, so the ~minute wait never reads as a
+   stuck page. BUG-271 (25 Nov 2026, founder's pick —
+   Draft 1 from the spinner-drafts page): the house
+   assembles in order — foundations, walls, brass roof,
+   door, brass sun — on a 3.8s ease-in-out loop, holding
+   complete briefly, fading out, starting again. The
+   drawing is the draft's verbatim: a 118px square,
+   viewBox 0 0 120 110, the label "Preparing your
+   report…" 18px beneath it, the block centred in its
+   own space above the Check another home card. The
+   line is plain words, no faked percentage and no
+   staged messages. */
 .report-success__preparing {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 10px;
-  margin: 0 0 18px;
+  padding: 34px 16px 10px;
+  margin: 8px 0 28px;
   color: var(--cmnh-forest-deep);
-  font-size: 1rem;
+  text-align: center;
+}
+.report-success__house {
+  width: 118px;
+  height: 118px;
+  display: grid;
+  place-items: center;
+}
+.report-success__house svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.report-success__preparing-label {
+  margin-top: 18px;
+  font-size: 1.08rem;
+  font-weight: 700;
+  line-height: 1.6;
+}
+/* The build sequence (Draft 1, verbatim): every part
+   shares the 3.8s ease-in-out loop with transform-box
+   fill-box; each part enters in its window, holds
+   complete to 88%, and fades out with the rest. The
+   walls and the door grow from their bottom edge, the
+   roof drops 16px into place, the sun scales up from
+   0.4. */
+.report-success__house-foundations,
+.report-success__house-walls,
+.report-success__house-roof,
+.report-success__house-door,
+.report-success__house-sun {
+  transform-box: fill-box;
+  animation: 3.8s ease-in-out infinite;
+}
+.report-success__house-foundations {
+  animation-name: report-success-house-foundations;
+}
+.report-success__house-walls {
+  transform-origin: bottom center;
+  animation-name: report-success-house-walls;
+}
+.report-success__house-roof {
+  animation-name: report-success-house-roof;
+}
+.report-success__house-door {
+  transform-origin: bottom center;
+  animation-name: report-success-house-door;
+}
+.report-success__house-sun {
+  transform-origin: center;
+  animation-name: report-success-house-sun;
+}
+@keyframes report-success-house-foundations {
+  0% {
+    transform: scaleX(0);
+    opacity: 0;
+  }
+  12%,
+  88% {
+    transform: scaleX(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scaleX(1);
+    opacity: 0;
+  }
+}
+@keyframes report-success-house-walls {
+  0%,
+  12% {
+    transform: scaleY(0);
+    opacity: 0;
+  }
+  32%,
+  88% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scaleY(1);
+    opacity: 0;
+  }
+}
+@keyframes report-success-house-roof {
+  0%,
+  32% {
+    transform: translateY(-16px);
+    opacity: 0;
+  }
+  52%,
+  88% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 0;
+  }
+}
+@keyframes report-success-house-door {
+  0%,
+  52% {
+    transform: scaleY(0);
+    opacity: 0;
+  }
+  68%,
+  88% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scaleY(1);
+    opacity: 0;
+  }
+}
+@keyframes report-success-house-sun {
+  0%,
+  62% {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  78%,
+  88% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 0;
+  }
+}
+/* BUG-271: the new-tab hint under the View button —
+   the page's small muted line dress, so the new tab is
+   never a surprise. */
+.report-success__new-tab {
+  font-size: 0.84375rem;
+  line-height: 1.6;
+  color: #7a7e6e;
+  margin: 8px 0 0;
 }
 
 /* The gift-applied banner (PF-17, founder ruling
@@ -5924,6 +6119,45 @@ a.picker__row {
   margin: 1.2rem 0 0;
   text-align: left;
 }
+/* BUG-271: the pending success state's own furniture —
+   the resent confirmation in the samples' green family
+   (the .gift-alert's geometry, the claimed chip's
+   colours), the resend form that never takes the
+   field-row dress (a hidden field and a link-styled
+   button only), and the change-it line under it. */
+.gift-page .gift-card .gift-notice {
+  background: #edf4ec;
+  border: 1px solid #bfd8be;
+  border-radius: 12px;
+  padding: 12px 14px;
+  color: #2e4a2c;
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  margin: 1.2rem 0 0;
+  text-align: left;
+}
+.gift-page .gift-card form.gift-resend {
+  display: block;
+  margin: 1rem 0 0;
+  text-align: left;
+}
+.gift-page .gift-card .gift-link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-size: 0.9375rem;
+  color: var(--sp-forest);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.gift-page .gift-card .gift-change {
+  font-size: 0.9375rem;
+  margin: 0.6rem 0 0;
+  text-align: left;
+}
 /* The refusal screens' message box (Master views 23
    and 24; PF-28): heading and body inside the
    samples' error-tinted box, no badge — the box
@@ -5965,9 +6199,15 @@ a.picker__row {
   color: #4a5546;
   margin: 0 0 14px;
 }
+/* BUG-271 (25 Nov 2026, founder direction): the gift
+   pages' "Check another home" box fills the card's
+   content width — the 520px cap left the input looking
+   small against the card above. The button stays
+   alongside (the row is flex); the phone stack is
+   untouched. */
 .gift-page .gift-card .postcode-box {
   text-align: left;
-  max-width: 520px;
+  max-width: none;
   margin: 0 auto;
 }
 /* The gift card at phone widths (the samples' own

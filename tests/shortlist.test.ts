@@ -546,11 +546,16 @@ describe("card assembly", () => {
     // as on the results page; the crime line is the served
     // 12-month count. BUG-163: the flood cell also carries
     // the pill verdict's band — both layers Very low is
-    // the pill's good, green.
+    // the pill's good, green. BUG-291: the band dresses
+    // the two values only, labels plain — segments.
     expect(card?.comparison.flood).toEqual({
-      kind: "line",
-      text: "Rivers & sea: Very low · Surface water: Very low",
-      band: "green",
+      kind: "segments",
+      segments: [
+        { text: "Rivers & sea: " },
+        { text: "Very low", band: "green" },
+        { text: " · Surface water: " },
+        { text: "Very low", band: "green" },
+      ],
     });
     expect(card?.comparison.crime).toEqual({ kind: "line", text: "330 crimes" });
     expect(card?.comparison.councilTax).toEqual({
@@ -607,11 +612,16 @@ describe("card assembly", () => {
       }),
     });
     // BUG-163: a Low layer is the pill's concerning at
-    // orange — the cell carries that band.
+    // orange — the cell carries that band. BUG-291: the
+    // band dresses the two values only, labels plain.
     expect(card?.comparison.flood).toEqual({
-      kind: "line",
-      text: "Rivers & sea: Very low · Surface water: Low",
-      band: "orange",
+      kind: "segments",
+      segments: [
+        { text: "Rivers & sea: " },
+        { text: "Very low", band: "orange" },
+        { text: " · Surface water: " },
+        { text: "Low", band: "orange" },
+      ],
     });
     expect(card?.comparison.crime).toEqual({ kind: "line", text: "1,956 crimes" });
   });
@@ -886,7 +896,7 @@ describe("the comparison's colour coding (BUG-163)", () => {
     expect(comparisonCellBand("air", null, { kind: "line", text: "1,956 crimes" })).toBeNull();
   });
 
-  it("assembly bands the crime cell red for a home more than a quarter above the England rate", () => {
+  it("assembly puts the crime verdict in the pill for a home more than a quarter above the England rate", () => {
     const card = buildShortlistCard({
       resolution: birkdale,
       nearby: birkdaleNearby(),
@@ -895,10 +905,13 @@ describe("the comparison's colour coding (BUG-163)", () => {
         crime: { ...CRIME_330, total: 10722, per1000: 122.5, englandPer1000: 94.5 },
       }),
     });
+    // BUG-292: the pill carries the verdict (the results
+    // page pill's own words), the count stands beside it
+    // as plain text — the row is the 12-month total, so
+    // the total stays in the cell.
     expect(card?.comparison.crime).toEqual({
-      kind: "line",
-      text: "10,722 crimes",
-      band: "red",
+      kind: "segments",
+      segments: [{ text: "Well above England average", band: "red" }, { text: " · 10,722 crimes" }],
     });
   });
 

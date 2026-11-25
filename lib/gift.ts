@@ -72,8 +72,15 @@ export type GiftStatus = "issued" | "claimed" | "redeemed" | "voided";
 export interface GiftRecord {
   token: string;
   // Stored normalised (trimmed, lower-cased) — see
-  // normaliseEmail. Comparisons never re-normalise stored
-  // values; every write path normalises on the way in.
+  // normaliseEmail — in the form the visitor typed, so
+  // delivery always goes to the typed address.
+  // Comparisons canonicalise BOTH sides at read time
+  // (canonicalEmail): a stored address may itself be
+  // a variant form (dots, a +tag, googlemail.com),
+  // and only the canonical forms decide whether two
+  // addresses are the same mailbox (BUG-267). The old
+  // "comparisons never re-normalise stored values"
+  // rule died with that fix.
   buyerEmail: string;
   claimantEmail: string | null;
   status: GiftStatus;
@@ -136,16 +143,76 @@ export function giftClaimedPageServes(record: GiftRecord | null, now: Date): boo
 }
 
 // ----------------------------------------------------------------
-// Email rules (gap-check fold-in G9, adopted)
+// Email rules (gap-check fold-in G9, adopted; BUG-267)
 //
-// Comparisons ignore case and stray spaces: normalise by
-// trimming and lower-casing before comparing and before
-// storing. Plus-addressing and other alias forms are
-// deliberately NOT policed — an accepted limit, named in
-// the prep: disproportionate for a £4.99 gift.
+// Two functions, two jobs — never one for the other:
+//   - normaliseEmail trims and lower-cases. It is the
+//     STORAGE normaliser: every write path stores the
+//     address the visitor typed, in this form, so the
+//     report and every email are always sent to the
+//     typed address, never rewritten.
+//   - canonicalEmail is the MATCHING identity: two
+//     addresses are the same mailbox iff their
+//     canonical forms are equal. Every comparison —
+//     claim, order-time gift lookup, spend lookup,
+//     order and delivery lookups, the test allowlist —
+//     canonicalises BOTH sides at read time, because a
+//     stored address may itself be a variant form.
+//     (The old "comparisons never re-normalise stored
+//     values" rule died with BUG-267: it held only
+//     while the normaliser was trim+lowercase.)
+//
+// The canonical rule (BUG-267, founder 25 Nov 2026):
+// Gmail treats several spellings as one inbox, and
+// the gift must too, or a variant order never spends
+// the gift and every paid order mints a fresh one —
+// the "endless stream" the founder proved. The rule:
+// strip the +tag; drop dots from the local part for
+// gmail/googlemail ONLY; lowercase; map googlemail.com
+// to gmail.com. Plus-tags are stripped GLOBALLY:
+// subaddressing (RFC 5233) is supported by every
+// major consumer provider (Gmail, Outlook, iCloud,
+// Yahoo, Proton), so a +tag is a tag, not a mailbox.
+// Dots are Gmail-only: at Yahoo, Outlook and the rest
+// a dot is part of the mailbox (first.last@yahoo.com
+// is a different mailbox from firstlast@yahoo.com),
+// and stripping them there would conflate two
+// different people's mail. The pre-BUG-267 "accepted
+// limit" — plus-addressing deliberately NOT policed,
+// "disproportionate for a £4.99 gift" — is withdrawn:
+// this session proved it charges a gift holder £4.99
+// for a report the gift should have covered, and
+// keeps the gift offer standing after every variant
+// order.
 
 export function normaliseEmail(raw: string): string {
   return raw.trim().toLowerCase();
+}
+
+// The mailbox identity: the form two addresses share
+// iff they are the same inbox. Idempotent, and safe
+// on an already-normalised address — canonicalising
+// twice answers the same form.
+export function canonicalEmail(raw: string): string {
+  const normalised = normaliseEmail(raw);
+  const at = normalised.indexOf("@");
+  if (at <= 0) return normalised;
+  let local = normalised.slice(0, at);
+  let domain = normalised.slice(at + 1);
+  // The +tag is a delivery tag, not a mailbox — strip
+  // it, whatever the provider (see the rules above).
+  const plus = local.indexOf("+");
+  if (plus >= 0) local = local.slice(0, plus);
+  // Dots are meaningless ONLY at Gmail (and its
+  // googlemail.com alias, which is the same inbox):
+  // drop them from the local part there, and map the
+  // alias domain onto gmail.com. Everywhere else the
+  // dots stand — they are part of the mailbox.
+  if (domain === "gmail.com" || domain === "googlemail.com") {
+    local = local.replace(/\./g, "");
+    domain = "gmail.com";
+  }
+  return `${local}@${domain}`;
 }
 
 // The form's shape check — deliberately permissive (one
@@ -261,6 +328,12 @@ export type GiftClaimPageView =
       kind: "card";
       variant: GiftClaimVariant;
       pendingEmail?: string;
+      // BUG-271: the pending screen's two presentations
+      // — the success state (default) and the
+      // change-email form (?change-email=1). resent
+      // carries the ?resent=1 confirmation line.
+      pendingForm?: boolean;
+      resent?: boolean;
       emailError?: boolean;
       entryEmail?: string;
       sendFailed?: boolean;
@@ -274,6 +347,17 @@ export interface GiftClaimFlags {
   // ?sent=1 — a confirmation email has just been sent;
   // serves the pending screen while a pending stands.
   sent?: boolean;
+  // ?resent=1 — BUG-271: the visitor just re-sent the
+  // confirmation to the SAME address; serves the
+  // pending screen with the resent confirmation line.
+  // The claim route only mints it when the record's
+  // pending already carries the submitted address.
+  resent?: boolean;
+  // ?change-email=1 — BUG-271: the visitor asked to
+  // correct the address; serves the pending screen's
+  // change-email form (the old view-20 form) while a
+  // pending stands.
+  changeEmail?: boolean;
   // ?sendfailed=1 — the send just failed; the claim form
   // again, with the failure line.
   sendFailed?: boolean;
@@ -305,6 +389,17 @@ export function giftClaimPageView(
   if (state === "claimed-guard") return { kind: "card", variant: "different" };
   // state === "claim"
   if (flags.refusedSameEmail) return { kind: "card", variant: "same-email" };
+  if (flags.resent && record && record.pendingEmail) {
+    return { kind: "card", variant: "pending", pendingEmail: record.pendingEmail, resent: true };
+  }
+  if (flags.changeEmail && record && record.pendingEmail) {
+    return {
+      kind: "card",
+      variant: "pending",
+      pendingEmail: record.pendingEmail,
+      pendingForm: true,
+    };
+  }
   if (flags.sent && record && record.pendingEmail) {
     return { kind: "card", variant: "pending", pendingEmail: record.pendingEmail };
   }
@@ -321,7 +416,13 @@ export function giftClaimPageView(
 //
 // One function decides every form submission, so the
 // route handler only executes. The record and the
-// submitted email are already normalised by the caller.
+// submitted email are already normalised by the caller;
+// the comparisons below canonicalise BOTH sides
+// (canonicalEmail), because the record's stored address
+// may itself be a variant form of the submitted one
+// (BUG-267) — a holder returning with a +tag, dots or
+// googlemail.com is the same mailbox, and the buyer's
+// own variant is still the buyer's own.
 
 export type ClaimAttempt =
   // The state page stands (redeemed or expired): the
@@ -362,12 +463,13 @@ export function decideClaimAttempt(
   if (state === "already-used" || state === "expired" || state === "voided")
     return { kind: "closed" };
   if (state === "claimed-guard") {
-    return normalisedEmail === record.claimantEmail
+    return canonicalEmail(normalisedEmail) === canonicalEmail(record.claimantEmail ?? "")
       ? { kind: "resume" }
       : { kind: "refused-claimed" };
   }
   // state === "claim"
-  if (normalisedEmail === record.buyerEmail) return { kind: "same-email" };
+  if (canonicalEmail(normalisedEmail) === canonicalEmail(record.buyerEmail))
+    return { kind: "same-email" };
   return { kind: "send-confirmation", email: normalisedEmail };
 }
 
@@ -482,6 +584,27 @@ export const GIFT_PENDING_BODY =
 export const GIFT_PENDING_BUTTON = "Send a fresh link";
 export const GIFT_PENDING_FINE_PRINT =
   "The gift is valid for 30 days from the day the report was bought, and it can be claimed once.";
+
+// BUG-271 (25 Nov 2026, founder's own live test): the
+// pending screen read as if nothing had happened — the
+// same form stood after the click, and resending
+// refreshed the same UI with no confirmation. The
+// pending screen's DEFAULT state is now the success
+// state below: a tick, the address as plain text (never
+// a field), resend as a quiet link that confirms when
+// used, and a change-it link that brings the form
+// back. The form state above is now only the
+// change-email state. The gift is still NOT claimed
+// until the emailed link is clicked — the success
+// state says the email is sent, never that the claim
+// is complete.
+export const GIFT_PENDING_SUCCESS_HEADING = "You're nearly there";
+export const GIFT_PENDING_SUCCESS_BODY =
+  "Check your inbox — we've sent a confirmation email to **{email}**. Click the link in it and the gift is yours — it stays tied to that address. The gift isn't claimed until you click.";
+export const GIFT_PENDING_RESENT_LINE =
+  "We've sent another email to **{email}** — it should arrive in a moment. Check your spam folder if you don't see it.";
+export const GIFT_PENDING_RESEND_LABEL = "Didn't get it? Send it again";
+export const GIFT_PENDING_CHANGE_LABEL = "Wrong email? Change it";
 
 // View 19 — the send-failure line over the claim form.
 export const GIFT_SEND_FAILED_LINE =

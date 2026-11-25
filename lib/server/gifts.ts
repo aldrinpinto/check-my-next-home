@@ -53,6 +53,7 @@ import { randomBytes } from "node:crypto";
 
 import {
   GIFT_VALIDITY_MS,
+  canonicalEmail,
   giftClaimedPageServes,
   isGiftTokenForm,
   normaliseEmail,
@@ -187,6 +188,33 @@ export async function claimedGiftForVisit(
   const claim = await claims.getByRef(record.token);
   if (claim !== null && claim.kind === "gifted" && claim.status !== "failed") return null;
   return { token: record.token, claimantEmail: record.claimantEmail };
+}
+
+// BUG-290 — a gifted order inherits the test standing of
+// the paid order that issued the gift. A gift carries no
+// payment of its own, so its mode is its source's: the
+// gift's order_ref names the paid order, and that order's
+// own TEST flag — written at its fulfilment from the
+// payment's livemode — decides. Where the gift or its
+// source order cannot be resolved the order reads as
+// real, exactly as before: the claim still stands either
+// way, and an unresolvable source never blocks a gift
+// redemption.
+export async function giftSourceTestOrder(
+  deps: {
+    gifts: GiftStore;
+    orders: { getByRef(ref: string): Promise<{ testOrder: boolean } | null> };
+  },
+  token: string,
+): Promise<boolean> {
+  try {
+    const gift = await deps.gifts.getByToken(token);
+    if (!gift?.orderRef) return false;
+    const source = await deps.orders.getByRef(gift.orderRef);
+    return source?.testOrder ?? false;
+  } catch {
+    return false;
+  }
 }
 
 interface GiftRow {
@@ -341,15 +369,28 @@ export function createDbGiftStore(db: AddressQueryable, sink?: GiftJourneySink):
     },
 
     async findClaimedByEmail(email, now) {
+      // BUG-267: the match is on the CANONICAL form, so
+      // a variant of the bound address (+tag, dots,
+      // googlemail.com) finds the same gift. The
+      // canonical rule lives in one JS function by
+      // design (lib/gift.ts) and is not duplicated in
+      // SQL, so the read fetches the live claimed gifts
+      // and filters here: the set is bounded by the
+      // 30-day validity window (claimed, unexpired),
+      // and the earliest claim still wins.
+      const wanted = canonicalEmail(email);
       const { rows } = await db.query(
         `SELECT ${COLUMNS} FROM gift_tokens
-          WHERE claimant_email = $1 AND status = 'claimed' AND expires_at > $2
-          ORDER BY claimed_at ASC
-          LIMIT 1`,
-        [normaliseEmail(email), now],
+          WHERE status = 'claimed' AND expires_at > $1
+          ORDER BY claimed_at ASC`,
+        [now],
       );
-      const row = (rows as unknown as GiftRow[])[0];
-      return row ? toRecord(row) : null;
+      for (const row of rows as unknown as GiftRow[]) {
+        if (row.claimant_email !== null && canonicalEmail(row.claimant_email) === wanted) {
+          return toRecord(row);
+        }
+      }
+      return null;
     },
 
     async getByOrderRef(orderRef) {
@@ -479,10 +520,11 @@ export function createMemoryGiftStore(
     },
 
     async findClaimedByEmail(email, at) {
-      const wanted = normaliseEmail(email);
+      const wanted = canonicalEmail(email);
       for (const record of records.values()) {
         if (
-          record.claimantEmail === wanted &&
+          record.claimantEmail !== null &&
+          canonicalEmail(record.claimantEmail) === wanted &&
           record.status === "claimed" &&
           record.expiresAt.getTime() > at.getTime()
         ) {

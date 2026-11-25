@@ -137,7 +137,11 @@ test.describe("kitchen sink — with a dark OS preference", () => {
     { tag: "@regression" },
     async ({ page }) => {
       await page.goto("/kitchen-sink/");
-      await expect(page.locator("body")).toHaveCSS("background-color", "rgb(255, 255, 255)");
+      // BUG-281: the ground is the Master's cream
+      // (#fdf8e8) on every page (BUG-001) — the white
+      // expectation predates it. D44 holds: there is
+      // still no dark mode in V1, the kit stays light.
+      await expect(page.locator("body")).toHaveCSS("background-color", "rgb(253, 248, 232)");
       await expect(page.locator("body")).toHaveCSS("color", "rgb(23, 32, 30)");
     },
   );

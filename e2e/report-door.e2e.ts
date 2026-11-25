@@ -95,9 +95,12 @@ test.describe("report door — regression", () => {
       );
       // Re-pinned (BUG-214, founder ruling 24 Nov 2026):
       // the mapped-layers tail is trimmed — the lead
-      // stands alone.
+      // stands alone. BUG-280: the payment page serves
+      // Sample 9's own list, whose flood line has no
+      // "Plus the" prefix — that lead is the holding
+      // page's line, not this page's.
       await expect(page.locator(".report-door__card").first()).toContainText(
-        "Plus the flood findings in full",
+        "The flood findings in full",
       );
       // BUG-215 (founder ruling, 24 Nov 2026): the
       // consent card is a single checkbox line in
@@ -159,7 +162,12 @@ test.describe("report door — regression", () => {
       // check); the consent error then stands, and
       // ticking the box clears it.
       await page.locator("#payment-email").fill("buyer@example.co.uk");
-      await page.locator(".report-payment__pay").click();
+      // BUG-280 addendum: the unticked button wears
+      // aria-disabled (BUG-132) and Playwright treats
+      // that as disabled for a plain click, so the
+      // attempt bypasses actionability to reach the
+      // consent-error path the test exists to prove.
+      await page.locator(".report-payment__pay").click({ force: true });
       await expect(page.locator(".report-payment__consent-error")).toBeVisible();
       await expect(page.locator(".report-payment__consent-error")).toContainText(
         "Tick this box to continue",

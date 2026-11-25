@@ -49,7 +49,7 @@
 //     it, under the owner-resend kind).
 
 import type { DeliveryRecord } from "../download";
-import { normaliseEmail } from "../gift";
+import { canonicalEmail } from "../gift";
 import type { FulfilmentClaim, FulfilmentClaimStore } from "./fulfilment";
 import type { DeliveryLogEntry, OrderRecord, OrderStore } from "./orders";
 import type { DeliveryStore } from "./report-deliveries";
@@ -131,8 +131,11 @@ export async function ownerResendOrder(
   // order's own buyer. A mismatch is refused before
   // any send — and the refusal is logged with the
   // verification fact, so the record shows the check
-  // was made and how it answered.
-  if (normaliseEmail(input.requesterEmail) !== order.email) {
+  // was made and how it answered. BUG-267: the buyer
+  // may return with any variant of the order's address
+  // (+tag, dots, googlemail.com) — the canonical forms
+  // decide, never the typed spellings.
+  if (canonicalEmail(input.requesterEmail) !== canonicalEmail(order.email)) {
     await deps.orders
       .logDelivery({
         orderRef: order.ref,

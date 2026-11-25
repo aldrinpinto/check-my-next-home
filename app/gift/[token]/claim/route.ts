@@ -12,11 +12,16 @@
 //   send-confirmation → the pending is (re)written and
 //                       the confirmation email sent via
 //                       the mailer seam. Sent: back with
-//                       ?sent=1 (the pending screen).
-//                       Failed: the pending is rolled
-//                       back — a failed send leaves
-//                       nothing half-claimed — and the
-//                       page carries ?sendfailed=1.
+//                       ?sent=1 (the pending screen) —
+//                       or ?resent=1 (BUG-271) when the
+//                       submitted address is the one the
+//                       record's pending already carries,
+//                       so the screen confirms the fresh
+//                       link went out. Failed: the
+//                       pending is rolled back — a failed
+//                       send leaves nothing half-claimed
+//                       — and the page carries
+//                       ?sendfailed=1.
 //   resume            → the bound holder is recognised:
 //                       the gift cookie is set for the
 //                       visit and the answer is the
@@ -179,6 +184,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
       break;
     }
     case "send-confirmation": {
+      // BUG-271: a resend is a POST of the address the
+      // record's pending already carries — the visitor
+      // used the pending screen's resend link. It
+      // answers ?resent=1 so the screen confirms the
+      // fresh link went out; a new address (or no
+      // pending standing) answers ?sent=1 as before.
+      // The pending is rewritten either way, so only
+      // the latest link works.
+      const isResend = record.pendingEmail === email;
       const pendingToken = newConfirmToken();
       await store.setPending(token, email, pendingToken, now);
       // The link leaves the server in an email, so it is
@@ -196,7 +210,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
         response = withEntry(back(token, "?sendfailed=1"), token, email);
         retainEntry = true;
       } else {
-        response = back(token, "?sent=1");
+        response = back(token, isResend ? "?resent=1" : "?sent=1");
       }
       break;
     }

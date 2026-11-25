@@ -26,7 +26,7 @@ import {
 } from "../../../lib/journey";
 import { REPORT_PRICE_LABEL } from "../../../lib/site";
 import { sectionsAndStatesOf } from "../../../lib/journey-events";
-import { buildResultsView, GIFT_FREE_LABEL, resultsScopeLabel } from "../../../lib/results";
+import { buildResultsView, GIFT_PILL_LABEL, resultsScopeLabel } from "../../../lib/results";
 import { redirectOrRender } from "../../../lib/redirect-or-render";
 import { getDbPool } from "../../../lib/server/db";
 import { createDbFulfilmentClaimStore } from "../../../lib/server/fulfilment";
@@ -258,7 +258,7 @@ async function Results({
             {card && <ShortlistButton card={card} />}
             {view.reportHref && (
               <ReportLink className="report-btn" href={view.reportHref}>
-                {giftHeld ? GIFT_FREE_LABEL : <>Get the full report — {REPORT_PRICE_LABEL}</>}
+                {giftHeld ? GIFT_PILL_LABEL : <>Get the full report — {REPORT_PRICE_LABEL}</>}
               </ReportLink>
             )}
           </div>

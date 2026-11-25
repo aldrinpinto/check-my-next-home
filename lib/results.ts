@@ -1363,6 +1363,19 @@ export function crimePillBand(per1000: number | null, england: number | null): D
   return per1000 > england * 1.25 ? "red" : "orange";
 }
 
+// The crime pill's figure, as one export (BUG-292): the
+// graduated England-rate verdict (BUG-151 ruling 2) in
+// the same words the results page pill carries, so the
+// shortlist table's crime cell speaks them too — one
+// computation, never a second mapping. Null where the
+// pill itself would not speak: either figure missing, or
+// the two exactly equal.
+export function crimePillFigure(per1000: number | null, england: number | null): string | null {
+  if (per1000 == null || england == null || per1000 === england) return null;
+  if (per1000 < england) return "Below England average";
+  return per1000 > england * 1.25 ? "Well above England average" : "Above England average";
+}
+
 // The air quality pill's band, as one export (BUG-164):
 // concerning — any pollutant over its UK legal limit
 // (NO2 40, PM2.5 20, PM10 40) — paints red; good — all
@@ -1546,19 +1559,17 @@ export function summaryPills(input: SummaryPillsInput): SummaryPill[] | null {
     const england = served?.englandFigure?.englandPer1000 ?? null;
     if (per1000 !== null && england !== null && per1000 !== england) {
       const concerning = per1000 > england;
-      const wellAbove = concerning && per1000 > england * 1.25;
-      add(concerning ? "concerning" : "good", {
-        label: "Crime",
-        figure: concerning
-          ? wellAbove
-            ? "Well above England average"
-            : "Above England average"
-          : "Below England average",
-        // The band is crimePillBand's — the one
-        // computation the shortlist table also colours
-        // by (BUG-163).
-        band: crimePillBand(per1000, england),
-      });
+      const figure = crimePillFigure(per1000, england);
+      if (figure !== null) {
+        add(concerning ? "concerning" : "good", {
+          label: "Crime",
+          figure,
+          // The band is crimePillBand's — the one
+          // computation the shortlist table also colours
+          // by (BUG-163).
+          band: crimePillBand(per1000, england),
+        });
+      }
     }
   }
 
@@ -1875,6 +1886,14 @@ export const BUY_BAR_HEADING = "Get the full detailed report for this home";
 // it in full.
 export const GIFT_REPORT_BUTTON_LABEL = "Get my free report";
 export const GIFT_FREE_LABEL = "Free with your gift";
+// BUG-271 (25 Nov 2026, founder's copy choice): the
+// free-page HEADER pill — the chip beside the Shortlist
+// button — reads "Your full report is free". The trunc
+// rows' price chip keeps GIFT_FREE_LABEL: it is a price
+// ("£4.99" when no gift is held), not the pill. The
+// BUG-223 comment above still stands for the strip and
+// the buy-bar button, which are untouched.
+export const GIFT_PILL_LABEL = "Your full report is free";
 export const GIFT_STRIP_LINE =
   "Your free report gift is ready to use on this home — order the full report and there's nothing to pay.";
 // Founder ruling, 17 Nov 2026 (alignment fix F4, softened

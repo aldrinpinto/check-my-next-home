@@ -126,9 +126,11 @@ async function searchFromHome(page: Page, text: string) {
 }
 
 async function pickAndReachResults(page: Page, rowName: string | RegExp) {
-  // Picker removed (18 Nov 2026): the postcode check's
-  // home list rows are links straight to each home.
-  await page.getByRole("link", { name: rowName }).first().click();
+  // The picker is the 20 Nov 2026 dropdown (BUG-273):
+  // the homes render only inside the open panel, as
+  // options — open it, then pick the named option.
+  await page.locator(".picker__trigger").click();
+  await page.locator(".picker__panel").getByRole("option", { name: rowName }).first().click();
   await page.waitForURL(/\/search\/home\?postcode=.*&home=/);
   await expect(page.locator(".results")).toBeVisible({ timeout: 30_000 });
 }
@@ -279,17 +281,28 @@ test.describe("phone-first — 360×740 (T-WEB-01)", () => {
     async ({ page }) => {
       await searchFromHome(page, "CM3 2JT");
       await page.waitForURL("**/search/home?postcode=CM3+2JT");
-      const rows = page.locator(".picker__row");
-      // The list renders inside the results, behind the
-      // checking screen's advance — wait for the first row
-      // before counting (an immediate count races the
-      // advance and reads zero).
-      await expect(rows.first()).toBeVisible({ timeout: 30_000 });
-      expect(await rows.count(), "the list carries the postcode's homes").toBeGreaterThan(1);
-      for (const row of await rows.all()) {
-        await expectTapTarget(row, "a home-list row");
-        await expectInsideViewport(row, PHONE.width, "a home-list row");
+      // The list is the 20 Nov 2026 dropdown (BUG-273):
+      // the homes render only inside the open panel, as
+      // options — open it, then count. The options render
+      // in one pass, so the first option's arrival stands
+      // for the list; an immediate count races the
+      // checking screen's advance and reads zero.
+      const options = page.locator(".picker__panel").getByRole("option");
+      await page.locator(".picker__trigger").click();
+      await expect(options.first()).toBeVisible({ timeout: 30_000 });
+      expect(await options.count(), "the list carries the postcode's homes").toBeGreaterThan(1);
+      // The options sit in the panel's own scroller, so
+      // only their height is pinned per option (the 44px
+      // tap target); the panel itself carries the
+      // inside-viewport pin for the list as a whole.
+      for (const option of await options.all()) {
+        await expectTapTarget(option, "a home-list option");
       }
+      await expectInsideViewport(
+        page.locator(".picker__panel"),
+        PHONE.width,
+        "the home-list panel",
+      );
       await expectNoSidewaysScroll(page);
       await expectNoTable(page);
     },
@@ -309,8 +322,20 @@ test.describe("phone-first — 360×740 (T-WEB-01)", () => {
       });
       await searchFromHome(page, "CM3 2JT");
       await page.waitForURL("**/search/home?postcode=CM3+2JT");
-      await page.getByRole("link", { name: "19 Birkdale Rise", exact: true }).click();
-      await expect(page.locator(".checking .page-title")).toHaveText("Your check is under way");
+      // The pick is the 20 Nov 2026 dropdown's option
+      // (BUG-273), not a link — open the panel and pick
+      // the home, then the checking screen runs.
+      await page.locator(".picker__trigger").click();
+      await page
+        .locator(".picker__panel")
+        .getByRole("option", { name: "19 Birkdale Rise", exact: true })
+        .click();
+      // The streamed loading frame (BUG-268) and the
+      // live screen both carry this heading until React
+      // swaps the fallback out, so pin the exposed
+      // heading — the one the visitor sees — not the
+      // raw CSS count, which briefly resolves to two.
+      await expect(page.getByRole("heading", { name: "Your check is under way" })).toBeVisible();
       await expect(page.locator(".checking__row")).toHaveCount(5);
       await expectNoSidewaysScroll(page);
 
@@ -429,7 +454,11 @@ test.describe("phone-first — 360×740 (T-WEB-01)", () => {
       await expect(page.locator(".results-head h1")).toHaveText(
         "Postcode area — CM3 2JT, not one exact home",
       );
-      const rows = page.locator(".picker__row");
+      // The list is the 20 Nov 2026 dropdown (BUG-273) —
+      // open it, then count the options.
+      await page.locator(".picker__trigger").click();
+      const rows = page.locator(".picker__panel").getByRole("option");
+      await expect(rows.first()).toBeVisible({ timeout: 30_000 });
       expect(await rows.count(), "the home list sits at the head of the page").toBeGreaterThan(1);
       for (const row of await rows.all()) {
         await expectTapTarget(row, "a home-list row");
@@ -541,73 +570,55 @@ test.describe("phone-first — 360×740 (T-WEB-01)", () => {
   );
 
   test(
-    "the shortlist with one home: the facts render as one full-width block; its buttons are 44px targets (P2/F2)",
+    "the shortlist with one home: the facts render as the swipe table; its buttons are 44px targets (P2/F2)",
     { tag: "@regression" },
     async ({ page }) => {
       await seedShortlist(page, [BIRKDALE_CARD]);
       await page.goto("/shortlist");
       await expect(page.locator(".shortlist-card")).toHaveCount(1);
-      // The phone form: no table — one stacked block.
-      await expectNoTable(page);
-      const grid = page.locator(".shortlist-compare__grid");
-      const column = page.locator(".shortlist-compare__column");
-      await expect(column).toHaveCount(1);
-      const gridBox = await grid.boundingBox();
-      const columnBox = await column.boundingBox();
-      expect(gridBox, "the comparison grid has a box").not.toBeNull();
-      expect(columnBox, "the home's block has a box").not.toBeNull();
-      expect(
-        Math.abs(columnBox!.width - gridBox!.width),
-        "the block takes the comparison's full width",
-      ).toBeLessThanOrEqual(2);
+      // The phone form (founder-picked option 1, 24 Nov
+      // 2026 — BUG-278): the comparison is the swipe
+      // table — the desktop table's own rows in a
+      // horizontal scroller, one column for the home.
+      const table = page.locator(".compare-table--swipe");
+      await expect(table).toHaveCount(1);
+      await expect(table).toHaveAttribute("data-card-count", "1");
+      await expect(
+        table.getByRole("columnheader", { name: "19 Birkdale Rise, CM3 2JT" }),
+      ).toHaveCount(1);
+      await expect(table.locator("tbody tr")).toHaveCount(12);
       await expectTapTarget(
         page.getByRole("button", { name: "Remove 19 Birkdale Rise, CM3 2JT" }),
         "the card's Remove button",
       );
-      await expectTapTarget(
-        page.locator(".shortlist-compare__actions .report-btn"),
-        "the block's report button",
-      );
+      await expectTapTarget(table.locator("tfoot .report-btn"), "the swipe table's report button");
       await expectNoSidewaysScroll(page);
     },
   );
 
   test(
-    "the shortlist with three homes: the comparison stacks one block per home, in saved order (P2)",
+    "the shortlist with three homes: the comparison is the swipe table, one column per home, in saved order (P2)",
     { tag: "@regression" },
     async ({ page }) => {
       await seedShortlist(page, [BIRKDALE_CARD, EXETER_CARD, MINERVA_CARD]);
       await page.goto("/shortlist");
       await expect(page.locator(".shortlist-card")).toHaveCount(3);
-      await expectNoTable(page);
-      await expect(page.locator(".shortlist-compare__address")).toHaveText([
-        "19 Birkdale Rise, CM3 2JT",
-        "6 Exeter Road, E16 1GN",
-        "Flat 4, Minerva House, KT17 1FH",
-      ]);
-      const columns = page.locator(".shortlist-compare__column");
-      await expect(columns).toHaveCount(3);
-      const boxes = [];
-      for (const column of await columns.all()) boxes.push(await column.boundingBox());
-      for (let index = 1; index < boxes.length; index += 1) {
-        const previous = boxes[index - 1]!;
-        const current = boxes[index]!;
-        expect(current.y, "each home's block stacks below the previous one").toBeGreaterThanOrEqual(
-          previous.y + previous.height - 1,
-        );
-        expect(
-          Math.abs(current.x - boxes[0]!.x),
-          "the blocks share one left edge",
-        ).toBeLessThanOrEqual(1);
-        expect(
-          Math.abs(current.width - boxes[0]!.width),
-          "the blocks share the full width",
-        ).toBeLessThanOrEqual(2);
-      }
-      const reportButtons = page.locator(".shortlist-compare__actions .report-btn");
+      // The phone form (founder-picked option 1, 24 Nov
+      // 2026 — BUG-278): the swipe table — one column per
+      // home, in saved order, the desktop table's own
+      // rows and foot buttons.
+      const table = page.locator(".compare-table--swipe");
+      await expect(table).toHaveCount(1);
+      await expect(table).toHaveAttribute("data-card-count", "3");
+      const heads = table.locator("thead th");
+      await expect(heads.nth(1)).toHaveText("19 Birkdale Rise, CM3 2JT");
+      await expect(heads.nth(2)).toHaveText("6 Exeter Road, E16 1GN");
+      await expect(heads.nth(3)).toHaveText("Flat 4, Minerva House, KT17 1FH");
+      await expect(table.locator("tbody tr")).toHaveCount(12);
+      const reportButtons = table.locator("tfoot .report-btn");
       await expect(reportButtons).toHaveCount(3);
       for (const button of await reportButtons.all()) {
-        await expectTapTarget(button, "a comparison block's report button");
+        await expectTapTarget(button, "a swipe-table report button");
       }
       for (const remove of await page.locator(".remove-btn").all()) {
         await expectTapTarget(remove, "a card's Remove button");
@@ -685,7 +696,7 @@ test.describe("phone-first — 360×740 (T-WEB-01)", () => {
   );
 
   test(
-    "the report document at phone width: the nine-section report reads without sideways scroll (M8.1)",
+    "the report document at phone width: the ten-section report reads without sideways scroll (M8.1)",
     { tag: "@regression" },
     async ({ page }) => {
       // The live report page is door-held until M8.7, so
@@ -695,7 +706,7 @@ test.describe("phone-first — 360×740 (T-WEB-01)", () => {
       // the live renderer is class-parity-pinned to it in
       // tests/report.test.ts. What is asserted here is the
       // format at 360px: no sideways scroll anywhere in a
-      // nine-section document with tables, tiles, bar
+      // ten-section document with tables, tiles, bar
       // charts and place rows, and every section heading
       // reachable in order. The live page's own phone
       // proof rides with M8.7's unlock, when the door
@@ -703,7 +714,9 @@ test.describe("phone-first — 360×740 (T-WEB-01)", () => {
       await page.goto("/sample-report");
       await expect(page.locator(".rpt-doc")).toBeVisible();
       const headings = page.locator(".rpt-section .rpt-secHead h2");
-      await expect(headings).toHaveCount(10);
+      // The short version plus the ten numbered sections
+      // (BUG-279) — section 6 is "The neighbourhood".
+      await expect(headings).toHaveCount(11);
       await expect(headings.nth(0)).toHaveText("The short version");
       const expected = [
         "Price & this home",
@@ -717,6 +730,7 @@ test.describe("phone-first — 360×740 (T-WEB-01)", () => {
         // tests/report.test.ts.
         "Health, air & crime",
         "What's nearby",
+        "The neighbourhood",
         "Home, costs & risks",
         "Flood risk",
         "Questions to ask the seller",
@@ -757,24 +771,23 @@ test.describe("phone-first — 480px, the small breakpoint's upper edge (P6)", (
   );
 
   test(
-    "the three-home comparison at 480px: the blocks still stack and nothing scrolls sideways",
+    "the three-home comparison at 480px: the swipe table still carries all three homes and nothing scrolls sideways",
     { tag: "@regression" },
     async ({ page }) => {
       await seedShortlist(page, [BIRKDALE_CARD, EXETER_CARD, MINERVA_CARD]);
       await page.goto("/shortlist");
-      await expect(page.locator(".shortlist-compare__column")).toHaveCount(3);
-      // 480px is still below the desktop breakpoint: the
-      // block form, not the table.
-      await expectNoTable(page);
-      const boxes = [];
-      for (const column of await page.locator(".shortlist-compare__column").all()) {
-        boxes.push(await column.boundingBox());
-      }
-      for (let index = 1; index < boxes.length; index += 1) {
-        expect(boxes[index]!.y).toBeGreaterThanOrEqual(
-          boxes[index - 1]!.y + boxes[index - 1]!.height - 1,
-        );
-      }
+      // 480px is still below the 40rem phone breakpoint,
+      // so the comparison is the swipe table (BUG-278),
+      // not the desktop table and not the 40–48rem blocks.
+      const table = page.locator(".compare-table--swipe");
+      await expect(table).toHaveCount(1);
+      await expect(table).toHaveAttribute("data-card-count", "3");
+      const heads = table.locator("thead th");
+      await expect(heads.nth(1)).toHaveText("19 Birkdale Rise, CM3 2JT");
+      await expect(heads.nth(2)).toHaveText("6 Exeter Road, E16 1GN");
+      await expect(heads.nth(3)).toHaveText("Flat 4, Minerva House, KT17 1FH");
+      await expect(table.locator("tbody tr")).toHaveCount(12);
+      await expect(table.locator("tfoot .report-btn")).toHaveCount(3);
       await expectNoSidewaysScroll(page);
     },
   );

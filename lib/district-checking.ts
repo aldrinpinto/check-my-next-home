@@ -134,6 +134,20 @@ export const DISTRICT_CHECKING_ROWS = [
 
 export type DistrictCheckingRowKey = (typeof DISTRICT_CHECKING_ROWS)[number]["key"];
 
+// BUG-286: the pacing collapse — when every group's
+// outcome already exists, the screen completes at data
+// speed instead of spacing the completions CHECKING_ROW_MS
+// apart. The D73 pacing only paces completions the data
+// is still earning; a group whose outcome is not there
+// yet keeps the screen waiting, and a not-covered
+// answer never reaches this test (it completes the
+// screen on settlement, without playing).
+export function districtOutcomesAllSettled(
+  outcomes: Record<DistrictCheckingRowKey, CheckingGroupResult | null>,
+): boolean {
+  return DISTRICT_CHECKING_ROWS.every((row) => outcomes[row.key] !== null);
+}
+
 // ------------------------------------------------------------------
 // The named-state sentences the sections do not carry
 // (the district results view's own words for the states)

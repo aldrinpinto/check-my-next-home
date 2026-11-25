@@ -128,7 +128,13 @@ describe("BUG-260 — the preparing page shows a visible progress indicator", ()
     );
     expect(preparing).toContain('role="status"');
     expect(preparing).toContain("report-success__preparing");
-    expect(preparing).toContain("checking__spinner");
+    // BUG-271 (Draft 1, founder's pick): the indicator
+    // is the house being built, not the checking ring —
+    // the roof path pins the drawing, and the ring is
+    // gone from this surface.
+    expect(preparing).toContain("report-success__house");
+    expect(preparing).toContain("M22 58 L60 28 L98 58 Z");
+    expect(preparing).not.toContain("checking__spinner");
     expect(preparing).toContain("Preparing your report");
 
     const ready = renderToStaticMarkup(

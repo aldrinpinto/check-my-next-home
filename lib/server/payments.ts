@@ -92,7 +92,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 
 import Stripe from "stripe";
 
-import { normaliseEmail } from "../gift";
+import { canonicalEmail } from "../gift";
 import { REPORT_PRICE_PENCE } from "../site";
 
 export type CreateIntentResult =
@@ -634,15 +634,18 @@ export interface PaymentsRouter {
 
 // The tester allowlist (TEST_BUYER_EMAILS): a
 // comma-separated list in the server environment,
-// matched under the codebase's email normalisation
-// (lib/gift.ts). Founder-controlled; nothing else in
-// the product reads it, and no surface renders it.
+// matched under the codebase's email canonicalisation
+// (lib/gift.ts) — a tester ordering with a variant of
+// their address (+tag, dots, googlemail.com) is still
+// the same tester (BUG-267). Founder-controlled;
+// nothing else in the product reads it, and no surface
+// renders it.
 export function testBuyerEmails(env: Record<string, string | undefined> = process.env): string[] {
   const raw = env.TEST_BUYER_EMAILS;
   if (!raw) return [];
   return raw
     .split(",")
-    .map((entry) => normaliseEmail(entry))
+    .map((entry) => canonicalEmail(entry))
     .filter((entry) => entry !== "");
 }
 
@@ -666,8 +669,8 @@ export function createPaymentsRouter(config: {
   test: PaymentsLaneSet | null;
   testEmails: readonly string[];
 }): PaymentsRouter {
-  const allowlist = new Set(config.testEmails.map((entry) => normaliseEmail(entry)));
-  const isTestOrder = (email: string) => allowlist.has(normaliseEmail(email));
+  const allowlist = new Set(config.testEmails.map((entry) => canonicalEmail(entry)));
+  const isTestOrder = (email: string) => allowlist.has(canonicalEmail(email));
   return {
     isTestOrder,
     testLaneReady() {

@@ -4,6 +4,7 @@ import { CheckCompletedBeacon } from "../../components/JourneyBeacon";
 import DistrictCheckingScreen from "../../components/DistrictCheckingScreen";
 import PlaceChoice from "../../components/PlaceChoice";
 import PostcodeBox from "../../components/PostcodeBox";
+import RedirectTo from "../../components/RedirectTo";
 import ResultsPage from "../../components/ResultsPage";
 import StreetChoice from "../../components/StreetChoice";
 import WholeCheckFailure from "../../components/WholeCheckFailure";
@@ -98,38 +99,24 @@ export default async function SearchPage({
   const params = await searchParams;
 
   if (params.outward) {
-    // The wider-area landing (rung 3): the scope label is
-    // the resolution's own; a typed full postcode the
-    // directory does not hold adds its not-found line.
-    // England & Wales districts render the district page
-    // (18 Nov 2026 ruling); Scotland / NI keep the M7.4
-    // rung-3 form — unlock banner over the named-state
-    // results page, no this-home figures, no report.
-    let resolution;
-    try {
-      resolution = await resolveAddressInput(params.outward, createAddressSource(getDbPool()));
-    } catch {
-      return <WholeCheckFailure initialValue={params.outward} />;
-    }
-    if (resolution.rung !== 3) {
-      // Not a wider area: a full postcode that arrived in
-      // the outward slot re-enters through the postcode
-      // form (which re-decides its rung); anything
-      // unplaceable returns to the landing page — with
-      // one exception (founder fix batch, 19 Nov 2026):
-      // an input that exactly names a known place is not
-      // unplaceable, it is a place pick that arrived by
-      // URL, and it lands on the place page — never the
-      // unplaced notice, never a failure page.
-      if (resolution.rung === 4) {
-        const placeUrl = await placeChoiceUrl(params.outward);
-        return await redirectOrRender(placeUrl ?? UNPLACED_NOTICE_URL);
-      }
-      if (resolution.rung === 1)
-        return await redirectOrRender(
-          homeRoute(resolution.directory.postcode, homeKeyOf(resolution)),
-        );
-      return await redirectOrRender(homeRoute(resolution.directory.postcode));
+    // BUG-286: the screen mounts on the classified
+    // outward at once — the resolution (the
+    // districtSummary read and the rung decision) runs
+    // inside the streamed child, so the segment loading
+    // frame and the real screen stop presenting as one
+    // screen restarting at 0 groups. The classification
+    // is pure (no read); an input carrying no outward
+    // token at all has no district screen to mount on,
+    // so it renders the streamed child bare — the child
+    // resolves it to the place page or the unplaced
+    // notice, as the branch always did.
+    const outward = classifyAddressInput(params.outward).outward;
+    if (!outward) {
+      return (
+        <Suspense fallback={<p className="results-loading">Opening your check…</p>}>
+          <DistrictResultsForOutward outward={params.outward} notfound={params.notfound} />
+        </Suspense>
+      );
     }
     // The wider-area checking screen (founder ruling,
     // 19 Nov 2026): the district results stream in
@@ -142,9 +129,9 @@ export default async function SearchPage({
     // lands are the results' own facts.
     return (
       <main className="journey-page main--wide">
-        <DistrictCheckingScreen outward={resolution.outward}>
+        <DistrictCheckingScreen outward={outward}>
           <Suspense fallback={<p className="results-loading">Opening your results…</p>}>
-            <DistrictResults resolution={resolution} notfound={params.notfound} />
+            <DistrictResultsForOutward outward={params.outward} notfound={params.notfound} />
           </Suspense>
         </DistrictCheckingScreen>
       </main>
@@ -214,22 +201,31 @@ export default async function SearchPage({
     if (!place || place.districts.length === 0) return await redirectOrRender(UNPLACED_NOTICE_URL);
     if (place.districts.length === 1)
       return await redirectOrRender(widerAreaRoute(place.districts[0]));
-    // The rows' area descriptions and the bridge's
-    // example postcode (fix batch, 19 Nov 2026 —
-    // BUG-026/BUG-027): one set read over the place's
-    // districts. The read is furniture, not the page's
-    // substance — a failure degrades to bare rows and a
-    // form-only bridge, never to the failure page.
-    const areas = await createPlaceSource(getDbPool())
-      .districtAreas(place.districts)
-      .catch(() =>
-        place.districts.map((outward) => ({
-          outward,
-          settlements: [] as string[],
-          examplePostcode: null,
-        })),
-      );
-    return <PlaceChoice place={displayText(place.place)} districts={areas} />;
+    // BUG-286: the rows' area descriptions and the
+    // bridge's example postcode are furniture — the
+    // picker renders from the place row alone (the
+    // district list is known) and the areas stream in
+    // behind it, so slowness degrades to bare rows
+    // instead of blocking the picker behind the
+    // checking frame. The fallback is the accepted
+    // degraded state on failure (bare rows, form-only
+    // bridge), now also the state while the read runs.
+    return (
+      <Suspense
+        fallback={
+          <PlaceChoice
+            place={displayText(place.place)}
+            districts={place.districts.map((outward) => ({
+              outward,
+              settlements: [] as string[],
+              examplePostcode: null,
+            }))}
+          />
+        }
+      >
+        <PlaceChoiceAreas place={displayText(place.place)} districts={place.districts} />
+      </Suspense>
+    );
   }
 
   if (!params.postcode) return await redirectOrRender(UNPLACED_NOTICE_URL);
@@ -295,6 +291,77 @@ export default async function SearchPage({
     );
   }
   return await redirectOrRender(homeRoute(postcode));
+}
+
+// The place page's area furniture, streamed in behind
+// the picker (BUG-286): the same read the page used to
+// await before rendering anything. A failure degrades
+// to bare rows and a form-only bridge — the accepted
+// degraded state — never to the failure page.
+async function PlaceChoiceAreas({ place, districts }: { place: string; districts: string[] }) {
+  const areas = await createPlaceSource(getDbPool())
+    .districtAreas(districts)
+    .catch(() =>
+      districts.map((outward) => ({
+        outward,
+        settlements: [] as string[],
+        examplePostcode: null,
+      })),
+    );
+  return <PlaceChoice place={place} districts={areas} />;
+}
+
+// The outward branch's resolution, streamed inside the
+// checking screen (BUG-286): the districtSummary read
+// and the rung decision run here, behind the screen's
+// mount, instead of before it. Rung 3 renders the
+// district results as before; any other rung redirects
+// — rendered as the client-side navigation
+// (redirectOrRender's plain-load form) rather than
+// thrown, because a redirect() thrown after the screen
+// shell has streamed cannot 307. The destination and
+// the history-replace are unchanged; only the mechanism
+// differs, and only for these edge inputs (a full
+// postcode or a place name in the outward slot).
+async function DistrictResultsForOutward({
+  outward,
+  notfound,
+}: {
+  outward: string;
+  notfound?: string;
+}) {
+  let resolution;
+  try {
+    resolution = await resolveAddressInput(outward, createAddressSource(getDbPool()));
+  } catch {
+    return <WholeCheckFailure initialValue={outward} />;
+  }
+  if (resolution.rung !== 3) {
+    // Not a wider area: a full postcode that arrived in
+    // the outward slot re-enters through the postcode
+    // form (which re-decides its rung); anything
+    // unplaceable returns to the landing page — with
+    // one exception (founder fix batch, 19 Nov 2026):
+    // an input that exactly names a known place is not
+    // unplaceable, it is a place pick that arrived by
+    // URL, and it lands on the place page — never the
+    // unplaced notice, never a failure page.
+    let url: string;
+    if (resolution.rung === 4) {
+      url = (await placeChoiceUrl(outward)) ?? UNPLACED_NOTICE_URL;
+    } else if (resolution.rung === 1) {
+      url = homeRoute(resolution.directory.postcode, homeKeyOf(resolution));
+    } else {
+      url = homeRoute(resolution.directory.postcode);
+    }
+    return (
+      <main className="journey-page main--wide">
+        <p className="results-loading">Opening your check…</p>
+        <RedirectTo to={url} />
+      </main>
+    );
+  }
+  return <DistrictResults resolution={resolution} notfound={notfound} />;
 }
 
 // The wider-area results, streamed in behind the

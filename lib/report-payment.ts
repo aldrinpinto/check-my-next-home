@@ -119,6 +119,18 @@ export interface ReportPaymentView {
   teaseLine: string;
   cardTitle: string;
   payLabel: string;
+  // BUG-267: the paid form's label, carried alongside
+  // payLabel so the button can follow the page's
+  // actual state: payLabel is the gift variant's label
+  // ("Get my free report") on a gift visit and the
+  // paid label otherwise, while paidPayLabel is always
+  // the paid label ("Pay £4.99"). The component picks
+  // between them with effectivePayLabel (below) — a
+  // gift visit whose email has been edited away from
+  // the bound address shows the paid form (card rows,
+  // "Powered by Stripe") and must show the paid
+  // label, not the free one.
+  paidPayLabel: string;
   closingLine: string;
   // BUG-223: the visit's claimed gift — the email the
   // gift is bound to, and the gift-applied line. Both
@@ -270,6 +282,20 @@ export const PAYMENT_GIFT_LINE =
 export const PAYMENT_GIFT_TERMS_LINE_LEAD =
   "The report is information from official sources — not advice. By ordering, you agree to our ";
 
+// BUG-287 (founder, 25 Nov 2026): the locked-field
+// form's words. While a claimed gift applies the
+// delivery email field is locked to the address the
+// gift was claimed with — the note names whose gift it
+// is — and the escape link abandons the gift for this
+// order, switching the page to its paid form. New
+// copy, composed in the site's plain voice for the
+// founder's review: the note states the tie and the
+// delivery, nothing more.
+export function paymentGiftLockedNote(email: string): string {
+  return `This gift is tied to ${email} — the report will be delivered to that address.`;
+}
+export const PAYMENT_GIFT_USE_DIFFERENT_EMAIL = "Use a different email";
+
 // The page's own failure lines (this build's copy, in
 // Sample 9's error-line manner: name the failure, state
 // plainly that nothing was charged, invite a retry).
@@ -324,6 +350,7 @@ export function buildReportPaymentView(
     teaseLine: BUY_BAR_MYSTERY_LINE,
     cardTitle: PAYMENT_CARD_TITLE,
     payLabel: `Pay ${REPORT_PRICE_LABEL}`,
+    paidPayLabel: `Pay ${REPORT_PRICE_LABEL}`,
     closingLine: PAYMENT_CLOSING_LINE,
     giftEmail: null as string | null,
     giftLine: null as string | null,
@@ -362,6 +389,25 @@ export function buildReportPaymentView(
     case "generic":
       return { ...view, heading: "The detailed report", subline: null };
   }
+}
+
+// The button's label as the page now stands — the
+// component's one derivation, factored here so
+// BUG-267's label switch is pinnable without a
+// browser. The gift label stands only while the gift
+// applies AND no payment stands: a standing payment
+// is proof of the paid form (a gift order never
+// creates one), so the stale-view race — a gift
+// redeemed elsewhere between page load and click —
+// still reads paid. Editing away from the bound
+// address reverts the page to its paid form, and the
+// button must say so.
+export function effectivePayLabel(
+  view: ReportPaymentView,
+  giftApplies: boolean,
+  hasActiveIntent: boolean,
+): string {
+  return giftApplies && !hasActiveIntent ? view.payLabel : view.paidPayLabel;
 }
 
 // A payment the server has started for this page: its

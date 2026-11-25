@@ -80,9 +80,7 @@ test.describe("consolidated chain — regression", () => {
       ).toBeVisible();
       await page.getByLabel("Your email address").fill(CHAIN_CLAIMANT);
       await page.getByRole("button", { name: "Claim my free report" }).click();
-      await expect(
-        page.getByRole("heading", { name: "Check your email to finish claiming" }),
-      ).toBeVisible();
+      await expect(page.getByRole("heading", { name: "You're nearly there" })).toBeVisible();
 
       const { confirmUrl } = await capturedConfirmation(CHAIN_GIFT);
       await page.goto(confirmUrl);

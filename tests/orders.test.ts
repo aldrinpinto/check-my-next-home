@@ -61,10 +61,15 @@ function eventPayload(input: {
   intentId: string;
   status: string;
   test?: boolean;
+  // BUG-290 — the event's mode is part of the payload
+  // under test: a test order's event is test-mode. The
+  // default stays live, so the existing pins keep the
+  // shape they were written against.
+  livemode?: boolean;
 }): string {
   return JSON.stringify({
     type: input.type,
-    livemode: true,
+    livemode: input.livemode ?? true,
     data: {
       object: {
         id: input.intentId,
@@ -220,12 +225,18 @@ function orderWorld() {
   return { live, log, claims, orders, deliveries, owner, notice, notices, webhookDeps, makeWorker };
 }
 
-async function succeeded(world: ReturnType<typeof orderWorld>, intentId: string, test?: boolean) {
+async function succeeded(
+  world: ReturnType<typeof orderWorld>,
+  intentId: string,
+  test?: boolean,
+  livemode?: boolean,
+) {
   const payload = eventPayload({
     type: "payment_intent.succeeded",
     intentId,
     status: "succeeded",
     test,
+    livemode,
   });
   return processWebhookEvent(world.webhookDeps, {
     payload,
@@ -275,7 +286,12 @@ describe("the order record — written at the claim, from the verified event", (
 
   it("marks a test-lane order as a test order, so test sales never read as real ones (R6)", async () => {
     const world = orderWorld();
-    await succeeded(world, "pi_record_test", true);
+    // BUG-290 — the old payload was an impossible
+    // combination (a live-mode event carrying the TEST
+    // flag); a test order's event is test-mode, so the
+    // payload carries livemode false, as the provider
+    // would send it.
+    await succeeded(world, "pi_record_test", true, false);
     expect((await world.orders.getByRef("pi_record_test"))?.testOrder).toBe(true);
   });
 

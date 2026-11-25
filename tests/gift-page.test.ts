@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
@@ -168,7 +170,7 @@ describe("the claimed-different-email guard (view 24 — Text 3)", () => {
   });
 });
 
-describe("the confirmation-pending screen (view 20)", () => {
+describe("the confirmation-pending screen (view 20) — BUG-271 success state", () => {
   const html = text(
     renderToStaticMarkup(
       createElement(GiftClaimCard, {
@@ -179,20 +181,65 @@ describe("the confirmation-pending screen (view 20)", () => {
     ),
   );
 
-  it("names the address the link went to and keeps the form for a correction", () => {
-    expect(html).toContain("Check your email to finish claiming");
-    expect(html).toContain("We've sent a confirmation email to");
+  it("is a success state: tick, the address as plain text, no form standing", () => {
+    expect(html).toContain("You're nearly there");
+    expect(html).toContain("Check your inbox");
     expect(html).toContain(`<strong>${GIFT_FRIEND}</strong>`);
-    expect(html).toContain('name="email"');
-  });
-
-  it("stands pre-filled under the sample's own button and short fine print", () => {
-    expect(html).toContain(`value="${GIFT_FRIEND}"`);
-    expect(html).toContain(">Send a fresh link</button>");
+    expect(html).toContain("The gift isn't claimed until you click.");
+    // No form stands: no visible email field and no
+    // big fresh-link button — the resend is a quiet
+    // link, and the address travels in a hidden input
+    // only.
+    expect(html).not.toContain("Check your email to finish claiming");
+    expect(html).not.toContain('type="email"');
+    expect(html).not.toContain("Your email address");
+    expect(html).not.toContain(">Send a fresh link</button>");
+    expect(html).toContain("Didn't get it? Send it again");
+    expect(html).toContain("Wrong email? Change it");
     expect(html).toContain(
       "The gift is valid for 30 days from the day the report was bought, and it can be claimed once.",
     );
-    expect(html).not.toContain("so use the email address you'll order your report with");
+    // Exactly one tick: the success badge's.
+    expect(html.split("m4.5 12.5 5 5 10-11").length - 1).toBe(1);
+  });
+
+  it("the resend confirmation names the address and stands as a status", () => {
+    const resent = text(
+      renderToStaticMarkup(
+        createElement(GiftClaimCard, {
+          token: GIFT_TOKEN,
+          variant: "pending",
+          pendingEmail: GIFT_FRIEND,
+          resent: true,
+        }),
+      ),
+    );
+    expect(resent).toContain(`We've sent another email to <strong>${GIFT_FRIEND}</strong>`);
+    expect(resent).toContain("it should arrive in a moment");
+    expect(resent).toContain('role="status"');
+  });
+
+  it("the change-email state brings the form back, exactly as it stood (BUG-271)", () => {
+    const form = text(
+      renderToStaticMarkup(
+        createElement(GiftClaimCard, {
+          token: GIFT_TOKEN,
+          variant: "pending",
+          pendingEmail: GIFT_FRIEND,
+          pendingForm: true,
+        }),
+      ),
+    );
+    expect(form).toContain("Check your email to finish claiming");
+    expect(form).toContain("We've sent a confirmation email to");
+    expect(form).toContain(`<strong>${GIFT_FRIEND}</strong>`);
+    expect(form).toContain('name="email"');
+    expect(form).toContain(`value="${GIFT_FRIEND}"`);
+    expect(form).toContain(">Send a fresh link</button>");
+    expect(form).toContain(
+      "The gift is valid for 30 days from the day the report was bought, and it can be claimed once.",
+    );
+    expect(form).not.toContain("so use the email address you'll order your report with");
   });
 });
 
@@ -255,5 +302,20 @@ describe("the closed screens (views 25–27)", () => {
     expect(html).toContain("we can't find the gift it belongs to.");
     expect(html).toContain(">Check a home</h2>");
     expect(html).not.toContain('name="email"');
+  });
+});
+
+describe("the gift pages' search box fills the card (BUG-271)", () => {
+  it("the in-card postcode box carries no width cap", () => {
+    // Founder direction, 25 Nov 2026: the "Check
+    // another home" input on the gift-used page read
+    // small under its 520px cap. The box now fills the
+    // card's content width; the row and the phone stack
+    // are untouched, so the button stays alongside at
+    // desktop and stacks below 30rem as before.
+    const css = readFileSync(join(process.cwd(), "app/globals.css"), "utf8");
+    expect(css).toContain(
+      ".gift-page .gift-card .postcode-box {\n  text-align: left;\n  max-width: none;",
+    );
   });
 });

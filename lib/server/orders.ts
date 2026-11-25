@@ -36,7 +36,7 @@
 // the record's own standing, not that authority.
 
 import type { AddressQueryable } from "../address";
-import { normaliseEmail } from "../gift";
+import { canonicalEmail, normaliseEmail } from "../gift";
 import type { FulfilmentKind } from "./fulfilment";
 
 export interface OrderRecord {
@@ -97,9 +97,11 @@ export interface OrderStore {
   getByRef(ref: string): Promise<OrderRecord | null>;
   // The lookup tool's searches (prep gap 10): every
   // order standing under a buyer email (stored
-  // normalised; the search normalises the same way),
-  // or under a postcode (compared in the directory's
-  // own form — trimmed, upper-cased), newest first.
+  // normalised; the search canonicalises the same way
+  // — BUG-267: a variant of the buyer's address finds
+  // the same person's orders), or under a postcode
+  // (compared in the directory's own form — trimmed,
+  // upper-cased), newest first.
   findByEmail(email: string): Promise<OrderRecord[]>;
   findByPostcode(postcode: string): Promise<OrderRecord[]>;
   // The fulfilment landed: the record names its
@@ -261,11 +263,23 @@ export function createDbOrderStore(db: AddressQueryable): OrderStore {
     getByRef,
 
     async findByEmail(email) {
+      // BUG-267: the match is on the CANONICAL form, so
+      // an admin searching with a variant of the
+      // buyer's address (+tag, dots, googlemail.com)
+      // finds the same person's orders. The canonical
+      // rule lives in one JS function by design
+      // (lib/gift.ts) and is not duplicated in SQL, so
+      // the read filters here. This lookup is admin-
+      // only and human-paced; if orders ever grows past
+      // a few thousand rows this wants a canonical
+      // column + index instead of the scan.
+      const wanted = canonicalEmail(email);
       const { rows } = await db.query(
-        `SELECT ${ORDER_COLUMNS} FROM orders WHERE email = $1 ORDER BY created_at DESC`,
-        [normaliseEmail(email)],
+        `SELECT ${ORDER_COLUMNS} FROM orders ORDER BY created_at DESC`,
       );
-      return (rows as unknown as OrderRow[]).map(toOrder);
+      return (rows as unknown as OrderRow[])
+        .filter((row) => canonicalEmail(row.email) === wanted)
+        .map(toOrder);
     },
 
     async findByPostcode(postcode) {
@@ -428,9 +442,9 @@ export function createMemoryOrderStore(): OrderStore & {
       return record ? clone(record) : null;
     },
     async findByEmail(email) {
-      const wanted = normaliseEmail(email);
+      const wanted = canonicalEmail(email);
       return [...orders.values()]
-        .filter((record) => record.email === wanted)
+        .filter((record) => canonicalEmail(record.email) === wanted)
         .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
         .map(clone);
     },

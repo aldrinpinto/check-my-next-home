@@ -57,6 +57,7 @@ import {
   DISTRICT_CHECKING_STEP_DONE,
   DISTRICT_CHECKING_SWEEP_CAPTION,
   districtCheckingFailureOutcomes,
+  districtOutcomesAllSettled,
   parseDistrictCheckingGroupValue,
   type DistrictCheckingGroupPayload,
   type DistrictCheckingRowKey,
@@ -176,15 +177,31 @@ export default function DistrictCheckingScreen({
   // exists, and never sooner than CHECKING_ROW_MS after
   // the previous group completed — the display smoothing
   // that keeps a fast answer readable (D73), never the
-  // driver of completion.
+  // driver of completion. BUG-286: when every outcome
+  // already exists, the screen completes at data speed
+  // instead — the spacing only paces completions the
+  // data is still earning, so a warm district (all four
+  // parts landing together) no longer waits out the
+  // ~3.5s floor. The advance hold still plays, so the
+  // completed beat is always seen before the reveal.
+  const allSettled = districtOutcomesAllSettled(outcomes);
   useEffect(() => {
     if (complete) return;
     if (doneCount >= DISTRICT_CHECKING_ROWS.length) return;
+    if (allSettled) {
+      // The jump itself rides a zero-delay timer, like
+      // every other completion in this effect — a
+      // synchronous setState here trips the lint rule
+      // against cascading renders, and a 0ms timer is
+      // still data speed.
+      const timer = setTimeout(() => setDoneCount(DISTRICT_CHECKING_ROWS.length), 0);
+      return () => clearTimeout(timer);
+    }
     const row = DISTRICT_CHECKING_ROWS[doneCount];
     if (!outcomes[row.key]) return;
     const timer = setTimeout(() => setDoneCount((count) => count + 1), CHECKING_ROW_MS);
     return () => clearTimeout(timer);
-  }, [complete, doneCount, outcomes]);
+  }, [complete, doneCount, outcomes, allSettled]);
 
   // The advance: once every group has completed, the
   // screen holds the completed beat briefly (the stamp

@@ -436,7 +436,11 @@ test.describe("checker journey — regression", () => {
       // standard PostcodeBox now — the plain
       // postcode-only form that stood here dead-ended
       // on anything it could not resolve.
-      await expect(page.locator(".district-bridge .postcode-box input")).toHaveAttribute(
+      // BUG-274: the real Turnstile widget injects a
+      // hidden cf-turnstile-response input into the form,
+      // so the broad `.postcode-box input` selector
+      // matches two inputs — scope to the visible field.
+      await expect(page.locator(".district-bridge .postcode-box input#postcode")).toHaveAttribute(
         "placeholder",
         "Enter a postcode, street or town",
       );

@@ -25,8 +25,13 @@ import {
   GIFT_NOT_RECOGNISED_SEARCH_HEADING,
   GIFT_PENDING_BODY,
   GIFT_PENDING_BUTTON,
+  GIFT_PENDING_CHANGE_LABEL,
   GIFT_PENDING_FINE_PRINT,
   GIFT_PENDING_HEADING,
+  GIFT_PENDING_RESEND_LABEL,
+  GIFT_PENDING_RESENT_LINE,
+  GIFT_PENDING_SUCCESS_BODY,
+  GIFT_PENDING_SUCCESS_HEADING,
   GIFT_SAME_EMAIL_BODY,
   GIFT_SAME_EMAIL_HEADING,
   GIFT_SEARCH_LINE,
@@ -38,6 +43,7 @@ import {
   GIFT_VOIDED_BODY,
   GIFT_VOIDED_HEADING,
   GIFT_VOIDED_SEARCH_HEADING,
+  giftClaimPath,
   giftClaimPostPath,
   type GiftClaimVariant,
 } from "../lib/gift";
@@ -139,6 +145,27 @@ function MailIcon() {
     >
       <rect x="3" y="5" width="18" height="14" rx="2" />
       <path d="m3 7 9 6 9-6" />
+    </svg>
+  );
+}
+
+// BUG-271: the pending success state's tick — the
+// claimed chip's own tick path (Master view 22's pill,
+// BUG-222), drawn large in the ok badge.
+function TickIcon() {
+  return (
+    <svg
+      width="26"
+      height="26"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="m4.5 12.5 5 5 10-11" />
     </svg>
   );
 }
@@ -275,10 +302,16 @@ export function GiftPageShell({ children }: { children: ReactNode }) {
 //                (view 24: "Continue", the helper line,
 //                the holder's placeholder);
 //   pending    — the confirmation step's intermediate
-//                screen (view 20): the form again,
-//                pre-filled with the address the link
-//                went to, so a wrong address is
-//                corrected in place and a fresh link
+//                screen (view 20). BUG-271: it now has
+//                two presentations — the success state
+//                (default): a tick, the address as
+//                plain text, resend as a quiet link
+//                that confirms, and a change-it link;
+//                and the change-email form
+//                (pendingForm): the old screen, the
+//                form again pre-filled with the address
+//                the link went to, so a wrong address
+//                is corrected in place and a fresh link
 //                sent.
 // The variant union itself is lib/gift.ts's — the pure
 // view builder there selects among them.
@@ -327,6 +360,8 @@ export function GiftClaimCard({
   token,
   variant,
   pendingEmail,
+  pendingForm = false,
+  resent = false,
   emailError = false,
   entryEmail,
   sendFailed = false,
@@ -334,11 +369,56 @@ export function GiftClaimCard({
   token: string;
   variant: GiftClaimVariant;
   pendingEmail?: string;
+  // BUG-271: the pending screen's presentations —
+  // pendingForm serves the change-email form
+  // (?change-email=1); resent serves the resent
+  // confirmation line (?resent=1). Both are false on
+  // the plain ?sent=1 success state.
+  pendingForm?: boolean;
+  resent?: boolean;
   emailError?: boolean;
   entryEmail?: string;
   sendFailed?: boolean;
 }) {
   const copy = CLAIM_VARIANTS[variant];
+  // BUG-271: the pending success state — the screen
+  // after the click, and after a resend. No form: the
+  // tick, the address as plain text, resend as a quiet
+  // link that confirms when used, and the change-it
+  // link that brings the form back. The claim is still
+  // not complete until the emailed link is clicked —
+  // this state says only that the email is sent.
+  if (variant === "pending" && !pendingForm) {
+    const successBody = pendingEmail
+      ? GIFT_PENDING_SUCCESS_BODY.replace("{email}", pendingEmail)
+      : GIFT_PENDING_SUCCESS_BODY;
+    return (
+      <div className="card gift-card">
+        <Badge form="ok">
+          <TickIcon />
+        </Badge>
+        <h1>{GIFT_PENDING_SUCCESS_HEADING}</h1>
+        <p>{rich(successBody)}</p>
+        {resent && pendingEmail && (
+          <p className="gift-notice" role="status">
+            {rich(GIFT_PENDING_RESENT_LINE.replace("{email}", pendingEmail))}
+          </p>
+        )}
+        {pendingEmail && (
+          <form method="post" action={giftClaimPostPath(token)} className="gift-resend">
+            <input type="hidden" name="email" value={pendingEmail} />
+            <button type="submit" className="gift-link-button">
+              {GIFT_PENDING_RESEND_LABEL}
+            </button>
+          </form>
+        )}
+        <p className="gift-change">
+          <a href={`${giftClaimPath(token)}?change-email=1`}>{GIFT_PENDING_CHANGE_LABEL}</a>
+        </p>
+        <p className="gift-fine-print">{GIFT_PENDING_FINE_PRINT}</p>
+      </div>
+    );
+  }
   const body =
     variant === "pending" && pendingEmail ? copy.body.replace("{email}", pendingEmail) : copy.body;
   // The samples' furniture: the claim screen carries

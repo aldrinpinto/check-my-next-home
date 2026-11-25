@@ -71,9 +71,7 @@ test.describe("Check Together claim flow — regression", () => {
       // the refusal wrote nothing.
       await page.getByLabel("Your email address").fill(CLAIMANT);
       await page.getByRole("button", { name: "Claim my free report" }).click();
-      await expect(
-        page.getByRole("heading", { name: "Check your email to finish claiming" }),
-      ).toBeVisible();
+      await expect(page.getByRole("heading", { name: "You're nearly there" })).toBeVisible();
     },
   );
 
@@ -94,9 +92,7 @@ test.describe("Check Together claim flow — regression", () => {
       // exactly as it does from a clean form.
       await page.getByLabel("Your email address").fill(CLAIMANT);
       await page.getByRole("button", { name: "Claim my free report" }).click();
-      await expect(
-        page.getByRole("heading", { name: "Check your email to finish claiming" }),
-      ).toBeVisible();
+      await expect(page.getByRole("heading", { name: "You're nearly there" })).toBeVisible();
     },
   );
 
@@ -107,15 +103,20 @@ test.describe("Check Together claim flow — regression", () => {
       await page.goto(`/gift/${ISSUED_ONE}`);
       await page.getByLabel("Your email address").fill(CLAIMANT);
       await page.getByRole("button", { name: "Claim my free report" }).click();
-      await expect(
-        page.getByRole("heading", { name: "Check your email to finish claiming" }),
-      ).toBeVisible();
+      await expect(page.getByRole("heading", { name: "You're nearly there" })).toBeVisible();
       await expect(page.getByText(CLAIMANT)).toBeVisible();
-      // View 20's own furniture: the form stands
-      // pre-filled with the address the link went to,
-      // under the sample's "Send a fresh link" button.
-      await expect(page.getByLabel("Your email address")).toHaveValue(CLAIMANT);
-      await expect(page.getByRole("button", { name: "Send a fresh link" })).toBeVisible();
+      // View 20's success state (BUG-271): the tick and
+      // the address as plain text — no form stands, and
+      // the resend is a quiet link that confirms when
+      // used. The resend's fresh link is the one the
+      // later confirm leg follows.
+      await expect(page.getByLabel("Your email address")).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "Send a fresh link" })).toHaveCount(0);
+      await expect(
+        page.getByRole("button", { name: "Didn't get it? Send it again" }),
+      ).toBeVisible();
+      await page.getByRole("button", { name: "Didn't get it? Send it again" }).click();
+      await expect(page.getByRole("status")).toContainText("We've sent another email to");
 
       // Nothing is claimed yet: the link alone, reopened,
       // still offers the claim (the binding is the click).

@@ -5,6 +5,7 @@ import type { CategoryAnswer, NearbyBundle } from "./nearby";
 import {
   airPillBand,
   crimePillBand,
+  crimePillFigure,
   floodBandOf,
   floodPillBand,
   formatMiles,
@@ -124,12 +125,23 @@ function floodCell(flood: ShortFlood): ShortlistCell {
     // the planning zone heard, BUG-151 ruling 3), so the
     // table colours the value exactly as the pill colours
     // its figure. Null where the pill itself would not
-    // speak, and the cell then stands plain.
+    // speak, and the cell then stands plain. BUG-291
+    // (founder's ruling, 25 Nov 2026): the band dresses
+    // the two VALUES only — the labels stay plain — so
+    // the cell is segments, not one banded line. The
+    // band is the cell's one verdict band on both values
+    // (a Flood Zone 3 home reads red on both, exactly as
+    // the pill reads red for the zone); the concatenated
+    // text is unchanged.
     const band = floodPillBand(flood);
     return {
-      kind: "line",
-      text: `Rivers & sea: ${riversSeaBand} · Surface water: ${surfaceWaterBand}`,
-      ...(band ? { band } : {}),
+      kind: "segments",
+      segments: [
+        { text: "Rivers & sea: " },
+        { text: riversSeaBand, ...(band ? { band } : {}) },
+        { text: " · Surface water: " },
+        { text: surfaceWaterBand, ...(band ? { band } : {}) },
+      ],
     };
   }
   const bandless = [riversSea, surfaceWater].find(
@@ -147,13 +159,24 @@ function floodCell(flood: ShortFlood): ShortlistCell {
 // per1000 / englandPer1000). A pre-calibration snapshot
 // carries no pair — the band is null and the cell stays
 // plain; no threshold is ever faked on the raw count.
+// BUG-292 (founder's ruling, 25 Nov 2026): the count
+// alone says nothing, so the PILL carries the verdict
+// (crimePillFigure — the results page pill's own words),
+// and the count stands beside it as plain text. The row
+// is "Crime — 12-month total", so the total stays in the
+// cell; only the verdict is coloured.
 function crimeCell(crime: ShortCrime): ShortlistCell {
   if (crime.state !== "served") return { kind: "line", text: crime.reason };
   const band = crimePillBand(crime.per1000, crime.englandPer1000);
+  const verdict = crimePillFigure(crime.per1000, crime.englandPer1000);
+  if (band === null || verdict === null)
+    return { kind: "line", text: `${crime.total.toLocaleString("en-GB")} crimes` };
   return {
-    kind: "line",
-    text: `${crime.total.toLocaleString("en-GB")} crimes`,
-    ...(band ? { band } : {}),
+    kind: "segments",
+    segments: [
+      { text: verdict, band },
+      { text: ` · ${crime.total.toLocaleString("en-GB")} crimes` },
+    ],
   };
 }
 

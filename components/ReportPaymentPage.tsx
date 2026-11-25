@@ -4,12 +4,15 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { loadStripe, type Stripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
 
-import { isEmailShape, normaliseEmail } from "../lib/gift";
+import { canonicalEmail, isEmailShape, normaliseEmail } from "../lib/gift";
 import {
+  effectivePayLabel,
   liveStartedPayment,
   paymentElementKey,
+  paymentGiftLockedNote,
   PAYMENT_CONSENT_ERROR_LINE,
   PAYMENT_DECLINED_FALLBACK_LINE,
+  PAYMENT_GIFT_USE_DIFFERENT_EMAIL,
   PAYMENT_HOME_NOT_FOUND_LINE,
   PAYMENT_START_FAILED_LINE,
   type ReportPaymentView,
@@ -130,11 +133,18 @@ function stripePromiseFor(key: string): Promise<Stripe | null> {
 
 function PaySection({
   view,
+  payLabel,
   consented,
   orderRef,
   onPaid,
 }: {
   view: ReportPaymentView;
+  // BUG-267: the button's label as the page now
+  // stands (effectivePayLabel, lib/report-payment.ts)
+  // — handed down, never re-derived here, so the
+  // mounted element and the fallback button can never
+  // disagree about what the order is.
+  payLabel: string;
   consented: boolean;
   // The started payment's own id — the order's
   // reference (M9.7): the confirm call's return_url
@@ -186,7 +196,7 @@ function PaySection({
         className="btn btn--brass report-payment__pay"
         disabled={!stripe || busy || !consented}
       >
-        {view.payLabel}
+        {payLabel}
       </button>
       <p className="report-payment__smallprint">{view.closingLine}</p>
     </form>
@@ -231,6 +241,13 @@ export default function ReportPaymentPage({
   );
   const [started, setStarted] = useState<StartedPayment | null>(null);
   const [attempt, setAttempt] = useState(0);
+  // BUG-287: the gift abandoned for this order — the
+  // visitor chose "Use a different email". Final for
+  // this page load: the gift itself stays live
+  // server-side (the claim stands), so reloading the
+  // page restores the gift form, but this visit's
+  // order is paid.
+  const [giftAbandoned, setGiftAbandoned] = useState(false);
   const creatingFor = useRef<string | null>(null);
   // The claim reference of the payment this page
   // started — the success surface's key, kept from the
@@ -255,8 +272,25 @@ export default function ReportPaymentPage({
   // still matches the email the gift is bound to. A
   // gift holder who edits away from it sees the paid
   // page again — the gift is tied to that email
-  // (Sample 22) and no other.
-  const giftApplies = view.giftEmail !== null && normalised === normaliseEmail(view.giftEmail);
+  // (Sample 22) and no other. BUG-267: "matches" is
+  // the canonical match — a variant of the bound
+  // address (+tag, dots, googlemail.com) is the same
+  // mailbox, so the gift still applies and the tick
+  // stands; only a genuinely different address reverts
+  // the page to its paid form.
+  const giftApplies =
+    view.giftEmail !== null && canonicalEmail(normalised) === canonicalEmail(view.giftEmail);
+
+  // BUG-287: the gift in force on this page — the
+  // email match AND not abandoned. While it stands the
+  // delivery email field is locked to the claimant
+  // address (no variant can be typed, no different
+  // email can be typed); abandoning switches the page
+  // to its paid form for this order. Retyping the
+  // bound address after abandoning does NOT revive
+  // it on this page load — the visitor chose to pay,
+  // and reloading restores the gift form.
+  const giftActive = giftApplies && !giftAbandoned;
 
   // The payment that belongs to the page as it now
   // stands: a payment started for any other address, or
@@ -265,6 +299,15 @@ export default function ReportPaymentPage({
   // retires the old payment without any state surgery
   // (liveStartedPayment, lib/report-payment.ts).
   const activeIntent = liveStartedPayment(started, { emailValid, email: normalised, consentAt });
+
+  // BUG-267: the button follows the page's actual
+  // state — the gift label only while the gift applies
+  // and no payment stands; the paid label the moment
+  // the email leaves the bound address, or a payment
+  // stands. One derivation feeds both buttons (the
+  // fallback and the mounted element's), so they can
+  // never disagree.
+  const payLabel = effectivePayLabel(view, giftActive, activeIntent !== null);
 
   // The element initialises from the key of the set
   // that created the standing payment (the lane's key
@@ -293,8 +336,12 @@ export default function ReportPaymentPage({
     // pre-filled email plus the ticked consent would
     // place the order on page load, before the
     // claimant has confirmed anything. The paid flow
-    // is untouched: it still starts on the tick.
-    if (giftApplies && attempt === 0) {
+    // is untouched: it still starts on the tick. The
+    // gate reads the gift in force (BUG-287): an
+    // abandoned gift does not gate, so the paid flow
+    // starts on the tick once the visitor has chosen
+    // to pay.
+    if (giftActive && attempt === 0) {
       creatingFor.current = null;
       return;
     }
@@ -365,7 +412,7 @@ export default function ReportPaymentPage({
     return () => {
       live = false;
     };
-  }, [emailValid, normalised, started, consentAt, postcode, homeKey, attempt, giftApplies]);
+  }, [emailValid, normalised, started, consentAt, postcode, homeKey, attempt, giftActive]);
 
   function onConsentChange(checked: boolean) {
     // Ticking stamps the consent with its moment;
@@ -374,6 +421,20 @@ export default function ReportPaymentPage({
     // Ticking also clears the consent error (BUG-132).
     setConsentAt(checked ? new Date().toISOString() : null);
     if (checked) setConsentError(false);
+  }
+
+  function onAbandonGift() {
+    // BUG-287: the visitor explicitly abandons the gift
+    // for this order — the field unlocks, the tick
+    // clears in the same click (a pre-ticked consent
+    // must never cover a paid order), and the page
+    // becomes its paid form with the button honestly
+    // "Pay £4.99" (effectivePayLabel). Final for this
+    // page load; the gift itself stays live
+    // server-side, so reloading restores the gift form.
+    setGiftAbandoned(true);
+    setConsentAt(null);
+    setNotice(null);
   }
 
   function onStartClick() {
@@ -390,7 +451,7 @@ export default function ReportPaymentPage({
       setConsentError(true);
       return;
     }
-    if (!publishableKey && !giftApplies) {
+    if (!publishableKey && !giftActive) {
       // A gift order creates no payment at all, so the
       // payment key's absence must not block a gift
       // holder (BUG-223): the intent answers gifted
@@ -415,7 +476,7 @@ export default function ReportPaymentPage({
           a gift holder — before any card field or price
           — so the gift is visible the moment the page
           opens, not only after the intent answers. */}
-      {giftApplies && view.giftLine && (
+      {giftActive && view.giftLine && (
         <p className="report-payment__gift" role="status">
           {view.giftLine}
         </p>
@@ -521,6 +582,17 @@ export default function ReportPaymentPage({
                   autoComplete="email"
                   placeholder={view.emailPlaceholder}
                   value={email}
+                  // BUG-287: while a claimed gift applies
+                  // the field is locked to the claimant
+                  // address — read-only, so no variant and
+                  // no different email can be typed at
+                  // all. The lock is a UI lock, not a
+                  // trust boundary: the server still
+                  // enforces the match (giftFor /
+                  // findClaimedByEmail, lib/server/
+                  // payment-intent.ts + gifts.ts).
+                  readOnly={giftActive}
+                  aria-readonly={giftActive || undefined}
                   aria-invalid={emailError || undefined}
                   aria-describedby={emailError ? "payment-email-error" : undefined}
                   onChange={(event) => {
@@ -538,7 +610,7 @@ export default function ReportPaymentPage({
                     // standing in the same commit.)
                     if (
                       view.giftEmail !== null &&
-                      normaliseEmail(event.target.value) !== normaliseEmail(view.giftEmail)
+                      canonicalEmail(event.target.value) !== canonicalEmail(view.giftEmail)
                     ) {
                       setConsentAt(null);
                     }
@@ -556,6 +628,29 @@ export default function ReportPaymentPage({
                     {view.emailError}
                   </p>
                 )}
+                {/* BUG-287: the locked-field form — the
+                    note names whose gift it is, and the
+                    escape abandons the gift for this
+                    order, switching the page to its paid
+                    form (field editable, button honestly
+                    "Pay £4.99"). The escape is explicit
+                    and final for this page load; the gift
+                    itself stays live server-side, so
+                    reloading restores the gift form. */}
+                {giftActive && view.giftEmail !== null && (
+                  <>
+                    <p className="report-payment__gift-note">
+                      {paymentGiftLockedNote(view.giftEmail)}
+                    </p>
+                    <button
+                      type="button"
+                      className="report-payment__gift-escape"
+                      onClick={onAbandonGift}
+                    >
+                      {PAYMENT_GIFT_USE_DIFFERENT_EMAIL}
+                    </button>
+                  </>
+                )}
               </div>
 
               <section className="report-payment__panel">
@@ -563,7 +658,7 @@ export default function ReportPaymentPage({
                   <span className="report-payment__panel-title">{view.cardTitle}</span>
                   {/* BUG-223: no "Powered by Stripe" for a gift
                       holder — no payment is powered by anyone. */}
-                  {!giftApplies && (
+                  {!giftActive && (
                     <span className="report-payment__panel-powered">
                       Powered by <strong>Stripe</strong>
                     </span>
@@ -606,6 +701,7 @@ export default function ReportPaymentPage({
                   >
                     <PaySection
                       view={view}
+                      payLabel={payLabel}
                       consented={consentAt !== null}
                       orderRef={activeIntent.intentId || null}
                       onPaid={() => {
@@ -639,7 +735,7 @@ export default function ReportPaymentPage({
                         gift holder — a free order has no
                         payment method (approved Screen C
                         draws no card panel). */}
-                    {!giftApplies && (
+                    {!giftActive && (
                       <ul className="report-payment__methods" aria-label="Payment methods">
                         <li className="report-payment__method">
                           <span className="report-payment__method-label">Card</span>
@@ -677,7 +773,7 @@ export default function ReportPaymentPage({
                       onClick={onStartClick}
                       aria-disabled={consentAt === null || undefined}
                     >
-                      {view.payLabel}
+                      {payLabel}
                     </button>
                     {/* BUG-223: Screen C draws no closing line
                         under the button for a gift holder —

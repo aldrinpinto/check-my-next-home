@@ -72,10 +72,16 @@ export default function ReportSuccessPage({ view }: { view: ReportSuccessView })
             <div className="report-success__preview-text">
               <p className="report-success__sections">{view.sectionsLine}</p>
               <p className="journey-actions">
-                <a className="btn btn--forest" href={view.viewHref}>
+                {/* BUG-271 (25 Nov 2026, founder ruling):
+                    the report opens in a new tab, with
+                    the small hint under the button so it
+                    is never a surprise. Same button, same
+                    copy, same destination. */}
+                <a className="btn btn--forest" href={view.viewHref} target="_blank" rel="noopener">
                   {view.viewLabel}
                 </a>
               </p>
+              <p className="report-success__new-tab">Opens in a new tab.</p>
             </div>
           </div>
         </section>

@@ -63,10 +63,15 @@ test.describe("SEO pages — regression", () => {
         "Flood risk for a postcode, from the published maps",
       );
       // The mapping's flood row: noise + air quality, and
-      // the checks-before-buying guide.
+      // the checks-before-buying guide. BUG-275: the
+      // footer's Guides group lists the same guide, so
+      // the unscoped locator resolves twice — scope to
+      // the in-page link.
       await expect(page.locator('a[href="/check/noise"]')).toBeVisible();
       await expect(page.locator('a[href="/check/air-quality"]')).toBeVisible();
-      await expect(page.locator('a[href="/guides/checks-before-buying-a-house"]')).toBeVisible();
+      await expect(
+        page.locator('main a[href="/guides/checks-before-buying-a-house"]'),
+      ).toBeVisible();
       // The checker closes the page.
       await expect(page.locator("#postcode")).toBeVisible();
     },
@@ -104,7 +109,9 @@ test.describe("SEO pages — regression", () => {
         "/guides/buying-a-leasehold-flat",
         "/guides/is-this-area-good-for-families",
       ]) {
-        await expect(page.locator(`a[href="${href}"]`)).toBeVisible();
+        // BUG-275: the footer's Guides group lists each
+        // guide too — scope to the hub's own cards.
+        await expect(page.locator(`main a[href="${href}"]`)).toBeVisible();
       }
       await expect(page.locator("#postcode")).toBeVisible();
     },
@@ -264,7 +271,9 @@ test.describe("sample report honesty — regression", () => {
       for (let i = 0; i < 8; i++) await expect(marks.nth(i)).toHaveText("SAMPLE");
 
       // The dummy home, in the Master's settled form.
-      await expect(page.locator("h1")).toHaveText("12 Willow Close");
+      // BUG-276: the print-only cover carries a second
+      // h1, so scope to the masthead's.
+      await expect(page.locator(".rpt-mast h1")).toHaveText("12 Willow Close");
       await expect(page.locator("main")).toContainText("Millbrook, Kingsford, Kent MB3 4QX");
 
       // The leak guard at browser level: the generated

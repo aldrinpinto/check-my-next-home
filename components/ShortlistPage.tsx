@@ -115,6 +115,27 @@ function CompareCell({
   // Forest with no tint; the Master itself is not edited
   // here. A cell with no band keeps its plain dress.
   const band = comparisonCellBand(rowKey, family, cell);
+  if (cell.kind === "segments") {
+    // BUG-291 (founder's ruling, 25 Nov 2026): the colour
+    // lives on the VALUES, not the line — each banded
+    // segment takes the pill's dress (the same classes
+    // the whole-line span wore), the plain segments stay
+    // unstyled. The band comes from the segment itself,
+    // not comparisonCellBand, which returns null here.
+    return (
+      <span>
+        {cell.segments.map((segment, index) =>
+          segment.band ? (
+            <span key={index} className={`pill__figure pill__figure--${segment.band} compare-val`}>
+              {segment.text}
+            </span>
+          ) : (
+            <span key={index}>{segment.text}</span>
+          ),
+        )}
+      </span>
+    );
+  }
   if (cell.kind === "line") {
     if (!band) return <span>{cell.text}</span>;
     return <span className={`pill__figure pill__figure--${band} compare-val`}>{cell.text}</span>;

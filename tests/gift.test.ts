@@ -30,8 +30,13 @@ import {
   GIFT_NOT_RECOGNISED_SEARCH_HEADING,
   GIFT_PENDING_BODY,
   GIFT_PENDING_BUTTON,
+  GIFT_PENDING_CHANGE_LABEL,
   GIFT_PENDING_FINE_PRINT,
   GIFT_PENDING_HEADING,
+  GIFT_PENDING_RESEND_LABEL,
+  GIFT_PENDING_RESENT_LINE,
+  GIFT_PENDING_SUCCESS_BODY,
+  GIFT_PENDING_SUCCESS_HEADING,
   GIFT_SAME_EMAIL_BODY,
   GIFT_SAME_EMAIL_HEADING,
   GIFT_SEARCH_LINE,
@@ -158,6 +163,20 @@ describe("the eleven states' copy, verbatim from the samples", () => {
     expect(GIFT_PENDING_FINE_PRINT).toBe(
       "The gift is valid for 30 days from the day the report was bought, and it can be claimed once.",
     );
+    // BUG-271: view 20's DEFAULT state is now the
+    // success state — the form above is only the
+    // change-email state. The success state's texts
+    // say the email is sent, never that the claim is
+    // complete.
+    expect(GIFT_PENDING_SUCCESS_HEADING).toBe("You're nearly there");
+    expect(GIFT_PENDING_SUCCESS_BODY).toBe(
+      "Check your inbox — we've sent a confirmation email to **{email}**. Click the link in it and the gift is yours — it stays tied to that address. The gift isn't claimed until you click.",
+    );
+    expect(GIFT_PENDING_RESENT_LINE).toBe(
+      "We've sent another email to **{email}** — it should arrive in a moment. Check your spam folder if you don't see it.",
+    );
+    expect(GIFT_PENDING_RESEND_LABEL).toBe("Didn't get it? Send it again");
+    expect(GIFT_PENDING_CHANGE_LABEL).toBe("Wrong email? Change it");
     // View 21 — the confirmation email.
     expect(GIFT_CONFIRM_SUBJECT).toBe("Confirm your free report gift");
     expect(GIFT_CONFIRM_INTRO).toBe(
@@ -259,6 +278,43 @@ describe("the claim page's view selection", () => {
     expect(giftClaimPageView(claimedGift(), GIFT_NOW, { sent: true })).toEqual({
       kind: "card",
       variant: "different",
+    });
+  });
+
+  it("the resend and change-email flags steer the pending card only (BUG-271)", () => {
+    // ?resent=1 on a pending record serves the success
+    // state with the confirmation line; ?change-email=1
+    // serves the same card with the field back. Both
+    // are ignored where no pending stands, exactly as
+    // ?sent= is.
+    expect(giftClaimPageView(pendingGift(), GIFT_NOW, { resent: true })).toEqual({
+      kind: "card",
+      variant: "pending",
+      pendingEmail: GIFT_FRIEND,
+      resent: true,
+    });
+    expect(giftClaimPageView(pendingGift(), GIFT_NOW, { changeEmail: true })).toEqual({
+      kind: "card",
+      variant: "pending",
+      pendingEmail: GIFT_FRIEND,
+      pendingForm: true,
+    });
+    expect(giftClaimPageView(issuedGift(), GIFT_NOW, { resent: true })).toEqual({
+      kind: "card",
+      variant: "claim",
+    });
+    expect(giftClaimPageView(issuedGift(), GIFT_NOW, { changeEmail: true })).toEqual({
+      kind: "card",
+      variant: "claim",
+    });
+    // The refused leg still outranks the resend leg: a
+    // resent flag never shows the confirmation on a
+    // record whose buyer email was refused.
+    expect(
+      giftClaimPageView(pendingGift(), GIFT_NOW, { resent: true, refusedSameEmail: true }),
+    ).toEqual({
+      kind: "card",
+      variant: "same-email",
     });
   });
 

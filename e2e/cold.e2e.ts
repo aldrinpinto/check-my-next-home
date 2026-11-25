@@ -392,9 +392,14 @@ test.describe("cold checks — regression", () => {
         .click();
       // The street choice page: one row per postcode the
       // street spans — the pool's whole span is listed.
+      // BUG-284: the postcode links attach after the
+      // 5s default on a loaded runner, so the assertion
+      // carries an explicit 30s budget.
       await expect(page.getByRole("heading", { name: display(span.street) })).toBeVisible();
       for (const postcode of span.postcodes) {
-        await expect(page.getByRole("link", { name: new RegExp(`^${postcode} —`) })).toBeVisible();
+        await expect(page.getByRole("link", { name: new RegExp(`^${postcode} —`) })).toBeVisible({
+          timeout: 30_000,
+        });
       }
       const first = span.postcodes[0];
       await page.getByRole("link", { name: new RegExp(`^${first} —`) }).click();

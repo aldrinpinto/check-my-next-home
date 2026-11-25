@@ -315,10 +315,17 @@ try {
   // happy-path spec and the refusal spec never share
   // mutable state. A third Issued gift is seeded for
   // e2e/chain.e2e.ts (the M7.15 follow-up's consolidated
-  // chain claims it end to end) on the same rule. The
-  // token literals are duplicated in the specs (the
-  // specs are black-box; they import nothing from
-  // here) — change both together.
+  // chain claims it end to end) on the same rule. A
+  // fourth Issued gift is seeded for e2e/visual.e2e.ts
+  // (BUG-288): the visual claim-form specs need an
+  // Issued token no other spec claims — gift.e2e.ts's
+  // happy path claims Issued-one and its refusal /
+  // mistyped specs leave pending claims on Issued-two,
+  // so sharing either serves the already-claimed or
+  // pending state and the 'Claim my free report'
+  // button is absent. The token literals are duplicated
+  // in the specs (the specs are black-box; they import
+  // nothing from here) — change both together.
   const DAY_MS = 24 * 60 * 60 * 1000;
   const giftBuyer = "gift.buyer@example.co.uk";
   const giftClaimant = "gift.claimant@example.co.uk";
@@ -327,6 +334,7 @@ try {
     ["seed-gift-issued-one-0000000000001", "issued", 2, null, null],
     ["seed-gift-issued-two-0000000000002", "issued", 2, null, null],
     ["seed-gift-issued-chain-00000000007", "issued", 2, null, null],
+    ["seed-gift-issued-visual-0000000008", "issued", 2, null, null],
     ["seed-gift-claimed-0000000000000003", "claimed", 3, 1, null],
     ["seed-gift-redeemed-000000000000004", "redeemed", 3, 2, 1],
     ["seed-gift-expired-0000000000000005", "issued", 31, null, null],

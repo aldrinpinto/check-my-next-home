@@ -61,6 +61,7 @@ import {
   emailSignOffRowHtml,
   mailtoLineHtml,
 } from "./email-shell";
+import { canonicalEmail } from "./gift";
 import { CONTACT_EMAIL_ADDRESS } from "./site-pages";
 import { SITE_NAME, SITE_URL } from "./site";
 
@@ -249,7 +250,11 @@ export function decideReissue(
   // answer stands either way — the refusal is visible
   // only in no email leaving the building.
   if (delivery.withdrawnAt) return "no-send";
-  return normalisedEmail === delivery.email ? "send" : "no-send";
+  // BUG-267: the re-issue belongs to the same mailbox
+  // under any spelling of its address (+tag, dots,
+  // googlemail.com) — the canonical forms decide,
+  // never the typed spellings.
+  return canonicalEmail(normalisedEmail) === canonicalEmail(delivery.email) ? "send" : "no-send";
 }
 
 // ----------------------------------------------------------------

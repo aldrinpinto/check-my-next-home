@@ -96,9 +96,19 @@ export const AIR_NOT_SAVED_LINE = "Air quality is not in this saved snapshot.";
 // before that ruling hold one, and the renderer still
 // honours the shape so a saved list is never dropped for
 // its age — new assembly never produces one.
+//
+// A SEGMENTS cell (BUG-291, BUG-292): a line whose colour
+// belongs to the VALUES, not the whole line — each segment
+// is plain text or one banded value, so the labels stay
+// plain while the figures take the pill's dress. The
+// flood cell's two bands and the crime cell's verdict are
+// segments; every other row stays a plain line.
+export type ShortlistSegment = { text: string; band?: DistanceBand };
+
 export type ShortlistCell =
   | { kind: "distance"; name: string; miles: number }
   | { kind: "line"; text: string; band?: DistanceBand }
+  | { kind: "segments"; segments: ShortlistSegment[] }
   | { kind: "pointer" };
 
 export type ComparisonRowKey =
@@ -419,6 +429,22 @@ function isCell(value: unknown): value is ShortlistCell {
         cell.band === "green" ||
         cell.band === "orange" ||
         cell.band === "red")
+    );
+  if (cell.kind === "segments")
+    return (
+      Array.isArray(cell.segments) &&
+      cell.segments.length > 0 &&
+      cell.segments.every((segment) => {
+        if (typeof segment !== "object" || segment === null) return false;
+        const part = segment as Record<string, unknown>;
+        return (
+          typeof part.text === "string" &&
+          (part.band === undefined ||
+            part.band === "green" ||
+            part.band === "orange" ||
+            part.band === "red")
+        );
+      })
     );
   if (cell.kind === "distance")
     return typeof cell.name === "string" && typeof cell.miles === "number";

@@ -120,9 +120,10 @@ test.describe("BUG-186 — a redirecting journey URL loaded directly lands, neve
       // not file: the resolution is null, the page
       // redirects — first to the postcode's own check,
       // then, the postcode itself unplaceable, to the
-      // landing with the unplaced notice.
+      // landing with the unplaced notice. (BUG-186,
+      // closed: the redirect carries ?notice=unplaced.)
       await page.goto("/search/home?postcode=ZZ9+9ZZ&home=FOO");
-      await page.waitForURL("**/?unplaced=unplaced");
+      await page.waitForURL("**/?notice=unplaced");
       await expect(page.locator("h1")).not.toHaveText(HEADLINE);
       await expect(page.getByText(LINE)).toHaveCount(0);
       // The landing's search box is the way forward,
@@ -139,7 +140,7 @@ test.describe("BUG-186 — a redirecting journey URL loaded directly lands, neve
       // redirect (rung 4 — unplaceable): a direct load
       // used to serve the error page here too.
       await page.goto("/search?postcode=ZZ9+9ZZ");
-      await page.waitForURL("**/?unplaced=unplaced");
+      await page.waitForURL("**/?notice=unplaced");
       await expect(page.locator("h1")).not.toHaveText(HEADLINE);
       await expect(page.getByText(LINE)).toHaveCount(0);
       await expect(page.locator("#postcode")).toHaveValue("");

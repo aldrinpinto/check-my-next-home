@@ -122,7 +122,10 @@ describe("processWebhookEvent — log first, claim once (Amendment A)", () => {
         postcode: POSTCODE,
         homeKey: HOME_KEY,
         livemode: false,
-        testOrder: false,
+        // BUG-290 — a test-mode failure is a test order's
+        // failure even where the payment carries no TEST
+        // flag: the event's mode decides, not the metadata.
+        testOrder: true,
       }),
     ]);
     expect(log.records[0]?.receivedAt).toBeInstanceOf(Date);
@@ -181,6 +184,91 @@ describe("processWebhookEvent — log first, claim once (Amendment A)", () => {
     expect(log.records[0]).toEqual(expect.objectContaining({ livemode: false, testOrder: true }));
     expect(claims.claims.get("pi_test_1")).toEqual(
       expect.objectContaining({ kind: "paid", testOrder: true }),
+    );
+  });
+
+  it("a test-mode event without the TEST flag still reads as a test order (BUG-290)", async () => {
+    // The defect itself: a buyer who is not on the
+    // allowlist, paying on the sandbox keys, used to
+    // read as a REAL order — the metadata carries no
+    // TEST flag for them. The event's mode is the
+    // provider's own statement, and it decides.
+    const { deps, live, log, claims } = webhookHarness();
+    const payload = eventPayload({
+      type: "payment_intent.succeeded",
+      intentId: "pi_test_unflagged_1",
+      status: "succeeded",
+      livemode: false,
+      email: "buyer@example.co.uk",
+    });
+    const outcome = await processWebhookEvent(deps, {
+      payload,
+      signature: live.signWebhook(payload),
+    });
+    expect(outcome).toEqual({ kind: "claimed" });
+    expect(log.records[0]).toEqual(expect.objectContaining({ livemode: false, testOrder: true }));
+    expect(claims.claims.get("pi_test_unflagged_1")).toEqual(
+      expect.objectContaining({ kind: "paid", testOrder: true }),
+    );
+  });
+
+  it("a live-mode event carrying the TEST flag reads as a real order (BUG-290)", async () => {
+    // Where the two signals disagree the money wins: a
+    // live-mode payment is real money, whatever flag the
+    // creation carried. (In production the two cannot
+    // disagree — an allowlisted buyer always lands on
+    // the test lane — but the rule must not depend on
+    // that.)
+    const { deps, live, log, claims } = webhookHarness();
+    const payload = eventPayload({
+      type: "payment_intent.succeeded",
+      intentId: "pi_live_flagged_1",
+      status: "succeeded",
+      livemode: true,
+      test: true,
+      email: "tester@example.co.uk",
+    });
+    const outcome = await processWebhookEvent(deps, {
+      payload,
+      signature: live.signWebhook(payload),
+    });
+    expect(outcome).toEqual({ kind: "claimed" });
+    expect(log.records[0]).toEqual(expect.objectContaining({ livemode: true, testOrder: false }));
+    expect(claims.claims.get("pi_live_flagged_1")).toEqual(
+      expect.objectContaining({ kind: "paid", testOrder: false }),
+    );
+  });
+
+  it("an event without a mode falls back to the TEST flag (BUG-290)", async () => {
+    // The provider always sets livemode; the fallback
+    // exists only for an event that carries none.
+    const { deps, live, log, claims } = webhookHarness();
+    const flagged = eventPayload({
+      type: "payment_intent.succeeded",
+      intentId: "pi_nomode_flagged_1",
+      status: "succeeded",
+      test: true,
+      email: "tester@example.co.uk",
+    });
+    await expect(
+      processWebhookEvent(deps, { payload: flagged, signature: live.signWebhook(flagged) }),
+    ).resolves.toEqual({ kind: "claimed" });
+    expect(log.records[0]).toEqual(expect.objectContaining({ livemode: null, testOrder: true }));
+    expect(claims.claims.get("pi_nomode_flagged_1")).toEqual(
+      expect.objectContaining({ kind: "paid", testOrder: true }),
+    );
+    const unflagged = eventPayload({
+      type: "payment_intent.succeeded",
+      intentId: "pi_nomode_plain_1",
+      status: "succeeded",
+      email: "buyer@example.co.uk",
+    });
+    await expect(
+      processWebhookEvent(deps, { payload: unflagged, signature: live.signWebhook(unflagged) }),
+    ).resolves.toEqual({ kind: "claimed" });
+    expect(log.records[1]).toEqual(expect.objectContaining({ livemode: null, testOrder: false }));
+    expect(claims.claims.get("pi_nomode_plain_1")).toEqual(
+      expect.objectContaining({ kind: "paid", testOrder: false }),
     );
   });
 

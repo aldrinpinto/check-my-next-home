@@ -38,7 +38,7 @@ import {
 } from "../../../../lib/report-payment";
 import { getDbPool } from "../../../../lib/server/db";
 import { createDbFulfilmentClaimStore } from "../../../../lib/server/fulfilment";
-import { createDbGiftStore } from "../../../../lib/server/gifts";
+import { createDbGiftStore, giftSourceTestOrder } from "../../../../lib/server/gifts";
 import { createDbOrderStore } from "../../../../lib/server/orders";
 import { getPaymentsRouter } from "../../../../lib/server/payments";
 import {
@@ -146,6 +146,14 @@ export async function POST(request: Request) {
         return gift ? { token: gift.token } : null;
       },
       claimGifted: async (input) => {
+        // BUG-290 — the gifted claim and its order record
+        // inherit the issuing order's test standing (see
+        // giftSourceTestOrder): a gift carries no payment
+        // of its own, so its mode is its source's.
+        const testOrder = await giftSourceTestOrder(
+          { gifts, orders: createDbOrderStore(pool) },
+          input.giftToken,
+        );
         const took = await claims.claim({
           ref: input.ref,
           kind: "gifted",
@@ -153,6 +161,7 @@ export async function POST(request: Request) {
           postcode: input.postcode,
           homeKey: input.homeKey,
           giftToken: input.giftToken,
+          testOrder,
         });
         if (took) {
           // The order record (M9.10): a gifted order
@@ -169,6 +178,7 @@ export async function POST(request: Request) {
               email: input.email,
               postcode: input.postcode,
               homeKey: input.homeKey,
+              testOrder,
             });
           } catch (error) {
             console.warn(

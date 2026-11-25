@@ -65,6 +65,8 @@ export default async function GiftClaimRoute({
   searchParams: Promise<{
     refused?: string;
     sent?: string;
+    resent?: string;
+    "change-email"?: string;
     sendfailed?: string;
     error?: string;
   }>;
@@ -89,6 +91,8 @@ export default async function GiftClaimRoute({
   const view = giftClaimPageView(record, new Date(), {
     refusedSameEmail: flags.refused === "same-email",
     sent: flags.sent === "1",
+    resent: flags.resent === "1",
+    changeEmail: flags["change-email"] === "1",
     sendFailed: flags.sendfailed === "1",
     emailError: flags.error === "email",
     entryEmail,
@@ -103,6 +107,8 @@ export default async function GiftClaimRoute({
           token={token}
           variant={view.variant}
           pendingEmail={view.pendingEmail}
+          pendingForm={view.pendingForm}
+          resent={view.resent}
           emailError={view.emailError}
           entryEmail={view.entryEmail}
           sendFailed={view.sendFailed}

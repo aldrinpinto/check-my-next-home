@@ -4,6 +4,7 @@
   "scripts": {
     "prebuild": "node scripts/materialise-binary-assets.mjs",
     "build": "next build",
+    "postbuild": "node scripts/copy-loader-siblings.mjs",
     "predev": "node scripts/materialise-binary-assets.mjs",
     "dev": "next dev",
     "test:e2e": "playwright test",

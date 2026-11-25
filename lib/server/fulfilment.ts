@@ -466,7 +466,27 @@ export async function processWebhookEvent(
   const email = verdict.metadata[PAYMENT_METADATA_EMAIL] ?? null;
   const postcode = verdict.metadata[PAYMENT_METADATA_POSTCODE] ?? null;
   const homeKey = verdict.metadata[PAYMENT_METADATA_HOME_KEY] ?? null;
-  const testOrder = verdict.metadata[PAYMENT_METADATA_TEST] === "true";
+  // BUG-290 — the TEST flag is the payment's own mode, not
+  // the buyer's allowlist standing. The old reading took it
+  // from the payment metadata's "test" key alone, which the
+  // start writes only for allowlisted testers
+  // (lib/server/payment-intent.ts) — every other buyer on
+  // the sandbox keys read as a REAL order, and the admin
+  // page's test toggle could not hide them (17 of 31
+  // orders on the play site). The verified event's livemode
+  // is the provider's own statement of the payment's mode:
+  // test keys mean a test order, live keys mean a real one,
+  // whatever the buyer. The metadata flag survives only as
+  // the fallback for an event that carries no mode at all —
+  // in production the provider always sets it — and where
+  // the two disagree the money wins over the flag: a
+  // live-mode payment carrying the TEST flag is real.
+  const testOrder =
+    verdict.livemode === false
+      ? true
+      : verdict.livemode === true
+        ? false
+        : verdict.metadata[PAYMENT_METADATA_TEST] === "true";
 
   // The log comes first — every verified event,
   // whatever happens next (founder amendment). An

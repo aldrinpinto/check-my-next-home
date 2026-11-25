@@ -178,7 +178,13 @@ test.describe("suggestions dropdown — regression", () => {
       await expect(street).toBeAttached();
       await street.click();
       await page.waitForURL(/\/search\/home\?postcode=CM3\+2JT&street=BIRKDALE\+RISE/);
-      await expect(page.locator(".picker h2")).toHaveText("Birkdale Rise");
+      // BUG-284: the heading attaches at ~6.3s on a loaded
+      // runner — past the 5s default — so the assertion
+      // carries an explicit 30s budget, as the other
+      // check-render waits do.
+      await expect(page.locator(".picker h2")).toHaveText("Birkdale Rise", {
+        timeout: 30_000,
+      });
       // The street's homes stand as the dropdown's options
       // (founder ruling, 20 Nov 2026 — the list dump is gone).
       await page.locator(".picker__trigger").click();
@@ -212,7 +218,13 @@ test.describe("suggestions dropdown — regression", () => {
       await expect(streets.getByRole("option", { name: /Bugdale/ })).toHaveCount(0);
       await streets.getByRole("option", { name: "Birkdale Rise, Chelmsford", exact: true }).click();
       await page.waitForURL(/\/search\/home\?postcode=CM3\+2JT&street=BIRKDALE\+RISE/);
-      await expect(page.locator(".picker h2")).toHaveText("Birkdale Rise");
+      // BUG-284: the heading attaches at ~6.3s on a loaded
+      // runner — past the 5s default — so the assertion
+      // carries an explicit 30s budget, as the other
+      // check-render waits do.
+      await expect(page.locator(".picker h2")).toHaveText("Birkdale Rise", {
+        timeout: 30_000,
+      });
     },
   );
 
@@ -555,6 +567,11 @@ test.describe("suggestions dropdown — regression", () => {
       await box.fill("CM3 2JT");
       const panel = page.locator("#postcode-suggestions");
       await expect(panel).toBeVisible();
+      // BUG-284: the panel becomes visible before its
+      // options populate — wait for the ninth option to
+      // attach before counting, or the count lands in the
+      // empty window and reads zero.
+      await expect(panel.getByRole("option").nth(8)).toBeAttached();
       const before = await panel.getByRole("option").count();
       expect(before).toBeGreaterThan(8);
       await panel.locator("button.postio-row").click();

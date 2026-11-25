@@ -8,6 +8,7 @@ import {
   BUY_BAR_LINE,
   BUY_BAR_MYSTERY_LINE,
   GIFT_FREE_LABEL,
+  GIFT_PILL_LABEL,
   GIFT_REPORT_BUTTON_LABEL,
   GIFT_STRIP_LINE,
   type ResultsView,
@@ -100,6 +101,18 @@ describe("free page — the gift state (BUG-223, approved Screen B)", () => {
     expect(html).not.toContain(REPORT_PRICE_LABEL);
     expect(html).not.toContain("£4.99");
     expect(html).not.toContain("Get the full report —");
+  });
+
+  it("the header pill is its own label (BUG-271): it is not the trunc-row price chip", () => {
+    // The free-page header pill — the chip beside the
+    // Shortlist button, rendered by the page, not this
+    // component — reads "Your full report is free"
+    // (founder's copy choice, 25 Nov 2026). The trunc
+    // rows' price chip keeps GIFT_FREE_LABEL, pinned
+    // above; the two labels are deliberately different
+    // strings so one cannot drift into the other.
+    expect(GIFT_PILL_LABEL).toBe("Your full report is free");
+    expect(GIFT_PILL_LABEL).not.toBe(GIFT_FREE_LABEL);
   });
 
   it("without a gift the page is the ordinary £4.99 page: no strip, priced chip, plain buy-bar button", () => {

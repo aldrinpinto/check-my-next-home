@@ -82,7 +82,14 @@ import { expect, test } from "./fixtures";
 
 const PHONE = { width: 360, height: 740 };
 
-const GIFT_ISSUED = "seed-gift-issued-one-0000000000001";
+// BUG-288 (25 Nov 2026): the visual claim-form specs
+// need their own Issued gift — gift.e2e.ts claims
+// Issued-one in the same run (and leaves pending
+// claims on Issued-two), so sharing either serves the
+// already-claimed state and the button below is
+// absent. This token is seeded in
+// scripts/seed-golden.mjs and claimed by no spec.
+const GIFT_ISSUED = "seed-gift-issued-visual-0000000008";
 const GIFT_CLAIMED = "seed-gift-claimed-0000000000000003";
 const GIFT_EXPIRED = "seed-gift-expired-0000000000000005";
 
@@ -333,6 +340,11 @@ test.describe("visual guard — core set", () => {
     // WA-10: the place page wears Sample 29's dress —
     // its rows list is the readiness marker now.
     await expect(page.locator(".district-place__list")).toBeVisible();
+    // BUG-286: the page streams its area furniture in
+    // behind the picker — the photograph waits for a
+    // description line, so it captures the settled page
+    // (rows + descriptions), not the bare-rows interim.
+    await expect(page.locator(".district-place__detail").first()).toBeVisible();
     await shoot(page, "place.png", true);
   });
 
@@ -393,6 +405,11 @@ test.describe("visual guard — regression", () => {
     // WA-10: the place page wears Sample 29's dress —
     // its rows list is the readiness marker now.
     await expect(page.locator(".district-place__list")).toBeVisible();
+    // BUG-286: the page streams its area furniture in
+    // behind the picker — the photograph waits for a
+    // description line, so it captures the settled page
+    // (rows + descriptions), not the bare-rows interim.
+    await expect(page.locator(".district-place__detail").first()).toBeVisible();
     await shoot(page, "place-phone.png", true);
   });
 

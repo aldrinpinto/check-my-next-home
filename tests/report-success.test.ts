@@ -249,6 +249,12 @@ describe("the success surface — viewing only (named test (k))", () => {
     );
     expect(html).toContain("View your report");
     expect(html).toContain("/report/view?postcode=CM3+2JT&home=19%7C%7CBIRKDALE+RISE");
+    // BUG-271: the report opens in a new tab, with the
+    // small hint under the button so it is never a
+    // surprise. Same button, same copy, same destination.
+    expect(html).toContain('target="_blank"');
+    expect(html).toContain('rel="noopener"');
+    expect(html).toContain("Opens in a new tab.");
     expect(html).toContain("Payment received — thank you");
     expect(html).toContain(SUCCESS_MYSTERY_LINE);
   });
