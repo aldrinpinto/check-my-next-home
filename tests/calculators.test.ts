@@ -39,8 +39,16 @@ describe("calculators — mortgage (T-WEB-12)", () => {
 });
 
 describe("calculators — stamp duty (T-WEB-12)", () => {
-  it("the Birkdale sample: £19,450 on £588,995 for a mover", () => {
-    expect(stampDuty(588995, "moving")).toBe(19450);
+  it("the Birkdale sample: £16,950 on £588,995 for a mover", () => {
+    expect(stampDuty(588995, "moving")).toBe(16950);
+  });
+
+  it("BUG-305: the 1 April 2025 bands — the audit's check figures for a mover", () => {
+    expect(stampDuty(350000, "moving")).toBe(5000);
+    expect(stampDuty(270000, "moving")).toBe(1000);
+    expect(stampDuty(242500, "moving")).toBe(0);
+    expect(stampDuty(420000, "moving")).toBe(8500);
+    expect(stampDuty(250000, "moving")).toBe(0);
   });
 
   it("first-time-buyer relief applies only up to £500,000", () => {
@@ -49,12 +57,12 @@ describe("calculators — stamp duty (T-WEB-12)", () => {
   });
 
   it("the additional-home rates add 5% to each band", () => {
-    expect(stampDuty(588995, "additional")).toBe(48900);
+    expect(stampDuty(588995, "additional")).toBe(46400);
   });
 
   it("the framing lines: with a last sale, and without one (the box starts empty)", () => {
-    expect(stampDutyFraming(588995, 19450)).toBe(
-      "On the price this home last sold for, the stamp duty would be £19,450 — put in the price you'd actually offer, and it moves with you.",
+    expect(stampDutyFraming(588995, 16950)).toBe(
+      "On the price this home last sold for, the stamp duty would be £16,950 — put in the price you'd actually offer, and it moves with you.",
     );
     expect(stampDutyFraming(null, 0)).toBe("Enter the price you're considering.");
   });

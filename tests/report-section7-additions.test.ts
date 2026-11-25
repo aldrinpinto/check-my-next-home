@@ -838,7 +838,7 @@ describe("report — Section 7 additions (M8.10): mortgage & stamp duty", () => 
       "On a loan of £441,746 (£588,995 price less £147,249 deposit) at 4.5% over 25 years: £2,455.37 a month, repayment.",
     );
     expect(s7).toContain(
-      "Stamp duty on that price would be £19,450 at the standard rates for a buyer moving from their own home.",
+      "Stamp duty on that price would be £16,950 at the standard rates for a buyer moving from their own home.",
     );
     // BUG-137 re-pin: the rates link stood as a
     // body-size lineLink until 22 Nov 2026; the
@@ -869,7 +869,7 @@ describe("report — Section 7 additions (M8.10): mortgage & stamp duty", () => 
     if (!list || list.type !== "list") throw new Error("expected the findings list");
     expect(list.items).toEqual([
       "On a loan of £441,746 (£588,995 price less £147,249 deposit) at 4.5% over 25 years: £2,455.37 a month, repayment.",
-      "Stamp duty on that price would be £19,450 at the standard rates for a buyer moving from their own home.",
+      "Stamp duty on that price would be £16,950 at the standard rates for a buyer moving from their own home.",
     ]);
     // The small-print rates link follows the list.
     const link = blocks[subAt + 3];

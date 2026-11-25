@@ -64,7 +64,7 @@ describe("the send route's answers", () => {
     );
     expect(response.status).toBe(303);
     const location = response.headers.get("location");
-    expect(location).toBe("/contact?error=email");
+    expect(location).toBe("/contact?error=email-format");
     expect(location).not.toContain("://");
     // The values the re-served form will stand in its
     // fields — set on THIS response.

@@ -3,10 +3,13 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  canonicalHomeKey,
   classifyAddressInput,
   createAddressSource,
+  dedupeAddressParts,
   flatKeyOf,
   headingForHome,
+  labelForAddressParts,
   normalisePostcode,
   parsePaon,
   resolveAddressInput,
@@ -293,6 +296,81 @@ describe("headingForHome", () => {
 
   it("falls back to the postcode alone when the label is empty", () => {
     expect(headingForHome("", "MK10 1AA")).toBe("MK10 1AA");
+  });
+});
+
+// BUG-308: one home filed in two part-shapes is one
+// home — the TR8 4LX picker listed the same home twice
+// ("115, Manor Villas Atlantic Reach" beside "115
+// Manor Villas", "148 Atlantic Reach Atlantic Reach"
+// beside "148 Atlantic Reach").
+describe("canonicalHomeKey + dedupeAddressParts — BUG-308", () => {
+  function parts(partial: Partial<LoadedAddressParts>): LoadedAddressParts {
+    return {
+      postcode: "TR8 4LX",
+      paon: null,
+      saon: null,
+      street: "ATLANTIC REACH",
+      locality: null,
+      town: "NEWQUAY",
+      ...partial,
+    };
+  }
+
+  it("the three part-shapes of 115 Manor Villas share one key", () => {
+    const filed = parts({ paon: "MANOR VILLAS", saon: "115" });
+    const together = parts({ paon: "115 MANOR VILLAS" });
+    const numberAlone = parts({ paon: "115" });
+    expect(canonicalHomeKey(filed)).toBe(canonicalHomeKey(together));
+    expect(canonicalHomeKey(filed)).toBe(canonicalHomeKey(numberAlone));
+    expect(dedupeAddressParts([filed, together, numberAlone])).toHaveLength(1);
+  });
+
+  it("a PAON that already carries the street collapses onto the bare number", () => {
+    const doubled = parts({ paon: "148 ATLANTIC REACH" });
+    const bare = parts({ paon: "148" });
+    expect(canonicalHomeKey(doubled)).toBe(canonicalHomeKey(bare));
+    expect(dedupeAddressParts([doubled, bare])).toHaveLength(1);
+  });
+
+  it("the two Golf Lodges shapes are one home, and a street-less twin absorbs into it", () => {
+    const withStreet = parts({ paon: "GOLF LODGES", saon: "1" });
+    const together = parts({ paon: "1 GOLF LODGES" });
+    const streetless = parts({ paon: "1 GOLF LODGES", street: null });
+    expect(dedupeAddressParts([withStreet, together, streetless])).toHaveLength(1);
+  });
+
+  it("distinct homes stay distinct — two unnumbered cottages, two flats, a house beside its flat", () => {
+    const rose = parts({ paon: "ROSE COTTAGE", street: "HIGH STREET" });
+    const ivy = parts({ paon: "IVY COTTAGE", street: "HIGH STREET" });
+    const flat4 = parts({ paon: "MINERVA HOUSE, 12", saon: "FLAT 4", street: "CERES CRESCENT" });
+    const flat5 = parts({ paon: "MINERVA HOUSE, 12", saon: "FLAT 5", street: "CERES CRESCENT" });
+    const house15 = parts({ paon: "15", street: "HIGH STREET" });
+    const flat15 = parts({ paon: "Y HOUSE, 20", saon: "FLAT 15", street: "HIGH STREET" });
+    expect(dedupeAddressParts([rose, ivy, flat4, flat5, house15, flat15])).toHaveLength(6);
+  });
+
+  it("a street-less row stays where two streets both hold its number", () => {
+    const oneA = parts({ paon: "1", street: "ATLANTIC REACH" });
+    const oneB = parts({ paon: "1", street: "MANOR VILLAS" });
+    const streetless = parts({ paon: "1", street: null });
+    expect(dedupeAddressParts([oneA, oneB, streetless])).toHaveLength(3);
+  });
+
+  it("labels: a bare-number SAON takes no comma, and a street is never doubled", () => {
+    expect(labelForAddressParts(parts({ paon: "MANOR VILLAS", saon: "115" }))).toBe(
+      "115 Manor Villas Atlantic Reach",
+    );
+    expect(labelForAddressParts(parts({ paon: "148 ATLANTIC REACH" }))).toBe("148 Atlantic Reach");
+    expect(labelForAddressParts(parts({ paon: "1 GOLF LODGES" }))).toBe(
+      "1 Golf Lodges Atlantic Reach",
+    );
+    // A named SAON keeps its comma — the Minerva form.
+    expect(
+      labelForAddressParts(
+        parts({ paon: "MINERVA HOUSE, 12", saon: "FLAT 4", street: "CERES CRESCENT" }),
+      ),
+    ).toBe("Flat 4, Minerva House, 12 Ceres Crescent");
   });
 });
 

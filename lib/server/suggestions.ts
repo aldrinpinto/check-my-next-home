@@ -127,6 +127,7 @@
 import type { Pool, PoolClient } from "pg";
 
 import {
+  canonicalHomeKey,
   classifyAddressInput,
   compareAddressParts,
   displayText,
@@ -658,6 +659,42 @@ function placeItemOf(unit: PlaceSuggestion): SuggestionItem {
   return { label: place, href: placeChoiceRoute(place), place };
 }
 
+// BUG-323: the Places group's one-row-per-place rule.
+// The same place can be filed twice — the bare town and
+// the town-with-county ("Chelmsford" and "Chelmsford,
+// Essex") — and the panel must name it once: the rows
+// merge by base name (the display before its first ", ",
+// normalised), the district sets union, and the bare
+// name is kept — the shorter display, since the comma
+// form is always the bare name plus ", County". UK place
+// names contain no commas: the comma is always the
+// town,county join, never part of the name.
+function mergePlaceUnits(units: PlaceSuggestion[]): PlaceSuggestion[] {
+  const byBase = new Map<string, PlaceSuggestion>();
+  for (const unit of units) {
+    const base = placeNormOf(unit.place.split(",")[0].trim());
+    const existing = byBase.get(base);
+    if (!existing) {
+      byBase.set(base, { place: unit.place, districts: [...unit.districts] });
+      continue;
+    }
+    const districts = [...new Set([...existing.districts, ...unit.districts])].sort();
+    const place = unit.place.length < existing.place.length ? unit.place : existing.place;
+    byBase.set(base, { place, districts });
+  }
+  return [...byBase.values()];
+}
+
+// BUG-323, Londonthorpe leg — CLOSED with no code
+// change, by founder ruling 25 Nov 20:15: leave
+// Londonthorpe (and Chesterfield). They are valid
+// places and showing them is the right behaviour —
+// someone typing "London" may be after Londonthorpe,
+// and someone typing "Chester" may be after
+// Chesterfield. No hiding rule; the blanket rule stays
+// out. The pinned test below ("sibling places ride
+// beside the named one") stands as the behaviour.
+
 // The suggestions for one typed input. Pure over the
 // source, so the scenarios test it against fixture rows.
 export async function suggestionsFor(
@@ -733,9 +770,14 @@ export async function suggestionsFor(
         [parts.paon ?? "", parts.saon ?? "", parts.street ?? "", label].join(" "),
       );
       if (!words.every((word) => ` ${haystack} `.includes(` ${word} `))) continue;
+      // BUG-308: the panel dedupes on the canonical home
+      // — two filings of one home in different shapes
+      // serve once. The href still carries the strict
+      // home key, the identity the route re-derives.
+      const canonical = canonicalHomeKey(parts);
+      if (seen.has(canonical)) continue;
+      seen.add(canonical);
       const key = keyForParts(parts);
-      if (seen.has(key)) continue;
-      seen.add(key);
       items.push({ label: `${label}, ${input.postcode}`, href: homeRoute(input.postcode, key) });
     }
     if (items.length > SUGGEST_FULL_POSTCODE_CEILING) {
@@ -1024,9 +1066,13 @@ export async function suggestionsFor(
         [parts.paon ?? "", parts.saon ?? "", parts.street ?? "", parts.town ?? ""].join(" "),
       );
       if (!typedWords.every((word) => ` ${haystack} `.includes(` ${word} `))) continue;
+      // BUG-308: as the Homes branch above — the panel
+      // dedupes on the canonical home; the href keeps
+      // the strict home key.
+      const canonical = canonicalHomeKey(parts);
+      if (seen.has(canonical)) continue;
+      seen.add(canonical);
       const key = keyForParts(parts);
-      if (seen.has(key)) continue;
-      seen.add(key);
       items.push({ label: propertyLabelOf(parts), href: homeRoute(parts.postcode, key) });
       if (items.length >= SUGGEST_PROPERTY_CAP) break;
     }
@@ -1086,6 +1132,14 @@ export async function suggestionsFor(
         placeUnits.push(unit);
       }
     }
+  }
+  if (placeUnits.length > 0) {
+    // BUG-323: one row per place — the bare/comma
+    // duplicates merge. (The Londonthorpe leg of the
+    // same bug is NOT done here — see the note after
+    // mergePlaceUnits: its proposed rule breaks the
+    // pinned sibling behaviour.)
+    placeUnits = mergePlaceUnits(placeUnits);
   }
   if (placeUnits.length > 0) {
     groups.push({ label: "Places", items: placeUnits.map(placeItemOf) });

@@ -1713,4 +1713,14 @@ describe("served detail comma spacing (BUG-246)", () => {
     expect(normaliseCommaSpacing("1,000 homes within 2 miles")).toBe("1,000 homes within 2 miles");
     expect(normaliseCommaSpacing("No comma here")).toBe("No comma here");
   });
+
+  it("BUG-316: collapses a comma run with an empty segment between the commas", () => {
+    // The filed brownfield address for SE16 5EJ: the
+    // empty segment is filed noise, never a separator.
+    expect(normaliseCommaSpacing("259,Rotherhithe Street,,SE16 5EJ")).toBe(
+      "259, Rotherhithe Street, SE16 5EJ",
+    );
+    expect(normaliseCommaSpacing("High Street, ,London")).toBe("High Street, London");
+    expect(normaliseCommaSpacing("1,000, 2,000 homes")).toBe("1,000, 2,000 homes");
+  });
 });

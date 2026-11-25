@@ -132,6 +132,11 @@ class PlacesDb implements AddressQueryable {
   async query(text: string, params: readonly unknown[] = []) {
     this.queries.push({ text, params });
     if (text.includes("min(postcode)")) return { rows: this.settlementRows };
+    if (text.includes("GROUP BY county")) {
+      // BUG-307: the district's own counties are read
+      // counted and ranked, most-filed first.
+      return { rows: this.districtCountyRows };
+    }
     if (text.includes("SELECT DISTINCT county")) {
       // The district's own counties are read through
       // its outward prefix; the register-wide set is
@@ -192,10 +197,20 @@ describe("district source — places() and the register-wide county set (BUG-034
     expect(nationalReads).toHaveLength(1);
     // The district's own counties are still read per
     // district — only the register-wide set is cached.
-    const districtReads = db.queries.filter(
-      (query) =>
-        query.text.includes("SELECT DISTINCT county") && query.text.includes("starts_with"),
-    );
+    const districtReads = db.queries.filter((query) => query.text.includes("GROUP BY county"));
     expect(districtReads).toHaveLength(2);
+  });
+
+  it("BUG-307: ranks the district's filed counties most-filed first, and hands the filter the union set", async () => {
+    const db = cm11Db();
+    // The SQL ranks by filings, so the fake returns the
+    // rows in the ranked order the SQL would serve:
+    // Essex the district's county by a wide margin, Luton
+    // a stray filing alongside it.
+    db.districtCountyRows = [{ county: "Essex" }, { county: "Luton" }];
+    const source = createDistrictSource(db);
+    const places = await source.places("CM11");
+    expect(places.counties).toEqual(["Essex", "Luton"]);
+    expect(places.settlementCounties).toEqual(["Essex", "Luton"]);
   });
 });

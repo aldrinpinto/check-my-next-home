@@ -68,6 +68,7 @@
 
 import type { Pool } from "pg";
 
+import { displayText } from "../address";
 import { cleanSettlements } from "../district";
 
 // The place source needs a pooled client for the fuzzy
@@ -102,10 +103,15 @@ export interface PlaceSuggestion {
 // settlements (the district bundle's own cleaning, so
 // the two pages name the same neighbourhoods) and one
 // filed postcode in it, the bridge block's example.
+// BUG-317: postTown — the district's own post town,
+// its most-filed town across the sales register and
+// the picking index (the district head's rule, so the
+// row names the district's town, never the place's).
 export interface PlaceDistrictArea {
   outward: string;
   settlements: string[];
   examplePostcode: string | null;
+  postTown: string | null;
 }
 
 export interface PlaceSource {
@@ -190,8 +196,33 @@ interface PlaceUnitRow {
   districts: string[];
 }
 
-function toUnit(row: PlaceUnitRow): PlaceSuggestion {
-  return { place: row.place_display, districts: [...row.districts].sort() };
+function toUnit(row: PlaceUnitRow, counties: string[]): PlaceSuggestion {
+  return {
+    place: commaCountyDisplay(row.place_display, counties),
+    districts: [...row.districts].sort(),
+  };
+}
+
+// BUG-323: the place display's county join. The place
+// table files town + county space-joined ("London
+// Greater London"); the product's place form joins them
+// with a comma ("London, Greater London"). The rewrite
+// applies only where the display's trailing words are a
+// filed county and the remainder is non-empty — longest
+// county first, so "Greater London" wins over "London",
+// and a town that merely ends in a county's words is
+// never rewritten. A display that IS the county alone
+// has no remainder and stands as filed.
+function commaCountyDisplay(display: string, counties: string[]): string {
+  const upper = display.toUpperCase();
+  const ranked = [...counties].sort((a, b) => b.length - a.length);
+  for (const county of ranked) {
+    const suffix = ` ${county.toUpperCase()}`;
+    if (upper.endsWith(suffix) && upper.length > suffix.length) {
+      return `${display.slice(0, display.length - suffix.length)}, ${county}`;
+    }
+  }
+  return display;
 }
 
 // The unit columns shared by both tiers: the place's
@@ -264,6 +295,7 @@ export function createPlaceSource(db: PlaceQueryable): PlaceSource {
       // from the keyboard. The pattern index (migration
       // 0032) rides the leading literal.
       const pattern = words.map((word) => `${word}%`).join(" ");
+      const counties = await everyFiledCounty(db);
       const { rows } = await db.query(
         `SELECT ${UNIT_COLUMNS}
            FROM picking_places
@@ -274,7 +306,7 @@ export function createPlaceSource(db: PlaceQueryable): PlaceSource {
           LIMIT $2`,
         [pattern, limit],
       );
-      return (rows as unknown as PlaceUnitRow[]).map(toUnit);
+      return (rows as unknown as PlaceUnitRow[]).map((row) => toUnit(row, counties));
     },
 
     async placesByFuzzy(words, limit) {
@@ -286,6 +318,7 @@ export function createPlaceSource(db: PlaceQueryable): PlaceSource {
       // index's similarity predicate at the set limit;
       // the ORDER BY ranks by the same measure.
       const typed = words.join(" ");
+      const counties = await everyFiledCounty(db);
       const client = await db.connect();
       try {
         await client.query("BEGIN");
@@ -301,7 +334,7 @@ export function createPlaceSource(db: PlaceQueryable): PlaceSource {
           [typed, limit],
         );
         await client.query("COMMIT");
-        return (rows as unknown as PlaceUnitRow[]).map(toUnit);
+        return (rows as unknown as PlaceUnitRow[]).map((row) => toUnit(row, counties));
       } catch (error) {
         await client.query("ROLLBACK").catch(() => undefined);
         throw error;
@@ -333,6 +366,7 @@ export function createPlaceSource(db: PlaceQueryable): PlaceSource {
       // equality. A place left with no served district
       // forms no row here either — it is not a place the
       // product can land a visitor on.
+      const counties = await everyFiledCounty(db);
       const { rows } = await db.query(
         `SELECT ${UNIT_COLUMNS}
            FROM picking_places
@@ -342,7 +376,7 @@ export function createPlaceSource(db: PlaceQueryable): PlaceSource {
         [placeNorm],
       );
       const row = (rows as unknown as PlaceUnitRow[])[0];
-      return row ? toUnit(row) : null;
+      return row ? toUnit(row, counties) : null;
     },
 
     async districtAreas(outwards) {
@@ -459,7 +493,15 @@ export function createPlaceSource(db: PlaceQueryable): PlaceSource {
           local.length > 0 ? local : counted(towns.get(outward)),
           [...new Set([...(counties.get(outward) ?? []), ...nationalCounties])],
         );
-        return { outward, settlements, examplePostcode: examples.get(outward) ?? null };
+        // BUG-317: the district's post town — its
+        // most-filed town across both registers (the
+        // district head's own rule), display-cased;
+        // null where no town is filed at all.
+        const townEntries = [...(towns.get(outward) ?? [])].sort(
+          (a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1),
+        );
+        const postTown = townEntries.length > 0 ? displayText(townEntries[0][0]) : null;
+        return { outward, settlements, examplePostcode: examples.get(outward) ?? null, postTown };
       });
     },
   };

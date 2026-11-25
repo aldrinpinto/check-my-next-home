@@ -14,6 +14,8 @@ import {
   buildComparison,
   cardLastSaleLine,
   comparisonCellBand,
+  isShortlistCard,
+  isStaleShortlistCard,
   loadShortlist,
   notifyShortlistChanged,
   removeCardFromRecord,
@@ -51,8 +53,10 @@ import ReportLink from "./ReportLink";
 // would be; storage working but empty renders the Final
 // Design's Section 4B empty state. Cards render in saved
 // order from their snapshots — facts are never re-derived
-// on view (ruling 3) — and removing a card here is the same
-// storage write the results page's button state reads.
+// on view (ruling 3), except the BUG-309 refresh of a
+// snapshot that cannot render completely — and removing a
+// card here is the same storage write the results page's
+// button state reads.
 // BUG-304 (founder ruling, 25 Nov 2026): the cards have
 // no row of their own any more — each home's card content
 // (address, sale line, Remove) lives in its column's
@@ -311,6 +315,65 @@ export default function ShortlistPage() {
     query.addEventListener("change", update);
     return () => query.removeEventListener("change", update);
   }, []);
+
+  // BUG-309: a stale saved snapshot — one saved before
+  // the comparison carried bands, the crime verdict, air
+  // quality or the price line (BUG-189's residue) —
+  // renders incompletely from its snapshot. Once per
+  // mount, each stale card is re-derived from the current
+  // check data through /api/shortlist-card and replaced
+  // in storage, in place: same order, same savedAt —
+  // only the facts update. A fetch that fails keeps the
+  // stored card: the refresh is a repair, never a reason
+  // to drop a saved home. (The exception to ruling 3's
+  // "facts are never re-derived on view", recorded in
+  // lib/shortlist.ts: a snapshot that cannot render
+  // completely is refreshed, not shown broken.)
+  const refreshedRef = useRef(false);
+  useEffect(() => {
+    if (refreshedRef.current) return;
+    if (state.kind !== "ready") return;
+    const stale = state.record.cards.filter(isStaleShortlistCard);
+    if (stale.length === 0) {
+      refreshedRef.current = true;
+      return;
+    }
+    refreshedRef.current = true;
+    void (async () => {
+      const fresh = new Map<string, ShortlistCard>();
+      await Promise.all(
+        stale.map(async (card) => {
+          try {
+            const params =
+              card.rung === 3
+                ? `outward=${encodeURIComponent(card.postcode)}`
+                : `postcode=${encodeURIComponent(card.postcode)}&home=${encodeURIComponent(card.homeKey ?? "")}`;
+            const response = await fetch(`/api/shortlist-card?${params}`);
+            if (!response.ok) return;
+            const data = (await response.json()) as { card?: unknown };
+            if (!isShortlistCard(data.card)) return;
+            fresh.set(card.id, { ...data.card, savedAt: card.savedAt });
+          } catch {
+            // Keep the stored card — see above.
+          }
+        }),
+      );
+      if (fresh.size === 0) return;
+      // Re-read the record fresh — a removal elsewhere
+      // may have changed it while the fetches were out —
+      // and replace only the cards that refreshed, in place.
+      const load = loadShortlist();
+      if (load.status !== "ok") return;
+      const next: ShortlistRecord = {
+        v: 1,
+        cards: load.record.cards.map((card) => fresh.get(card.id) ?? card),
+      };
+      if (saveShortlist(next)) {
+        setState({ kind: "ready", record: next });
+        notifyShortlistChanged();
+      }
+    })();
+  }, [state]);
 
   // M7.14: the comparison counts as opened when the page
   // first shows it — the ready state with at least one

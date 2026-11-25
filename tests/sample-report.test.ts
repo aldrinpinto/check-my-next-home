@@ -351,7 +351,7 @@ describe("the fiction own sale (BUG-234/235/236; BUG-241)", () => {
     // of £441,746 (£425,000 price less £147,249
     // deposit)" — the real price's loan and deposit
     // against the fiction price label — and the duty
-    // £19,450, the real price's duty. The builder now
+    // £16,950, the real price's duty. The builder now
     // computes from £425,000 throughout.
     const s7 = section(7);
     const list = s7.blocks.find(
@@ -365,7 +365,7 @@ describe("the fiction own sale (BUG-234/235/236; BUG-241)", () => {
     expect(list.items[1]).toBe(
       `Stamp duty on that price would be £${stampDuty(425000, "moving").toLocaleString("en-GB")} at the standard rates for a buyer moving from their own home.`,
     );
-    expect(list.items[1]).toContain("£11,250");
+    expect(list.items[1]).toContain("£8,750");
     const basis = s7.blocks.find(
       (b) =>
         b.type === "line" && b.text.startsWith("Worked on this home's last recorded sale price"),
@@ -374,7 +374,7 @@ describe("the fiction own sale (BUG-234/235/236; BUG-241)", () => {
     expect(basis.text).toContain("£425,000 on 22 March 2022");
     // The real price's figures appear nowhere in the
     // view — not in Section 7, not anywhere else.
-    for (const stale of ["£441,746", "£147,249", "£19,450"]) {
+    for (const stale of ["£441,746", "£147,249", "£16,950"]) {
       expect(serialised, stale).not.toContain(stale);
     }
   });

@@ -14,9 +14,11 @@ import {
   CONTACT_SEND_FAILED_LINE,
   CONTACT_THANKS,
   CONTACT_EMAIL_ERROR,
+  CONTACT_EMAIL_FORMAT_ERROR,
   CONTACT_MESSAGE_ERROR,
   CONTACT_MESSAGE_TOO_LONG_ERROR,
   CONTACT_NAME_ERROR,
+  CONTACT_REQUIRED_LINE,
 } from "../lib/site-pages";
 import {
   createMemoryContactStore,
@@ -80,18 +82,35 @@ describe("the validation judge (lib/contact.ts)", () => {
 
   it("judges the email by the site's one shape rule (the gift form's)", () => {
     // The claim form's own mistyped witness (view 18).
+    // BUG-303: a malformed address earns the format
+    // token, not the empty one.
     expect(validateContactInput({ name: "A", email: "name@exampl", message: "x" })).toEqual({
       ok: false,
-      errors: ["email"],
+      errors: ["email-format"],
     });
     expect(validateContactInput({ name: "A", email: "plain-text", message: "x" }).ok).toBe(false);
     expect(validateContactInput({ name: "A", email: "a@b", message: "x" }).ok).toBe(false);
   });
 
+  it("BUG-303: an empty email and a malformed email earn different tokens", () => {
+    expect(validateContactInput({ name: "A", email: "", message: "x" })).toEqual({
+      ok: false,
+      errors: ["email"],
+    });
+    expect(validateContactInput({ name: "A", email: "   ", message: "x" })).toEqual({
+      ok: false,
+      errors: ["email"],
+    });
+    expect(validateContactInput({ name: "A", email: "name@exampl", message: "x" })).toEqual({
+      ok: false,
+      errors: ["email-format"],
+    });
+  });
+
   it("returns every refused field, in the form's own order", () => {
     expect(validateContactInput({ name: "", email: "nope", message: "" })).toEqual({
       ok: false,
-      errors: ["name", "email", "message"],
+      errors: ["name", "email-format", "message"],
     });
   });
 
@@ -394,6 +413,20 @@ describe("the form as rendered (components/ContactForm.tsx)", () => {
     expect(html).not.toContain(CONTACT_NAME_ERROR);
     expect(html).not.toContain(CONTACT_MESSAGE_ERROR);
     expect(html).not.toContain(CONTACT_THANKS);
+  });
+
+  it("BUG-303: a malformed email stands the format line, not the empty line", () => {
+    const html = render({
+      errors: ["email-format"],
+      values: { name: "Alex Morgan", email: "name@exampl", message: "Hello." },
+    });
+    expect(html).toContain(CONTACT_EMAIL_FORMAT_ERROR);
+    expect(html).not.toContain(CONTACT_EMAIL_ERROR);
+  });
+
+  it("BUG-302: the required line stands above the form", () => {
+    const html = render({});
+    expect(html).toContain(CONTACT_REQUIRED_LINE);
   });
 
   it("the too-long message carries its own line", () => {

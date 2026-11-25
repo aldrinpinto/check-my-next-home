@@ -30,12 +30,17 @@ export const CONTACT_MESSAGE_MAX = 5000;
 // page (?error=name,email,…). Each names the field
 // whose line stands under it; "message-long" is the
 // message field carrying its too-long line instead of
-// its empty line.
-export type ContactErrorField = "name" | "email" | "message" | "message-long";
+// its empty line. BUG-303: an empty email and a
+// badly-formed one are different failures and carry
+// different tokens — "email" for the empty one,
+// "email-format" for the malformed one — so each gets
+// its own line.
+export type ContactErrorField = "name" | "email" | "email-format" | "message" | "message-long";
 
 export const CONTACT_ERROR_FIELDS: readonly ContactErrorField[] = [
   "name",
   "email",
+  "email-format",
   "message",
   "message-long",
 ];
@@ -61,7 +66,11 @@ export function validateContactInput(raw: ContactInput): ContactValidation {
 
   const errors: ContactErrorField[] = [];
   if (name.length === 0 || name.length > CONTACT_NAME_MAX) errors.push("name");
-  if (!isEmailShape(email)) errors.push("email");
+  // BUG-303: empty and malformed are different
+  // failures — the empty email asks to be filled in,
+  // the malformed one asks to be corrected.
+  if (email.length === 0) errors.push("email");
+  else if (!isEmailShape(email)) errors.push("email-format");
   if (message.length === 0) errors.push("message");
   else if (message.length > CONTACT_MESSAGE_MAX) errors.push("message-long");
 

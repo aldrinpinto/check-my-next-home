@@ -5,6 +5,8 @@ import {
   placeDistrictDescription,
   widerAreaRoute,
 } from "../lib/journey";
+import DistrictSaveButton from "./DistrictSaveButton";
+import PostcodeBox from "./PostcodeBox";
 
 // The place page (founder ruling, 19 Nov 2026, reversing
 // the 18 Nov in-dropdown chooser): a place pick — from
@@ -44,7 +46,16 @@ export default function PlaceChoice({
   districts,
 }: {
   place: string;
-  districts: { outward: string; settlements: string[]; examplePostcode: string | null }[];
+  districts: {
+    outward: string;
+    settlements: string[];
+    examplePostcode: string | null;
+    // BUG-317: the district's own post town (the
+    // districtAreas read composes it). Optional so the
+    // bare-rows fallback (BUG-286) keeps its shape —
+    // a district without one falls back to the place.
+    postTown?: string | null;
+  }[];
 }) {
   const bridgePostcode = districts.find((district) => district.examplePostcode)?.examplePostcode;
   return (
@@ -60,19 +71,39 @@ export default function PlaceChoice({
           {districts.map((district) => {
             const description = placeDistrictDescription(district.settlements);
             return (
-              <li key={district.outward}>
+              // BUG-318: the Save button sits BESIDE the
+              // row's link, as its sibling — never inside
+              // it, where a tap would navigate instead of
+              // saving. The list item is the flex parent
+              // (.district-place__item), so the button
+              // shows at every desktop width.
+              <li key={district.outward} className="district-place__item">
                 <a className="district-place__row" href={widerAreaRoute(district.outward)}>
                   <span className="district-place__code">{district.outward}</span>
                   <span className="district-place__main">
-                    <span className="district-place__label">{`${district.outward} — ${place}`}</span>
+                    {/* BUG-317: the row names the
+                        district's own post town — CM11
+                        reads "CM11 — Billericay", never
+                        "CM11 — Chelmsford". A district
+                        with no filed town falls back to
+                        the place, as before. */}
+                    <span className="district-place__label">{`${district.outward} — ${district.postTown ?? place}`}</span>
                     {description && <span className="district-place__detail">{description}</span>}
                   </span>
                 </a>
+                <DistrictSaveButton outward={district.outward} />
               </li>
             );
           })}
         </ul>
         <p className="district-place__bridge">{placeBridgeLine(place, bridgePostcode ?? null)}</p>
+        {/* BUG-317: the search box stands on the place
+            page, under the bridge line — a visitor who
+            landed here on a place name can type a
+            postcode (or a home) without going back.
+            The bridge line itself is untouched (BUG-035:
+            it is view 29's ONE line). */}
+        <PostcodeBox />
       </div>
     </main>
   );

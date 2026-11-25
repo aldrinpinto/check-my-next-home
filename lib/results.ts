@@ -800,14 +800,14 @@ function placeRow(
   // sample's row does not carry it.
   if (place.cqcRating != null) parts.push(`CQC overall rating: ${place.cqcRating.rating}`);
   // The secondary rows' filed sixth-form flags (M6.33) as
-  // the detail's last part. The yes form is the sample's
-  // plain words (M7.11 O-3, founder adopted 18 Nov 2026);
-  // the no form drops the internal ", as filed" (BUG-250
-  // item 24, 24 Nov 2026) — a consumer-facing line never
-  // carries filing language.
-  if (place.sixthForm === true) parts.push("Sixth form at the school");
-  else if (place.sixthForm === false) parts.push("sixth form: no");
-  else if (place.sixthForm === null && "sixthForm" in place) parts.push("sixth form: not recorded");
+  // the detail's last part. BUG-313: the three forms are
+  // one shape — "Sixth form: yes / no / not recorded" —
+  // so the same field never reads three different ways
+  // across rows. (The yes form was the sample's plain
+  // words "Sixth form at the school" under M7.11 O-3.)
+  if (place.sixthForm === true) parts.push("Sixth form: yes");
+  else if (place.sixthForm === false) parts.push("Sixth form: no");
+  else if (place.sixthForm === null && "sixthForm" in place) parts.push("Sixth form: not recorded");
   return {
     name: `${presentation.namePrefix ? `${presentation.namePrefix} — ` : ""}${place.name}${presentation.nameSuffix ?? ""}`,
     milesText: `${formatMiles(place.miles)} mi`,
@@ -2690,8 +2690,14 @@ export function buildResultsView(input: ResultsInput): ResultsView {
       // line ending in the not-a-valuation sentence.
       const ownSales = sold.ownSales ?? [];
       if (ownSales.length > 0) {
-        const last = ownSales[ownSales.length - 1];
-        const prev = ownSales.length >= 2 ? ownSales[ownSales.length - 2] : null;
+        // BUG-312: ownSales is newest first (the
+        // register's order, as the report reads it) — the
+        // last sale is the FIRST element, not the last.
+        // The old reading took the final element, so the
+        // oldest sale stood as the last sale and the
+        // change and held lines followed the inversion.
+        const last = ownSales[0];
+        const prev = ownSales.length >= 2 ? ownSales[1] : null;
         blocks.push({
           type: "tiles",
           tiles: [
@@ -3198,7 +3204,7 @@ export function buildResultsView(input: ResultsInput): ResultsView {
         lead: "Nature designations",
         texts: [],
         bullets,
-        fineprint: nature.coverageLine ?? "In the datasets checked.",
+        fineprint: nature.coverageLine ?? null,
         tag: "FACTS",
         tagTone: "grey",
       });
@@ -4279,7 +4285,7 @@ export function buildDistrictResultsView(bundle: DistrictServed): ResultsView {
       }
       schoolsBlocks.push({
         type: "line",
-        text: `Ofsted (of those inspected): ${parts.join(" · ")}.`,
+        text: `Ofsted: ${parts.join(" · ")}.`,
       });
     }
   }

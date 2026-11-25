@@ -1,5 +1,6 @@
 import {
   CONTACT_EMAIL_ERROR,
+  CONTACT_EMAIL_FORMAT_ERROR,
   CONTACT_EMAIL_LABEL,
   CONTACT_EMAIL_PLACEHOLDER,
   CONTACT_MESSAGE_ERROR,
@@ -9,6 +10,7 @@ import {
   CONTACT_NAME_ERROR,
   CONTACT_NAME_LABEL,
   CONTACT_NAME_PLACEHOLDER,
+  CONTACT_REQUIRED_LINE,
   CONTACT_SEND_FAILED_LINE,
   CONTACT_SEND_LABEL,
   CONTACT_THANKS,
@@ -53,7 +55,13 @@ export default function ContactForm({
   const errorFor = (field: ContactErrorField): string | undefined =>
     errors?.includes(field) ? field : undefined;
   const nameError = errorFor("name") ? CONTACT_NAME_ERROR : undefined;
-  const emailError = errorFor("email") ? CONTACT_EMAIL_ERROR : undefined;
+  // BUG-303: the malformed email carries its own line;
+  // the empty one keeps the fill-it-in line.
+  const emailError = errorFor("email-format")
+    ? CONTACT_EMAIL_FORMAT_ERROR
+    : errorFor("email")
+      ? CONTACT_EMAIL_ERROR
+      : undefined;
   const messageError = errorFor("message-long")
     ? CONTACT_MESSAGE_TOO_LONG_ERROR
     : errorFor("message")
@@ -74,6 +82,10 @@ export default function ContactForm({
           refuse it in the designed form. The claim form
           carries noValidate for the same reason. */}
       <form method="post" action={contactSendPath()} noValidate>
+        {/* BUG-302: every field is required — the line
+            stands above the form so the visitor knows
+            before the server refuses an empty field. */}
+        <p className="contact-required">{CONTACT_REQUIRED_LINE}</p>
         <div>
           <label htmlFor="cf-name">{CONTACT_NAME_LABEL}</label>
           <input

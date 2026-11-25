@@ -1959,19 +1959,19 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
     // calculators' arithmetic, to the penny since
     // BUG-262's no-rounding ruling, 24 Nov 2026):
     // Birkdale £588,995 → £2,455.37 a month and
-    // £19,450 duty; Exeter £270,000 → £1,125.56 a
-    // month and £3,500 duty.
+    // £16,950 duty; Exeter £270,000 → £1,125.56 a
+    // month and £1,000 duty.
     expect(birkdale).toContain(
       "Worked on this home's last recorded sale price — £588,995 on 15 June 2023",
     );
     expect(birkdale).toContain("£2,455.37 a month, repayment.");
     expect(birkdale).toContain(
-      "Stamp duty on that price would be £19,450 at the standard rates for a buyer moving from their own home.",
+      "Stamp duty on that price would be £16,950 at the standard rates for a buyer moving from their own home.",
     );
     const exeter = s7("exeter1");
     expect(exeter).toContain("£1,125.56 a month, repayment.");
     expect(exeter).toContain(
-      "Stamp duty on that price would be £3,500 at the standard rates for a buyer moving from their own home.",
+      "Stamp duty on that price would be £1,000 at the standard rates for a buyer moving from their own home.",
     );
   });
 

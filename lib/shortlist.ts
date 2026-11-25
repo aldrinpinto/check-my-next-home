@@ -11,6 +11,14 @@ import { distanceBand, type DistanceBand, type DistanceFamily } from "./results"
 // the home was saved (ruling 3), and /shortlist renders
 // purely from what this module reads back.
 //
+// BUG-309 (25 Nov 2026) — the one exception to ruling 3:
+// a snapshot that cannot render completely (isStaleShortlistCard
+// below) is refreshed from the current check data through
+// /api/shortlist-card and replaced in storage, in place —
+// same order, same savedAt, only the facts update. A snapshot
+// that renders completely is never re-derived: what the
+// visitor saved is what the page shows.
+//
 // The shortlist is 3 homes for everyone, paid or free
 // (founder's ruling, 17 Nov 2026): the earlier sketch of a
 // fuller comparison for report-holders (up to 10 homes)
@@ -63,6 +71,10 @@ export const SHORTLIST_KEPT_LINE = "Homes you save are kept only in this browser
 export const SHORTLIST_UNAVAILABLE_LINE =
   "Your shortlist is kept in this browser, but this browser is not allowing storage right now — so saved homes can't be kept or shown here.";
 export const SHORTLIST_FULL_LINE = "Your shortlist is full — it holds 3 homes.";
+// BUG-318: the district save's fetch failure — the
+// card could not be derived just now. The button stays
+// so the visitor can try again.
+export const SHORTLIST_SAVE_FAILED_LINE = "Could not save this area just now — try again.";
 export const SEE_THIS_HOMES_CHECK = "See this home's check";
 export const NOT_COVERED_LINE = "This check is not covered for this postcode.";
 // The Air quality row's cell for a card saved before the
@@ -382,6 +394,62 @@ export function comparisonCellBand(
   return null;
 }
 
+// BUG-309: the staleness test — whether a saved
+// snapshot predates the comparison's current shape and
+// so renders incompletely from it. The markers are the
+// defects a fresh derivation now repairs; each is a
+// shape no current assembly produces, so a current card
+// never trips one:
+//   - any pointer cell: saved before the 17 Nov 2026
+//     ruling put real flood/crime figures in the cells;
+//   - a flood line in the legacy two-band text: the
+//     pre-colour-work snapshot (BUG-189) — its bands
+//     were never stored, and neither was the zone label;
+//   - no air cell at all: saved before the row existed
+//     (BUG-164);
+//   - a grammar line in the old lowercase form: saved
+//     before BUG-313 capitalised the composed line;
+//   - rung 3 only: the BUG-301 signature — the nearby
+//     reason repeated on the seven governed rows.
+// Deliberately NOT markers: a plain-line crime cell
+// (current assembly legitimately produces it where the
+// calibration pair is missing) and a missing price line
+// (a home with no recorded sale legitimately has none) —
+// a refresh the other markers trigger restores the price
+// line where one serves.
+export function isStaleShortlistCard(card: ShortlistCard): boolean {
+  const comparison = card.comparison;
+  if (COMPARISON_ROWS.some((row) => comparison[row.key]?.kind === "pointer")) return true;
+  const flood = comparison.flood;
+  if (flood?.kind === "line" && LEGACY_FLOOD_CELL_TEXT.test(flood.text)) return true;
+  if (comparison.air === undefined) return true;
+  const grammar = comparison.grammar;
+  if (
+    grammar?.kind === "line" &&
+    grammar.text.startsWith("the nearest selective secondary school is ")
+  ) {
+    return true;
+  }
+  if (card.rung === 3) {
+    const primary = comparison.primary;
+    if (primary?.kind === "line") {
+      for (const key of [
+        "secondary",
+        "grammar",
+        "nursery",
+        "gp",
+        "ae",
+        "station",
+        "vet",
+      ] as const) {
+        const cell = comparison[key];
+        if (cell?.kind === "line" && cell.text === primary.text) return true;
+      }
+    }
+  }
+  return false;
+}
+
 // ------------------------------------------------------------------
 // Record logic — the soft limit (D40): removing and
 // re-adding is allowed and harmless; nothing hardens the
@@ -480,6 +548,11 @@ function isCard(value: unknown): value is ShortlistCard {
       : isCell(comparison[row.key]),
   );
 }
+
+// The fetch validator (BUG-318/BUG-309): a card the
+// server derived is trusted only when it passes the
+// same shape the stored record's own parse demands.
+export { isCard as isShortlistCard };
 
 export function parseShortlistRecord(raw: string | null): ShortlistRecord {
   if (!raw) return emptyShortlistRecord();

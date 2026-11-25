@@ -726,13 +726,14 @@ describe("results — place groups", () => {
       },
       true,
     );
-    // O-3 (M7.11): the yes form is the sample's plain
-    // words; the not-recorded form stays as filed — both
-    // now ride inside the row's one detail line (parity
-    // fix batch, item 29). The selective fact renders as
-    // the grammar row (item 12), not a sentence.
-    expect(group.rows[0].detail).toBe("Sixth form at the school");
-    expect(group.rows[1].detail).toBe("sixth form: not recorded");
+    // O-3 (M7.11) as standardised by BUG-313: the three
+    // sixth-form forms are one shape — "Sixth form:
+    // yes / no / not recorded" — riding inside the row's
+    // one detail line (parity fix batch, item 29). The
+    // selective fact renders as the grammar row
+    // (item 12), not a sentence.
+    expect(group.rows[0].detail).toBe("Sixth form: yes");
+    expect(group.rows[1].detail).toBe("Sixth form: not recorded");
     expect(group.grammar?.name).toBe("Grammar School");
     expect(group.grammar?.milesText).toBe("1.2 mi");
     // Destinations are report depth: the row model carries
@@ -2187,8 +2188,13 @@ describe("results — the built view", () => {
         stateLine: null,
         ownLastSale: { price: 588995, date: "2023-06-15" },
         ownSales: [
-          { price: 450000, date: "2019-03-01", propertyType: "D", tenure: "F", newBuild: true },
+          // BUG-312: ownSales is newest first — the
+          // register's order, as the report reads it —
+          // so the last sale leads the list. (The
+          // fixture used to list oldest first, matching
+          // the composition's old backwards reading.)
           { price: 588995, date: "2023-06-15", propertyType: "D", tenure: "F", newBuild: false },
+          { price: 450000, date: "2019-03-01", propertyType: "D", tenure: "F", newBuild: true },
         ],
         ownLine: "19 Birkdale Rise last sold for £588,995 on 15 June 2023",
         median: {
@@ -3586,7 +3592,7 @@ describe("results — M7.11 figures in place (D-1/D-2/O-3)", () => {
     );
   });
 
-  it("O-3: the sixth-form no form reads 'sixth form: no' (BUG-250 item 24 — no filing language)", () => {
+  it("O-3: the sixth-form no form reads 'Sixth form: no' (BUG-250 item 24 — no filing language; BUG-313 — one shape)", () => {
     const secondary = category({
       category: "schools-secondary",
       state: "within",
@@ -3620,7 +3626,7 @@ describe("results — M7.11 figures in place (D-1/D-2/O-3)", () => {
     // BUG-250 item 24, 24 Nov 2026: the ", as filed"
     // tail was internal language on a consumer-facing
     // line.
-    expect(group.rows[0].detail).toBe("sixth form: no");
+    expect(group.rows[0].detail).toBe("Sixth form: no");
   });
 });
 

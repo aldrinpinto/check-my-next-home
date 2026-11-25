@@ -1036,7 +1036,7 @@ describe("explainer census — direction one (hard ⇒ line present, both depths
     const b = await goldenBundles();
     const secondary = b.nearby.categories.find((c) => c.category === "schools-secondary");
     expect(secondary?.nearestSelectiveLine).toBe(
-      "the nearest selective secondary school is Selective Grammar School — selective means admission by entrance test",
+      "The nearest selective secondary school is Selective Grammar School — selective means admission by entrance test",
     );
     expect(b.area.sections.heritage.explainer).toContain(
       "Grade I buildings are of exceptional interest, Grade II* buildings are particularly important buildings of more than special interest, and Grade II buildings are of special interest",

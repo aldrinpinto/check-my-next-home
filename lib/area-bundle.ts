@@ -10,7 +10,12 @@ import {
   type ResolvedAddress,
 } from "./address";
 import { improvementName } from "./epc-improvements";
-import { BROWNFIELD_RADIUS_MILES, RADIUS_MILES, haversineMiles } from "./nearby";
+import {
+  BROWNFIELD_RADIUS_MILES,
+  RADIUS_MILES,
+  haversineMiles,
+  normaliseCommaSpacing,
+} from "./nearby";
 import { nationOfPostcode } from "./nation";
 import { COMPANY_OWNERSHIP_ENABLED } from "./site";
 
@@ -1227,7 +1232,12 @@ export interface BrownfieldAnswer {
 }
 
 function toBrownfieldSite(row: BrownfieldRow): BrownfieldSite {
-  const label = row.siteAddress ?? "an unnamed recorded site";
+  // BUG-316: the register's filed address can carry an
+  // empty segment ("259,Rotherhithe Street,,SE16 5EJ") —
+  // the serve layer repairs the comma spacing, as it
+  // does for every served nearby detail (BUG-246).
+  const label =
+    row.siteAddress == null ? "an unnamed recorded site" : normaliseCommaSpacing(row.siteAddress);
   const miles = round3(row.miles);
   const hectaresLine =
     row.hectares === null ? null : `the register records the site at ${row.hectares} hectares`;

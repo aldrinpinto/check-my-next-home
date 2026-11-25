@@ -191,7 +191,7 @@ describe("BUG-262 — the mortgage calculator shows the exact figure to the penn
 });
 
 describe("BUG-250 item 24 — no filing language on the sixth-form line", () => {
-  it("a secondary row with no sixth form reads 'sixth form: no'", () => {
+  it("a secondary row with no sixth form reads 'Sixth form: no' (BUG-313 — one shape)", () => {
     const secondary: CategoryAnswer = {
       category: "schools-secondary",
       label: "places",
@@ -223,7 +223,7 @@ describe("BUG-250 item 24 — no filing language on the sixth-form line", () => 
       },
       true,
     );
-    expect(group.rows[0].detail).toBe("sixth form: no");
+    expect(group.rows[0].detail).toBe("Sixth form: no");
   });
 });
 

@@ -30,6 +30,7 @@ import {
   comparisonSaleLine,
   emptyShortlistRecord,
   isCardSaved,
+  isStaleShortlistCard,
   loadShortlist,
   parseShortlistRecord,
   removeCardFromRecord,
@@ -642,8 +643,10 @@ describe("card assembly", () => {
       text: "the crime data has not been filed yet",
     });
 
-    // A layer whose data is not filed serves no band: the
-    // cell carries that layer's own line, not a band.
+    // A layer whose data is not filed serves no band — but
+    // the other layer's served band still stands (BUG-298):
+    // the cell carries the served "Very low" beside the
+    // unfiled layer's own line, never only the line.
     const notFiledLayer = buildShortlistCard({
       resolution: birkdale,
       nearby: birkdaleNearby(),
@@ -664,8 +667,13 @@ describe("card assembly", () => {
       }),
     });
     expect(notFiledLayer?.comparison.flood).toEqual({
-      kind: "line",
-      text: "we have not yet filed the surface-water data for this postcode",
+      kind: "segments",
+      segments: [
+        { text: "Rivers & sea: " },
+        { text: "Very low" },
+        { text: " · Surface water: " },
+        { text: "we have not yet filed the surface-water data for this postcode" },
+      ],
     });
   });
 
@@ -775,10 +783,17 @@ describe("card assembly", () => {
     expect(card?.factsLine).toBe(
       "sold prices need an exact postcode • crime counts need an exact postcode",
     );
-    expect(card?.comparison.station).toEqual({
+    expect(card?.comparison.station).toEqual({ kind: "line", text: "—" });
+    // BUG-301: the nearby reason stands once, on
+    // Primary — the other seven nearby-governed rows
+    // carry the dash, not the repeated sentence.
+    expect(card?.comparison.primary).toEqual({
       kind: "line",
       text: "distances need an exact postcode",
     });
+    for (const key of ["secondary", "grammar", "nursery", "gp", "ae", "vet"] as const) {
+      expect(card?.comparison[key]).toEqual({ kind: "line", text: "—" });
+    }
     expect(card?.comparison.flood).toEqual({
       kind: "line",
       text: "flood answers need an exact postcode",
@@ -791,6 +806,236 @@ describe("card assembly", () => {
       kind: "line",
       text: "council tax needs an exact postcode",
     });
+  });
+  it("BUG-297: a crime rate exactly at the England average speaks the verdict in plain words, not a bare count", () => {
+    const card = buildShortlistCard({
+      resolution: birkdale,
+      nearby: birkdaleNearby(),
+      sold: soldWith([]),
+      short: shortWith(TAX_SERVED, {
+        crime: { ...CRIME_330, per1000: 51.7, englandPer1000: 51.7 },
+      }),
+    });
+    expect(card?.comparison.crime).toEqual({
+      kind: "segments",
+      segments: [{ text: "At the England average" }, { text: " · 330 crimes" }],
+    });
+  });
+
+  it("BUG-297: a missing calibration pair stays the bare count — no verdict is invented", () => {
+    const card = buildShortlistCard({
+      resolution: birkdale,
+      nearby: birkdaleNearby(),
+      sold: soldWith([]),
+      short: shortWith(TAX_SERVED, {
+        crime: { ...CRIME_330, per1000: null, englandPer1000: 97.4 },
+      }),
+    });
+    expect(card?.comparison.crime).toEqual({ kind: "line", text: "330 crimes" });
+  });
+
+  it("BUG-298: one flood layer served High, the other unfiled — the served band stands in red beside the named state", () => {
+    const card = buildShortlistCard({
+      resolution: birkdale,
+      nearby: birkdaleNearby(),
+      sold: soldWith([]),
+      short: shortWith(TAX_SERVED, {
+        flood: {
+          state: "served",
+          liveWarnings: null,
+          layers: [
+            floodLayer({
+              layer: "rofrs",
+              pointState: "inside",
+              coveringLabel: "High",
+              line: "this point is covered by the Rivers & sea High band",
+            }),
+            floodLayer({
+              layer: "rofsw",
+              pointState: "not-filed",
+              line: "this flood map is not filed yet, so no answer can be given from it",
+            }),
+          ],
+        },
+      }),
+    });
+    expect(card?.comparison.flood).toEqual({
+      kind: "segments",
+      segments: [
+        { text: "Rivers & sea: " },
+        { text: "High", band: "red" },
+        { text: " · Surface water: " },
+        { text: "this flood map is not filed yet, so no answer can be given from it" },
+      ],
+    });
+  });
+
+  it("BUG-310: a Very-low pair inside Flood Zone 3 names the zone beside the pills instead of recolouring them", () => {
+    const card = buildShortlistCard({
+      resolution: birkdale,
+      nearby: birkdaleNearby(),
+      sold: soldWith([]),
+      short: shortWith(TAX_SERVED, {
+        flood: {
+          state: "served",
+          liveWarnings: null,
+          layers: [
+            ...FLOOD_BIRKDALE.layers,
+            floodLayer({
+              layer: "flood_zone",
+              pointState: "inside",
+              coveringLabel: "Flood Zone 3",
+              line: "this point is inside Flood Zone 3",
+            }),
+          ],
+        },
+      }),
+    });
+    // The pills stay the zone verdict's red (Master v97);
+    // the zone itself is named as plain text after them.
+    expect(card?.comparison.flood).toEqual({
+      kind: "segments",
+      segments: [
+        { text: "Rivers & sea: " },
+        { text: "Very low", band: "red" },
+        { text: " · Surface water: " },
+        { text: "Very low", band: "red" },
+        { text: " · Flood Zone 3" },
+      ],
+    });
+  });
+
+  it("BUG-310: no zone, no zone label — a Very-low pair outside any zone reads as before", () => {
+    const card = buildShortlistCard({
+      resolution: birkdale,
+      nearby: birkdaleNearby(),
+      sold: soldWith([]),
+      short: shortWith(TAX_SERVED),
+    });
+    expect(card?.comparison.flood).toEqual({
+      kind: "segments",
+      segments: [
+        { text: "Rivers & sea: " },
+        { text: "Very low", band: "green" },
+        { text: " · Surface water: " },
+        { text: "Very low", band: "green" },
+      ],
+    });
+  });
+});
+
+describe("BUG-309: the staleness test for a saved snapshot", () => {
+  function currentRung1Card(): ShortlistCard {
+    const card = buildShortlistCard({
+      resolution: birkdale,
+      nearby: birkdaleNearby(),
+      sold: soldWith([]),
+      short: shortWith(TAX_SERVED),
+    });
+    if (!card) throw new Error("fixture card missing");
+    return card;
+  }
+
+  function currentRung3Card(): ShortlistCard {
+    const resolution: AddressResolution = {
+      rung: 3,
+      kind: "wider-area",
+      outward: "E16",
+      label: "Wider area — E16, not this exact home",
+      postcodeCount: 1234,
+    };
+    const short = {
+      rung: 3,
+      kind: "wider-area",
+      sections: {
+        soldPrices: { state: "unavailable", reason: "sold prices need an exact postcode" },
+        crime: { state: "unavailable", reason: "crime counts need an exact postcode" },
+        nearby: { state: "unavailable", reason: "distances need an exact postcode" },
+        flood: { state: "unavailable", reason: "flood answers need an exact postcode" },
+        air: { state: "unavailable", reason: "air quality needs an exact postcode" },
+        councilTax: { state: "unavailable", reason: "council tax needs an exact postcode" },
+      },
+    } as unknown as ShortBundle;
+    const card = buildShortlistCard({ resolution, short });
+    if (!card) throw new Error("fixture card missing");
+    return card;
+  }
+
+  it("a card the current assembly built is not stale", () => {
+    expect(isStaleShortlistCard(currentRung1Card())).toBe(false);
+    expect(isStaleShortlistCard(currentRung3Card())).toBe(false);
+  });
+
+  it("a plain-line crime cell alone is not stale — the missing pair is a current shape", () => {
+    // The current rung-1 fixture carries exactly that:
+    // "330 crimes" with no calibration pair.
+    expect(currentRung1Card().comparison.crime).toEqual({ kind: "line", text: "330 crimes" });
+    expect(isStaleShortlistCard(currentRung1Card())).toBe(false);
+  });
+
+  it("any pointer cell is stale", () => {
+    const card = currentRung1Card();
+    expect(
+      isStaleShortlistCard({
+        ...card,
+        comparison: { ...card.comparison, flood: { kind: "pointer" } },
+      }),
+    ).toBe(true);
+  });
+
+  it("a flood line in the legacy two-band text is stale", () => {
+    const card = currentRung1Card();
+    expect(
+      isStaleShortlistCard({
+        ...card,
+        comparison: {
+          ...card.comparison,
+          flood: { kind: "line", text: "Rivers & sea: Very low · Surface water: Very low" },
+        },
+      }),
+    ).toBe(true);
+  });
+
+  it("a missing air cell is stale", () => {
+    const card = JSON.parse(JSON.stringify(currentRung1Card())) as ShortlistCard;
+    delete (card.comparison as Partial<Record<string, ShortlistCell>>).air;
+    expect(isStaleShortlistCard(card)).toBe(true);
+  });
+
+  it("a grammar line in the old lowercase form is stale", () => {
+    const card = currentRung1Card();
+    expect(
+      isStaleShortlistCard({
+        ...card,
+        comparison: {
+          ...card.comparison,
+          grammar: {
+            kind: "line",
+            text: "the nearest selective secondary school is Grammar School — selective means admission by entrance test",
+          },
+        },
+      }),
+    ).toBe(true);
+  });
+
+  it("a rung-3 card repeating the nearby reason is stale (BUG-301's signature)", () => {
+    const card = currentRung3Card();
+    const primary = card.comparison.primary;
+    expect(
+      isStaleShortlistCard({
+        ...card,
+        comparison: {
+          ...card.comparison,
+          secondary: primary,
+          grammar: primary,
+          nursery: primary,
+          gp: primary,
+          ae: primary,
+          station: primary,
+          vet: primary,
+        },
+      }),
+    ).toBe(true);
   });
 });
 
@@ -1126,8 +1371,13 @@ describe("the sample-parity forms (views 14–16)", () => {
     // The founder's ruling, 25 Nov 2026: the tiles row
     // goes away and each home's card content moves into
     // its column's header cell, so the page has one grid
-    // and alignment holds by construction.
-    expect(island).not.toContain("shortlist-card");
+    // and alignment holds by construction. The assertion
+    // names the tiles row's class, not the bare
+    // substring: BUG-309's refresh fetches from
+    // /api/shortlist-card, and the endpoint's name is
+    // not a tiles row.
+    expect(island).not.toContain('className="shortlist-card');
+    expect(island).not.toContain("shortlist-card__");
     expect(css).not.toContain(".shortlist-card");
   });
 

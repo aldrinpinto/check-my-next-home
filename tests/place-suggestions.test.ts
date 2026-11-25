@@ -73,6 +73,9 @@ const NATIONS: Record<string, string> = {
   CM2: "E",
   CM3: "E",
   CM0: "E",
+  E1: "E",
+  LN1: "E",
+  NW1: "E",
   GL51: "E",
   GL52: "E",
   CH1: "E",
@@ -86,6 +89,17 @@ const PLACE_ROWS: PlaceRow[] = [
   { place: "CHELMSFORD", outward: "CM1", postcodes: 812 },
   { place: "CHELMSFORD", outward: "CM2", postcodes: 640 },
   { place: "CHELMSFORD", outward: "CM3", postcodes: 905 },
+  // BUG-323: the same place filed twice — the bare town
+  // and the town-with-county — for the merge pin below.
+  { place: "CHELMSFORD, ESSEX", outward: "CM1", postcodes: 812 },
+  { place: "CHELMSFORD, ESSEX", outward: "CM2", postcodes: 640 },
+  { place: "CHELMSFORD, ESSEX", outward: "CM3", postcodes: 905 },
+  // BUG-323: the same-word extension witnesses — a
+  // place that extends the typed town in the same word,
+  // and one that extends it across a word boundary.
+  { place: "LONDON", outward: "E1", postcodes: 900 },
+  { place: "LONDONTHORPE", outward: "LN1", postcodes: 40 },
+  { place: "LONDON BOROUGH OF CAMDEN", outward: "NW1", postcodes: 300 },
   { place: "SOUTHMINSTER", outward: "CM0", postcodes: 210 },
   { place: "CHELTENHAM", outward: "GL51", postcodes: 402 },
   { place: "CHELTENHAM", outward: "GL52", postcodes: 388 },
@@ -330,6 +344,48 @@ describe("place search — the group order when every group serves", () => {
       "Streets",
       "Properties",
       "Places",
+    ]);
+  });
+});
+
+describe("place search — BUG-323: one row per place, no same-word noise", () => {
+  it("the bare town and the town-with-county merge into one row, districts unioned", async () => {
+    const result = await suggestionsFor("Chelmsford", fakeSource(), "p323a");
+    const places = result.groups.find((group) => group.label === "Places")!;
+    // The fixture now files Chelmsford twice (bare and
+    // "CHELMSFORD, ESSEX", same three districts): the
+    // panel names it once, on the bare name, and the
+    // served log counts one place, not two.
+    expect(places.items).toEqual([
+      { label: "Chelmsford", href: "/search?place=Chelmsford", place: "Chelmsford" },
+    ]);
+    expect(lines.find((line) => line.includes("event=suggestions.served"))).toContain("places=1");
+  });
+
+  it("an exactly-typed town drops its same-word extension but keeps the word-boundary one", async () => {
+    // BUG-323, Londonthorpe leg — OPEN, not implemented:
+    // the blanket same-word rule that would drop
+    // Londonthorpe here also drops Chesterfield when
+    // "Chester" is typed, against the pinned sibling
+    // test above. This test pins the current behaviour
+    // (all three ride) so the conflict stays visible
+    // until the founder rules on it.
+    const result = await suggestionsFor("London", fakeSource(), "p323b");
+    const places = result.groups.find((group) => group.label === "Places")!;
+    expect(places.items.map((item) => item.label)).toEqual([
+      "London",
+      "London Borough Of Camden",
+      "Londonthorpe",
+    ]);
+  });
+
+  it("a part-typed town drops nothing — 'Londo' still offers Londonthorpe", async () => {
+    const result = await suggestionsFor("Londo", fakeSource(), "p323c");
+    const places = result.groups.find((group) => group.label === "Places")!;
+    expect(places.items.map((item) => item.label)).toEqual([
+      "London",
+      "London Borough Of Camden",
+      "Londonthorpe",
     ]);
   });
 });

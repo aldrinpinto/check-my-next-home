@@ -18,6 +18,7 @@ import {
   type ComparisonRowKey,
   type ShortlistCard,
   type ShortlistCell,
+  type ShortlistSegment,
 } from "./shortlist";
 import type { SoldPricesBundle } from "./sold-prices";
 
@@ -102,6 +103,19 @@ function distanceCell(category: CategoryAnswer | undefined): ShortlistCell {
   return { kind: "line", text: category?.line ?? NOT_COVERED_LINE };
 }
 
+// The Flood Zone the home sits inside, if any — the
+// zone verdict floodPillBand hears (BUG-151 ruling 3),
+// restated so the cell can NAME it (BUG-310): the
+// planning zone the layers carry, "Flood Zone 3" or
+// "Flood Zone 2", only where the point is inside it.
+function floodZoneLabel(flood: ShortFlood): string | null {
+  if (flood.state !== "served") return null;
+  const zone = flood.layers.find((layer) => layer.layer === "flood_zone");
+  if (!zone || zone.pointState !== "inside") return null;
+  const label = zone.coveringLabel ?? null;
+  return label === "Flood Zone 3" || label === "Flood Zone 2" ? label : null;
+}
+
 // The flood cell (founder's ruling, 17 Nov 2026 — real
 // comparable data replaces the pointer): both checks'
 // bands in one line, each derived through the results
@@ -134,15 +148,58 @@ function floodCell(flood: ShortFlood): ShortlistCell {
     // the pill reads red for the zone); the concatenated
     // text is unchanged.
     const band = floodPillBand(flood);
-    return {
-      kind: "segments",
-      segments: [
-        { text: "Rivers & sea: " },
-        { text: riversSeaBand, ...(band ? { band } : {}) },
-        { text: " · Surface water: " },
-        { text: surfaceWaterBand, ...(band ? { band } : {}) },
-      ],
-    };
+    const segments: ShortlistSegment[] = [
+      { text: "Rivers & sea: " },
+      { text: riversSeaBand, ...(band ? { band } : {}) },
+      { text: " · Surface water: " },
+      { text: surfaceWaterBand, ...(band ? { band } : {}) },
+    ];
+    // BUG-310 (founder's ruling, 25 Nov 2026): the red
+    // on a "Very low" pair is the Flood Zone verdict,
+    // not the band's colour — so the zone is NAMED
+    // beside the pills, as plain text, wherever the home
+    // sits inside one. The pills themselves are not
+    // recoloured: the zone verdict stands as Master v97
+    // built it.
+    const zone = floodZoneLabel(flood);
+    if (zone) segments.push({ text: ` · ${zone}` });
+    return { kind: "segments", segments };
+  }
+  // BUG-298: one layer served, the other unfiled — the
+  // served band stands, with its pill band, beside the
+  // other layer's own named-state line as plain text.
+  // The old fall-through showed only the unfiled
+  // layer's line and dropped the served band. A layer
+  // absent from the bundle altogether carries no line
+  // of its own, so the served band stands alone.
+  const served =
+    riversSeaBand !== null
+      ? {
+          label: "Rivers & sea: ",
+          band: riversSeaBand,
+          other: surfaceWater,
+          otherLabel: "Surface water: ",
+        }
+      : surfaceWaterBand !== null
+        ? {
+            label: "Surface water: ",
+            band: surfaceWaterBand,
+            other: riversSea,
+            otherLabel: "Rivers & sea: ",
+          }
+        : null;
+  if (served) {
+    const band = floodPillBand(flood);
+    const segments: ShortlistSegment[] = [
+      { text: served.label },
+      { text: served.band, ...(band ? { band } : {}) },
+    ];
+    if (served.other) {
+      segments.push({ text: ` · ${served.otherLabel}` }, { text: served.other.line });
+    }
+    const zone = floodZoneLabel(flood);
+    if (zone) segments.push({ text: ` · ${zone}` });
+    return { kind: "segments", segments };
   }
   const bandless = [riversSea, surfaceWater].find(
     (layer) => layer !== undefined && floodBandOf(layer) === null,
@@ -169,8 +226,30 @@ function crimeCell(crime: ShortCrime): ShortlistCell {
   if (crime.state !== "served") return { kind: "line", text: crime.reason };
   const band = crimePillBand(crime.per1000, crime.englandPer1000);
   const verdict = crimePillFigure(crime.per1000, crime.englandPer1000);
-  if (band === null || verdict === null)
+  if (band === null || verdict === null) {
+    // BUG-297 (BUG-292 residual): the pill stays silent
+    // where the two rates are exactly equal — the D75
+    // rule stands, so no band is invented here — but the
+    // compare cell still speaks the verdict in plain
+    // words beside the count, so the row never falls
+    // back to a bare count when both figures are known.
+    // A missing figure stays the bare count: no pair,
+    // no verdict of any kind.
+    if (
+      crime.per1000 != null &&
+      crime.englandPer1000 != null &&
+      crime.per1000 === crime.englandPer1000
+    ) {
+      return {
+        kind: "segments",
+        segments: [
+          { text: "At the England average" },
+          { text: ` · ${crime.total.toLocaleString("en-GB")} crimes` },
+        ],
+      };
+    }
     return { kind: "line", text: `${crime.total.toLocaleString("en-GB")} crimes` };
+  }
   return {
     kind: "segments",
     segments: [
@@ -306,6 +385,13 @@ function rung3Card(input: ShortlistCardInput): ShortlistCard | null {
   // both are named states at this rung. The comparison
   // carries every row's own named state.
   const factsLine = [short.sections.soldPrices.reason, short.sections.crime.reason].join(" • ");
+  // BUG-301: the nearby reason is stated ONCE, on the
+  // first of its rows (Primary) — the other seven
+  // nearby-governed rows carry an em-dash, which says
+  // the same state applies without repeating the
+  // sentence seven times down the column. No new wording
+  // is invented.
+  const dash: ShortlistCell = { kind: "line", text: "—" };
   return {
     id: shortlistCardId(3, resolution.outward, null),
     postcode: resolution.outward,
@@ -317,16 +403,16 @@ function rung3Card(input: ShortlistCardInput): ShortlistCard | null {
     factsLine,
     comparison: {
       primary: reason("nearby"),
-      secondary: reason("nearby"),
-      grammar: reason("nearby"),
-      nursery: reason("nearby"),
+      secondary: dash,
+      grammar: dash,
+      nursery: dash,
       flood: reason("flood"),
       crime: reason("crime"),
       air: reason("air"),
-      gp: reason("nearby"),
-      ae: reason("nearby"),
-      station: reason("nearby"),
-      vet: reason("nearby"),
+      gp: dash,
+      ae: dash,
+      station: dash,
+      vet: dash,
       councilTax: reason("councilTax"),
     },
     savedAt: "",

@@ -649,6 +649,17 @@ export const ERROR_PAGE_CLOSING_AFTER = "and we'll look into it.";
 export const TURNSTILE_BLOCK_LINE =
   "The robot check couldn't run, so your search hasn't been sent. Please try again.";
 
+// BUG-306: the line for when the robot check cannot run
+// at all, after the one retry — the search is still not
+// sent (ruling 5), but the visitor is not left with a
+// dead button: the line names the working route, picking
+// a home from the list as they type, which needs no
+// robot check. The server's rejection of a token keeps
+// the block line above — a rejected token is a different
+// failure from an unavailable check.
+export const TURNSTILE_UNAVAILABLE_LINE =
+  "The robot check could not run — pick your home from the list as you type, or try again in a moment.";
+
 // ------------------------------------------------------------------
 // Checking-group derivation — the part bundles in, the five
 // groups' completion lines out. A group outcome is:
@@ -719,7 +730,13 @@ export function formatMiles(miles: number): string {
 }
 
 export function formatPounds(value: number): string {
-  return `£${value.toLocaleString("en-GB")}`;
+  // BUG-315: a non-integer figure — a median over an
+  // even count averages two prices — renders to two
+  // decimals (£392,499.50), never one (£392,499.5).
+  // Whole pounds are unchanged.
+  return Number.isInteger(value)
+    ? `£${value.toLocaleString("en-GB")}`
+    : `£${value.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 const MONTH_NAMES = [

@@ -168,6 +168,101 @@ describe("the union read model", () => {
     );
     expect(union.map((p) => p.paon)).toEqual(["19", "21"]);
   });
+
+  it("BUG-308: TR8 4LX — one home filed in two part-shapes serves once, whichever layer filed it", async () => {
+    const db = new FakePickingDb();
+    db.pricePaid = [
+      // 115 Manor Villas, filed twice by two sales in
+      // different shapes: the building name in PAON
+      // with the number in SAON, then number and name
+      // together in PAON.
+      saleRow({
+        transaction_id: "tr1",
+        postcode: "TR8 4LX",
+        paon: "MANOR VILLAS",
+        saon: "115",
+        street: "ATLANTIC REACH",
+        locality: null,
+        town: "NEWQUAY",
+      }),
+      saleRow({
+        transaction_id: "tr2",
+        postcode: "TR8 4LX",
+        paon: "115 MANOR VILLAS",
+        saon: null,
+        street: "ATLANTIC REACH",
+        locality: null,
+        town: "NEWQUAY",
+      }),
+      // 148 Atlantic Reach: the PAON already carries
+      // the street.
+      saleRow({
+        transaction_id: "tr3",
+        postcode: "TR8 4LX",
+        paon: "148 ATLANTIC REACH",
+        saon: null,
+        street: "ATLANTIC REACH",
+        locality: null,
+        town: "NEWQUAY",
+      }),
+      // 1 Golf Lodges, street-filed and street-less.
+      saleRow({
+        transaction_id: "tr4",
+        postcode: "TR8 4LX",
+        paon: "1 GOLF LODGES",
+        saon: null,
+        street: "ATLANTIC REACH",
+        locality: null,
+        town: "NEWQUAY",
+      }),
+      saleRow({
+        transaction_id: "tr5",
+        postcode: "TR8 4LX",
+        paon: "1 GOLF LODGES",
+        saon: null,
+        street: null,
+        locality: null,
+        town: "NEWQUAY",
+      }),
+    ];
+    db.index = [
+      // The EPC shapes of the same homes: the number
+      // alone, no building name.
+      indexRow({
+        postcode: "TR8 4LX",
+        paon: "115",
+        saon: null,
+        street: "ATLANTIC REACH",
+        town: "NEWQUAY",
+        home_key: "115||ATLANTIC REACH",
+      }),
+      indexRow({
+        postcode: "TR8 4LX",
+        paon: "148",
+        saon: null,
+        street: "ATLANTIC REACH",
+        town: "NEWQUAY",
+        home_key: "148||ATLANTIC REACH",
+      }),
+    ];
+    const union = await createPickingIndexSource(db as never).unionAddressesInPostcode("TR8 4LX");
+    // The order is the comparator's own (a building
+    // whose number sits in SAON sorts as a named home,
+    // after the numbered run) — the bug is the
+    // duplication, not the order.
+    expect(union.map((p) => labelForAddressParts(p))).toEqual([
+      "1 Golf Lodges Atlantic Reach",
+      "148 Atlantic Reach",
+      "115 Manor Villas Atlantic Reach",
+    ]);
+    // The filed form wins: the 115 row carries the
+    // filed building name and SAON, not the bare
+    // index number.
+    expect(union.find((p) => p.paon === "MANOR VILLAS")).toMatchObject({
+      paon: "MANOR VILLAS",
+      saon: "115",
+    });
+  });
 });
 
 // Natural address order (founder fix, 18 Nov 2026): the

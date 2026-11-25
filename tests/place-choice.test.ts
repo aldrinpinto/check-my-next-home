@@ -40,6 +40,10 @@ class FakePlacesDb {
 
   async query(text: string, params: readonly unknown[] = []) {
     this.queries.push({ text, params });
+    // BUG-323: placeByNorm reads the filed counties
+    // first (the comma-county rewrite) — this fake files
+    // none, so no display is ever rewritten here.
+    if (text.includes("SELECT DISTINCT county")) return { rows: [] };
     if (text.includes("FROM picking_places")) return { rows: this.rows };
     throw new Error(`FakePlacesDb: unhandled SQL: ${text}`);
   }
@@ -61,9 +65,12 @@ describe("placeChoiceUrl — the display form reaches the route", () => {
     await expect(placeChoiceUrl("Chelmsford", db as unknown as PlaceQueryable)).resolves.toBe(
       "/search?place=Chelmsford",
     );
-    // The read is exact-norm equality on the filed form.
-    expect(db.queries).toHaveLength(1);
-    expect(db.queries[0].params).toEqual(["CHELMSFORD"]);
+    // The read is exact-norm equality on the filed form
+    // (the first query is BUG-323's filed-counties read
+    // for the comma-county rewrite; the place read is
+    // the second).
+    expect(db.queries).toHaveLength(2);
+    expect(db.queries[1].params).toEqual(["CHELMSFORD"]);
   });
 
   it("the typed casing does not matter — the filed place's display form answers", async () => {
@@ -147,11 +154,19 @@ describe("districtAreas — the place page's per-district area facts (BUG-026/BU
     expect(areas).toEqual([
       // No localities filed: the towns stand (the
       // district bundle's fallback), display-cased.
-      { outward: "CM1", settlements: ["Chelmsford"], examplePostcode: null },
+      // BUG-317: each district also names its own
+      // post town — its most-filed town.
+      {
+        outward: "CM1",
+        settlements: ["Chelmsford"],
+        examplePostcode: null,
+        postTown: "Chelmsford",
+      },
       {
         outward: "CM3",
         settlements: ["Danbury", "Hatfield Peverel"],
         examplePostcode: "CM3 2JT",
+        postTown: "Chelmsford",
       },
     ]);
   });
@@ -172,7 +187,12 @@ describe("districtAreas — the place page's per-district area facts (BUG-026/BU
     db.exampleRows = [{ outward: "CM1", postcode: "CM1 1AA" }];
     const areas = await createPlaceSource(db as unknown as PlaceQueryable).districtAreas(["CM1"]);
     expect(areas).toEqual([
-      { outward: "CM1", settlements: ["Chelmsford", "Springfield"], examplePostcode: "CM1 1AA" },
+      {
+        outward: "CM1",
+        settlements: ["Chelmsford", "Springfield"],
+        examplePostcode: "CM1 1AA",
+        postTown: null,
+      },
     ]);
   });
 
@@ -196,6 +216,10 @@ describe("districtAreas — the place page's per-district area facts (BUG-026/BU
         outward: "CM11",
         settlements: ["Billericay", "Chelmsford", "Downham"],
         examplePostcode: null,
+        // BUG-317: the most-filed town is Billericay —
+        // the row reads "CM11 — Billericay", never
+        // "CM11 — Chelmsford".
+        postTown: "Billericay",
       },
     ]);
   });
@@ -205,5 +229,102 @@ describe("districtAreas — the place page's per-district area facts (BUG-026/BU
     await expect(
       createPlaceSource(db as unknown as PlaceQueryable).districtAreas([]),
     ).resolves.toEqual([]);
+  });
+});
+
+describe("place tiers — BUG-323: the place display joins its county with a comma", () => {
+  class FakeTierDb {
+    rows: PlaceUnitRow[] = [];
+    counties: string[] = [];
+
+    async query(text: string, params: readonly unknown[] = []) {
+      void params;
+      if (text.includes("SELECT DISTINCT county")) {
+        return { rows: this.counties.map((county) => ({ county })) };
+      }
+      if (text.includes("FROM picking_places")) return { rows: this.rows };
+      throw new Error(`FakeTierDb: unhandled SQL: ${text}`);
+    }
+
+    async connect(): Promise<never> {
+      throw new Error("FakeTierDb: the prefix and exact-name tiers never open a transaction");
+    }
+  }
+
+  function tierDb(rows: PlaceUnitRow[], counties: string[]): FakeTierDb {
+    const db = new FakeTierDb();
+    db.rows = rows;
+    db.counties = counties;
+    return db;
+  }
+
+  it("'London Greater London' serves as 'London, Greater London'", async () => {
+    const db = tierDb(
+      [
+        {
+          place_norm: "LONDON GREATER LONDON",
+          place_display: "London Greater London",
+          districts: ["E1"],
+        },
+      ],
+      ["Greater London", "Essex"],
+    );
+    const units = await createPlaceSource(db as unknown as PlaceQueryable).placesByPrefix(
+      ["LONDON"],
+      5,
+    );
+    expect(units).toEqual([{ place: "London, Greater London", districts: ["E1"] }]);
+  });
+
+  it("the longest filed county wins — 'Greater London' beats 'London' as the trailing match", async () => {
+    const db = tierDb(
+      [{ place_norm: "X GREATER LONDON", place_display: "X Greater London", districts: ["E1"] }],
+      ["London", "Greater London"],
+    );
+    const units = await createPlaceSource(db as unknown as PlaceQueryable).placesByPrefix(["X"], 5);
+    expect(units[0].place).toBe("X, Greater London");
+  });
+
+  it("a display that IS the county alone stands as filed, and a town that merely ends in a county's words is never rewritten", async () => {
+    const db = tierDb(
+      [
+        { place_norm: "ESSEX", place_display: "Essex", districts: ["CM1"] },
+        { place_norm: "CHELMSFORD ESSEX", place_display: "Chelmsford Essex", districts: ["CM1"] },
+      ],
+      ["Essex"],
+    );
+    const units = await createPlaceSource(db as unknown as PlaceQueryable).placesByPrefix(
+      ["CHELMSFORD"],
+      5,
+    );
+    // The fake returns its rows wholesale (it does not
+    // apply the LIKE pattern): "Chelmsford Essex"
+    // rewrites (trailing filed county, non-empty
+    // remainder) while the county-alone row stands —
+    // "Essex" does not end with " Essex", so there is
+    // no remainder to take.
+    expect(units).toEqual([
+      { place: "Essex", districts: ["CM1"] },
+      { place: "Chelmsford, Essex", districts: ["CM1"] },
+    ]);
+    const alone = await createPlaceSource(db as unknown as PlaceQueryable).placeByNorm("ESSEX");
+    expect(alone).toEqual({ place: "Essex", districts: ["CM1"] });
+  });
+
+  it("the exact-name read rewrites too, so the place page and the panel name it alike", async () => {
+    const db = tierDb(
+      [
+        {
+          place_norm: "LONDON GREATER LONDON",
+          place_display: "London Greater London",
+          districts: ["E1"],
+        },
+      ],
+      ["Greater London"],
+    );
+    const unit = await createPlaceSource(db as unknown as PlaceQueryable).placeByNorm(
+      "LONDON GREATER LONDON",
+    );
+    expect(unit).toEqual({ place: "London, Greater London", districts: ["E1"] });
   });
 });

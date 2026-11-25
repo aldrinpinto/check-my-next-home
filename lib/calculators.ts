@@ -54,9 +54,9 @@ export function defaultDeposit(price: number): number {
 }
 
 // Stamp duty (England & Northern Ireland rates from
-// 1 April 2025 — GOV.UK). Standard bands: 0% to £125,000;
-// 2% to £250,000; 5% to £925,000; 10% to £1,500,000; 12%
-// above. First-time-buyer relief: 0% to £300,000 and 5%
+// 1 April 2025 — GOV.UK). Standard bands: 0% to £250,000;
+// 5% to £925,000; 10% to £1,500,000; 12% above.
+// First-time-buyer relief: 0% to £300,000 and 5%
 // from £300,000 to £500,000 — only up to £500,000; above
 // that the standard rates apply. The additional-home
 // rates add 5% to each band.
@@ -69,8 +69,7 @@ export const BUYER_CHOICES: { key: BuyerKind; label: string }[] = [
 ];
 
 const STANDARD_BANDS: { upTo: number; rate: number }[] = [
-  { upTo: 125_000, rate: 0 },
-  { upTo: 250_000, rate: 0.02 },
+  { upTo: 250_000, rate: 0 },
   { upTo: 925_000, rate: 0.05 },
   { upTo: 1_500_000, rate: 0.1 },
   { upTo: Infinity, rate: 0.12 },

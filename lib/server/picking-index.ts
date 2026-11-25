@@ -1,9 +1,10 @@
 // The picking index's read model (plan step M7.15B):
 // the UNION of the homes a check has filed in
 // price_paid and the homes the national preload filed
-// in picking_index (migration 0030), deduped by the
-// home key's own normalisation — the same partsKey the
-// hybrid ladder dedupes by.
+// in picking_index (migration 0030), deduped on the
+// canonical home (lib/address.ts's canonicalHomeKey) —
+// so one home filed in two part-shapes serves once,
+// whatever layer each shape came from.
 //
 // The union is the picker's local tier: the suggestions
 // endpoint and the picker's list both read it, so a
@@ -24,8 +25,12 @@
 //     pre-preload behaviour, never to an error.
 
 import type { AddressQueryable, LoadedAddressParts } from "../address";
-import { compareAddressParts, createAddressSource } from "../address";
-import { partsKey } from "./hybrid";
+import {
+  canonicalHomeKey,
+  compareAddressParts,
+  createAddressSource,
+  dedupeAddressParts,
+} from "../address";
 
 export interface PickingIndexSource {
   // Filed price_paid rows for the postcode.
@@ -75,14 +80,22 @@ export function createPickingIndexSource(db: AddressQueryable): PickingIndexSour
   }
 
   async function split(postcode: string) {
-    const [filedRows, index] = await Promise.all([
+    const [filedRaw, index] = await Promise.all([
       filed.addressesInPostcode(postcode),
       indexRows(postcode),
     ]);
-    const filedKeys = new Set(filedRows.map((parts) => partsKey(parts)));
+    // BUG-308: each layer dedupes on the canonical home
+    // — the same home filed in two part-shapes (a PP
+    // sale and an EPC row, or two sales) serves once.
+    // The filed rows win collisions at the dedupe (see
+    // split) — precedence decides whose FORM serves.
+    const filedRows = dedupeAddressParts(filedRaw);
+    const filedKeys = new Set(filedRows.map((parts) => canonicalHomeKey(parts)));
     return {
       filedRows,
-      indexOnlyRows: index.filter((parts) => !filedKeys.has(partsKey(parts))),
+      indexOnlyRows: dedupeAddressParts(
+        index.filter((parts) => !filedKeys.has(canonicalHomeKey(parts))),
+      ),
     };
   }
 

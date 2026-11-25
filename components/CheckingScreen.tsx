@@ -84,6 +84,34 @@ type PartSettlements = {
   area?: CheckingPart<CheckingAreaPayload>;
 };
 
+// BUG-320: the session flag for a completed check —
+// module-level so the effects can read it without
+// closing over per-render helpers. A "1" for this
+// postcode and home means the check already ran in
+// this session; a fresh session, or private mode
+// (where the read/write throw), replays honestly.
+function checkedFlagKey(postcode: string, homeKey: string | null): string {
+  return `cmnh:checked:${postcode}:${homeKey ?? ""}`;
+}
+function readCheckedFlag(postcode: string, homeKey: string | null): boolean {
+  try {
+    return (
+      typeof window !== "undefined" &&
+      window.sessionStorage.getItem(checkedFlagKey(postcode, homeKey)) === "1"
+    );
+  } catch {
+    return false;
+  }
+}
+function writeCheckedFlag(postcode: string, homeKey: string | null) {
+  try {
+    window.sessionStorage.setItem(checkedFlagKey(postcode, homeKey), "1");
+  } catch {
+    // Private mode or disabled storage: the check
+    // replays, honestly, as before.
+  }
+}
+
 export default function CheckingScreen({
   postcode,
   homeKey,
@@ -108,6 +136,18 @@ export default function CheckingScreen({
   const [doneCount, setDoneCount] = useState(0);
   const [complete, setComplete] = useState(false);
 
+  // BUG-320: a forward navigation back to this screen
+  // must not re-run the check — the bundles are cached
+  // server-side (D29), so the whole sequence would
+  // replay from 0 for nothing. A session flag records a
+  // completed check for this postcode and home; a
+  // remount in the same session restores straight to the
+  // results, with no part calls and no new check_started.
+  // sessionStorage's per-tab scope matches the case
+  // exactly — a fresh session replays honestly. The
+  // restore reads in the mount effect, after hydration,
+  // so there is no server/client mismatch — one frame
+  // of the screen is the cost, and the results follow.
   // The real wiring: fire the four check calls in parallel
   // and record each part's settlement as it lands — the
   // derived group payload on success, the failure mark on
@@ -118,6 +158,18 @@ export default function CheckingScreen({
   // computation (the slowest on a cold postcode) runs
   // from the start, in parallel with the earlier groups.
   useEffect(() => {
+    // BUG-320: this postcode and home already checked
+    // in this session — restore straight to the results.
+    // The restore reads sessionStorage in the mount
+    // effect, after hydration, so there is no
+    // server/client mismatch; the setState is the
+    // restore itself, not a render cascade — hence the
+    // targeted disable of the set-state-in-effect rule.
+    if (readCheckedFlag(postcode, homeKey)) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- post-hydration restore from sessionStorage (BUG-320); the one-frame flash is the accepted cost, documented above.
+      setComplete(true);
+      return;
+    }
     let cancelled = false;
     fireJourneyEvent("check_started", { rung: homeKey ? 1 : 2 });
     const params = new URLSearchParams({ postcode });
@@ -204,11 +256,17 @@ export default function CheckingScreen({
   // The advance: all five groups complete AND every part
   // settled (the completion gate already implies it), then
   // CHECKING_ADVANCE_MS — the seal's stamp gets its beat.
+  // BUG-320: the completion is recorded in the session
+  // flag as the results open, so a forward navigation
+  // back here restores instead of replaying.
   useEffect(() => {
     if (!sealed || !allSettled || complete) return;
-    const timer = setTimeout(() => setComplete(true), CHECKING_ADVANCE_MS);
+    const timer = setTimeout(() => {
+      writeCheckedFlag(postcode, homeKey);
+      setComplete(true);
+    }, CHECKING_ADVANCE_MS);
     return () => clearTimeout(timer);
-  }, [sealed, allSettled, complete]);
+  }, [sealed, allSettled, complete, postcode, homeKey]);
 
   if (complete) return <>{children}</>;
 

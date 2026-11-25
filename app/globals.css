@@ -3868,6 +3868,16 @@ a.picker__row {
   min-height: var(--tap-target);
 }
 
+/* BUG-318: the district save's fetch failure — a small
+   line under the button, which stays so the visitor can
+   try again. */
+.shortlist-save-failed {
+  margin: 6px 0 0;
+  font-size: 0.85rem;
+  color: var(--colour-muted);
+  max-width: 220px;
+}
+
 /* The buy bar's panel form (kit block for M7.6): the warm
    band panel carrying the report and shortlist pill
    buttons. */
@@ -7820,6 +7830,27 @@ a.picker__row {
   list-style: none;
   padding: 0;
   margin: 8px 0 0;
+}
+
+/* BUG-318: the row's list item is the flex parent —
+// the row link takes the width and the Save button
+// sits beside it, at every desktop width (the audit
+// found no button at 1519px). The button never wraps
+// below the row: the link shrinks (min-width: 0) and
+// the button holds its width. */
+.district-place__item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.district-place__item .district-place__row {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.district-place__item .shortlist-control {
+  flex-shrink: 0;
 }
 
 .district-place__row {

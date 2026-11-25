@@ -74,6 +74,8 @@ export type EntryEvent =
   | "suggestions.ceiling"
   | "suggestions.failed"
   | "suggestions.group-failed"
+  | "shortlist-card.limited"
+  | "shortlist-card.failed"
   | "picker.list"
   | "picker.supplement"
   | "supplement.limited"

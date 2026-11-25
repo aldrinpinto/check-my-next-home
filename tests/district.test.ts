@@ -7,6 +7,7 @@ import type { CensusFacts } from "../lib/area-bundle";
 import {
   buildDistrictBundle,
   cleanSettlements,
+  joinStraddlingNames,
   type DistrictBundle,
   type DistrictDataSource,
   type DistrictWarningItem,
@@ -422,6 +423,36 @@ describe("district bundle — head and the district itself", () => {
     expect(bundle.sections.district.residents).toBe(6000);
     expect(bundle.sections.district.households).toBe(2400);
     expect(bundle.sections.bridge.postcodes).toEqual(["ZZ9 1AA", "ZZ9 1AB", "ZZ9 2AA", "ZZ9 2AB"]);
+  });
+
+  it("BUG-307: the head's county is the most-filed one only — stray filed counties never reach the chip", async () => {
+    // CM3's shape: the district's sales rows file Essex
+    // by a wide margin alongside Luton, Southend-on-sea,
+    // Thurrock and West Sussex. The head takes the
+    // majority vote alone; the filter's union set keeps
+    // them all, so no settlement is lost.
+    const bundle = await servedBundle({
+      places: async () => ({
+        localities: [
+          { name: "HATFIELD PEVEREL", filings: 12 },
+          { name: "DANBURY", filings: 9 },
+        ],
+        towns: [{ name: "CHELMSFORD", filings: 40 }],
+        counties: ["ESSEX", "LUTON", "SOUTHEND-ON-SEA", "THURROCK", "WEST SUSSEX"],
+        settlementCounties: ["ESSEX", "LUTON", "SOUTHEND-ON-SEA", "THURROCK", "WEST SUSSEX"],
+        settlementPostcodes: [],
+      }),
+    });
+    expect(bundle.head.counties).toEqual(["Essex"]);
+  });
+
+  it("BUG-300: the Straddles chip joins three or more names with commas and '&' before the last", () => {
+    expect(joinStraddlingNames(["Braintree"])).toBe("Braintree");
+    expect(joinStraddlingNames(["Braintree", "Maldon"])).toBe("Braintree & Maldon");
+    expect(joinStraddlingNames(["Braintree", "Maldon", "Chelmsford"])).toBe(
+      "Braintree, Maldon & Chelmsford",
+    );
+    expect(joinStraddlingNames(["A", "B", "C", "D"])).toBe("A, B, C & D");
   });
 
   it("filters filed fragments that are not settlement names at the derivation (audit item 9)", async () => {

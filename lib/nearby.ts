@@ -1243,7 +1243,7 @@ async function buildCategory(
     const best = selectiveList[0] ?? null;
     answer.nearestSelective = best;
     answer.nearestSelectiveLine = best
-      ? `the nearest selective secondary school is ${best.name} — selective means admission by entrance test`
+      ? `The nearest selective secondary school is ${best.name} — selective means admission by entrance test`
       : null;
   }
   if (places.length > 0) return answer;
@@ -1643,9 +1643,16 @@ function schoolDetailOf(row: Record<string, unknown>): string | null {
 // place every served detail passes through, so the repair
 // sits here: a space after a comma that lacks one, except
 // between two digits, where the comma is a thousands
-// separator (1,000 stays untouched).
+// separator (1,000 stays untouched). BUG-316: a run of
+// commas with an empty segment between them ("Street,,SE16")
+// collapses to one — the empty segment is filed noise,
+// never a separator (a thousands separator is a single
+// comma, never adjacent to another).
 export function normaliseCommaSpacing(detail: string): string {
-  return detail.replace(/,([A-Za-z])/g, ", $1").replace(/([A-Za-z]),(\d)/g, "$1, $2");
+  return detail
+    .replace(/,(?:\s*,)+/g, ",")
+    .replace(/,([A-Za-z])/g, ", $1")
+    .replace(/([A-Za-z]),(\d)/g, "$1, $2");
 }
 
 function toPoint(row: Record<string, unknown>): NearbyPoint {

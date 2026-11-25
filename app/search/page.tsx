@@ -16,6 +16,7 @@ import {
   type AddressResolution,
 } from "../../lib/address";
 import { homeKeyOf } from "../../lib/bundle-cache";
+import { joinStraddlingNames } from "../../lib/district";
 import {
   UNPLACED_NOTICE_URL,
   WIDER_AREA_BANNER_HEADING,
@@ -306,6 +307,7 @@ async function PlaceChoiceAreas({ place, districts }: { place: string; districts
         outward,
         settlements: [] as string[],
         examplePostcode: null,
+        postTown: null,
       })),
     );
   return <PlaceChoice place={place} districts={areas} />;
@@ -417,20 +419,22 @@ async function DistrictResults({
         ? null
         : head.councils.length === 1
           ? head.councils[0]
-          : `Straddles ${head.councils.join(" & ")} councils`;
+          : `Straddles ${joinStraddlingNames(head.councils)} councils`;
     // The first chip is the county, in the sample's
     // form (founder fix batch — audit item 4): the
     // build used to serve the region here, a recorded
     // departure; the sample's chip is the county the
-    // district's sales rows file. Several counties
-    // straddle in the councils chip's own form; no
-    // filed county, no chip.
+    // district's sales rows file. BUG-307: the head
+    // carries only the most-filed county, so the chip
+    // names one county — the Straddles form below is
+    // the same join as the councils chip, kept for a
+    // head that ever carries more than one.
     const countyChip =
       head.counties.length === 0
         ? null
         : head.counties.length === 1
           ? head.counties[0]
-          : `Straddles ${head.counties.join(" & ")} counties`;
+          : `Straddles ${joinStraddlingNames(head.counties)} counties`;
     return (
       <>
         <header className="results-head">

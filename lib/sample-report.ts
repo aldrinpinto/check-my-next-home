@@ -598,7 +598,7 @@ export function suppressSampleNames(
 // strings wherever they stood. That patched the labels
 // and left the arithmetic: Section 7's loan, deposit
 // and stamp duty were computed from the real price
-// (£441,746 loan, £147,249 deposit, £19,450 duty —
+// (£441,746 loan, £147,249 deposit, £16,950 duty —
 // against a £425,000 price label), the dot plot's brass
 // dot sat on the real price, and the first-sale year
 // read 2023 against a 22 March 2022 sale date. Worse,

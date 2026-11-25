@@ -258,6 +258,97 @@ export function flatKeyOf(saon: string | null): string | null {
   return match ? match[1] : null;
 }
 
+// The canonical home key (BUG-308): the identity of a
+// home across the part-shapes its filings take. The
+// Price Paid file and the EPC index file the same home
+// differently — the building name in PAON with the
+// number in SAON ("MANOR VILLAS" / "115"), the number
+// and name together in PAON ("115 MANOR VILLAS"), or
+// the number alone ("115") — and a PAON that already
+// carries the street ("148 ATLANTIC REACH") repeats
+// it. The strict parts key (homeKeyOf) treats those as
+// different homes, so the picker lists one home twice.
+//
+// The canonical key keeps only what identifies the
+// home: the postcode, every number token filed in PAON
+// or SAON (sorted, deduped — the house number, the
+// flat number, the building's street number), the
+// street, and — only where no number is filed — the
+// building name. A number on a street is one house
+// whatever its building is called, while two unnumbered
+// cottages on one street are two homes, so the name
+// counts only where it is the whole identity. A flat
+// marker separates a flat from a house carrying the
+// same number on the same street. A name that IS the
+// street carries nothing. This key dedupes picker lists
+// ONLY — it never replaces homeKeyOf, the bundle and
+// route identity.
+export function canonicalHomeKey(parts: LoadedAddressParts): string {
+  const numbers = new Set<string>();
+  const names: string[] = [];
+  let flat = false;
+  const take = (value: string | null) => {
+    if (!value) return;
+    for (const token of normText(value).split(" ").filter(Boolean)) {
+      if (isNumberToken(token)) numbers.add(token);
+      else if (/^(FLAT|APARTMENT|APT|UNIT)$/.test(token)) flat = true;
+      else if (!names.includes(token)) names.push(token);
+    }
+  };
+  take(parts.paon);
+  take(parts.saon);
+  const street = normText(parts.street ?? "");
+  let name = numbers.size > 0 ? "" : normText(names.join(" "));
+  if (name === street) name = "";
+  return [
+    normText(parts.postcode ?? ""),
+    [...numbers].sort().join(","),
+    street,
+    name,
+    flat ? "F" : "",
+  ].join("|");
+}
+
+// One home, one row: the canonical key's dedupe over a
+// list of filed parts, in first-seen order. Within a
+// canonical group the first shape serves — the reads
+// order street, PAON, SAON, so the simplest shape
+// ("115" before "115 MANOR VILLAS" before "MANOR
+// VILLAS") wins. A street-less row then absorbs into
+// the one kept row it matches on everything but the
+// street, only where exactly one such row exists — so
+// an ambiguous street-less row (a No. 1 on two streets)
+// stays, never guessed.
+export function dedupeAddressParts(rows: LoadedAddressParts[]): LoadedAddressParts[] {
+  const seen = new Set<string>();
+  const kept: LoadedAddressParts[] = [];
+  for (const parts of rows) {
+    const key = canonicalHomeKey(parts);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    kept.push(parts);
+  }
+  const blankedKey = (parts: LoadedAddressParts): string => {
+    const slots = canonicalHomeKey(parts).split("|");
+    slots[2] = "";
+    return slots.join("|");
+  };
+  const byBlanked = new Map<string, LoadedAddressParts[]>();
+  for (const parts of kept) {
+    const key = blankedKey(parts);
+    const list = byBlanked.get(key) ?? [];
+    list.push(parts);
+    byBlanked.set(key, list);
+  }
+  return kept.filter((parts) => {
+    if (normText(parts.street ?? "") !== "") return true;
+    const matches = (byBlanked.get(blankedKey(parts)) ?? []).filter(
+      (candidate) => candidate !== parts && normText(candidate.street ?? "") !== "",
+    );
+    return matches.length !== 1;
+  });
+}
+
 function toResolved(parts: LoadedAddressParts): ResolvedAddress {
   const paon = displayText(parts.paon ?? "");
   const street = parts.street ? displayText(parts.street) : null;
@@ -266,9 +357,30 @@ function toResolved(parts: LoadedAddressParts): ResolvedAddress {
   // Crescent" for a flat — the PAON's own comma (building name, street
   // number) is kept, and the street follows the PAON's number.
   let label = paon;
-  if (parts.saon) label = `${displayText(parts.saon)}, ${paon}`;
+  // BUG-308: a SAON that is a bare number is the house
+  // number, not a separate address line — "115 Manor
+  // Villas", never "115, Manor Villas". A named SAON
+  // ("Flat 4") keeps its comma.
+  if (parts.saon) {
+    label = isNumberToken(normText(parts.saon))
+      ? `${displayText(parts.saon)} ${paon}`
+      : `${displayText(parts.saon)}, ${paon}`;
+  }
+  // BUG-308: a PAON that already carries the street
+  // ("148 ATLANTIC REACH") must not have it appended
+  // again — the street appears once, never doubled.
+  if (street && label !== "" && normText(label).endsWith(normText(street))) {
+    return { ...parts, label };
+  }
   if (street) {
-    const separator = parts.saon || /[0-9]$/.test(paon) ? " " : ", ";
+    // BUG-308: the street follows with a space where the
+    // PAON is number-led ("1 GOLF LODGES") or number-
+    // trailed ("MINERVA HOUSE, 12") or a SAON is filed
+    // — and with a comma only for a pure name ("ROSE
+    // COTTAGE, HIGH STREET"). A number-led PAON took
+    // the comma before, so its shape labelled
+    // differently from the same home's SAON shape.
+    const separator = parts.saon || /^[0-9]/.test(paon) || /[0-9]$/.test(paon) ? " " : ", ";
     label = label === "" ? street : `${label}${separator}${street}`;
   }
   return { ...parts, label };
@@ -288,10 +400,6 @@ export function labelForAddressParts(parts: LoadedAddressParts): string {
 // leading comma ("MK10 1AA", never ", MK10 1AA").
 export function headingForHome(label: string, postcode: string): string {
   return label === "" ? postcode : `${label}, ${postcode}`;
-}
-
-function addressKey(parts: LoadedAddressParts): string {
-  return [parts.paon ?? "", parts.saon ?? "", parts.street ?? ""].join("|");
 }
 
 // The letter suffix of a number token, for natural sorting
@@ -420,13 +528,10 @@ export async function resolveAddressInput(
   // area it names, never a guessed home.
   if (!directory) return widerArea();
 
-  const seen = new Set<string>();
-  const rows = (await source.addressesInPostcode(input.postcode)).filter((parts) => {
-    const key = addressKey(parts);
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  // BUG-308: the list dedupes on the canonical home,
+  // not the filed part-shape — two filings of one home
+  // in different shapes collapse to one row.
+  const rows = dedupeAddressParts(await source.addressesInPostcode(input.postcode));
 
   const listResult = (
     subset: LoadedAddressParts[],

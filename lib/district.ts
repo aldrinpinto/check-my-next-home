@@ -1168,6 +1168,16 @@ export interface DistrictBuild {
   bundle: Promise<DistrictBundle>;
 }
 
+// BUG-300: the Straddles chip's join — commas
+// between the names, " & " before the last one, so
+// three or more names never read "A & B & C". Two
+// names keep the plain "A & B"; one name stands alone.
+export function joinStraddlingNames(names: string[]): string {
+  if (names.length <= 1) return names[0] ?? "";
+  if (names.length === 2) return `${names[0]} & ${names[1]}`;
+  return `${names.slice(0, -1).join(", ")} & ${names[names.length - 1]}`;
+}
+
 export function startDistrictBuild(
   outward: string,
   source: DistrictDataSource,
@@ -1267,7 +1277,18 @@ export function startDistrictBuild(
         lsoaCount: lsoaCodes.length,
         msoaCount: msoaCodes.length,
         councils,
-        counties: [...new Set(places.counties.map((name) => displayText(name)))].sort(),
+        // BUG-307: the head's county is the district's
+        // sales rows' majority vote — places.counties is
+        // ranked most-filed first, and the head takes
+        // only the first. Price Paid's county column is
+        // unreliable row by row (CM3's rows file Luton,
+        // Southend-on-sea, Thurrock and West Sussex
+        // alongside Essex); naming them all in the chip
+        // would name the wrong counties. The full union
+        // still rides in settlementCounties for the
+        // settlement filter — only the chip's county
+        // narrows to the vote.
+        counties: places.counties.length > 0 ? [displayText(places.counties[0])] : [],
         postTown: places.towns[0] ? displayText(places.towns[0].name) : null,
         region: regions[0] ?? null,
         sourceName: stamp?.sourceName ?? null,
@@ -1279,8 +1300,8 @@ export function startDistrictBuild(
     // 1 — The district itself. The filter drops by the
     // union set (places.settlementCounties), never the
     // district's own counties alone (BUG-034 residual) —
-    // the head above keeps places.counties, the district's
-    // own, for its chip. The composer also yields the
+    // the head above keeps only the most-filed county
+    // for its chip (BUG-307). The composer also yields the
     // bridge's settlement postcodes, which ride its
     // result until the bundle assembles.
     const districtP: Promise<{
@@ -2333,9 +2354,10 @@ export function createDistrictSource(db: AddressQueryable): DistrictDataSource {
           [prefix],
         ),
         // The counties the district's sales rows file
-        // (Price Paid's own county column) and one filed
-        // postcode per locality — the head chip's data and
-        // the bridge links' landings (founder fix batch).
+        // (Price Paid's own county column), ranked
+        // most-filed first — BUG-307: the head's county
+        // is the majority vote, not the whole spread of
+        // a column that files stray counties row by row.
         // The settlement filter drops by a wider set: the
         // district's own UNION every county filed anywhere
         // in the register (everyFiledCounty above), because
@@ -2343,7 +2365,10 @@ export function createDistrictSource(db: AddressQueryable): DistrictDataSource {
         // the county stand as a settlement (BUG-034
         // residual).
         db.query(
-          `SELECT DISTINCT county FROM price_paid WHERE starts_with(postcode, $1) AND county IS NOT NULL`,
+          `SELECT county, count(*)::int AS filings FROM price_paid
+           WHERE starts_with(postcode, $1) AND county IS NOT NULL
+           GROUP BY county
+           ORDER BY filings DESC, county`,
           [prefix],
         ),
         everyFiledCounty(db),

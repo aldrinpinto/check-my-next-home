@@ -287,6 +287,15 @@ export const CONTACT_REPLY_PROMISE = "We reply within two working days.";
 // for a message actually stored (lib/server/contact.ts).
 export const CONTACT_NAME_ERROR = "Enter your name";
 export const CONTACT_EMAIL_ERROR = "Enter an email address, like you@example.co.uk";
+// BUG-303: the malformed email's own line — it tells
+// the visitor the address is the wrong shape, not that
+// it is missing.
+export const CONTACT_EMAIL_FORMAT_ERROR =
+  "Enter an email address in the correct format, like you@example.co.uk";
+// BUG-302: the required-field indication — one line
+// above the form, so the visitor knows every field
+// must be filled before the server refuses an empty one.
+export const CONTACT_REQUIRED_LINE = "All fields are required.";
 export const CONTACT_MESSAGE_ERROR = "Enter your message";
 export const CONTACT_MESSAGE_TOO_LONG_ERROR =
   "That message is too long — please keep it under 5,000 characters.";

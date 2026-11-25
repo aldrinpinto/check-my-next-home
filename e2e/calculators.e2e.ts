@@ -85,12 +85,12 @@ test.describe("calculators — regression (M7.10)", () => {
       await expect(mortgageCard(page)).toContainText("25% of the price");
       // The framing line, computed on the last sale.
       await expect(stampDutyCard(page)).toContainText(
-        "On the price this home last sold for, the stamp duty would be £19,450",
+        "On the price this home last sold for, the stamp duty would be £16,950",
       );
 
       await stampDutyCard(page).getByRole("button", { name: "Calculate stamp duty" }).click();
       await expect(stampDutyCard(page).locator(".calculator-card__result")).toHaveText(
-        "£19,450 on top of the price.",
+        "£16,950 on top of the price.",
       );
 
       await mortgageCard(page).getByRole("button", { name: "Calculate monthly payment" }).click();

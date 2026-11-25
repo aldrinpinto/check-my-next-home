@@ -33,6 +33,7 @@ import {
   PICKER_TITLE,
   SEARCH_ROUTE,
   TURNSTILE_BLOCK_LINE,
+  TURNSTILE_UNAVAILABLE_LINE,
   UNPLACED_NOTICE_LINE,
   UNPLACED_NOTICE_URL,
   STREET_CHOICE_LINE,
@@ -242,6 +243,12 @@ describe("pinned journey copy", () => {
     expect(HOLDING_LINE).toBe("The check is complete. This home's full results open on this page.");
     expect(TURNSTILE_BLOCK_LINE).toBe(
       "The robot check couldn't run, so your search hasn't been sent. Please try again.",
+    );
+    // BUG-306: the unavailable line names the working
+    // route — picking from the list — instead of a bare
+    // retry.
+    expect(TURNSTILE_UNAVAILABLE_LINE).toBe(
+      "The robot check could not run — pick your home from the list as you type, or try again in a moment.",
     );
     expect(OWNERSHIP_NOT_PART_LINE).toBe(
       "Ownership — the ownership check is not part of this result.",

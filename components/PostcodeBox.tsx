@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react";
 
 import { headingForHome } from "../lib/address";
 import {
@@ -18,6 +25,7 @@ import {
   FAILED_ROUTE,
   PICK_FALLBACK_FLAG,
   TURNSTILE_BLOCK_LINE,
+  TURNSTILE_UNAVAILABLE_LINE,
   UNPLACED_NOTICE_LINE,
   homeRoute,
   placeChoiceRoute,
@@ -142,6 +150,11 @@ declare global {
       render: (container: HTMLElement, options: Record<string, unknown>) => string;
       execute: (widgetId: string) => void;
       reset: (widgetId: string) => void;
+      // BUG-322: the widget is removed once it has
+      // served — after a token, after an error, and on
+      // unmount — so its badge never lingers in the DOM
+      // after the check it belongs to.
+      remove: (widgetId: string) => void;
       getResponse: (widgetId: string) => string;
     };
   }
@@ -214,10 +227,10 @@ export default function PostcodeBox({
     resolve: (token: string) => void;
     reject: (error: Error) => void;
   } | null>(null);
-  // No site key configured is a failed widget from the
-  // start (the closed direction) — initialised, not set in
-  // an effect.
-  const [widgetFailed, setWidgetFailed] = useState(() => !siteKey);
+  // No site key configured: renderWidget below no-ops
+  // and requestToken rejects — the closed direction,
+  // with no state to track it (BUG-306: the widget's
+  // existence is the truth, so no failed flag is kept).
   const [blockMessage, setBlockMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -511,45 +524,87 @@ export default function PostcodeBox({
     }
   }
 
-  useEffect(() => {
-    let cancelled = false;
-    if (!siteKey) return;
-    void loadTurnstileScript().then((loaded) => {
-      if (cancelled) return;
-      if (!loaded || !window.turnstile || !widgetRef.current) {
-        setWidgetFailed(true);
-        return;
+  // BUG-306/322: the widget's lifecycle, in one place
+  // so the mount and the retry render the same way.
+  // renderWidget loads the script and renders the
+  // invisible widget into the slot; a script that fails
+  // to load clears the cached loader so a later retry
+  // loads it again instead of re-answering the cached
+  // failure. The widget is removed once it has served —
+  // after a token (the token stays cached in tokenRef),
+  // after an error, and on unmount — so its badge never
+  // lingers in the DOM after the check it belongs to,
+  // and a later submit renders a fresh one on demand.
+  const removeWidget = useCallback(() => {
+    if (widgetIdRef.current && window.turnstile) {
+      try {
+        window.turnstile.remove(widgetIdRef.current);
+      } catch {
+        // Already gone — the ref is the truth either way.
       }
-      widgetIdRef.current = window.turnstile.render(widgetRef.current, {
-        sitekey: siteKey,
-        size: "invisible",
-        callback: (token: string) => {
-          tokenRef.current = token;
-          waitersRef.current?.resolve(token);
-          waitersRef.current = null;
-        },
-        "error-callback": () => {
-          tokenRef.current = null;
-          waitersRef.current?.reject(new Error("turnstile-error"));
-          waitersRef.current = null;
-          setWidgetFailed(true);
-        },
-        "expired-callback": () => {
-          tokenRef.current = null;
-        },
+    }
+    widgetIdRef.current = null;
+  }, []);
+
+  const renderWidget = useCallback(
+    (isCancelled?: () => boolean): Promise<void> => {
+      if (!siteKey) return Promise.resolve();
+      return loadTurnstileScript().then((loaded) => {
+        // The mount's StrictMode double-invoke: the first
+        // invocation's render is abandoned, never rendered.
+        if (isCancelled?.()) return;
+        if (!loaded) {
+          scriptPromise = null;
+          return;
+        }
+        if (!window.turnstile || !widgetRef.current) {
+          return;
+        }
+        widgetIdRef.current = window.turnstile.render(widgetRef.current, {
+          sitekey: siteKey,
+          size: "invisible",
+          callback: (token: string) => {
+            tokenRef.current = token;
+            waitersRef.current?.resolve(token);
+            waitersRef.current = null;
+            removeWidget();
+          },
+          "error-callback": () => {
+            tokenRef.current = null;
+            waitersRef.current?.reject(new Error("turnstile-error"));
+            waitersRef.current = null;
+            removeWidget();
+          },
+          "expired-callback": () => {
+            tokenRef.current = null;
+          },
+        });
       });
-    });
+    },
+    [siteKey, removeWidget],
+  );
+
+  useEffect(() => {
+    if (!siteKey) return;
+    let cancelled = false;
+    void renderWidget(() => cancelled);
     return () => {
       cancelled = true;
+      removeWidget();
     };
-  }, [siteKey]);
+  }, [siteKey, renderWidget, removeWidget]);
 
   // Ask the widget for a token, waiting for its callback.
   // Rejects when the widget is unavailable or does not
-  // answer — the caller turns that into the blocking line.
-  function requestToken(): Promise<string> {
-    if (tokenRef.current) return Promise.resolve(tokenRef.current);
-    if (widgetFailed || !window.turnstile || !widgetIdRef.current) {
+  // answer — the caller turns that into the fallback
+  // line. A widget that was removed after serving (or
+  // never rendered) is rendered on demand first, so a
+  // second submit after a token does not fail on the
+  // removal the first submit caused.
+  async function requestToken(): Promise<string> {
+    if (tokenRef.current) return tokenRef.current;
+    if (!widgetIdRef.current) await renderWidget();
+    if (!window.turnstile || !widgetIdRef.current) {
       return Promise.reject(new Error("turnstile-unavailable"));
     }
     const widgetId = widgetIdRef.current;
@@ -643,12 +698,27 @@ export default function PostcodeBox({
     try {
       token = await requestToken();
     } catch {
-      // Ruling 5: the robot check could not run — the
-      // search is not sent, and the visitor gets a friendly
-      // retry, never a crash and never a silent pass.
-      setBlockMessage(TURNSTILE_BLOCK_LINE);
-      setBusy(false);
-      return;
+      // BUG-306: one retry — the widget may have been
+      // removed after serving a token, or the script may
+      // have loaded since the first attempt. requestToken
+      // renders on demand and renderWidget reloads a
+      // script that failed, so the retry is a fresh
+      // widget and a fresh execute, not the same attempt
+      // twice.
+      try {
+        token = await requestToken();
+      } catch {
+        // The robot check cannot run at all — the search
+        // is still not sent (ruling 5), but the visitor
+        // is not left with a dead button: the fallback
+        // line names the working route, and the panel
+        // opens so the visitor can pick a home from the
+        // list as they type — picks need no robot check.
+        setBlockMessage(TURNSTILE_UNAVAILABLE_LINE);
+        setPanelOpen(true);
+        setBusy(false);
+        return;
+      }
     }
 
     let response: Response;
@@ -715,6 +785,12 @@ export default function PostcodeBox({
 
   function onFieldChange(event: { target: { value: string } }) {
     setValue(event.target.value);
+    // BUG-319: a fresh keystroke clears the block
+    // message too — the robot-check, couldn't-place and
+    // empty-field lines belong to the submitted query,
+    // not to the text now in the field. (The empty and
+    // failure flags below un-settle the same way.)
+    setBlockMessage(null);
     // A fresh keystroke un-settles the empty answer: the
     // no-suggestions line belongs to the settled query,
     // and the next response re-settles it either way.
