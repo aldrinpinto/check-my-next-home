@@ -448,11 +448,28 @@ describe("payment page — the rendered page (the step's Check, rendered half)",
     expect(methodsAt).toBeGreaterThan(emailAt);
     expect(payAt).toBeGreaterThan(methodsAt);
     // The method rows are visible before any input:
-    // Card first, Revolut Pay second.
-    const cardAt = html.indexOf(">Card</li>");
-    const revolutAt = html.indexOf(">Revolut Pay</li>");
+    // Card first, Revolut Pay second — the label span
+    // carries each row's text (the brand marks' svg
+    // wordmarks stand beside it, not in it).
+    const cardAt = html.indexOf(">Card</span>");
+    const revolutAt = html.indexOf(">Revolut Pay</span>");
     expect(cardAt).toBeGreaterThan(methodsAt);
     expect(revolutAt).toBeGreaterThan(cardAt);
+    // The accepted-brand marks stand on the rows from
+    // the start too (founder, 25 Nov 2026): the four
+    // card brands on the Card row, the Revolut mark on
+    // the Revolut Pay row — before any email or
+    // consent input (this render has neither).
+    const visaAt = html.indexOf('data-brand="visa"');
+    const mastercardAt = html.indexOf('data-brand="mastercard"');
+    const amexAt = html.indexOf('data-brand="amex"');
+    const discoverAt = html.indexOf('data-brand="discover"');
+    const revolutMarkAt = html.indexOf('data-brand="revolut"');
+    expect(visaAt).toBeGreaterThan(cardAt);
+    expect(mastercardAt).toBeGreaterThan(visaAt);
+    expect(amexAt).toBeGreaterThan(mastercardAt);
+    expect(discoverAt).toBeGreaterThan(amexAt);
+    expect(revolutMarkAt).toBeGreaterThan(revolutAt);
     // The email field's Required is the page's only
     // one (BUG-215 removed the tick's).
     expect(html.match(/Required/g)?.length).toBe(1);

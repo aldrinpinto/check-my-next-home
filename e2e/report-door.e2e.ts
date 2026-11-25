@@ -129,8 +129,20 @@ test.describe("report door — regression", () => {
       await expect(checkout).toContainText("One payment, no subscription, nothing further to pay.");
       await expect(checkout).not.toContainText("£4.99 — one payment");
       await expect(checkout).not.toContainText("Tick the box and add your email to pay.");
-      await expect(checkout.locator(".report-payment__method").first()).toHaveText("Card");
-      await expect(checkout.locator(".report-payment__method").nth(1)).toHaveText("Revolut Pay");
+      // The rows are labelled Card then Revolut Pay —
+      // the label span carries the text (the brand
+      // marks' svg wordmarks stand beside it). The
+      // marks stand on the rows from the start too
+      // (founder, 25 Nov 2026).
+      await expect(checkout.locator(".report-payment__method-label").first()).toHaveText("Card");
+      await expect(checkout.locator(".report-payment__method-label").nth(1)).toHaveText(
+        "Revolut Pay",
+      );
+      await expect(checkout.locator('[data-brand="visa"]')).toHaveCount(1);
+      await expect(checkout.locator('[data-brand="mastercard"]')).toHaveCount(1);
+      await expect(checkout.locator('[data-brand="amex"]')).toHaveCount(1);
+      await expect(checkout.locator('[data-brand="discover"]')).toHaveCount(1);
+      await expect(checkout.locator('[data-brand="revolut"]')).toHaveCount(1);
       // The paid state's own furniture (M9.4/M9.5): the
       // honesty block with the consent tick, and the
       // delivery-email field — the holding page's state

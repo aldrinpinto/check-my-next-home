@@ -16,6 +16,7 @@ import {
   type StartedPayment,
 } from "../lib/report-payment";
 import { fireJourneyEvent } from "./JourneyBeacon";
+import { AmexMark, DiscoverMark, MastercardMark, RevolutMark, VisaMark } from "./PaymentBrandMarks";
 
 // The payment page (plan steps M9.4 and M9.5; Final
 // Sample Master, Sample 9). The report door's paid
@@ -627,15 +628,34 @@ export default function ReportPaymentPage({
                         are the page's own static list, not
                         the provider's element (the element
                         still mounts only once a payment has
-                        started, below). */}
+                        started, below). The accepted-brand
+                        marks stand on the rows from the
+                        start too (founder, 25 Nov 2026):
+                        the four card brands on the Card
+                        row, the Revolut mark on the
+                        Revolut Pay row — components/
+                        PaymentBrandMarks.tsx. */}
                     {/* BUG-223: no payment-method rows for a
                         gift holder — a free order has no
                         payment method (approved Screen C
                         draws no card panel). */}
                     {!giftApplies && (
                       <ul className="report-payment__methods" aria-label="Payment methods">
-                        <li className="report-payment__method">Card</li>
-                        <li className="report-payment__method">Revolut Pay</li>
+                        <li className="report-payment__method">
+                          <span className="report-payment__method-label">Card</span>
+                          <span className="report-payment__method-marks" aria-hidden="true">
+                            <VisaMark />
+                            <MastercardMark />
+                            <AmexMark />
+                            <DiscoverMark />
+                          </span>
+                        </li>
+                        <li className="report-payment__method">
+                          <span className="report-payment__method-label">Revolut Pay</span>
+                          <span className="report-payment__method-marks" aria-hidden="true">
+                            <RevolutMark />
+                          </span>
+                        </li>
                       </ul>
                     )}
                     {/* The element's mount point: the provider's
