@@ -29,6 +29,18 @@
 // invisible until the seal stamps, so the layout
 // never shifts at the reveal.
 //
+// BUG-358 (25 Nov 2026): the rows deliberately carry
+// NO data-row / data-state hooks — a static
+// placeholder has no state to report, and the live
+// screen renders the same hooks the moment it mounts.
+// While the resolution streams, the fallback and the
+// live screen share the DOM; hooks on both meant two
+// data-row="costs" rows and a strict-mode violation
+// in the checking-screen test (CI #356). The look is
+// unchanged — the stylesheet has no "waiting" hook
+// selector, so the at-rest dress is the base row
+// style — only the hooks are gone.
+//
 // Scope: this boundary wraps the /search/home route
 // only. The district route keeps its own interim
 // (app/search/loading.tsx) and the failed route keeps
@@ -107,8 +119,8 @@ export default function HomeLoading() {
         </p>
         <ul className="checking__rows">
           {CHECKING_ROWS.map((row) => (
-            <li key={row.key} className="checking__row" data-row={row.key} data-state="waiting">
-              <span className="checking__row-icon" data-state="waiting" aria-hidden="true">
+            <li key={row.key} className="checking__row">
+              <span className="checking__row-icon" aria-hidden="true">
                 <span className="checking__pendot" />
               </span>
               <span className="checking__row-main">

@@ -216,6 +216,11 @@ export default async function SearchPage({
         fallback={
           <PlaceChoice
             place={displayText(place.place)}
+            // BUG-359: the fallback list wears its own
+            // class (district-place__list--fallback) so
+            // it never shares the settled list's
+            // selector while the swap runs.
+            fallback
             districts={place.districts.map((outward) => ({
               outward,
               settlements: [] as string[],

@@ -7844,7 +7844,8 @@ a.picker__row {
   margin-top: 22px;
 }
 
-.district-place__list {
+.district-place__list,
+.district-place__list--fallback {
   list-style: none;
   padding: 0;
   margin: 8px 0 0;

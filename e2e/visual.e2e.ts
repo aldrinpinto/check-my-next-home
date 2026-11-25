@@ -337,14 +337,19 @@ test.describe("visual guard — core set", () => {
 
   test("the Chelmsford place page, desktop", { tag: "@smoke" }, async ({ page }) => {
     await page.goto("/search?place=Chelmsford");
-    // WA-10: the place page wears Sample 29's dress —
-    // its rows list is the readiness marker now.
-    await expect(page.locator(".district-place__list")).toBeVisible();
     // BUG-286: the page streams its area furniture in
     // behind the picker — the photograph waits for a
     // description line, so it captures the settled page
     // (rows + descriptions), not the bare-rows interim.
+    // BUG-359: the description wait comes FIRST — the
+    // detail line exists only on the settled page, so
+    // it guarantees the Suspense swap has run and the
+    // settled list is the only .district-place__list
+    // in the DOM before the list check reads it.
     await expect(page.locator(".district-place__detail").first()).toBeVisible();
+    // WA-10: the place page wears Sample 29's dress —
+    // its rows list is the readiness marker now.
+    await expect(page.locator(".district-place__list")).toBeVisible();
     await shoot(page, "place.png", true);
   });
 
@@ -402,14 +407,19 @@ test.describe("visual guard — regression", () => {
   test("the Chelmsford place page, phone", { tag: "@regression" }, async ({ page }) => {
     await page.setViewportSize(PHONE);
     await page.goto("/search?place=Chelmsford");
-    // WA-10: the place page wears Sample 29's dress —
-    // its rows list is the readiness marker now.
-    await expect(page.locator(".district-place__list")).toBeVisible();
     // BUG-286: the page streams its area furniture in
     // behind the picker — the photograph waits for a
     // description line, so it captures the settled page
     // (rows + descriptions), not the bare-rows interim.
+    // BUG-359: the description wait comes FIRST — the
+    // detail line exists only on the settled page, so
+    // it guarantees the Suspense swap has run and the
+    // settled list is the only .district-place__list
+    // in the DOM before the list check reads it.
     await expect(page.locator(".district-place__detail").first()).toBeVisible();
+    // WA-10: the place page wears Sample 29's dress —
+    // its rows list is the readiness marker now.
+    await expect(page.locator(".district-place__list")).toBeVisible();
     await shoot(page, "place-phone.png", true);
   });
 

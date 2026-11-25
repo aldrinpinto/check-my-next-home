@@ -41,9 +41,22 @@ import PostcodeBox from "./PostcodeBox";
 // and the rows as open ruled rows with the outward's
 // code tile. The words are unchanged; the picker's
 // dress is retired from this page.
+//
+// BUG-359 (25 Nov 2026): the Suspense fallback renders
+// this same component with bare rows while the area
+// furniture streams in (BUG-286), so until the swap
+// runs the fallback list and the settled list share
+// the DOM. The fallback list therefore wears a
+// DISTINCT class — district-place__list--fallback,
+// dressed identically (app/globals.css) — and the
+// settled list stays the only .district-place__list
+// on the page. A locator for the settled list can
+// never match twice (CI #356's strict-mode violation
+// on the place test's retry).
 export default function PlaceChoice({
   place,
   districts,
+  fallback,
 }: {
   place: string;
   districts: {
@@ -56,6 +69,9 @@ export default function PlaceChoice({
     // a district without one falls back to the place.
     postTown?: string | null;
   }[];
+  // BUG-359: true only for the Suspense fallback in
+  // app/search/page.tsx — the bare-rows interim.
+  fallback?: boolean;
 }) {
   const bridgePostcode = districts.find((district) => district.examplePostcode)?.examplePostcode;
   return (
@@ -67,7 +83,7 @@ export default function PlaceChoice({
         <h1 className="page-title">{place}</h1>
         <p className="district-intro">{PLACE_CHOICE_LINE}</p>
         <h2 className="district-sect">{placeChoiceCountLine(districts.length)}</h2>
-        <ul className="district-place__list">
+        <ul className={fallback ? "district-place__list--fallback" : "district-place__list"}>
           {districts.map((district) => {
             const description = placeDistrictDescription(district.settlements);
             return (

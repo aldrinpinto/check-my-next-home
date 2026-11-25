@@ -13,7 +13,12 @@ import HomeLoading from "../app/search/home/loading";
 // renders the home checking screen's frame at rest.
 // These pins hold that frame to the live screen's
 // at-rest state (components/CheckingScreen.tsx,
-// Sample 7, Final Sample Master view 2).
+// Sample 7, Final Sample Master view 2) — except its
+// data hooks. BUG-358 (25 Nov 2026): the frame
+// carries NO data-row / data-state hooks, so while
+// the resolution streams the fallback can never
+// collide with the live screen's locators (CI #356's
+// strict-mode violation on data-row="costs").
 
 const HTML = renderToStaticMarkup(createElement(HomeLoading));
 
@@ -61,14 +66,18 @@ describe("BUG-268 — the home loading boundary renders the checking frame at re
       "HM Land Registry",
       "Police.uk · Environment Agency",
     ];
-    for (const [key, label] of rows) {
-      expect(HTML).toContain(`data-row="${key}" data-state="waiting"`);
+    for (const [, label] of rows) {
       expect(HTML).toContain(label);
     }
     for (const source of sources) {
       expect(HTML).toContain(source);
     }
     expect(HTML.match(/>Waiting</g)).toHaveLength(5);
+  });
+
+  it("carries no data hooks on its rows (BUG-358) — the live screen owns them", () => {
+    expect(HTML).not.toContain("data-row=");
+    expect(HTML).not.toContain("data-state=");
   });
 
   it("holds the closing line invisible until the seal stamps", () => {

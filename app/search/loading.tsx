@@ -17,6 +17,15 @@
 // 3 of the wider-area checking samples; Final Sample
 // Master view 31) and the shared .checking styles.
 //
+// BUG-358 (25 Nov 2026): the rows deliberately carry
+// NO data-row / data-state hooks — the same collision
+// as the home frame: while the segment streams, the
+// fallback and the live DistrictCheckingScreen share
+// the DOM, and hooks on both meant two rows under one
+// locator. The look is unchanged — the stylesheet has
+// no "waiting" hook selector, so the at-rest dress is
+// the base row style — only the hooks are gone.
+//
 // Scope: this boundary wraps the /search segment. The
 // home route carries its own interim frame
 // (app/search/home/loading.tsx, BUG-268) and the failed
@@ -73,7 +82,7 @@ export default function SearchLoading() {
         </p>
         <ul className="checking__rows">
           {DISTRICT_CHECKING_ROWS.map((row) => (
-            <li key={row.key} className="checking__row" data-row={row.key} data-state="waiting">
+            <li key={row.key} className="checking__row">
               <span className="checking__row-icon" aria-hidden="true">
                 <span className="checking__pendot" />
               </span>
