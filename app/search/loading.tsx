@@ -18,11 +18,11 @@
 // Master view 31) and the shared .checking styles.
 //
 // Scope: this boundary wraps the /search segment. The
-// home and failed routes carry their own null boundaries
-// (app/search/home/loading.tsx, app/search/failed/
-// loading.tsx) so their behaviour is untouched — the
-// home route's checking screen is its own state, and the
-// failure page is instant.
+// home route carries its own interim frame
+// (app/search/home/loading.tsx, BUG-268) and the failed
+// route keeps its null boundary
+// (app/search/failed/loading.tsx) so its behaviour is
+// untouched — the failure page is instant.
 
 import DistrictSweep from "../../components/DistrictSweep";
 import {
