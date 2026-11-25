@@ -35,10 +35,22 @@ import { reportFooterFontCss } from "./footer-font";
 // The sample never changes between requests, so the
 // generated file is cached in memory per origin after
 // the first print; a failed print is not cached, so the
-// next request tries again. (Printing needs a Chromium
+// next attempt tries again. (Printing needs a Chromium
 // beside the app: where none is installed — the app
-// container today, OBS-011 — the first request fails
-// plainly rather than serving anything lesser.)
+// container today, OBS-011 — a print fails plainly
+// rather than serving anything lesser.)
+//
+// BUG-270: the route no longer calls this generator on
+// a visitor's request — the container has no Chromium,
+// so every click failed with an empty 500. The file is
+// printed ONCE per deploy, host-side, by
+// scripts/bake-sample-report-pdf.ts (which prints the
+// same print view with the host's Chromium and copies
+// the file into the container), and the route serves
+// that baked file (lib/server/sample-pdf-baked.ts).
+// This module stays the printer — the script calls
+// generateSampleReportPdf — and OBS-011 stays open
+// for the M9 in-container purchase-trigger path.
 
 export interface GeneratedSamplePdf {
   fileName: string;
