@@ -264,14 +264,17 @@ function crimeCell(crime: ShortCrime): ShortlistCell {
 // area bundle's modelled values, in the product's own
 // presentation (the results section's bullet forms,
 // joined on one line) — and coloured by the pill's own
-// band (airPillBand) wherever that verdict speaks. A
-// served set between the two yardsticks carries no band
-// and stands plain; an unfiled section carries its own
-// named line — the table's existing not-served treatment.
-// Where no area bundle reaches assembly (an older
-// caller), the cell falls back to the short projection's
-// headline line, plain: the projection carries no values
-// to compose from.
+// band (airPillBand) wherever that verdict speaks. The
+// band is the UK-limit-only rule (founder ruling,
+// 25 Nov 2026): green under half the limits, orange
+// within them at half or more, red over any of them —
+// a served set always carries a band now, never plain;
+// an unfiled section carries its own named line — the
+// table's existing not-served treatment. Where no area
+// bundle reaches assembly (an older caller), the cell
+// falls back to the short projection's headline line,
+// plain: the projection carries no values to compose
+// from.
 function airCell(input: ShortlistCardInput): ShortlistCell {
   const { area, short } = input;
   if (area && (area.rung === 1 || area.rung === 2)) {

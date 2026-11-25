@@ -6930,6 +6930,11 @@ a.picker__row {
   color: var(--dist-green);
   font-weight: 700;
 }
+.site-pages .rpt-doc td.cellOrange {
+  background: var(--dist-orange-bg);
+  color: var(--dist-orange);
+  font-weight: 700;
+}
 /* A cell's second line (the air table's per-pollutant
    position, item 6): smaller, quieter, under the figure
    — at the one small-print size (BUG-068/086). */

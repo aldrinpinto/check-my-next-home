@@ -1377,13 +1377,19 @@ export function crimePillFigure(per1000: number | null, england: number | null):
 }
 
 // The air quality pill's band, as one export (BUG-164):
-// concerning — any pollutant over its UK legal limit
-// (NO2 40, PM2.5 20, PM10 40) — paints red; good — all
-// three at or under the WHO 2021 guidelines (10/5/15) —
-// paints green; a served set between the two yardsticks
-// is neither, and the pill does not speak, so the band
-// is null, as it is wherever the modelled values are not
-// all filed.
+// coloured solely on the UK legal limits (NO2 40, PM2.5
+// 20, PM10 40) — founder ruling, 25 Nov 2026, superseding
+// the D75 middle-silence for air. Worst pollutant wins:
+// green — all three under half the limit (NO2 <20,
+// PM2.5 <10, PM10 <20); orange — all three within the
+// limit with at least one at half the limit or more;
+// red — any pollutant over the limit. A figure exactly
+// at the limit has not exceeded it, so it reads within
+// (orange); a figure exactly at half the limit is
+// orange. The WHO 2021 guidelines (10/5/15) never
+// colour the pill — they are information in the detailed
+// report only. The band is null only wherever the
+// modelled values are not all filed.
 export function airPillBand(air: {
   state: string;
   no2: number | null;
@@ -1393,8 +1399,8 @@ export function airPillBand(air: {
   if (air.state !== "served" || air.no2 === null || air.pm25 === null || air.pm10 === null)
     return null;
   if (air.no2 > 40 || air.pm25 > 20 || air.pm10 > 40) return "red";
-  if (air.no2 <= 10 && air.pm25 <= 5 && air.pm10 <= 15) return "green";
-  return null;
+  if (air.no2 >= 20 || air.pm25 >= 10 || air.pm10 >= 20) return "orange";
+  return "green";
 }
 
 // D75 pill system (fold-in build, superseding pill logic
@@ -1573,12 +1579,16 @@ export function summaryPills(input: SummaryPillsInput): SummaryPill[] | null {
     }
   }
 
-  // 3 Air quality — good if NO2, PM2.5 and PM10 ALL at or
-  // under WHO 2021 (10/5/15); concerning if any breaks its
-  // UK legal limit (NO2 40, PM2.5 20, PM10 40). BUG-164
-  // (founder ruling, 22 Nov 2026): Air's priority rank
-  // moves to immediately after Crime — it fills ahead of
-  // the merged Schools pill, A&E and everything below
+  // 3 Air quality — the UK-limit-only rule (founder
+  // ruling, 25 Nov 2026, superseding the D75
+  // middle-silence for air): the band is airPillBand's —
+  // green well within the limits, orange within them but
+  // at half or more, red over any of them. Red and orange
+  // are concerning — the middle is flagged, never
+  // silent — and green is good. BUG-164 (founder ruling,
+  // 22 Nov 2026): Air's priority rank moves to
+  // immediately after Crime — it fills ahead of the
+  // merged Schools pill, A&E and everything below
   // Crime; the concerning-first selection is unchanged,
   // and the band is airPillBand's, the one computation
   // the shortlist table also colours by.
@@ -1586,9 +1596,14 @@ export function summaryPills(input: SummaryPillsInput): SummaryPill[] | null {
     const air = areaSections?.air;
     const band = air ? airPillBand(air) : null;
     if (air && band) {
-      add(band === "red" ? "concerning" : "good", {
+      add(band === "green" ? "good" : "concerning", {
         label: "Air quality",
-        figure: band === "red" ? "Above a UK legal limit" : "Within WHO guidelines",
+        figure:
+          band === "red"
+            ? "Above a UK legal limit"
+            : band === "orange"
+              ? "Within UK legal limits"
+              : "Well within UK legal limits",
         band,
       });
     }

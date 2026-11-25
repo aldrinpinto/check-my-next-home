@@ -189,7 +189,7 @@ function Block({ block }: { block: ReportBlock }) {
                         key={cellIndex}
                         data-label={isDefences ? block.head[cellIndex] : undefined}
                         className={
-                          `${block.align ? (block.align[cellIndex] === "right" ? "num" : "") : cellIndex > 0 ? "num" : ""}${tone === "red" ? " cellRed" : tone === "green" ? " cellGreen" : ""}`.trim() ||
+                          `${block.align ? (block.align[cellIndex] === "right" ? "num" : "") : cellIndex > 0 ? "num" : ""}${tone === "red" ? " cellRed" : tone === "orange" ? " cellOrange" : tone === "green" ? " cellGreen" : ""}`.trim() ||
                           undefined
                         }
                       >

@@ -343,6 +343,12 @@ describe("report — Section 4 health, air, noise & crime", () => {
     expect(s4).toContain("40 µg/m³");
     expect(s4).toContain("AQMA-NONE-LINE");
     expect(s4).not.toContain("Air Quality Management Areas");
+    // The WHO guidelines as information only (founder
+    // ruling, 25 Nov 2026): the reference-only line
+    // stands under the air table.
+    expect(s4).toContain(
+      "The World Health Organization suggests lower levels — NO2 10, PM2.5 5, PM10 15 — shown for reference only.",
+    );
   });
 
   it("the air small print moved out (items 2 and 6): the position stands in the table with its pollutant, the long explainers stand nowhere in the report", () => {
@@ -401,6 +407,46 @@ describe("report — Section 4 health, air, noise & crime", () => {
     expect(hotTable.cellTones?.[0]).toEqual([null, "red", null, null]);
     expect(hotTable.cellSubs?.[0][1]).toBe(
       "Above the UK legal limit, and above the stricter WHO guideline",
+    );
+  });
+
+  it("a level at half the UK legal limit or more within it tints its cell orange — and only that cell (UK-limit-only rule, founder ruling 25 Nov 2026)", () => {
+    const warm = buildReportView(
+      (() => {
+        const base = input();
+        if (base.area.kind !== "area-bundle") throw new Error("expected an area bundle");
+        const sections = base.area.sections;
+        return {
+          ...base,
+          area: {
+            ...base.area,
+            sections: {
+              ...sections,
+              air: {
+                ...sections.air,
+                yardsticks: sections.air.yardsticks
+                  ? {
+                      ...sections.air.yardsticks,
+                      pollutants: sections.air.yardsticks.pollutants.map((p, i) => ({
+                        ...p,
+                        value: i === 0 ? 25 : p.value,
+                        position: "between" as const,
+                        summaryLine:
+                          "within the UK legal limit, but above the stricter WHO guideline",
+                      })),
+                    }
+                  : null,
+              },
+            },
+          },
+        };
+      })(),
+    );
+    const warmTable = warm.sections[3].blocks.find((b) => b.type === "table");
+    if (!warmTable || warmTable.type !== "table") throw new Error("expected the air table");
+    expect(warmTable.cellTones?.[0]).toEqual([null, "orange", null, null]);
+    expect(warmTable.cellSubs?.[0][1]).toBe(
+      "Within the UK legal limit, but above the stricter WHO guideline",
     );
   });
 

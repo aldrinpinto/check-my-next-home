@@ -33,10 +33,10 @@ import { expect, test } from "./fixtures";
 // names "the certificate's construction", so the
 // construction marker is the depth block's basis-line
 // fragment; the Air pill's figure legitimately reads
-// "Above a UK legal limit" / "Within WHO guidelines",
-// so the yardstick marker is the depth line's own form
-// ("stricter WHO guideline"); and the census upsell
-// NAMES the six depth tables in prose, so census depth
+// "Above a UK legal limit" / "Well within UK legal
+// limits" / "Within UK legal limits", so the yardstick
+// marker is the depth line's own form ("stricter WHO
+// guideline"); and the census upsell NAMES the six depth tables in prose, so census depth
 // is proven structurally — the census section renders
 // its headline lines and its upsell and contains no
 // table — alongside the benefits and IMD domain

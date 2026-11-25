@@ -482,16 +482,19 @@ export type ReportBlock =
   // boldColumns: the column indexes whose cells print
   // bold (Section 1's sale-price column, in the sample's
   // form). cellTones / cellSubs: a per-cell colour tone
-  // (the air and noise tables' yardstick cells — green
-  // within the yardstick, red at or above it; BUG-073 /
-  // BUG-076, succeeding print-check item 2's red-only
-  // alert) and a per-cell second line (the figure's
-  // position against its yardsticks, printed inside the
-  // table with its figure). Both are sparse grids
-  // aligned with rows; an absent entry is a plain cell.
-  // align: the deliberate per-column alignment
-  // (BUG-088) — text left, figures right, long-form text
-  // never right-aligned; absent, the renderer's standing
+  // (the air and noise tables' yardstick cells — the air
+  // table's UK-limit-only bands, green under half the
+  // limit, orange at half or more within it, red over
+  // it; the noise table's green within the yardstick,
+  // red at or above it; BUG-073 / BUG-076, succeeding
+  // print-check item 2's red-only alert) and a per-cell
+  // second line (the figure's position against its
+  // yardsticks, printed inside the table with its
+  // figure). Both are sparse grids aligned with rows;
+  // an absent entry is a plain cell. align: the
+  // deliberate per-column alignment (BUG-088) — text
+  // left, figures right, long-form text never
+  // right-aligned; absent, the renderer's standing
   // default (first column left, the rest right) stands.
   | {
       type: "table";
@@ -499,7 +502,7 @@ export type ReportBlock =
       rows: string[][];
       caption?: string;
       boldColumns?: number[];
-      cellTones?: ("green" | "red" | null)[][];
+      cellTones?: ("green" | "orange" | "red" | null)[][];
       cellSubs?: (string | null)[][];
       align?: ("left" | "right")[];
     }
@@ -2541,17 +2544,21 @@ function section4(input: ReportInput): ReportSectionView {
     // yardsticks prints INSIDE the table, as a second line
     // under its own modelled level, never as a free note
     // under the whole table. The modelled-level cell is
-    // coloured on the UK legal limit alone: green within
-    // it, red at or above it; the WHO guideline colours
-    // nothing — its position is the words in the cell.
-    // The long explainers — the yardstick sentences, the
-    // zone-compliance basis, the AQMA basis — no longer
-    // stand in the report at all: they live on the
-    // air-quality How-we-check page, which Section 10
-    // links (item 20's rule: minimum explanation here,
-    // the fuller explanation behind the link). Where a
-    // filing predates the yardsticks, the table keeps its
-    // two-column served form.
+    // coloured on the UK legal limit alone, on the
+    // founder's UK-limit-only rule (25 Nov 2026): green
+    // under half the limit, orange at half the limit or
+    // more within it, red over it; the WHO guideline
+    // colours nothing — its position is the words in the
+    // cell, and its values stand in the table as
+    // information, with the reference-only line under
+    // the table. The long explainers — the yardstick
+    // sentences, the zone-compliance basis, the AQMA
+    // basis — no longer stand in the report at all: they
+    // live on the air-quality How-we-check page, which
+    // Section 10 links (item 20's rule: minimum
+    // explanation here, the fuller explanation behind
+    // the link). Where a filing predates the yardsticks,
+    // the table keeps its two-column served form.
     blocks.push({
       type: "sub",
       text: air.year !== null ? `Air — Defra modelled, ${air.year}` : "Air quality",
@@ -2581,16 +2588,24 @@ function section4(input: ReportInput): ReportSectionView {
           // No caption (BUG-072): the explainer the table
           // carried restated the served line above it —
           // the modelled year survives in the sub-heading.
-          // The level cell's colour (BUG-073): green where
-          // the level is within the UK legal limit, red
-          // where it is at or above it — no orange, and
-          // the WHO position stays words-only, in the
-          // cell's second line. The colour is computed on
-          // the level as filed, unrounded (BUG-074); the
-          // printed figure is that level at one decimal.
+          // The level cell's colour (BUG-073, UK-limit-
+          // only rule, founder ruling 25 Nov 2026): green
+          // where the level is under half the UK legal
+          // limit, orange where it is at half the limit
+          // or more within it, red where it is over it —
+          // a figure exactly at the limit has not exceeded
+          // it, so it reads orange; the WHO position stays
+          // words-only, in the cell's second line. The
+          // colour is computed on the level as filed,
+          // unrounded (BUG-074); the printed figure is
+          // that level at one decimal.
           cellTones: air.yardsticks.pollutants.map((pollutant) => [
             null,
-            pollutant.value >= pollutant.ukLimit ? ("red" as const) : ("green" as const),
+            pollutant.value > pollutant.ukLimit
+              ? ("red" as const)
+              : pollutant.value >= pollutant.ukLimit / 2
+                ? ("orange" as const)
+                : ("green" as const),
             null,
             null,
           ]),
@@ -2601,6 +2616,14 @@ function section4(input: ReportInput): ReportSectionView {
             null,
           ]),
           align: ["left", "right", "right", "right"],
+        });
+        // The WHO guidelines as information only (founder
+        // ruling, 25 Nov 2026): the values stand in the
+        // table's own column above; this line says what
+        // they are for — reference only, never a colour.
+        blocks.push({
+          type: "line",
+          text: "The World Health Organization suggests lower levels — NO2 10, PM2.5 5, PM10 15 — shown for reference only.",
         });
       } else {
         const rows: string[][] = [

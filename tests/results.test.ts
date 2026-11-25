@@ -12,6 +12,7 @@ import { nearbyCheckingGroups } from "../lib/journey";
 import type { CategoryAnswer, NearbyBundle, NearbyCategory } from "../lib/nearby";
 import { PAYMENT_ONE_PAYMENT_LINE } from "../lib/report-payment";
 import {
+  airPillBand,
   ARTICLE4_UNCHECKABLE_TEXT,
   BROADBAND_CAVEAT,
   BUY_BAR_BUTTON_LABEL,
@@ -914,7 +915,7 @@ describe("results — pill logic D75 (fold-in)", () => {
       },
     }) as unknown as AreaBundle;
 
-  it("the Birkdale worked example: only Schools is concerning — the strip reads Schools · Flood · Crime · Noise · Deprivation", () => {
+  it("the Birkdale worked example: only Schools is concerning — the strip reads Schools · Flood · Crime · Air · Noise", () => {
     const nearby = nearbyWith({
       "schools-primary": primaryNear,
       "schools-secondary": category({
@@ -974,8 +975,8 @@ describe("results — pill logic D75 (fold-in)", () => {
       "Schools · 0.4 / 1.9 mi",
       "Flood · Very low",
       "Crime · Below England average",
+      "Air quality · Well within UK legal limits",
       "Noise · Quiet",
-      "Deprivation · 8 of 10",
     ]);
   });
 
@@ -1013,12 +1014,15 @@ describe("results — pill logic D75 (fold-in)", () => {
     // line — so the graduated band speaks "Well above
     // England average" (red), where the pre-graduation
     // pill said "Above England average" at any margin.
+    // Air (green, good) takes the fourth slot under the
+    // UK-limit-only rule (founder ruling, 25 Nov 2026);
+    // Deprivation is displaced out of the strip.
     expect(pills?.map(pillText)).toEqual([
       "Crime · Well above England average",
       "Schools · 0.4 / 1.9 mi",
       "Flood · Very low",
+      "Air quality · Well within UK legal limits",
       "Noise · Quiet",
-      "Deprivation · 8 of 10",
     ]);
   });
 
@@ -1026,8 +1030,8 @@ describe("results — pill logic D75 (fold-in)", () => {
     // The same shape as the Birkdale worked example, with
     // two changes: the secondary stands at 0.9 mi (Schools
     // good, not concerning) and the air section serves a
-    // WHO-clean set (NO2 8, PM2.5 4, PM10 12 — all at or
-    // under the WHO 2021 guidelines), so Air is a good
+    // well-within set (NO2 8, PM2.5 4, PM10 12 — all under
+    // half the UK legal limits), so Air is a good
     // factor. The good fill runs in the new D75 order —
     // Flood, Crime, Air quality, Schools, Noise — and
     // Deprivation, which held the fifth slot before
@@ -1092,12 +1096,66 @@ describe("results — pill logic D75 (fold-in)", () => {
     expect(pills?.map(pillText)).toEqual([
       "Flood · Very low",
       "Crime · Below England average",
-      "Air quality · Within WHO guidelines",
+      "Air quality · Well within UK legal limits",
       "Schools · 0.4 / 0.9 mi",
       "Noise · Quiet",
     ]);
     // Air's colour is the BUG-151 air band's good dress.
     expect(pills?.[2].band).toBe("green");
+  });
+
+  // The UK-limit-only air bands (founder ruling, 25 Nov
+  // 2026, superseding the D75 middle-silence for air):
+  // green under half the UK legal limits, orange at half
+  // or more within them, red over any of them; worst
+  // pollutant wins. The WHO 2021 guidelines never drive
+  // a colour.
+  describe("airPillBand", () => {
+    const served = (no2: number, pm25: number, pm10: number) => ({
+      state: "served",
+      no2,
+      pm25,
+      pm10,
+    });
+
+    it("green where all three sit under half the UK limits", () => {
+      expect(airPillBand(served(8, 4, 12))).toBe("green");
+      expect(airPillBand(served(19.9, 9.9, 19.9))).toBe("green");
+    });
+
+    it("orange at exactly half a limit, and orange at exactly a limit", () => {
+      expect(airPillBand(served(20, 4, 12))).toBe("orange");
+      expect(airPillBand(served(8, 10, 12))).toBe("orange");
+      expect(airPillBand(served(8, 4, 20))).toBe("orange");
+      expect(airPillBand(served(40, 20, 40))).toBe("orange");
+    });
+
+    it("orange where all three sit within the limits with one at half or more", () => {
+      expect(airPillBand(served(25, 12, 22))).toBe("orange");
+    });
+
+    it("red where any pollutant is over its UK limit", () => {
+      expect(airPillBand(served(40.1, 4, 12))).toBe("red");
+      expect(airPillBand(served(8, 20.1, 12))).toBe("red");
+      expect(airPillBand(served(8, 4, 45))).toBe("red");
+    });
+
+    it("worst pollutant wins", () => {
+      expect(airPillBand(served(45, 4, 12))).toBe("red");
+      expect(airPillBand(served(25, 4, 12))).toBe("orange");
+    });
+
+    it("the WHO guidelines never drive a colour: above WHO but under half the limits is green", () => {
+      // NO2 15, PM2.5 8, PM10 18 are all above the WHO
+      // guidelines (10/5/15) yet all under half the UK
+      // limits (20/10/20) — green, not orange.
+      expect(airPillBand(served(15, 8, 18))).toBe("green");
+    });
+
+    it("null where the modelled values are not all filed", () => {
+      expect(airPillBand({ state: "not-filed", no2: null, pm25: null, pm10: null })).toBe(null);
+      expect(airPillBand({ state: "served", no2: 8, pm25: null, pm10: 12 })).toBe(null);
+    });
   });
 
   it("item 8/9 (parity fix batch): with no England figure (the thin-base guard's form), no Crime pill serves at all", () => {
@@ -1128,17 +1186,17 @@ describe("results — pill logic D75 (fold-in)", () => {
     expect(pills?.some((pill) => pill.label === "Crime")).toBe(false);
   });
 
-  it("CI #221 diagnosis: with no England figure but a band-B certificate (the seeded corpus's Birkdale), the strip fills to five and ends with the EPC pill", () => {
+  it("CI #221 diagnosis: with no England figure but a band-B certificate (the seeded corpus's Birkdale), the strip still fills to five — Air takes the slot EPC held", () => {
     // The pin above runs on shortSections()'s headlineBand
     // C — a "neither" fact, so no EPC pill can serve and
     // the strip stops at four. The SEEDED corpus's
     // Birkdale home carries a band-B certificate: EPC is
-    // a good fact there, fourth in the good fill after
-    // Flood, Noise and Deprivation, and the strip is
-    // five. (The #220 fix round inferred four pills for
-    // the browser strip from this fixture's C; CI #221's
-    // count assertion corrected it — this pin keeps the
-    // seeded case executable at unit level.)
+    // a good fact there — but under the UK-limit-only
+    // air rule (founder ruling, 25 Nov 2026) Air (green,
+    // good) fills ahead of it, so EPC is sixth and drops
+    // out of the strip. The strip still fills to five,
+    // which is the CI #221 count diagnosis this pin
+    // keeps executable at unit level.
     const pills = summaryPills({
       nearby: nearbyWith({
         "schools-primary": primaryNear,
@@ -1173,9 +1231,9 @@ describe("results — pill logic D75 (fold-in)", () => {
     expect(pills?.map(pillText)).toEqual([
       "Schools · 0.4 / 1.9 mi",
       "Flood · Very low",
+      "Air quality · Well within UK legal limits",
       "Noise · Quiet",
       "Deprivation · 8 of 10",
-      "EPC · B",
     ]);
   });
 
@@ -1304,16 +1362,19 @@ describe("results — pill logic D75 (fold-in)", () => {
     });
     // The Flood pill is present with the Very low figure,
     // sitting in the good fill behind the one concerning
-    // fact (Schools) — and the worked-example strip is
-    // unchanged under the golden flood states.
+    // fact (Schools) — and under the UK-limit-only air
+    // rule (founder ruling, 25 Nov 2026) the Air pill
+    // (green, good) takes the fourth slot and Deprivation
+    // is displaced, so the worked-example strip reads
+    // Schools · Flood · Crime · Air · Noise.
     const floodPill = pills?.find((pill) => pill.label === "Flood");
     expect(floodPill?.figure).toBe("Very low");
     expect(pills?.map(pillText)).toEqual([
       "Schools · 0.4 / 1.9 mi",
       "Flood · Very low",
       "Crime · Below England average",
+      "Air quality · Well within UK legal limits",
       "Noise · Quiet",
-      "Deprivation · 8 of 10",
     ]);
   });
 
@@ -1416,16 +1477,19 @@ describe("results — pill logic D75 (fold-in)", () => {
     });
     // The Noise pill is present with the Quiet figure,
     // sitting in the good fill behind Flood and Crime —
-    // and the worked-example strip is unchanged under
-    // the golden noise states.
+    // and under the UK-limit-only air rule (founder
+    // ruling, 25 Nov 2026) the Air pill (green, good)
+    // takes the fourth slot and Deprivation is displaced,
+    // so the worked-example strip reads Schools · Flood ·
+    // Crime · Air · Noise.
     const noisePill = pills?.find((pill) => pill.label === "Noise");
     expect(noisePill?.figure).toBe("Quiet");
     expect(pills?.map(pillText)).toEqual([
       "Schools · 0.4 / 1.9 mi",
       "Flood · Very low",
       "Crime · Below England average",
+      "Air quality · Well within UK legal limits",
       "Noise · Quiet",
-      "Deprivation · 8 of 10",
     ]);
   });
 
@@ -1575,13 +1639,27 @@ describe("results — pill logic D75 (fold-in)", () => {
     // 50 dB) — Noise serves as a good pill with the
     // "Quiet" figure. (The golden-shape pin above
     // covers the same verdict where rail and airport
-    // file as "No modelled … noise" instead.)
+    // file as "No modelled … noise" instead.) No air
+    // square is filed here, because under the
+    // UK-limit-only air rule (founder ruling, 25 Nov
+    // 2026) a served air set takes a good slot ahead
+    // of Noise and the strip would fill before it.
     const pills = summaryPills({
       nearby: baseNearby as Extract<NearbyBundle, { kind: "distances" }>,
       flood: floodBundle(noWarnings),
       crime: crimeBundle(0.5),
       sections: shortSections(),
       area: d75Area({
+        air: {
+          state: "not-filed",
+          line: "no modelled air quality square is filed for this point",
+          year: null,
+          no2: null,
+          pm25: null,
+          pm10: null,
+          headlineFigure: null,
+          sourceLine: null,
+        },
         noise: {
           state: "served",
           line: null,
@@ -1650,11 +1728,19 @@ describe("results — pill logic D75 (fold-in)", () => {
     });
     // Concerning in priority order: Flood, Crime, Schools
     // (A&E at 4.21 mi is good, EPC D concerning but fourth —
-    // the cap is three). Good fill: A&E, Noise.
-    expect(pills?.map((pill) => pill.label)).toEqual(["Flood", "Crime", "Schools", "A&E", "Noise"]);
+    // the cap is three). Good fill: Air quality, A&E
+    // (Noise is sixth and drops under the UK-limit-only
+    // air rule — founder ruling, 25 Nov 2026).
+    expect(pills?.map((pill) => pill.label)).toEqual([
+      "Flood",
+      "Crime",
+      "Schools",
+      "Air quality",
+      "A&E",
+    ]);
   });
 
-  it("neither facts never take a pill: A&E at 6 mi, EPC C, decile 5, air between the yardsticks", () => {
+  it("neither facts never take a pill: A&E at 6 mi, EPC C, decile 5, air not filed", () => {
     const nearby = nearbyWith({
       ae: category({
         category: "ae",
@@ -1674,6 +1760,22 @@ describe("results — pill logic D75 (fold-in)", () => {
       crime: crimeBundle(0.5),
       sections,
       area: d75Area({
+        // Air takes no pill here because no air square is
+        // filed — under the UK-limit-only rule (founder
+        // ruling, 25 Nov 2026) every served set takes a
+        // pill, so "between the yardsticks" is no longer
+        // a neither case: the old default set (NO2 8.15,
+        // PM2.5 7.12, PM10 12.55) is green now.
+        air: {
+          state: "not-filed",
+          line: "no modelled air quality square is filed for this point",
+          year: null,
+          no2: null,
+          pm25: null,
+          pm10: null,
+          headlineFigure: null,
+          sourceLine: null,
+        },
         imd: {
           state: "served",
           line: null,
@@ -1927,8 +2029,8 @@ describe("results — pill logic D75 (fold-in)", () => {
       "Schools · 0.4 / 1.9 mi",
       "Flood · Very low",
       "Crime · Below England average",
+      "Air quality · Well within UK legal limits",
       "Noise · Quiet",
-      "Deprivation · 8 of 10",
     ]);
     expect(pills?.some((pill) => pill.label === "Vet")).toBe(false);
   });
@@ -1938,7 +2040,11 @@ describe("results — pill logic D75 (fold-in)", () => {
     // within it qualifies exactly as before the batch.
     // Same shape as the test above, with the deprivation
     // fact neutral (decile 5) so the good Vet pill takes
-    // the last fill slot in priority order.
+    // the last fill slot in priority order — and with no
+    // air square filed, because under the UK-limit-only
+    // air rule (founder ruling, 25 Nov 2026) a served
+    // air set takes a good slot ahead of the Vet pill
+    // and the strip would fill before it.
     const nearby = nearbyWith({
       "schools-primary": primaryNear,
       "schools-secondary": category({
@@ -1973,6 +2079,16 @@ describe("results — pill logic D75 (fold-in)", () => {
       crime: crimeBundle(0.5),
       sections: shortSections(),
       area: d75Area({
+        air: {
+          state: "not-filed",
+          line: "no modelled air quality square is filed for this point",
+          year: null,
+          no2: null,
+          pm25: null,
+          pm10: null,
+          headlineFigure: null,
+          sourceLine: null,
+        },
         imd: {
           state: "served",
           line: null,

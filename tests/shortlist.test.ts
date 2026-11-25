@@ -1211,7 +1211,7 @@ describe("the Air quality row (BUG-164)", () => {
     });
   });
 
-  it("bands the cell green where all three values meet the WHO guidelines", () => {
+  it("bands the cell green where all three values sit under half the UK legal limits", () => {
     const card = cardWithAir({
       state: "served",
       line: null,
@@ -1227,7 +1227,12 @@ describe("the Air quality row (BUG-164)", () => {
     });
   });
 
-  it("stands plain where the served values sit between the yardsticks", () => {
+  it("bands the cell green where all three values sit under half the UK legal limits, even above the WHO guidelines", () => {
+    // The old "between the yardsticks" set (NO2 8.15,
+    // PM2.5 7.12, PM10 12.55) is above the WHO guidelines
+    // yet under half the UK limits — green under the
+    // UK-limit-only rule (founder ruling, 25 Nov 2026),
+    // never plain.
     const card = cardWithAir({
       state: "served",
       line: null,
@@ -1239,6 +1244,52 @@ describe("the Air quality row (BUG-164)", () => {
     expect(card?.comparison.air).toEqual({
       kind: "line",
       text: "NO2 8.15 µg/m³ a year · PM2.5 7.12 µg/m³ · PM10 12.55 µg/m³",
+      band: "green",
+    });
+  });
+
+  it("bands the cell orange where all three sit within the limits with one at half or more", () => {
+    const card = cardWithAir({
+      state: "served",
+      line: null,
+      year: 2024,
+      no2: 25,
+      pm25: 12,
+      pm10: 22,
+    });
+    expect(card?.comparison.air).toEqual({
+      kind: "line",
+      text: "NO2 25.00 µg/m³ a year · PM2.5 12.00 µg/m³ · PM10 22.00 µg/m³",
+      band: "orange",
+    });
+  });
+
+  it("bands the cell orange at exactly half a limit and at exactly a limit", () => {
+    const half = cardWithAir({
+      state: "served",
+      line: null,
+      year: 2024,
+      no2: 20,
+      pm25: 4,
+      pm10: 12,
+    });
+    expect(half?.comparison.air).toEqual({
+      kind: "line",
+      text: "NO2 20.00 µg/m³ a year · PM2.5 4.00 µg/m³ · PM10 12.00 µg/m³",
+      band: "orange",
+    });
+    const atLimit = cardWithAir({
+      state: "served",
+      line: null,
+      year: 2024,
+      no2: 40,
+      pm25: 20,
+      pm10: 40,
+    });
+    expect(atLimit?.comparison.air).toEqual({
+      kind: "line",
+      text: "NO2 40.00 µg/m³ a year · PM2.5 20.00 µg/m³ · PM10 40.00 µg/m³",
+      band: "orange",
     });
   });
 
