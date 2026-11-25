@@ -693,6 +693,14 @@ describe("district bundle — census sums (audit item 37)", () => {
     // bundle's tables.
     expect(censusText).not.toContain("The homes themselves");
     expect(censusText).toContain("summed across the 2 Census areas");
+    // Question C: the Households row names the count of
+    // Census areas summed, and the closing line says
+    // plainly why that total is larger than the
+    // small-areas residents figure.
+    expect(censusText).toContain("residents across the district's 2 Census areas");
+    expect(censusText).toContain(
+      "These areas are larger than the small areas above and reach further past the district — that is why this total is larger.",
+    );
     const wholeView = JSON.stringify(view);
     expect(wholeView).not.toContain("need an exact postcode");
     expect(wholeView).not.toContain("needs an exact postcode");
@@ -833,6 +841,12 @@ describe("district bundle — sold prices (D23)", () => {
       "summed across the 2 Census areas this district's postcodes fall in",
     );
     expect(viewText).not.toContain("filed so far");
+    // Question C: the full-filed closing line says why
+    // the Census total is larger than the small-areas
+    // residents figure.
+    expect(viewText).toContain(
+      "These areas are larger than the small areas above and reach further past the district — that is why this total is larger.",
+    );
   });
 
   it("a part-filed deprivation spread names its coverage (BUG-016)", async () => {
@@ -1254,6 +1268,23 @@ describe("district view — the results layout system, no upsell", () => {
     const blocks = sectionBlocks(bundle, "neighbourhood", "district");
     const pills = blocks.find((block) => block.type === "pills");
     expect(pills?.type === "pills" && pills.items).toEqual(["Danbury", "Hatfield Peverel"]);
+  });
+
+  it("names the residents tile's small areas and explains the counted-whole figure (question C, BUG-360)", async () => {
+    const bundle = await servedBundle();
+    const viewText = blockTexts(sectionBlocks(bundle, "neighbourhood", "district"));
+    // Question C: the tile label names the count of small
+    // areas summed, and the line beside it says plainly
+    // that each area is counted whole where it holds a
+    // district postcode.
+    expect(viewText).toContain("residents across 3 small areas");
+    expect(viewText).toContain(
+      "Each small area is counted whole where it holds a ZZ9 postcode, so the areas reach past the district's edge — the figure is more than the people living in ZZ9 itself.",
+    );
+    // BUG-360: the district section's basis line names
+    // the Census, not just the Postcode Directory the
+    // mapping came through.
+    expect(bundle.sections.district.sourceLine).toContain("Census 2021, via the");
   });
 });
 

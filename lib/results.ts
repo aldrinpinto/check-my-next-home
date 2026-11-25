@@ -3717,7 +3717,7 @@ function districtCensusSection(bundle: DistrictServed): ResultsSectionView {
         (censusPartial
           ? `the ${districtCount(census.msoaCount)} of the district's ` +
             `${districtCount(bundle.head.msoaCount)} Census areas filed so far`
-          : `the district's Census areas`) +
+          : `the district's ${districtCount(census.msoaCount)} Census areas`) +
         ` — ${(census.residentsTotal / census.householdsTotal).toFixed(1)} ` +
         `people per household on average.`,
     });
@@ -3809,7 +3809,9 @@ function districtCensusSection(bundle: DistrictServed): ResultsSectionView {
         `district's ${districtCount(bundle.head.msoaCount)} Census areas filed so far. ` +
         `Facts as published, in the Census's own words — no scores.`
       : `Census 2021 figures summed across the ${census.msoaCount} Census areas this ` +
-        `district's postcodes fall in. Facts as published, in the Census's own words — no scores.`,
+        `district's postcodes fall in. These areas are larger than the small areas above and ` +
+        `reach further past the district — that is why this total is larger. Facts as published, ` +
+        `in the Census's own words — no scores.`,
   });
   return linesSection("census", "The neighbourhood in numbers", blocks, census.sourceLine);
 }
@@ -4108,7 +4110,7 @@ export function buildDistrictResultsView(bundle: DistrictServed): ResultsView {
   }
   if (sections.district.residents != null) {
     districtTiles.push({
-      label: "residents",
+      label: `residents across ${districtCount(head.lsoaCount)} small areas`,
       value: districtCount(sections.district.residents),
     });
   }
@@ -4134,6 +4136,19 @@ export function buildDistrictResultsView(bundle: DistrictServed): ResultsView {
   }
   if (districtTiles.length > 0) {
     districtBlocks.push({ type: "tiles", tiles: districtTiles });
+  }
+  if (sections.district.residents != null) {
+    // Question C: each small area is counted whole where
+    // it holds a district postcode, so the areas reach
+    // past the district's edge — the residents figure is
+    // more than the people living in the district itself.
+    districtBlocks.push({
+      type: "small-line",
+      text:
+        `Each small area is counted whole where it holds a ${outward} postcode, ` +
+        `so the areas reach past the district's edge — the figure is more than ` +
+        `the people living in ${outward} itself.`,
+    });
   }
 
   const deprivationBlocks: SectionBlock[] =

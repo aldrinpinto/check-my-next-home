@@ -1335,7 +1335,14 @@ export function startDistrictBuild(
         households,
         sourceName: head.sourceName,
         sourceDate: head.sourceDate,
-        sourceLine: head.sourceLine,
+        // BUG-360: the head's stamp names the Postcode Directory,
+        // but the section's residents are Census 2021 counts
+        // reached via the Directory's postcode-to-area mapping —
+        // name the Census in the section's basis line.
+        sourceLine:
+          stamp?.sourceName && stamp?.sourceDate
+            ? `Census 2021, via the ${stamp.sourceName}'s postcode-to-area mapping — data to ${dateLabel(stamp.sourceDate)}`
+            : head.sourceLine,
       };
       return { section: district, settlementPostcodes };
     })();
