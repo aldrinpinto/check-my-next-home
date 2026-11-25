@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { processSites } from "../loaders/load-brownfield.mjs";
+import { createProgressLogger } from "../loaders/progress.mjs";
 
 // Guards the brownfield loader (plan step M6.21, decision
 // D41): the unified national brownfield land dataset files
@@ -200,5 +202,45 @@ describe("brownfield fixture goldens (16 Nov 2026 capture)", () => {
     expect(orgs.has("56")).toBe(true); // Braintree
     expect(orgs.has("246")).toBe(true); // Newham
     expect(orgs.has("129")).toBe(true); // Epsom and Ewell
+  });
+});
+
+// BUG-265: the scan carries the shared progress logger — a
+// tally every 5,000 rows against the file's own row count.
+describe("progress logging (BUG-265)", () => {
+  it("scans the fixture with a closing process line, and the filing set is unchanged", () => {
+    const lines: string[] = [];
+    const progress = createProgressLogger({
+      name: "load-brownfield",
+      log: (...args: unknown[]) => lines.push(args.join(" ")),
+    });
+    const processed = processSites(all, { progress });
+    expect(processed.filed).toHaveLength(334);
+    expect(processed.total).toBe(520);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/progress · process 520\/520 rows \(100%\)$/);
+    expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
+  });
+
+  it("emits tally lines at 5,000-row steps on a larger scan", () => {
+    const lines: string[] = [];
+    const progress = createProgressLogger({
+      name: "load-brownfield",
+      log: (...args: unknown[]) => lines.push(args.join(" ")),
+    });
+    const rows = Array.from({ length: 10001 }, (_, i) => ({
+      "end-date": "",
+      point: `POINT (${(0.6 + i * 0.0002).toFixed(6)} 51.770000)`,
+      reference: `R${i}`,
+      "organisation-entity": "56",
+      "entry-date": "2026-01-01",
+      "site-address": `Site ${i}`,
+    }));
+    const processed = processSites(rows, { progress });
+    expect(processed.filed).toHaveLength(10001);
+    expect(lines).toHaveLength(3);
+    expect(lines[0]).toMatch(/progress · process 5,000\/10,001 rows \(50%\)$/);
+    expect(lines[1]).toMatch(/progress · process 10,000\/10,001 rows \(100%\)$/);
+    expect(lines[2]).toMatch(/progress · process 10,001\/10,001 rows \(100%\)$/);
   });
 });

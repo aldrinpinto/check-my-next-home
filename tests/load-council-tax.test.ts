@@ -18,6 +18,7 @@ import {
   readFixtureOds,
   previousTaxYear,
 } from "../loaders/load-council-tax.mjs";
+import { createProgressLogger } from "../loaders/progress.mjs";
 
 // Council tax loader (plan step M5.10), tested against the
 // two fixture sets under tests/fixtures/council-tax{,-2025-26}
@@ -362,5 +363,78 @@ describe("registration — runner, package and canary wiring", () => {
     const canary = readFileSync(join(process.cwd(), "loaders/canary.mjs"), "utf8");
     expect(canary).toContain('await run("mhclg-council-tax", probeCouncilTax);');
     expect(canary).toContain('from "./canary-council-tax.mjs"');
+  });
+});
+
+describe("BUG-265 progress logging", () => {
+  const collect = () => {
+    const lines: string[] = [];
+    return { lines, log: (line: string) => lines.push(line) };
+  };
+
+  // The filing describe's recording pool, repeated here:
+  // that helper is scoped to its own describe.
+  function recordingPool(failOn?: string) {
+    const statements: string[] = [];
+    const calls: { sql: string; params: unknown[] }[] = [];
+    let released = false;
+    const client = {
+      async query(sql: string, params: unknown[] = []) {
+        const head = sql.trim().replace(/\s+/g, " ");
+        statements.push(head);
+        calls.push({ sql: head, params: [...params] });
+        if (failOn && head.startsWith(failOn)) throw new Error(`forced failure: ${failOn}`);
+        return { rows: [], rowCount: 0 };
+      },
+      release() {
+        released = true;
+      },
+    };
+    return { statements, calls, released: () => released, pool: { connect: async () => client } };
+  }
+
+  it("the seed filer logs a line every 10 authorities and a closing line, with the genuine total", async () => {
+    const { rows } = await seedRows(FIXTURE_2026);
+    const rec = recordingPool();
+    const { lines, log } = collect();
+    const progress = createProgressLogger({ name: "load-council-tax", log });
+    await fileSeedRows(rec.pool as never, rows, "2026-27", { progress });
+    expect(lines).toContainEqual(
+      expect.stringMatching(/load-council-tax progress · file 10\/13 authorities \(77%\)$/),
+    );
+    expect(lines).toContainEqual(
+      expect.stringMatching(/load-council-tax progress · file 13\/13 authorities \(100%\)$/),
+    );
+    expect(lines).toContainEqual(
+      expect.stringMatching(/load-council-tax heartbeat · file · 10\/13 · /),
+    );
+    expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
+  });
+
+  it("the full filer logs a closing line with the genuine total", async () => {
+    const { rows } = await seedRows(FIXTURE_2026);
+    const rec = recordingPool();
+    const { lines, log } = collect();
+    const progress = createProgressLogger({ name: "load-council-tax", log });
+    await fileAllRows(rec.pool as never, rows, "2026-27", { progress });
+    expect(lines).toContainEqual(
+      expect.stringMatching(/load-council-tax progress · file 13\/13 authorities \(100%\)$/),
+    );
+  });
+
+  it("a filing failure reports the file stage with the genuine total, then still rolls back", async () => {
+    const { rows } = await seedRows(FIXTURE_2026);
+    const rec = recordingPool("INSERT INTO council_tax_charges");
+    const { lines, log } = collect();
+    const progress = createProgressLogger({ name: "load-council-tax", log });
+    await expect(fileSeedRows(rec.pool as never, rows, "2026-27", { progress })).rejects.toThrow(
+      "forced failure",
+    );
+    expect(lines).toContainEqual(
+      expect.stringMatching(
+        /load-council-tax failed · file · filed 0 of 13 · forced failure: INSERT INTO council_tax_charges · resume from re-run from scratch \(the filing transaction rolls back\)$/,
+      ),
+    );
+    expect(rec.statements).toContain("ROLLBACK");
   });
 });

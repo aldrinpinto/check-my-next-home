@@ -1,6 +1,8 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { readPhiPages } from "../loaders/load-priority-habitats.mjs";
+import { createProgressLogger } from "../loaders/progress.mjs";
 
 // Guards the priority habitats loader (plan step M5.3): the
 // Priority Habitat Inventory is a compiled habitat map, not a
@@ -134,5 +136,70 @@ describe("fixture golden facts", () => {
     expect(facts[2].nearest).toBe("Deciduous woodland");
     expect(facts[2].miles).toBeCloseTo(0.18, 1);
     expect(facts[2].within1).toBe(57);
+  });
+});
+
+// ------------------------------------------------------------------
+// Progress logging (BUG-265): the paged read through the
+// shared logger, driven against a stubbed 4,500-patch
+// service (the paging-integrity test's shape).
+// ------------------------------------------------------------------
+describe("progress logging (BUG-265)", () => {
+  const PHI_LAYER = "https://example.test/phi/FeatureServer/0";
+  const phiFeature = (objectId: number) => ({
+    properties: { OBJECTID: objectId },
+    geometry: null,
+  });
+  const phiPage = (firstObjectId: number, count: number, final: boolean) => {
+    const features = Array.from({ length: count }, (_, i) => phiFeature(firstObjectId + i));
+    return final ? { features } : { features, properties: { exceededTransferLimit: true } };
+  };
+  const phiRoute = (url: string) => {
+    const offset = Number(new URL(url).searchParams.get("resultOffset"));
+    if (offset === 0) return phiPage(1, 2000, false);
+    if (offset === 2000) return phiPage(2001, 2000, false);
+    if (offset === 4000) return phiPage(4001, 500, true);
+    throw new Error(`unexpected offset ${offset}`);
+  };
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("the paged read logs a tally with a real percentage, and a heartbeat halfway", async () => {
+    vi.stubGlobal("fetch", async (input: unknown) => ({
+      ok: true,
+      status: 200,
+      json: async () => phiRoute(String(input)),
+    }));
+    const lines: string[] = [];
+    const progress = createProgressLogger({
+      name: "load-priority-habitats",
+      log: (line: string) => lines.push(line),
+    });
+    const delivered: number[] = [];
+    const read = await readPhiPages(
+      PHI_LAYER,
+      4500,
+      async (batch: unknown[]) => {
+        delivered.push(batch.length);
+      },
+      { delaysMs: [0, 0, 0], progress },
+    );
+    expect(read).toBe(4500);
+    expect(delivered).toEqual([2000, 2000, 500]);
+    // A line every twentieth of the read (every 225), and
+    // the closing line at 100%.
+    expect(lines.some((l) => /progress · read 2,000\/4,500 patches \(44%\)$/.test(l))).toBe(true);
+    expect(lines.some((l) => /progress · read 4,000\/4,500 patches \(89%\)$/.test(l))).toBe(true);
+    expect(lines.some((l) => /progress · read 4,500\/4,500 patches \(100%\)$/.test(l))).toBe(true);
+    // One heartbeat, at half the read. (No exact line count
+    // is pinned: a slow-page warning is timing-dependent
+    // and may add a line — the tally and heartbeat lines
+    // above are the contract.)
+    expect(lines.some((l) => /heartbeat · read · 4,000\/4,500 · /.test(l))).toBe(true);
+    // The runner contract: no progress line starts with the
+    // loader name — every line starts with its timestamp.
+    expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
   });
 });

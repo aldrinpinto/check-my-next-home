@@ -141,3 +141,17 @@ describe("fixture golden facts", () => {
     expect(ended?.["end-date"]).toBe("2021-07-31");
   });
 });
+
+describe("progress — BUG-265", () => {
+  // This loader's long phases live in main(), so the wiring
+  // is pinned here in source and driven end-to-end in
+  // tests/load-progress-bug265-c.test.ts.
+  it("creates one logger and wires it through the reads, the staging loop and the gate", () => {
+    expect(loader).toContain('createProgressLogger({ name: "load-planning-areas" })');
+    expect(loader).toContain('label: "stage layers"');
+    expect(loader).toContain('label: "stage gate"');
+    expect(loader).toContain('label: "process conservation-area"');
+    expect(loader).toContain("progress.failed({");
+    expect(loader).toContain("swap started — filing");
+  });
+});

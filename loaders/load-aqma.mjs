@@ -82,7 +82,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { createGoldenSift } from "./flood-stream.mjs";
-import { formatCount } from "./progress.mjs";
+import { createProgressLogger, formatCount } from "./progress.mjs";
 
 const SERVICE_BASE =
   "https://ukair.maps.rcdo.co.uk/ukairserver/rest/services/AQMA/aqma_boundaries/MapServer";
@@ -430,14 +430,20 @@ async function fetchJson(url, what) {
 // assertion is that nothing comes within 2 miles, all
 // inside the sift's 2-mile window. What the run retains
 // is the totals and the sift.
-async function driveRead(batches, onItems, edition) {
+async function driveRead(batches, onItems, edition, { progress = null } = {}) {
   const processor = createFeatureProcessor();
   const sift = createGoldenSift(HOMES);
+  // BUG-265: the paged read is the run's long phase — a line
+  // per 2,000-feature page, no total (the service carries no
+  // count up front), and a closing line.
+  const readTally = progress?.tally({ label: "read", every: PAGE_SIZE, unit: "features" });
   for await (const features of batches) {
     const items = processor.processBatch(features);
     for (const item of items) sift.offer({ ...item, bbox: bboxOfNested(item.polygons) });
     if (onItems) await onItems(items, edition);
+    readTally?.tick(processor.total());
   }
+  readTally?.finish(processor.total());
   return {
     total: processor.total(),
     filed: processor.filedCount(),
@@ -446,7 +452,7 @@ async function driveRead(batches, onItems, edition) {
   };
 }
 
-export async function readLive({ onItems = null } = {}) {
+export async function readLive({ onItems = null, progress = null } = {}) {
   const meta = await fetchJson(SERVICE_META_URL, "the AQMA service metadata");
   const edition = parseEdition(meta);
   async function* pages() {
@@ -467,11 +473,15 @@ export async function readLive({ onItems = null } = {}) {
       if (batch.length < PAGE_SIZE) break;
     }
   }
-  const processed = await driveRead(pages(), onItems, edition);
+  const processed = await driveRead(pages(), onItems, edition, { progress });
   return { ...processed, edition };
 }
 
-export async function readFixture(fixtureDir, { onItems = null } = {}) {
+/**
+ * @param {string} fixtureDir
+ * @param {{ onItems?: ((items: any[], edition: string) => Promise<void>) | null, progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ */
+export async function readFixture(fixtureDir, { onItems = null, progress = null } = {}) {
   const meta = JSON.parse(await readFile(join(fixtureDir, "service.json"), "utf8"));
   const edition = parseEdition(meta);
   const text = await readFile(join(fixtureDir, "aqma.geojson"), "utf8");
@@ -480,7 +490,7 @@ export async function readFixture(fixtureDir, { onItems = null } = {}) {
     for (let at = 0; at < features.length; at += PAGE_SIZE)
       yield features.slice(at, at + PAGE_SIZE);
   }
-  const processed = await driveRead(slices(), onItems, edition);
+  const processed = await driveRead(slices(), onItems, edition, { progress });
   return { ...processed, edition };
 }
 
@@ -597,6 +607,9 @@ async function main() {
   const fileAt = args.indexOf("--file");
   const fixtureMode = fileAt !== -1;
   const fixtureDir = fixtureMode ? args[fileAt + 1] : null;
+  // BUG-265: one logger for the run — the read tally and the
+  // filing marker below.
+  const progress = createProgressLogger({ name: "load-aqma" });
 
   // A filing run streams the read into the staging
   // transaction as it lands (BUG-195), so the database
@@ -612,13 +625,22 @@ async function main() {
 
   let processed;
   try {
+    progress.stage("reading the AQMA boundaries");
     const onItems = filer ? (items, edition) => filer.stageItems(items, edition) : null;
     processed = fixtureMode
-      ? await readFixture(fixtureDir, { onItems })
-      : await readLive({ onItems });
+      ? await readFixture(fixtureDir, { onItems, progress })
+      : await readLive({ onItems, progress });
     if (!fixtureMode) checkCoverageCounts(processed.filed, processed.perNation);
     checkGolden({ filed: processed.items });
   } catch (error) {
+    // BUG-265: the read, the coverage contract and the golden
+    // checks all fail before anything is filed.
+    progress.failed({
+      stage: "read",
+      filed: 0,
+      error,
+      resume: "re-run the loader from the start (nothing is filed until the swap)",
+    });
     if (filer) await filer.abortFiling();
     throw error;
   }
@@ -638,7 +660,21 @@ async function main() {
 
   const activeFiler = filer;
   filer = null;
-  await activeFiler.finishFiling(processed.filed);
+  // BUG-265: the filing swap is the run's second long step.
+  progress.stage(`filing ${formatCount(processed.filed)} areas — counts and swap`);
+  try {
+    await activeFiler.finishFiling(processed.filed);
+  } catch (error) {
+    progress.failed({
+      stage: "filing",
+      filed: 0,
+      total: processed.filed,
+      error,
+      resume:
+        "re-run the loader from the start (the swap rolled back, the live layer is untouched)",
+    });
+    throw error;
+  }
   console.log(`${summary()} · golden homes OK · ${Math.round((Date.now() - startedAt) / 1000)}s`);
 }
 

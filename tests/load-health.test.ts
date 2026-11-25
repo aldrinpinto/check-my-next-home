@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { buildPoints } from "../loaders/load-health.mjs";
+import { createProgressLogger } from "../loaders/progress.mjs";
 
 // Guards the health loader (plan step M4.7): the register recipes
 // (ACTIVE + RO76 practices, dated branch filtering, the reviewed
@@ -87,5 +89,52 @@ describe("the maternity signal (M6.24)", () => {
   it("the ratings fixture carries the Maternity group for exactly the four units", () => {
     const locations = new Set(ratings.filter((r) => r[17] === "Maternity").map((r) => r[0]));
     expect([...locations].sort()).toEqual(["R1HNH", "RAJ32", "RVR05", "RVR50"]);
+  });
+});
+
+// BUG-265: the point build carries the shared progress
+// logger — a tally every 5,000 points built, and a closing
+// line, with no total (points built is not the rows read).
+describe("progress logging (BUG-265)", () => {
+  const practiceRow = (code: string): string[] => {
+    const row = new Array<string>(27).fill("");
+    row[0] = code;
+    row[1] = `Practice ${code}`;
+    row[9] = "CM3 2JT";
+    row[12] = "ACTIVE";
+    row[25] = "RO76";
+    return row;
+  };
+  const epraccur = Array.from({ length: 5001 }, (_, i) =>
+    practiceRow(`F${String(i).padStart(5, "0")}`),
+  );
+  const buildArgs = (progress?: ReturnType<typeof createProgressLogger>) => ({
+    epraccur,
+    ebranchs: [],
+    edispensary: [],
+    egdpprac: [],
+    directoryRows: [],
+    positionOf: () => ({ lat: 51.776176, lng: 0.60387 }),
+    today: new Date("2026-11-25T00:00:00Z"),
+    progress: progress ?? null,
+  });
+
+  it("emits a tally line every 5,000 points and a closing line", () => {
+    const lines: string[] = [];
+    const progress = createProgressLogger({
+      name: "load-health",
+      log: (...args: unknown[]) => lines.push(args.join(" ")),
+    });
+    const { points } = buildPoints(buildArgs(progress));
+    expect(points).toHaveLength(5001);
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toMatch(/progress · build 5,000 points$/);
+    expect(lines[1]).toMatch(/progress · build 5,001 points$/);
+    expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
+  });
+
+  it("builds the same points without a logger", () => {
+    const { points } = buildPoints(buildArgs());
+    expect(points).toHaveLength(5001);
   });
 });

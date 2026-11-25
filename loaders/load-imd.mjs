@@ -49,6 +49,12 @@ import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
+import {
+  createBatchWatch,
+  createProgressLogger,
+  formatCount,
+  formatDuration,
+} from "./progress.mjs";
 
 const USER_AGENT = "CheckMyNextHome/1.0 (+https://checkmynexthome.co.uk)";
 
@@ -280,7 +286,24 @@ export function goldenChecks(rows, { full }) {
 
 const CHUNK = 500;
 
-export async function fileImd(client, rows) {
+/**
+ * @param {any} client
+ * @param {any[]} rows
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ */
+export async function fileImd(client, rows, { progress = null } = {}) {
+  // BUG-265: the filing loop is the run's long phase — a line
+  // every twentieth of the stage chunks, a heartbeat, and a
+  // warning for a chunk over 3x the recent average.
+  const chunks = Math.ceil(rows.length / CHUNK);
+  const fileTally = progress?.tally({
+    label: "file",
+    total: chunks,
+    every: Math.max(1, Math.ceil(chunks / 20)),
+    unit: "chunks",
+  });
+  const fileWatch = createBatchWatch();
+  let staged = 0;
   await client.query("BEGIN");
   try {
     await client.query(`CREATE TEMP TABLE imd_stage (
@@ -288,6 +311,7 @@ export async function fileImd(client, rows) {
         imd_summary text, source_name text, source_date date
       ) ON COMMIT DROP`);
     for (let i = 0; i < rows.length; i += CHUNK) {
+      const started = Date.now();
       const chunk = rows.slice(i, i + CHUNK);
       const values = [];
       const params = [];
@@ -310,7 +334,20 @@ export async function fileImd(client, rows) {
         `INSERT INTO imd_stage (lsoa_code, lsoa_name, stats, imd_decile, imd_summary, source_name, source_date) VALUES ${values.join(", ")}`,
         params,
       );
+      staged += chunk.length;
+      const chunkNo = i / CHUNK + 1;
+      const { tookMs, averageMs, slow } = fileWatch.observe(Date.now() - started);
+      fileTally?.tick(chunkNo);
+      progress?.heartbeat({ stage: "file", done: chunkNo, total: chunks });
+      if (slow) {
+        progress?.warning({
+          what: "file chunk duration",
+          value: `chunk ${chunkNo} took ${formatDuration(tookMs)}`,
+          threshold: `3x recent average ${formatDuration(averageMs)}`,
+        });
+      }
     }
+    fileTally?.finish(chunks);
     await client.query(`DELETE FROM neighbourhood_stats`);
     await client.query(
       `INSERT INTO neighbourhood_stats (lsoa_code, lsoa_name, stats, imd_decile, imd_summary, source_name, source_date)
@@ -318,6 +355,13 @@ export async function fileImd(client, rows) {
     );
     await client.query("COMMIT");
   } catch (err) {
+    progress?.failed({
+      stage: "file",
+      filed: staged,
+      total: rows.length,
+      error: err,
+      resume: "re-run from scratch (filing is one transaction; nothing was swapped)",
+    });
     await client.query("ROLLBACK").catch(() => {});
     throw err;
   }
@@ -360,18 +404,44 @@ async function run() {
   const fileDir = fileAt >= 0 ? args[fileAt + 1] : null;
   if (fileAt >= 0 && !fileDir) throw new Error("--file needs a directory");
 
-  const rows = await loadImdRows({ fileDir });
-  goldenChecks(rows, { full: !fileDir });
+  // BUG-265: the download and the filing both log while they
+  // work; the parse count carries the published total only on
+  // a full (live) run — the fixture holds three rows, not the
+  // national 33,755.
+  const progress = createProgressLogger({ name: "load-imd" });
+  progress.stage(
+    fileDir ? `reading File 7 from ${fileDir}...` : "downloading File 7 from GOV.UK...",
+  );
+  let rows;
+  try {
+    rows = await loadImdRows({ fileDir });
+    goldenChecks(rows, { full: !fileDir });
+  } catch (err) {
+    progress.failed({
+      stage: "read",
+      filed: 0,
+      error: err,
+      resume: "re-run (nothing filed)",
+    });
+    throw err;
+  }
+  progress.count({
+    label: "parse",
+    done: rows.length,
+    total: fileDir ? null : NATIONAL_LSOA_COUNT,
+    unit: "LSOAs",
+  });
   const base = `load-imd · IoD2025 File 7 · ${rows.length.toLocaleString("en-GB")} LSOAs`;
   if (verifyOnly) {
     console.log(`${base} — golden homes OK (verify-only, nothing filed)`);
     return;
   }
+  progress.stage(`filing ${formatCount(rows.length)} LSOAs into neighbourhood_stats...`);
   const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
   try {
     const client = await pool.connect();
     try {
-      await fileImd(client, rows);
+      await fileImd(client, rows, { progress });
     } finally {
       client.release();
     }

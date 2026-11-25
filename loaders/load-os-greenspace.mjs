@@ -122,7 +122,12 @@ import { createHash } from "node:crypto";
 import pg from "pg";
 import proj4 from "proj4";
 import yauzl from "yauzl";
-import { formatCount } from "./progress.mjs";
+import {
+  createBatchWatch,
+  createProgressLogger,
+  formatCount,
+  formatDuration,
+} from "./progress.mjs";
 
 const { Pool } = pg;
 
@@ -618,7 +623,7 @@ export function createGoldenTally() {
 // is the contract — greenspace_points is replaced whole —
 // so a failure anywhere rolls the whole filing back and a
 // re-run files it whole; nothing commits in pieces.
-export async function createGreenspaceFiler(pool, retrievedAt) {
+export async function createGreenspaceFiler(pool, retrievedAt, { progress = null } = {}) {
   const client = await pool.connect();
   try {
     // BEGIN first — the house pattern (see load-osm-places):
@@ -637,18 +642,42 @@ export async function createGreenspaceFiler(pool, retrievedAt) {
     client.release();
     throw err;
   }
+  // BUG-265: the stage flushes are the filing's long phase.
+  // No total exists at filer creation — the read's row count
+  // is only known when the read ends — so the tally counts
+  // flushes without a percentage, and the heartbeat counts
+  // staged rows.
+  const stageTally = progress?.tally({ label: "stage", every: 50, unit: "flushes" });
+  const stageWatch = createBatchWatch();
+  let flushCount = 0;
+  let stagedRows = 0;
   const values = [];
   const params = [];
   const flush = async () => {
     if (values.length === 0) return;
+    const started = Date.now();
+    const flushedRows = values.length;
     await client.query(
       `INSERT INTO greenspace_stage (osm_id, name, point_role, latitude, longitude, source_name, source_date) VALUES ${values.join(", ")}`,
       params,
     );
     values.length = 0;
     params.length = 0;
+    stagedRows += flushedRows;
+    flushCount += 1;
+    const { tookMs, averageMs, slow } = stageWatch.observe(Date.now() - started);
+    stageTally?.tick(flushCount);
+    progress?.heartbeat({ stage: "stage", done: stagedRows, every: 50_000 });
+    if (slow) {
+      progress?.warning({
+        what: "stage flush duration",
+        value: `flush ${flushCount} took ${formatDuration(tookMs)}`,
+        threshold: `3x recent average ${formatDuration(averageMs)}`,
+      });
+    }
   };
   return {
+    stagedCount: () => stagedRows,
     async stageRows(rows) {
       for (const row of rows) {
         const base = params.length;
@@ -668,6 +697,7 @@ export async function createGreenspaceFiler(pool, retrievedAt) {
       }
     },
     async finishFiling() {
+      stageTally?.finish(flushCount);
       await flush();
       await client.query("DELETE FROM greenspace_points");
       // The live table's position columns are latitude/longitude
@@ -700,12 +730,30 @@ export async function createGreenspaceFiler(pool, retrievedAt) {
 // built with, kept for small inputs and tests. On any
 // failure the transaction rolls back and the client is
 // released, exactly as the one-shot filer did.
-export async function fileGreenspace(pool, rows, retrievedAt) {
-  const filer = await createGreenspaceFiler(pool, retrievedAt);
+/**
+ * @param {any} pool
+ * @param {any[]} rows
+ * @param {string} retrievedAt
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ */
+export async function fileGreenspace(pool, rows, retrievedAt, { progress = null } = {}) {
+  // BUG-265: stage marker and closing count around the
+  // streaming filer (whose own flush tally covers the long
+  // phase); the failure line names the staged count.
+  progress?.stage(`filing ${formatCount(rows.length)} greenspace points...`);
+  const filer = await createGreenspaceFiler(pool, retrievedAt, { progress });
   try {
     await filer.stageRows(rows);
+    progress?.count({ label: "file", done: rows.length, total: rows.length, unit: "points" });
     await filer.finishFiling();
   } catch (err) {
+    progress?.failed({
+      stage: "file",
+      filed: filer.stagedCount(),
+      total: rows.length,
+      error: err,
+      resume: "re-run from scratch (the swap is one transaction; nothing was filed)",
+    });
     await filer.abortFiling();
     throw err;
   }
@@ -784,6 +832,11 @@ async function main() {
   const fixtureMode = args.includes("--fixture") || fileArg !== null;
   const verifyOnly = args.includes("--verify-only");
   const retrievedOn = todayDate();
+  // BUG-265: one logger for the download, the read and the
+  // swap; the read's row total is unknown up front (the
+  // listing publishes bytes, not rows), so its tally counts
+  // without a percentage.
+  const progress = createProgressLogger({ name: "load-os-greenspace" });
   const workDir = mkdtempSync(join(tmpdir(), "cmnh-greenspace-"));
   try {
     let version;
@@ -837,6 +890,7 @@ async function main() {
       // download through a proxy does get cut — seen live
       // 13 Nov 2026); a partial file is always discarded, and
       // the md5 below remains the only acceptance test.
+      progress.stage(`downloading the OS Open Greenspace ${version} GeoPackage...`);
       let downloadError = null;
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
@@ -852,6 +906,7 @@ async function main() {
         }
       }
       if (downloadError) throw downloadError;
+      progress.stage("verifying the download against the listing's md5...");
       const actual = await md5OfFile(zipPath);
       if (actual !== md5)
         throw new Error(
@@ -873,11 +928,15 @@ async function main() {
     let read;
     let pool = null;
     let filer = null;
+    // BUG-265: the GeoPackage read is the run's long phase —
+    // a line every 25,000 rows, a heartbeat every 100,000.
+    const readTally = progress.tally({ label: "read", every: 25_000, unit: "rows" });
     try {
       if (!verifyOnly) {
         pool = new Pool({ connectionString: process.env.DATABASE_URL });
-        filer = await createGreenspaceFiler(pool, `${retrievedOn}T00:00:00Z`);
+        filer = await createGreenspaceFiler(pool, `${retrievedOn}T00:00:00Z`, { progress });
       }
+      progress.stage("reading the GeoPackage...");
       const iterator = iterateGreenspaceFile(gpkgPath, versionDate(version));
       try {
         let step;
@@ -886,15 +945,24 @@ async function main() {
           tally.offer(row);
           if (row.pointRole === "centre") centres += 1;
           filedRows += 1;
+          readTally.tick(filedRows);
+          progress.heartbeat({ stage: "read", done: filedRows, every: 100_000 });
           if (filer) await filer.stageRows([row]);
         }
         read = step.value;
       } finally {
         iterator.return();
       }
+      readTally.finish(filedRows);
       const golden = tally.failures(read.functionCounts, { full });
       if (golden.length > 0) throw new Error(`golden checks failed: ${golden.join("; ")}`);
     } catch (err) {
+      progress.failed({
+        stage: "read",
+        filed: filedRows,
+        error: err,
+        resume: "re-run from scratch (the swap transaction rolls back)",
+      });
       if (filer) await filer.abortFiling();
       if (pool) await pool.end().catch(() => {});
       throw err;
@@ -908,6 +976,9 @@ async function main() {
       );
       return;
     }
+    progress.stage(
+      `swap started — filing ${formatCount(filedRows)} staged points into greenspace_points`,
+    );
     await filer.finishFiling();
     await pool.end();
     console.log(

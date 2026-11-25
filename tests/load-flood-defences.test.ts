@@ -2,6 +2,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { createProgressLogger } from "../loaders/progress.mjs";
 import {
   BAND_HIGH,
   BAND_LOW,
@@ -16,6 +17,7 @@ import {
   parseInspectionDate,
   processRows,
   readDefencesFile,
+  streamDefencesFile,
 } from "../loaders/load-flood-defences.mjs";
 
 // Recorded flood defences loader (plan step M6.27, decisions
@@ -220,5 +222,29 @@ describe("load-flood-defences — the inspection date and the edition stamp", ()
     // month 11<<5 | day 13.
     expect(dosDateToIso((46 << 9) | (11 << 5) | 13)).toBe("2026-11-13");
     expect(dosDateToIso(0)).toBeNull();
+  });
+});
+
+// BUG-265: the streaming read carries the shared progress
+// logger — a tally every 10,000 features (a finish line only
+// at fixture scale), a heartbeat every 50,000, and a slow
+// 10,000-feature chunk earns a warning.
+describe("progress logging (BUG-265)", () => {
+  it("streams the fixture with a closing read line, and the read is unchanged", async () => {
+    const lines: string[] = [];
+    const progress = createProgressLogger({
+      name: "load-flood-defences",
+      log: (...args: unknown[]) => lines.push(args.join(" ")),
+    });
+    const { read } = await streamDefencesFile(GPKG_PATH, { progress });
+    expect(read).toBe(834);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/progress · read 834 features$/);
+    expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
+  });
+
+  it("reads the same rows without a logger", async () => {
+    const { read } = await streamDefencesFile(GPKG_PATH, {});
+    expect(read).toBe(834);
   });
 });

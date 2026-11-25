@@ -97,7 +97,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import pg from "pg";
 import yauzl from "yauzl";
-import { formatCount } from "./progress.mjs";
+import { createProgressLogger, formatCount } from "./progress.mjs";
 
 const { Pool } = pg;
 
@@ -999,11 +999,26 @@ function rowValues(row, taxYear) {
 
 const PLACEHOLDERS = "($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)";
 
-export async function fileSeedRows(pool, rows, taxYear) {
+/**
+ * @param {any} pool
+ * @param {any[]} rows
+ * @param {string} taxYear
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ */
+export async function fileSeedRows(pool, rows, taxYear, { progress = null } = {}) {
   const client = await pool.connect();
+  // BUG-265: the seed is short, so the tally's step is
+  // small — a line every 10 authorities, with the genuine
+  // total and percentage.
+  const fileTally = progress?.tally({
+    label: "file",
+    total: rows.length,
+    every: 10,
+    unit: "authorities",
+  });
   try {
     await client.query("BEGIN");
-    for (const row of rows) {
+    for (const [i, row] of rows.entries()) {
       await client.query(
         `INSERT INTO council_tax_charges (billing_authority_ons_code, authority_name, nation, tax_year, band_d_area_average_pence, parish_averaged, billing_authority_component_pence, county_component_pence, police_component_pence, fire_component_pence, gla_component_pence, combined_authority_component_pence, source_name, source_date) VALUES ${PLACEHOLDERS}
          ON CONFLICT (billing_authority_ons_code, tax_year) DO UPDATE SET
@@ -1022,9 +1037,19 @@ export async function fileSeedRows(pool, rows, taxYear) {
            loaded_at = now()`,
         rowValues(row, taxYear),
       );
+      fileTally?.tick(i + 1);
+      progress?.heartbeat({ stage: "file", done: i + 1, total: rows.length });
     }
     await client.query("COMMIT");
+    fileTally?.finish(rows.length);
   } catch (error) {
+    progress?.failed({
+      stage: "file",
+      filed: 0,
+      total: rows.length,
+      error,
+      resume: "re-run from scratch (the filing transaction rolls back)",
+    });
     await client.query("ROLLBACK");
     throw error;
   } finally {
@@ -1032,8 +1057,22 @@ export async function fileSeedRows(pool, rows, taxYear) {
   }
 }
 
-export async function fileAllRows(pool, rows, taxYear) {
+/**
+ * @param {any} pool
+ * @param {any[]} rows
+ * @param {string} taxYear
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ */
+export async function fileAllRows(pool, rows, taxYear, { progress = null } = {}) {
   const client = await pool.connect();
+  // BUG-265: the full filing stages in chunks of 100 — a
+  // line per chunk, with the genuine total and percentage.
+  const fileTally = progress?.tally({
+    label: "file",
+    total: rows.length,
+    every: 100,
+    unit: "authorities",
+  });
   try {
     await client.query("BEGIN");
     await client.query(
@@ -1054,13 +1093,23 @@ export async function fileAllRows(pool, rows, taxYear) {
         `INSERT INTO stg_council_tax_charges (billing_authority_ons_code, authority_name, nation, tax_year, band_d_area_average_pence, parish_averaged, billing_authority_component_pence, county_component_pence, police_component_pence, fire_component_pence, gla_component_pence, combined_authority_component_pence, source_name, source_date) VALUES ${tuples.join(", ")}`,
         values,
       );
+      fileTally?.tick(at + chunk.length);
+      progress?.heartbeat({ stage: "file", done: at + chunk.length, total: rows.length });
     }
     await client.query("DELETE FROM council_tax_charges WHERE tax_year = $1", [taxYear]);
     await client.query(
       `INSERT INTO council_tax_charges (billing_authority_ons_code, authority_name, nation, tax_year, band_d_area_average_pence, parish_averaged, billing_authority_component_pence, county_component_pence, police_component_pence, fire_component_pence, gla_component_pence, combined_authority_component_pence, source_name, source_date) SELECT billing_authority_ons_code, authority_name, nation, tax_year, band_d_area_average_pence, parish_averaged, billing_authority_component_pence, county_component_pence, police_component_pence, fire_component_pence, gla_component_pence, combined_authority_component_pence, source_name, source_date FROM stg_council_tax_charges`,
     );
     await client.query("COMMIT");
+    fileTally?.finish(rows.length);
   } catch (error) {
+    progress?.failed({
+      stage: "file",
+      filed: 0,
+      total: rows.length,
+      error,
+      resume: "re-run from scratch (the filing transaction rolls back)",
+    });
     await client.query("ROLLBACK");
     throw error;
   } finally {
@@ -1125,8 +1174,9 @@ export async function readFixtureOds(dir, name) {
   }
 }
 
-async function loadInputs(args) {
+async function loadInputs(args, { progress = null } = {}) {
   if (args.fileDir) {
+    progress?.stage("reading the fixture release");
     const tables = await readFixtureOds(args.fileDir, "Tables_1-9.ods");
     const table10 = await readFixtureOds(args.fileDir, "Table_10.ods");
     let walesText = null;
@@ -1161,6 +1211,7 @@ async function loadInputs(args) {
       );
     console.log(`The ${currentTaxYear()} release has not landed yet; filing ${taxYear}.`);
   }
+  progress?.stage(`fetching the MHCLG ${taxYear} release (Tables 1–9 and Table 10)`);
   const [tables, table10] = await Promise.all([
     fetchBuffer(info.tablesUrl, `Tables 1 to 9 for ${taxYear}`),
     fetchBuffer(info.table10Url, `Table 10 for ${taxYear}`),
@@ -1174,6 +1225,7 @@ async function loadInputs(args) {
     `https://api.stats.gov.wales/v2/${STATSWALES_DATASET_ID}`,
     "the StatsWales composition dataset metadata",
   );
+  progress?.stage("fetching the StatsWales composition export");
   const walesCsv = await fetchBuffer(
     `https://api.stats.gov.wales/v2/${STATSWALES_DATASET_ID}/data?format=csv&page_size=10000&page_number=1`,
     "the StatsWales composition export",
@@ -1202,35 +1254,65 @@ async function main() {
   };
   if (fileAt !== -1 && !args.fileDir) throw new Error("--file needs a directory");
 
-  const { england, walesText, englandStamp, walesStamp } = await loadInputs(args);
-  const taxYear = england.taxYear;
-  const walesRows = walesText ? parseWales(walesText, taxYear) : [];
-  if (walesText && walesRows.length === 0)
-    throw new Error(
-      `the StatsWales composition export carries no ${taxYear} rows yet — the Welsh release is lagging; re-run when it lands rather than filing England alone`,
-    );
-
+  // BUG-265: one logger for the run — the input stages
+  // above, the parsed-authorities count below, and the
+  // filing tally inside the filers.
+  const progress = createProgressLogger({ name: "load-council-tax" });
+  let england;
+  let walesText;
+  let englandStamp;
+  let walesStamp;
   let rows;
   let unfiled = [];
-  if (args.all) {
-    ({ rows, unfiled } = buildRows(england, walesRows, { mode: "all" }));
-    if (unfiled.length > 0)
+  let taxYear;
+  let walesRows = [];
+  try {
+    ({ england, walesText, englandStamp, walesStamp } = await loadInputs(args, { progress }));
+    taxYear = england.taxYear;
+    walesRows = walesText ? parseWales(walesText, taxYear) : [];
+    if (walesText && walesRows.length === 0)
       throw new Error(
-        `--all refuses: ${unfiled.length} billing authorities have no AREA_PRECEPTORS entry yet (${unfiled.slice(0, 8).join(", ")}…) — extend the map as the spring pass describes; nothing filed`,
+        `the StatsWales composition export carries no ${taxYear} rows yet — the Welsh release is lagging; re-run when it lands rather than filing England alone`,
       );
-  } else {
-    const englandRows = buildRows(england, [], {
-      mode: "seed",
-      codes: SEED_CODES.filter((code) => code.startsWith("E")),
-    }).rows;
-    const welshRows = buildRows(england, walesRows, {
-      mode: "seed",
-      codes: SEED_CODES.filter((code) => code.startsWith("W")),
-    }).rows;
-    rows = [...englandRows, ...welshRows];
+    if (args.all) {
+      ({ rows, unfiled } = buildRows(england, walesRows, { mode: "all" }));
+      if (unfiled.length > 0)
+        throw new Error(
+          `--all refuses: ${unfiled.length} billing authorities have no AREA_PRECEPTORS entry yet (${unfiled.slice(0, 8).join(", ")}…) — extend the map as the spring pass describes; nothing filed`,
+        );
+    } else {
+      const englandRows = buildRows(england, [], {
+        mode: "seed",
+        codes: SEED_CODES.filter((code) => code.startsWith("E")),
+      }).rows;
+      const welshRows = buildRows(england, walesRows, {
+        mode: "seed",
+        codes: SEED_CODES.filter((code) => code.startsWith("W")),
+      }).rows;
+      rows = [...englandRows, ...welshRows];
+    }
+    for (const row of rows) Object.assign(row, row.nation === "wales" ? walesStamp : englandStamp);
+    goldenChecks(rows, taxYear);
+    // BUG-265: the parsed-authorities total is genuine
+    // (every England authority in the release plus every
+    // Welsh row in the export), so the count carries a real
+    // percentage — rows to file against authorities parsed.
+    progress.count({
+      label: "authorities",
+      done: rows.length,
+      total: england.area.size + walesRows.length,
+      unit: "authorities",
+      extra: `for ${taxYear}`,
+    });
+  } catch (err) {
+    progress.failed({
+      stage: "parse",
+      filed: 0,
+      error: err,
+      resume: "re-run from scratch (nothing is filed until the filing step)",
+    });
+    throw err;
   }
-  for (const row of rows) Object.assign(row, row.nation === "wales" ? walesStamp : englandStamp);
-  goldenChecks(rows, taxYear);
 
   const englandCount = rows.filter((row) => row.nation === "england").length;
   const walesCount = rows.length - englandCount;
@@ -1249,8 +1331,8 @@ async function main() {
   }
   const pool = new Pool({ connectionString });
   try {
-    if (args.all) await fileAllRows(pool, rows, taxYear);
-    else await fileSeedRows(pool, rows, taxYear);
+    if (args.all) await fileAllRows(pool, rows, taxYear, { progress });
+    else await fileSeedRows(pool, rows, taxYear, { progress });
   } finally {
     await pool.end();
   }

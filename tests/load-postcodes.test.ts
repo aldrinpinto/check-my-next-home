@@ -61,3 +61,22 @@ describe("postcode directory loader", () => {
     ).toBe(true);
   });
 });
+
+// ------------------------------------------------------------------
+// Progress logging (BUG-265): this loader's main run is not
+// exported, so the wiring is pinned in its source — the
+// end-to-end lines are pinned in
+// tests/load-progress-bug265-d.test.ts.
+// ------------------------------------------------------------------
+describe("progress logging (BUG-265)", () => {
+  it("creates one shared logger and logs the read, the staging tally and failures", () => {
+    expect(loader).toContain('createProgressLogger({ name: "load-postcodes" })');
+    expect(loader).toContain('progress.stage("reading the ONSPD directory")');
+    expect(loader).toContain('progress.count({ label: "read", done: counts.total, unit: "rows" })');
+    expect(loader).toContain('progress.tally({ label: "staging", every: 100, unit: "batches" })');
+    expect(loader).toContain(
+      "filing ${formatCount(counts.live)} live postcodes into postcode_cache",
+    );
+    expect(loader).toContain("progress.failed({");
+  });
+});

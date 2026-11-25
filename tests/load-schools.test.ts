@@ -124,3 +124,21 @@ describe("fixture golden facts", () => {
     expect(nonsuch?.["Gender (name)"]).toBe("Girls");
   });
 });
+
+// ------------------------------------------------------------------
+// Progress logging (BUG-265): this loader's main run is not
+// exported, so the wiring is pinned in its source — the
+// end-to-end lines are pinned in
+// tests/load-progress-bug265-d.test.ts.
+// ------------------------------------------------------------------
+describe("progress logging (BUG-265)", () => {
+  it("creates one shared logger and logs the read, the parsed count, both filing tallies and failures", () => {
+    expect(loader).toContain('createProgressLogger({ name: "load-schools" })');
+    expect(loader).toContain('progress.stage("reading the GIAS register and the Ofsted file")');
+    expect(loader).toContain('label: "parsed",');
+    expect(loader).toContain('label: "filing",');
+    expect(loader).toContain('label: "filing outcomes",');
+    expect(loader).toContain("swap started — replacing the filed schools and outcomes");
+    expect(loader).toContain("progress.failed({");
+  });
+});

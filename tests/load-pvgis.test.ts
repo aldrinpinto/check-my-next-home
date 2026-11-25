@@ -9,7 +9,9 @@ import {
   goldenChecks,
   parsePvcalcResponse,
   rowsFromFixture,
+  sampleCells,
 } from "../loaders/load-pvgis.mjs";
+import { createProgressLogger } from "../loaders/progress.mjs";
 
 // PVGIS solar loader (plan step M5.18), tested against the
 // fixture in tests/fixtures/pvgis — the three golden cells'
@@ -123,5 +125,76 @@ describe("filing — statement order and the whole-grid swap", () => {
     expect(stageAt).toBeGreaterThan(beginAt);
     expect(statements.some((s) => /DELETE FROM solar_grid/.test(s))).toBe(true);
     expect(statements.at(-1)).toBe("COMMIT");
+  });
+});
+
+// ------------------------------------------------------------------
+// Progress logging (BUG-265).
+// ------------------------------------------------------------------
+describe("progress logging (BUG-265)", () => {
+  const collect = () => {
+    const lines: string[] = [];
+    return {
+      lines,
+      progress: createProgressLogger({
+        name: "load-pvgis",
+        log: (line: string) => lines.push(line),
+      }),
+    };
+  };
+  // Twenty-five distinct cells, sampled against the first
+  // fixture cell's captured PVcalc response.
+  const cells = Array.from({ length: 25 }, (_, i) => cellFor(51 + i * 0.1, 0.05));
+  const response = fixture.cells[0].response;
+
+  it("sampleCells logs a tally with a real percentage", async () => {
+    const { lines, progress } = collect();
+    const rows = await sampleCells(cells, async () => structuredClone(response), { progress });
+    expect(rows).toHaveLength(25);
+    // A line every twentieth of the run (every 2 cells),
+    // and the closing line at 100%.
+    expect(lines.some((l) => /progress · sampling 2\/25 cells \(8%\)$/.test(l))).toBe(true);
+    expect(lines.some((l) => /progress · sampling 25\/25 cells \(100%\)$/.test(l))).toBe(true);
+    expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
+  });
+
+  it("sampleCells logs a failure line naming the sampling stage, with only the error's first line", async () => {
+    const { lines, progress } = collect();
+    await expect(
+      sampleCells(
+        cells,
+        async () => {
+          throw new Error("PVGIS is down\nsecond line");
+        },
+        { progress },
+      ),
+    ).rejects.toThrow("PVGIS is down");
+    expect(
+      lines.some((l) =>
+        /failed · sampling · filed 0 of 25 · PVGIS is down · resume from re-run from scratch/.test(
+          l,
+        ),
+      ),
+    ).toBe(true);
+    expect(lines.every((l) => !l.includes("second line"))).toBe(true);
+  });
+
+  it("fileSolarGrid logs a stage marker, the staging tally and the swap marker", async () => {
+    const { lines, progress } = collect();
+    const statements: string[] = [];
+    const client = {
+      query: async (sql: string) => {
+        statements.push(sql);
+        return { rows: [], rowCount: 0 };
+      },
+    };
+    await fileSolarGrid(client as never, rowsFromFixture(fixture) as never, { progress });
+    expect(lines.some((l) => /progress · staging 3 solar cells$/.test(l))).toBe(true);
+    expect(lines.some((l) => /progress · staging 1\/1 chunks \(100%\)$/.test(l))).toBe(true);
+    expect(lines.some((l) => /progress · swap started — replacing the solar grid$/.test(l))).toBe(
+      true,
+    );
+    expect(statements.at(-1)).toBe("COMMIT");
+    expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
   });
 });

@@ -43,7 +43,12 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import pg from "pg";
 import proj4 from "proj4";
-import { formatCount } from "./progress.mjs";
+import {
+  createBatchWatch,
+  createProgressLogger,
+  formatCount,
+  formatDuration,
+} from "./progress.mjs";
 
 proj4.defs(
   "EPSG:27700",
@@ -419,21 +424,39 @@ async function main() {
   const fixtureMode = fileAt !== -1;
   const fixtureDir = fixtureMode ? args[fileAt + 1] : null;
 
+  // BUG-265: one logger for the run — the read marker and
+  // parsed count here, the filing tallies in the filing
+  // block below, and the failure lines at each phase.
+  const progress = createProgressLogger({ name: "load-schools" });
+  progress.stage("reading the GIAS register and the Ofsted file");
+
   let giasText;
   let giasEdition;
   let ofstedText;
   let ofstedAsAt;
-  if (fixtureMode) {
-    const meta = JSON.parse(await readFile(join(fixtureDir, "fixture.json"), "utf8"));
-    giasText = new TextDecoder("windows-1252").decode(
-      await readFile(join(fixtureDir, meta.giasFile)),
-    );
-    ofstedText = await readFile(join(fixtureDir, meta.ofstedFile), "utf8");
-    giasEdition = meta.giasExtractDate;
-    ofstedAsAt = meta.ofstedAsAt;
-  } else {
-    ({ text: giasText, edition: giasEdition } = await fetchGias());
-    ({ text: ofstedText, asAt: ofstedAsAt } = await fetchOfsted());
+  try {
+    if (fixtureMode) {
+      const meta = JSON.parse(await readFile(join(fixtureDir, "fixture.json"), "utf8"));
+      giasText = new TextDecoder("windows-1252").decode(
+        await readFile(join(fixtureDir, meta.giasFile)),
+      );
+      ofstedText = await readFile(join(fixtureDir, meta.ofstedFile), "utf8");
+      giasEdition = meta.giasExtractDate;
+      ofstedAsAt = meta.ofstedAsAt;
+    } else {
+      ({ text: giasText, edition: giasEdition } = await fetchGias());
+      ({ text: ofstedText, asAt: ofstedAsAt } = await fetchOfsted());
+    }
+  } catch (err) {
+    // BUG-265: the fetch or fixture read failed before
+    // anything was parsed or filed.
+    progress.failed({
+      stage: "reading",
+      filed: 0,
+      error: err,
+      resume: "re-run from scratch (nothing is filed until the swap)",
+    });
+    throw err;
   }
 
   const giasRows = parseCsv(giasText);
@@ -524,7 +547,27 @@ async function main() {
         `sanity failure: ${noPosition.length} schools have no coordinates of their own`,
       );
   }
-  checkGolden(schools, outcomes, fixtureMode);
+  try {
+    checkGolden(schools, outcomes, fixtureMode);
+  } catch (err) {
+    // BUG-265: the golden checks fail before anything is
+    // filed.
+    progress.failed({
+      stage: "checks",
+      filed: 0,
+      error: err,
+      resume: "re-run from scratch (nothing is filed until the swap)",
+    });
+    throw err;
+  }
+  // BUG-265: the parsed count — no percentage, the register
+  // carries no total of its own to read against.
+  progress.count({
+    label: "parsed",
+    done: schools.length,
+    unit: "schools",
+    extra: `${formatCount(outcomes.size)} Ofsted outcomes joined`,
+  });
 
   const summary = () =>
     `load-schools · GIAS ${giasEdition} · Ofsted as at ${ofstedAsAt} · ${formatCount(schools.length)} open schools · ` +
@@ -548,7 +591,25 @@ async function main() {
     await client.query(
       `CREATE TEMP TABLE outcomes_stage (LIKE ofsted_outcomes INCLUDING DEFAULTS) ON COMMIT DROP`,
     );
+    // BUG-265: the filing is the run's long phase — one
+    // insert per school, so a tally over the schools (a real
+    // percentage: the count is known), a heartbeat and a
+    // slow-insert warning.
+    progress.stage(`filing ${formatCount(schools.length)} schools into the stage table`);
+    const schoolTally = progress.tally({
+      label: "filing",
+      total: schools.length,
+      every: Math.max(1, Math.ceil(schools.length / 20)),
+      unit: "schools",
+    });
+    const schoolWatch = createBatchWatch();
+    // The heartbeat stays coarse on a run of tens of
+    // thousands of inserts: every twentieth of the run.
+    const heartbeatEvery = Math.max(1, Math.ceil(schools.length / 20));
+    let schoolsFiled = 0;
+    let outcomesFiled = 0;
     for (const s of schools) {
+      const started = Date.now();
       await client.query(
         `INSERT INTO schools_stage (urn, name, school_type, phase, age_range_low, age_range_high,
            address, postcode, latitude, longitude, admissions_policy, religious_character,
@@ -579,8 +640,35 @@ async function main() {
           giasEdition,
         ],
       );
+      schoolsFiled += 1;
+      const { tookMs, averageMs, slow } = schoolWatch.observe(Date.now() - started);
+      schoolTally.tick(schoolsFiled);
+      progress.heartbeat({
+        stage: "filing",
+        done: schoolsFiled,
+        total: schools.length,
+        every: heartbeatEvery,
+      });
+      if (slow) {
+        progress.warning({
+          what: "school insert duration",
+          value: `school ${s.urn} took ${formatDuration(tookMs)}`,
+          threshold: `3x recent average ${formatDuration(averageMs)}`,
+        });
+      }
     }
+    schoolTally.finish(schoolsFiled);
+    progress.stage(`filing ${formatCount(outcomes.size)} Ofsted outcomes into the stage table`);
+    const outcomeTally = progress.tally({
+      label: "filing outcomes",
+      total: outcomes.size,
+      every: Math.max(1, Math.ceil(outcomes.size / 20)),
+      unit: "outcomes",
+    });
+    const outcomeWatch = createBatchWatch();
+    const outcomeHeartbeatEvery = Math.max(1, Math.ceil(outcomes.size / 20));
     for (const [urn, o] of outcomes) {
+      const started = Date.now();
       await client.query(
         `INSERT INTO outcomes_stage (urn, rating, inspection_date, report_url, latest_event_type,
            latest_event_date, ungraded_outcome, report_card, source_name, source_date)
@@ -598,7 +686,25 @@ async function main() {
           ofstedAsAt,
         ],
       );
+      outcomesFiled += 1;
+      const { tookMs, averageMs, slow } = outcomeWatch.observe(Date.now() - started);
+      outcomeTally.tick(outcomesFiled);
+      progress.heartbeat({
+        stage: "filing outcomes",
+        done: outcomesFiled,
+        total: outcomes.size,
+        every: outcomeHeartbeatEvery,
+      });
+      if (slow) {
+        progress.warning({
+          what: "outcome insert duration",
+          value: `outcome ${urn} took ${formatDuration(tookMs)}`,
+          threshold: `3x recent average ${formatDuration(averageMs)}`,
+        });
+      }
     }
+    outcomeTally.finish(outcomesFiled);
+    progress.stage("swap started — replacing the filed schools and outcomes");
     const staged = await client.query("SELECT count(*)::int AS n FROM schools_stage");
     if (staged.rows[0].n !== schools.length)
       throw new Error("the staged school count does not match — rolling back");
@@ -626,6 +732,16 @@ async function main() {
       throw new Error("the filed school count does not match — rolling back");
     await client.query("COMMIT");
   } catch (error) {
+    // BUG-265: the failure line names the filing stage and
+    // how many rows were staged — the swap rolled back, so
+    // the live tables are untouched and a re-run starts over.
+    progress.failed({
+      stage: "filing",
+      filed: schoolsFiled + outcomesFiled,
+      total: schools.length + outcomes.size,
+      error,
+      resume: "re-run from scratch (the swap rolled back, the live tables are untouched)",
+    });
     await client.query("ROLLBACK");
     throw error;
   } finally {

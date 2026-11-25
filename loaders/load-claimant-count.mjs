@@ -77,7 +77,12 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
-import { formatCount } from "./progress.mjs";
+import {
+  createBatchWatch,
+  createProgressLogger,
+  formatCount,
+  formatDuration,
+} from "./progress.mjs";
 
 const { Pool } = pg;
 
@@ -370,8 +375,24 @@ export function goldenChecks(rows, { full }) {
 // replaces its first estimate; the prune then keeps the
 // series' newest 13 months.
 
-export async function fileClaimant(pool, rows, retrievedAt) {
+/**
+ * @param {any} pool
+ * @param {any[]} rows
+ * @param {string} retrievedAt
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ */
+export async function fileClaimant(pool, rows, retrievedAt, { progress = null } = {}) {
   const client = await pool.connect();
+  // BUG-265: the filing is the run's long phase — a stage
+  // marker up front and a line every 10,000 staged rows.
+  progress?.stage(`filing ${formatCount(rows.length)} area-months`);
+  const fileTally = progress?.tally({
+    label: "file",
+    total: rows.length,
+    every: 10000,
+    unit: "rows",
+  });
+  let staged = 0;
   try {
     await client.query("BEGIN");
     await client.query(`CREATE TEMP TABLE benefits_stage (
@@ -386,8 +407,10 @@ export async function fileClaimant(pool, rows, retrievedAt) {
         `INSERT INTO benefits_stage (lsoa_code, lsoa_name, reference_month, count, pct) VALUES ${values.join(", ")}`,
         params,
       );
+      staged += values.length;
       values.length = 0;
       params.length = 0;
+      fileTally?.tick(staged);
     };
     for (const row of rows) {
       const base = params.length;
@@ -419,7 +442,18 @@ export async function fileClaimant(pool, rows, retrievedAt) {
       [SERIES],
     );
     await client.query("COMMIT");
+    fileTally?.finish(staged);
   } catch (err) {
+    // BUG-265: the filing transaction rolls back, so
+    // nothing is filed on failure — the resume is a clean
+    // re-run.
+    progress?.failed({
+      stage: "file",
+      filed: staged,
+      total: rows.length,
+      error: err,
+      resume: "re-run from scratch (the filing transaction rolls back)",
+    });
     await client.query("ROLLBACK").catch(() => {});
     throw err;
   } finally {
@@ -473,12 +507,29 @@ export async function pullClaimantMonth(selector, codes) {
 // are assembled together, so a page boundary falling
 // between an LSOA's two measure rows is harmless, while a
 // duplicated or missing measure still fails the assembly.
-export async function pullClaimantNational(selector) {
+export async function pullClaimantNational(selector, { progress = null } = {}) {
   const observations = [];
+  // BUG-265: the paged pull is the run's long phase — a
+  // line per page (25,000 rows), a heartbeat every 50,000
+  // rows, and a warning for a page that takes more than 3x
+  // the recent average. No total is known until the short
+  // page answers, so no percentage is shown.
+  const pullWatch = createBatchWatch();
   for (let offset = 0; ; offset += PAGE_SIZE) {
+    const started = Date.now();
     const text = await fetchRetry(claimantUrl({ selector, offset }));
     const rawCount = parseCsvText(text).length - 1;
     observations.push(...parseClaimantObservations(text));
+    const { tookMs, averageMs, slow } = pullWatch.observe(Date.now() - started);
+    progress?.count({ label: "pull", done: observations.length, unit: "rows", extra: selector });
+    progress?.heartbeat({ stage: "pull", done: observations.length, every: 50000 });
+    if (slow && tookMs >= 1000) {
+      progress?.warning({
+        what: "pull page duration",
+        value: `page at offset ${formatCount(offset)} took ${formatDuration(tookMs)}`,
+        threshold: `3x recent average ${formatDuration(averageMs)}`,
+      });
+    }
     if (rawCount < PAGE_SIZE) break;
     if (offset > PAGE_SIZE * 6)
       throw new Error(
@@ -492,24 +543,42 @@ export async function pullClaimantNational(selector) {
 // previous month, nationally — or for named codes when a
 // verify pull asks for them. The fixture mode assembles
 // every captured response in the folder the same way.
-export async function loadClaimantRows(source) {
+/**
+ * @param {{ kind: string, dir?: string, codes?: string[] }} source
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ */
+export async function loadClaimantRows(source, { progress = null } = {}) {
   if (source.kind === "dir") {
     const files = readdirSync(source.dir)
       .filter((f) => f.startsWith("claimant-count-") && f.endsWith(".csv"))
       .sort();
     if (files.length === 0)
       throw new Error(`${source.dir} holds no claimant-count-*.csv — the fixture is missing`);
-    const observations = files.flatMap((f) =>
-      parseClaimantObservations(readFileSync(join(source.dir, f), "utf8")),
-    );
+    const observations = [];
+    // BUG-265: a line per fixture file, with the running
+    // observation count — the fixture's own file count is
+    // the total.
+    for (const [i, f] of files.entries()) {
+      observations.push(...parseClaimantObservations(readFileSync(join(source.dir, f), "utf8")));
+      progress?.count({
+        label: "fixture",
+        done: i + 1,
+        total: files.length,
+        unit: "files",
+        extra: `${formatCount(observations.length)} observations`,
+      });
+    }
     return { rows: assembleClaimantRows(observations) };
   }
   const chunks = [];
   for (const selector of MONTH_SELECTORS) {
+    // BUG-265: a stage marker per month — the pull is the
+    // run's long phase.
+    progress?.stage(`pulling ${selector} — Claimant Count month`);
     chunks.push(
       source.codes
         ? await pullClaimantMonth(selector, source.codes)
-        : await pullClaimantNational(selector),
+        : await pullClaimantNational(selector, { progress }),
     );
   }
   const seen = new Set();
@@ -546,7 +615,21 @@ async function main() {
     : verifyOnly
       ? { kind: "live", codes: GOLDEN_CODES }
       : { kind: "live" };
-  const { rows } = await loadClaimantRows(source);
+  // BUG-265: one logger for the run — the pull lines above
+  // and the filing tally inside fileClaimant.
+  const progress = createProgressLogger({ name: "load-claimant-count" });
+  let rows;
+  try {
+    ({ rows } = await loadClaimantRows(source, { progress }));
+  } catch (err) {
+    progress.failed({
+      stage: "pull",
+      filed: 0,
+      error: err,
+      resume: "re-run from scratch (nothing is filed until the filing step)",
+    });
+    throw err;
+  }
   const golden = goldenChecks(rows, { full: source.kind === "live" && !source.codes });
   if (golden.length > 0) throw new Error(`golden checks failed: ${golden.join("; ")}`);
   if (verifyOnly) {
@@ -555,7 +638,7 @@ async function main() {
   }
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
   try {
-    await fileClaimant(pool, rows, new Date().toISOString());
+    await fileClaimant(pool, rows, new Date().toISOString(), { progress });
   } finally {
     await pool.end();
   }

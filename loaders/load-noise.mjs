@@ -73,6 +73,12 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import proj4 from "proj4";
+import {
+  createBatchWatch,
+  createProgressLogger,
+  formatCount,
+  formatDuration,
+} from "./progress.mjs";
 
 const USER_AGENT = "CheckMyNextHome/1.0 (+https://checkmynexthome.co.uk)";
 
@@ -395,7 +401,25 @@ export function parseSamplesCsv(text) {
 
 const CHUNK = 500;
 
-export async function fileNoise(client, rows) {
+/**
+ * @param {any} client
+ * @param {any[]} rows
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ */
+export async function fileNoise(client, rows, { progress = null } = {}) {
+  // BUG-265: the stage inserts are the run's long phase —
+  // nationally ~5M rows in 500-row chunks — a line every
+  // twentieth of the chunks, a heartbeat, and a warning for
+  // a chunk over 3x the recent average.
+  const chunks = Math.ceil(rows.length / CHUNK);
+  const fileTally = progress?.tally({
+    label: "file",
+    total: chunks,
+    every: Math.max(1, Math.ceil(chunks / 20)),
+    unit: "chunks",
+  });
+  const fileWatch = createBatchWatch();
+  let staged = 0;
   await client.query("BEGIN");
   try {
     await client.query(`CREATE TEMP TABLE noise_stage (
@@ -403,6 +427,7 @@ export async function fileNoise(client, rows) {
         latitude double precision, longitude double precision
       ) ON COMMIT DROP`);
     for (let i = 0; i < rows.length; i += CHUNK) {
+      const started = Date.now();
       const chunk = rows.slice(i, i + CHUNK);
       const values = [];
       const params = [];
@@ -415,7 +440,20 @@ export async function fileNoise(client, rows) {
         `INSERT INTO noise_stage (area_ref, source_kind, day_band, night_band, latitude, longitude) VALUES ${values.join(", ")}`,
         params,
       );
+      staged += chunk.length;
+      const chunkNo = i / CHUNK + 1;
+      const { tookMs, averageMs, slow } = fileWatch.observe(Date.now() - started);
+      fileTally?.tick(chunkNo);
+      progress?.heartbeat({ stage: "file", done: chunkNo, total: chunks });
+      if (slow) {
+        progress?.warning({
+          what: "file chunk duration",
+          value: `chunk ${chunkNo} took ${formatDuration(tookMs)}`,
+          threshold: `3x recent average ${formatDuration(averageMs)}`,
+        });
+      }
     }
+    fileTally?.finish(chunks);
     await client.query(`DELETE FROM noise_summary`);
     await client.query(
       `INSERT INTO noise_summary (area_ref, source_kind, day_band, night_band, latitude, longitude, source_name, source_date)
@@ -424,6 +462,13 @@ export async function fileNoise(client, rows) {
     );
     await client.query("COMMIT");
   } catch (err) {
+    progress?.failed({
+      stage: "file",
+      filed: staged,
+      total: rows.length,
+      error: err,
+      resume: "re-run from scratch (filing is one transaction; nothing was swapped)",
+    });
     await client.query("ROLLBACK").catch(() => {});
     throw err;
   }
@@ -534,7 +579,7 @@ async function fetchTile(sourceKind, metric, coverageId, x0, y0) {
 // The live sample: resumable, per-tile sample files in the work
 // directory. Returns the complete sample set, or throws with the
 // progress made (the next run resumes).
-export async function sampleAll(pool, workDir) {
+export async function sampleAll(pool, workDir, { progress = null } = {}) {
   await mkdir(workDir, { recursive: true });
   const { rows: postcodes } = await pool.query(
     `SELECT postcode, latitude, longitude FROM postcode_cache ORDER BY postcode`,
@@ -551,7 +596,12 @@ export async function sampleAll(pool, workDir) {
   });
   const byKind = new Map();
   let pendingTotal = 0;
-  const road = await sampleKind("road", points, workDir);
+  // BUG-265: sampling is the run's hours-long phase — one
+  // stage line per source, and each source's tile loop
+  // carries its own tally, heartbeat and slow-tile warning
+  // (see sampleKind).
+  progress?.stage(`sampling road coverage for ${formatCount(points.length)} postcodes...`);
+  const road = await sampleKind("road", points, workDir, { progress });
   pendingTotal += road.pending;
   byKind.set("road", road.samples);
   // England gate: only postcodes with a modelled road cell get rows.
@@ -560,7 +610,8 @@ export async function sampleAll(pool, workDir) {
     return s && s.day !== null;
   });
   for (const kind of ["rail", "airport"]) {
-    const part = await sampleKind(kind, inEngland, workDir);
+    progress?.stage(`sampling ${kind} coverage for ${formatCount(inEngland.length)} postcodes...`);
+    const part = await sampleKind(kind, inEngland, workDir, { progress });
     pendingTotal += part.pending;
     byKind.set(kind, part.samples);
   }
@@ -585,7 +636,7 @@ export async function sampleAll(pool, workDir) {
 // sample file already exists in the work directory are read, not
 // re-fetched (the resume mechanism); tiles outside the coverage
 // extent are answered nodata without a request.
-async function sampleKind(sourceKind, points, workDir) {
+async function sampleKind(sourceKind, points, workDir, { progress = null } = {}) {
   const coverages = {
     Lday: await describeCoverage(sourceKind, "Lday"),
     Lnight: await describeCoverage(sourceKind, "Lnight"),
@@ -596,50 +647,95 @@ async function sampleKind(sourceKind, points, workDir) {
     if (!tiles.has(p.tile)) tiles.set(p.tile, []);
     tiles.get(p.tile).push(p);
   }
+  // BUG-265: the tile loop is the hours-long phase — the tile
+  // count is the total, so the log carries a real percentage,
+  // a line every tenth of the tiles, and a heartbeat. The
+  // slow-tile watch observes fetched tiles only: a cached
+  // tile costs nothing, and letting those instant reads set
+  // the average would flag every real fetch as slow.
+  const tileTally = progress?.tally({
+    label: `sample ${sourceKind}`,
+    total: tiles.size,
+    every: Math.max(1, Math.ceil(tiles.size / 10)),
+    unit: "tiles",
+  });
+  const tileWatch = createBatchWatch();
   const have = new Map();
   let pending = 0;
-  for (const [tileKey, tilePoints] of tiles) {
-    const tileFile = join(workDir, `${sourceKind}-${tileKey}.csv`);
-    let tileSamples = null;
-    try {
-      tileSamples = parseSamplesCsv(await readFile(tileFile, "utf8")).filter(
-        (s) => s.sourceKind === sourceKind,
+  let tileDone = 0;
+  try {
+    for (const [tileKey, tilePoints] of tiles) {
+      const tileFile = join(workDir, `${sourceKind}-${tileKey}.csv`);
+      let tileSamples = null;
+      try {
+        tileSamples = parseSamplesCsv(await readFile(tileFile, "utf8")).filter(
+          (s) => s.sourceKind === sourceKind,
+        );
+      } catch {
+        tileSamples = null;
+      }
+      if (tileSamples) {
+        for (const s of tileSamples) have.set(s.postcode, s);
+        tileDone += 1;
+        tileTally?.tick(tileDone);
+        progress?.heartbeat({
+          stage: `sample ${sourceKind}`,
+          done: tileDone,
+          total: tiles.size,
+        });
+        continue;
+      }
+      pending++;
+      const started = Date.now();
+      const [x0, y0] = tileKey.split("_").map(Number);
+      const inside =
+        x0 + TILE > extent.minX && x0 < extent.maxX && y0 + TILE > extent.minY && y0 < extent.maxY;
+      const day = inside ? await fetchTile(sourceKind, "Lday", coverages.Lday.id, x0, y0) : null;
+      const night = inside
+        ? await fetchTile(sourceKind, "Lnight", coverages.Lnight.id, x0, y0)
+        : null;
+      const fresh = [];
+      for (const p of tilePoints) {
+        const sample = {
+          postcode: p.postcode,
+          sourceKind,
+          day: day ? day.valueAt(p.x, p.y) : null,
+          night: night ? night.valueAt(p.x, p.y) : null,
+        };
+        have.set(p.postcode, sample);
+        fresh.push(sample);
+      }
+      const encode = (v) => (v === null ? "nodata" : String(v));
+      await writeFile(
+        tileFile,
+        [
+          "postcode,source_kind,day_value,night_value",
+          ...fresh.map((s) => `${s.postcode},${s.sourceKind},${encode(s.day)},${encode(s.night)}`),
+        ].join("\n") + "\n",
       );
-    } catch {
-      tileSamples = null;
+      tileDone += 1;
+      const { tookMs, averageMs, slow } = tileWatch.observe(Date.now() - started);
+      tileTally?.tick(tileDone);
+      progress?.heartbeat({ stage: `sample ${sourceKind}`, done: tileDone, total: tiles.size });
+      if (slow) {
+        progress?.warning({
+          what: "sample tile duration",
+          value: `tile ${tileKey} took ${formatDuration(tookMs)}`,
+          threshold: `3x recent average ${formatDuration(averageMs)}`,
+        });
+      }
     }
-    if (tileSamples) {
-      for (const s of tileSamples) have.set(s.postcode, s);
-      continue;
-    }
-    pending++;
-    const [x0, y0] = tileKey.split("_").map(Number);
-    const inside =
-      x0 + TILE > extent.minX && x0 < extent.maxX && y0 + TILE > extent.minY && y0 < extent.maxY;
-    const day = inside ? await fetchTile(sourceKind, "Lday", coverages.Lday.id, x0, y0) : null;
-    const night = inside
-      ? await fetchTile(sourceKind, "Lnight", coverages.Lnight.id, x0, y0)
-      : null;
-    const fresh = [];
-    for (const p of tilePoints) {
-      const sample = {
-        postcode: p.postcode,
-        sourceKind,
-        day: day ? day.valueAt(p.x, p.y) : null,
-        night: night ? night.valueAt(p.x, p.y) : null,
-      };
-      have.set(p.postcode, sample);
-      fresh.push(sample);
-    }
-    const encode = (v) => (v === null ? "nodata" : String(v));
-    await writeFile(
-      tileFile,
-      [
-        "postcode,source_kind,day_value,night_value",
-        ...fresh.map((s) => `${s.postcode},${s.sourceKind},${encode(s.day)},${encode(s.night)}`),
-      ].join("\n") + "\n",
-    );
+  } catch (err) {
+    progress?.failed({
+      stage: `sample ${sourceKind}`,
+      filed: have.size,
+      total: points.length,
+      error: err,
+      resume: `re-run to resume (work directory ${workDir})`,
+    });
+    throw err;
   }
+  tileTally?.finish(tileDone);
   return { samples: have, pending };
 }
 
@@ -650,8 +746,16 @@ async function run() {
   const fileDir = fileAt >= 0 ? args[fileAt + 1] : null;
   if (fileAt >= 0 && !fileDir) throw new Error("--file needs a directory");
 
+  // BUG-265: the verify, sampling and filing phases all
+  // log while they work; the verify count's total is
+  // genuine — every golden point × every source × both
+  // metrics.
+  const progress = createProgressLogger({ name: "load-noise" });
   if (verifyOnly) {
+    progress.stage("verifying the golden points through the publisher's WMS...");
     await verifyGoldenSamples();
+    const sampleTotal = Object.keys(GOLDEN_SAMPLES).length * SOURCE_KINDS.length * 2;
+    progress.count({ label: "verify", done: sampleTotal, total: sampleTotal, unit: "samples" });
     const rows = Object.entries(GOLDEN_SAMPLES).flatMap(([postcode, g]) =>
       SOURCE_KINDS.map((kind) => ({
         areaRef: postcode,
@@ -674,10 +778,12 @@ async function run() {
     let rows;
     let note;
     if (fileDir) {
+      progress.stage(`reading samples from ${fileDir}...`);
       const names = await readdir(fileDir);
       const samplesFile = names.find((n) => n === "noise-samples.csv");
       if (!samplesFile) throw new Error(`no noise-samples.csv in ${fileDir}`);
       const samples = parseSamplesCsv(await readFile(join(fileDir, samplesFile), "utf8"));
+      progress.count({ label: "parse", done: samples.length, unit: "samples" });
       const wanted = [...new Set(samples.map((s) => s.postcode))];
       const { rows: found } = await pool.query(
         `SELECT postcode, latitude, longitude FROM postcode_cache WHERE postcode = ANY($1)`,
@@ -689,7 +795,7 @@ async function run() {
       note = `${rows.length.toLocaleString("en-GB")} rows from ${fileDir}`;
     } else {
       const workDir = process.env.NOISE_WORK_DIR ?? join(tmpdir(), "cmnh-noise-round4");
-      const { samples, postcodes } = await sampleAll(pool, workDir);
+      const { samples, postcodes } = await sampleAll(pool, workDir, { progress });
       const pointsByPostcode = new Map(postcodes.map((p) => [p.postcode, p]));
       rows = samplesToRows(samples, pointsByPostcode);
       goldenBandChecks(rows);
@@ -697,7 +803,8 @@ async function run() {
     }
     const client = await pool.connect();
     try {
-      await fileNoise(client, rows);
+      progress.stage(`filing ${formatCount(rows.length)} noise rows...`);
+      await fileNoise(client, rows, { progress });
     } finally {
       client.release();
     }

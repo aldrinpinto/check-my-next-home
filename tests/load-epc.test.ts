@@ -7,6 +7,7 @@ import {
   checkMeasuresGolden,
   liveCertificates,
 } from "../loaders/load-epc.mjs";
+import { createProgressLogger } from "../loaders/progress.mjs";
 
 // Guards the EPC loader (plan step M4.5, option A): per-postcode
 // lookups against the Get energy performance of buildings data API,
@@ -450,6 +451,59 @@ describe("epc loader — the live fetch (BUG-173)", () => {
       expect(maxInFlight).toBeGreaterThan(1);
       expect(maxInFlight).toBeLessThanOrEqual(8);
       expect(elapsed).toBeLessThan(2_000);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+});
+
+describe("BUG-265 progress logging — the live fetch", () => {
+  it("logs the search stage and the certificate tally with the stub count as the total", async () => {
+    const CERTS = 12;
+    const stubs = Array.from({ length: CERTS }, (_, i) => ({
+      certificateNumber: `cert-${i}`,
+      addressLine1: `${i + 1} Test Street`,
+    }));
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string) => {
+      if (url.includes("/api/domestic/search")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: stubs, pagination: { totalPages: 1 } }),
+        };
+      }
+      const number = /certificate_number=cert-(\d+)/.exec(url)?.[1];
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            address_line_1: `${Number(number) + 1} Test Street`,
+            postcode: "ZZ9 1AA",
+            current_energy_efficiency_band: "C",
+          },
+        }),
+      };
+    }) as typeof fetch;
+    try {
+      const lines: string[] = [];
+      const progress = createProgressLogger({
+        name: "load-epc",
+        log: (line: string) => lines.push(line),
+      });
+      const { certificates } = await liveCertificates("ZZ9 1AA", "test-token", { progress });
+      expect(certificates).toHaveLength(CERTS);
+      expect(lines).toContainEqual(
+        expect.stringMatching(/load-epc progress · searching the register for ZZ9 1AA$/),
+      );
+      expect(lines).toContainEqual(
+        expect.stringMatching(
+          /load-epc progress · fetch certificates 12\/12 certificates \(100%\)$/,
+        ),
+      );
+      expect(lines).toContainEqual(expect.stringMatching(/load-epc heartbeat · fetch · 10\/12 · /));
+      expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
     } finally {
       globalThis.fetch = realFetch;
     }

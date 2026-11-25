@@ -18,6 +18,7 @@ import {
   readGreenspaceFile,
   versionDate,
 } from "../loaders/load-os-greenspace.mjs";
+import { createProgressLogger } from "../loaders/progress.mjs";
 
 // OS Open Greenspace loader (plan step M5.6), tested against
 // the radius-trimmed fixture in tests/fixtures/os-greenspace —
@@ -492,5 +493,76 @@ describe("filing — the schema contract", () => {
     for (const item of selectList) {
       if (/^[a-z_][a-z0-9_]*$/.test(item)) expect(stageCols).toContain(item);
     }
+  });
+});
+
+describe("progress — BUG-265", () => {
+  const collect = () => {
+    const lines: string[] = [];
+    return { lines, log: (line: string) => lines.push(line) };
+  };
+
+  function recordingPool(failOn?: string) {
+    const statements: string[] = [];
+    let released = false;
+    const client = {
+      async query(sql: string) {
+        const head = sql.trim().replace(/\s+/g, " ");
+        statements.push(head);
+        if (failOn && head.startsWith(failOn)) throw new Error(`forced failure: ${failOn}`);
+        return { rows: [], rowCount: 0 };
+      },
+      release() {
+        released = true;
+      },
+    };
+    return { statements, released: () => released, pool: { connect: async () => client } };
+  }
+
+  const rows = [
+    {
+      osmId: null,
+      name: "A Park",
+      pointRole: "centre",
+      lat: 51.5,
+      lon: 0.02,
+      sourceName: SOURCE_NAME,
+      sourceDate: "2026-10-01",
+    },
+    {
+      osmId: null,
+      name: "A Park",
+      pointRole: "access",
+      lat: 51.51,
+      lon: 0.005,
+      sourceName: SOURCE_NAME,
+      sourceDate: "2026-10-01",
+    },
+  ];
+
+  it("logs the filed points with a real percentage", async () => {
+    const { lines, log } = collect();
+    const progress = createProgressLogger({ name: "load-os-greenspace", log });
+    const rec = recordingPool();
+    await fileGreenspace(rec.pool as never, rows as never, "2026-11-13T00:00:00Z", { progress });
+    expect(lines.some((l) => /progress · file 2\/2 points \(100%\)$/.test(l))).toBe(true);
+    expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
+    expect(rec.statements.at(-1)).toBe("COMMIT");
+  });
+
+  it("names a filing failure with the staged count and the resume point", async () => {
+    const { lines, log } = collect();
+    const progress = createProgressLogger({ name: "load-os-greenspace", log });
+    const rec = recordingPool("INSERT INTO greenspace_stage");
+    await expect(
+      fileGreenspace(rec.pool as never, rows as never, "2026-11-13T00:00:00Z", { progress }),
+    ).rejects.toThrow("forced failure");
+    expect(
+      lines.some((l) =>
+        /failed · file · filed 0 of 2 · forced failure: INSERT INTO greenspace_stage · resume from re-run from scratch/.test(
+          l,
+        ),
+      ),
+    ).toBe(true);
   });
 });

@@ -12,6 +12,7 @@ import {
   parseClaimantCsv,
   parseClaimantObservations,
 } from "../loaders/load-claimant-count.mjs";
+import { createProgressLogger } from "../loaders/progress.mjs";
 import { dueDecision } from "../loaders/run-loaders.mjs";
 
 // Claimant Count loader (plan step M5.16), tested against
@@ -319,5 +320,53 @@ describe("wording discipline — the series is never shortened", () => {
     // The honest compound is allowed; the bare label is not.
     expect(loader).not.toMatch(/["']unemployment["']/);
     expect(loader).not.toContain("the unemployment rate");
+  });
+});
+
+describe("BUG-265 progress logging", () => {
+  const collect = () => {
+    const lines: string[] = [];
+    return { lines, log: (line: string) => lines.push(line) };
+  };
+
+  it("logs one line per fixture file, with the file count as the total", async () => {
+    const { lines, log } = collect();
+    const progress = createProgressLogger({ name: "load-claimant-count", log });
+    await loadClaimantRows({ kind: "dir", dir: FIXTURE_DIR }, { progress });
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toMatch(
+      /load-claimant-count progress · fixture 1\/2 files \(50%\) · 6 observations$/,
+    );
+    expect(lines[1]).toMatch(
+      /load-claimant-count progress · fixture 2\/2 files \(100%\) · 12 observations$/,
+    );
+    expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
+  });
+
+  it("reports a filing failure with the file stage and the staged count, then still rolls back", async () => {
+    const rows = await fixtureRows();
+    const statements: string[] = [];
+    const client = {
+      async query(sql: string) {
+        const head = sql.trim().replace(/\s+/g, " ");
+        statements.push(head);
+        if (head.startsWith("INSERT INTO benefits_stage"))
+          throw new Error("forced failure: INSERT INTO benefits_stage");
+        return { rows: [], rowCount: 0 };
+      },
+      release() {},
+    };
+    const pool = { connect: async () => client };
+    const { lines, log } = collect();
+    const progress = createProgressLogger({ name: "load-claimant-count", log });
+    await expect(
+      fileClaimant(pool as never, rows, "2026-11-13T00:00:00.000Z", { progress }),
+    ).rejects.toThrow("forced failure");
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toMatch(/load-claimant-count progress · filing 6 area-months$/);
+    expect(lines[1]).toMatch(
+      /load-claimant-count failed · file · filed 0 of 6 · forced failure: INSERT INTO benefits_stage · resume from re-run from scratch \(the filing transaction rolls back\)$/,
+    );
+    expect(statements).toContain("ROLLBACK");
   });
 });

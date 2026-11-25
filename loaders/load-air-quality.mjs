@@ -56,6 +56,12 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import proj4 from "proj4";
+import {
+  createBatchWatch,
+  createProgressLogger,
+  formatCount,
+  formatDuration,
+} from "./progress.mjs";
 
 const USER_AGENT = "CheckMyNextHome/1.0 (+https://checkmynexthome.co.uk)";
 
@@ -148,13 +154,32 @@ export function parsePcmCsv(text, pollutant, year) {
 // Join the three pollutant maps into filed rows. The three files must
 // cover exactly the same squares at the same centres — a mismatched
 // vintage or a truncated file stops the load.
-export function buildRows(maps, year) {
+/**
+ * @param {{ no2: Map<string, any>, pm25: Map<string, any>, pm10: Map<string, any> }} maps
+ * @param {number} year
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ */
+export function buildRows(maps, year, { progress = null } = {}) {
   const [no2, pm25, pm10] = [maps.no2, maps.pm25, maps.pm10];
   if (no2.size !== pm25.size || no2.size !== pm10.size) {
     throw new Error(
       `PCM: square counts differ (NO2 ${no2.size}, PM2.5 ${pm25.size}, PM10 ${pm10.size})`,
     );
   }
+  // BUG-265: the join is the run's long loop — 254,905 squares
+  // live, one proj4 conversion each — so a tally lands every
+  // 25,000 rows against the files' own square count, a
+  // heartbeat every 100,000, and a 25,000-row chunk that takes
+  // more than 3x the recent average earns a warning.
+  const buildTally = progress?.tally({
+    label: "build",
+    total: no2.size,
+    every: 25_000,
+    unit: "rows",
+  });
+  const buildWatch = createBatchWatch();
+  let chunkRows = 0;
+  let chunkStarted = Date.now();
   const rows = [];
   for (const [gridRef, a] of no2) {
     const b = pm25.get(gridRef);
@@ -173,7 +198,23 @@ export function buildRows(maps, year) {
       latitude: lat,
       longitude: lng,
     });
+    chunkRows += 1;
+    buildTally?.tick(rows.length);
+    progress?.heartbeat({ stage: "build", done: rows.length, total: no2.size, every: 100_000 });
+    if (chunkRows >= 25_000) {
+      const { tookMs, averageMs, slow } = buildWatch.observe(Date.now() - chunkStarted);
+      if (slow) {
+        progress?.warning({
+          what: "build chunk duration",
+          value: `chunk ending at row ${formatCount(rows.length)} took ${formatDuration(tookMs)}`,
+          threshold: `3x recent average ${formatDuration(averageMs)}`,
+        });
+      }
+      chunkStarted = Date.now();
+      chunkRows = 0;
+    }
   }
+  buildTally?.finish(rows.length);
   return rows;
 }
 
@@ -213,14 +254,34 @@ export function goldenChecks(rows, { full }) {
 
 const CHUNK = 500;
 
-export async function fileAirGrid(client, rows) {
+/**
+ * @param {any} client
+ * @param {any[]} rows
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ */
+export async function fileAirGrid(client, rows, { progress = null } = {}) {
   await client.query("BEGIN");
   try {
     await client.query(`CREATE TEMP TABLE air_stage (
         grid_ref text, year integer, no2 numeric, pm25 numeric, pm10 numeric,
         latitude double precision, longitude double precision
       ) ON COMMIT DROP`);
+    // BUG-265: the staging is the run's second long loop — 510
+    // chunks of 500 live — so a tally lands every 25 chunks
+    // against the chunk count, a heartbeat every 10, and a
+    // chunk that takes more than 3x the recent average earns
+    // a warning.
+    const chunks = Math.ceil(rows.length / CHUNK);
+    const stageTally = progress?.tally({
+      label: "stage",
+      total: chunks,
+      every: 25,
+      unit: "chunks",
+    });
+    const stageWatch = createBatchWatch();
+    let chunkIndex = 0;
     for (let i = 0; i < rows.length; i += CHUNK) {
+      const started = Date.now();
       const chunk = rows.slice(i, i + CHUNK);
       const values = [];
       const params = [];
@@ -235,7 +296,19 @@ export async function fileAirGrid(client, rows) {
         `INSERT INTO air_stage (grid_ref, year, no2, pm25, pm10, latitude, longitude) VALUES ${values.join(", ")}`,
         params,
       );
+      chunkIndex += 1;
+      const { tookMs, averageMs, slow } = stageWatch.observe(Date.now() - started);
+      stageTally?.tick(chunkIndex);
+      progress?.heartbeat({ stage: "stage", done: chunkIndex, total: chunks });
+      if (slow) {
+        progress?.warning({
+          what: "stage chunk duration",
+          value: `chunk ${chunkIndex} took ${formatDuration(tookMs)}`,
+          threshold: `3x recent average ${formatDuration(averageMs)}`,
+        });
+      }
     }
+    stageTally?.finish(chunks);
     await client.query(`DELETE FROM air_grid WHERE year = $1`, [rows[0].year]);
     await client.query(
       `INSERT INTO air_grid (grid_ref, year, no2, pm25, pm10, latitude, longitude, source_name, source_date)
@@ -244,6 +317,16 @@ export async function fileAirGrid(client, rows) {
     );
     await client.query("COMMIT");
   } catch (err) {
+    // BUG-265: the filing is one transaction — on a rollback
+    // the live table is untouched.
+    progress?.failed({
+      stage: "filing",
+      filed: 0,
+      total: rows.length,
+      error: err,
+      resume:
+        "re-run the loader from the start (the filing rolled back, the live table is untouched)",
+    });
     await client.query("ROLLBACK").catch(() => {});
     throw err;
   }
@@ -268,7 +351,7 @@ async function fetchText(url) {
   throw lastError;
 }
 
-export async function loadAirRows({ fileDir = null, year = PCM_YEAR } = {}) {
+export async function loadAirRows({ fileDir = null, year = PCM_YEAR, progress = null } = {}) {
   const texts = {};
   for (const pollutant of Object.keys(POLLUTANTS)) {
     const name = POLLUTANTS[pollutant].file(year);
@@ -280,7 +363,7 @@ export async function loadAirRows({ fileDir = null, year = PCM_YEAR } = {}) {
   for (const pollutant of Object.keys(POLLUTANTS)) {
     maps[pollutant] = parsePcmCsv(texts[pollutant], pollutant, year);
   }
-  return buildRows(maps, year);
+  return buildRows(maps, year, { progress });
 }
 
 async function run() {
@@ -289,19 +372,37 @@ async function run() {
   const fileAt = args.indexOf("--file");
   const fileDir = fileAt >= 0 ? args[fileAt + 1] : null;
   if (fileAt >= 0 && !fileDir) throw new Error("--file needs a directory");
+  // BUG-265: one logger for the run — the build tally and the
+  // staging tally below.
+  const progress = createProgressLogger({ name: "load-air-quality" });
 
-  const rows = await loadAirRows({ fileDir });
-  goldenChecks(rows, { full: !fileDir });
+  let rows;
+  try {
+    progress.stage("reading the three PCM files");
+    rows = await loadAirRows({ fileDir, progress });
+    goldenChecks(rows, { full: !fileDir });
+  } catch (err) {
+    // BUG-265: the read, the build and the golden checks all
+    // fail before anything is filed.
+    progress.failed({
+      stage: "read",
+      filed: 0,
+      error: err,
+      resume: "re-run the loader from the start (nothing is filed)",
+    });
+    throw err;
+  }
   const base = `load-air-quality · PCM ${PCM_YEAR} · ${rows.length.toLocaleString("en-GB")} squares`;
   if (verifyOnly) {
     console.log(`${base} — golden homes OK (verify-only, nothing filed)`);
     return;
   }
+  progress.stage(`filing ${formatCount(rows.length)} squares`);
   const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
   try {
     const client = await pool.connect();
     try {
-      await fileAirGrid(client, rows);
+      await fileAirGrid(client, rows, { progress });
     } finally {
       client.release();
     }

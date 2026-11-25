@@ -106,7 +106,12 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { createGoldenSift } from "./flood-stream.mjs";
-import { formatCount } from "./progress.mjs";
+import {
+  createBatchWatch,
+  createProgressLogger,
+  formatCount,
+  formatDuration,
+} from "./progress.mjs";
 
 const NE_BASE = "https://services.arcgis.com/JJzESW51TqeY9uat/arcgis/rest/services";
 const ORGANISATION = "Natural England";
@@ -509,7 +514,7 @@ async function fetchServicePage(
 // whole.
 export async function readServiceLiveStream(
   spec,
-  { delaysMs = RETRY_DELAYS_MS, onFeatures = null } = {},
+  { delaysMs = RETRY_DELAYS_MS, onFeatures = null, progress = null } = {},
 ) {
   const layerUrl = `${NE_BASE}/${spec.service}/FeatureServer/0`;
   const meta = await fetchJson(`${layerUrl}?f=json`, `the ${spec.service} layer metadata`);
@@ -531,24 +536,68 @@ export async function readServiceLiveStream(
   const expected = countBody.count;
   if (!Number.isInteger(expected) || expected < 0)
     throw new Error(`contract failure: the ${spec.service} count response carries no count`);
+  // BUG-265: the paged read is the run's long phase — the
+  // service's own count is the total, so the log carries a
+  // real percentage, a line every twentieth of the read, a
+  // heartbeat, and a warning for a page over 3x the recent
+  // average.
+  const readTally = progress?.tally({
+    label: "read",
+    total: expected,
+    every: Math.max(1, Math.ceil(expected / 20)),
+    unit: "features",
+  });
+  const readWatch = createBatchWatch();
+  const heartbeatEvery = Math.max(1, Math.ceil(expected / 2));
   let read = 0;
   let offset = 0;
   let lastObjectId = null;
-  while (offset < expected) {
-    const page = await fetchServicePage(
-      layerUrl,
-      spec,
-      offset,
-      expected,
-      pageSize,
-      lastObjectId,
-      delaysMs,
-    );
-    if (onFeatures) await onFeatures(page.features, sourceDate);
-    lastObjectId = page.features[page.features.length - 1].properties.OBJECTID;
-    offset += page.features.length;
-    read += page.features.length;
+  try {
+    while (offset < expected) {
+      const started = Date.now();
+      const page = await fetchServicePage(
+        layerUrl,
+        spec,
+        offset,
+        expected,
+        pageSize,
+        lastObjectId,
+        delaysMs,
+      );
+      if (onFeatures) await onFeatures(page.features, sourceDate);
+      lastObjectId = page.features[page.features.length - 1].properties.OBJECTID;
+      offset += page.features.length;
+      read += page.features.length;
+      const { tookMs, averageMs, slow } = readWatch.observe(Date.now() - started);
+      readTally?.tick(read);
+      progress?.heartbeat({
+        stage: `read ${spec.label}`,
+        done: read,
+        total: expected,
+        every: heartbeatEvery,
+      });
+      if (slow) {
+        progress?.warning({
+          what: "read page duration",
+          value: `page at offset ${offset - page.features.length} took ${formatDuration(tookMs)}`,
+          threshold: `3x recent average ${formatDuration(averageMs)}`,
+        });
+      }
+    }
+  } catch (err) {
+    progress?.failed({
+      stage: `read ${spec.label}`,
+      filed: read,
+      total: expected,
+      error: err,
+      resume: "re-run from scratch (reads stream into a staging transaction that rolls back)",
+    });
+    // Mark the error so main()'s catch does not print a
+    // second failure line for the same read.
+    err.progressFailed = true;
+    throw err;
   }
+  readTally?.finish(read);
   if (read !== expected)
     throw new Error(`${spec.service}: read ${read} features but the service count is ${expected}`);
   return { sourceDate, expected };
@@ -558,10 +607,11 @@ export async function readServiceLiveStream(
 // service's features in one array — the shape this step
 // was built with, kept for small inputs and tests. The
 // filing run streams.
-export async function readServiceLive(spec, { delaysMs = RETRY_DELAYS_MS } = {}) {
+export async function readServiceLive(spec, { delaysMs = RETRY_DELAYS_MS, progress = null } = {}) {
   const features = [];
   const { sourceDate, expected } = await readServiceLiveStream(spec, {
     delaysMs,
+    progress,
     onFeatures: async (batch) => {
       features.push(...batch);
     },
@@ -575,7 +625,7 @@ export async function readServiceLive(spec, { delaysMs = RETRY_DELAYS_MS } = {})
 // parts stream (BUG-195): each is parsed, handed to
 // onFeatures, and released before the next is read — the
 // parts are never concatenated into one array.
-async function streamFixtureFeatures(fixtureDir, fileName, onFeatures) {
+async function streamFixtureFeatures(fixtureDir, fileName, onFeatures, progress = null) {
   const stem = fileName.replace(/\.geojson$/, "");
   const entries = await readdir(fixtureDir);
   const partNames = entries
@@ -584,29 +634,56 @@ async function streamFixtureFeatures(fixtureDir, fileName, onFeatures) {
   const names = entries.includes(fileName) ? [fileName] : partNames;
   if (names.length === 0) throw new Error(`contract failure: no fixture file for ${fileName}`);
   let count = 0;
-  for (const name of names) {
+  for (const [part, name] of names.entries()) {
     const body = JSON.parse(await readFile(join(fixtureDir, name), "utf8"));
     const features = body.features ?? [];
     count += features.length;
     if (onFeatures) await onFeatures(features);
+    // BUG-265: a line per part — the fixture's own part count
+    // is the total, with the running feature count.
+    progress?.count({
+      label: "fixture",
+      done: part + 1,
+      total: names.length,
+      unit: "parts",
+      extra: `${formatCount(count)} features read`,
+    });
   }
   return count;
 }
 
-export async function readServiceFixtureStream(spec, fixtureDir, captured, onFeatures) {
+/**
+ * @param {{ file: string, fields: string[] }} spec
+ * @param {string} fixtureDir
+ * @param {string} captured
+ * @param {((features: any[], captured: string) => Promise<void>) | null} onFeatures
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ */
+export async function readServiceFixtureStream(
+  spec,
+  fixtureDir,
+  captured,
+  onFeatures,
+  { progress = null } = {},
+) {
   let fieldChecked = false;
-  const expected = await streamFixtureFeatures(fixtureDir, spec.file, async (features) => {
-    if (!fieldChecked && features.length > 0) {
-      fieldChecked = true;
-      for (const field of spec.fields) {
-        if (!(field in (features[0].properties ?? {})))
-          throw new Error(
-            `contract failure: the ${spec.file} fixture no longer carries "${field}"`,
-          );
+  const expected = await streamFixtureFeatures(
+    fixtureDir,
+    spec.file,
+    async (features) => {
+      if (!fieldChecked && features.length > 0) {
+        fieldChecked = true;
+        for (const field of spec.fields) {
+          if (!(field in (features[0].properties ?? {})))
+            throw new Error(
+              `contract failure: the ${spec.file} fixture no longer carries "${field}"`,
+            );
+        }
       }
-    }
-    if (onFeatures) await onFeatures(features, captured);
-  });
+      if (onFeatures) await onFeatures(features, captured);
+    },
+    progress,
+  );
   if (expected === 0) throw new Error(`contract failure: the ${spec.file} fixture has no features`);
   return { sourceDate: captured, expected };
 }
@@ -1023,6 +1100,13 @@ async function main() {
     ? JSON.parse(await readFile(join(fixtureDir, "fixture.json"), "utf8")).captured
     : null;
 
+  // BUG-265: one logger for the run's six service reads;
+  // currentLayer/filedSoFar name the stage and the filed
+  // count a failure line carries.
+  const progress = createProgressLogger({ name: "load-nature-designations" });
+  let currentLayer = "read";
+  let filedSoFar = 0;
+
   // A filing run streams the reads into the staging
   // transaction as they land (BUG-195), so the database
   // check moves ahead of the reads: without DATABASE_URL a
@@ -1037,8 +1121,8 @@ async function main() {
 
   const readStream = (key, onFeatures) =>
     fixtureMode
-      ? readServiceFixtureStream(SERVICES[key], fixtureDir, captured, onFeatures)
-      : readServiceLiveStream(SERVICES[key], { onFeatures });
+      ? readServiceFixtureStream(SERVICES[key], fixtureDir, captured, onFeatures, { progress })
+      : readServiceLiveStream(SERVICES[key], { onFeatures, progress });
 
   const statutoryRow = (item, spec, sourceDate) => ({
     constraintType: spec.constraintType,
@@ -1073,6 +1157,8 @@ async function main() {
   try {
     const loadStatutoryLayer = async (key) => {
       const spec = SERVICES[key];
+      currentLayer = spec.label;
+      progress.stage(`reading ${spec.label}...`);
       const processor = createStatutoryProcessor(spec);
       const sift = createGoldenSift(HOMES, GOLDEN_WINDOW_MILES);
       const { sourceDate } = await readStream(key, async (features, date) => {
@@ -1085,6 +1171,7 @@ async function main() {
         if (filer && rows.length > 0) await filer.stageRows(rows);
       });
       const totals = processor.finish();
+      filedSoFar += totals.filed;
       return { ...totals, sourceDate, sifted: sift.items };
     };
     sssi = await loadStatutoryLayer("sssi");
@@ -1104,6 +1191,8 @@ async function main() {
     const revSift = createGoldenSift(HOMES, GOLDEN_WINDOW_MILES);
     const revItems = [];
     let revSourceDate = null;
+    currentLayer = SERVICES.awiRev.label;
+    progress.stage(`reading ${SERVICES.awiRev.label}...`);
     await readStream("awiRev", async (features, date) => {
       revSourceDate = date;
       const items = revProcessor.processBatch(features);
@@ -1113,6 +1202,7 @@ async function main() {
       }
     });
     const revTotals = revProcessor.finish();
+    filedSoFar += revItems.length;
     const merger = createWoodlandMerger(revItems);
     if (filer) {
       await filer.stageRows(merger.revisedFiled.map((item) => woodlandRow(item, revSourceDate)));
@@ -1120,6 +1210,8 @@ async function main() {
     const origProcessor = createFeatureProcessor(SERVICES.awi.label);
     const origSift = createGoldenSift(HOMES, GOLDEN_WINDOW_MILES);
     let origFiled = 0;
+    currentLayer = SERVICES.awi.label;
+    progress.stage(`reading ${SERVICES.awi.label}...`);
     await readStream("awi", async (features, date) => {
       const items = origProcessor.processBatch(features);
       const rows = [];
@@ -1134,6 +1226,7 @@ async function main() {
       if (filer && rows.length > 0) await filer.stageRows(rows);
     });
     const origTotals = origProcessor.finish();
+    filedSoFar += origFiled;
     awi = {
       read: origTotals.read + revTotals.read,
       origRead: origTotals.read,
@@ -1170,6 +1263,18 @@ async function main() {
       },
     });
   } catch (error) {
+    // A live-read failure already carries its own line from
+    // readServiceLiveStream (marked on the error); anything
+    // else — a fixture read, a sanity band, a golden check —
+    // names the layer being read here.
+    if (!error.progressFailed) {
+      progress.failed({
+        stage: `read ${currentLayer}`,
+        filed: filedSoFar,
+        error,
+        resume: "re-run from scratch (reads stream into a staging transaction that rolls back)",
+      });
+    }
     if (filer) await filer.abortFiling();
     throw error;
   }
@@ -1191,6 +1296,9 @@ async function main() {
   const totalFiled = sssi.filed + sac.filed + spa.filed + ramsar.filed + awi.filed;
   const activeFiler = filer;
   filer = null;
+  progress.stage(
+    `swap started — filing ${formatCount(totalFiled)} staged rows into planning_layers`,
+  );
   await activeFiler.finishFiling(totalFiled);
   console.log(`${summary()} · golden homes OK · ${Math.round((Date.now() - startedAt) / 1000)}s`);
 }

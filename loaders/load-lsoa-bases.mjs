@@ -35,7 +35,12 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import yauzl from "yauzl";
-import { formatCount } from "./progress.mjs";
+import {
+  createBatchWatch,
+  createProgressLogger,
+  formatCount,
+  formatDuration,
+} from "./progress.mjs";
 
 const { Pool } = pg;
 
@@ -198,7 +203,27 @@ export function goldenChecks(rows, { full }) {
 // names are migration 0013's own, pinned by the
 // schema-contract tests).
 
-export async function fileLsoaBases(pool, rows, retrievedAt) {
+/**
+ * @param {any} pool
+ * @param {any[]} rows
+ * @param {string} retrievedAt
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ */
+export async function fileLsoaBases(pool, rows, retrievedAt, { progress = null } = {}) {
+  // BUG-265: the stage flushes are the run's long phase — a
+  // line every twentieth of the flushes, a heartbeat, and a
+  // warning for a flush over 3x the recent average.
+  const totalFlushes = Math.ceil(rows.length / 500);
+  const stageTally = progress?.tally({
+    label: "stage",
+    total: totalFlushes,
+    every: Math.max(1, Math.ceil(totalFlushes / 20)),
+    unit: "flushes",
+  });
+  const stageWatch = createBatchWatch();
+  let flushCount = 0;
+  let stagedRows = 0;
+  progress?.stage(`filing ${formatCount(rows.length)} LSOA bases...`);
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -210,12 +235,26 @@ export async function fileLsoaBases(pool, rows, retrievedAt) {
     const params = [];
     const flush = async () => {
       if (values.length === 0) return;
+      const started = Date.now();
+      const flushedRows = values.length;
       await client.query(
         `INSERT INTO lsoa_bases_stage (lsoa_code, lsoa_name, residents, households, source_name, source_date) VALUES ${values.join(", ")}`,
         params,
       );
       values.length = 0;
       params.length = 0;
+      stagedRows += flushedRows;
+      flushCount += 1;
+      const { tookMs, averageMs, slow } = stageWatch.observe(Date.now() - started);
+      stageTally?.tick(flushCount);
+      progress?.heartbeat({ stage: "stage", done: flushCount, total: totalFlushes });
+      if (slow) {
+        progress?.warning({
+          what: "stage flush duration",
+          value: `flush ${flushCount} took ${formatDuration(tookMs)}`,
+          threshold: `3x recent average ${formatDuration(averageMs)}`,
+        });
+      }
     };
     for (const row of rows) {
       const base = params.length;
@@ -233,6 +272,7 @@ export async function fileLsoaBases(pool, rows, retrievedAt) {
       if (values.length >= 500) await flush();
     }
     await flush();
+    stageTally?.finish(flushCount);
     await client.query("DELETE FROM lsoa_bases");
     await client.query(
       `INSERT INTO lsoa_bases (lsoa_code, lsoa_name, residents, households, source_name, source_date, loaded_at)
@@ -241,6 +281,13 @@ export async function fileLsoaBases(pool, rows, retrievedAt) {
     );
     await client.query("COMMIT");
   } catch (err) {
+    progress?.failed({
+      stage: "file",
+      filed: stagedRows,
+      total: rows.length,
+      error: err,
+      resume: "re-run from scratch (the swap is one transaction; nothing was filed)",
+    });
     await client.query("ROLLBACK").catch(() => {});
     throw err;
   } finally {
@@ -321,14 +368,29 @@ export function readDatasetFromDir(dir, code) {
   );
 }
 
-export async function loadLsoaBaseRows(source) {
+/**
+ * @param {{ kind: string, dir?: string }} source
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ */
+export async function loadLsoaBaseRows(source, { progress = null } = {}) {
   const parsedByCode = new Map();
   for (const dataset of BASE_DATASETS) {
+    // BUG-265: one line per dataset as it is read and parsed;
+    // the published total applies only to a live read — the
+    // fixture holds three areas, not the national 35,672.
+    progress?.stage(`reading the ${dataset.code} LSOA totals...`);
     const text =
       source.kind === "dir"
         ? await readDatasetFromDir(source.dir, dataset.code)
         : await downloadDatasetCsv(dataset.code);
-    parsedByCode.set(dataset.code, parseLsoaCsv(text, dataset));
+    const parsed = parseLsoaCsv(text, dataset);
+    progress?.count({
+      label: `parse ${dataset.code}`,
+      done: parsed.size,
+      total: source.kind === "dir" ? null : LSOA_COUNT,
+      unit: "LSOAs",
+    });
+    parsedByCode.set(dataset.code, parsed);
   }
   return { rows: buildRows(parsedByCode) };
 }
@@ -353,7 +415,17 @@ async function main() {
   const source = fixtureMode
     ? { kind: "dir", dir: fileArg ?? DEFAULT_FIXTURE_DIR }
     : { kind: "live" };
-  const { rows } = await loadLsoaBaseRows(source);
+  // BUG-265: the read phase logs while it works; a read
+  // failure names the read as the stage (filing failures
+  // carry their own line from fileLsoaBases).
+  const progress = createProgressLogger({ name: "load-lsoa-bases" });
+  let rows;
+  try {
+    ({ rows } = await loadLsoaBaseRows(source, { progress }));
+  } catch (err) {
+    progress.failed({ stage: "read", filed: 0, error: err, resume: "re-run (nothing filed)" });
+    throw err;
+  }
   const golden = goldenChecks(rows, { full: !fixtureMode });
   if (golden.length > 0) throw new Error(`golden checks failed: ${golden.join("; ")}`);
   if (verifyOnly) {
@@ -362,7 +434,7 @@ async function main() {
   }
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
   try {
-    await fileLsoaBases(pool, rows, new Date().toISOString());
+    await fileLsoaBases(pool, rows, new Date().toISOString(), { progress });
   } finally {
     await pool.end();
   }

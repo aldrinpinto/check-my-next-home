@@ -8,6 +8,7 @@ import {
   probeNomisCensus,
 } from "../loaders/canary.mjs";
 import { dueDecision, STATIC_THRESHOLD_DAYS } from "../loaders/run-loaders.mjs";
+import { createProgressLogger } from "../loaders/progress.mjs";
 import {
   AGE_BANDS,
   DATASETS,
@@ -539,5 +540,44 @@ describe("the nomis-census canary arms (network stubbed)", () => {
   it("the probe is registered under its own name", () => {
     const canary = readFileSync(join(process.cwd(), "loaders/canary.mjs"), "utf8");
     expect(canary).toContain('run("nomis-census", probeNomisCensus)');
+  });
+});
+
+// BUG-265: the dataset pull and the filing carry the shared
+// progress logger — a stage marker and a count per dataset,
+// and a tally every 5 flushes filed.
+describe("progress logging (BUG-265)", () => {
+  it("reads the fixture datasets with one stage and one count line each", async () => {
+    const lines: string[] = [];
+    const progress = createProgressLogger({
+      name: "load-census",
+      log: (...args: unknown[]) => lines.push(args.join(" ")),
+    });
+    const { rows } = await loadCensusRows({ kind: "dir", dir: FIXTURE_DIR }, { progress });
+    expect(rows).toHaveLength(3);
+    expect(lines).toHaveLength(14);
+    expect(lines[0]).toMatch(/progress · reading ts007a — Age by five-year age bands$/);
+    expect(lines[1]).toMatch(/progress · ts007a 3\/7,264 areas \(0%\)$/);
+    expect(lines[13]).toMatch(/progress · ts054 3\/7,264 areas \(0%\)$/);
+    expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
+  });
+
+  it("files the fixture rows with a closing file line", async () => {
+    const rows = await fixtureRows();
+    const pool = {
+      connect: async () => ({
+        query: async () => ({ rows: [], rowCount: 0 }),
+        release: () => {},
+      }),
+    };
+    const lines: string[] = [];
+    const progress = createProgressLogger({
+      name: "load-census",
+      log: (...args: unknown[]) => lines.push(args.join(" ")),
+    });
+    await fileCensus(pool as never, rows, "2026-11-13T00:00:00.000Z", { progress });
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/progress · file 1\/1 flushes \(100%\)$/);
+    expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
   });
 });

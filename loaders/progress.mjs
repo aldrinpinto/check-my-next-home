@@ -143,13 +143,16 @@ export function readResources(diskDir = process.cwd()) {
 // milliseconds and it reports whether that batch ran slow
 // against the average of the batches before it. The first
 // batch has no average to beat, so it can never be slow.
+// A 0 ms average never counts as slow either (BUG-265):
+// 3x of nothing is nothing, so any positive batch would
+// otherwise flag on a healthy run.
 export function createBatchWatch({ slowFactor = SLOW_BATCH_FACTOR } = {}) {
   let totalMs = 0;
   let seen = 0;
   return {
     observe(tookMs) {
       const averageMs = seen === 0 ? null : totalMs / seen;
-      const slow = averageMs !== null && tookMs > slowFactor * averageMs;
+      const slow = averageMs !== null && averageMs > 0 && tookMs > slowFactor * averageMs;
       totalMs += tookMs;
       seen += 1;
       return { tookMs, averageMs, slow };

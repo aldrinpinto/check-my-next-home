@@ -54,7 +54,12 @@ import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
-import { formatCount } from "./progress.mjs";
+import {
+  createBatchWatch,
+  createProgressLogger,
+  formatCount,
+  formatDuration,
+} from "./progress.mjs";
 
 const API_BASE = "https://api.get-energy-performance-data.communities.gov.uk";
 const SOURCE_NAME = "Get energy performance of buildings data (MHCLG)";
@@ -288,7 +293,15 @@ async function apiGet(path, token) {
 // filed order stays the register's search order.
 const CERT_FETCH_CONCURRENCY = 8;
 
-export async function liveCertificates(postcode, token) {
+/**
+ * @param {string} postcode
+ * @param {string} token
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ */
+export async function liveCertificates(postcode, token, { progress = null } = {}) {
+  // BUG-265: the search is the run's first step — a stage
+  // marker naming the postcode.
+  progress?.stage(`searching the register for ${postcode}`);
   const stubs = [];
   let page = 1;
   for (;;) {
@@ -301,6 +314,20 @@ export async function liveCertificates(postcode, token) {
     if (page >= (result.pagination?.totalPages ?? 1)) break;
     page += 1;
   }
+  // BUG-265: the certificate fetches are the run's long
+  // phase — the stub count is the genuine total, so the
+  // tally carries a real percentage, a line every tenth
+  // of the fetch, a heartbeat every 10 certificates, and
+  // a warning for a fetch that takes more than 3x the
+  // recent average.
+  const fetchTally = progress?.tally({
+    label: "fetch certificates",
+    total: stubs.length,
+    every: Math.max(1, Math.ceil(stubs.length / 10)),
+    unit: "certificates",
+  });
+  const fetchWatch = createBatchWatch();
+  let fetched = 0;
   const byIndex = new Array(stubs.length).fill(null);
   let skipped = 0;
   let nextIndex = 0;
@@ -309,10 +336,22 @@ export async function liveCertificates(postcode, token) {
       const index = nextIndex;
       nextIndex += 1;
       const stub = stubs[index];
+      const started = Date.now();
       const doc = await apiGet(
         `/api/certificate?certificate_number=${encodeURIComponent(stub.certificateNumber)}`,
         token,
       );
+      const { tookMs, averageMs, slow } = fetchWatch.observe(Date.now() - started);
+      fetched += 1;
+      fetchTally?.tick(fetched);
+      progress?.heartbeat({ stage: "fetch", done: fetched, total: stubs.length });
+      if (slow && tookMs >= 1000) {
+        progress?.warning({
+          what: "certificate fetch duration",
+          value: `certificate ${stub.certificateNumber} took ${formatDuration(tookMs)}`,
+          threshold: `3x recent average ${formatDuration(averageMs)}`,
+        });
+      }
       if (doc === null) {
         // The register listed the certificate and then
         // withdrew it (a superseded assessment): the
@@ -332,6 +371,7 @@ export async function liveCertificates(postcode, token) {
   await Promise.all(
     Array.from({ length: Math.min(CERT_FETCH_CONCURRENCY, stubs.length) }, () => worker()),
   );
+  fetchTally?.finish(fetched);
   return { certificates: byIndex.filter((cert) => cert !== null), skipped };
 }
 
@@ -556,21 +596,42 @@ async function main() {
     ? JSON.parse(await readFile(join(fileDir, "fixture.json"), "utf8"))
     : null;
 
+  // BUG-265: one logger for the run — a count line per
+  // postcode, with the genuine total and percentage.
+  const progress = createProgressLogger({ name: "load-epc" });
   const answers = new Map();
   const skippedByPostcode = new Map();
-  for (const pc of postcodes) {
-    const { certificates, skipped } = fixture
-      ? { certificates: await fixtureCertificates(pc, fileDir, fixture), skipped: 0 }
-      : await liveCertificates(pc, token);
-    skippedByPostcode.set(pc, skipped);
-    checkGolden(pc, certificates);
-    answers.set(pc, {
-      certificates,
-      certificateCount: certificates.length,
-      sourceName: SOURCE_NAME,
-      sourceDate: new Date().toISOString().slice(0, 10),
-      loadedAt: new Date().toISOString(),
+  try {
+    for (const [i, pc] of postcodes.entries()) {
+      const { certificates, skipped } = fixture
+        ? { certificates: await fixtureCertificates(pc, fileDir, fixture), skipped: 0 }
+        : await liveCertificates(pc, token, { progress });
+      skippedByPostcode.set(pc, skipped);
+      checkGolden(pc, certificates);
+      answers.set(pc, {
+        certificates,
+        certificateCount: certificates.length,
+        sourceName: SOURCE_NAME,
+        sourceDate: new Date().toISOString().slice(0, 10),
+        loadedAt: new Date().toISOString(),
+      });
+      progress.count({
+        label: "postcodes",
+        done: i + 1,
+        total: postcodes.length,
+        unit: "postcodes",
+        extra: `${pc}: ${formatCount(certificates.length)} certificates`,
+      });
+    }
+  } catch (err) {
+    progress.failed({
+      stage: "fetch",
+      filed: answers.size,
+      total: postcodes.length,
+      error: err,
+      resume: "re-run from scratch (nothing is filed until the filing step)",
     });
+    throw err;
   }
 
   const summary = () =>
@@ -597,6 +658,9 @@ async function main() {
   await client.connect();
   try {
     await client.query("BEGIN");
+    // BUG-265: the filing is one transaction per run — a
+    // stage marker naming the postcodes it files.
+    progress.stage(`filing ${formatCount(postcodes.length)} EPC answers`);
     try {
       for (const pc of postcodes) {
         const res = await client.query(
@@ -622,6 +686,15 @@ async function main() {
       }
       await client.query("COMMIT");
     } catch (error) {
+      // BUG-265: the filing transaction rolls back, so
+      // nothing is filed on failure.
+      progress.failed({
+        stage: "file",
+        filed: 0,
+        total: postcodes.length,
+        error,
+        resume: "re-run from scratch (the filing transaction rolls back)",
+      });
       await client.query("ROLLBACK");
       throw error;
     }

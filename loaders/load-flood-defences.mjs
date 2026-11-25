@@ -70,7 +70,12 @@ import { DatabaseSync } from "node:sqlite";
 import pg from "pg";
 import proj4 from "proj4";
 import yauzl from "yauzl";
-import { formatCount } from "./progress.mjs";
+import {
+  createBatchWatch,
+  createProgressLogger,
+  formatCount,
+  formatDuration,
+} from "./progress.mjs";
 
 export const ITEM = "load-flood-defences";
 
@@ -243,6 +248,48 @@ export function* iterateDefencesFile(gpkgPath) {
 
 export function readDefencesFile(gpkgPath) {
   return [...iterateDefencesFile(gpkgPath)];
+}
+
+// The streaming read with progress (BUG-265): the read is the
+// run's long phase — 141,458 features in the 13 Nov 2026 build
+// — so a tally lands every 10,000 features, a heartbeat every
+// 50,000, and a 10,000-feature chunk that takes more than 3x
+// the recent average earns a warning. main() drives it with
+// the golden statistics and the staging filer as the per-row
+// sink; a fixture read is the same stream at small scale (a
+// finish line only). readDefencesFile above keeps the
+// collecting form the tests consume.
+/**
+ * @param {string} gpkgPath
+ * @param {{ onRow?: ((row: any) => Promise<void>) | null, progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ */
+export async function streamDefencesFile(gpkgPath, { onRow = null, progress = null } = {}) {
+  const readTally = progress?.tally({ label: "read", every: 10_000, unit: "features" });
+  const readWatch = createBatchWatch();
+  let read = 0;
+  let chunkRows = 0;
+  let chunkStarted = Date.now();
+  for (const raw of iterateDefencesFile(gpkgPath)) {
+    read += 1;
+    chunkRows += 1;
+    if (onRow) await onRow(raw);
+    readTally?.tick(read);
+    progress?.heartbeat({ stage: "read", done: read, every: 50_000 });
+    if (chunkRows >= 10_000) {
+      const { tookMs, averageMs, slow } = readWatch.observe(Date.now() - chunkStarted);
+      if (slow) {
+        progress?.warning({
+          what: "read chunk duration",
+          value: `chunk ending at feature ${formatCount(read)} took ${formatDuration(tookMs)}`,
+          threshold: `3x recent average ${formatDuration(averageMs)}`,
+        });
+      }
+      chunkStarted = Date.now();
+      chunkRows = 0;
+    }
+  }
+  readTally?.finish(read);
+  return { read };
 }
 
 // ------------------------------------------------------------------
@@ -668,6 +715,9 @@ async function main() {
   const verifyOnly = args.includes("--verify-only");
   const fileIndex = args.indexOf("--file");
   const fixtureDir = fileIndex >= 0 ? args[fileIndex + 1] : null;
+  // BUG-265: one logger for the run — the read tally and the
+  // filing marker below.
+  const progress = createProgressLogger({ name: "load-flood-defences" });
 
   const { gpkgPath, edition } = fixtureDir ? readFixture(fixtureDir) : await fetchLive();
 
@@ -696,27 +746,44 @@ async function main() {
   }
 
   try {
-    const stats = createHomeStats();
-    let read = 0;
-    for (const raw of iterateDefencesFile(gpkgPath)) {
-      read += 1;
-      stats.offer(raw);
-      const filedRow = processRow(raw);
-      if (filer) await filer.addRow(filedRow);
+    let read;
+    let goldenSummary;
+    try {
+      const stats = createHomeStats();
+      progress.stage("reading the AIMS GeoPackage");
+      ({ read } = await streamDefencesFile(gpkgPath, {
+        progress,
+        onRow: async (raw) => {
+          stats.offer(raw);
+          const filedRow = processRow(raw);
+          if (filer) await filer.addRow(filedRow);
+        },
+      }));
+      if (!fixtureDir && (read < BAND_LOW || read > BAND_HIGH))
+        throw new Error(
+          `read ${read} features — outside the ±10% sanity band (${BAND_LOW}–${BAND_HIGH}) ` +
+            `around the ${SNAPSHOT} of the 13 Nov 2026 build; refusing to file`,
+        );
+      const homeResults = stats.result();
+      assertGoldenStats(homeResults);
+      goldenSummary = homeResults
+        .map((s) => {
+          const miles = (s.nearest.metres / 1609.344).toFixed(3);
+          return `${s.postcode.split(" ")[0]} ${formatCount(s.count)} within 2 miles (nearest ${s.nearest.subType}, ${s.nearest.watercourse}, ${miles} mi)`;
+        })
+        .join(" · ");
+    } catch (error) {
+      // BUG-265: the read, sanity band and golden checks all
+      // fail before anything is filed.
+      progress.failed({
+        stage: "read",
+        filed: 0,
+        error,
+        resume: "re-run the loader from the start (nothing is filed until the swap)",
+      });
+      if (filer) await filer.abort();
+      throw error;
     }
-    if (!fixtureDir && (read < BAND_LOW || read > BAND_HIGH))
-      throw new Error(
-        `read ${read} features — outside the ±10% sanity band (${BAND_LOW}–${BAND_HIGH}) ` +
-          `around the ${SNAPSHOT} of the 13 Nov 2026 build; refusing to file`,
-      );
-    const homeResults = stats.result();
-    assertGoldenStats(homeResults);
-    const goldenSummary = homeResults
-      .map((s) => {
-        const miles = (s.nearest.metres / 1609.344).toFixed(3);
-        return `${s.postcode.split(" ")[0]} ${formatCount(s.count)} within 2 miles (nearest ${s.nearest.subType}, ${s.nearest.watercourse}, ${miles} mi)`;
-      })
-      .join(" · ");
 
     if (verifyOnly) {
       return {
@@ -725,15 +792,28 @@ async function main() {
           `— golden homes OK: ${goldenSummary}`,
       };
     }
-    const invalidCount = await filer.finish(read);
+    // BUG-265: the filing swap is the run's second long step.
+    progress.stage(`filing ${formatCount(read)} features — counts and swap`);
+    let invalidCount;
+    try {
+      invalidCount = await filer.finish(read);
+    } catch (error) {
+      progress.failed({
+        stage: "filing",
+        filed: 0,
+        total: read,
+        error,
+        resume:
+          "re-run the loader from the start (the swap rolled back, the live layer is untouched)",
+      });
+      if (filer) await filer.abort();
+      throw error;
+    }
     return {
       summary:
         `${ITEM} · ${SOURCE_NAME} · edition ${edition} · ${formatCount(read)} features filed ` +
         `(${formatCount(invalidCount)} invalid lines filed as published) — golden homes OK: ${goldenSummary}`,
     };
-  } catch (error) {
-    if (filer) await filer.abort();
-    throw error;
   } finally {
     if (client) client.release();
     if (pool) await pool.end();

@@ -56,7 +56,12 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
-import { formatCount } from "./progress.mjs";
+import {
+  createBatchWatch,
+  createProgressLogger,
+  formatCount,
+  formatDuration,
+} from "./progress.mjs";
 
 const DATES_URL = "https://data.police.uk/api/crimes-street-dates";
 const CRIMES_URL = "https://data.police.uk/api/crimes-street/all-crime";
@@ -237,24 +242,60 @@ async function main() {
     await client.connect();
   }
 
+  // BUG-265: one logger for the run — a stage marker per
+  // postcode, a tally over the postcode-month fetches, and
+  // the filing stage below.
+  const progress = createProgressLogger({ name: "load-crime" });
+  const fetchTally = progress.tally({
+    label: "fetch",
+    total: postcodes.length * months.length,
+    every: months.length,
+    unit: "months",
+  });
+  const fetchWatch = createBatchWatch();
+  let fetchedMonths = 0;
+  // BUG-265: the filing catch below reports its own
+  // stage — this flag keeps the outer catch from
+  // mislabelling a filing failure as a fetch failure.
+  let fileFailed = false;
+  let countedPostcodes = 0;
+
   try {
     // 2 — count, per postcode.
     const answers = new Map();
     for (const pc of postcodes) {
+      progress.stage(`counting ${pc} — ${months.length} months within 1 mile`);
       const point = fixture ? fixture.points[pc] : await getPoint(pc);
       if (!point) throw new Error(`${pc}: no point available`);
       const perMonth = [];
       const categories = {};
       for (const month of months) {
+        const fetchStarted = Date.now();
         const records = fixture
           ? JSON.parse(await readFile(join(fileDir, `${point.prefix}-${month}.json`), "utf8"))
           : await fetchJson(`${CRIMES_URL}?lat=${point.lat}&lng=${point.lng}&date=${month}`);
+        const { tookMs, averageMs, slow } = fetchWatch.observe(Date.now() - fetchStarted);
         if (!Array.isArray(records))
           throw new Error(`${pc} ${month}: Police.uk response is not a list`);
         perMonth.push({ month, count: records.length });
         for (const record of records) {
           const category = record.category ?? "unknown";
           categories[category] = (categories[category] ?? 0) + 1;
+        }
+        fetchedMonths += 1;
+        fetchTally.tick(fetchedMonths, `${pc} ${formatCount(records.length)} crimes in ${month}`);
+        progress.heartbeat({
+          stage: "fetch",
+          done: fetchedMonths,
+          total: postcodes.length * months.length,
+          every: months.length,
+        });
+        if (slow && tookMs >= 1000) {
+          progress.warning({
+            what: "month fetch duration",
+            value: `${pc} ${month} took ${formatDuration(tookMs)}`,
+            threshold: `3x recent average ${formatDuration(averageMs)}`,
+          });
         }
         if (!fixture) await new Promise((resolve) => setTimeout(resolve, 250));
       }
@@ -294,7 +335,9 @@ async function main() {
       // national loader refreshes it later as months land).
       if (client) answer.national = await nationalForWindow(client, months);
       answers.set(pc, answer);
+      countedPostcodes += 1;
     }
+    fetchTally.finish(fetchedMonths);
 
     const summary = () =>
       `load-crime · latest month ${latest} · window ${months[0]}..${latest} · ${postcodes
@@ -310,6 +353,7 @@ async function main() {
 
     // 3 — file it: merge the crime key into each postcode's answers,
     // in one transaction, and read back before commit.
+    progress.stage(`filing ${formatCount(postcodes.length)} crime answers`);
     await client.query("BEGIN");
     try {
       for (const pc of postcodes) {
@@ -342,10 +386,34 @@ async function main() {
       }
       await client.query("COMMIT");
     } catch (error) {
+      // BUG-265: the filing transaction rolls back, so
+      // nothing is filed on failure.
+      fileFailed = true;
+      progress.failed({
+        stage: "file",
+        filed: 0,
+        total: postcodes.length,
+        error,
+        resume: "re-run from scratch (the filing transaction rolls back)",
+      });
       await client.query("ROLLBACK");
       throw error;
     }
     console.log(`${summary()} · golden homes OK · ${Math.round((Date.now() - startedAt) / 1000)}s`);
+  } catch (err) {
+    // BUG-265: a fetch/count failure files nothing — the
+    // resume is a clean re-run. (A filing failure is
+    // reported by the inner catch above.)
+    if (!fileFailed) {
+      progress.failed({
+        stage: "fetch",
+        filed: countedPostcodes,
+        total: postcodes.length,
+        error: err,
+        resume: "re-run from scratch (nothing is filed until the filing step)",
+      });
+    }
+    throw err;
   } finally {
     if (client) await client.end();
   }

@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { buildSettings } from "../loaders/load-nurseries.mjs";
+import { createProgressLogger } from "../loaders/progress.mjs";
 
 // Guards the nurseries loader (plan step M5.17): the Ofsted
 // childcare register is discovered from the GOV.UK page by its
@@ -222,5 +224,25 @@ describe("nurseries fixture — real rows from the register as at 30 June 2026",
       expect(within).toHaveLength(golden.count);
       expect(within.slice(0, 3).map((m) => m.s.name)).toEqual([...golden.top3]);
     }
+  });
+});
+
+// BUG-265: the register scan carries the shared progress
+// logger — a tally every 5,000 rows against the file's own
+// row count (a closing line only at fixture scale).
+describe("progress logging (BUG-265)", () => {
+  it("scans the fixture with a closing build line, and the settings are unchanged", () => {
+    const lines: string[] = [];
+    const progress = createProgressLogger({
+      name: "load-nurseries",
+      log: (...args: unknown[]) => lines.push(args.join(" ")),
+    });
+    const positionOf = (pc: string) => postcodes[(pc ?? "").trim().toUpperCase()] ?? null;
+    const { settings, stats } = buildSettings(records, positionOf, { progress });
+    expect(settings).toHaveLength(296);
+    expect(stats.total).toBe(341);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/progress · build 341\/341 rows \(100%\)$/);
+    expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
   });
 });

@@ -107,7 +107,12 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
-import { formatCount } from "./progress.mjs";
+import {
+  createBatchWatch,
+  createProgressLogger,
+  formatCount,
+  formatDuration,
+} from "./progress.mjs";
 
 const { Pool } = pg;
 
@@ -541,8 +546,28 @@ export function goldenChecks(sites, counts, { full }) {
 }
 
 // Stage-table swap — the house pattern (see load-os-greenspace).
-export async function fileEvPoints(pool, sites, sourceDate, retrievedAt) {
+/**
+ * @param {any} pool
+ * @param {any[]} sites
+ * @param {string} sourceDate
+ * @param {string} retrievedAt
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ */
+export async function fileEvPoints(pool, sites, sourceDate, retrievedAt, { progress = null } = {}) {
   const client = await pool.connect();
+  // BUG-265: the filing stages in 500-row flushes — a
+  // line every 5,000 sites with the genuine total and
+  // percentage, a heartbeat every 5,000, and a warning
+  // for a flush that takes more than 3x the recent
+  // average.
+  const fileTally = progress?.tally({
+    label: "file",
+    total: sites.length,
+    every: 5000,
+    unit: "sites",
+  });
+  const flushWatch = createBatchWatch();
+  let staged = 0;
   try {
     // BEGIN first — the other M5 loaders' shape, and load-
     // bearing: the stage table is ON COMMIT DROP, and outside
@@ -565,12 +590,24 @@ export async function fileEvPoints(pool, sites, sourceDate, retrievedAt) {
     const params = [];
     const flush = async () => {
       if (values.length === 0) return;
+      const started = Date.now();
       await client.query(
         `INSERT INTO ev_stage (registry_id, name, lat, lon, operator, connector_types, charging_speed, detail, source_name, source_date) VALUES ${values.join(", ")}`,
         params,
       );
+      staged += values.length;
       values.length = 0;
       params.length = 0;
+      const { tookMs, averageMs, slow } = flushWatch.observe(Date.now() - started);
+      fileTally?.tick(staged);
+      progress?.heartbeat({ stage: "file", done: staged, total: sites.length, every: 5000 });
+      if (slow && tookMs >= 1000) {
+        progress?.warning({
+          what: "file flush duration",
+          value: `flush took ${formatDuration(tookMs)}`,
+          threshold: `3x recent average ${formatDuration(averageMs)}`,
+        });
+      }
     };
     for (const site of sites) {
       const base = params.length;
@@ -592,6 +629,7 @@ export async function fileEvPoints(pool, sites, sourceDate, retrievedAt) {
       if (values.length >= 500) await flush();
     }
     await flush();
+    fileTally?.finish(staged);
     await client.query("DELETE FROM ev_points");
     await client.query(
       `INSERT INTO ev_points (registry_id, name, latitude, longitude, connector_types, charging_speed, operator, detail, source_name, source_date, loaded_at)
@@ -600,6 +638,15 @@ export async function fileEvPoints(pool, sites, sourceDate, retrievedAt) {
     );
     await client.query("COMMIT");
   } catch (err) {
+    // BUG-265: the filing transaction rolls back, so
+    // nothing is filed on failure.
+    progress?.failed({
+      stage: "file",
+      filed: staged,
+      total: sites.length,
+      error: err,
+      resume: "re-run from scratch (the filing transaction rolls back)",
+    });
     await client.query("ROLLBACK").catch(() => {});
     throw err;
   } finally {
@@ -702,13 +749,26 @@ export async function callOcm(path, params, workDir) {
 // tile comes back at the result cap (assumed truncated).
 // Returns the tile's records plus the pull statistics the
 // log line reports.
-async function pullTile(tile, depth, workDir, stats) {
+async function pullTile(tile, depth, workDir, stats, { progress = null, watch = null } = {}) {
   const bbox = `(${tile.north},${tile.west}),(${tile.south},${tile.east})`;
+  // BUG-265: a stage marker per tile — the pull is the
+  // run's long phase — and a warning for a tile that takes
+  // more than 3x the recent average.
+  progress?.stage(`pulling tile ${tile.name ?? "sub-tile"} ${bbox}`);
+  const started = Date.now();
   const pois = await callOcm(
     "poi",
     { boundingbox: bbox, countrycode: "GB", opendata: "true", maxresults: TILE_CAP },
     workDir,
   );
+  const { tookMs, averageMs, slow } = watch?.observe(Date.now() - started) ?? {};
+  if (slow && tookMs >= 1000) {
+    progress?.warning({
+      what: "tile pull duration",
+      value: `tile ${tile.name ?? bbox} took ${formatDuration(tookMs)}`,
+      threshold: `3x recent average ${formatDuration(averageMs)}`,
+    });
+  }
   if (!Array.isArray(pois))
     throw new Error(`Open Charge Map poi returned a non-array for tile ${tile.name ?? bbox}`);
   stats.calls++;
@@ -729,7 +789,7 @@ async function pullTile(tile, depth, workDir, stats) {
     const merged = [];
     for (const quad of quads) {
       await new Promise((r) => setTimeout(r, 1500));
-      merged.push(...(await pullTile(quad, depth + 1, workDir, stats)));
+      merged.push(...(await pullTile(quad, depth + 1, workDir, stats, { progress, watch })));
     }
     return merged;
   }
@@ -738,12 +798,26 @@ async function pullTile(tile, depth, workDir, stats) {
 
 // The full GB pull: the four initial tiles, merged by POI
 // id (tiles overlap at their edges by design).
-export async function pullGb(workDir) {
+export async function pullGb(workDir, { progress = null } = {}) {
   const stats = { calls: 0, subdivisions: 0 };
   const merged = new Map();
+  // BUG-265: the tile pull is the run's long phase — a
+  // count line per tile with the running record count, a
+  // heartbeat every 10,000 records, and a slow-tile
+  // warning shared across the pull. No total is known
+  // until the tiles answer, so no percentage is shown.
+  const tileWatch = createBatchWatch();
+  progress?.stage("pulling the four GB tiles");
   for (const tile of INITIAL_TILES) {
-    const pois = await pullTile(tile, 0, workDir, stats);
+    const pois = await pullTile(tile, 0, workDir, stats, { progress, watch: tileWatch });
     for (const poi of pois) if (poi?.ID != null) merged.set(poi.ID, poi);
+    progress?.count({
+      label: "pull",
+      done: merged.size,
+      unit: "records",
+      extra: `${formatCount(stats.calls)} calls, ${formatCount(stats.subdivisions)} subdivisions`,
+    });
+    progress?.heartbeat({ stage: "pull", done: merged.size, every: 10000 });
     await new Promise((r) => setTimeout(r, 1500));
   }
   return { pois: [...merged.values()], stats };
@@ -799,11 +873,15 @@ async function main() {
   const verifyOnly = args.includes("--verify-only");
   const retrievedOn = todayDate();
   const workDir = mkdtempSync(join(tmpdir(), "cmnh-ev-"));
+  // BUG-265: one logger for the run — the tile stages in
+  // pullGb and the filing tally in fileEvPoints.
+  const progress = createProgressLogger({ name: "load-ev-chargers" });
   try {
     let pois;
     let sourceDate;
     let full = true;
     if (fixtureMode) {
+      progress.stage("reading the fixture POI capture");
       pois = readPoisFile(fileArg ?? DEFAULT_FIXTURE_DIR);
       sourceDate = FIXTURE_PULL_DATE;
       full = false;
@@ -811,8 +889,20 @@ async function main() {
       // Credential smoke first: referencedata answering is
       // what proves the key reached the API (the canary
       // probes the same arm monthly).
+      progress.stage("checking the Open Charge Map credential");
       await callOcm("referencedata", {}, workDir);
-      const pull = await pullGb(workDir);
+      let pull;
+      try {
+        pull = await pullGb(workDir, { progress });
+      } catch (err) {
+        progress.failed({
+          stage: "pull",
+          filed: 0,
+          error: err,
+          resume: "re-run from scratch (nothing is filed until the filing step)",
+        });
+        throw err;
+      }
       pois = pull.pois;
       sourceDate = retrievedOn;
     }
@@ -827,7 +917,7 @@ async function main() {
     }
     const pool = new Pool({ connectionString: process.env.DATABASE_URL });
     try {
-      await fileEvPoints(pool, sites, sourceDate, `${retrievedOn}T00:00:00Z`);
+      await fileEvPoints(pool, sites, sourceDate, `${retrievedOn}T00:00:00Z`, { progress });
     } finally {
       await pool.end();
     }

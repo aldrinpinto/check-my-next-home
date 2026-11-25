@@ -128,7 +128,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
-import { formatCount } from "./progress.mjs";
+import { createProgressLogger, formatCount } from "./progress.mjs";
 
 const { Pool } = pg;
 
@@ -831,7 +831,7 @@ export function createUcGoldenTally() {
 // atomic per run — a failure anywhere rolls the whole
 // filing back and a re-run files it whole.
 
-export async function createUcFiler(pool, retrievedAt) {
+export async function createUcFiler(pool, retrievedAt, { progress = null } = {}) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -847,14 +847,23 @@ export async function createUcFiler(pool, retrievedAt) {
   const values = [];
   const params = [];
   const pairsSeen = new Set();
+  // BUG-265: the staging is the run's long phase — a line
+  // every 50,000 staged rows, a heartbeat every 50,000.
+  // No total is known until the pull ends, so no
+  // percentage is shown.
+  const stageTally = progress?.tally({ label: "stage", every: 50000, unit: "rows" });
+  let staged = 0;
   const flush = async () => {
     if (values.length === 0) return;
     await client.query(
       `INSERT INTO uc_stage (lsoa_code, lsoa_name, series, reference_month, count, source_name) VALUES ${values.join(", ")}`,
       params,
     );
+    staged += values.length;
     values.length = 0;
     params.length = 0;
+    stageTally?.tick(staged);
+    progress?.heartbeat({ stage: "stage", done: staged, every: 50000 });
   };
   return {
     async stageRows(rows) {
@@ -877,7 +886,11 @@ export async function createUcFiler(pool, retrievedAt) {
     },
     async finishFiling() {
       await flush();
+      stageTally?.finish(staged);
       const pairs = [...pairsSeen].sort();
+      // BUG-265: the swap is the last long step — a stage
+      // marker naming the series-month pairs it swaps.
+      progress?.stage(`swapping ${formatCount(pairs.length)} series-months into benefits_stats`);
       for (const pair of pairs) {
         const [series, month] = pair.split("|");
         await client.query(
@@ -1092,7 +1105,16 @@ export function fixtureRoutes(dir, databaseEntry, tableJson) {
   };
 }
 
-export async function loadUcRows(source, { latestFiledBySeries = {} } = {}) {
+/**
+ * @param {{ kind: string, dir?: string, codes?: string[] }} source
+ * @param {{ latestFiledBySeries?: Object.<string, string | null> }} [filed]
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ */
+export async function loadUcRows(
+  source,
+  { latestFiledBySeries = {} } = {},
+  { progress = null } = {},
+) {
   if (source.kind === "dir") {
     const rows = [];
     for (const entry of DATABASES) {
@@ -1101,12 +1123,18 @@ export async function loadUcRows(source, { latestFiledBySeries = {} } = {}) {
         throw new Error(`${file} is missing — the fixture holds one response per UC series`);
       const tableJson = JSON.parse(readFileSync(file, "utf8"));
       const discovery = await fetchDiscovery(entry, fixtureRoutes(source.dir, entry, tableJson));
+      const before = rows.length;
       rows.push(...parseTableResponse(tableJson, entry, discovery));
+      // BUG-265: a line per series — the fixture's row
+      // count for that series, no total (the cube's size
+      // is not known up front).
+      progress?.count({ label: `pull ${entry.series}`, done: rows.length - before, unit: "rows" });
     }
     return { rows };
   }
   const rows = [];
   for (const entry of DATABASES) {
+    progress?.stage(`pulling ${entry.series}`);
     const discovery = await fetchDiscovery(entry);
     const months = monthsToFile(
       discovery.months.map((m) => m.month),
@@ -1128,11 +1156,13 @@ export async function loadUcRows(source, { latestFiledBySeries = {} } = {}) {
         discovery,
       });
       rows.push(...goldenRows);
+      progress?.count({ label: `pull ${entry.series}`, done: goldenRows.length, unit: "rows" });
       continue;
     }
     if (months.length === 0) continue;
     const { rows: seriesRows } = await pullUcSeries(entry, { months, discovery });
     rows.push(...seriesRows);
+    progress?.count({ label: `pull ${entry.series}`, done: seriesRows.length, unit: "rows" });
   }
   return { rows };
 }
@@ -1147,7 +1177,18 @@ export async function loadUcRows(source, { latestFiledBySeries = {} } = {}) {
 // golden tally and the filer are order-insensitive in
 // what they assert and file, and the summary counts from
 // the same stream).
-export async function streamUcRows(source, { latestFiledBySeries = {} } = {}, onRows) {
+/**
+ * @param {{ kind: string, dir?: string, codes?: string[] }} source
+ * @param {{ latestFiledBySeries?: Object.<string, string | null> }} [filed]
+ * @param {(batch: any[]) => Promise<void> | void} onRows
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ */
+export async function streamUcRows(
+  source,
+  { latestFiledBySeries = {} } = {},
+  onRows,
+  { progress = null } = {},
+) {
   let pending = [];
   const flush = async () => {
     if (pending.length === 0) return;
@@ -1155,11 +1196,25 @@ export async function streamUcRows(source, { latestFiledBySeries = {} } = {}, on
     pending = [];
     await onRows(batch);
   };
+  // BUG-265: the stream is the run's long phase — a tally
+  // per series, a line every 50,000 streamed rows, a
+  // heartbeat every 50,000. No total is known until the
+  // cube answers, so no percentage is shown.
   const drain = async (json, entry, discovery) => {
+    const tally = progress?.tally({ label: `pull ${entry.series}`, every: 50000, unit: "rows" });
+    let streamed = 0;
     for (const row of iterateTableRows(json, entry, discovery)) {
       pending.push(row);
-      if (pending.length >= 5000) await flush();
+      streamed += 1;
+      if (pending.length >= 5000) {
+        await flush();
+        tally?.tick(streamed);
+        progress?.heartbeat({ stage: `pull ${entry.series}`, done: streamed, every: 50000 });
+      }
     }
+    await flush();
+    tally?.tick(streamed);
+    tally?.finish(streamed);
   };
   if (source.kind === "dir") {
     for (const entry of DATABASES) {
@@ -1168,12 +1223,14 @@ export async function streamUcRows(source, { latestFiledBySeries = {} } = {}, on
         throw new Error(`${file} is missing — the fixture holds one response per UC series`);
       const tableJson = JSON.parse(readFileSync(file, "utf8"));
       const discovery = await fetchDiscovery(entry, fixtureRoutes(source.dir, entry, tableJson));
+      progress?.stage(`pulling ${entry.series}`);
       await drain(tableJson, entry, discovery);
     }
     await flush();
     return;
   }
   for (const entry of DATABASES) {
+    progress?.stage(`pulling ${entry.series}`);
     const discovery = await fetchDiscovery(entry);
     const months = monthsToFile(
       discovery.months.map((m) => m.month),
@@ -1273,22 +1330,37 @@ async function main() {
     // golden failure aborts the filing — nothing files,
     // exactly as when the checks ran ahead of the one-shot
     // filer.
+    // BUG-265: one logger for the run — the pull tallies
+    // inside streamUcRows and the staging tally inside
+    // the filer.
+    const progress = createProgressLogger({ name: "load-dwp-uc" });
     const tally = createUcGoldenTally();
     const stats = createRunStats();
     let filer = null;
     if (!verifyOnly) {
       if (!pool) pool = new Pool({ connectionString: process.env.DATABASE_URL });
-      filer = await createUcFiler(pool, new Date().toISOString());
+      filer = await createUcFiler(pool, new Date().toISOString(), { progress });
     }
     try {
-      await streamUcRows(source, { latestFiledBySeries }, async (batch) => {
-        for (const row of batch) tally.offer(row);
-        stats.addRows(batch);
-        if (filer) await filer.stageRows(batch);
-      });
+      await streamUcRows(
+        source,
+        { latestFiledBySeries },
+        async (batch) => {
+          for (const row of batch) tally.offer(row);
+          stats.addRows(batch);
+          if (filer) await filer.stageRows(batch);
+        },
+        { progress },
+      );
       const golden = tally.failures({ full: source.kind === "live" && !source.codes });
       if (golden.length > 0) throw new Error(`golden checks failed: ${golden.join("; ")}`);
     } catch (err) {
+      progress.failed({
+        stage: "pull",
+        filed: 0,
+        error: err,
+        resume: "re-run from scratch (nothing files until finishFiling)",
+      });
       if (filer) await filer.abortFiling();
       throw err;
     }
@@ -1302,6 +1374,12 @@ async function main() {
     try {
       await filer.finishFiling();
     } catch (err) {
+      progress.failed({
+        stage: "file",
+        filed: 0,
+        error: err,
+        resume: "re-run from scratch (the staging transaction rolls back)",
+      });
       await filer.abortFiling();
       throw err;
     }

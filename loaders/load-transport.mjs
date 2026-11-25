@@ -91,7 +91,12 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import pg from "pg";
 import proj4 from "proj4";
-import { formatCount } from "./progress.mjs";
+import {
+  createBatchWatch,
+  createProgressLogger,
+  formatCount,
+  formatDuration,
+} from "./progress.mjs";
 
 proj4.defs(
   "EPSG:27700",
@@ -243,7 +248,7 @@ function resolvePosition(row) {
   return null;
 }
 
-async function processFiles(paths) {
+async function processFiles(paths, { progress = null } = {}) {
   const stats = {
     total: 0,
     active: 0,
@@ -277,6 +282,14 @@ async function processFiles(paths) {
     const fields = splitCsvLine(line);
     const row = Object.fromEntries(CONSUMED.map((c) => [c, (fields[headerIndex[c]] ?? "").trim()]));
     stats.total += 1;
+    // BUG-265: the read count, every hundred thousand rows,
+    // and a heartbeat at the same cadence. No total, so no
+    // percentage: the file carries no national count oracle
+    // (gap item L5), and none is guessed.
+    if (stats.total % 100_000 === 0) {
+      progress?.count({ label: "read", done: stats.total, unit: "rows" });
+      progress?.heartbeat({ stage: "reading", done: stats.total, every: 100_000 });
+    }
     if (row.ModificationDateTime > stats.newestEdit) stats.newestEdit = row.ModificationDateTime;
     if (row.Status !== "active") {
       stats.excludedStatus += 1;
@@ -309,6 +322,15 @@ async function processFiles(paths) {
     });
   }
   if (stats.total === 0) throw new Error("contract failure: the NaPTAN file has no rows");
+  // BUG-265: the closing read line — the row total is known
+  // only now that the file has streamed, and it is a count,
+  // never a percentage against a guessed total.
+  progress?.count({
+    label: "read",
+    done: stats.total,
+    unit: "rows",
+    extra: `${formatCount(filed.length)} stops filed`,
+  });
   return { stats, filed };
 }
 
@@ -470,6 +492,16 @@ async function main() {
   let paths;
   let sourceDate;
   let tmpPath = null;
+  // BUG-265: one logger for the run — the read count lives
+  // in processFiles, the staging tally in the filing block
+  // below, and the failure line in the catch.
+  const progress = createProgressLogger({ name: "load-transport" });
+  // BUG-265: the phase the failure line names — reading
+  // until the filing starts, filing after that. The counts
+  // are the failure line's filed figures.
+  let phase = "reading";
+  let filedLength = 0;
+  let stagedRows = 0;
   if (fixtureMode) {
     paths = await fixturePaths(fixtureDir);
     sourceDate = JSON.parse(await readFile(join(fixtureDir, "fixture.json"), "utf8")).captured;
@@ -481,7 +513,9 @@ async function main() {
   }
 
   try {
-    const { stats, filed } = await processFiles(paths);
+    progress.stage("reading the NaPTAN file");
+    const { stats, filed } = await processFiles(paths, { progress });
+    filedLength = filed.length;
     if (!fixtureMode) {
       if (stats.total < 400000 || stats.total > 475000)
         throw new Error(
@@ -518,6 +552,7 @@ async function main() {
     if (!process.env.DATABASE_URL)
       throw new Error("DATABASE_URL is not set — filing requires a database");
 
+    phase = "filing";
     const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
     await client.connect();
     try {
@@ -533,9 +568,23 @@ async function main() {
            loaded_at timestamptz NOT NULL DEFAULT now()
          ) ON COMMIT DROP`,
       );
+      // BUG-265: the staging is the filing phase — a tally
+      // over the stage chunks, a slow-chunk warning and a
+      // heartbeat, so the log moves while the stops file.
+      progress.stage(`staging ${formatCount(filed.length)} transport stops`);
+      const chunks = Math.ceil(filed.length / 1000);
+      const stageTally = progress.tally({
+        label: "staging",
+        total: chunks,
+        every: Math.max(1, Math.ceil(chunks / 10)),
+        unit: "chunks",
+      });
+      const stageWatch = createBatchWatch();
+      let chunksDone = 0;
       const CHUNK = 1000;
       for (let at = 0; at < filed.length; at += CHUNK) {
         const chunk = filed.slice(at, at + CHUNK);
+        const started = Date.now();
         const values = [];
         const params = [];
         chunk.forEach((stop, i) => {
@@ -558,7 +607,21 @@ async function main() {
            VALUES ${values.join(",")}`,
           params,
         );
+        stagedRows += chunk.length;
+        chunksDone += 1;
+        const { tookMs, averageMs, slow } = stageWatch.observe(Date.now() - started);
+        stageTally.tick(chunksDone);
+        progress.heartbeat({ stage: "staging", done: chunksDone, total: chunks });
+        if (slow) {
+          progress.warning({
+            what: "stage chunk duration",
+            value: `chunk ${chunksDone} took ${formatDuration(tookMs)}`,
+            threshold: `3x recent average ${formatDuration(averageMs)}`,
+          });
+        }
       }
+      stageTally.finish(chunksDone, `${formatCount(filed.length)} stops staged`);
+      progress.stage("swap started — replacing the filed transport stops");
       const staged = await client.query("SELECT count(*)::int AS n FROM transport_stage");
       if (staged.rows[0].n !== filed.length)
         throw new Error("the staged transport count does not match — rolling back");
@@ -578,6 +641,23 @@ async function main() {
       await client.end();
     }
     console.log(`${summary()} · golden homes OK · ${Math.round((Date.now() - startedAt) / 1000)}s`);
+  } catch (error) {
+    // BUG-265: the failure line names the phase and how far
+    // the read or filing got — the swap is still atomic, so
+    // a re-run starts over and the live table is untouched.
+    // (The filing block's own catch rolls back and rethrows
+    // into this one, so the line is emitted exactly once.)
+    progress.failed({
+      stage: phase,
+      filed: phase === "filing" ? stagedRows : 0,
+      total: phase === "filing" ? filedLength : null,
+      error,
+      resume:
+        phase === "filing"
+          ? "re-run from scratch (the swap rolled back, the live table is untouched)"
+          : "re-run from scratch (nothing is filed until the swap)",
+    });
+    throw error;
   } finally {
     if (tmpPath) await rm(tmpPath, { force: true }).catch(() => {});
   }

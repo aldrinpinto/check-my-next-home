@@ -80,6 +80,12 @@ import { fileURLToPath } from "node:url";
 import pg from "pg";
 import proj4 from "proj4";
 import yauzl from "yauzl";
+import {
+  createBatchWatch,
+  createProgressLogger,
+  formatCount,
+  formatDuration,
+} from "./progress.mjs";
 
 const USER_AGENT = "CheckMyNextHome/1.0 (+https://checkmynexthome.co.uk)";
 
@@ -570,8 +576,47 @@ export function goldenChecks(filing, { full }) {
 
 const CHUNK = 500;
 
-/** @param {{ query: (text: string, params?: unknown[]) => Promise<{ rows: Record<string, unknown>[] }> }} client @param {PiFiling} filing */
-export async function filePollutionInventory(client, filing) {
+/**
+ * @param {{ query: (text: string, params?: unknown[]) => Promise<{ rows: Record<string, unknown>[] }> }} client
+ * @param {PiFiling} filing
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ */
+export async function filePollutionInventory(client, filing, { progress = null } = {}) {
+  // BUG-265: the staging is the run's long phase — a tally
+  // over the stage chunks (sites, then releases), a slow-
+  // chunk warning and a heartbeat, so the log moves while
+  // the workbook files.
+  progress?.stage(
+    `staging ${formatCount(filing.sites.length)} sites and ${formatCount(filing.releases.length)} air releases`,
+  );
+  const chunks = Math.ceil(filing.sites.length / CHUNK) + Math.ceil(filing.releases.length / CHUNK);
+  const stageTally = progress?.tally({
+    label: "staging",
+    total: chunks,
+    every: 10,
+    unit: "chunks",
+  });
+  const stageWatch = createBatchWatch();
+  let chunksDone = 0;
+  let stagedRows = 0;
+  // One staged chunk's worth of progress: the tally, the
+  // heartbeat and the slow-chunk warning, in one place so
+  // the sites and releases loops can never drift apart.
+  async function stageChunk(insert) {
+    const started = Date.now();
+    await insert();
+    const { tookMs, averageMs, slow } = stageWatch.observe(Date.now() - started);
+    chunksDone += 1;
+    stageTally?.tick(chunksDone);
+    progress?.heartbeat({ stage: "staging", done: chunksDone, total: chunks });
+    if (slow) {
+      progress?.warning({
+        what: "stage chunk duration",
+        value: `chunk ${chunksDone} took ${formatDuration(tookMs)}`,
+        threshold: `3x recent average ${formatDuration(averageMs)}`,
+      });
+    }
+  }
   await client.query("BEGIN");
   try {
     await client.query(`CREATE TEMP TABLE industrial_sites_stage (
@@ -611,10 +656,13 @@ export async function filePollutionInventory(client, filing) {
           filing.sourceDate,
         );
       });
-      await client.query(
-        `INSERT INTO industrial_sites_stage (permit_id, operator, site_address, site_postcode, activity_description, sector, sub_sector, easting, northing, latitude, longitude, data_year, source_name, source_date) VALUES ${values.join(", ")}`,
-        params,
+      await stageChunk(() =>
+        client.query(
+          `INSERT INTO industrial_sites_stage (permit_id, operator, site_address, site_postcode, activity_description, sector, sub_sector, easting, northing, latitude, longitude, data_year, source_name, source_date) VALUES ${values.join(", ")}`,
+          params,
+        ),
       );
+      stagedRows += chunk.length;
     }
     for (let i = 0; i < filing.releases.length; i += CHUNK) {
       const chunk = filing.releases.slice(i, i + CHUNK);
@@ -632,14 +680,19 @@ export async function filePollutionInventory(client, filing) {
           filing.year,
         );
       });
-      await client.query(
-        `INSERT INTO industrial_site_releases_stage (permit_id, substance, threshold_kg, quantity_kg, below_threshold, data_year) VALUES ${values.join(", ")}`,
-        params,
+      await stageChunk(() =>
+        client.query(
+          `INSERT INTO industrial_site_releases_stage (permit_id, substance, threshold_kg, quantity_kg, below_threshold, data_year) VALUES ${values.join(", ")}`,
+          params,
+        ),
       );
+      stagedRows += chunk.length;
     }
+    stageTally?.finish(chunks);
     // The swap: the old vintage goes only once the new one
     // is fully staged — and the counts are asserted inside
     // the transaction, so a short filing rolls back whole.
+    progress?.stage("swap started — replacing the filed vintage");
     await client.query("DELETE FROM industrial_site_releases");
     await client.query("DELETE FROM industrial_sites");
     await client.query(
@@ -666,6 +719,16 @@ export async function filePollutionInventory(client, filing) {
       );
     await client.query("COMMIT");
   } catch (err) {
+    // BUG-265: the failure line names the filing stage and
+    // how far the staging got — the swap rolled back, so
+    // the last good vintage stands and a re-run starts over.
+    progress?.failed({
+      stage: "filing",
+      filed: stagedRows,
+      total: filing.sites.length + filing.releases.length,
+      error: err,
+      resume: "re-run from scratch (the swap rolled back, the last good vintage stands)",
+    });
     await client.query("ROLLBACK").catch(() => {});
     throw err;
   }
@@ -791,9 +854,38 @@ async function run() {
   const fileDir = fileAt >= 0 ? args[fileAt + 1] : null;
   if (fileAt >= 0 && !fileDir) throw new Error("--file needs a directory");
 
-  const { rows, sourceDate, year } = await loadPollutionInventoryRows({ fileDir });
-  const filing = buildFiling(parseSubstances(rows), { year, sourceDate });
-  goldenChecks(filing, { full: !fileDir });
+  // BUG-265: one logger for the run — the read marker and
+  // parsed count here, the staging tally inside
+  // filePollutionInventory (which also carries the filing
+  // failure line, so this catch covers the reading phase
+  // only and the two can never double-log).
+  const progress = createProgressLogger({ name: "load-pollution-inventory" });
+  progress.stage("reading the Pollution Inventory workbook");
+  let filing;
+  let rows;
+  let sourceDate;
+  let year;
+  try {
+    ({ rows, sourceDate, year } = await loadPollutionInventoryRows({ fileDir }));
+    filing = buildFiling(parseSubstances(rows), { year, sourceDate });
+    goldenChecks(filing, { full: !fileDir });
+  } catch (err) {
+    progress.failed({
+      stage: "reading",
+      filed: 0,
+      error: err,
+      resume: "re-run from scratch (nothing is filed until the swap)",
+    });
+    throw err;
+  }
+  // BUG-265: the parsed count — no percentage, the workbook
+  // carries no total of its own to read against.
+  progress.count({
+    label: "parsed",
+    done: filing.counts.sites,
+    unit: "sites",
+    extra: `${formatCount(filing.counts.airRows)} air rows`,
+  });
   const base =
     `load-pollution-inventory · Pollution Inventory ${year} · ` +
     `${filing.counts.sites.toLocaleString("en-GB")} sites filed ` +
@@ -807,7 +899,7 @@ async function run() {
   try {
     const client = await pool.connect();
     try {
-      await filePollutionInventory(client, filing);
+      await filePollutionInventory(client, filing, { progress });
     } finally {
       client.release();
     }

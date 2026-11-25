@@ -54,7 +54,12 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import pg from "pg";
-import { formatCount } from "./progress.mjs";
+import {
+  createBatchWatch,
+  createProgressLogger,
+  formatCount,
+  formatDuration,
+} from "./progress.mjs";
 
 const FILE_URL = "https://files.planning.data.gov.uk/dataset/brownfield-land.csv";
 const SOURCE_BROWNFIELD = "planning.data.gov.uk — brownfield land (Open Government Licence v3.0)";
@@ -167,11 +172,27 @@ const CONSUMED = [
 // on (reference, organisation); the same site recorded twice
 // collapsed on (point to 4dp, normalised address) — the
 // newest entry wins both times.
-function processSites(rows) {
+/**
+ * @param {any[]} rows
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ */
+export function processSites(rows, { progress = null } = {}) {
   let ended = 0;
   let noPoint = 0;
   const placeable = [];
+  // BUG-265: the scan is the run's first long loop — ~35,000
+  // rows live — so a tally lands every 5,000 rows against the
+  // file's own row count, and a closing line.
+  const processTally = progress?.tally({
+    label: "process",
+    total: rows.length,
+    every: 5000,
+    unit: "rows",
+  });
+  let rowsSeen = 0;
   for (const row of rows) {
+    rowsSeen += 1;
+    processTally?.tick(rowsSeen);
     if ((row["end-date"] ?? "") !== "") {
       ended += 1;
       continue;
@@ -183,6 +204,7 @@ function processSites(rows) {
     }
     placeable.push({ row, lat: point.lat, lng: point.lng });
   }
+  processTally?.finish(rows.length);
   const byKey = new Map();
   let duplicates = 0;
   for (const item of placeable) {
@@ -299,43 +321,61 @@ async function main() {
   const fileAt = args.indexOf("--file");
   const fixtureMode = fileAt !== -1;
   const fixtureDir = fixtureMode ? args[fileAt + 1] : null;
+  // BUG-265: one logger for the run — the process tally and
+  // the staging tally below.
+  const progress = createProgressLogger({ name: "load-brownfield" });
 
   let text;
   let sourceDate;
-  if (fixtureMode) {
-    text = await readFile(join(fixtureDir, "brownfield-land.csv"), "utf8");
-    sourceDate = JSON.parse(await readFile(join(fixtureDir, "fixture.json"), "utf8")).captured;
-  } else {
-    const response = await fetch(FILE_URL);
-    if (!response.ok) throw new Error(`HTTP ${response.status} for the brownfield-land download`);
-    text = await response.text();
-    sourceDate = new Date().toISOString().slice(0, 10);
-  }
+  let processed;
+  try {
+    progress.stage("reading the brownfield-land file");
+    if (fixtureMode) {
+      text = await readFile(join(fixtureDir, "brownfield-land.csv"), "utf8");
+      sourceDate = JSON.parse(await readFile(join(fixtureDir, "fixture.json"), "utf8")).captured;
+    } else {
+      const response = await fetch(FILE_URL);
+      if (!response.ok) throw new Error(`HTTP ${response.status} for the brownfield-land download`);
+      text = await response.text();
+      sourceDate = new Date().toISOString().slice(0, 10);
+    }
 
-  const rows = parseCsv(text);
-  if (rows.length === 0) throw new Error("contract failure: the brownfield-land file has no rows");
-  for (const header of CONSUMED) {
-    if (!(header in rows[0]))
-      throw new Error(`contract failure: the brownfield-land file no longer carries "${header}"`);
-  }
-  // The notes column is consumed only to prove it is never
-  // filed: its presence is expected, its content never read
-  // into any filed or served shape.
-  if (!("notes" in rows[0]))
-    throw new Error('contract failure: the brownfield-land file no longer carries "notes"');
+    const rows = parseCsv(text);
+    if (rows.length === 0)
+      throw new Error("contract failure: the brownfield-land file has no rows");
+    for (const header of CONSUMED) {
+      if (!(header in rows[0]))
+        throw new Error(`contract failure: the brownfield-land file no longer carries "${header}"`);
+    }
+    // The notes column is consumed only to prove it is never
+    // filed: its presence is expected, its content never read
+    // into any filed or served shape.
+    if (!("notes" in rows[0]))
+      throw new Error('contract failure: the brownfield-land file no longer carries "notes"');
 
-  const processed = processSites(rows);
-  if (!fixtureMode) {
-    if (processed.current < 28000 || processed.current > 37000)
-      throw new Error(
-        `sanity failure: ${processed.current} current brownfield sites is outside the expected band`,
-      );
-    if (processed.publishers.size < 250 || processed.publishers.size > 340)
-      throw new Error(
-        `sanity failure: ${processed.publishers.size} supplying organisations is outside the expected band`,
-      );
+    processed = processSites(rows, { progress });
+    if (!fixtureMode) {
+      if (processed.current < 28000 || processed.current > 37000)
+        throw new Error(
+          `sanity failure: ${processed.current} current brownfield sites is outside the expected band`,
+        );
+      if (processed.publishers.size < 250 || processed.publishers.size > 340)
+        throw new Error(
+          `sanity failure: ${processed.publishers.size} supplying organisations is outside the expected band`,
+        );
+    }
+    checkGolden(processed, fixtureMode);
+  } catch (error) {
+    // BUG-265: the read, the process and the golden checks all
+    // fail before anything is filed.
+    progress.failed({
+      stage: "read",
+      filed: 0,
+      error,
+      resume: "re-run the loader from the start (nothing is filed)",
+    });
+    throw error;
   }
-  checkGolden(processed, fixtureMode);
 
   const summary = () =>
     `load-brownfield · planning.data.gov.uk file retrieved ${sourceDate} · ` +
@@ -374,7 +414,24 @@ async function main() {
        ) ON COMMIT DROP`,
     );
     const CHUNK = 500;
+    // BUG-265: the staging is the run's long loop — ~70 chunks
+    // of 500 live — so a tally lands every 10 chunks against
+    // the chunk count, a heartbeat every 10, and a chunk that
+    // takes more than 3x the recent average earns a warning.
+    // (The supplier-gate inserts that follow are the small tail
+    // of the same filing, inside this same transaction.)
+    progress.stage(`filing ${formatCount(processed.filed.length)} sites`);
+    const chunks = Math.ceil(processed.filed.length / CHUNK);
+    const stageTally = progress.tally({
+      label: "stage",
+      total: chunks,
+      every: 10,
+      unit: "chunks",
+    });
+    const stageWatch = createBatchWatch();
+    let chunkIndex = 0;
     for (let at = 0; at < processed.filed.length; at += CHUNK) {
+      const started = Date.now();
       const chunk = processed.filed.slice(at, at + CHUNK);
       const values = [];
       const params = [];
@@ -403,7 +460,19 @@ async function main() {
          VALUES ${values.join(",")}`,
         params,
       );
+      chunkIndex += 1;
+      const { tookMs, averageMs, slow } = stageWatch.observe(Date.now() - started);
+      stageTally.tick(chunkIndex);
+      progress.heartbeat({ stage: "stage", done: chunkIndex, total: chunks });
+      if (slow) {
+        progress.warning({
+          what: "stage chunk duration",
+          value: `chunk ${chunkIndex} took ${formatDuration(tookMs)}`,
+          threshold: `3x recent average ${formatDuration(averageMs)}`,
+        });
+      }
     }
+    stageTally.finish(chunks);
     for (const [org, count] of processed.publishers) {
       await client.query(
         `INSERT INTO brownfield_gate_stage (organisation_entity, current_sites, source_name, source_date)
@@ -432,6 +501,16 @@ async function main() {
       throw new Error("the filed gate count does not match — rolling back");
     await client.query("COMMIT");
   } catch (error) {
+    // BUG-265: the filing is one transaction — on a rollback
+    // the live tables are untouched.
+    progress.failed({
+      stage: "filing",
+      filed: 0,
+      total: processed.filed.length,
+      error,
+      resume:
+        "re-run the loader from the start (the filing rolled back, the live tables are untouched)",
+    });
     await client.query("ROLLBACK").catch(() => {});
     throw error;
   } finally {

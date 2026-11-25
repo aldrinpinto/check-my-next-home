@@ -267,3 +267,17 @@ describe("heritage loader — the M6.21 layers", () => {
     expect(liverpool.every((r) => r["end-date"] !== "")).toBe(true);
   });
 });
+
+describe("progress — BUG-265", () => {
+  // This loader's long phases live in main(), so the wiring
+  // is pinned here in source and driven end-to-end in
+  // tests/load-progress-bug265-c.test.ts.
+  it("creates one logger and wires it through the reads and both staging loops", () => {
+    expect(loader).toContain('createProgressLogger({ name: "load-heritage" })');
+    expect(loader).toContain('label: "stage listed buildings"');
+    expect(loader).toContain('label: "stage polygons"');
+    expect(loader).toContain('label: "process listed-building"');
+    expect(loader).toContain("progress.failed({");
+    expect(loader).toContain("swap started — filing");
+  });
+});

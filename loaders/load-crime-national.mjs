@@ -63,7 +63,12 @@ import pg from "pg";
 import yauzl from "yauzl";
 
 import { monthIndex, nationalForWindow, windowMonths } from "./load-crime.mjs";
-import { formatCount } from "./progress.mjs";
+import {
+  createBatchWatch,
+  createProgressLogger,
+  formatCount,
+  formatDuration,
+} from "./progress.mjs";
 
 const DATES_URL = "https://data.police.uk/api/crimes-street-dates";
 const ARCHIVE_URL = (month) => `https://data.police.uk/data/archive/${month}.zip`;
@@ -272,6 +277,18 @@ async function main() {
     await client.connect();
   }
 
+  // BUG-265: one logger for the run — the month-count
+  // tally, the archive-download stage, and the embed tally.
+  const progress = createProgressLogger({ name: "load-crime-national" });
+  progress.stage(
+    `counting the ${formatCount(months.length)}-month window from the Police.uk archive`,
+  );
+  // True once the embed's own catch has reported the
+  // failure, so the outer catch does not mislabel it as a
+  // counting failure.
+  let embedFailed = false;
+  let newlyCounted = 0;
+
   try {
     // 2 — count the window's unfiled months. The filed rows
     // are the resume state: a month with a row is never
@@ -281,7 +298,19 @@ async function main() {
       const res = await client.query("SELECT month FROM crime_national_months");
       for (const row of res.rows) filed.add(row.month);
     }
-    let newlyCounted = 0;
+    // BUG-265: the 12-month window is the genuine total —
+    // the tally carries a real percentage, a line every 3
+    // months, a heartbeat every 3 months, and a warning
+    // for a month that takes more than 3x the recent
+    // average.
+    const countTally = progress.tally({
+      label: "count",
+      total: months.length,
+      every: 3,
+      unit: "months",
+    });
+    const countWatch = createBatchWatch();
+    let counted = 0;
     // Live counting downloads the LATEST archive once and
     // counts every unfiled month from its folder inside it
     // (the archive is cumulative — see the header). A month
@@ -290,7 +319,12 @@ async function main() {
     let latestZipPath = null;
     try {
       for (const month of months) {
-        if (filed.has(month)) continue;
+        if (filed.has(month)) {
+          counted += 1;
+          countTally.tick(counted);
+          continue;
+        }
+        const started = Date.now();
         let total;
         if (fixture) {
           total = fixture.months[month];
@@ -300,6 +334,7 @@ async function main() {
             );
         } else {
           if (!latestZipPath) {
+            progress.stage(`downloading the ${latest} archive`);
             latestZipPath = join(tmpdir(), `cmnh-archive-${latest}.zip`);
             await downloadArchive(latest, latestZipPath);
           }
@@ -326,10 +361,22 @@ async function main() {
         }
         filed.add(month);
         newlyCounted += 1;
+        counted += 1;
+        const { tookMs, averageMs, slow } = countWatch.observe(Date.now() - started);
+        countTally.tick(counted, `${formatCount(total)} England crimes in ${month}`);
+        progress.heartbeat({ stage: "count", done: counted, total: months.length, every: 3 });
+        if (slow && tookMs >= 1000) {
+          progress.warning({
+            what: "month count duration",
+            value: `${month} took ${formatDuration(tookMs)}`,
+            threshold: `3x recent average ${formatDuration(averageMs)}`,
+          });
+        }
       }
     } finally {
       if (latestZipPath) await rm(latestZipPath, { force: true });
     }
+    countTally.finish(counted);
 
     // 3 — embed the window figure into every filed crime
     // artefact whose window is now fully counted and whose
@@ -339,26 +386,77 @@ async function main() {
       const res = await client.query(
         "SELECT postcode, answers -> 'crime' AS crime FROM postcode_cache WHERE answers -> 'crime' IS NOT NULL",
       );
-      for (const row of res.rows) {
-        const artefact = row.crime;
-        if (!artefact?.windowFrom || !artefact?.windowTo) continue;
-        const national = await nationalForWindow(client, artefactMonths(artefact));
-        if (!national) continue;
-        const current = artefact.national;
-        if (current && current.total === national.total && current.residents === national.residents)
-          continue;
-        await client.query(
-          "UPDATE postcode_cache SET answers = jsonb_set(answers, '{crime,national}', $1::jsonb) WHERE postcode = $2",
-          [JSON.stringify(national), row.postcode],
-        );
-        embedded += 1;
+      progress.stage(
+        `embedding the window figure into ${formatCount(res.rows.length)} filed crime artefacts`,
+      );
+      const embedTally = progress.tally({
+        label: "embed",
+        total: res.rows.length,
+        every: 100,
+        unit: "artefacts",
+      });
+      try {
+        for (const [i, row] of res.rows.entries()) {
+          const artefact = row.crime;
+          if (!artefact?.windowFrom || !artefact?.windowTo) {
+            embedTally.tick(i + 1, `${formatCount(embedded)} embedded`);
+            continue;
+          }
+          const national = await nationalForWindow(client, artefactMonths(artefact));
+          if (!national) {
+            embedTally.tick(i + 1, `${formatCount(embedded)} embedded`);
+            continue;
+          }
+          const current = artefact.national;
+          if (
+            current &&
+            current.total === national.total &&
+            current.residents === national.residents
+          ) {
+            embedTally.tick(i + 1, `${formatCount(embedded)} embedded`);
+            continue;
+          }
+          await client.query(
+            "UPDATE postcode_cache SET answers = jsonb_set(answers, '{crime,national}', $1::jsonb) WHERE postcode = $2",
+            [JSON.stringify(national), row.postcode],
+          );
+          embedded += 1;
+          embedTally.tick(i + 1, `${formatCount(embedded)} embedded`);
+          progress.heartbeat({ stage: "embed", done: i + 1, total: res.rows.length, every: 100 });
+        }
+      } catch (err) {
+        embedFailed = true;
+        progress.failed({
+          stage: "embed",
+          filed: embedded,
+          total: res.rows.length,
+          error: err,
+          resume: "re-run — the embedding is idempotent",
+        });
+        throw err;
       }
+      embedTally.finish(res.rows.length, `${formatCount(embedded)} embedded`);
     }
 
     const windowTotal = client ? ((await nationalForWindow(client, months))?.total ?? null) : null;
     console.log(
       `load-crime-national · latest month ${latest} · window ${months[0]}..${latest} · England 12-month total ${windowTotal === null ? "not yet countable" : formatCount(windowTotal)} · ${formatCount(months.filter((m) => filed.has(m)).length)} of ${formatCount(months.length)} months on file (${formatCount(newlyCounted)} new) · ${formatCount(embedded)} artefacts embedded${verifyOnly ? " · verify only, nothing filed" : ""} · ${Math.round((Date.now() - startedAt) / 1000)}s`,
     );
+  } catch (err) {
+    // BUG-265: the counting phase fails before the embed —
+    // filed months are the resume state, so the resume is
+    // a re-run that recounts only the unfiled months. (The
+    // embed's own catch above reports its stage first.)
+    if (!embedFailed) {
+      progress.failed({
+        stage: "count",
+        filed: newlyCounted,
+        total: months.length,
+        error: err,
+        resume: "re-run — filed months are the resume state, unfiled months recount",
+      });
+    }
+    throw err;
   } finally {
     if (client) await client.end();
   }

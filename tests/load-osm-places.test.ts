@@ -16,6 +16,7 @@ import {
   placeName,
   sanityChecks,
 } from "../loaders/load-osm-places.mjs";
+import { createProgressLogger } from "../loaders/progress.mjs";
 
 // Nearby places loader — OpenStreetMap (plan step M5.6),
 // tested against the fixture in tests/fixtures/osm-places:
@@ -688,5 +689,76 @@ describe("filing — the schema contract", () => {
     for (const item of selectList) {
       if (/^[a-z_][a-z0-9_]*$/.test(item)) expect(stageCols).toContain(item);
     }
+  });
+});
+
+describe("progress — BUG-265", () => {
+  const collect = () => {
+    const lines: string[] = [];
+    return { lines, log: (line: string) => lines.push(line) };
+  };
+
+  function recordingPool(failOn?: string) {
+    const statements: string[] = [];
+    let released = false;
+    const client = {
+      async query(sql: string) {
+        const head = sql.trim().replace(/\s+/g, " ");
+        statements.push(head);
+        if (failOn && head.startsWith(failOn)) throw new Error(`forced failure: ${failOn}`);
+        return { rows: [], rowCount: 0 };
+      },
+      release() {
+        released = true;
+      },
+    };
+    return { statements, released: () => released, pool: { connect: async () => client } };
+  }
+
+  const rows = [
+    {
+      osmId: 101,
+      name: "A Vet",
+      placeType: "vet",
+      detail: null,
+      lat: 51.5,
+      lon: 0.02,
+      sourceDate: "2026-11-12",
+    },
+    {
+      osmId: 102,
+      name: null,
+      placeType: "leisure",
+      detail: null,
+      lat: 51.51,
+      lon: 0.005,
+      sourceDate: "2026-11-12",
+    },
+  ];
+
+  it("logs the stage flushes with a real percentage and closes the tally", async () => {
+    const { lines, log } = collect();
+    const progress = createProgressLogger({ name: "load-osm-places", log });
+    const rec = recordingPool();
+    await filePlaces(rec.pool as never, rows as never, "2026-11-13T00:00:00Z", { progress });
+    expect(lines.some((l) => /progress · stage 1\/1 flushes \(100%\)$/.test(l))).toBe(true);
+    expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
+    expect(rec.statements.at(-1)).toBe("COMMIT");
+  });
+
+  it("names a filing failure with the staged count and the resume point", async () => {
+    const { lines, log } = collect();
+    const progress = createProgressLogger({ name: "load-osm-places", log });
+    const rec = recordingPool("INSERT INTO osm_places_stage");
+    await expect(
+      filePlaces(rec.pool as never, rows as never, "2026-11-13T00:00:00Z", { progress }),
+    ).rejects.toThrow("forced failure");
+    expect(
+      lines.some((l) =>
+        /failed · file · filed 0 of 2 · forced failure: INSERT INTO osm_places_stage · resume from re-run from scratch/.test(
+          l,
+        ),
+      ),
+    ).toBe(true);
   });
 });

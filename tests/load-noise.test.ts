@@ -11,6 +11,7 @@ import {
   samplesToRows,
   toBng,
 } from "../loaders/load-noise.mjs";
+import { createProgressLogger } from "../loaders/progress.mjs";
 
 // Noise loader (plan step M5.9). The fixture's values are the
 // build's own WMS measurements at the golden points (see the
@@ -293,5 +294,58 @@ describe("filing — statement order and the swap", () => {
     expect(stageAt).toBeGreaterThan(beginAt);
     expect(statements.some((s) => /INSERT INTO noise_summary \(/.test(s))).toBe(true);
     expect(statements.at(-1)).toBe("COMMIT");
+  });
+});
+
+describe("progress — BUG-265", () => {
+  const collect = () => {
+    const lines: string[] = [];
+    return { lines, log: (line: string) => lines.push(line) };
+  };
+
+  const oneRow = [
+    {
+      areaRef: "CM3 2JT",
+      sourceKind: "road",
+      dayBand: "Below 55 dB",
+      nightBand: "Below 50 dB",
+      latitude: 51.776176,
+      longitude: 0.60387,
+    },
+  ];
+
+  it("logs the filing chunks with a real percentage and closes the tally", async () => {
+    const { lines, log } = collect();
+    const progress = createProgressLogger({ name: "load-noise", log });
+    const statements: string[] = [];
+    const client = {
+      query: async (sql: string) => {
+        statements.push(sql);
+        return { rows: [], rowCount: 0 };
+      },
+    };
+    await fileNoise(client as never, oneRow as never, { progress });
+    expect(lines.some((l) => /progress · file 1\/1 chunks \(100%\)$/.test(l))).toBe(true);
+    expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
+    expect(statements.at(-1)).toBe("COMMIT");
+  });
+
+  it("names a filing failure with the filed count and the resume point", async () => {
+    const { lines, log } = collect();
+    const progress = createProgressLogger({ name: "load-noise", log });
+    const client = {
+      query: async (sql: string) => {
+        if (/INSERT INTO noise_stage/.test(sql)) throw new Error("forced failure");
+        return { rows: [], rowCount: 0 };
+      },
+    };
+    await expect(fileNoise(client as never, oneRow as never, { progress })).rejects.toThrow(
+      "forced failure",
+    );
+    expect(
+      lines.some((l) =>
+        /failed · file · filed 0 of 1 · forced failure · resume from re-run from scratch/.test(l),
+      ),
+    ).toBe(true);
   });
 });

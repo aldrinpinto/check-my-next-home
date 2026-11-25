@@ -49,7 +49,12 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import pg from "pg";
-import { formatCount } from "./progress.mjs";
+import {
+  createBatchWatch,
+  createProgressLogger,
+  formatCount,
+  formatDuration,
+} from "./progress.mjs";
 
 const FILES_BASE = "https://files.planning.data.gov.uk/dataset";
 const SOURCE_AREAS = "planning.data.gov.uk (Open Government Licence v3.0)";
@@ -412,7 +417,13 @@ async function main() {
   const fixtureMode = fileAt !== -1;
   const fixtureDir = fixtureMode ? args[fileAt + 1] : null;
 
+  // BUG-265: one logger for the reads, the processing counts
+  // and the staging loop; the counts carry the file's own
+  // row total, so the log shows a real percentage.
+  const progress = createProgressLogger({ name: "load-planning-areas" });
+
   const readDataset = async (name) => {
+    progress.stage(`reading the ${name} file...`);
     if (fixtureMode) return readFile(join(fixtureDir, `${name}.csv`), "utf8");
     const response = await fetch(`${FILES_BASE}/${name}.csv`);
     if (!response.ok) throw new Error(`HTTP ${response.status} for the ${name} download`);
@@ -433,9 +444,27 @@ async function main() {
   requireHeaders(dirRows, "article-4-direction");
 
   const ca = processPolygons(caRows, "conservation-area");
+  progress.count({
+    label: "process conservation-area",
+    done: ca.filed.length,
+    total: caRows.length,
+    unit: "rows",
+  });
   const a4 = processPolygons(a4Rows, "article-4-direction-area");
+  progress.count({
+    label: "process article-4-direction-area",
+    done: a4.filed.length,
+    total: a4Rows.length,
+    unit: "rows",
+  });
   const dirEnded = dirRows.filter((r) => (r["end-date"] ?? "") !== "").length;
   const dirCurrent = dirRows.length - dirEnded;
+  progress.count({
+    label: "process article-4-direction",
+    done: dirCurrent,
+    total: dirRows.length,
+    unit: "rows",
+  });
 
   // The gate evidence: every organisation supplying at least one
   // current Article 4 area, with its geometry coverage.
@@ -490,6 +519,10 @@ async function main() {
 
   const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
   await client.connect();
+  // BUG-265: the staged counter lives outside the try so the
+  // failure line can read it even when the error lands before
+  // the staging loop.
+  let stagedLayers = 0;
   try {
     await client.query("BEGIN");
     await client.query(
@@ -508,7 +541,20 @@ async function main() {
        ) ON COMMIT DROP`,
     );
     const CHUNK = 25;
+    // BUG-265: the layer staging loop is the run's long
+    // phase — a line every twentieth of the chunks, a
+    // heartbeat, and a warning for a chunk over 3x the
+    // recent average.
+    const layerChunks = Math.ceil(layers.length / CHUNK);
+    const layerTally = progress.tally({
+      label: "stage layers",
+      total: layerChunks,
+      every: Math.max(1, Math.ceil(layerChunks / 20)),
+      unit: "chunks",
+    });
+    const layerWatch = createBatchWatch();
     for (let at = 0; at < layers.length; at += CHUNK) {
+      const started = Date.now();
       const chunk = layers.slice(at, at + CHUNK);
       const values = [];
       const params = [];
@@ -534,7 +580,20 @@ async function main() {
          VALUES ${values.join(",")}`,
         params,
       );
+      stagedLayers += chunk.length;
+      const chunkNo = at / CHUNK + 1;
+      const { tookMs, averageMs, slow } = layerWatch.observe(Date.now() - started);
+      layerTally.tick(chunkNo);
+      progress.heartbeat({ stage: "stage layers", done: chunkNo, total: layerChunks });
+      if (slow) {
+        progress.warning({
+          what: "stage chunk duration",
+          value: `chunk ${chunkNo} took ${formatDuration(tookMs)}`,
+          threshold: `3x recent average ${formatDuration(averageMs)}`,
+        });
+      }
     }
+    layerTally.finish(layerChunks);
     for (const [org, entry] of publishers) {
       await client.query(
         `INSERT INTO gate_stage (organisation_entity, current_areas, areas_with_geometry, source_name, source_date)
@@ -542,9 +601,18 @@ async function main() {
         [org, entry.currentAreas, entry.areasWithGeometry, SOURCE_AREAS, sourceDate],
       );
     }
+    progress.count({
+      label: "stage gate",
+      done: publishers.size,
+      total: publishers.size,
+      unit: "organisations",
+    });
     const staged = await client.query("SELECT count(*)::int AS n FROM planning_stage");
     if (staged.rows[0].n !== layers.length)
       throw new Error("the staged layer count does not match — rolling back");
+    progress.stage(
+      `swap started — filing ${formatCount(layers.length)} staged layers into planning_layers`,
+    );
     await client.query(
       "DELETE FROM planning_layers WHERE constraint_type IN ('conservation_area', 'article_4_area')",
     );
@@ -567,6 +635,13 @@ async function main() {
       throw new Error("the filed gate count does not match — rolling back");
     await client.query("COMMIT");
   } catch (error) {
+    progress.failed({
+      stage: "file",
+      filed: stagedLayers,
+      total: layers.length,
+      error,
+      resume: "re-run from scratch (filing is one transaction; nothing was swapped)",
+    });
     await client.query("ROLLBACK").catch(() => {});
     throw error;
   } finally {

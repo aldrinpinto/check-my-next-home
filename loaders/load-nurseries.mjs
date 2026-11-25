@@ -78,7 +78,12 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import pg from "pg";
-import { formatCount } from "./progress.mjs";
+import {
+  createBatchWatch,
+  createProgressLogger,
+  formatCount,
+  formatDuration,
+} from "./progress.mjs";
 
 const OFSTED_PAGE =
   "https://www.gov.uk/government/statistical-data-sets/childcare-providers-and-inspections-management-information";
@@ -277,7 +282,12 @@ async function discoverRegister() {
   return { text, asAt: newest.asAt };
 }
 
-function buildSettings(records, positionOf) {
+/**
+ * @param {any[]} records
+ * @param {(postcode: string) => { lat: number, lng: number } | null} positionOf
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ */
+export function buildSettings(records, positionOf, { progress = null } = {}) {
   const settings = [];
   const stats = {
     total: records.length,
@@ -294,7 +304,19 @@ function buildSettings(records, positionOf) {
     unresolvedPostcodes: [],
   };
   const seen = new Set();
+  // BUG-265: the scan is the run's first long loop — ~60,000
+  // register rows live — so a tally lands every 5,000 rows
+  // against the file's own row count, and a closing line.
+  const buildTally = progress?.tally({
+    label: "build",
+    total: records.length,
+    every: 5000,
+    unit: "rows",
+  });
+  let recordsSeen = 0;
   for (const row of records) {
+    recordsSeen += 1;
+    buildTally?.tick(recordsSeen);
     const type = row["Provider type"];
     if (CHILDMINDER_TYPES.has(type)) {
       stats.childminderTypes += 1;
@@ -366,6 +388,7 @@ function buildSettings(records, positionOf) {
       lng: position.lng,
     });
   }
+  buildTally?.finish(records.length);
   return { settings, stats };
 }
 
@@ -429,66 +452,84 @@ async function main() {
     if (!known.has(args[i])) throw new Error(`unrecognised argument: ${args[i]}`);
   }
   if (fixtureMode && !fixtureDir) throw new Error("--file needs a directory");
+  // BUG-265: one logger for the run — the build tally and the
+  // filing tally below.
+  const progress = createProgressLogger({ name: "load-nurseries" });
 
   let text;
   let asAt;
   let positionOf;
   let client = null;
-  if (fixtureMode) {
-    const meta = JSON.parse(await readFile(join(fixtureDir, "fixture.json"), "utf8"));
-    text = await readFile(join(fixtureDir, meta.providerFile), "utf8");
-    asAt = meta.registerAsAt;
-    const postcodes = JSON.parse(await readFile(join(fixtureDir, "postcodes.json"), "utf8"));
-    positionOf = (pc) => postcodes[(pc ?? "").trim().toUpperCase()] ?? null;
-    if (!verifyOnly) {
+  let settings;
+  let stats;
+  try {
+    progress.stage("reading the Ofsted childcare register");
+    if (fixtureMode) {
+      const meta = JSON.parse(await readFile(join(fixtureDir, "fixture.json"), "utf8"));
+      text = await readFile(join(fixtureDir, meta.providerFile), "utf8");
+      asAt = meta.registerAsAt;
+      const postcodes = JSON.parse(await readFile(join(fixtureDir, "postcodes.json"), "utf8"));
+      positionOf = (pc) => postcodes[(pc ?? "").trim().toUpperCase()] ?? null;
+      if (!verifyOnly) {
+        if (!process.env.DATABASE_URL)
+          throw new Error("DATABASE_URL is not set — filing requires a database");
+        client = new pg.Client({ connectionString: process.env.DATABASE_URL });
+        await client.connect();
+      }
+    } else {
+      ({ text, asAt: asAt } = await discoverRegister());
       if (!process.env.DATABASE_URL)
-        throw new Error("DATABASE_URL is not set — filing requires a database");
+        throw new Error(
+          "DATABASE_URL is not set — nursery points are positioned from the postcode directory, so a database is required",
+        );
       client = new pg.Client({ connectionString: process.env.DATABASE_URL });
       await client.connect();
+      const res = await client.query(
+        "SELECT postcode, latitude, longitude FROM postcode_cache WHERE latitude IS NOT NULL",
+      );
+      const directory = new Map(
+        res.rows.map((r) => [r.postcode, { lat: r.latitude, lng: r.longitude }]),
+      );
+      positionOf = (pc) => directory.get((pc ?? "").trim().toUpperCase()) ?? null;
     }
-  } else {
-    ({ text, asAt: asAt } = await discoverRegister());
-    if (!process.env.DATABASE_URL)
-      throw new Error(
-        "DATABASE_URL is not set — nursery points are positioned from the postcode directory, so a database is required",
-      );
-    client = new pg.Client({ connectionString: process.env.DATABASE_URL });
-    await client.connect();
-    const res = await client.query(
-      "SELECT postcode, latitude, longitude FROM postcode_cache WHERE latitude IS NOT NULL",
-    );
-    const directory = new Map(
-      res.rows.map((r) => [r.postcode, { lat: r.latitude, lng: r.longitude }]),
-    );
-    positionOf = (pc) => directory.get((pc ?? "").trim().toUpperCase()) ?? null;
-  }
 
-  const { records, asAt: fileAsAt } = parseRegister(text);
-  if (fileAsAt !== asAt)
-    throw new Error(
-      `the file's own as-at date (${fileAsAt}) does not match the discovered edition (${asAt})`,
-    );
-  const { settings, stats } = buildSettings(records, positionOf);
+    const { records, asAt: fileAsAt } = parseRegister(text);
+    if (fileAsAt !== asAt)
+      throw new Error(
+        `the file's own as-at date (${fileAsAt}) does not match the discovered edition (${asAt})`,
+      );
+    ({ settings, stats } = buildSettings(records, positionOf, { progress }));
 
-  // Contract sanity. Frozen counts belong to fixture mode; live
-  // mode checks bands, like the other loaders.
-  if (fixtureMode) {
-    if (settings.length === 0) throw new Error("the fixture filed no settings");
-  } else {
-    if (records.length < 40000 || records.length > 80000)
-      throw new Error(
-        `sanity failure: ${records.length} register rows is outside the expected band`,
-      );
-    if (settings.length < 15000 || settings.length > 25000)
-      throw new Error(
-        `sanity failure: ${settings.length} filed group settings is outside the expected band`,
-      );
-    if (stats.unresolvedPostcode > 200)
-      throw new Error(
-        `sanity failure: ${stats.unresolvedPostcode} group settings have a postcode outside the directory`,
-      );
+    // Contract sanity. Frozen counts belong to fixture mode; live
+    // mode checks bands, like the other loaders.
+    if (fixtureMode) {
+      if (settings.length === 0) throw new Error("the fixture filed no settings");
+    } else {
+      if (records.length < 40000 || records.length > 80000)
+        throw new Error(
+          `sanity failure: ${records.length} register rows is outside the expected band`,
+        );
+      if (settings.length < 15000 || settings.length > 25000)
+        throw new Error(
+          `sanity failure: ${settings.length} filed group settings is outside the expected band`,
+        );
+      if (stats.unresolvedPostcode > 200)
+        throw new Error(
+          `sanity failure: ${stats.unresolvedPostcode} group settings have a postcode outside the directory`,
+        );
+    }
+    checkGolden(settings, fixtureMode);
+  } catch (error) {
+    // BUG-265: the read, the build and the golden checks all
+    // fail before anything is filed.
+    progress.failed({
+      stage: "read",
+      filed: 0,
+      error,
+      resume: "re-run the loader from the start (nothing is filed until the swap)",
+    });
+    throw error;
   }
-  checkGolden(settings, fixtureMode);
 
   const summary = () =>
     `load-nurseries · Ofsted childcare register as at ${asAt} · ${formatCount(settings.length)} group settings filed ` +
@@ -511,6 +552,21 @@ async function main() {
     await client.query(
       `CREATE TEMP TABLE nurseries_stage (LIKE nurseries INCLUDING DEFAULTS) ON COMMIT DROP`,
     );
+    // BUG-265: the filing is the run's second long loop — one
+    // INSERT per setting, ~20,000 live — so a tally lands every
+    // 1,000 settings, a heartbeat every 10,000, and a
+    // 1,000-setting chunk that takes more than 3x the recent
+    // average earns a warning.
+    progress.stage(`filing ${formatCount(settings.length)} settings`);
+    const fileTally = progress.tally({
+      label: "file",
+      total: settings.length,
+      every: 1000,
+      unit: "settings",
+    });
+    const fileWatch = createBatchWatch();
+    let filedSettings = 0;
+    let chunkStarted = Date.now();
     for (const s of settings) {
       await client.query(
         `INSERT INTO nurseries_stage (urn, name, setting_type, address, postcode, latitude, longitude,
@@ -518,7 +574,27 @@ async function main() {
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
         [s.urn, s.name, s.settingType, s.address, s.postcode, s.lat, s.lng, SOURCE_NAME, asAt],
       );
+      filedSettings += 1;
+      fileTally.tick(filedSettings);
+      progress.heartbeat({
+        stage: "filing",
+        done: filedSettings,
+        total: settings.length,
+        every: 10_000,
+      });
+      if (filedSettings % 1000 === 0) {
+        const { tookMs, averageMs, slow } = fileWatch.observe(Date.now() - chunkStarted);
+        if (slow) {
+          progress.warning({
+            what: "filing chunk duration",
+            value: `chunk ending at setting ${formatCount(filedSettings)} took ${formatDuration(tookMs)}`,
+            threshold: `3x recent average ${formatDuration(averageMs)}`,
+          });
+        }
+        chunkStarted = Date.now();
+      }
     }
+    fileTally.finish(filedSettings);
     const staged = await client.query("SELECT count(*)::int AS n FROM nurseries_stage");
     if (staged.rows[0].n !== settings.length)
       throw new Error("the staged setting count does not match — rolling back");
@@ -534,6 +610,16 @@ async function main() {
       throw new Error("the filed setting count does not match — rolling back");
     await client.query("COMMIT");
   } catch (error) {
+    // BUG-265: the filing is one transaction — on a rollback
+    // the live table is untouched.
+    progress.failed({
+      stage: "filing",
+      filed: 0,
+      total: settings.length,
+      error,
+      resume:
+        "re-run the loader from the start (the filing rolled back, the live table is untouched)",
+    });
     await client.query("ROLLBACK");
     throw error;
   } finally {

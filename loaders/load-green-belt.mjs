@@ -39,7 +39,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import pg from "pg";
-import { formatCount } from "./progress.mjs";
+import { createProgressLogger, formatCount } from "./progress.mjs";
 
 const FILE_URL = "https://files.planning.data.gov.uk/dataset/green-belt.csv";
 const SOURCE_GREEN_BELT = "MHCLG Green Belt (via planning.data.gov.uk)";
@@ -284,12 +284,19 @@ async function main() {
   const fixtureMode = fileAt !== -1;
   const fixtureDir = fixtureMode ? args[fileAt + 1] : null;
 
+  // BUG-265: one logger for the run — the parse count and
+  // the filing tally below. The file is small (~181 rows),
+  // so this loader gets stage + count + tally only: no
+  // heartbeat fires on a run this short.
+  const progress = createProgressLogger({ name: "load-green-belt" });
   let text;
   let sourceDate;
   if (fixtureMode) {
+    progress.stage("reading the fixture green-belt file");
     text = await readFile(join(fixtureDir, "green-belt.csv"), "utf8");
     sourceDate = JSON.parse(await readFile(join(fixtureDir, "fixture.json"), "utf8")).captured;
   } else {
+    progress.stage("downloading the green-belt file from planning.data.gov.uk");
     const response = await fetch(FILE_URL);
     if (!response.ok) throw new Error(`HTTP ${response.status} for the green-belt download`);
     text = await response.text();
@@ -351,6 +358,16 @@ async function main() {
     filed: [...byKey.values()],
     duplicates,
   };
+  // BUG-265: the file's row count is the genuine total,
+  // so the count carries a real percentage — rows parsed
+  // against pieces to file.
+  progress.count({
+    label: "parse",
+    done: processed.filed.length,
+    total: processed.total,
+    unit: "pieces",
+    extra: `${formatCount(processed.ended)} ended excluded · ${formatCount(processed.geoless)} without geometry`,
+  });
 
   if (!fixtureMode && (processed.total < 150 || processed.total > 220))
     throw new Error(
@@ -372,6 +389,15 @@ async function main() {
 
   const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
   await client.connect();
+  // BUG-265: the filing runs in chunks of 5 — a line
+  // every 50 pieces with the genuine total and percentage.
+  const fileTally = progress.tally({
+    label: "file",
+    total: processed.filed.length,
+    every: 50,
+    unit: "pieces",
+  });
+  progress.stage(`filing ${formatCount(processed.filed.length)} green belt pieces`);
   try {
     await client.query("BEGIN");
     await client.query(
@@ -410,6 +436,7 @@ async function main() {
          VALUES ${values.join(",")}`,
         params,
       );
+      fileTally.tick(at + chunk.length);
     }
     const staged = await client.query("SELECT count(*)::int AS n FROM planning_stage");
     if (staged.rows[0].n !== layers.length)
@@ -425,7 +452,17 @@ async function main() {
     if (filedCount.rows[0].n !== layers.length)
       throw new Error("the filed piece count does not match — rolling back");
     await client.query("COMMIT");
+    fileTally.finish(layers.length);
   } catch (error) {
+    // BUG-265: the filing transaction rolls back, so
+    // nothing is filed on failure.
+    progress.failed({
+      stage: "file",
+      filed: 0,
+      total: processed.filed.length,
+      error,
+      resume: "re-run from scratch (the filing transaction rolls back)",
+    });
     await client.query("ROLLBACK").catch(() => {});
     throw error;
   } finally {

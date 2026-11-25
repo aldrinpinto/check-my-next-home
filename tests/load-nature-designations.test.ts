@@ -306,3 +306,17 @@ describe("fixture golden facts", () => {
     expect(replaced).toBe(167);
   });
 });
+
+describe("progress — BUG-265", () => {
+  // This loader's long phases live in main() and the exported
+  // stream readers, so the wiring is pinned here in source
+  // and driven end-to-end in tests/load-progress-bug265-c.test.ts.
+  it("creates one logger and wires it through the live and fixture reads", () => {
+    expect(loader).toContain('createProgressLogger({ name: "load-nature-designations" })');
+    expect(loader).toContain('label: "read"');
+    expect(loader).toContain("stage: `read ${spec.label}`");
+    expect(loader).toContain('label: "fixture"');
+    expect(loader).toContain("progress?.failed");
+    expect(loader).toContain("swap started — filing");
+  });
+});

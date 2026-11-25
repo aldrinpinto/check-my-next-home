@@ -17,6 +17,7 @@ import {
   readFixturePdf,
   selectItems,
 } from "../loaders/load-tribunal-building-safety.mjs";
+import { createProgressLogger } from "../loaders/progress.mjs";
 
 // Tribunal building-safety loader (plan step M5.14),
 // tested against the fixture set under
@@ -426,5 +427,87 @@ describe("previousFailureCount — the parse-failure baseline", () => {
       },
     };
     expect(await previousFailureCount(pool as never)).toBeNull();
+  });
+});
+
+// ------------------------------------------------------------------
+// Progress logging (BUG-265).
+// ------------------------------------------------------------------
+describe("progress logging (BUG-265)", () => {
+  const collect = () => {
+    const lines: string[] = [];
+    return {
+      lines,
+      progress: createProgressLogger({
+        name: "load-tribunal-building-safety",
+        log: (line: string) => lines.push(line),
+      }),
+    };
+  };
+  const recordingPool = (failOn?: string) => {
+    const statements: string[] = [];
+    const client = {
+      async query(sql: string, params: unknown[] = []) {
+        const head = sql.trim().replace(/\s+/g, " ");
+        statements.push(head);
+        if (failOn && head.startsWith(failOn)) throw new Error(`forced failure: ${failOn}`);
+        return { rows: [], rowCount: 0 };
+      },
+      release() {},
+    };
+    return { statements, pool: { connect: async () => client } };
+  };
+  // Two rows: the stage marker names its count in the
+  // plural, and the failure line can count staged rows.
+  const rows = [
+    {
+      caseRef: GOLDEN_CASE_REF,
+      decisionDate: "2026-04-10",
+      orderKind: "remediation-order",
+      propertyText: "1-31 Oyster Bay Apartments, Sterte, Poole BH15 2FN",
+      postcode: "BH15 2FN",
+      buildingKey: "oyster bay apartments sterte poole",
+      isSingleFlat: false,
+      sourceUrl: "https://www.gov.uk/golden",
+    },
+    {
+      caseRef: "HAV/00HQ/BSA/2025/0003",
+      decisionDate: "2026-04-11",
+      orderKind: "remediation-order",
+      propertyText: "2-32 Oyster Bay Apartments, Sterte, Poole BH15 2FN",
+      postcode: "BH15 2FN",
+      buildingKey: "oyster bay apartments sterte poole",
+      isSingleFlat: false,
+      sourceUrl: "https://www.gov.uk/golden-2",
+    },
+  ];
+
+  it("fileCases logs a stage marker, the staging tally and the swap marker", async () => {
+    const { lines, progress } = collect();
+    const rec = recordingPool();
+    await fileCases(rec.pool as never, rows, { progress });
+    expect(lines.some((l) => /progress · staging 2 tribunal cases$/.test(l))).toBe(true);
+    expect(lines.some((l) => /progress · staging 1\/1 chunks \(100%\)$/.test(l))).toBe(true);
+    expect(
+      lines.some((l) => /progress · swap started — replacing the filed tribunal cases$/.test(l)),
+    ).toBe(true);
+    expect(rec.statements.at(-1)).toBe("COMMIT");
+    expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
+  });
+
+  it("a failure mid-swap logs a failure line naming the filing stage and the staged rows", async () => {
+    const { lines, progress } = collect();
+    const rec = recordingPool("DELETE FROM tribunal_building_safety_decisions");
+    await expect(fileCases(rec.pool as never, rows, { progress })).rejects.toThrow(
+      "forced failure",
+    );
+    expect(rec.statements).toContain("ROLLBACK");
+    expect(
+      lines.some((l) =>
+        /failed · filing · filed 2 of 2 · forced failure: DELETE FROM tribunal_building_safety_decisions · resume from re-run from scratch/.test(
+          l,
+        ),
+      ),
+    ).toBe(true);
   });
 });

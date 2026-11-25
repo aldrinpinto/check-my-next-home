@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { readFixture } from "../loaders/load-built-up-areas.mjs";
+import { createProgressLogger } from "../loaders/progress.mjs";
 
 // Guards the built-up areas loader (plan step M6.21,
 // decision D41): the ONS Built Up Areas (December 2024)
@@ -107,5 +109,24 @@ describe("built-up areas fixture goldens (16 Nov 2026 capture)", () => {
 
   it("pins the Bath witness inside Bath", () => {
     expect(areaAt(HOMES.bath)).toBe("Bath");
+  });
+});
+
+// BUG-265: the paged read carries the shared progress logger
+// — a line per 2,000 features (a closing line only at fixture
+// scale: the fixture is one page of 7).
+describe("progress logging (BUG-265)", () => {
+  it("reads the fixture with a closing read line, and the read is unchanged", async () => {
+    const lines: string[] = [];
+    const progress = createProgressLogger({
+      name: "load-built-up-areas",
+      log: (...args: unknown[]) => lines.push(args.join(" ")),
+    });
+    const processed = await readFixture(fixtureDir, { progress });
+    expect(processed.filed).toBe(7);
+    expect(processed.total).toBe(7);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/progress · read 7 features$/);
+    expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
   });
 });

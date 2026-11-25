@@ -14,6 +14,7 @@ import {
   parseTitleRow,
   resolveFileSources,
 } from "../loaders/load-company-ownership.mjs";
+import { createProgressLogger } from "../loaders/progress.mjs";
 
 // Company ownership loader (plan step M5.13; decisions
 // D15 + D18), tested against the fixture in
@@ -347,5 +348,33 @@ describe("the filer — statement order and full replacement", () => {
       "2026-12-14T00:00:00Z",
     );
     expect(second.queries).toEqual(first.queries);
+  });
+});
+
+describe("BUG-265 progress logging", () => {
+  const collect = () => {
+    const lines: string[] = [];
+    return { lines, log: (line: string) => lines.push(line) };
+  };
+
+  it("logs a closing line per validation pass, with no percentage (no total is known mid-file)", async () => {
+    const { lines, log } = collect();
+    const progress = createProgressLogger({ name: "load-company-ownership", log });
+    await collectTitles(openCsvStream(join(FIXTURE_DIR, "ccod.csv")), "ccod", null, { progress });
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/load-company-ownership progress · validate ccod 8 rows$/);
+    expect(lines[0]).not.toMatch(/%/);
+    expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
+  });
+
+  it("logs a closing line for the snapshot scan", async () => {
+    const { lines, log } = collect();
+    const progress = createProgressLogger({ name: "load-company-ownership", log });
+    const stats = await collectTitles(openCsvStream(join(FIXTURE_DIR, "ccod.csv")), "ccod", null);
+    await collectSnapshots(openCsvStream(join(FIXTURE_DIR, "companies-house.csv")), stats.numbers, {
+      progress,
+    });
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/load-company-ownership progress · scan snapshots \d+ rows$/);
   });
 });

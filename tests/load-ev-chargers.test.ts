@@ -15,6 +15,7 @@ import {
   poiDevices,
   readPoisFile,
 } from "../loaders/load-ev-chargers.mjs";
+import { createProgressLogger } from "../loaders/progress.mjs";
 
 // EV chargers loader (plan step M5.7), tested against the
 // windowed fixture in tests/fixtures/ev-chargers — a trimmed
@@ -696,5 +697,83 @@ describe("filing — the schema contract", () => {
     for (const item of selectList) {
       if (/^[a-z_][a-z0-9_]*$/.test(item)) expect(stageCols).toContain(item);
     }
+  });
+});
+
+describe("BUG-265 progress logging", () => {
+  const collect = () => {
+    const lines: string[] = [];
+    return { lines, log: (line: string) => lines.push(line) };
+  };
+
+  // The stage-table describe's recording pool, repeated
+  // here: that helper is scoped to its own describe.
+  function recordingPool(failOn?: string) {
+    const statements: string[] = [];
+    let released = false;
+    const client = {
+      async query(sql: string) {
+        const head = sql.trim().replace(/\s+/g, " ");
+        statements.push(head);
+        if (failOn && head.startsWith(failOn)) throw new Error(`forced failure: ${failOn}`);
+        return { rows: [], rowCount: 0 };
+      },
+      release() {
+        released = true;
+      },
+    };
+    return { statements, released: () => released, pool: { connect: async () => client } };
+  }
+
+  const sites = [
+    {
+      registryId: "130084",
+      name: "Witham Leisure Centre",
+      lat: 51.7965,
+      lon: 0.6424,
+      operator: "Charge Your Car",
+      connectorTypes: "Type 2 (Socket Only)",
+      chargingSpeed: "up to 22 kW",
+      detail: { usage_type: "Public - Membership Required", devices: 1 },
+    },
+    {
+      registryId: "200001",
+      name: null,
+      lat: 51.51,
+      lon: 0.005,
+      operator: null,
+      connectorTypes: null,
+      chargingSpeed: null,
+      detail: { usage_type: "Public", devices: 2 },
+    },
+  ];
+
+  it("logs a closing line with the genuine total", async () => {
+    const rec = recordingPool();
+    const { lines, log } = collect();
+    const progress = createProgressLogger({ name: "load-ev-chargers", log });
+    await fileEvPoints(rec.pool as never, sites as never, "2026-11-13", "2026-11-13T00:00:00Z", {
+      progress,
+    });
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/load-ev-chargers progress · file 2\/2 sites \(100%\)$/);
+    expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
+  });
+
+  it("reports a filing failure with the file stage and the staged count, then still rolls back", async () => {
+    const rec = recordingPool("INSERT INTO ev_stage");
+    const { lines, log } = collect();
+    const progress = createProgressLogger({ name: "load-ev-chargers", log });
+    await expect(
+      fileEvPoints(rec.pool as never, sites as never, "2026-11-13", "2026-11-13T00:00:00Z", {
+        progress,
+      }),
+    ).rejects.toThrow("forced failure");
+    expect(lines).toContainEqual(
+      expect.stringMatching(
+        /load-ev-chargers failed · file · filed 0 of 2 · forced failure: INSERT INTO ev_stage · resume from re-run from scratch \(the filing transaction rolls back\)$/,
+      ),
+    );
+    expect(rec.statements).toContain("ROLLBACK");
   });
 });

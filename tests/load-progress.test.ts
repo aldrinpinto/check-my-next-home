@@ -1,8 +1,10 @@
-import { spawn } from "node:child_process";
+import { execFile, execFileSync, spawn } from "node:child_process";
+import { readFileSync, rmSync } from "node:fs";
 import { mkdtemp, open, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { promisify } from "node:util";
+import { afterAll, describe, expect, it } from "vitest";
 import {
   DISK_FREE_WARN_GB,
   HEARTBEAT_EVERY_BATCHES,
@@ -17,6 +19,13 @@ import {
 import { readFixture } from "../loaders/load-flood-zones.mjs";
 import { postioVerdict } from "../loaders/canary-postio.mjs";
 import { pickingIndexVerdict } from "../loaders/canary-picking-index.mjs";
+import { fileImd, parseFile7 } from "../loaders/load-imd.mjs";
+import { fileLsoaBases, loadLsoaBaseRows } from "../loaders/load-lsoa-bases.mjs";
+import { fileMobile, loadMobileRows } from "../loaders/load-mobile.mjs";
+import { readServiceFixtureStream } from "../loaders/load-nature-designations.mjs";
+import { fileNoise } from "../loaders/load-noise.mjs";
+import { fileGreenspace } from "../loaders/load-os-greenspace.mjs";
+import { filePlaces } from "../loaders/load-osm-places.mjs";
 
 // BUG-204: the shared progress helper every loader now
 // writes through, and the property the whole fix stands
@@ -1033,5 +1042,737 @@ describe("loader health lines (BUG-248)", () => {
     expect(HEARTBEAT_EVERY_MS).toBe(15 * 60 * 1000);
     expect(DISK_FREE_WARN_GB).toBe(15);
     expect(RSS_WARN_MB).toBe(4096);
+    // BUG-265: a 0 ms running average never counts as slow —
+    // 3x of nothing is nothing. The rule still applies once
+    // the average is non-zero.
+    const zeroWatch = createBatchWatch({});
+    expect(zeroWatch.observe(0)).toEqual({ tookMs: 0, averageMs: null, slow: false });
+    expect(zeroWatch.observe(1)).toEqual({ tookMs: 1, averageMs: 0, slow: false });
+    expect(zeroWatch.observe(500).slow).toBe(true);
   });
+});
+
+// BUG-265: the remaining 35 loaders carry the same shared
+// progress logger. The four group suites below pin each
+// loader end to end in fixture verify-only mode (no
+// database, no network) — progress lines timestamped and
+// never starting with the loader name, the summary still
+// the last line starting with "load-" — plus the filing
+// seams group C drives through a collector.
+
+const run = promisify(execFile);
+
+// BUG-265 group A: these nine loaders carry the shared
+// progress logger (loaders/progress.mjs). Each is driven end
+// to end against its fixture in --verify-only mode — the mode
+// that needs no database — and the run's stdout must carry
+// timestamped progress lines ahead of the untouched summary
+// line, which stays the last line and the only line starting
+// with the loader name. The per-loader test files pin the
+// tally seams; this file pins the whole run's shape.
+
+const LOADERS: { name: string; fixture: string; progressLines: RegExp[] }[] = [
+  {
+    name: "load-flood-defences",
+    fixture: "tests/fixtures/flood-defences",
+    progressLines: [/progress · reading the AIMS GeoPackage$/, /progress · read 834 features$/],
+  },
+  {
+    name: "load-health",
+    fixture: "tests/fixtures/health",
+    progressLines: [
+      /progress · reading the ODS reports and the CQC files$/,
+      /progress · building the health points$/,
+      /progress · build 2,322 points$/,
+    ],
+  },
+  {
+    name: "load-nurseries",
+    fixture: "tests/fixtures/nurseries",
+    progressLines: [
+      /progress · reading the Ofsted childcare register$/,
+      /progress · build 341\/341 rows \(100%\)$/,
+    ],
+  },
+  {
+    name: "load-air-quality",
+    fixture: "tests/fixtures/air",
+    progressLines: [
+      /progress · reading the three PCM files$/,
+      /progress · build 3\/3 rows \(100%\)$/,
+    ],
+  },
+  {
+    name: "load-aqma",
+    fixture: "tests/fixtures/aqma",
+    progressLines: [/progress · reading the AQMA boundaries$/, /progress · read 72 features$/],
+  },
+  {
+    name: "load-brownfield",
+    fixture: "tests/fixtures/brownfield",
+    progressLines: [
+      /progress · reading the brownfield-land file$/,
+      /progress · process 520\/520 rows \(100%\)$/,
+    ],
+  },
+  {
+    name: "load-built-up-areas",
+    fixture: "tests/fixtures/built-up-areas",
+    progressLines: [/progress · reading the built-up areas$/, /progress · read 7 features$/],
+  },
+  {
+    name: "load-census",
+    fixture: "tests/fixtures/census",
+    progressLines: [
+      /progress · reading ts007a — Age by five-year age bands$/,
+      /progress · ts007a 3\/7,264 areas \(0%\)$/,
+      /progress · ts054 3\/7,264 areas \(0%\)$/,
+    ],
+  },
+  {
+    name: "load-charging-zones",
+    fixture: "tests/fixtures/charging-zones",
+    progressLines: [
+      /progress · reading the 11 scheme boundaries$/,
+      /progress · read 11\/11 schemes \(100%\)$/,
+    ],
+  },
+];
+
+afterAll(() => {
+  // The defences fixture run decodes its GeoPackage into the
+  // loader's work directory; the run leaves it behind.
+  rmSync(join(process.cwd(), ".load-flood-defences-work"), { recursive: true, force: true });
+});
+
+describe("BUG-265 group A — the whole fixture run carries progress lines", () => {
+  for (const loader of LOADERS) {
+    it(
+      `${loader.name} prints its progress lines before its untouched summary line`,
+      { timeout: 30_000 },
+      async () => {
+        const { stdout } = await run(process.execPath, [
+          join("loaders", `${loader.name}.mjs`),
+          "--file",
+          loader.fixture,
+          "--verify-only",
+        ]);
+        const lines = stdout.split("\n").filter((l) => l !== "");
+        for (const expected of loader.progressLines)
+          expect(lines.some((l) => expected.test(l))).toBe(true);
+        const progressLines = lines.filter((l) => l.includes(" progress · "));
+        expect(progressLines.length).toBeGreaterThan(0);
+        for (const line of progressLines)
+          expect(line).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z /);
+        const last = lines.at(-1) ?? "";
+        expect(last.startsWith(`${loader.name} · `)).toBe(true);
+        expect(last).not.toContain("progress ·");
+        expect(lines.slice(0, -1).every((l) => !l.startsWith("load-"))).toBe(true);
+      },
+    );
+  }
+});
+
+// BUG-265 (group B): the nine loaders in this group carry
+// the shared progress logger (BUG-204/Bug-248 shapes) —
+// stage markers, counted/tally lines with real totals
+// where known, heartbeats, and failure lines. Each loader
+// is driven here end to end in fixture verify-only mode
+// (no database, no network), and the pins are on its
+// stdout: progress lines are timestamped and never start
+// with the loader name, so the runner's summary contract
+// — the LAST stdout line starting with "load-" is the
+// summary — still holds. Council tax is the one exception
+// to the summary shape: its summary line never started
+// with "load-" ("Council tax verified for …"), so that
+// loader asserts its own last line instead.
+
+const LOADER = (name: string) => join(process.cwd(), "loaders", name);
+const FIXTURE = (name: string) => join(process.cwd(), "tests/fixtures", name);
+
+async function runLoader(loader: string, args: string[]): Promise<string[]> {
+  const { stdout } = await run("node", [loader, ...args], {
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  return stdout.split("\n").filter((line) => line !== "");
+}
+
+function progressLines(lines: string[], name: string): string[] {
+  return lines.filter((line) => line.includes(` ${name} progress · `));
+}
+
+function checkRunnerContract(lines: string[], name: string, summaryPrefix: string) {
+  // Every progress/health line starts with its ISO
+  // timestamp, never with the loader name.
+  for (const line of lines) {
+    if (line.includes(` ${name} progress · `) || line.includes(` ${name} heartbeat · `)) {
+      expect(line).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z /);
+      expect(line.startsWith("load-")).toBe(false);
+    }
+  }
+  // The summary is the last stdout line starting with the
+  // loader name — the progress lines can never collide
+  // with it.
+  const summaries = lines.filter((line) => line.startsWith(`${name} ·`));
+  expect(summaries).toHaveLength(1);
+  expect(summaries[0].startsWith(summaryPrefix)).toBe(true);
+  expect(lines.filter((line) => line.startsWith("load-"))).toEqual(summaries);
+}
+
+describe("BUG-265 group B — progress logging on the loader CLIs", () => {
+  it("load-claimant-count logs one line per fixture file, with the file count as the total", async () => {
+    const lines = await runLoader(LOADER("load-claimant-count.mjs"), [
+      "--file",
+      FIXTURE("claimant-count"),
+      "--verify-only",
+    ]);
+    const progress = progressLines(lines, "load-claimant-count");
+    expect(progress).toHaveLength(2);
+    expect(progress[0]).toMatch(/progress · fixture 1\/2 files \(50%\) · 6 observations$/);
+    expect(progress[1]).toMatch(/progress · fixture 2\/2 files \(100%\) · 12 observations$/);
+    checkRunnerContract(lines, "load-claimant-count", "load-claimant-count · Claimant Count");
+  });
+
+  it("load-company-ownership logs a stage per dataset and a closing line per validation pass", async () => {
+    const lines = await runLoader(LOADER("load-company-ownership.mjs"), [
+      "--file",
+      FIXTURE("company-ownership"),
+      "--verify-only",
+    ]);
+    const progress = progressLines(lines, "load-company-ownership");
+    expect(progress).toContainEqual(expect.stringMatching(/progress · validating CCOD titles$/));
+    expect(progress).toContainEqual(expect.stringMatching(/progress · validate ccod 8 rows$/));
+    expect(progress).toContainEqual(expect.stringMatching(/progress · validating OCOD titles$/));
+    expect(progress).toContainEqual(expect.stringMatching(/progress · validate ocod 3 rows$/));
+    expect(progress).toContainEqual(
+      expect.stringMatching(/progress · validating Companies House snapshots$/),
+    );
+    expect(progress).toContainEqual(expect.stringMatching(/progress · scan snapshots \d+ rows$/));
+    checkRunnerContract(
+      lines,
+      "load-company-ownership",
+      "load-company-ownership · HM Land Registry company ownership",
+    );
+  });
+
+  it("load-council-tax logs the fixture stage and the parsed-authorities count (its summary never starts with load-)", async () => {
+    const lines = await runLoader(LOADER("load-council-tax.mjs"), [
+      "--file",
+      FIXTURE("council-tax"),
+      "--verify-only",
+    ]);
+    const progress = progressLines(lines, "load-council-tax");
+    expect(progress).toContainEqual(
+      expect.stringMatching(/progress · reading the fixture release$/),
+    );
+    expect(progress).toContainEqual(
+      expect.stringMatching(/progress · authorities 13\/17 authorities \(76%\) · for 2026-27$/),
+    );
+    for (const line of progress) {
+      expect(line).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z /);
+      expect(line.startsWith("load-")).toBe(false);
+    }
+    expect(lines.some((line) => line.startsWith("load-"))).toBe(false);
+    expect(lines.at(-1)).toMatch(/^Council tax verified for 2026-27: 13 authorities filed/);
+  });
+
+  it("load-crime-national logs the month-count tally with the 12-month window as the total", async () => {
+    const lines = await runLoader(LOADER("load-crime-national.mjs"), [
+      "--file",
+      FIXTURE("police-uk-national"),
+      "--verify-only",
+    ]);
+    const progress = progressLines(lines, "load-crime-national");
+    expect(progress).toContainEqual(
+      expect.stringMatching(/progress · counting the 12-month window from the Police\.uk archive$/),
+    );
+    expect(progress).toContainEqual(
+      expect.stringMatching(
+        /progress · count 12\/12 months \(100%\) · 462,140 England crimes in 2026-09$/,
+      ),
+    );
+    checkRunnerContract(lines, "load-crime-national", "load-crime-national · latest month 2026-09");
+  });
+
+  it("load-crime logs a stage per postcode and the month-fetch tally with the genuine total", async () => {
+    const lines = await runLoader(LOADER("load-crime.mjs"), [
+      "--file",
+      FIXTURE("police-uk"),
+      "--verify-only",
+      "CM3 2JT",
+      "E16 1GN",
+    ]);
+    const progress = progressLines(lines, "load-crime");
+    expect(progress).toContainEqual(
+      expect.stringMatching(/progress · counting CM3 2JT — 12 months within 1 mile$/),
+    );
+    expect(progress).toContainEqual(
+      expect.stringMatching(/progress · counting E16 1GN — 12 months within 1 mile$/),
+    );
+    expect(progress).toContainEqual(
+      expect.stringMatching(
+        /progress · fetch 24\/24 months \(100%\) · E16 1GN 853 crimes in 2026-09$/,
+      ),
+    );
+    checkRunnerContract(lines, "load-crime", "load-crime · latest month 2026-09");
+  });
+
+  it("load-dwp-uc logs a stage and a closing line per series", async () => {
+    const lines = await runLoader(LOADER("load-dwp-uc.mjs"), [
+      "--file",
+      FIXTURE("dwp-uc"),
+      "--verify-only",
+    ]);
+    const progress = progressLines(lines, "load-dwp-uc");
+    expect(progress).toContainEqual(expect.stringMatching(/progress · pulling uc_people$/));
+    expect(progress).toContainEqual(expect.stringMatching(/progress · pull uc_people 9 rows$/));
+    expect(progress).toContainEqual(expect.stringMatching(/progress · pulling uc_households$/));
+    expect(progress).toContainEqual(expect.stringMatching(/progress · pull uc_households 6 rows$/));
+    checkRunnerContract(lines, "load-dwp-uc", "load-dwp-uc · Universal Credit");
+  });
+
+  it("load-epc logs one count line per postcode, with the postcode count as the total", async () => {
+    const lines = await runLoader(LOADER("load-epc.mjs"), [
+      "--file",
+      FIXTURE("epc"),
+      "--verify-only",
+      "CM3 2JT",
+      "E16 1GN",
+    ]);
+    const progress = progressLines(lines, "load-epc");
+    expect(progress).toHaveLength(2);
+    expect(progress[0]).toMatch(
+      /progress · postcodes 1\/2 postcodes \(50%\) · CM3 2JT: 42 certificates$/,
+    );
+    expect(progress[1]).toMatch(
+      /progress · postcodes 2\/2 postcodes \(100%\) · E16 1GN: 12 certificates$/,
+    );
+    checkRunnerContract(lines, "load-epc", "load-epc · CM3 2JT 42 certificates");
+  });
+
+  it("load-ev-chargers logs the fixture stage (the pull and filing are verify-only short-circuited)", async () => {
+    const lines = await runLoader(LOADER("load-ev-chargers.mjs"), [
+      "--file",
+      FIXTURE("ev-chargers"),
+      "--verify-only",
+    ]);
+    const progress = progressLines(lines, "load-ev-chargers");
+    expect(progress).toContainEqual(
+      expect.stringMatching(/progress · reading the fixture POI capture$/),
+    );
+    checkRunnerContract(lines, "load-ev-chargers", "load-ev-chargers · 831 charging sites");
+  });
+
+  it("load-green-belt logs the fixture stage and the parse count with the file's row count as the total", async () => {
+    const lines = await runLoader(LOADER("load-green-belt.mjs"), [
+      "--file",
+      FIXTURE("green-belt"),
+      "--verify-only",
+    ]);
+    const progress = progressLines(lines, "load-green-belt");
+    expect(progress).toContainEqual(
+      expect.stringMatching(/progress · reading the fixture green-belt file$/),
+    );
+    expect(progress).toContainEqual(
+      expect.stringMatching(
+        /progress · parse 6\/6 pieces \(100%\) · 0 ended excluded · 0 without geometry$/,
+      ),
+    );
+    checkRunnerContract(lines, "load-green-belt", "load-green-belt · planning.data.gov.uk file");
+  });
+});
+
+// BUG-265, group C: every loader in this group carries the
+// shared progress logger (loaders/progress.mjs). Each test
+// drives a loader through its log/collector seam — the
+// exported filing function, the exported stream reader, or
+// the CLI in --verify-only fixture mode where the loader
+// has no exported seam — and pins the lines it must print.
+// The runner contract is pinned throughout: no progress
+// line starts with "load-", so the runner keeps recording
+// the final summary line.
+
+function recordingPool() {
+  const statements: string[] = [];
+  let released = false;
+  const client = {
+    async query(sql: string) {
+      statements.push(sql.trim().replace(/\s+/g, " "));
+      return { rows: [], rowCount: 0 };
+    },
+    release() {
+      released = true;
+    },
+  };
+  return { statements, released: () => released, pool: { connect: async () => client } };
+}
+
+const runCli = (loader: string, fixtureDir: string) =>
+  execFileSync("node", [`loaders/${loader}.mjs`, "--file", fixtureDir, "--verify-only"], {
+    encoding: "utf8",
+    cwd: process.cwd(),
+    timeout: 120_000,
+  });
+
+describe("group C — the filing seams log while they work", () => {
+  it("load-imd files its chunks with a real percentage", async () => {
+    const { lines, log } = collect();
+    const progress = createProgressLogger({ name: "load-imd", log });
+    const client = { query: async () => ({ rows: [], rowCount: 0 }) };
+    const fixture = readFileSync(
+      join(process.cwd(), "tests/fixtures/imd/iod2025-file7.csv"),
+      "utf8",
+    );
+    await fileImd(client as never, parseFile7(fixture) as never, { progress });
+    expect(lines.some((l) => /progress · file 1\/1 chunks \(100%\)$/.test(l))).toBe(true);
+    expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
+  });
+
+  it("load-lsoa-bases logs each dataset read and its stage flushes", async () => {
+    const { lines, log } = collect();
+    const progress = createProgressLogger({ name: "load-lsoa-bases", log });
+    const { rows } = await loadLsoaBaseRows(
+      { kind: "dir", dir: join(process.cwd(), "tests/fixtures/lsoa-bases") },
+      { progress },
+    );
+    expect(lines).toContainEqual(expect.stringMatching(/progress · parse ts021 3 LSOAs$/));
+    expect(lines).toContainEqual(expect.stringMatching(/progress · parse ts054 3 LSOAs$/));
+    // The fixture holds three areas, not the national 35,672 —
+    // so the parse lines carry no total and no percentage.
+    expect(lines.some((l) => /parse ts021 3 LSOAs \(/.test(l))).toBe(false);
+    const rec = recordingPool();
+    await fileLsoaBases(rec.pool as never, rows, "2026-11-13T00:00:00.000Z", { progress });
+    expect(lines.some((l) => /progress · stage 1\/1 flushes \(100%\)$/.test(l))).toBe(true);
+  });
+
+  it("load-mobile logs the parsed authorities", async () => {
+    const { lines, log } = collect();
+    const progress = createProgressLogger({ name: "load-mobile", log });
+    const { rows } = await loadMobileRows({
+      fileDir: join(process.cwd(), "tests/fixtures/mobile"),
+      progress,
+    } as never);
+    expect(rows).toHaveLength(3);
+    expect(lines.some((l) => /progress · parse 3 authorities$/.test(l))).toBe(true);
+    const client = {
+      query: async (sql: string) => {
+        if (/SELECT council, COUNT/.test(sql)) return { rows: [], rowCount: 0 };
+        return { rows: [], rowCount: 3 };
+      },
+    };
+    await fileMobile(client as never, rows as never, { progress });
+    expect(lines.some((l) => /progress · file 3 answers · all councils matched$/.test(l))).toBe(
+      true,
+    );
+  });
+
+  it("load-nature-designations logs each fixture part with its running feature count", async () => {
+    const { lines, log } = collect();
+    const progress = createProgressLogger({ name: "load-nature-designations", log });
+    const fixtureDir = join(process.cwd(), "tests/fixtures/nature-designations");
+    const captured = JSON.parse(readFileSync(join(fixtureDir, "fixture.json"), "utf8")).captured;
+    const spec = {
+      file: "sssi.geojson",
+      fields: ["OBJECTID", "REF_CODE", "NAME", "MEASURE", "HYPERLINK"],
+    };
+    const { expected } = await readServiceFixtureStream(spec as never, fixtureDir, captured, null, {
+      progress,
+    });
+    expect(expected).toBe(29);
+    expect(
+      lines.some((l) => /progress · fixture 1\/2 parts \(50%\) · 7 features read$/.test(l)),
+    ).toBe(true);
+    expect(
+      lines.some((l) => /progress · fixture 2\/2 parts \(100%\) · 29 features read$/.test(l)),
+    ).toBe(true);
+  });
+
+  it("load-noise logs its filing chunks", async () => {
+    const { lines, log } = collect();
+    const progress = createProgressLogger({ name: "load-noise", log });
+    const client = { query: async () => ({ rows: [], rowCount: 0 }) };
+    await fileNoise(
+      client as never,
+      [
+        {
+          areaRef: "CM3 2JT",
+          sourceKind: "road",
+          dayBand: "Below 55 dB",
+          nightBand: "Below 50 dB",
+          latitude: 51.776176,
+          longitude: 0.60387,
+        },
+      ] as never,
+      { progress },
+    );
+    expect(lines.some((l) => /progress · file 1\/1 chunks \(100%\)$/.test(l))).toBe(true);
+  });
+
+  it("load-os-greenspace logs its filed points", async () => {
+    const { lines, log } = collect();
+    const progress = createProgressLogger({ name: "load-os-greenspace", log });
+    const rec = recordingPool();
+    await fileGreenspace(
+      rec.pool as never,
+      [
+        {
+          osmId: null,
+          name: "A Park",
+          pointRole: "centre",
+          lat: 51.5,
+          lon: 0.02,
+          sourceName: "OS Open Greenspace",
+          sourceDate: "2026-10-01",
+        },
+      ] as never,
+      "2026-11-13T00:00:00Z",
+      { progress },
+    );
+    expect(lines.some((l) => /progress · file 1\/1 points \(100%\)$/.test(l))).toBe(true);
+  });
+
+  it("load-osm-places logs every flush with a percentage and a heartbeat", async () => {
+    const { lines, log } = collect();
+    const progress = createProgressLogger({ name: "load-osm-places", log });
+    const rec = recordingPool();
+    const rows = Array.from({ length: 1200 }, (_, i) => ({
+      osmId: 1000 + i,
+      name: `Place ${i}`,
+      placeType: "vet",
+      detail: null,
+      lat: 51.5,
+      lon: 0.02,
+      sourceDate: "2026-11-12",
+    }));
+    await filePlaces(rec.pool as never, rows as never, "2026-11-13T00:00:00Z", { progress });
+    expect(lines.some((l) => /progress · stage 1\/3 flushes \(33%\)$/.test(l))).toBe(true);
+    expect(lines.some((l) => /progress · stage 2\/3 flushes \(67%\)$/.test(l))).toBe(true);
+    expect(lines.some((l) => /progress · stage 3\/3 flushes \(100%\)$/.test(l))).toBe(true);
+    expect(lines.some((l) => /heartbeat · stage · 500\/1,200 ·/.test(l))).toBe(true);
+    expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
+  });
+
+  it("load-osm-places warns on a flush over 3x the recent average", async () => {
+    const { lines, log } = collect();
+    const progress = createProgressLogger({ name: "load-osm-places", log });
+    let stageInserts = 0;
+    const client = {
+      async query(sql: string) {
+        if (/INSERT INTO osm_places_stage/.test(sql)) {
+          stageInserts += 1;
+          // The first flush takes ~2 ms and the second ~300 ms:
+          // slow by any measure, and the first flush can
+          // never be slow. The gap is deliberately wide so
+          // timer jitter under a loaded suite cannot close
+          // it — and a 0 ms running average never counts as
+          // slow (BUG-265), so the first flush must take
+          // measurable time for the comparison to mean
+          // anything at all.
+          if (stageInserts === 1) await new Promise((r) => setTimeout(r, 2));
+          if (stageInserts === 2) await new Promise((r) => setTimeout(r, 300));
+        }
+        return { rows: [], rowCount: 0 };
+      },
+      release() {},
+    };
+    const rows = Array.from({ length: 1200 }, (_, i) => ({
+      osmId: 1000 + i,
+      name: `Place ${i}`,
+      placeType: "vet",
+      detail: null,
+      lat: 51.5,
+      lon: 0.02,
+      sourceDate: "2026-11-12",
+    }));
+    await filePlaces(
+      { connect: async () => client } as never,
+      rows as never,
+      "2026-11-13T00:00:00Z",
+      {
+        progress,
+      },
+    );
+    expect(
+      lines.some((l) =>
+        /warning · stage flush duration · flush 2 took .* \(threshold 3x recent average /.test(l),
+      ),
+    ).toBe(true);
+    expect(lines.some((l) => /warning · stage flush duration · flush 1 took/.test(l))).toBe(false);
+  });
+});
+
+describe("group C — the CLI loaders log in verify-only fixture mode", () => {
+  it("load-heritage prints stage and count lines ahead of its unchanged summary", () => {
+    const out = runCli("load-heritage", "tests/fixtures/heritage");
+    const lines = out.trim().split("\n");
+    expect(lines.some((l) => /progress · reading the listed-building file/.test(l))).toBe(true);
+    expect(
+      lines.some((l) => /progress · process listed-building 652\/660 rows \(99%\)$/.test(l)),
+    ).toBe(true);
+    const summaries = lines.filter((l) => l.startsWith("load-"));
+    expect(summaries).toHaveLength(1);
+    expect(lines.at(-1)).toBe(summaries[0]);
+    expect(lines.at(-1)).toContain("golden homes OK (verify only, nothing filed)");
+  });
+
+  it("load-planning-areas prints stage and count lines ahead of its unchanged summary", () => {
+    const out = runCli("load-planning-areas", "tests/fixtures/planning-areas");
+    const lines = out.trim().split("\n");
+    expect(lines.some((l) => /progress · reading the conservation-area file/.test(l))).toBe(true);
+    expect(
+      lines.some((l) => /progress · process conservation-area 116\/120 rows \(97%\)$/.test(l)),
+    ).toBe(true);
+    const summaries = lines.filter((l) => l.startsWith("load-"));
+    expect(summaries).toHaveLength(1);
+    expect(lines.at(-1)).toBe(summaries[0]);
+    expect(lines.at(-1)).toContain("golden homes OK (verify only, nothing filed)");
+  });
+
+  it("load-nature-designations prints stage and fixture-part lines ahead of its summary", () => {
+    const out = runCli("load-nature-designations", "tests/fixtures/nature-designations");
+    const lines = out.trim().split("\n");
+    expect(lines.some((l) => /progress · reading SSSI/.test(l))).toBe(true);
+    expect(
+      lines.some((l) => /progress · fixture 2\/2 parts \(100%\) · 29 features read$/.test(l)),
+    ).toBe(true);
+    const summaries = lines.filter((l) => l.startsWith("load-"));
+    expect(summaries).toHaveLength(1);
+    expect(lines.at(-1)).toBe(summaries[0]);
+  });
+
+  it("load-os-greenspace prints its read tally ahead of its summary", () => {
+    const out = runCli("load-os-greenspace", "tests/fixtures/os-greenspace");
+    const lines = out.trim().split("\n");
+    expect(lines.some((l) => /progress · read 5,008 rows$/.test(l))).toBe(true);
+    const summaries = lines.filter((l) => l.startsWith("load-"));
+    expect(summaries).toHaveLength(1);
+    expect(lines.at(-1)).toBe(summaries[0]);
+  });
+
+  it("load-imd, load-lsoa-bases and load-mobile print their parse lines ahead of their summaries", () => {
+    for (const [loader, fixtureDir, pattern] of [
+      ["load-imd", "tests/fixtures/imd", /progress · parse 3 LSOAs$/],
+      ["load-lsoa-bases", "tests/fixtures/lsoa-bases", /progress · parse ts021 3 LSOAs$/],
+      ["load-mobile", "tests/fixtures/mobile", /progress · parse 3 authorities$/],
+    ] as const) {
+      const out = runCli(loader, fixtureDir);
+      const lines = out.trim().split("\n");
+      expect(lines.some((l) => pattern.test(l))).toBe(true);
+      const summaries = lines.filter((l) => l.startsWith("load-"));
+      expect(summaries).toHaveLength(1);
+      expect(lines.at(-1)).toBe(summaries[0]);
+    }
+  });
+});
+
+// BUG-265 group D: the loaders with no exported log seam —
+// postcodes, schools and transport (whose main runs are
+// not exported) and tribunal-building-safety (whose
+// enumeration progress lives in the unexported enumerate
+// functions) — are pinned end to end: the real loader,
+// fixture mode, verify-only, stdout captured. The other
+// five group-D loaders drive their logger through an
+// exported function and are pinned by a collector in
+// their own test files.
+//
+// The runner contract is pinned on every run: the last
+// stdout line starting with "load-" is still the summary,
+// because every progress line starts with its timestamp.
+
+async function runLoaderStdout(loader: string, fixture: string): Promise<string> {
+  const { stdout } = await run(
+    process.execPath,
+    [
+      join(process.cwd(), "loaders", loader),
+      "--file",
+      join(process.cwd(), "tests/fixtures", fixture),
+      "--verify-only",
+    ],
+    { timeout: 20_000 },
+  );
+  return stdout;
+}
+
+const progressLinesOf = (stdout: string) =>
+  stdout.split("\n").filter((line) => line.includes(" progress · "));
+const loadLines = (stdout: string) => stdout.split("\n").filter((line) => line.startsWith("load-"));
+
+function assertRunnerContract(stdout: string) {
+  for (const line of progressLinesOf(stdout)) {
+    expect(line).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z load-[a-z-]+ progress · /);
+    expect(line.startsWith("load-")).toBe(false);
+  }
+}
+
+describe("BUG-265 group D — verify-only runs log progress", () => {
+  it(
+    "load-postcodes logs a stage marker and a closing read count",
+    { timeout: 30_000 },
+    async () => {
+      const stdout = await runLoaderStdout("load-postcodes.mjs", "onspd");
+      const lines = progressLinesOf(stdout);
+      expect(lines).toHaveLength(2);
+      expect(lines[0]).toMatch(
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z load-postcodes progress · reading the ONSPD directory$/,
+      );
+      expect(lines[1]).toMatch(/progress · read 8 rows · 6 live postcodes$/);
+      assertRunnerContract(stdout);
+      expect(loadLines(stdout).at(-1)).toMatch(
+        /^load-postcodes · edition August 2026 \(2026-08-01\) · verify only, nothing filed/,
+      );
+    },
+  );
+
+  it("load-schools logs a stage marker and a parsed count", { timeout: 30_000 }, async () => {
+    const stdout = await runLoaderStdout("load-schools.mjs", "schools");
+    const lines = progressLinesOf(stdout);
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toMatch(/progress · reading the GIAS register and the Ofsted file$/);
+    expect(lines[1]).toMatch(/progress · parsed 70 schools · 61 Ofsted outcomes joined$/);
+    assertRunnerContract(stdout);
+    expect(loadLines(stdout).at(-1)).toMatch(
+      /^load-schools · GIAS 2026-11-12 · Ofsted as at 2026-10-31 · 70 open schools/,
+    );
+  });
+
+  it(
+    "load-transport logs a stage marker and a closing read count",
+    { timeout: 30_000 },
+    async () => {
+      const stdout = await runLoaderStdout("load-transport.mjs", "transport");
+      const lines = progressLinesOf(stdout);
+      expect(lines).toHaveLength(2);
+      expect(lines[0]).toMatch(/progress · reading the NaPTAN file$/);
+      expect(lines[1]).toMatch(/progress · read 1,706 rows · 1,481 stops filed$/);
+      assertRunnerContract(stdout);
+      expect(loadLines(stdout).at(-1)).toMatch(
+        /^load-transport · NaPTAN — National Public Transport Access Nodes \(Department for Transport\) · file of 2026-11-13 · 1,706 rows read/,
+      );
+    },
+  );
+
+  it(
+    "load-tribunal-building-safety logs a stage marker and one line per document read",
+    { timeout: 30_000 },
+    async () => {
+      const stdout = await runLoaderStdout(
+        "load-tribunal-building-safety.mjs",
+        "tribunal-building-safety",
+      );
+      const lines = progressLinesOf(stdout);
+      expect(lines[0]).toMatch(/progress · enumerating the published building-safety decisions$/);
+      // One tally line per document read (every = 1 at this
+      // corpus size), closing at 100%. (No exact total is
+      // pinned: a slow-document warning is timing-dependent
+      // and may add a line.)
+      const readLines = lines.filter((l) => /progress · reading \d+\/9 documents/.test(l));
+      expect(readLines).toHaveLength(9);
+      expect(readLines[0]).toMatch(/progress · reading 1\/9 documents \(11%\)$/);
+      expect(readLines[8]).toMatch(/progress · reading 9\/9 documents \(100%\)$/);
+      assertRunnerContract(stdout);
+      expect(loadLines(stdout).at(-1)).toMatch(
+        /^load-tribunal-building-safety: 11 cases filed \(7 remediation orders, 2 remediation contribution orders, 2 other building-safety\)/,
+      );
+    },
+  );
 });

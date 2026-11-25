@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { GOLDEN, fileImd, goldenChecks, imdSummaryFor, parseFile7 } from "../loaders/load-imd.mjs";
+import { createProgressLogger } from "../loaders/progress.mjs";
 
 // IMD loader (plan step M5.9), tested against the fixture in
 // tests/fixtures/imd — the published File 7 header plus the three
@@ -110,5 +111,48 @@ describe("filing — statement order and the stage swap (the M5.6 pattern)", () 
     expect(statements.some((s) => /DELETE FROM neighbourhood_stats/.test(s))).toBe(true);
     expect(statements.some((s) => /INSERT INTO neighbourhood_stats \(/.test(s))).toBe(true);
     expect(statements.at(-1)).toBe("COMMIT");
+  });
+});
+
+describe("progress — BUG-265", () => {
+  const collect = () => {
+    const lines: string[] = [];
+    return { lines, log: (line: string) => lines.push(line) };
+  };
+
+  it("logs the filing chunks with a real percentage and closes the tally", async () => {
+    const { lines, log } = collect();
+    const progress = createProgressLogger({ name: "load-imd", log });
+    const statements: string[] = [];
+    const client = {
+      query: async (sql: string) => {
+        statements.push(sql);
+        return { rows: [], rowCount: 0 };
+      },
+    };
+    await fileImd(client as never, parseFile7(FIXTURE) as never, { progress });
+    expect(lines.some((l) => /progress · file 1\/1 chunks \(100%\)$/.test(l))).toBe(true);
+    expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
+    expect(statements.at(-1)).toBe("COMMIT");
+  });
+
+  it("names a filing failure with the filed count and the resume point, first line only", async () => {
+    const { lines, log } = collect();
+    const progress = createProgressLogger({ name: "load-imd", log });
+    const client = {
+      query: async (sql: string) => {
+        if (/INSERT INTO imd_stage/.test(sql)) throw new Error("boom\nsecond line");
+        return { rows: [], rowCount: 0 };
+      },
+    };
+    await expect(
+      fileImd(client as never, parseFile7(FIXTURE) as never, { progress }),
+    ).rejects.toThrow("boom");
+    expect(
+      lines.some((l) =>
+        /failed · file · filed 0 of 3 · boom · resume from re-run from scratch/.test(l),
+      ),
+    ).toBe(true);
+    expect(lines.some((l) => l.includes("second line"))).toBe(false);
   });
 });

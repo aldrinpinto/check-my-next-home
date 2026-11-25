@@ -70,7 +70,12 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import pg from "pg";
-import { formatCount } from "./progress.mjs";
+import {
+  createBatchWatch,
+  createProgressLogger,
+  formatCount,
+  formatDuration,
+} from "./progress.mjs";
 
 const FILES_BASE = "https://files.planning.data.gov.uk/dataset";
 const SOURCE_HERITAGE =
@@ -571,7 +576,13 @@ async function main() {
   const fixtureMode = fileAt !== -1;
   const fixtureDir = fixtureMode ? args[fileAt + 1] : null;
 
+  // BUG-265: one logger for the reads, the processing counts
+  // and the staging loops; the counts carry the file's own
+  // row total, so the log shows a real percentage.
+  const progress = createProgressLogger({ name: "load-heritage" });
+
   const readDataset = async (name) => {
+    progress.stage(`reading the ${name} file...`);
     if (fixtureMode) return readFile(join(fixtureDir, `${name}.csv`), "utf8");
     const response = await fetch(`${FILES_BASE}/${name}.csv`);
     if (!response.ok) throw new Error(`HTTP ${response.status} for the ${name} download`);
@@ -587,14 +598,33 @@ async function main() {
   requireHeaders(smRows, "scheduled-monument");
 
   const lb = processBuildings(lbRows);
+  progress.count({
+    label: "process listed-building",
+    done: lb.filed.length,
+    total: lbRows.length,
+    unit: "rows",
+  });
   const sm = processPolygons(smRows, "scheduled-monument");
+  progress.count({
+    label: "process scheduled-monument",
+    done: sm.filed.length,
+    total: smRows.length,
+    unit: "rows",
+  });
 
   // The M6.21 layers, through the same polygon path.
   const newLayers = [];
   for (const spec of NEW_LAYER_DATASETS) {
     const rows = parseCsv(await readDataset(spec.dataset));
     requireHeaders(rows, spec.dataset);
-    newLayers.push({ ...spec, processed: processPolygons(rows, spec.dataset) });
+    const processed = processPolygons(rows, spec.dataset);
+    progress.count({
+      label: `process ${spec.dataset}`,
+      done: processed.filed.length,
+      total: rows.length,
+      unit: "rows",
+    });
+    newLayers.push({ ...spec, processed });
   }
 
   // Registered parks & gardens (M8.10), through the same
@@ -608,9 +638,16 @@ async function main() {
   if (parksText !== null) {
     const parksRows = parseCsv(parksText);
     requireHeaders(parksRows, PARK_AND_GARDEN_DATASET.dataset);
+    const processed = processPolygons(parksRows, PARK_AND_GARDEN_DATASET.dataset);
+    progress.count({
+      label: `process ${PARK_AND_GARDEN_DATASET.dataset}`,
+      done: processed.filed.length,
+      total: parksRows.length,
+      unit: "rows",
+    });
     parks = {
       ...PARK_AND_GARDEN_DATASET,
-      processed: processPolygons(parksRows, PARK_AND_GARDEN_DATASET.dataset),
+      processed,
     };
   }
 
@@ -665,6 +702,12 @@ async function main() {
 
   const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
   await client.connect();
+  // BUG-265: the filing counters live outside the try so
+  // the failure line can read them even when the error
+  // lands before the staging loops.
+  let stagedListedRows = 0;
+  let stagedPolygonRows = 0;
+  let expectedPolygons = 0;
   try {
     await client.query("BEGIN");
     // Stage tables are spelled out rather than copied with LIKE
@@ -688,7 +731,22 @@ async function main() {
        ) ON COMMIT DROP`,
     );
     const LB_CHUNK = 1000;
+    // BUG-265: the staging loops are the run's long phase
+    // (~380k buildings in 1,000-row chunks, ~20k polygons
+    // in 25-row chunks) — a line every twentieth of each
+    // loop's chunks, a heartbeat, and a warning for a chunk
+    // over 3x the recent average.
+    const lbChunks = Math.ceil(lb.filed.length / LB_CHUNK);
+    const lbTally = progress.tally({
+      label: "stage listed buildings",
+      total: lbChunks,
+      every: Math.max(1, Math.ceil(lbChunks / 20)),
+      unit: "chunks",
+    });
+    const lbWatch = createBatchWatch();
+    stagedListedRows = 0;
     for (let at = 0; at < lb.filed.length; at += LB_CHUNK) {
+      const started = Date.now();
       const chunk = lb.filed.slice(at, at + LB_CHUNK);
       const values = [];
       const params = [];
@@ -714,7 +772,20 @@ async function main() {
          VALUES ${values.join(",")}`,
         params,
       );
+      stagedListedRows += chunk.length;
+      const lbChunkNo = at / LB_CHUNK + 1;
+      const { tookMs, averageMs, slow } = lbWatch.observe(Date.now() - started);
+      lbTally.tick(lbChunkNo);
+      progress.heartbeat({ stage: "stage listed buildings", done: lbChunkNo, total: lbChunks });
+      if (slow) {
+        progress.warning({
+          what: "stage chunk duration",
+          value: `chunk ${lbChunkNo} took ${formatDuration(tookMs)}`,
+          threshold: `3x recent average ${formatDuration(averageMs)}`,
+        });
+      }
     }
+    lbTally.finish(lbChunks);
     // All five polygon sets stage together, each row tagged
     // with its constraint type; the swap below is per type,
     // so a failure in any one rolls the whole filing back.
@@ -729,9 +800,24 @@ async function main() {
       // any filed parks rows exactly as they stand.
       ...(parks ? [{ constraintType: parks.constraintType, filed: parks.processed.filed }] : []),
     ];
+    expectedPolygons = polygonSets.reduce((sum, set) => sum + set.filed.length, 0);
     const SM_CHUNK = 25;
+    const smChunks = polygonSets.reduce(
+      (sum, set) => sum + Math.ceil(set.filed.length / SM_CHUNK),
+      0,
+    );
+    const smTally = progress.tally({
+      label: "stage polygons",
+      total: smChunks,
+      every: Math.max(1, Math.ceil(smChunks / 20)),
+      unit: "chunks",
+    });
+    const smWatch = createBatchWatch();
+    let smChunkNo = 0;
+    stagedPolygonRows = 0;
     for (const set of polygonSets) {
       for (let at = 0; at < set.filed.length; at += SM_CHUNK) {
+        const started = Date.now();
         const chunk = set.filed.slice(at, at + SM_CHUNK);
         const values = [];
         const params = [];
@@ -757,15 +843,30 @@ async function main() {
            VALUES ${values.join(",")}`,
           params,
         );
+        stagedPolygonRows += chunk.length;
+        smChunkNo += 1;
+        const { tookMs, averageMs, slow } = smWatch.observe(Date.now() - started);
+        smTally.tick(smChunkNo);
+        progress.heartbeat({ stage: "stage polygons", done: smChunkNo, total: smChunks });
+        if (slow) {
+          progress.warning({
+            what: "stage chunk duration",
+            value: `chunk ${smChunkNo} took ${formatDuration(tookMs)}`,
+            threshold: `3x recent average ${formatDuration(averageMs)}`,
+          });
+        }
       }
     }
+    smTally.finish(smChunks);
     const stagedListed = await client.query("SELECT count(*)::int AS n FROM listed_stage");
     if (stagedListed.rows[0].n !== lb.filed.length)
       throw new Error("the staged listed-building count does not match — rolling back");
     const stagedPolygons = await client.query("SELECT count(*)::int AS n FROM planning_stage");
-    const expectedPolygons = polygonSets.reduce((sum, set) => sum + set.filed.length, 0);
     if (stagedPolygons.rows[0].n !== expectedPolygons)
       throw new Error("the staged polygon count does not match — rolling back");
+    progress.stage(
+      `swap started — filing ${formatCount(lb.filed.length + expectedPolygons)} staged rows into the live tables`,
+    );
     await client.query("DELETE FROM listed_buildings");
     await client.query(
       `INSERT INTO listed_buildings (list_entry_id, name, grade, address, postcode, latitude, longitude, source_name, source_date, loaded_at)
@@ -793,6 +894,13 @@ async function main() {
     }
     await client.query("COMMIT");
   } catch (error) {
+    progress.failed({
+      stage: "file",
+      filed: stagedListedRows + stagedPolygonRows,
+      total: lb.filed.length + expectedPolygons,
+      error,
+      resume: "re-run from scratch (filing is one transaction; nothing was swapped)",
+    });
     await client.query("ROLLBACK").catch(() => {});
     throw error;
   } finally {

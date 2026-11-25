@@ -19,7 +19,9 @@ import {
   monthFromText,
   monthsToFile,
   parseTableResponse,
+  streamUcRows,
 } from "../loaders/load-dwp-uc.mjs";
+import { createProgressLogger } from "../loaders/progress.mjs";
 
 // Universal Credit loader (plan step M5.16) — reconciled
 // at the FIRST PULL, 13 Nov 2026. DWP's gateway refuses
@@ -448,5 +450,54 @@ describe("wording discipline — the sources' own terms", () => {
       expect(source).not.toMatch(/["']unemployment["']/);
       expect(source).not.toContain("the unemployment rate");
     }
+  });
+});
+
+describe("BUG-265 progress logging", () => {
+  const collect = () => {
+    const lines: string[] = [];
+    return { lines, log: (line: string) => lines.push(line) };
+  };
+
+  it("streams one stage and one closing line per series, with no percentage (no total is known mid-cube)", async () => {
+    const { lines, log } = collect();
+    const progress = createProgressLogger({ name: "load-dwp-uc", log });
+    const seen: unknown[] = [];
+    await streamUcRows(
+      { kind: "dir", dir: FIXTURE_DIR },
+      {},
+      async (batch: UcRow[]) => {
+        seen.push(...batch);
+      },
+      { progress },
+    );
+    expect(seen).toHaveLength(15);
+    expect(lines).toContainEqual(
+      expect.stringMatching(/load-dwp-uc progress · pulling uc_people$/),
+    );
+    expect(lines).toContainEqual(
+      expect.stringMatching(/load-dwp-uc progress · pull uc_people 9 rows$/),
+    );
+    expect(lines).toContainEqual(
+      expect.stringMatching(/load-dwp-uc progress · pulling uc_households$/),
+    );
+    expect(lines).toContainEqual(
+      expect.stringMatching(/load-dwp-uc progress · pull uc_households 6 rows$/),
+    );
+    expect(lines.every((l) => !l.includes("%"))).toBe(true);
+    expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
+  });
+
+  it("the collecting form logs one count line per series", async () => {
+    const { lines, log } = collect();
+    const progress = createProgressLogger({ name: "load-dwp-uc", log });
+    const { rows } = await loadUcRows({ kind: "dir", dir: FIXTURE_DIR }, {}, { progress });
+    expect(rows).toHaveLength(15);
+    expect(lines).toContainEqual(
+      expect.stringMatching(/load-dwp-uc progress · pull uc_people 9 rows$/),
+    );
+    expect(lines).toContainEqual(
+      expect.stringMatching(/load-dwp-uc progress · pull uc_households 6 rows$/),
+    );
   });
 });

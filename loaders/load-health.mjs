@@ -62,7 +62,12 @@ import { join } from "node:path";
 import { Readable } from "node:stream";
 import pg from "pg";
 import yauzl from "yauzl";
-import { formatCount } from "./progress.mjs";
+import {
+  createBatchWatch,
+  createProgressLogger,
+  formatCount,
+  formatDuration,
+} from "./progress.mjs";
 
 const DSE_URL = (report) =>
   `https://www.odsdatasearchandexport.nhs.uk/api/getReport?report=${report}`;
@@ -173,7 +178,7 @@ function ukDate(value) {
 // --- CQC ratings: a streaming read of the .ods content.xml -------
 // The real file's content.xml is about 1.1 GB, so rows are cut
 // from the stream as they complete; nothing whole is ever held.
-function streamRatings(bufferPromise) {
+function streamRatings(bufferPromise, { progress = null } = {}) {
   return new Promise((resolve, reject) => {
     bufferPromise
       .then((buffer) => {
@@ -184,7 +189,7 @@ function streamRatings(bufferPromise) {
             if (entry.fileName !== "content.xml") return zip.readEntry();
             zip.openReadStream(entry, (streamErr, stream) => {
               if (streamErr) return reject(streamErr);
-              resolve(readRatingsStream(Readable.toWeb(stream)));
+              resolve(readRatingsStream(Readable.toWeb(stream), { progress }));
             });
           });
           zip.on("error", reject);
@@ -246,12 +251,13 @@ function createRatingsAggregator() {
   };
 }
 
-async function readRatingsStream(webStream) {
+async function readRatingsStream(webStream, { progress = null } = {}) {
   const reader = webStream.getReader();
   const decoder = new TextDecoder("utf-8");
   let buf = "";
   let sheet = null;
   let readmeText = "";
+  let ratingsRows = 0;
   const aggregator = createRatingsAggregator();
   const cellTexts = (rowXml) => {
     const cells = [];
@@ -279,6 +285,11 @@ async function readRatingsStream(webStream) {
       return;
     }
     if (sheet !== "Locations") return;
+    ratingsRows += 1;
+    // BUG-265: the ratings file is ~1.1 GB live — a count
+    // every 50,000 rows, no total (the file carries none).
+    if (ratingsRows % 50_000 === 0)
+      progress?.count({ label: "ratings", done: ratingsRows, unit: "rows" });
     aggregator.noteRow(cellTexts(rowXml));
   };
   for (;;) {
@@ -317,6 +328,10 @@ async function readRatingsStream(webStream) {
     }
     if (done) break;
   }
+  // BUG-265: the closing count, unless a 50,000-multiple just
+  // printed the same number.
+  if (ratingsRows % 50_000 !== 0)
+    progress?.count({ label: "ratings", done: ratingsRows, unit: "rows" });
   const asAtMatch = readmeText.match(/as at (\d{1,2}) ([A-Za-z]+) (\d{4})/);
   const asAt = asAtMatch ? longDate(asAtMatch[1], asAtMatch[2], asAtMatch[3]) : null;
   return {
@@ -365,7 +380,10 @@ const odsDate = (value) => {
   return /^\d{8}$/.test(s) ? `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}` : null;
 };
 
-function buildPoints({
+/**
+ * @param {{ epraccur: any[][], ebranchs: any[][], edispensary: any[][], egdpprac: any[][], directoryRows: any[], positionOf: (postcode: string) => { lat: number, lng: number } | null, today: Date, progress?: import("./progress.mjs").ProgressLogger | null }} options
+ */
+export function buildPoints({
   epraccur,
   ebranchs,
   edispensary,
@@ -373,6 +391,7 @@ function buildPoints({
   directoryRows,
   positionOf,
   today,
+  progress = null,
 }) {
   const points = [];
   const stats = {
@@ -383,6 +402,11 @@ function buildPoints({
     noPosition: 0,
     countryFiltered: 0,
   };
+  // BUG-265: the build is the run's first long loop — ~30,000
+  // points live — so a tally lands every 5,000 points built,
+  // and a closing line, with no total (points built is not
+  // the rows read: rows are filtered and skipped).
+  const buildTally = progress?.tally({ label: "build", every: 5000, unit: "points" });
   const addressOf = (cols) =>
     [cols[4], cols[5], cols[6], cols[7], cols[8]]
       .map((c) => (c ?? "").trim())
@@ -395,6 +419,7 @@ function buildPoints({
       return;
     }
     points.push({ ...base, lat: position.lat, lng: position.lng });
+    buildTally?.tick(points.length);
   };
   const todayStr = today.toISOString().slice(0, 10);
 
@@ -493,6 +518,7 @@ function buildPoints({
       source: SOURCE_CQC_DIR,
     });
   }
+  buildTally?.finish(points.length);
   return { points, stats };
 }
 
@@ -689,136 +715,161 @@ async function main() {
     odsDateStamp;
   let positionOf;
   let client = null;
+  // BUG-265: one logger for the run — the ratings count, the
+  // build tally and the filing tally below.
+  const progress = createProgressLogger({ name: "load-health" });
+  let points;
+  let stats;
+  let joined;
+  let ties;
+  let byCode;
+  const count = (type) => points.filter((p) => p.serviceType === type).length;
 
-  if (fixtureMode) {
-    const meta = JSON.parse(await readFile(join(fixtureDir, "fixture.json"), "utf8"));
-    const readReport = async (name) =>
-      parseCsv(await readFile(join(fixtureDir, `${name}.csv`), "utf8")).filter(
-        (r) => r.length === 27,
+  try {
+    progress.stage("reading the ODS reports and the CQC files");
+    if (fixtureMode) {
+      const meta = JSON.parse(await readFile(join(fixtureDir, "fixture.json"), "utf8"));
+      const readReport = async (name) =>
+        parseCsv(await readFile(join(fixtureDir, `${name}.csv`), "utf8")).filter(
+          (r) => r.length === 27,
+        );
+      epraccur = await readReport("epraccur");
+      ebranchs = await readReport("ebranchs");
+      edispensary = await readReport("edispensary");
+      egdpprac = await readReport("egdpprac");
+      const dirText = await readFile(join(fixtureDir, meta.directoryFile), "utf8");
+      const dirLines = dirText.split("\n");
+      directoryProducedOn = meta.directoryProducedOn;
+      const dirParsed = parseCsv(dirLines.slice(4).join("\n"));
+      const header = dirParsed[0];
+      directoryRows = dirParsed
+        .slice(1)
+        .map((r) => Object.fromEntries(header.map((h, i) => [h, (r[i] ?? "").trim()])));
+      const aggregator = createRatingsAggregator();
+      for (const cells of parseCsv(await readFile(join(fixtureDir, meta.ratingsFile), "utf8"))) {
+        aggregator.noteRow(cells);
+      }
+      ratings = {
+        byLocation: aggregator.byLocation,
+        locationByOdsCode: aggregator.locationByOdsCode,
+        asAt: meta.ratingsAsAt,
+      };
+      odsDateStamp = meta.odsRetrieved;
+      const postcodes = JSON.parse(await readFile(join(fixtureDir, "postcodes.json"), "utf8"));
+      positionOf = (pc) => postcodes[(pc ?? "").trim().toUpperCase()] ?? null;
+      if (!verifyOnly) {
+        // Filing needs a database even in fixture mode (CI files the
+        // fixture into its throwaway PostGIS); positions still come
+        // from the fixture's own postcode list.
+        if (!process.env.DATABASE_URL)
+          throw new Error("DATABASE_URL is not set — filing requires a database");
+        client = new pg.Client({ connectionString: process.env.DATABASE_URL });
+        await client.connect();
+      }
+    } else {
+      const [a, b, c, d] = await Promise.all(
+        ["epraccur", "ebranchs", "edispensary", "egdpprac"].map((name) => fetchText(DSE_URL(name))),
       );
-    epraccur = await readReport("epraccur");
-    ebranchs = await readReport("ebranchs");
-    edispensary = await readReport("edispensary");
-    egdpprac = await readReport("egdpprac");
-    const dirText = await readFile(join(fixtureDir, meta.directoryFile), "utf8");
-    const dirLines = dirText.split("\n");
-    directoryProducedOn = meta.directoryProducedOn;
-    const dirParsed = parseCsv(dirLines.slice(4).join("\n"));
-    const header = dirParsed[0];
-    directoryRows = dirParsed
-      .slice(1)
-      .map((r) => Object.fromEntries(header.map((h, i) => [h, (r[i] ?? "").trim()])));
-    const aggregator = createRatingsAggregator();
-    for (const cells of parseCsv(await readFile(join(fixtureDir, meta.ratingsFile), "utf8"))) {
-      aggregator.noteRow(cells);
-    }
-    ratings = {
-      byLocation: aggregator.byLocation,
-      locationByOdsCode: aggregator.locationByOdsCode,
-      asAt: meta.ratingsAsAt,
-    };
-    odsDateStamp = meta.odsRetrieved;
-    const postcodes = JSON.parse(await readFile(join(fixtureDir, "postcodes.json"), "utf8"));
-    positionOf = (pc) => postcodes[(pc ?? "").trim().toUpperCase()] ?? null;
-    if (!verifyOnly) {
-      // Filing needs a database even in fixture mode (CI files the
-      // fixture into its throwaway PostGIS); positions still come
-      // from the fixture's own postcode list.
+      epraccur = parseCsv(a);
+      ebranchs = parseCsv(b);
+      edispensary = parseCsv(c);
+      egdpprac = parseCsv(d);
+      const { directory, ratings: ratingsPick } = await discoverCqc();
+      const dirText = await fetchText(directory.url);
+      const dirLines = dirText.split("\n");
+      const producedMatch = dirLines
+        .slice(0, 5)
+        .join(" ")
+        .match(/produced on (\d{1,2}) ([A-Za-z]+) (\d{4})/i);
+      directoryProducedOn = producedMatch
+        ? longDate(producedMatch[1], producedMatch[2], producedMatch[3])
+        : directory.date;
+      const dirParsed = parseCsv(dirLines.slice(4).join("\n"));
+      const header = dirParsed[0];
+      directoryRows = dirParsed
+        .slice(1)
+        .map((r) => Object.fromEntries(header.map((h, i) => [h, (r[i] ?? "").trim()])));
+      const ratingsResponse = await fetch(ratingsPick.url);
+      if (!ratingsResponse.ok)
+        throw new Error(`HTTP ${ratingsResponse.status} for the CQC ratings file`);
+      progress.stage("reading the CQC ratings file");
+      ratings = await streamRatings(
+        Promise.resolve(Buffer.from(await ratingsResponse.arrayBuffer())),
+        { progress },
+      );
+      odsDateStamp = today.toISOString().slice(0, 10);
       if (!process.env.DATABASE_URL)
-        throw new Error("DATABASE_URL is not set — filing requires a database");
+        throw new Error(
+          "DATABASE_URL is not set — health points are positioned from the postcode directory, so a database is required",
+        );
       client = new pg.Client({ connectionString: process.env.DATABASE_URL });
       await client.connect();
+      const res = await client.query(
+        "SELECT postcode, latitude, longitude FROM postcode_cache WHERE latitude IS NOT NULL",
+      );
+      const postcodeDirectory = new Map(
+        res.rows.map((r) => [r.postcode, { lat: r.latitude, lng: r.longitude }]),
+      );
+      positionOf = (pc) => postcodeDirectory.get((pc ?? "").trim().toUpperCase()) ?? null;
     }
-  } else {
-    const [a, b, c, d] = await Promise.all(
-      ["epraccur", "ebranchs", "edispensary", "egdpprac"].map((name) => fetchText(DSE_URL(name))),
-    );
-    epraccur = parseCsv(a);
-    ebranchs = parseCsv(b);
-    edispensary = parseCsv(c);
-    egdpprac = parseCsv(d);
-    const { directory, ratings: ratingsPick } = await discoverCqc();
-    const dirText = await fetchText(directory.url);
-    const dirLines = dirText.split("\n");
-    const producedMatch = dirLines
-      .slice(0, 5)
-      .join(" ")
-      .match(/produced on (\d{1,2}) ([A-Za-z]+) (\d{4})/i);
-    directoryProducedOn = producedMatch
-      ? longDate(producedMatch[1], producedMatch[2], producedMatch[3])
-      : directory.date;
-    const dirParsed = parseCsv(dirLines.slice(4).join("\n"));
-    const header = dirParsed[0];
-    directoryRows = dirParsed
-      .slice(1)
-      .map((r) => Object.fromEntries(header.map((h, i) => [h, (r[i] ?? "").trim()])));
-    const ratingsResponse = await fetch(ratingsPick.url);
-    if (!ratingsResponse.ok)
-      throw new Error(`HTTP ${ratingsResponse.status} for the CQC ratings file`);
-    ratings = await streamRatings(
-      Promise.resolve(Buffer.from(await ratingsResponse.arrayBuffer())),
-    );
-    odsDateStamp = today.toISOString().slice(0, 10);
-    if (!process.env.DATABASE_URL)
-      throw new Error(
-        "DATABASE_URL is not set — health points are positioned from the postcode directory, so a database is required",
-      );
-    client = new pg.Client({ connectionString: process.env.DATABASE_URL });
-    await client.connect();
-    const res = await client.query(
-      "SELECT postcode, latitude, longitude FROM postcode_cache WHERE latitude IS NOT NULL",
-    );
-    const postcodeDirectory = new Map(
-      res.rows.map((r) => [r.postcode, { lat: r.latitude, lng: r.longitude }]),
-    );
-    positionOf = (pc) => postcodeDirectory.get((pc ?? "").trim().toUpperCase()) ?? null;
-  }
 
-  // Freshness guards (CQC's own migration-delay warning is why
-  // these check the files' own dates, not the download date).
-  const ageDays = (date) => (Date.now() - new Date(`${date}T00:00:00Z`).getTime()) / 86400000;
-  if (!fixtureMode) {
-    if (!directoryProducedOn || ageDays(directoryProducedOn) > 21)
-      throw new Error(
-        `the CQC directory is stale (produced ${directoryProducedOn}) — failing rather than filing old data`,
-      );
-    if (!ratings.asAt || ageDays(ratings.asAt) > 100)
-      throw new Error(
-        `the CQC ratings file is stale (as at ${ratings.asAt}) — failing rather than filing old data`,
-      );
-  }
-
-  const { points, stats } = buildPoints({
-    epraccur,
-    ebranchs,
-    edispensary,
-    egdpprac,
-    directoryRows,
-    positionOf,
-    today,
-  });
-  const { joined, ties } = applyRatings(points, ratings);
-  const byCode = new Map(points.map((p) => [p.odsCode, p]));
-  if (byCode.size !== points.length)
-    throw new Error("duplicate point codes across sources — failing rather than guessing");
-
-  const count = (type) => points.filter((p) => p.serviceType === type).length;
-  if (!fixtureMode) {
-    const bands = [
-      ["gp_practice", count("gp_practice"), 6000, 7200],
-      ["gp_branch_surgery", count("gp_branch_surgery"), 2200, 2900],
-      ["pharmacy", count("pharmacy"), 10500, 12000],
-      ["dentist", count("dentist"), 9200, 10400],
-      ["hospital", count("hospital"), 700, 870],
-    ];
-    for (const [label, n, lo, hi] of bands) {
-      if (n < lo || n > hi)
+    // Freshness guards (CQC's own migration-delay warning is why
+    // these check the files' own dates, not the download date).
+    const ageDays = (date) => (Date.now() - new Date(`${date}T00:00:00Z`).getTime()) / 86400000;
+    if (!fixtureMode) {
+      if (!directoryProducedOn || ageDays(directoryProducedOn) > 21)
         throw new Error(
-          `sanity failure: ${n} ${label} points is outside the expected band ${lo}-${hi}`,
+          `the CQC directory is stale (produced ${directoryProducedOn}) — failing rather than filing old data`,
+        );
+      if (!ratings.asAt || ageDays(ratings.asAt) > 100)
+        throw new Error(
+          `the CQC ratings file is stale (as at ${ratings.asAt}) — failing rather than filing old data`,
         );
     }
+
+    progress.stage("building the health points");
+    ({ points, stats } = buildPoints({
+      epraccur,
+      ebranchs,
+      edispensary,
+      egdpprac,
+      directoryRows,
+      positionOf,
+      today,
+      progress,
+    }));
+    ({ joined, ties } = applyRatings(points, ratings));
+    byCode = new Map(points.map((p) => [p.odsCode, p]));
+    if (byCode.size !== points.length)
+      throw new Error("duplicate point codes across sources — failing rather than guessing");
+
+    if (!fixtureMode) {
+      const bands = [
+        ["gp_practice", count("gp_practice"), 6000, 7200],
+        ["gp_branch_surgery", count("gp_branch_surgery"), 2200, 2900],
+        ["pharmacy", count("pharmacy"), 10500, 12000],
+        ["dentist", count("dentist"), 9200, 10400],
+        ["hospital", count("hospital"), 700, 870],
+      ];
+      for (const [label, n, lo, hi] of bands) {
+        if (n < lo || n > hi)
+          throw new Error(
+            `sanity failure: ${n} ${label} points is outside the expected band ${lo}-${hi}`,
+          );
+      }
+    }
+    checkGolden(points, byCode);
+  } catch (error) {
+    // BUG-265: the read, the build and the golden checks all
+    // fail before anything is filed.
+    progress.failed({
+      stage: "read",
+      filed: 0,
+      error,
+      resume: "re-run the loader from the start (nothing is filed until the swap)",
+    });
+    throw error;
   }
-  checkGolden(points, byCode);
 
   const summary = () =>
     `load-health · ODS ${odsDateStamp} · CQC directory ${directoryProducedOn} · ratings as at ${ratings.asAt} · ` +
@@ -850,6 +901,22 @@ async function main() {
          loaded_at timestamptz NOT NULL DEFAULT now()
        ) ON COMMIT DROP`,
     );
+    // BUG-265: the filing is the run's second long loop — one
+    // INSERT per point, ~30,000 live — so a tally lands every
+    // 1,000 points, a heartbeat every 10,000, and a 1,000-point
+    // chunk that takes more than 3x the recent average earns a
+    // warning. (The ratings inserts that follow are the small
+    // tail of the same filing, inside this same transaction.)
+    progress.stage(`filing ${formatCount(points.length)} points`);
+    const fileTally = progress.tally({
+      label: "file",
+      total: points.length,
+      every: 1000,
+      unit: "points",
+    });
+    const fileWatch = createBatchWatch();
+    let filedPoints = 0;
+    let chunkStarted = Date.now();
     for (const p of points) {
       await client.query(
         `INSERT INTO health_stage (ods_code, name, service_type, address, postcode, latitude, longitude,
@@ -872,7 +939,27 @@ async function main() {
           p.source === SOURCE_CQC_DIR ? directoryProducedOn : odsDateStamp,
         ],
       );
+      filedPoints += 1;
+      fileTally.tick(filedPoints);
+      progress.heartbeat({
+        stage: "filing",
+        done: filedPoints,
+        total: points.length,
+        every: 10_000,
+      });
+      if (filedPoints % 1000 === 0) {
+        const { tookMs, averageMs, slow } = fileWatch.observe(Date.now() - chunkStarted);
+        if (slow) {
+          progress.warning({
+            what: "filing chunk duration",
+            value: `chunk ending at point ${formatCount(filedPoints)} took ${formatDuration(tookMs)}`,
+            threshold: `3x recent average ${formatDuration(averageMs)}`,
+          });
+        }
+        chunkStarted = Date.now();
+      }
     }
+    fileTally.finish(filedPoints);
     const staged = await client.query("SELECT count(*)::int AS n FROM health_stage");
     if (staged.rows[0].n !== points.length)
       throw new Error("the staged point count does not match — rolling back");
@@ -910,6 +997,16 @@ async function main() {
       throw new Error("the filed point count does not match — rolling back");
     await client.query("COMMIT");
   } catch (error) {
+    // BUG-265: the filing is one transaction — on a rollback
+    // the live tables are untouched.
+    progress.failed({
+      stage: "filing",
+      filed: 0,
+      total: points.length,
+      error,
+      resume:
+        "re-run the loader from the start (the filing rolled back, the live table is untouched)",
+    });
     if (client) await client.query("ROLLBACK").catch(() => {});
     throw error;
   } finally {

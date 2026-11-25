@@ -121,7 +121,12 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
-import { formatCount } from "./progress.mjs";
+import {
+  createBatchWatch,
+  createProgressLogger,
+  formatCount,
+  formatDuration,
+} from "./progress.mjs";
 
 const { Pool } = pg;
 
@@ -578,7 +583,27 @@ export function sanityChecks(rows, { national }) {
 // staged, then the live table is replaced inside one
 // transaction, so a failed load leaves the last good data
 // serving untouched.
-export async function filePlaces(pool, rows, retrievedAt) {
+/**
+ * @param {any} pool
+ * @param {any[]} rows
+ * @param {string} retrievedAt
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ */
+export async function filePlaces(pool, rows, retrievedAt, { progress = null } = {}) {
+  // BUG-265: the stage flushes are the filing's long phase
+  // (~315k rows in 500-row flushes) — a line every
+  // twentieth of the flushes, a heartbeat, and a warning
+  // for a flush over 3x the recent average.
+  const totalFlushes = Math.ceil(rows.length / 500);
+  const stageTally = progress?.tally({
+    label: "stage",
+    total: totalFlushes,
+    every: Math.max(1, Math.ceil(totalFlushes / 20)),
+    unit: "flushes",
+  });
+  const stageWatch = createBatchWatch();
+  let flushCount = 0;
+  let stagedRows = 0;
   const client = await pool.connect();
   try {
     // BEGIN first — the other M5 loaders' shape, and load-
@@ -600,12 +625,26 @@ export async function filePlaces(pool, rows, retrievedAt) {
     const params = [];
     const flush = async () => {
       if (values.length === 0) return;
+      const started = Date.now();
+      const flushedRows = values.length;
       await client.query(
         `INSERT INTO osm_places_stage (osm_id, name, place_type, detail, latitude, longitude, source_name, source_date) VALUES ${values.join(", ")}`,
         params,
       );
       values.length = 0;
       params.length = 0;
+      stagedRows += flushedRows;
+      flushCount += 1;
+      const { tookMs, averageMs, slow } = stageWatch.observe(Date.now() - started);
+      stageTally?.tick(flushCount);
+      progress?.heartbeat({ stage: "stage", done: stagedRows, total: rows.length });
+      if (slow) {
+        progress?.warning({
+          what: "stage flush duration",
+          value: `flush ${flushCount} took ${formatDuration(tookMs)}`,
+          threshold: `3x recent average ${formatDuration(averageMs)}`,
+        });
+      }
     };
     for (const row of rows) {
       const base = params.length;
@@ -625,6 +664,7 @@ export async function filePlaces(pool, rows, retrievedAt) {
       if (values.length >= 500) await flush();
     }
     await flush();
+    stageTally?.finish(flushCount);
     await client.query("DELETE FROM osm_points");
     // The live table's position columns are latitude/longitude
     // (migration 0001, like every other point table) — this
@@ -641,6 +681,13 @@ export async function filePlaces(pool, rows, retrievedAt) {
     );
     await client.query("COMMIT");
   } catch (err) {
+    progress?.failed({
+      stage: "file",
+      filed: stagedRows,
+      total: rows.length,
+      error: err,
+      resume: "re-run from scratch (the swap is one transaction; nothing was filed)",
+    });
     await client.query("ROLLBACK").catch(() => {});
     throw err;
   } finally {
@@ -672,50 +719,79 @@ async function md5OfFile(path) {
 // libosmium cutter; returns the elements read and the mapped
 // candidate rows (pre-dedupe), stamped with the extract's
 // data date.
-async function extractAndMap(inputPath, sourceDate, workDir, floor, label) {
-  const ndjsonPath = join(workDir, `${label}.ndjson`);
-  await new Promise((resolve, reject) => {
-    const child = spawn("python3", [EXTRACT_SCRIPT, inputPath, ndjsonPath], {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    let stderr = "";
-    child.stderr.on("data", (d) => (stderr += d));
-    child.on("error", reject);
-    child.on("close", (code) => {
-      if (code === 0) resolve();
-      else
-        reject(
-          new Error(
-            `osm-extract failed for ${label} (exit ${code}) — python3 with pyosmium is required (pip install osmium): ${stderr.slice(-400)}`,
-          ),
-        );
-    });
+async function extractAndMap(
+  inputPath,
+  sourceDate,
+  workDir,
+  floor,
+  label,
+  { progress = null } = {},
+) {
+  // BUG-265: the ndjson read is the per-country long phase
+  // (England: ~2M candidate elements) — a line every
+  // 250,000 elements and a heartbeat on the same cadence.
+  // No percentage: the floor is a lower bound, not a total.
+  const extractTally = progress?.tally({
+    label: `extract ${label}`,
+    every: 250_000,
+    unit: "elements",
   });
   let elementsRead = 0;
-  const rows = [];
-  const rl = createInterface({ input: createReadStream(ndjsonPath), crlfDelay: Infinity });
-  for await (const line of rl) {
-    if (line.trim() === "") continue;
-    elementsRead++;
-    const el = JSON.parse(line);
-    const placeType = classifyTags(el.tags);
-    if (placeType === null) continue;
-    rows.push({
-      kind: el.kind,
-      osmId: el.id,
-      name: placeName(el.tags),
-      placeType,
-      detail: detailFor(placeType, el.tags),
-      lat: el.lat,
-      lon: el.lon,
-      sourceDate,
+  try {
+    const ndjsonPath = join(workDir, `${label}.ndjson`);
+    await new Promise((resolve, reject) => {
+      const child = spawn("python3", [EXTRACT_SCRIPT, inputPath, ndjsonPath], {
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      let stderr = "";
+      child.stderr.on("data", (d) => (stderr += d));
+      child.on("error", reject);
+      child.on("close", (code) => {
+        if (code === 0) resolve();
+        else
+          reject(
+            new Error(
+              `osm-extract failed for ${label} (exit ${code}) — python3 with pyosmium is required (pip install osmium): ${stderr.slice(-400)}`,
+            ),
+          );
+      });
     });
+    const rows = [];
+    const rl = createInterface({ input: createReadStream(ndjsonPath), crlfDelay: Infinity });
+    for await (const line of rl) {
+      if (line.trim() === "") continue;
+      elementsRead++;
+      extractTally?.tick(elementsRead);
+      progress?.heartbeat({ stage: `extract ${label}`, done: elementsRead, every: 250_000 });
+      const el = JSON.parse(line);
+      const placeType = classifyTags(el.tags);
+      if (placeType === null) continue;
+      rows.push({
+        kind: el.kind,
+        osmId: el.id,
+        name: placeName(el.tags),
+        placeType,
+        detail: detailFor(placeType, el.tags),
+        lat: el.lat,
+        lon: el.lon,
+        sourceDate,
+      });
+    }
+    if (floor !== null && elementsRead < floor)
+      throw new Error(
+        `${label}: read ${elementsRead} candidate elements but the floor is ${floor} — the read does not reconcile`,
+      );
+    extractTally?.finish(elementsRead);
+    return { elementsRead, rows };
+  } catch (err) {
+    progress?.failed({
+      stage: `extract ${label}`,
+      filed: elementsRead,
+      error: err,
+      resume: "re-run from scratch (extracts re-cut from the downloaded files)",
+    });
+    throw err;
   }
-  if (floor !== null && elementsRead < floor)
-    throw new Error(
-      `${label}: read ${elementsRead} candidate elements but the floor is ${floor} — the read does not reconcile`,
-    );
-  return { elementsRead, rows };
 }
 
 async function main() {
@@ -728,6 +804,10 @@ async function main() {
   const pbfDir = pbfDirIdx >= 0 ? args[pbfDirIdx + 1] : null;
   const retrievedOn = todayDate();
   const workDir = mkdtempSync(join(tmpdir(), "cmnh-osm-places-"));
+  // BUG-265: one logger for the downloads, the per-country
+  // extracts and the filing; the extract and filing loops
+  // carry their own tallies (see extractAndMap, filePlaces).
+  const progress = createProgressLogger({ name: "load-osm-places" });
   try {
     const perCountry = [];
     // Merged row by row, never spread into push(): a country
@@ -751,12 +831,14 @@ async function main() {
         throw new Error("osm-places fixture directory holds no .osm captures");
       let read = 0;
       for (const file of files) {
+        progress.stage(`extracting fixture ${file}...`);
         const part = await extractAndMap(
           join(fixtureDir, file),
           capturedDate,
           workDir,
           null,
           `fixture-${file}`,
+          { progress },
         );
         read += part.elementsRead;
         for (const row of part.rows) candidates.push(row);
@@ -769,6 +851,7 @@ async function main() {
           (f) => f.startsWith(`${country}-`) && f.endsWith(".osm.pbf"),
         );
         if (!file) continue;
+        progress.stage(`verifying the local ${country} extract against Geofabrik's md5...`);
         const published = parsePublishedMd5(
           await fetchText(
             `${GEOFABRIK_BASE}/${country}/${country}-latest.osm.pbf.md5`,
@@ -780,12 +863,14 @@ async function main() {
           throw new Error(
             `${country}: the local file ${file} hashes to ${actual} but Geofabrik publishes ${published} — refusing to file from an unverified extract`,
           );
+        progress.stage(`extracting ${country}...`);
         const part = await extractAndMap(
           join(pbfDir, file),
           extractDataDate(file),
           workDir,
           EXTRACT_FLOORS[country],
           country,
+          { progress },
         );
         present.push(country);
         perCountry.push(`${country} ${formatCount(part.elementsRead)}`);
@@ -802,36 +887,59 @@ async function main() {
       national = true;
       for (const country of COUNTRIES) {
         const latestUrl = `${GEOFABRIK_BASE}/${country}/${country}-latest.osm.pbf`;
-        const head = await fetch(latestUrl, { method: "HEAD" });
-        if (!head.ok) throw new Error(`${country}: HEAD ${latestUrl} returned HTTP ${head.status}`);
-        const dataDate = extractDataDate(head.url);
-        const published = parsePublishedMd5(await fetchText(`${latestUrl}.md5`, `${country} md5`));
         const dest = join(workDir, `${country}.osm.pbf`);
-        // One retry on a network cut (these are the largest
-        // downloads in the project — England is ~1.7 GB); a
-        // partial file is always discarded, and the md5 below
-        // remains the only acceptance test.
-        let downloadError = null;
-        for (let attempt = 0; attempt < 2; attempt++) {
-          try {
-            const res = await fetch(latestUrl);
-            if (!res.ok || !res.body)
-              throw new Error(`${country}: download of ${latestUrl} returned HTTP ${res.status}`);
-            await pipeline(Readable.fromWeb(res.body), createWriteStream(dest));
-            downloadError = null;
-            break;
-          } catch (err) {
-            downloadError = err;
-            if (attempt === 0) await new Promise((r) => setTimeout(r, 3000));
+        let dataDate;
+        let published;
+        try {
+          progress.stage(`downloading the ${country} extract from Geofabrik...`);
+          const head = await fetch(latestUrl, { method: "HEAD" });
+          if (!head.ok)
+            throw new Error(`${country}: HEAD ${latestUrl} returned HTTP ${head.status}`);
+          dataDate = extractDataDate(head.url);
+          published = parsePublishedMd5(await fetchText(`${latestUrl}.md5`, `${country} md5`));
+          // One retry on a network cut (these are the largest
+          // downloads in the project — England is ~1.7 GB); a
+          // partial file is always discarded, and the md5 below
+          // remains the only acceptance test.
+          let downloadError = null;
+          for (let attempt = 0; attempt < 2; attempt++) {
+            try {
+              const res = await fetch(latestUrl);
+              if (!res.ok || !res.body)
+                throw new Error(`${country}: download of ${latestUrl} returned HTTP ${res.status}`);
+              await pipeline(Readable.fromWeb(res.body), createWriteStream(dest));
+              downloadError = null;
+              break;
+            } catch (err) {
+              downloadError = err;
+              if (attempt === 0) await new Promise((r) => setTimeout(r, 3000));
+            }
           }
+          if (downloadError) throw downloadError;
+          progress.stage(`verifying the ${country} download against Geofabrik's md5...`);
+          const actual = await md5OfFile(dest);
+          if (!md5Matches(actual, published))
+            throw new Error(
+              `${country}: downloaded extract hashes to ${actual} but Geofabrik publishes ${published} — refusing to file from an unverified extract`,
+            );
+        } catch (err) {
+          progress.failed({
+            stage: `download ${country}`,
+            filed: 0,
+            error: err,
+            resume: "re-run from scratch (extracts re-download)",
+          });
+          throw err;
         }
-        if (downloadError) throw downloadError;
-        const actual = await md5OfFile(dest);
-        if (!md5Matches(actual, published))
-          throw new Error(
-            `${country}: downloaded extract hashes to ${actual} but Geofabrik publishes ${published} — refusing to file from an unverified extract`,
-          );
-        const part = await extractAndMap(dest, dataDate, workDir, EXTRACT_FLOORS[country], country);
+        progress.stage(`extracting ${country}...`);
+        const part = await extractAndMap(
+          dest,
+          dataDate,
+          workDir,
+          EXTRACT_FLOORS[country],
+          country,
+          { progress },
+        );
         perCountry.push(`${country} ${formatCount(part.elementsRead)}`);
         for (const row of part.rows) candidates.push(row);
       }
@@ -854,7 +962,8 @@ async function main() {
     }
     const pool = new Pool({ connectionString: process.env.DATABASE_URL });
     try {
-      await filePlaces(pool, rows, `${retrievedOn}T00:00:00Z`);
+      progress.stage(`filing ${formatCount(rows.length)} places...`);
+      await filePlaces(pool, rows, `${retrievedOn}T00:00:00Z`, { progress });
     } finally {
       await pool.end();
     }

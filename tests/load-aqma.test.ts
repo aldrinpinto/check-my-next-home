@@ -13,7 +13,9 @@ import {
   polygonsBoundaryMiles,
   polygonsContain,
   processFeatures,
+  readFixture,
 } from "../loaders/load-aqma.mjs";
+import { createProgressLogger } from "../loaders/progress.mjs";
 
 // Guards the Air Quality Management Areas loader (plan
 // step M6.30, decision D59): the Ricardo ArcGIS service
@@ -393,5 +395,24 @@ describe("boundary-distance basis (prep check 9)", () => {
     const miles = polygonsBoundaryMiles(polygons, lat, lng);
     expect(miles).toBeLessThan(2);
     expect(miles).toBeCloseTo(1.5, 1);
+  });
+});
+
+// BUG-265: the paged read carries the shared progress logger
+// — a line per 2,000-feature page (a closing line only at
+// fixture scale: the fixture is one page of 72).
+describe("progress logging (BUG-265)", () => {
+  it("reads the fixture with a closing read line, and the read is unchanged", async () => {
+    const lines: string[] = [];
+    const progress = createProgressLogger({
+      name: "load-aqma",
+      log: (...args: unknown[]) => lines.push(args.join(" ")),
+    });
+    const processed = await readFixture(fixtureDir, { progress });
+    expect(processed.filed).toBe(72);
+    expect(processed.total).toBe(72);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/progress · read 72 features$/);
+    expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
   });
 });

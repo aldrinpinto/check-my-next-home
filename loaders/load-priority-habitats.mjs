@@ -62,7 +62,12 @@ import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
-import { formatCount } from "./progress.mjs";
+import {
+  createBatchWatch,
+  createProgressLogger,
+  formatCount,
+  formatDuration,
+} from "./progress.mjs";
 
 const NE_BASE = "https://services.arcgis.com/JJzESW51TqeY9uat/arcgis/rest/services";
 const SERVICE = "Priority_Habitats_Inventory_England";
@@ -361,24 +366,64 @@ async function fetchPhiPage(layerUrl, offset, expected, lastObjectId, delaysMs =
 // next arrives, and progress is logged every ten pages and on
 // the final page, so an hour-long read shows signs of life and
 // names the offset where it failed.
+//
+// BUG-265: the progress now goes through the shared logger
+// when a `progress` is passed — a tally over the service's
+// own count (a real percentage), a heartbeat and a
+// slow-page warning. The old `log` callback is kept for
+// callers that still pass it, and stays silent when a
+// progress logger is present, so the read never logs twice.
+/**
+ * @param {string} layerUrl
+ * @param {number} expected
+ * @param {(batch: any[]) => Promise<void>} onBatch
+ * @param {{ delaysMs?: number[], log?: ((message: string) => void) | null, progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ */
 export async function readPhiPages(
   layerUrl,
   expected,
   onBatch,
-  { delaysMs = RETRY_DELAYS_MS, log = () => {} } = {},
+  { delaysMs = RETRY_DELAYS_MS, log = () => {}, progress = null } = {},
 ) {
   let offset = 0;
   let lastObjectId = null;
   let pages = 0;
+  // BUG-265: a line every twentieth of the read, and a
+  // closing line — the service's count is the total, so
+  // the log carries a real percentage.
+  const readTally = progress?.tally({
+    label: "read",
+    total: expected,
+    every: Math.max(1, Math.ceil(expected / 20)),
+    unit: "patches",
+  });
+  // BUG-265: the paged read is the run's long phase — a
+  // heartbeat every half of the read or 15 minutes (the
+  // flood-zones read's cadence), and a warning for a page
+  // that takes more than 3x the recent average.
+  const readWatch = createBatchWatch();
+  const heartbeatEvery = Math.max(1, Math.ceil(expected / 2));
   while (offset < expected) {
+    const started = Date.now();
     const page = await fetchPhiPage(layerUrl, offset, expected, lastObjectId, delaysMs);
     await onBatch(page.features);
     lastObjectId = page.features[page.features.length - 1].properties.OBJECTID;
     offset += page.features.length;
     pages += 1;
-    if (pages % 10 === 0 || offset === expected)
+    const { tookMs, averageMs, slow } = readWatch.observe(Date.now() - started);
+    readTally?.tick(offset);
+    progress?.heartbeat({ stage: "read", done: offset, total: expected, every: heartbeatEvery });
+    if (slow) {
+      progress?.warning({
+        what: "read page duration",
+        value: `page at offset ${offset} took ${formatDuration(tookMs)}`,
+        threshold: `3x recent average ${formatDuration(averageMs)}`,
+      });
+    }
+    if (!progress && (pages % 10 === 0 || offset === expected))
       log(`load-priority-habitats · read ${offset} of ${expected} patches (page ${pages})`);
   }
+  readTally?.finish(offset);
   return offset;
 }
 
@@ -415,6 +460,17 @@ async function main() {
   const fixtureMode = fileAt !== -1;
   const fixtureDir = fixtureMode ? args[fileAt + 1] : null;
 
+  // BUG-265: one logger for the run — the read tally lives
+  // in readPhiPages, the staging tally in flushStage, the
+  // failure line in the catch below.
+  const progress = createProgressLogger({ name: "load-priority-habitats" });
+  // BUG-265: the phase the failure line names — reading
+  // until the swap starts, filing after that.
+  let phase = "reading";
+  // The service's count, once known — the failure line's
+  // total, and the staging tally's.
+  let expected = null;
+
   const state = {
     read: 0,
     geoless: 0,
@@ -433,10 +489,16 @@ async function main() {
 
   let client = null;
   let stageBuffer = [];
+  // BUG-265: the staging tally — created once the total is
+  // known (the live count) or without one (the fixture, whose
+  // size is unknown until read), ticked per stage flush.
+  let stageTally = null;
+  const stageWatch = createBatchWatch();
   const flushStage = async () => {
     if (!client || stageBuffer.length === 0) return;
     const chunk = stageBuffer;
     stageBuffer = [];
+    const started = Date.now();
     const values = [];
     const params = [];
     chunk.forEach((row, i) => {
@@ -461,6 +523,15 @@ async function main() {
        VALUES ${values.join(",")}`,
       params,
     );
+    const { tookMs, averageMs, slow } = stageWatch.observe(Date.now() - started);
+    stageTally?.tick(state.filed);
+    if (slow) {
+      progress.warning({
+        what: "stage flush duration",
+        value: `flush of ${formatCount(chunk.length)} patches took ${formatDuration(tookMs)}`,
+        threshold: `3x recent average ${formatDuration(averageMs)}`,
+      });
+    }
   };
 
   // One patch: validate, dedupe by UID, tally against the
@@ -561,8 +632,14 @@ async function main() {
       );
     }
 
-    let expected = null;
     if (fixtureMode) {
+      // BUG-265: the fixture read has no count to read
+      // against, so its progress is a stage marker, a
+      // staging tally without a total, and a closing count.
+      progress.stage("reading the fixture patches");
+      // Filing mode only: verify-only stages nothing, so
+      // it earns no staging line.
+      if (client) stageTally = progress.tally({ label: "staging", every: 500, unit: "patches" });
       // The parts stream through streamPhiFixture (BUG-195);
       // the field contract judges the first feature before
       // any patch is processed, as it did when the parts
@@ -578,7 +655,9 @@ async function main() {
         }
         await processFeature(feature);
       });
+      progress.count({ label: "read", done: state.read, unit: "patches" });
     } else {
+      progress.stage("reading the Priority Habitat Inventory service");
       const layerUrl = `${NE_BASE}/${SERVICE}/FeatureServer/0`;
       const meta = await fetchJson(`${layerUrl}?f=json`, "the PHI layer metadata");
       const metaFields = (meta.fields ?? []).map((f) => f.name);
@@ -595,13 +674,24 @@ async function main() {
       expected = countBody.count;
       if (!Number.isInteger(expected) || expected <= 0)
         throw new Error("contract failure: the PHI count response carries no count");
+      // BUG-265: the staging tally, against the service's
+      // own count — the same total the read tally uses.
+      // Filing mode only: verify-only stages nothing, so
+      // it earns no staging line.
+      if (client)
+        stageTally = progress.tally({
+          label: "staging",
+          total: expected,
+          every: Math.max(1, Math.ceil(expected / 20)),
+          unit: "patches",
+        });
       await readPhiPages(
         layerUrl,
         expected,
         async (batch) => {
           for (const feature of batch) await processFeature(feature);
         },
-        { log: (line) => console.log(line) },
+        { progress },
       );
       if (state.read !== expected)
         throw new Error(
@@ -609,6 +699,8 @@ async function main() {
         );
     }
     await flushStage();
+    // BUG-265: the closing staging line.
+    stageTally?.finish(state.filed);
 
     if (state.invalid > 0)
       throw new Error(
@@ -638,6 +730,8 @@ async function main() {
       console.log(`${summary()} · golden homes OK (verify only, nothing filed)`);
       return;
     }
+    phase = "filing";
+    progress.stage(`filing ${formatCount(state.filed)} patches into planning_layers`);
     const staged = await client.query("SELECT count(*)::int AS n FROM planning_stage");
     if (staged.rows[0].n !== state.filed)
       throw new Error("the staged patch count does not match — rolling back");
@@ -654,6 +748,19 @@ async function main() {
     await client.query("COMMIT");
     console.log(`${summary()} · golden homes OK · ${Math.round((Date.now() - startedAt) / 1000)}s`);
   } catch (error) {
+    // BUG-265: the failure line names the phase and how far
+    // the read or filing got — the swap is still atomic, so
+    // a re-run starts over and the live layer is untouched.
+    progress.failed({
+      stage: phase,
+      filed: state.filed,
+      total: expected,
+      error,
+      resume:
+        phase === "filing"
+          ? "re-run from scratch (the swap rolled back, the live layer is untouched)"
+          : "re-run from scratch (nothing is filed until the swap)",
+    });
     if (client) await client.query("ROLLBACK").catch(() => {});
     throw error;
   } finally {

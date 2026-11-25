@@ -8,6 +8,7 @@ import {
   parseLauaCsv,
   structuralChecks,
 } from "../loaders/load-mobile.mjs";
+import { createProgressLogger } from "../loaders/progress.mjs";
 
 // Mobile loader (plan step M5.9). Fixture values are invented and
 // format-faithful (fixture README); Ofcom publishes mobile coverage
@@ -236,5 +237,58 @@ describe("the council join", () => {
     expect(stageAt).toBeGreaterThan(beginAt);
     expect(statements.some((s) => /UPDATE postcode_cache SET answers/.test(s))).toBe(true);
     expect(statements.at(-1)).toBe("COMMIT");
+  });
+});
+
+describe("progress — BUG-265", () => {
+  const collect = () => {
+    const lines: string[] = [];
+    return { lines, log: (line: string) => lines.push(line) };
+  };
+
+  it("logs the staged authorities with a real percentage and the filed answers", async () => {
+    const { lines, log } = collect();
+    const progress = createProgressLogger({ name: "load-mobile", log });
+    const statements: string[] = [];
+    const client = {
+      query: async (sql: string) => {
+        statements.push(sql);
+        if (/SELECT council, COUNT/.test(sql)) {
+          return { rows: [{ council: "Nowhere", n: 12 }], rowCount: 1 };
+        }
+        return { rows: [], rowCount: 42 };
+      },
+    };
+    const { rows } = await loadMobileRows({ fileDir: FIXTURE_DIR } as never);
+    const result = (await fileMobile(client as never, rows as never, { progress })) as {
+      updated: number;
+    };
+    expect(result.updated).toBe(42);
+    expect(lines.some((l) => /progress · stage 3\/3 authorities \(100%\)$/.test(l))).toBe(true);
+    expect(
+      lines.some((l) => /progress · file 42 answers · 1 council matched no authority$/.test(l)),
+    ).toBe(true);
+    expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
+    expect(statements.at(-1)).toBe("COMMIT");
+  });
+
+  it("names a filing failure with the resume point", async () => {
+    const { lines, log } = collect();
+    const progress = createProgressLogger({ name: "load-mobile", log });
+    const client = {
+      query: async (sql: string) => {
+        if (/INSERT INTO mobile_stage/.test(sql)) throw new Error("forced failure");
+        return { rows: [], rowCount: 0 };
+      },
+    };
+    const { rows } = await loadMobileRows({ fileDir: FIXTURE_DIR } as never);
+    await expect(fileMobile(client as never, rows as never, { progress })).rejects.toThrow(
+      "forced failure",
+    );
+    expect(
+      lines.some((l) =>
+        /failed · file · filed 0 · forced failure · resume from re-run from scratch/.test(l),
+      ),
+    ).toBe(true);
   });
 });

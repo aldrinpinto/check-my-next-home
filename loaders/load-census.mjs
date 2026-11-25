@@ -91,7 +91,12 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import yauzl from "yauzl";
-import { formatCount } from "./progress.mjs";
+import {
+  createBatchWatch,
+  createProgressLogger,
+  formatCount,
+  formatDuration,
+} from "./progress.mjs";
 
 const { Pool } = pg;
 
@@ -754,7 +759,13 @@ export function goldenChecks(rows, { full }) {
 // lesson; the column names are migration 0011's own, pinned
 // by the schema-contract tests — CI run 99's lesson).
 
-export async function fileCensus(pool, rows, retrievedAt) {
+/**
+ * @param {any} pool
+ * @param {any[]} rows
+ * @param {string} retrievedAt
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ */
+export async function fileCensus(pool, rows, retrievedAt, { progress = null } = {}) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -764,14 +775,39 @@ export async function fileCensus(pool, rows, retrievedAt) {
     ) ON COMMIT DROP`);
     const values = [];
     const params = [];
+    // BUG-265: the staging is the run's long loop — 15 flushes
+    // of 500 live — so a tally lands every 5 flushes against
+    // the flush count, a heartbeat every 10, and a flush that
+    // takes more than 3x the recent average earns a warning.
+    const flushesTotal = Math.max(1, Math.ceil(rows.length / 500));
+    const fileTally = progress?.tally({
+      label: "file",
+      total: flushesTotal,
+      every: 5,
+      unit: "flushes",
+    });
+    const fileWatch = createBatchWatch();
+    let flushes = 0;
     const flush = async () => {
       if (values.length === 0) return;
+      const started = Date.now();
       await client.query(
         `INSERT INTO census_stage (msoa_code, msoa_name, stats, source_name, source_date) VALUES ${values.join(", ")}`,
         params,
       );
       values.length = 0;
       params.length = 0;
+      const { tookMs, averageMs, slow } = fileWatch.observe(Date.now() - started);
+      flushes += 1;
+      fileTally?.tick(flushes);
+      progress?.heartbeat({ stage: "filing", done: flushes, total: flushesTotal });
+      if (slow) {
+        progress?.warning({
+          what: "filing flush duration",
+          value: `flush ${flushes} took ${formatDuration(tookMs)}`,
+          threshold: `3x recent average ${formatDuration(averageMs)}`,
+        });
+      }
     };
     for (const row of rows) {
       const base = params.length;
@@ -780,6 +816,7 @@ export async function fileCensus(pool, rows, retrievedAt) {
       if (values.length >= 500) await flush();
     }
     await flush();
+    fileTally?.finish(flushes);
     await client.query("DELETE FROM census_stats");
     await client.query(
       `INSERT INTO census_stats (msoa_code, msoa_name, stats, source_name, source_date, loaded_at)
@@ -788,6 +825,16 @@ export async function fileCensus(pool, rows, retrievedAt) {
     );
     await client.query("COMMIT");
   } catch (err) {
+    // BUG-265: the filing is one transaction — on a rollback
+    // the live table is untouched.
+    progress?.failed({
+      stage: "filing",
+      filed: 0,
+      total: rows.length,
+      error: err,
+      resume:
+        "re-run the loader from the start (the filing rolled back, the live table is untouched)",
+    });
     await client.query("ROLLBACK").catch(() => {});
     throw err;
   } finally {
@@ -871,16 +918,31 @@ export function readDatasetFromDir(dir, code) {
 // Pull + parse + assemble everything, from the live bulk
 // zips or from a local folder. Returns the filing rows and
 // the per-dataset timings the build's verify pull reports.
-export async function loadCensusRows(source) {
+/**
+ * @param {{ kind: string, dir?: string }} source
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ */
+export async function loadCensusRows(source, { progress = null } = {}) {
   const parsedByCode = new Map();
   const timings = [];
   for (const dataset of DATASETS) {
     const started = Date.now();
+    // BUG-265: each dataset is its own long step — the slowest
+    // single file took ~37 s at the first pull — so a stage
+    // marker opens it and a count closes it, against the
+    // contracted national area count.
+    progress?.stage(`reading ${dataset.code} — ${dataset.title}`);
     const text =
       source.kind === "dir"
         ? await readDatasetFromDir(source.dir, dataset.code)
         : await downloadDatasetCsv(dataset.code);
     parsedByCode.set(dataset.code, parseDatasetCsv(text, dataset));
+    progress?.count({
+      label: dataset.code,
+      done: parsedByCode.get(dataset.code).size,
+      total: MSOA_COUNT,
+      unit: "areas",
+    });
     timings.push({ code: dataset.code, ms: Date.now() - started });
   }
   return { rows: buildRows(parsedByCode), timings };
@@ -904,16 +966,33 @@ async function main() {
   const source = fixtureMode
     ? { kind: "dir", dir: fileArg ?? DEFAULT_FIXTURE_DIR }
     : { kind: "live" };
-  const { rows } = await loadCensusRows(source);
-  const golden = goldenChecks(rows, { full: !fixtureMode });
-  if (golden.length > 0) throw new Error(`golden checks failed: ${golden.join("; ")}`);
+  // BUG-265: one logger for the run — the per-dataset stages
+  // and counts, and the filing tally below.
+  const progress = createProgressLogger({ name: "load-census" });
+  let rows;
+  try {
+    ({ rows } = await loadCensusRows(source, { progress }));
+    const golden = goldenChecks(rows, { full: !fixtureMode });
+    if (golden.length > 0) throw new Error(`golden checks failed: ${golden.join("; ")}`);
+  } catch (err) {
+    // BUG-265: the read, the assembly and the golden checks
+    // all fail before anything is filed.
+    progress.failed({
+      stage: "read",
+      filed: 0,
+      error: err,
+      resume: "re-run the loader from the start (nothing is filed)",
+    });
+    throw err;
+  }
   if (verifyOnly) {
     console.log(`${summaryLine(rows, false)} — golden homes OK (verify-only: nothing filed)`);
     return;
   }
+  progress.stage(`filing ${formatCount(rows.length)} areas`);
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
   try {
-    await fileCensus(pool, rows, new Date().toISOString());
+    await fileCensus(pool, rows, new Date().toISOString(), { progress });
   } finally {
     await pool.end();
   }

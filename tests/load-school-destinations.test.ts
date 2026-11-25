@@ -19,6 +19,7 @@ import {
   parseCsvObjects,
   parsePublishedDate,
 } from "../loaders/load-school-destinations.mjs";
+import { createProgressLogger } from "../loaders/progress.mjs";
 
 // Guards the school destinations loader (plan step
 // M6.34, decisions D51 and D65): two DfE Explore
@@ -557,5 +558,86 @@ describe("school destinations loader — the filing transaction", () => {
       fileDestinations(client as never, filing() as never, { enforceJoin: false }),
     ).rejects.toThrow(/filed row count does not match/);
     expect(client.calls.at(-1)?.text).toBe("ROLLBACK");
+  });
+});
+
+// ------------------------------------------------------------------
+// Progress logging (BUG-265).
+// ------------------------------------------------------------------
+describe("progress logging (BUG-265)", () => {
+  const collect = () => {
+    const lines: string[] = [];
+    return {
+      lines,
+      progress: createProgressLogger({
+        name: "load-school-destinations",
+        log: (line: string) => lines.push(line),
+      }),
+    };
+  };
+
+  it("collectHeadline logs a closing read count with the headline rows kept", async () => {
+    const { lines, progress } = collect();
+    const collection = await collectHeadline(
+      parseCsvObjects(createReadStream(join(fixtureDir, "ks4.csv"))),
+      "ks4",
+      { progress },
+    );
+    expect(collection.filed.length).toBe(36);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/progress · read ks4 1,446 rows · 36 headline rows kept$/);
+    expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
+  });
+
+  it("fileDestinations logs a stage marker, the staging tally and the swap marker", async () => {
+    const { lines, progress } = collect();
+    const calls: { text: string; params?: unknown[] }[] = [];
+    const client = {
+      calls,
+      async query(text: string, params?: unknown[]) {
+        calls.push({ text, params });
+        if (text.includes("FROM school_destinations_stage") && text.includes("count(*)"))
+          return { rows: [{ n: 2 }] };
+        if (text.includes("FROM school_destinations") && text.includes("count(*)"))
+          return { rows: [{ n: 2 }] };
+        return { rows: [] };
+      },
+    };
+    const record = (urn: string, stage: "ks4" | "ks5") => ({
+      urn,
+      stage,
+      cohortCount: 100,
+      version: "Provisional",
+      state: "served",
+      shares: {
+        overall: { value: 80, low: false },
+        education: { value: 60, low: false },
+        higher_education: { value: null, low: false },
+        apprenticeships: { value: 5, low: false },
+        employment: { value: 15, low: false },
+      },
+    });
+    const filing = {
+      published: "2026-10-15",
+      collections: {
+        ks4: { cohortYear: "2023/24", version: "Provisional", filed: [record("900001", "ks4")] },
+        ks5: { cohortYear: "2023/24", version: "Provisional", filed: [record("900001", "ks5")] },
+      },
+    };
+    const result = await fileDestinations(client as never, filing as never, {
+      enforceJoin: false,
+      progress,
+    });
+    expect(result).toEqual({ filed: true });
+    expect(
+      lines.some((l) =>
+        /progress · staging 2 destination rows \(1 key stage 4, 1 16-19\)$/.test(l),
+      ),
+    ).toBe(true);
+    expect(lines.some((l) => /progress · staging 1\/1 chunks \(100%\)$/.test(l))).toBe(true);
+    expect(
+      lines.some((l) => /progress · swap started — replacing the filed destinations$/.test(l)),
+    ).toBe(true);
+    expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
   });
 });

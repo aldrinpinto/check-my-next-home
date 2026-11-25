@@ -35,6 +35,12 @@ import { pipeline } from "node:stream/promises";
 import { StringDecoder } from "node:string_decoder";
 import pg from "pg";
 import yauzl from "yauzl";
+import {
+  createBatchWatch,
+  createProgressLogger,
+  formatCount,
+  formatDuration,
+} from "./progress.mjs";
 
 const SOURCE_NAME = "ONS Postcode Directory";
 
@@ -396,6 +402,11 @@ async function main() {
   const fileFlag = args.indexOf("--file");
   const startedAt = Date.now();
 
+  // BUG-265: one logger for the run — the read count below,
+  // the staging tally in flush, the filing marker before
+  // the upsert, and the failure line in the catch.
+  const progress = createProgressLogger({ name: "load-postcodes" });
+
   let source;
   let edition;
   let fullMode;
@@ -450,8 +461,19 @@ async function main() {
   }
 
   let batch = [];
+  // BUG-265: the staging tally — one line per hundred
+  // flush batches (a thousand rows each), a heartbeat and
+  // a slow-flush warning. No total: the directory carries
+  // no row count of its own, so no percentage is ever
+  // shown. Filing mode only; verify-only stages nothing.
+  const stageTally = client
+    ? progress.tally({ label: "staging", every: 100, unit: "batches" })
+    : null;
+  const stageWatch = createBatchWatch();
+  let flushes = 0;
   const flush = async () => {
     if (!client || batch.length === 0) return;
+    const started = Date.now();
     const values = [];
     const tuples = batch.map((r, i) => {
       const base = i * 8;
@@ -465,9 +487,24 @@ async function main() {
     );
     counts.duplicates += batch.length - (result.rowCount ?? 0);
     batch = [];
+    flushes += 1;
+    const { tookMs, averageMs, slow } = stageWatch.observe(Date.now() - started);
+    stageTally?.tick(flushes, `${formatCount(counts.live)} live postcodes staged`);
+    progress.heartbeat({ stage: "staging", done: flushes });
+    if (slow) {
+      progress.warning({
+        what: "stage flush duration",
+        value: `flush ${flushes} took ${formatDuration(tookMs)}`,
+        threshold: `3x recent average ${formatDuration(averageMs)}`,
+      });
+    }
   };
 
+  // BUG-265: the phase the failure line names — reading
+  // until the upsert starts, filing after that.
+  let phase = "reading";
   try {
+    progress.stage("reading the ONSPD directory");
     await forEachEntry(
       source,
       (name) => /Data\/multi_csv\/.*\.csv$/.test(name),
@@ -499,12 +536,32 @@ async function main() {
             batch.push(record);
             if (batch.length >= 1000) await flush();
           }
-          if (counts.total % 500_000 === 0)
-            console.error(`  …${counts.total.toLocaleString("en-GB")} rows read`);
+          // BUG-265: the read count, every half-million rows
+          // — the same cadence the old stderr line kept, in
+          // the shared shape — and a heartbeat at the same
+          // cadence. No total, so no percentage: the
+          // directory's own row count is unknown until the
+          // read ends.
+          if (counts.total % 500_000 === 0) {
+            progress.count({ label: "read", done: counts.total, unit: "rows" });
+            progress.heartbeat({ stage: "reading", done: counts.total, every: 500_000 });
+          }
         }
       },
     );
     await flush();
+    // BUG-265: the closing read line — the total is known
+    // only now that the read has ended, and it is a count,
+    // never a percentage against a guessed total.
+    progress.count({
+      label: "read",
+      done: counts.total,
+      unit: "rows",
+      extra: `${formatCount(counts.live)} live postcodes`,
+    });
+    // BUG-265: the closing staging line — the tally's finish
+    // carries the live count, the fact the run cares about.
+    stageTally?.finish(flushes, `${formatCount(counts.live)} live postcodes staged`);
 
     // Sanity: the file must look like the real directory before
     // anything is filed.
@@ -522,6 +579,8 @@ async function main() {
     if (verifyOnly) {
       checkGolden((pc) => goldenFound.get(pc), "the parsed directory");
     } else {
+      phase = "filing";
+      progress.stage(`filing ${formatCount(counts.live)} live postcodes into postcode_cache`);
       await client.query(
         `INSERT INTO postcode_cache (postcode, latitude, longitude, council, ward, region, lsoa_code, msoa_code, source_name, source_date)
          SELECT postcode, latitude, longitude, council, ward, region, lsoa_code, msoa_code, $1, $2 FROM onspd_stage
@@ -552,6 +611,15 @@ async function main() {
       );
     }
   } catch (error) {
+    // BUG-265: the failure line names the phase and how far
+    // the read or filing got — the stage table is rebuilt
+    // each run, so a re-run starts over.
+    progress.failed({
+      stage: phase,
+      filed: counts.live,
+      error,
+      resume: "re-run from scratch (the stage table is rebuilt each run)",
+    });
     if (client) await client.query("ROLLBACK").catch(() => {});
     throw error;
   } finally {

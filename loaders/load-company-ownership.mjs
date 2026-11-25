@@ -174,7 +174,12 @@ import { Readable } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
 import yauzl from "yauzl";
 import pg from "pg";
-import { formatCount } from "./progress.mjs";
+import {
+  createBatchWatch,
+  createProgressLogger,
+  formatCount,
+  formatDuration,
+} from "./progress.mjs";
 
 const { Pool } = pg;
 
@@ -483,7 +488,13 @@ export function parseTitleRow(row, at, dataset) {
 // rows to onRow, and collect the rejects BY NAME plus the
 // golden-postcode rows. Pure over the stream — the tests
 // run this on the fixture files.
-export async function collectTitles(stream, dataset, onRow) {
+/**
+ * @param {any} stream
+ * @param {string} dataset
+ * @param {((row: any) => unknown) | null} onRow
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ */
+export async function collectTitles(stream, dataset, onRow, { progress = null } = {}) {
   const stats = {
     dataset,
     rows: 0,
@@ -495,6 +506,15 @@ export async function collectTitles(stream, dataset, onRow) {
     numbers: new Set(),
     goldenRows: [],
   };
+  // BUG-265: the validation pass streams the whole
+  // register — a line every 100,000 rows, a heartbeat
+  // every 500,000. No total is known until the file ends,
+  // so no percentage is shown.
+  const validateTally = progress?.tally({
+    label: `validate ${dataset}`,
+    every: 100000,
+    unit: "rows",
+  });
   let header = null;
   let at = null;
   let line = 0;
@@ -522,6 +542,8 @@ export async function collectTitles(stream, dataset, onRow) {
     }
     line += 1;
     stats.rows += 1;
+    validateTally?.tick(stats.rows);
+    progress?.heartbeat({ stage: `validate ${dataset}`, done: stats.rows, every: 500000 });
     if (row.length !== header.length) {
       stats.rejectCount += 1;
       if (stats.rejects.length < 50)
@@ -549,6 +571,7 @@ export async function collectTitles(stream, dataset, onRow) {
   }
   if (header === null) throw new Error(`the ${dataset.toUpperCase()} file is empty`);
   if (stats.rows === 0) throw new Error(`the ${dataset.toUpperCase()} file carries no data rows`);
+  validateTally?.finish(stats.rows);
   if (stats.rejectCount > Math.max(10, stats.rows * REJECT_BOUND))
     throw new Error(
       `the ${dataset.toUpperCase()} file rejected ${stats.rejectCount} of ${stats.rows} rows — beyond the malformed-row bound (a shape change, not noise)`,
@@ -620,11 +643,21 @@ export function parseSnapshotRow(row, at) {
 // UNWANTED company are not this loader's business; a
 // malformed wanted row fails loudly — a snapshot we
 // meant to file must never silently thin.
-export async function collectSnapshots(stream, wanted) {
+/**
+ * @param {any} stream
+ * @param {Set<string>} wanted
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ */
+export async function collectSnapshots(stream, wanted, { progress = null } = {}) {
   const found = new Map();
   let header = null;
   let at = null;
   let rows = 0;
+  // BUG-265: the snapshot scan streams the whole product —
+  // a line every 100,000 rows, a heartbeat every 500,000.
+  // No total is known until the file ends, so no
+  // percentage is shown.
+  const scanTally = progress?.tally({ label: "scan snapshots", every: 100000, unit: "rows" });
   for await (const row of parseCsv(stream)) {
     if (header === null) {
       header = row.map((h) => h.trim());
@@ -639,6 +672,8 @@ export async function collectSnapshots(stream, wanted) {
       continue;
     }
     rows += 1;
+    scanTally?.tick(rows);
+    progress?.heartbeat({ stage: "scan snapshots", done: rows, every: 500000 });
     if (row.length !== header.length) continue;
     const num = (row[at.CompanyNumber] ?? "").trim();
     if (!wanted.has(num)) continue;
@@ -650,6 +685,7 @@ export async function collectSnapshots(stream, wanted) {
     found.set(parsed.companyNumber, parsed);
   }
   if (header === null) throw new Error("the Companies House file is empty");
+  scanTally?.finish(rows);
   return { found, rows };
 }
 
@@ -799,9 +835,16 @@ export function goldenChecks({ ccodGolden, ocodGolden, snapshots, edition }) {
 // schema-contract tests). A failed pass files nothing
 // and the last good copy keeps serving.
 
-export async function fileTitles(pool, dataset, path, meta, retrievedAt) {
+export async function fileTitles(pool, dataset, path, meta, retrievedAt, { progress = null } = {}) {
   const client = await pool.connect();
   let filed = 0;
+  // BUG-265: the filing pass re-streams the register — a
+  // line every 10,000 filed rows, a heartbeat every
+  // 10,000, and a warning for a flush that takes more than
+  // 3x the recent average. The total is known only after
+  // the pass, so no percentage is shown.
+  const fileTally = progress?.tally({ label: `file ${dataset}`, every: 10000, unit: "rows" });
+  const flushWatch = createBatchWatch();
   try {
     await client.query("BEGIN");
     await client.query(`CREATE TEMP TABLE company_titles_stage (
@@ -816,6 +859,7 @@ export async function fileTitles(pool, dataset, path, meta, retrievedAt) {
     let batch = [];
     const flush = async () => {
       if (batch.length === 0) return;
+      const started = Date.now();
       const values = [];
       const params = [];
       for (const r of batch) {
@@ -851,12 +895,23 @@ export async function fileTitles(pool, dataset, path, meta, retrievedAt) {
       );
       filed += batch.length;
       batch = [];
+      const { tookMs, averageMs, slow } = flushWatch.observe(Date.now() - started);
+      fileTally?.tick(filed);
+      progress?.heartbeat({ stage: `file ${dataset}`, done: filed, every: 10000 });
+      if (slow && tookMs >= 1000) {
+        progress?.warning({
+          what: "file flush duration",
+          value: `flush took ${formatDuration(tookMs)}`,
+          threshold: `3x recent average ${formatDuration(averageMs)}`,
+        });
+      }
     };
     const stats = await collectTitles(openCsvStream(path), dataset, async (row) => {
       batch.push(row);
       if (batch.length >= 1000) await flush();
     });
     await flush();
+    fileTally?.finish(filed);
     if (filed !== stats.filed)
       throw new Error(
         `the ${dataset.toUpperCase()} filing pass filed ${filed} against ${stats.filed} validated rows`,
@@ -876,9 +931,25 @@ export async function fileTitles(pool, dataset, path, meta, retrievedAt) {
   }
 }
 
-export async function fileSnapshots(pool, path, wanted, meta, retrievedAt) {
+export async function fileSnapshots(
+  pool,
+  path,
+  wanted,
+  meta,
+  retrievedAt,
+  { progress = null } = {},
+) {
   const client = await pool.connect();
   let filed = 0;
+  // BUG-265: the wanted set's size is the genuine total —
+  // the tally carries a real percentage, a line every
+  // twentieth of the set.
+  const fileTally = progress?.tally({
+    label: "file snapshots",
+    total: wanted.size,
+    every: Math.max(1, Math.ceil(wanted.size / 20)),
+    unit: "snapshots",
+  });
   try {
     await client.query("BEGIN");
     await client.query(`CREATE TEMP TABLE company_snapshots_stage (
@@ -914,6 +985,8 @@ export async function fileSnapshots(pool, path, wanted, meta, retrievedAt) {
       );
       filed += batch.length;
       batch.length = 0;
+      fileTally?.tick(filed);
+      progress?.heartbeat({ stage: "file snapshots", done: filed, total: wanted.size });
     };
     // Stream the product once, staging only wanted rows.
     // (collectSnapshots is the validating pre-pass; this
@@ -935,6 +1008,7 @@ export async function fileSnapshots(pool, path, wanted, meta, retrievedAt) {
       if (batch.length >= 1000) await flush();
     }
     await flush();
+    fileTally?.finish(filed);
     await client.query(`DELETE FROM company_snapshots`);
     await client.query(
       `INSERT INTO company_snapshots (company_number, company_name, status, incorporation_date, sic_codes, registered_office, source_name, source_date, retrieved_at)
@@ -1104,33 +1178,49 @@ export async function acquireLiveSources() {
 
 // --- the run ------------------------------------------------------------
 
-export async function loadCompanyOwnership(source, { verifyOnly = false } = {}) {
+export async function loadCompanyOwnership(source, { verifyOnly = false, progress = null } = {}) {
   const retrievedAt = new Date().toISOString();
   // Pre-pass: validate both datasets fully, collecting
   // golden rows and the filed company numbers.
   const validated = {};
   const wanted = new Set();
-  for (const dataset of ["ccod", "ocod"]) {
-    const src = source[dataset];
-    if (!src) continue;
-    const stats = await collectTitles(openCsvStream(src.path), dataset, null);
-    validated[dataset] = { src, stats };
-    for (const n of stats.numbers) wanted.add(n);
-  }
-  if (Object.keys(validated).length === 0) throw new Error("no dataset sources resolved");
-
-  // Snapshots pre-pass: only the numbers the titles
-  // carry. No Companies House source → every snapshot is
-  // the named missing state, and the run says so.
+  // BUG-265: the validation pre-pass is the run's first
+  // long phase — a stage marker per dataset, and the
+  // failure line names it.
   let snapshotFound = new Map();
   let snapshotRows = 0;
-  if (source.companiesHouse) {
-    const { found, rows } = await collectSnapshots(
-      openCsvStream(source.companiesHouse.path),
-      wanted,
-    );
-    snapshotFound = found;
-    snapshotRows = rows;
+  try {
+    for (const dataset of ["ccod", "ocod"]) {
+      const src = source[dataset];
+      if (!src) continue;
+      progress?.stage(`validating ${dataset.toUpperCase()} titles`);
+      const stats = await collectTitles(openCsvStream(src.path), dataset, null, { progress });
+      validated[dataset] = { src, stats };
+      for (const n of stats.numbers) wanted.add(n);
+    }
+    if (Object.keys(validated).length === 0) throw new Error("no dataset sources resolved");
+
+    // Snapshots pre-pass: only the numbers the titles
+    // carry. No Companies House source → every snapshot is
+    // the named missing state, and the run says so.
+    if (source.companiesHouse) {
+      progress?.stage("validating Companies House snapshots");
+      const { found, rows } = await collectSnapshots(
+        openCsvStream(source.companiesHouse.path),
+        wanted,
+        { progress },
+      );
+      snapshotFound = found;
+      snapshotRows = rows;
+    }
+  } catch (err) {
+    progress?.failed({
+      stage: "validate",
+      filed: 0,
+      error: err,
+      resume: "re-run from scratch (nothing is filed until validation passes)",
+    });
+    throw err;
   }
 
   const ccodGolden = validated.ccod?.stats.goldenRows ?? [];
@@ -1168,7 +1258,12 @@ export async function loadCompanyOwnership(source, { verifyOnly = false } = {}) 
   if (verifyOnly) return { totals, filed: false };
 
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  // BUG-265: the filing pass is the run's second long
+  // phase — the failure line names it and counts what
+  // filed before the failure.
+  let filedTitles = 0;
   try {
+    progress?.stage("filing validated titles and snapshots");
     for (const dataset of ["ccod", "ocod"]) {
       const v = validated[dataset];
       if (!v) continue;
@@ -1181,7 +1276,9 @@ export async function loadCompanyOwnership(source, { verifyOnly = false } = {}) 
           sourceDate: v.src.edition ? `${v.src.edition}-01` : null,
         },
         retrievedAt,
+        { progress },
       );
+      filedTitles += filed;
       if (filed !== v.stats.filed)
         throw new Error(
           `${dataset.toUpperCase()}: filed ${filed} against ${v.stats.filed} validated rows`,
@@ -1197,7 +1294,9 @@ export async function loadCompanyOwnership(source, { verifyOnly = false } = {}) 
           sourceDate: source.companiesHouse.edition ? `${source.companiesHouse.edition}-01` : null,
         },
         retrievedAt,
+        { progress },
       );
+      filedTitles += filed;
       if (filed !== snapshotFound.size)
         throw new Error(
           `snapshots: filed ${filed} against ${snapshotFound.size} validated matches`,
@@ -1217,6 +1316,15 @@ export async function loadCompanyOwnership(source, { verifyOnly = false } = {}) 
         client.release();
       }
     }
+  } catch (err) {
+    progress?.failed({
+      stage: "file",
+      filed: filedTitles,
+      total: totals.ccod + totals.ocod + totals.snapshots,
+      error: err,
+      resume: "re-run from scratch (each filing pass is transactional)",
+    });
+    throw err;
   } finally {
     await pool.end();
   }
@@ -1254,6 +1362,9 @@ async function main() {
   const fileArg = fileIdx >= 0 ? args[fileIdx + 1] : null;
   const verifyOnly = args.includes("--verify-only");
   let liveDir = null;
+  // BUG-265: one logger for the run — the validation and
+  // filing lines inside loadCompanyOwnership.
+  const progress = createProgressLogger({ name: "load-company-ownership" });
   try {
     const source =
       fileArg !== null
@@ -1263,7 +1374,7 @@ async function main() {
             liveDir = s.dir;
             return s;
           })();
-    const { totals, filed } = await loadCompanyOwnership(source, { verifyOnly });
+    const { totals, filed } = await loadCompanyOwnership(source, { verifyOnly, progress });
     console.log(
       `${summaryLine(totals, filed)} — golden areas OK${verifyOnly ? " (verify-only: nothing filed)" : ""}`,
     );

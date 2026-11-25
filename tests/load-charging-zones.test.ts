@@ -15,6 +15,7 @@ import {
   schemeAreaKm2,
 } from "../loaders/load-charging-zones.mjs";
 import { probeCazRegister, probeScotlandLez } from "../loaders/canary.mjs";
+import { createProgressLogger } from "../loaders/progress.mjs";
 
 // Guards the charging zones loader (plan step M6.31,
 // decisions D50, D61 and D63): twelve schemes in the
@@ -442,5 +443,26 @@ describe("charging-zone register canaries (prep check 20)", () => {
     const outcome = await probeScotlandLez();
     expect(outcome.warning).toBe(true);
     expect(outcome.logLine).toContain("5");
+  });
+});
+
+// BUG-265: the filing carries the shared progress logger —
+// a stage marker naming the validation the swap runs.
+describe("progress logging (BUG-265)", () => {
+  it("files the fixture set with a filing stage line", async () => {
+    const rec = recordingClient();
+    const lines: string[] = [];
+    const progress = createProgressLogger({
+      name: "load-charging-zones",
+      log: (...args: unknown[]) => lines.push(args.join(" ")),
+    });
+    const filing = assembleFiling(processedFixtures());
+    const result = await fileChargingZones(rec.client as never, filing, { progress });
+    expect(result).toEqual({ filedCount: 11, pendingCount: 1 });
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(
+      /progress · filing 11 schemes — validity, area and disjointness checks, then the swap$/,
+    );
+    expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
   });
 });

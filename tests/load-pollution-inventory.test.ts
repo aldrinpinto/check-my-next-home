@@ -15,6 +15,7 @@ import {
   loadPollutionInventoryRows,
   parseSubstances,
 } from "../loaders/load-pollution-inventory.mjs";
+import { createProgressLogger } from "../loaders/progress.mjs";
 
 // Guards the Pollution Inventory loader (plan step M6.32,
 // decisions D50, D60 and D62): the Environment Agency's
@@ -354,5 +355,132 @@ describe("Pollution Inventory filing — the transaction", () => {
       "DELETE FROM industrial_sites",
       "COMMIT",
     ]);
+  });
+});
+
+// ------------------------------------------------------------------
+// Progress logging (BUG-265).
+// ------------------------------------------------------------------
+describe("progress logging (BUG-265)", () => {
+  const collect = () => {
+    const lines: string[] = [];
+    return {
+      lines,
+      progress: createProgressLogger({
+        name: "load-pollution-inventory",
+        log: (line: string) => lines.push(line),
+      }),
+    };
+  };
+  // A two-site, two-release filing: one stage chunk per
+  // table, so the staging tally closes at 2/2.
+  const filing = {
+    year: 2024,
+    sourceDate: "2025-11-20",
+    counts: { sites: 2, airSites: 2, airRows: 2, brtAir: 0 },
+    sites: [
+      {
+        permitId: "YP3432XR",
+        operator: "Stuart Davis Limited",
+        siteAddress: "Fairwinds Farm Poultry Unit Crouchmans Farm Road Ulting Essex",
+        sitePostcode: "CM9 6QS",
+        activityDescription: "INTENSIVE FARMING; > 40,000 POULTRY",
+        sector: "Agriculture",
+        subSector: "Intensive Farming",
+        easting: 579908,
+        northing: 208753,
+        latitude: 51.75726430590678,
+        longitude: 0.6095227688342956,
+      },
+      {
+        permitId: "SP3237JU",
+        operator: "Telehouse International Corporation of Europe Limited",
+        siteAddress: "Telehouse West, 12 Coriander Avenue, London",
+        sitePostcode: "E14 2AA",
+        activityDescription: "DATA CENTRE",
+        sector: "Energy",
+        subSector: "Data Centres",
+        easting: 538000,
+        northing: 180000,
+        latitude: 51.5,
+        longitude: 0.0,
+      },
+    ],
+    releases: [
+      {
+        permitId: "YP3432XR",
+        substance: "Ammonia",
+        thresholdKg: 1000,
+        quantityKg: 3128,
+        belowThreshold: false,
+      },
+      {
+        permitId: "SP3237JU",
+        substance: "Carbon dioxide",
+        thresholdKg: 100000,
+        quantityKg: null,
+        belowThreshold: true,
+      },
+    ],
+  };
+  const fakeClient = (filedSites: number, filedReleases: number, failOn?: string) => {
+    const calls: { text: string; params?: unknown[] }[] = [];
+    return {
+      calls,
+      async query(text: string, params?: unknown[]) {
+        calls.push({ text, params });
+        if (failOn && text.includes(failOn)) throw new Error(`forced failure: ${failOn}`);
+        if (text.includes("FROM industrial_site_releases") && text.includes("count(*)"))
+          return { rows: [{ n: filedReleases }] };
+        if (text.includes("FROM industrial_sites") && text.includes("count(*)"))
+          return { rows: [{ n: filedSites }] };
+        return { rows: [] };
+      },
+    };
+  };
+
+  it("logs a stage marker and closes the staging tally at 2/2 chunks", async () => {
+    const { lines, progress } = collect();
+    await filePollutionInventory(fakeClient(2, 2) as never, filing as never, { progress });
+    expect(lines.some((l) => /progress · staging 2 sites and 2 air releases$/.test(l))).toBe(true);
+    expect(lines.some((l) => /progress · staging 2\/2 chunks \(100%\)$/.test(l))).toBe(true);
+    expect(
+      lines.some((l) => /progress · swap started — replacing the filed vintage$/.test(l)),
+    ).toBe(true);
+    // The runner contract: no progress line starts with the
+    // loader name — every line starts with its timestamp.
+    expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
+  });
+
+  it("a short filing logs a failure line naming the filing stage and the staged rows", async () => {
+    const { lines, progress } = collect();
+    await expect(
+      filePollutionInventory(fakeClient(0, 2) as never, filing as never, { progress }),
+    ).rejects.toThrow(/the swap filed 0 sites/);
+    expect(
+      lines.some((l) =>
+        /failed · filing · filed 4 of 4 · the swap filed 0 sites and 2 releases, expected 2 and 2 · resume from re-run from scratch/.test(
+          l,
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it("a failed stage insert logs a failure line with zero rows staged", async () => {
+    const { lines, progress } = collect();
+    await expect(
+      filePollutionInventory(
+        fakeClient(2, 2, "INSERT INTO industrial_sites_stage") as never,
+        filing as never,
+        { progress },
+      ),
+    ).rejects.toThrow(/forced failure/);
+    expect(
+      lines.some((l) =>
+        /failed · filing · filed 0 of 4 · forced failure: INSERT INTO industrial_sites_stage · resume from re-run from scratch/.test(
+          l,
+        ),
+      ),
+    ).toBe(true);
   });
 });

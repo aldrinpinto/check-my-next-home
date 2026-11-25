@@ -88,6 +88,7 @@ import { fileURLToPath } from "node:url";
 import pg from "pg";
 import yauzl from "yauzl";
 import { csvRecords, discoverReleaseZips } from "./load-broadband.mjs";
+import { createProgressLogger, formatCount } from "./progress.mjs";
 
 const USER_AGENT = "CheckMyNextHome/1.0 (+https://checkmynexthome.co.uk)";
 
@@ -249,7 +250,28 @@ export function structuralChecks(rows, { full }) {
 
 const CHUNK = 500;
 
-export async function fileMobile(client, rows) {
+// BUG-265 / BUG-227: the unmatched-council count in the
+// filing line reads "1 council matched no authority" for
+// exactly one — never "1 councils ...".
+function unmatchedNote(n) {
+  return n === 1
+    ? "1 council matched no authority"
+    : `${formatCount(n)} councils matched no authority`;
+}
+
+/**
+ * @param {any} client
+ * @param {any[]} rows
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ */
+export async function fileMobile(client, rows, { progress = null } = {}) {
+  // BUG-265: the authority staging is one short loop and
+  // the postcode_cache UPDATE is a single statement, so
+  // this loader's lines are stage markers and counts — no
+  // batch loop exists to tally. The total is genuine: the
+  // release's own authority count.
+  progress?.stage(`filing ${formatCount(rows.length)} authorities...`);
+  let updated = 0;
   await client.query("BEGIN");
   try {
     await client.query(`CREATE TEMP TABLE mobile_stage (
@@ -269,11 +291,19 @@ export async function fileMobile(client, rows) {
         params,
       );
     }
-    const updated = await client.query(
+    progress?.count({
+      label: "stage",
+      done: rows.length,
+      total: rows.length,
+      unit: "authorities",
+    });
+    progress?.stage("updating postcode_cache answers from the staged authorities...");
+    const updatedRes = await client.query(
       `UPDATE postcode_cache SET answers = answers || jsonb_build_object('mobile', s.answer)
        FROM mobile_stage s
        WHERE lower(regexp_replace(trim(postcode_cache.council), '\\s+', ' ', 'g')) = s.laua_norm`,
     );
+    updated = updatedRes.rowCount ?? 0;
     // Any postcode still holding a mobile key that this release did
     // not just refresh belongs to an unmatched or renamed council —
     // clear it rather than serve a stale area figure as current.
@@ -290,9 +320,22 @@ export async function fileMobile(client, rows) {
              NOT IN (SELECT laua_norm FROM mobile_stage)
        GROUP BY council ORDER BY council`,
     );
+    progress?.count({
+      label: "file",
+      done: updated,
+      unit: "answers",
+      extra:
+        unmatched.rows.length === 0 ? "all councils matched" : unmatchedNote(unmatched.rows.length),
+    });
     await client.query("COMMIT");
-    return { updated: updated.rowCount ?? 0, unmatched: unmatched.rows };
+    return { updated, unmatched: unmatched.rows };
   } catch (err) {
+    progress?.failed({
+      stage: "file",
+      filed: updated,
+      error: err,
+      resume: "re-run from scratch (filing is one transaction; nothing was swapped)",
+    });
     await client.query("ROLLBACK").catch(() => {});
     throw err;
   }
@@ -356,9 +399,20 @@ export function releaseFromLauaName(name) {
   return { snapshot, snapshotLabel: snapshot, revision: `r${match[2]}` };
 }
 
-export async function loadMobileRows({ fileDir = null } = {}) {
+/**
+ * @param {{ fileDir?: string | null, progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ */
+export async function loadMobileRows({ fileDir = null, progress = null } = {}) {
   let release;
   let text;
+  // BUG-265: one stage line for the release read, one count
+  // for the parsed authorities (no total — the release's own
+  // authority count is what the parse establishes).
+  progress?.stage(
+    fileDir
+      ? `reading the mobile release from ${fileDir}...`
+      : "discovering the Connected Nations release...",
+  );
   if (fileDir) {
     release = JSON.parse(await readFile(join(fileDir, "release.json"), "utf8"));
     const names = (await readdir(fileDir)).filter((n) => LAUA_FILE.test(n));
@@ -378,7 +432,9 @@ export async function loadMobileRows({ fileDir = null } = {}) {
     release = releaseFromLauaName(entry.name.split("/").pop());
     text = entry.text;
   }
-  return { release, rows: parseLauaCsv(text, release) };
+  const rows = parseLauaCsv(text, release);
+  progress?.count({ label: "parse", done: rows.length, unit: "authorities" });
+  return { release, rows };
 }
 
 async function run() {
@@ -388,8 +444,19 @@ async function run() {
   const fileDir = fileAt >= 0 ? args[fileAt + 1] : null;
   if (fileAt >= 0 && !fileDir) throw new Error("--file needs a directory");
 
-  const { release, rows } = await loadMobileRows({ fileDir });
-  structuralChecks(rows, { full: !fileDir });
+  // BUG-265: the read phase logs while it works; a read
+  // failure names the read as the stage (filing failures
+  // carry their own line from fileMobile).
+  const progress = createProgressLogger({ name: "load-mobile" });
+  let release;
+  let rows;
+  try {
+    ({ release, rows } = await loadMobileRows({ fileDir, progress }));
+    structuralChecks(rows, { full: !fileDir });
+  } catch (err) {
+    progress.failed({ stage: "read", filed: 0, error: err, resume: "re-run (nothing filed)" });
+    throw err;
+  }
   const base = `load-mobile · Connected Nations ${release.snapshotLabel}${release.revision ? ` (${release.revision})` : ""} · ${rows.length.toLocaleString("en-GB")} authorities`;
   if (verifyOnly) {
     console.log(`${base} — structural checks OK (verify-only, nothing filed)`);
@@ -400,7 +467,7 @@ async function run() {
     const client = await pool.connect();
     let result;
     try {
-      result = await fileMobile(client, rows);
+      result = await fileMobile(client, rows, { progress });
     } finally {
       client.release();
     }

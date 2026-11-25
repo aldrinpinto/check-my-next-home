@@ -106,7 +106,12 @@ import { Readable } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
-import { formatCount } from "./progress.mjs";
+import {
+  createBatchWatch,
+  createProgressLogger,
+  formatCount,
+  formatDuration,
+} from "./progress.mjs";
 
 export const SOURCE_NAME = "Department for Education — Explore Education Statistics";
 const EES_BASE = "https://explore-education-statistics.service.gov.uk";
@@ -538,18 +543,46 @@ export function resolveGroup(records, urn) {
   );
 }
 
-export async function collectHeadline(rowObjects, stage) {
+/**
+ * @param {AsyncIterable<any> | Iterable<any>} rowObjects
+ * @param {string} stage
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ */
+export async function collectHeadline(rowObjects, stage, { progress = null } = {}) {
   const periods = new Set();
   const byPeriod = new Map(); // period -> Map<urn, record[]>
-  for await (const row of rowObjects) {
-    if (!isHeadline(row, stage)) continue;
-    const period = (row.time_period ?? "").trim();
-    periods.add(period);
-    if (!byPeriod.has(period)) byPeriod.set(period, new Map());
-    const record = rowToRecord(row, stage);
-    const urnMap = byPeriod.get(period);
-    if (!urnMap.has(record.urn)) urnMap.set(record.urn, []);
-    urnMap.get(record.urn).push(record);
+  // BUG-265: the parse streams ~127 MB of CSV and retains
+  // headline rows only — a count every hundred thousand
+  // rows and a heartbeat at the same cadence, so the log
+  // moves while the file streams. No total, so no
+  // percentage: the file carries no row count of its own.
+  let rowsSeen = 0;
+  try {
+    for await (const row of rowObjects) {
+      rowsSeen += 1;
+      if (rowsSeen % 100_000 === 0) {
+        progress?.count({ label: `read ${stage}`, done: rowsSeen, unit: "rows" });
+        progress?.heartbeat({ stage: `reading ${stage}`, done: rowsSeen, every: 100_000 });
+      }
+      if (!isHeadline(row, stage)) continue;
+      const period = (row.time_period ?? "").trim();
+      periods.add(period);
+      if (!byPeriod.has(period)) byPeriod.set(period, new Map());
+      const record = rowToRecord(row, stage);
+      const urnMap = byPeriod.get(period);
+      if (!urnMap.has(record.urn)) urnMap.set(record.urn, []);
+      urnMap.get(record.urn).push(record);
+    }
+  } catch (err) {
+    // BUG-265: the failure line names the reading stage —
+    // the parse failed before anything was filed.
+    progress?.failed({
+      stage: `reading ${stage}`,
+      filed: 0,
+      error: err,
+      resume: "re-run from scratch (nothing is filed until the swap)",
+    });
+    throw err;
   }
   if (periods.size === 0)
     throw new Error(`the ${stage} file carries no headline rows at all — refusing to file`);
@@ -567,6 +600,15 @@ export async function collectHeadline(rowObjects, stage) {
       `the ${stage} file's newest cohort carries versions {${[...versions].join(", ")}} — one cohort files at one version; refusing`,
     );
   filed.sort((a, b) => a.urn.localeCompare(b.urn));
+  // BUG-265: the closing read line — the row total is known
+  // only now that the file has streamed, and it is a count,
+  // never a percentage against a guessed total.
+  progress?.count({
+    label: `read ${stage}`,
+    done: rowsSeen,
+    unit: "rows",
+    extra: `${formatCount(filed.length)} headline rows kept`,
+  });
   return {
     stage,
     period: newestPeriod,
@@ -671,7 +713,26 @@ export function checkGolden(collections) {
 // supersede guards → delete → insert → count), so a failed run keeps the
 // last good filing and the two stages never serve half a release.
 // ---------------------------------------------------------------------------
-export async function fileDestinations(client, filing, { enforceJoin }) {
+/**
+ * @param {any} client
+ * @param {any} filing
+ * @param {{ enforceJoin: boolean, progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ */
+export async function fileDestinations(client, filing, { enforceJoin, progress = null } = {}) {
+  // BUG-265: the staging tally and the swap marker live
+  // here; the failure line is in the catch below.
+  const records = [...filing.collections.ks4.filed, ...filing.collections.ks5.filed];
+  const CHUNK = 200;
+  const chunks = Math.ceil(records.length / CHUNK);
+  const stageTally = progress?.tally({
+    label: "staging",
+    total: chunks,
+    every: Math.max(1, Math.ceil(chunks / 10)),
+    unit: "chunks",
+  });
+  const stageWatch = createBatchWatch();
+  let chunksDone = 0;
+  let stagedRows = 0;
   await client.query("BEGIN");
   try {
     // Edition detection: the edition already standing
@@ -728,9 +789,12 @@ export async function fileDestinations(client, filing, { enforceJoin }) {
         state text, source_name text, source_date date
       ) ON COMMIT DROP`);
     const CHUNK = 200;
-    const records = [...filing.collections.ks4.filed, ...filing.collections.ks5.filed];
+    progress?.stage(
+      `staging ${formatCount(records.length)} destination rows (${formatCount(filing.collections.ks4.filed.length)} key stage 4, ${formatCount(filing.collections.ks5.filed.length)} 16-19)`,
+    );
     for (let at = 0; at < records.length; at += CHUNK) {
       const chunk = records.slice(at, at + CHUNK);
+      const started = Date.now();
       const values = [];
       const params = [];
       chunk.forEach((record, i) => {
@@ -759,7 +823,20 @@ export async function fileDestinations(client, filing, { enforceJoin }) {
         `INSERT INTO school_destinations_stage (urn, stage, cohort_year, version, cohort_count, overall, overall_low, education, education_low, higher_education, higher_education_low, apprenticeships, apprenticeships_low, employment, employment_low, state, source_name, source_date) VALUES ${values.join(",")}`,
         params,
       );
+      stagedRows += chunk.length;
+      chunksDone += 1;
+      const { tookMs, averageMs, slow } = stageWatch.observe(Date.now() - started);
+      stageTally?.tick(chunksDone);
+      progress?.heartbeat({ stage: "staging", done: chunksDone, total: chunks });
+      if (slow) {
+        progress?.warning({
+          what: "stage chunk duration",
+          value: `chunk ${chunksDone} took ${formatDuration(tookMs)}`,
+          threshold: `3x recent average ${formatDuration(averageMs)}`,
+        });
+      }
     }
+    stageTally?.finish(chunksDone, `${formatCount(records.length)} rows staged`);
     const staged = await client.query("SELECT count(*)::int AS n FROM school_destinations_stage");
     if (staged.rows[0].n !== records.length)
       throw new Error("the staged row count does not match — rolling back");
@@ -780,6 +857,7 @@ export async function fileDestinations(client, filing, { enforceJoin }) {
           );
       }
     }
+    progress?.stage("swap started — replacing the filed destinations");
     await client.query("DELETE FROM school_destinations");
     await client.query(
       `INSERT INTO school_destinations (urn, stage, cohort_year, version, cohort_count, overall, overall_low, education, education_low, higher_education, higher_education_low, apprenticeships, apprenticeships_low, employment, employment_low, state, source_name, source_date)
@@ -791,6 +869,16 @@ export async function fileDestinations(client, filing, { enforceJoin }) {
     await client.query("COMMIT");
     return { filed: true };
   } catch (error) {
+    // BUG-265: the failure line names the filing stage and
+    // how many rows were staged — the swap rolled back, so
+    // the last good filing stands and a re-run starts over.
+    progress?.failed({
+      stage: "filing",
+      filed: stagedRows,
+      total: records.length,
+      error,
+      resume: "re-run from scratch (the swap rolled back, the last good filing stands)",
+    });
     await client.query("ROLLBACK").catch(() => {});
     throw error;
   }
@@ -815,6 +903,13 @@ async function main() {
 
   const discoveries = {};
   const streams = {};
+  // BUG-265: one logger for the run — a stage marker per
+  // file read, the read counts inside collectHeadline, the
+  // staging tally inside fileDestinations, and the checks
+  // failure line below. (Discovery itself fails fast and
+  // keeps the existing FAILED line; the read and filing
+  // failure lines live where the long work is.)
+  const progress = createProgressLogger({ name: "load-school-destinations" });
   if (fixtureMode) {
     for (const [key, publication] of Object.entries(PUBLICATIONS)) {
       const html = await readFile(join(fixtureDir, `catalogue-${key}.html`), "utf8");
@@ -837,16 +932,29 @@ async function main() {
 
   const collections = {};
   for (const key of Object.keys(PUBLICATIONS)) {
-    collections[key] = await collectHeadline(parseCsvObjects(streams[key]), key);
+    progress.stage(`reading the ${key === "ks4" ? "key stage 4" : "16-19"} destinations file`);
+    collections[key] = await collectHeadline(parseCsvObjects(streams[key]), key, { progress });
   }
-  checkReleaseAgreement(discoveries.ks4, discoveries.ks5, collections.ks4, collections.ks5);
-  for (const key of Object.keys(PUBLICATIONS))
-    checkStaleness(collections[key], discoveries[key].published);
-  if (!fixtureMode) {
-    checkBand(collections.ks4, KS4_SNAPSHOT);
-    checkBand(collections.ks5, KS5_SNAPSHOT);
+  try {
+    checkReleaseAgreement(discoveries.ks4, discoveries.ks5, collections.ks4, collections.ks5);
+    for (const key of Object.keys(PUBLICATIONS))
+      checkStaleness(collections[key], discoveries[key].published);
+    if (!fixtureMode) {
+      checkBand(collections.ks4, KS4_SNAPSHOT);
+      checkBand(collections.ks5, KS5_SNAPSHOT);
+    }
+    checkGolden([collections.ks4, collections.ks5]);
+  } catch (err) {
+    // BUG-265: the agreement, staleness, band and golden
+    // checks all fail before anything is filed.
+    progress.failed({
+      stage: "checks",
+      filed: 0,
+      error: err,
+      resume: "re-run from scratch (nothing is filed until the swap)",
+    });
+    throw err;
   }
-  checkGolden([collections.ks4, collections.ks5]);
 
   const filing = { collections, published: discoveries.ks4.published };
   const summary = () =>
@@ -868,7 +976,7 @@ async function main() {
   await client.connect();
   let result;
   try {
-    result = await fileDestinations(client, filing, { enforceJoin: !fixtureMode });
+    result = await fileDestinations(client, filing, { enforceJoin: !fixtureMode, progress });
   } finally {
     await client.end();
   }

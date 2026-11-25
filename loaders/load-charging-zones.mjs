@@ -106,7 +106,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import proj4 from "proj4";
-import { formatCount } from "./progress.mjs";
+import { createProgressLogger, formatCount } from "./progress.mjs";
 
 const USER_AGENT = "CheckMyNextHome/1.0 (+https://checkmynexthome.co.uk)";
 
@@ -567,8 +567,17 @@ export function checkGolden(filed) {
 // exist for the brain's completeness gate to misread.
 // ------------------------------------------------------------------
 
-export async function fileChargingZones(client, filing) {
+/**
+ * @param {any} client
+ * @param {{ filed: any[], pending: any[] }} filing
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ */
+export async function fileChargingZones(client, filing, { progress = null } = {}) {
   const { filed, pending } = filing;
+  // BUG-265: the filing is one transaction over the whole set.
+  progress?.stage(
+    `filing ${formatCount(filed.length)} schemes — validity, area and disjointness checks, then the swap`,
+  );
   await client.query("BEGIN");
   try {
     await client.query(
@@ -667,6 +676,16 @@ export async function fileChargingZones(client, filing) {
       throw new Error("the filed scheme count does not match — rolling back");
     await client.query("COMMIT");
   } catch (error) {
+    // BUG-265: the filing is one transaction — on a rollback
+    // the live set is untouched.
+    progress?.failed({
+      stage: "filing",
+      filed: 0,
+      total: filed.length,
+      error,
+      resume:
+        "re-run the loader from the start (the filing rolled back, the live set is untouched)",
+    });
     await client.query("ROLLBACK").catch(() => {});
     throw error;
   }
@@ -706,14 +725,39 @@ async function main() {
   const fixtureDir = fixtureMode ? args[fileAt + 1] : null;
 
   const processedByKey = new Map();
-  for (const scheme of SOURCED_SCHEMES) {
-    const body = fixtureMode
-      ? JSON.parse(await readFile(join(fixtureDir, `${scheme.key}.geojson`), "utf8"))
-      : await fetchSchemeBody(scheme);
-    processedByKey.set(scheme.key, processScheme(scheme, body));
+  // BUG-265: one logger for the run — the per-scheme tally
+  // and the filing stage below.
+  const progress = createProgressLogger({ name: "load-charging-zones" });
+  let filing;
+  try {
+    progress.stage("reading the 11 scheme boundaries");
+    const schemeTally = progress.tally({
+      label: "read",
+      total: SOURCED_SCHEMES.length,
+      every: 1,
+      unit: "schemes",
+    });
+    for (const scheme of SOURCED_SCHEMES) {
+      const body = fixtureMode
+        ? JSON.parse(await readFile(join(fixtureDir, `${scheme.key}.geojson`), "utf8"))
+        : await fetchSchemeBody(scheme);
+      processedByKey.set(scheme.key, processScheme(scheme, body));
+      schemeTally.tick(processedByKey.size);
+    }
+    schemeTally.finish(processedByKey.size);
+    filing = assembleFiling(processedByKey);
+    checkGolden(filing.filed);
+  } catch (error) {
+    // BUG-265: the read and the golden checks all fail before
+    // anything is filed.
+    progress.failed({
+      stage: "read",
+      filed: 0,
+      error,
+      resume: "re-run the loader from the start (nothing is filed)",
+    });
+    throw error;
   }
-  const filing = assembleFiling(processedByKey);
-  checkGolden(filing.filed);
 
   const pendingLine =
     filing.pending.length > 0
@@ -732,7 +776,7 @@ async function main() {
   const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
   await client.connect();
   try {
-    await fileChargingZones(client, filing);
+    await fileChargingZones(client, filing, { progress });
   } finally {
     await client.end();
   }

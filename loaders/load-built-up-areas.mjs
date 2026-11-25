@@ -55,7 +55,12 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { createGoldenSift } from "./flood-stream.mjs";
-import { formatCount } from "./progress.mjs";
+import {
+  createBatchWatch,
+  createProgressLogger,
+  formatCount,
+  formatDuration,
+} from "./progress.mjs";
 
 const SERVICE_URL =
   "https://services1.arcgis.com/ESMARspQHYMw9BZ9/arcgis/rest/services/main_ONS_BUA_2024_EW_V2/FeatureServer/0/query";
@@ -259,19 +264,43 @@ const SIFT_HOMES = { ...HOMES, BATH };
 // in a filing run) as it lands, offered to the golden sift,
 // and released. What the run retains is the totals and the
 // sifted candidates — never the dataset.
-async function driveRead(batches, onItems) {
+async function driveRead(batches, onItems, { progress = null } = {}) {
   const processor = createFeatureProcessor();
   const sift = createGoldenSift(SIFT_HOMES);
+  // BUG-265: the paged read is the run's long phase — 7,775
+  // areas live over four pages — so a tally lands every
+  // 2,000 features, a heartbeat halfway through the read,
+  // and a page that takes more than 3x the recent average
+  // earns a warning. No total: the service carries no count
+  // up front.
+  const readTally = progress?.tally({ label: "read", every: PAGE_SIZE, unit: "features" });
+  const readWatch = createBatchWatch();
+  let pageIndex = 0;
+  let read = 0;
   for await (const features of batches) {
+    const started = Date.now();
     const items = processor.processBatch(features);
     for (const item of items) sift.offer({ ...item, bbox: bboxOfNested(item.polygons) });
     if (onItems) await onItems(items);
+    const { tookMs, averageMs, slow } = readWatch.observe(Date.now() - started);
+    pageIndex += 1;
+    read += features.length;
+    readTally?.tick(read);
+    progress?.heartbeat({ stage: "read", done: read, every: 2 * PAGE_SIZE });
+    if (slow) {
+      progress?.warning({
+        what: "read page duration",
+        value: `page ${pageIndex} took ${formatDuration(tookMs)}`,
+        threshold: `3x recent average ${formatDuration(averageMs)}`,
+      });
+    }
   }
   const totals = processor.finish();
+  readTally?.finish(totals.total);
   return { ...totals, items: sift.items };
 }
 
-export async function readLive({ onItems = null } = {}) {
+export async function readLive({ onItems = null, progress = null } = {}) {
   async function* pages() {
     for (let offset = 0; ; offset += PAGE_SIZE) {
       const params = new URLSearchParams({
@@ -292,17 +321,21 @@ export async function readLive({ onItems = null } = {}) {
       if (batch.length < PAGE_SIZE) break;
     }
   }
-  return driveRead(pages(), onItems);
+  return driveRead(pages(), onItems, { progress });
 }
 
-export async function readFixture(fixtureDir, { onItems = null } = {}) {
+/**
+ * @param {string} fixtureDir
+ * @param {{ onItems?: ((items: any[]) => Promise<void>) | null, progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ */
+export async function readFixture(fixtureDir, { onItems = null, progress = null } = {}) {
   const text = await readFile(join(fixtureDir, "built-up-areas.geojson"), "utf8");
   const features = JSON.parse(text).features ?? [];
   async function* slices() {
     for (let at = 0; at < features.length; at += PAGE_SIZE)
       yield features.slice(at, at + PAGE_SIZE);
   }
-  return driveRead(slices(), onItems);
+  return driveRead(slices(), onItems, { progress });
 }
 
 // --- filing ------------------------------------------------------------
@@ -410,6 +443,9 @@ async function main() {
   const fileAt = args.indexOf("--file");
   const fixtureMode = fileAt !== -1;
   const fixtureDir = fixtureMode ? args[fileAt + 1] : null;
+  // BUG-265: one logger for the run — the read tally and the
+  // filing marker below.
+  const progress = createProgressLogger({ name: "load-built-up-areas" });
 
   // A filing run streams the read into the staging
   // transaction as it lands (BUG-195), so the database check
@@ -425,16 +461,25 @@ async function main() {
 
   let processed;
   try {
+    progress.stage("reading the built-up areas");
     const onItems = filer ? (items) => filer.stageItems(items) : null;
     processed = fixtureMode
-      ? await readFixture(fixtureDir, { onItems })
-      : await readLive({ onItems });
+      ? await readFixture(fixtureDir, { onItems, progress })
+      : await readLive({ onItems, progress });
     if (!fixtureMode && (processed.filed < 7000 || processed.filed > 8500))
       throw new Error(
         `sanity failure: ${processed.filed} built-up areas is outside the expected band for the December 2024 edition (7,775 as published)`,
       );
     checkGolden(processed.items);
   } catch (error) {
+    // BUG-265: the read, the sanity band and the golden checks
+    // all fail before anything is filed.
+    progress.failed({
+      stage: "read",
+      filed: 0,
+      error,
+      resume: "re-run the loader from the start (nothing is filed until the swap)",
+    });
     if (filer) await filer.abortFiling();
     throw error;
   }
@@ -451,7 +496,21 @@ async function main() {
 
   const activeFiler = filer;
   filer = null;
-  await activeFiler.finishFiling(processed.filed);
+  // BUG-265: the filing swap is the run's second long step.
+  progress.stage(`filing ${formatCount(processed.filed)} areas — counts and swap`);
+  try {
+    await activeFiler.finishFiling(processed.filed);
+  } catch (error) {
+    progress.failed({
+      stage: "filing",
+      filed: 0,
+      total: processed.filed,
+      error,
+      resume:
+        "re-run the loader from the start (the swap rolled back, the live layer is untouched)",
+    });
+    throw error;
+  }
   console.log(`${summary()} · golden homes OK · ${Math.round((Date.now() - startedAt) / 1000)}s`);
 }
 

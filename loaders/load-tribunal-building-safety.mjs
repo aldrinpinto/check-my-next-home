@@ -170,7 +170,12 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { inflateSync } from "node:zlib";
 import pg from "pg";
-import { formatCount } from "./progress.mjs";
+import {
+  createBatchWatch,
+  createProgressLogger,
+  formatCount,
+  formatDuration,
+} from "./progress.mjs";
 
 const { Pool } = pg;
 
@@ -675,7 +680,26 @@ function rowValues(row) {
 // corrected decision lands and a withdrawn one cannot
 // linger. Idempotent: a second pass files the same
 // rows to the same state.
-export async function fileCases(pool, rows) {
+/**
+ * @param {any} pool
+ * @param {any[]} rows
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ */
+export async function fileCases(pool, rows, { progress = null } = {}) {
+  // BUG-265: the staging is the filing phase — a tally over
+  // the stage chunks, a slow-chunk warning and a heartbeat,
+  // so the log moves while the cases file.
+  progress?.stage(`staging ${formatCount(rows.length)} tribunal cases`);
+  const chunks = Math.ceil(rows.length / 100);
+  const stageTally = progress?.tally({
+    label: "staging",
+    total: chunks,
+    every: Math.max(1, Math.ceil(chunks / 10)),
+    unit: "chunks",
+  });
+  const stageWatch = createBatchWatch();
+  let chunksDone = 0;
+  let stagedRows = 0;
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -684,6 +708,7 @@ export async function fileCases(pool, rows) {
     );
     for (let at = 0; at < rows.length; at += 100) {
       const chunk = rows.slice(at, at + 100);
+      const started = Date.now();
       const tuples = [];
       const values = [];
       chunk.forEach((row, index) => {
@@ -697,13 +722,37 @@ export async function fileCases(pool, rows) {
         `INSERT INTO stg_tribunal_building_safety_decisions (case_ref, decision_date, order_kind, property_text, postcode, building_key, is_single_flat, source_url, source_name, source_date) VALUES ${tuples.join(", ")}`,
         values,
       );
+      stagedRows += chunk.length;
+      chunksDone += 1;
+      const { tookMs, averageMs, slow } = stageWatch.observe(Date.now() - started);
+      stageTally?.tick(chunksDone);
+      progress?.heartbeat({ stage: "staging", done: chunksDone, total: chunks });
+      if (slow) {
+        progress?.warning({
+          what: "stage chunk duration",
+          value: `chunk ${chunksDone} took ${formatDuration(tookMs)}`,
+          threshold: `3x recent average ${formatDuration(averageMs)}`,
+        });
+      }
     }
+    stageTally?.finish(chunksDone, `${formatCount(rows.length)} cases staged`);
+    progress?.stage("swap started — replacing the filed tribunal cases");
     await client.query("DELETE FROM tribunal_building_safety_decisions");
     await client.query(
       `INSERT INTO tribunal_building_safety_decisions (case_ref, decision_date, order_kind, property_text, postcode, building_key, is_single_flat, source_url, source_name, source_date) SELECT case_ref, decision_date, order_kind, property_text, postcode, building_key, is_single_flat, source_url, source_name, source_date FROM stg_tribunal_building_safety_decisions`,
     );
     await client.query("COMMIT");
   } catch (error) {
+    // BUG-265: the failure line names the filing stage and
+    // how many cases were staged — the swap rolled back, so
+    // the live table is untouched and a re-run starts over.
+    progress?.failed({
+      stage: "filing",
+      filed: stagedRows,
+      total: rows.length,
+      error,
+      resume: "re-run from scratch (the swap rolled back, the live table is untouched)",
+    });
     await client.query("ROLLBACK");
     throw error;
   } finally {
@@ -760,9 +809,18 @@ async function fetchBuffer(url, what) {
 // they land, so neither the whole item list nor the whole
 // document set is ever held — the sink (the case builder)
 // keeps only per-case candidates.
-async function enumerateLive(onDocument) {
+//
+// BUG-265: the enumeration is the run's long phase — a
+// tally over the documents read, a heartbeat and a
+// slow-document warning. No total: the category total
+// counts every item in the category, not the selected
+// documents, so no percentage is ever shown.
+async function enumerateLive(onDocument, { progress = null } = {}) {
   let total = null;
   let enumerated = 0;
+  let documents = 0;
+  const readTally = progress?.tally({ label: "reading", every: 10, unit: "documents" });
+  const readWatch = createBatchWatch();
   for (let start = 0; total === null || start < total; start += 100) {
     const page = await fetchJson(
       `${SEARCH_API}?count=100&start=${start}&filter_tribunal_decision_category=building-safety-act`,
@@ -772,6 +830,7 @@ async function enumerateLive(onDocument) {
     const results = page.results ?? [];
     enumerated += results.length;
     for (const item of selectItems(results)) {
+      const started = Date.now();
       const doc = await fetchJson(`${CONTENT_API}${item.link}`, `the decision page ${item.link}`);
       const md = doc.details?.metadata ?? {};
       const pdf = (doc.details?.attachments ?? []).find(
@@ -785,13 +844,25 @@ async function enumerateLive(onDocument) {
       };
       if (!pdf) {
         onDocument({ item: base, parsed: null });
-        continue;
+      } else {
+        const buffer = await fetchBuffer(pdf.url, `the decision PDF for ${item.link}`);
+        onDocument({ item: base, parsed: parseDecisionHeader(extractPdfText(buffer)) });
       }
-      const buffer = await fetchBuffer(pdf.url, `the decision PDF for ${item.link}`);
-      onDocument({ item: base, parsed: parseDecisionHeader(extractPdfText(buffer)) });
+      documents += 1;
+      const { tookMs, averageMs, slow } = readWatch.observe(Date.now() - started);
+      readTally?.tick(documents);
+      progress?.heartbeat({ stage: "reading", done: documents });
+      if (slow) {
+        progress?.warning({
+          what: "decision document duration",
+          value: `document ${item.link} took ${formatDuration(tookMs)}`,
+          threshold: `3x recent average ${formatDuration(averageMs)}`,
+        });
+      }
     }
     if (results.length === 0) break;
   }
+  readTally?.finish(documents);
   return { categoryTotal: total, enumerated };
 }
 
@@ -806,9 +877,21 @@ export async function readFixturePdf(dir, name) {
   }
 }
 
-async function enumerateFixture(dir, onDocument) {
+async function enumerateFixture(dir, onDocument, { progress = null } = {}) {
   const manifest = JSON.parse(await readFile(join(dir, "manifest.json"), "utf8"));
+  // BUG-265: the fixture set is small and its size is
+  // known — a tally over the manifest's own count, so the
+  // log carries a real percentage.
+  const readTally = progress?.tally({
+    label: "reading",
+    total: manifest.items.length,
+    every: Math.max(1, Math.ceil(manifest.items.length / 10)),
+    unit: "documents",
+  });
+  const readWatch = createBatchWatch();
+  let documents = 0;
   for (const entry of manifest.items) {
+    const started = Date.now();
     const item = {
       link: entry.link,
       title: entry.title,
@@ -817,7 +900,23 @@ async function enumerateFixture(dir, onDocument) {
     };
     const buffer = await readFixturePdf(dir, entry.pdf);
     onDocument({ item, parsed: parseDecisionHeader(extractPdfText(buffer)) });
+    documents += 1;
+    const { tookMs, averageMs, slow } = readWatch.observe(Date.now() - started);
+    readTally?.tick(documents);
+    progress?.heartbeat({
+      stage: "reading",
+      done: documents,
+      total: manifest.items.length,
+    });
+    if (slow) {
+      progress?.warning({
+        what: "decision document duration",
+        value: `document ${entry.link} took ${formatDuration(tookMs)}`,
+        threshold: `3x recent average ${formatDuration(averageMs)}`,
+      });
+    }
   }
+  readTally?.finish(documents);
   return { categoryTotal: null, enumerated: manifest.items.length };
 }
 
@@ -833,16 +932,41 @@ async function main() {
   };
   if (fileAt !== -1 && !args.fileDir) throw new Error("--file needs a directory");
 
+  // BUG-265: one logger for the run — the reading tally
+  // lives in the enumeration, the staging tally in
+  // fileCases; the enumeration failure line is here.
+  const progress = createProgressLogger({ name: "load-tribunal-building-safety" });
+  progress.stage("enumerating the published building-safety decisions");
+
   const builder = createCaseBuilder();
-  const { categoryTotal, enumerated } = args.fileDir
-    ? await enumerateFixture(args.fileDir, (doc) => builder.addDocument(doc))
-    : await enumerateLive((doc) => builder.addDocument(doc));
-  const { rows, failures, unfiledCases, metadataDateFallbacks, noPostcode } = builder.finish();
-  if (unfiledCases.length > 0)
-    throw new Error(
-      `cases whose documents parsed but yielded no property or no date — nothing filed: ${unfiledCases.join(", ")}`,
-    );
-  goldenChecks(rows);
+  let categoryTotal;
+  let enumerated;
+  let rows;
+  let failures;
+  let unfiledCases;
+  let metadataDateFallbacks;
+  let noPostcode;
+  try {
+    ({ categoryTotal, enumerated } = args.fileDir
+      ? await enumerateFixture(args.fileDir, (doc) => builder.addDocument(doc), { progress })
+      : await enumerateLive((doc) => builder.addDocument(doc), { progress }));
+    ({ rows, failures, unfiledCases, metadataDateFallbacks, noPostcode } = builder.finish());
+    if (unfiledCases.length > 0)
+      throw new Error(
+        `cases whose documents parsed but yielded no property or no date — nothing filed: ${unfiledCases.join(", ")}`,
+      );
+    goldenChecks(rows);
+  } catch (err) {
+    // BUG-265: the enumeration, the case build and the
+    // golden check all fail before anything is filed.
+    progress.failed({
+      stage: "enumeration",
+      filed: 0,
+      error: err,
+      resume: "re-run from scratch (nothing is filed until the swap)",
+    });
+    throw err;
+  }
 
   const counts = {
     ro: rows.filter((r) => r.orderKind === "remediation-order").length,
@@ -875,7 +999,7 @@ async function main() {
   const pool = new Pool({ connectionString });
   try {
     const previous = args.fileDir ? null : await previousFailureCount(pool);
-    await fileCases(pool, rows);
+    await fileCases(pool, rows, { progress });
     console.log(`${summary}.`);
     if (previous !== null && failures.length > previous)
       throw new Error(

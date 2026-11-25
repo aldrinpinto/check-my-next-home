@@ -351,3 +351,19 @@ describe("canary design (gap item 9)", () => {
     expect(probe).not.toContain("naptan.app.dft.gov.uk");
   });
 });
+
+// ------------------------------------------------------------------
+// Progress logging (BUG-265): processFiles is not exported,
+// so the wiring is pinned in its source — the end-to-end
+// lines are pinned in tests/load-progress-bug265-d.test.ts.
+// ------------------------------------------------------------------
+describe("progress logging (BUG-265)", () => {
+  it("creates one shared logger and logs the read, the staging tally and failures", () => {
+    expect(loader).toContain('createProgressLogger({ name: "load-transport" })');
+    expect(loader).toContain('progress.stage("reading the NaPTAN file")');
+    expect(loader).toContain('progress?.count({ label: "read", done: stats.total, unit: "rows" })');
+    expect(loader).toContain('label: "staging",');
+    expect(loader).toContain("swap started — replacing the filed transport stops");
+    expect(loader).toContain("progress.failed({");
+  });
+});
