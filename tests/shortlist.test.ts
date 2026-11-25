@@ -1122,27 +1122,33 @@ describe("the sample-parity forms (views 14–16)", () => {
     expect(css).not.toMatch(/\.shortlist-search-form input/);
   });
 
-  it("runs the three-across cards at the frame's full width", () => {
-    const three = css.match(/\.shortlist-cards--three \{[^}]*\}/)?.[0] ?? "";
-    expect(three).toContain("max-width: none");
-    // The one/two-across column cap stands.
-    const base = css.match(/\.shortlist-cards \{[^}]*\}/)?.[0] ?? "";
-    expect(base).toContain("max-width: 820px");
+  it("BUG-304: the tiles row is gone — no cards grid, no card rules anywhere", () => {
+    // The founder's ruling, 25 Nov 2026: the tiles row
+    // goes away and each home's card content moves into
+    // its column's header cell, so the page has one grid
+    // and alignment holds by construction.
+    expect(island).not.toContain("shortlist-card");
+    expect(css).not.toContain(".shortlist-card");
   });
 
-  it("blanks the compare table's first header cell and drops the header sale line", () => {
+  it("BUG-304: the header cell is the card — blank first cell, sale line and Remove in each column's header", () => {
     expect(island).toContain('<span className="visually-hidden">Check</span>');
-    expect(island).not.toContain("compare-table__sale");
-    expect(css).not.toContain(".compare-table__sale");
+    // The header carries the card's sale line and Remove:
+    // the sale line's class stands in the island (the
+    // shared CompareColumnHead) and its dress in the
+    // stylesheet.
+    expect(island).toContain("compare-table__sale");
+    expect(island).toContain("CompareColumnHead");
+    const sale = css.match(/\.compare-table__sale \{[^}]*\}/)?.[0] ?? "";
+    expect(sale).toContain("font-weight: 600");
     // Item 45 (parity fix batch): the foot row opens with
     // a row header carrying the screen-reader-only
     // "Reports" label, as the sample's table does.
     expect(island).toContain('<th scope="row">');
     expect(island).toContain('<span className="visually-hidden">Reports</span>');
-    // The cards keep their sale line; item 44 drops the
-    // phone (stacked) form's extra sale line — the wide
-    // table already omitted it.
-    expect(island).toContain("shortlist-card__sale");
-    expect(island).not.toContain("shortlist-compare__sale");
+    // The cards are gone with the tiles row, and the
+    // stacked blocks carry the sale line in kind.
+    expect(island).not.toContain("shortlist-card__sale");
+    expect(island).toContain("shortlist-compare__sale");
   });
 });

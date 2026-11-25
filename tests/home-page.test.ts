@@ -192,7 +192,7 @@ describe("home page copy (lib/home.ts)", () => {
       "Shops, food and drink, gyms, libraries, places of worship and places to visit.",
       "What crimes were recorded in the area over the past year, and what kind they were — the counts, month by month.",
       "The make-up of your new neighbourhood — ages, households and ethnicities.",
-      "Planning applications and major schemes nearby.",
+      "Planning constraints nearby — and a link to the council's register for applications.",
       "Rivers, sea and surface water — plus any live flood warnings today.",
       "Council tax, energy rating, broadband and the monthly cost of owning the home.",
       "Recorded sale prices for this home and its street — never a made-up valuation.",
@@ -216,10 +216,10 @@ describe("home page copy (lib/home.ts)", () => {
     ]);
   });
 
-  it("pins the report band verbatim (founder follow-on — the sample's band; line replaced by BUG-166, founder's approved text verbatim)", () => {
+  it("pins the report band verbatim (founder follow-on — the sample's band; line replaced by BUG-166, founder's approved text verbatim; BUG-296, 25 Nov 2026: 'planning applications by name' → 'planning constraints by name')", () => {
     expect(HOME_REPORT_BAND_HEADING).toBe("The detailed report");
     expect(HOME_REPORT_BAND_LINE).toBe(
-      "Listings show you the house. The detailed report shows you everything around it: full school lists, crime month by month, flood maps, sold prices nearby, the running costs, planning applications by name, and the neighbourhood itself — who lives there, the age mix, who owns and who rents. Plus the questions to ask the seller before you commit. All from named official sources, all dated — facts, not scores.",
+      "Listings show you the house. The detailed report shows you everything around it: full school lists, crime month by month, flood maps, sold prices nearby, the running costs, planning constraints by name, and the neighbourhood itself — who lives there, the age mix, who owns and who rents. Plus the questions to ask the seller before you commit. All from named official sources, all dated — facts, not scores.",
     );
     expect(HOME_REPORT_BAND_CTA).toBe("See a sample report");
     expect(HOME_REPORT_BAND_PRICE).toBe("£4.99");

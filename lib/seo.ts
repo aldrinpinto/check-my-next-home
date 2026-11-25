@@ -241,7 +241,9 @@ export const PAGE_SEO = {
   // page ever stood behind it. The standing wording the old
   // pair described lives on the How we check page and in the
   // About page's own copy — the pair's subject did not vanish,
-  // its path was corrected.
+  // its path was corrected. M10.4 (25 Nov 2026) stands
+  // /about-the-data up as its own page, with its own pair
+  // below; /about keeps its pair.
   "/about": {
     title: "About | Check My Next Home",
     description:
@@ -278,6 +280,28 @@ export const PAGE_SEO = {
     title: "Terms of service | Check My Next Home",
     description:
       "The terms of service for Check My Next Home — what the detailed report is and is not, how it is bought and delivered, and the refund rules.",
+  },
+  // M10.4 — the Refunds page's locked pair, in the
+  // Privacy pair's form. No figure in the pair (D38's
+  // snippet-risk lock): the price is named on the page,
+  // never in a title or a meta. No gift word either (D21:
+  // the gift is unmentionable in public wording — the
+  // gift rule stands on the page itself, never in the
+  // snippet).
+  "/refunds": {
+    title: "Refunds | Check My Next Home",
+    description:
+      "The refund rules for Check My Next Home — when a report is refunded, and what to do if a delivered report falls short.",
+  },
+  // M10.4 — the About the data page's locked pair. The
+  // path was once locked at M6.10 and superseded by
+  // /about before any page stood behind it; M10.4
+  // stands the page up as its own page, so the pair
+  // returns here.
+  "/about-the-data": {
+    title: "About the data | Check My Next Home",
+    description:
+      "About the data behind Check My Next Home — where every figure comes from, what licence it sits under, and how fresh it is.",
   },
 } as const;
 

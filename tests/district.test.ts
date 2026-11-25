@@ -1257,6 +1257,14 @@ describe("district page — the summary pills strip (BUG-167)", () => {
     expect(pillsAt).toBeGreaterThan(bridgeAt);
     expect(disclaimersAt).toBeGreaterThan(pillsAt);
   });
+
+  it("the district page carries no check-another box (founder addition, 25 Nov 2026): the line names 'this home', and the bridge already searches", async () => {
+    const bundle = await servedBundle();
+    const view = buildDistrictResultsView(bundle);
+    const html = renderToStaticMarkup(createElement(ResultsPage, { view }));
+    expect(html).not.toContain("Done with this home? Check another one");
+    expect(html).not.toContain("report-check-again");
+  });
 });
 
 describe("district page — BUG-211 straight-line wording", () => {

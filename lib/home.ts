@@ -217,7 +217,7 @@ export const HOME_CHECK_TILES = [
   },
   {
     title: "Plans that could change the street",
-    line: "Planning applications and major schemes nearby.",
+    line: "Planning constraints nearby — and a link to the council's register for applications.",
     href: "/check/planning-constraints",
   },
   {
@@ -268,9 +268,13 @@ export const HOME_HOW_IT_WORKS_STEPS = [
 // BUG-166 (founder ruling, 22 Nov 2026): the band line is
 // the founder's approved replacement text, verbatim — the
 // Final Sample Master is conformed to it separately.
+// BUG-296 (founder ruling, 25 Nov 2026): "planning
+// applications by name" becomes "planning constraints by
+// name" — the check lists constraints and links out for
+// applications; the Master is conformed in the same stack.
 export const HOME_REPORT_BAND_HEADING = "The detailed report";
 export const HOME_REPORT_BAND_LINE =
-  "Listings show you the house. The detailed report shows you everything around it: full school lists, crime month by month, flood maps, sold prices nearby, the running costs, planning applications by name, and the neighbourhood itself — who lives there, the age mix, who owns and who rents. Plus the questions to ask the seller before you commit. All from named official sources, all dated — facts, not scores.";
+  "Listings show you the house. The detailed report shows you everything around it: full school lists, crime month by month, flood maps, sold prices nearby, the running costs, planning constraints by name, and the neighbourhood itself — who lives there, the age mix, who owns and who rents. Plus the questions to ask the seller before you commit. All from named official sources, all dated — facts, not scores.";
 export const HOME_REPORT_BAND_CTA = "See a sample report";
 export const HOME_REPORT_BAND_PRICE = "£4.99";
 export const HOME_REPORT_BAND_PRICE_LINES = ["per home · one-off", "no subscription"] as const;

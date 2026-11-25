@@ -9,7 +9,16 @@ import ReportPage from "./ReportPage";
 export const SAMPLE_BANNER_LINE =
   "This is a sample report, so you can see exactly what a detailed report looks like before you ever pay for one. The home in this sample is an invented example — its facts are drawn from real checks of real homes, combined section by section and anonymised — and the document below follows the format every detailed report follows.";
 
-export default function SampleReportDocument({ view }: { view: ReportView }) {
+export default function SampleReportDocument({
+  view,
+  // Passed through to ReportPage: the print document
+  // (SampleReportPrintDocument) renders for the PDF, so
+  // the check-another box is left out there.
+  forPdf = false,
+}: {
+  view: ReportView;
+  forPdf?: boolean;
+}) {
   return (
     <div className="sample-report-doc">
       <div className="watermark" aria-hidden="true">
@@ -26,7 +35,7 @@ export default function SampleReportDocument({ view }: { view: ReportView }) {
         <span className="sample-pill">SAMPLE</span>
         <p>{SAMPLE_BANNER_LINE}</p>
       </div>
-      <ReportPage view={view} />
+      <ReportPage view={view} forPdf={forPdf} />
     </div>
   );
 }

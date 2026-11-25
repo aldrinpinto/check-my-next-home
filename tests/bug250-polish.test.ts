@@ -79,8 +79,15 @@ describe("BUG-250 polish — CSS pins (app/globals.css)", () => {
     expect(css).toContain("text-overflow: ellipsis;");
   });
 
-  it("item 18: the shortlist card closes tighter under Remove", () => {
-    expect(css).toContain("padding: 1.4rem 1.5rem 0.9rem;");
+  it("item 18 (BUG-304): the shortlist header closes tighter under Remove", () => {
+    // BUG-304 (founder ruling, 25 Nov 2026): the tiles row
+    // is gone — the card's tight close is retired with it.
+    // The header cell carries the same close: the Remove
+    // button sits 0.7rem under the sale line, and the
+    // comparison keeps its 1.8rem gap above.
+    expect(css).not.toContain(".shortlist-card {");
+    const actions = css.match(/\.compare-table__actions \{[^}]*\}/)?.[0] ?? "";
+    expect(actions).toContain("margin: 0.7rem 0 0;");
     expect(css).toContain("margin-top: 1.8rem;");
   });
 

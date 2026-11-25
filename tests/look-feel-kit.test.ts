@@ -358,6 +358,10 @@ describe("header and footer shells", () => {
       "Contact",
       "Privacy policy",
       "Terms of service",
+      // M10.4 (25 Nov 2026): Refunds and About the data
+      // join the Legal group with the step's two new pages.
+      "Refunds",
+      "About the data",
     ];
     lastIndex = -1;
     for (const label of labels) {
@@ -372,6 +376,10 @@ describe("header and footer shells", () => {
     expect(footer).toContain('href="/contact"');
     expect(footer).toContain('href="/privacy"');
     expect(footer).toContain('href="/terms"');
+    // M10.4 (25 Nov 2026): the step's two new pages join
+    // the Legal group after Terms of service.
+    expect(footer).toContain('href="/refunds"');
+    expect(footer).toContain('href="/about-the-data"');
     expect(footer.match(/site-footer__group"/g)).toHaveLength(4);
     expect(footer.match(/site-footer__group-heading"/g)).toHaveLength(4);
     expect(footer.match(/site-footer__group-links"/g)).toHaveLength(4);
@@ -743,9 +751,13 @@ describe("kitchen-sink page", () => {
     // re-locked at /about); 25 since 18 Nov 2026, when the
     // /guides hub's pair joined under the founder's footer
     // ruling; 26 since M9.4, when the /terms pair joined
-    // with the Terms page. The kitchen sink stays outside
-    // the set, declared non-indexable.
-    expect(Object.keys(PAGE_SEO)).toHaveLength(27);
+    // with the Terms page; 27 since M10.4 (25 Nov 2026),
+    // when the /refunds pair joined with the Refunds page;
+    // 28 since M10.4, when the /about-the-data pair joined
+    // with the About the data page — the count is the
+    // pairs plus the home pair. The kitchen sink stays
+    // outside the set, declared non-indexable.
+    expect(Object.keys(PAGE_SEO)).toHaveLength(29);
     expect(PAGE_SEO["/"].title).toBe(`Check My Next Home — ${SITE_TAGLINE}`);
   });
 });

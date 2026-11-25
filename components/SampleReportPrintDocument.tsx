@@ -23,7 +23,10 @@ export default function SampleReportPrintDocument({ view }: { view: ReportView }
         <p className="rpt-addr">{cover.addressLine}</p>
         <p className="rpt-cover-date">{cover.exampleLine}</p>
       </div>
-      <SampleReportDocument view={view} />
+      {/* forPdf: the sample PDF's print composition — the
+          check-another box is web-only and stays out of
+          the printed document. */}
+      <SampleReportDocument view={view} forPdf />
     </div>
   );
 }

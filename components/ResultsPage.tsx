@@ -832,6 +832,18 @@ export default function ResultsPage({
           </ul>
         </nav>
       )}
+      {/* Check another home (founder addition, 25 Nov
+          2026): the free page's closing box — the
+          founder's line and the one postcode box, wired
+          as the landing page wires it. Home views only:
+          the line names "this home", and the district
+          view already carries the bridge's search. */}
+      {!district && (
+        <section className="report-door__card report-check-again" aria-label="Check another home">
+          <h2>Done with this home? Check another one</h2>
+          <PostcodeBox bare />
+        </section>
+      )}
       {district && (
         // WA-11: the district page closes with Sample
         // 28's boxed disclaimers panel — the same closing

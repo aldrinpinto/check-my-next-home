@@ -105,7 +105,10 @@ test.describe("journey counting — regression", () => {
         await page.waitForURL("**/report**");
 
         await page.goto("/shortlist");
-        await expect(page.locator(".shortlist-card")).toHaveCount(1);
+        // BUG-304 (founder ruling, 25 Nov 2026): the tiles
+        // row is gone — the saved home stands as the
+        // compare table's header column.
+        await expect(page.locator(".compare-table thead th[data-rung]")).toHaveCount(1);
 
         // The posts this browser made: each pinned event
         // of the journey exactly once (page_view fires per

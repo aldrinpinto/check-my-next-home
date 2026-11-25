@@ -8,6 +8,7 @@ import type {
   ReportRichLine,
   ReportView,
 } from "../lib/report";
+import PostcodeBox from "./PostcodeBox";
 
 // A composed line's segments: bold runs print as
 // <strong>, link runs as links (with their printed URL
@@ -763,7 +764,18 @@ function MonthChart({ chart }: { chart: ReportMonthChartModel }) {
   );
 }
 
-export default function ReportPage({ view }: { view: ReportView }) {
+export default function ReportPage({
+  view,
+  // Check another home (founder addition, 25 Nov 2026):
+  // the closing box renders on the report WEB page only.
+  // The PDF renders this same component (lib/server/
+  // report-pdf.ts), and a PDF cannot search — so the
+  // PDF render passes forPdf and the box is left out.
+  forPdf = false,
+}: {
+  view: ReportView;
+  forPdf?: boolean;
+}) {
   const { masthead } = view;
   const cover = reportPdfCover(view);
   return (
@@ -843,6 +855,18 @@ export default function ReportPage({ view }: { view: ReportView }) {
             ))}
           </section>
         ))}
+        {/* Check another home (founder addition, 25 Nov
+          2026): the full report's closing box, after
+          Section 10 — the founder's line and the one
+          postcode box, wired as the landing page wires
+          it. Web page only: forPdf (the PDF render)
+          leaves it out — see the prop above. */}
+        {!forPdf && (
+          <section className="report-door__card report-check-again" aria-label="Check another home">
+            <h2>Done with this home? Check another one</h2>
+            <PostcodeBox bare />
+          </section>
+        )}
       </article>
     </div>
   );

@@ -29,6 +29,7 @@ import {
   storeReportPdf,
 } from "../lib/server/report-pdf";
 import { generateSampleReportPdf, samplePrintUrl } from "../lib/server/sample-pdf";
+import ReportPage from "../components/ReportPage";
 import SampleReportPrintDocument from "../components/SampleReportPrintDocument";
 import {
   anonymiseSampleView,
@@ -355,6 +356,24 @@ describe("report-pdf — the print document", () => {
     expect(coverAt).toBeGreaterThan(-1);
     expect(docAt).toBeGreaterThan(coverAt);
     expect(html).toContain("19 Birkdale Rise");
+  });
+
+  it("the check-another box stays out of the printed document (founder addition, 25 Nov 2026): a PDF cannot search", () => {
+    // The web render carries the closing box after
+    // Section 10; the print document — the same
+    // ReportPage rendered forPdf — must not, and neither
+    // must the sample PDF's print composition.
+    const web = renderToStaticMarkup(createElement(ReportPage, { view: birkdaleView }));
+    expect(web).toContain("Done with this home? Check another one");
+    expect(web).toContain("report-check-again");
+    const html = reportPrintDocument(birkdaleView, "/* test css */");
+    expect(html).not.toContain("Done with this home? Check another one");
+    expect(html).not.toContain("report-check-again");
+    const sample = renderToStaticMarkup(
+      createElement(SampleReportPrintDocument, { view: sampleView() }),
+    );
+    expect(sample).not.toContain("Done with this home? Check another one");
+    expect(sample).not.toContain("report-check-again");
   });
 
   it("the Sources links carry their printed URLs in the document; the names stay the links", () => {

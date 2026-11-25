@@ -83,7 +83,10 @@ export async function reportPrintCss(rootDir: string = process.cwd()): Promise<s
 // (header/footer) is the layout's, not the page's, and
 // the print stylesheet removes it in any case.
 export function reportPrintDocument(view: ReportView, css: string): string {
-  const markup = renderToStaticMarkup(createElement(ReportPage, { view }));
+  // forPdf: the delivered PDF renders this same
+  // component — the check-another box is web-only and
+  // stays out of the printed document.
+  const markup = renderToStaticMarkup(createElement(ReportPage, { view, forPdf: true }));
   return (
     `<!doctype html>\n<html lang="en-GB"><head><meta charset="utf-8">` +
     // The document's base (BUG-103): the printed report

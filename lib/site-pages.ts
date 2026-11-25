@@ -67,7 +67,7 @@ export const HOW_WE_CHECK_CARDS: HowWeCheckCard[] = [
     heading: "Flood",
     source: "Source · Environment Agency",
     paragraphs: [
-      "Flood risk is shown as three separate pictures, because they describe three different things: the Environment Agency's flood zones for rivers and the sea, its surface-water maps for heavy rain, and its record of flood defences nearby. We never merge them into a single answer — a home can sit in one picture and not the others.",
+      "Flood risk is shown as two pictures (rivers & sea, and surface water), plus the flood-defences record, because they describe different things: the Environment Agency's flood zones for rivers and the sea, its surface-water maps for heavy rain, and its record of flood defences nearby. We never merge them into a single answer — a home can sit in one picture and not the others.",
     ],
     howLabel: "How it is gathered:",
     howText:
@@ -534,6 +534,162 @@ export const TERMS_CARDS: PrivacyCard[] = [
         "If these terms change, the new version will appear on this page, with its date at the top. The terms on this page when you bought your report are the ones that apply to it.",
       ),
       p("Questions about these terms: write to us at contact@checkmynexthome.co.uk."),
+    ],
+  },
+];
+
+// ----------------------------------------------------------------
+// M10.4 — Refunds page (25 Nov 2026). The step's build:
+// the refund rules as their own page, in the Terms
+// page's pattern. Every line is restated from the Terms
+// of service (TERMS_CARDS above) and the payment
+// consent line (lib/report-payment.ts, BUG-215); no new
+// rule is invented here. If the Terms change, this page
+// follows them.
+
+export const REFUNDS_EYEBROW = "Refunds";
+export const REFUNDS_H1 = "Refunds";
+export const REFUNDS_LEAD = "The detailed report costs £4.99, and these are the refund rules.";
+export const REFUNDS_LEAD_REST =
+  "When we refund, what happens to the gift, and what to do if a delivered report falls short — in plain English.";
+export const REFUNDS_DATE_LINE = "This version: 25 November 2026";
+export const REFUNDS_EMAIL_ADDRESS = "contact@checkmynexthome.co.uk";
+
+export const REFUNDS_CARDS: PrivacyCard[] = [
+  {
+    heading: "When we refund",
+    blocks: [
+      p(
+        "If we cannot deliver your report, we refund the £4.99 in full, to the card you paid with — you do not need to ask.",
+      ),
+    ],
+  },
+  {
+    heading: "Refunds and the gift",
+    blocks: [
+      p(
+        "A refund voids the report's gift. If the gift has not been claimed, it stops working. If it has been claimed but the gifted report has not been used, the gifted report is withdrawn. A gift that has already been redeemed — the gifted report delivered — stands, and is not affected by the refund.",
+      ),
+    ],
+  },
+  {
+    heading: "The 14-day change-of-mind right",
+    blocks: [
+      p(
+        "When you pay, you ask us to make and deliver your report straight away, and we start as soon as your payment goes through. Because the report is made for one named home and delivered digitally at your request, the 14-day change-of-mind right ends when it is delivered — there is no cooling-off period once your report has been delivered.",
+      ),
+    ],
+  },
+  {
+    heading: "If a delivered report falls short",
+    blocks: [
+      p(
+        "If you believe a delivered report falls short of what these terms promise, write to us at contact@checkmynexthome.co.uk and tell us what is wrong. Where it does fall short, we will put it right or refund you.",
+      ),
+    ],
+  },
+  {
+    heading: "Questions about refunds",
+    blocks: [p("Questions about refunds: write to us at contact@checkmynexthome.co.uk.")],
+  },
+];
+
+// ----------------------------------------------------------------
+// M10.4 — About the data page (25 Nov 2026). The step's
+// build: the sources, licences, freshness dates and the
+// no-valuation / no-verdict wording as their own page, in
+// the Terms page's pattern. Every line is drawn from the
+// product's own copy — the Terms (TERMS_CARDS and
+// TERMS_D9_WORDING above), the How we check cards (their
+// sources and the NEVER_ITEMS), and the paid report's
+// Section 10 (lib/report.ts: the Price Paid attribution,
+// the sold-prices lag and the flood-warnings line). No new
+// claim is invented here.
+
+export const ABOUT_DATA_EYEBROW = "About the data";
+export const ABOUT_DATA_H1 = "About the data";
+export const ABOUT_DATA_LEAD =
+  "Where every figure in a check comes from, what licence it sits under, and how fresh it is.";
+export const ABOUT_DATA_LEAD_REST =
+  "Every fact is shown with its source and its date, so you can see where it came from and how fresh it is.";
+export const ABOUT_DATA_DATE_LINE = "This version: 25 November 2026";
+export const ABOUT_DATA_EMAIL_ADDRESS = "contact@checkmynexthome.co.uk";
+
+export const ABOUT_DATA_CARDS: PrivacyCard[] = [
+  {
+    heading: "What the data is",
+    blocks: [
+      p(
+        "The detailed report gathers the facts about one home from official sources — HM Land Registry, the Census, Police.uk, the Environment Agency and others — into one dated document. Every fact is shown with its source and its date, so you can see where it came from and how fresh it is.",
+      ),
+      p(
+        "The report is information, not advice. It is made for the home named in it, from the data published at the time it is made, and it is for you and your household's own use in deciding on that home.",
+      ),
+    ],
+  },
+  {
+    heading: "The sources",
+    blocks: [
+      {
+        kind: "ul",
+        items: [
+          "Sold prices — HM Land Registry Price Paid data, the recorded sale prices.",
+          "Crime — Police.uk, the incidents police recorded.",
+          "Flood — Environment Agency flood data.",
+          "Schools & nurseries — Department for Education school data and Ofsted reports.",
+          "Health — NHS listings and Care Quality Commission ratings.",
+          "The neighbourhood in numbers — ONS Census 2021.",
+          "Air quality & noise — Defra.",
+          "Costs — MHCLG, the EPC register and Ofcom.",
+          "Planning, protection & ownership — planning.data.gov.uk and others.",
+          "Building safety — First-tier Tribunal decisions and the Building Safety Regulator's register.",
+          "What's nearby — OpenStreetMap and OS Greenspace.",
+        ],
+      },
+    ],
+  },
+  {
+    heading: "Licences",
+    blocks: [
+      p(
+        "Contains HM Land Registry data © Crown copyright and database right 2021. This data is licensed under the Open Government Licence v3.0.",
+      ),
+      p(
+        "Street data © OpenStreetMap contributors, available under the Open Database Licence. Flood shapes: Environment Agency, licensed under the Open Government Licence.",
+      ),
+    ],
+  },
+  {
+    heading: "How fresh is it",
+    blocks: [
+      p(
+        "Every fact is shown with its source and its date, so you can see where it came from and how fresh it is.",
+      ),
+      p("Land Registry data typically lags by around two months."),
+      p("Live flood warnings are fetched at the moment a check is run and are never stored."),
+    ],
+  },
+  {
+    heading: "What the data is not",
+    blocks: [
+      p(TERMS_D9_WORDING),
+      p(
+        "The report is not a survey, not a valuation, and not a substitute for your solicitor's searches and enquiries. It does not tell you whether to buy a home — that judgement is yours.",
+      ),
+    ],
+  },
+  {
+    heading: "What we never do",
+    blocks: [
+      {
+        kind: "ul",
+        items: [
+          "No scores — no home and no area is ever given a score, a rating or a mark out of anything.",
+          "No valuations — sold prices are a record of what was paid. We never say what a home is worth.",
+          "No recommendations — we never tell you a home or an area is right for your family — that judgement is yours.",
+          "No guessing — where a source does not cover a place, the check says so plainly instead of filling the gap.",
+        ],
+      },
     ],
   },
 ];

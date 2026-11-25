@@ -575,7 +575,10 @@ test.describe("phone-first — 360×740 (T-WEB-01)", () => {
     async ({ page }) => {
       await seedShortlist(page, [BIRKDALE_CARD]);
       await page.goto("/shortlist");
-      await expect(page.locator(".shortlist-card")).toHaveCount(1);
+      // BUG-304 (founder ruling, 25 Nov 2026): the tiles
+      // row is gone — the saved home stands as the swipe
+      // table's header column.
+      await expect(page.locator(".compare-table--swipe thead th[data-rung]")).toHaveCount(1);
       // The phone form (founder-picked option 1, 24 Nov
       // 2026 — BUG-278): the comparison is the swipe
       // table — the desktop table's own rows in a
@@ -589,7 +592,7 @@ test.describe("phone-first — 360×740 (T-WEB-01)", () => {
       await expect(table.locator("tbody tr")).toHaveCount(12);
       await expectTapTarget(
         page.getByRole("button", { name: "Remove 19 Birkdale Rise, CM3 2JT" }),
-        "the card's Remove button",
+        "the header's Remove button",
       );
       await expectTapTarget(table.locator("tfoot .report-btn"), "the swipe table's report button");
       await expectNoSidewaysScroll(page);
@@ -602,7 +605,10 @@ test.describe("phone-first — 360×740 (T-WEB-01)", () => {
     async ({ page }) => {
       await seedShortlist(page, [BIRKDALE_CARD, EXETER_CARD, MINERVA_CARD]);
       await page.goto("/shortlist");
-      await expect(page.locator(".shortlist-card")).toHaveCount(3);
+      // BUG-304 (founder ruling, 25 Nov 2026): the tiles
+      // row is gone — the saved homes stand as the swipe
+      // table's header columns.
+      await expect(page.locator(".compare-table--swipe thead th[data-rung]")).toHaveCount(3);
       // The phone form (founder-picked option 1, 24 Nov
       // 2026 — BUG-278): the swipe table — one column per
       // home, in saved order, the desktop table's own
@@ -611,9 +617,17 @@ test.describe("phone-first — 360×740 (T-WEB-01)", () => {
       await expect(table).toHaveCount(1);
       await expect(table).toHaveAttribute("data-card-count", "3");
       const heads = table.locator("thead th");
-      await expect(heads.nth(1)).toHaveText("19 Birkdale Rise, CM3 2JT");
-      await expect(heads.nth(2)).toHaveText("6 Exeter Road, E16 1GN");
-      await expect(heads.nth(3)).toHaveText("Flat 4, Minerva House, KT17 1FH");
+      // BUG-304 (founder ruling, 25 Nov 2026): each header
+      // cell carries the card — address, sale line and
+      // Remove — so the address is matched by containment,
+      // not by exact text.
+      await expect(heads.nth(1)).toContainText("19 Birkdale Rise, CM3 2JT");
+      await expect(heads.nth(1)).toContainText("£588,995");
+      await expect(heads.nth(2)).toContainText("6 Exeter Road, E16 1GN");
+      // Minerva has no recorded sale: address and Remove
+      // only, no invented line.
+      await expect(heads.nth(3)).toContainText("Flat 4, Minerva House, KT17 1FH");
+      await expect(heads.nth(3)).not.toContainText("£");
       await expect(table.locator("tbody tr")).toHaveCount(12);
       const reportButtons = table.locator("tfoot .report-btn");
       await expect(reportButtons).toHaveCount(3);
@@ -783,9 +797,14 @@ test.describe("phone-first — 480px, the small breakpoint's upper edge (P6)", (
       await expect(table).toHaveCount(1);
       await expect(table).toHaveAttribute("data-card-count", "3");
       const heads = table.locator("thead th");
-      await expect(heads.nth(1)).toHaveText("19 Birkdale Rise, CM3 2JT");
-      await expect(heads.nth(2)).toHaveText("6 Exeter Road, E16 1GN");
-      await expect(heads.nth(3)).toHaveText("Flat 4, Minerva House, KT17 1FH");
+      // BUG-304 (founder ruling, 25 Nov 2026): each header
+      // cell carries the card — address, sale line and
+      // Remove — so the address is matched by containment.
+      await expect(heads.nth(1)).toContainText("19 Birkdale Rise, CM3 2JT");
+      await expect(heads.nth(1)).toContainText("£588,995");
+      await expect(heads.nth(2)).toContainText("6 Exeter Road, E16 1GN");
+      await expect(heads.nth(3)).toContainText("Flat 4, Minerva House, KT17 1FH");
+      await expect(heads.nth(3)).not.toContainText("£");
       await expect(table.locator("tbody tr")).toHaveCount(12);
       await expect(table.locator("tfoot .report-btn")).toHaveCount(3);
       await expectNoSidewaysScroll(page);

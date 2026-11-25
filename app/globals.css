@@ -3626,77 +3626,6 @@ a.picker__row {
 /* D8: the cards are the sample's count-keyed grid — one
    column for one home, two-across, three-across — paper
    cards at the sample's radius and padding. */
-.shortlist-cards {
-  list-style: none;
-  padding: 0;
-  margin: 1.8rem 0 0;
-  max-width: 820px;
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 1.1rem;
-  align-items: start;
-}
-
-.shortlist-cards--two {
-  grid-template-columns: 1fr 1fr;
-}
-
-.shortlist-cards--three {
-  grid-template-columns: repeat(3, 1fr);
-  /* Sample parity (18 Nov 2026): view 16's three-across
-     cards take the frame's full width (~1028px inside the
-     frame's padding), not the 820px column the one- and
-     two-across forms keep. */
-  max-width: none;
-}
-
-@media (max-width: 720px) {
-  .shortlist-cards--two,
-  .shortlist-cards--three {
-    grid-template-columns: 1fr;
-  }
-}
-
-.shortlist-card {
-  border: 1px solid var(--colour-line-warm);
-  border-radius: 16px;
-  background: var(--cmnh-white);
-  /* BUG-250 (24 Nov 2026): the card's 1.4rem bottom
-     padding left dead space under the Remove button —
-     the card ends with its action, so it closes tighter
-     below it than above. */
-  padding: 1.4rem 1.5rem 0.9rem;
-}
-
-.shortlist-card__address {
-  font-size: 1.45rem;
-  margin-bottom: 0;
-}
-
-.shortlist-cards--three .shortlist-card__address {
-  font-size: 1.28rem;
-}
-
-.shortlist-card__sale {
-  font-weight: 600;
-  color: var(--cmnh-forest-deep);
-  margin-top: 0.45rem;
-  margin-bottom: 0;
-}
-
-.shortlist-card__facts {
-  margin-top: 0.3rem;
-  margin-bottom: 0;
-  color: #3d4a40;
-}
-
-.shortlist-card__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.6rem;
-  margin: 1.15rem 0 0;
-}
-
 /* The kept line closes the /shortlist page in small print,
    below the comparison (founder's ruling, 17 Nov 2026).
    D8: the sample's kept-line values. */
@@ -3743,6 +3672,20 @@ a.picker__row {
 .shortlist-compare__sale {
   font-weight: 600;
   margin-bottom: var(--space-3);
+}
+
+/* BUG-304 (founder ruling, 25 Nov 2026): the stacked
+   block's heading area carries the card in kind — the
+   facts line and Remove stand with the sale line above
+   the block's rows. */
+.shortlist-compare__facts {
+  margin-top: 0.3rem;
+  margin-bottom: 0;
+  color: #3d4a40;
+}
+
+.shortlist-compare__remove {
+  margin: 0.9rem 0 0;
 }
 
 .shortlist-compare__rows {
@@ -5069,6 +5012,32 @@ a.picker__row {
   color: var(--cmnh-forest-deep);
   background: var(--colour-wash);
   border-bottom: 1px solid var(--colour-line-warm);
+}
+
+/* BUG-304 (founder ruling, 25 Nov 2026): the header
+   carries the card's content — the sale line and Remove
+   live in the column's header cell, so the page has one
+   grid. The sale line is the card's own line (price, last
+   sale, type) in the body face, under the display-face
+   address; a home with no sale shows no line. At rung 3
+   the card's facts line stands here too. */
+.compare-table__sale {
+  font-family: var(--font-family);
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--cmnh-forest-deep);
+  margin: 0.35rem 0 0;
+}
+
+.compare-table__facts {
+  font-family: var(--font-family);
+  font-size: 0.9rem;
+  color: #3d4a40;
+  margin: 0.35rem 0 0;
+}
+
+.compare-table__actions {
+  margin: 0.7rem 0 0;
 }
 
 /* The sample's first-column measures: 30% for one home,
@@ -7941,10 +7910,15 @@ a.picker__row {
 
 @media print {
   /* The site's furniture never prints — the PDF is the
-     report document alone. */
+     report document alone. The check-another box is
+     web-only too (founder addition, 25 Nov 2026): a PDF
+     cannot search, so it never prints — the forPdf prop
+     already leaves it out of the PDF markup, and this
+     rule covers a browser print of the web page. */
   .site-header,
   .site-footer,
-  .test-label {
+  .test-label,
+  .report-check-again {
     display: none !important;
   }
 

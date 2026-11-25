@@ -21,6 +21,7 @@ import {
   subscribeShortlistChanged,
   type ComparisonRowKey,
   type ComparisonView,
+  type ShortlistCard,
   type ShortlistCell,
   type ShortlistRecord,
 } from "../lib/shortlist";
@@ -52,16 +53,19 @@ import ReportLink from "./ReportLink";
 // order from their snapshots — facts are never re-derived
 // on view (ruling 3) — and removing a card here is the same
 // storage write the results page's button state reads.
+// BUG-304 (founder ruling, 25 Nov 2026): the cards have
+// no row of their own any more — each home's card content
+// (address, sale line, Remove) lives in its column's
+// header cell (CompareColumnHead below), so the page has
+// one grid and alignment holds by construction.
 //
 // The facts table renders from ONE saved home (founder's
 // rulings, 17 Nov 2026): a single home's table is headed
 // "The facts for this home", two or more are "side by
-// side". Cards carry no facts line at rung 1 (the table
-// below carries those rows — the card line duplicated
-// them) and no report link (one buy button per home, at
-// its column's foot); a rung-3 card keeps its facts line,
-// whose named states explain missing data rather than
-// duplicating the table. The kept line closes the page, in
+// side". A rung-3 card keeps its facts line, whose named
+// states explain missing data rather than duplicating the
+// table — it stands in the header cell with the rest of
+// the card's content. The kept line closes the page, in
 // small print, below the table.
 
 type State =
@@ -163,7 +167,60 @@ function CompareCell({
   );
 }
 
-export function CompareSwipeTable({ comparison }: { comparison: ComparisonView }) {
+// BUG-304 (founder ruling, 25 Nov 2026): a column's
+// header cell IS the card now. The tiles row above the
+// table is gone — its own 3-column grid never lined up
+// with the table's label column, and its cards were
+// uneven heights — so each home's card content moves
+// here: the address, the card's sale line (price, last
+// sale, type) and Remove. A home with no recorded sale
+// shows the address and Remove only, as the card did —
+// no "No sale filed" line is invented. At rung 3 the
+// card's facts line stands here too: its named states
+// are not repeated by the table's rows. The report
+// button stays out of the header — one buy button per
+// home, at its column's foot (founder's ruling, 17 Nov
+// 2026). Shared by the desktop table, the phone swipe
+// table and (in kind, below) the stacked blocks.
+function CompareColumnHead({
+  card,
+  onRemove,
+}: {
+  card: ShortlistCard;
+  onRemove: (id: string) => void;
+}) {
+  const saleLine = cardLastSaleLine(card);
+  return (
+    <>
+      {card.addressLine}
+      {saleLine && <p className="compare-table__sale">{saleLine}</p>}
+      {card.rung === 3 && card.factsLine && (
+        <p className="compare-table__facts">{card.factsLine}</p>
+      )}
+      <p className="compare-table__actions">
+        {/* One action in the header: Remove. The home's
+          buy button lives once, at its table column's
+          foot (founder's ruling, 17 Nov 2026). */}
+        <button
+          type="button"
+          className="remove-btn"
+          aria-label={`Remove ${card.addressLine}`}
+          onClick={() => onRemove(card.id)}
+        >
+          Remove
+        </button>
+      </p>
+    </>
+  );
+}
+
+export function CompareSwipeTable({
+  comparison,
+  onRemove,
+}: {
+  comparison: ComparisonView;
+  onRemove: (id: string) => void;
+}) {
   return (
     <div className="compare-table__scroller">
       <table
@@ -177,7 +234,7 @@ export function CompareSwipeTable({ comparison }: { comparison: ComparisonView }
             </th>
             {comparison.columns.map((card) => (
               <th scope="col" key={card.id} data-rung={card.rung}>
-                {card.addressLine}
+                <CompareColumnHead card={card} onRemove={onRemove} />
               </th>
             ))}
           </tr>
@@ -336,49 +393,6 @@ export default function ShortlistPage() {
     <>
       <ShortlistHead lead />
       <div data-shortlist-state="ready">
-        {/* D8: the cards grid is keyed by the count — the
-          sample's one / two-across / three-across forms. */}
-        <ul
-          className={`shortlist-cards${
-            record.cards.length === 2
-              ? " shortlist-cards--two"
-              : record.cards.length >= 3
-                ? " shortlist-cards--three"
-                : ""
-          }`}
-        >
-          {record.cards.map((card) => {
-            const saleLine = cardLastSaleLine(card);
-            return (
-              <li className="shortlist-card" key={card.id} data-rung={card.rung}>
-                <h2 className="shortlist-card__address">{card.addressLine}</h2>
-                {saleLine && <p className="shortlist-card__sale">{saleLine}</p>}
-                {/* The facts line renders at rung 3 only: its
-                  named states explain what the wider area
-                  cannot serve. At rung 1 the table below
-                  carries the same facts as rows, so the card
-                  line would only duplicate them. */}
-                {card.rung === 3 && card.factsLine && (
-                  <p className="shortlist-card__facts">{card.factsLine}</p>
-                )}
-                <p className="shortlist-card__actions">
-                  {/* One action on the card: Remove. The home's
-                    buy button lives once, at its table
-                    column's foot (founder's ruling, 17 Nov
-                    2026). */}
-                  <button
-                    type="button"
-                    className="remove-btn"
-                    aria-label={`Remove ${card.addressLine}`}
-                    onClick={() => onRemove(card.id)}
-                  >
-                    Remove
-                  </button>
-                </p>
-              </li>
-            );
-          })}
-        </ul>
         <section className="shortlist-compare" aria-label={compareHeading}>
           <h2>{compareHeading}</h2>
           {wide ? (
@@ -393,15 +407,15 @@ export default function ShortlistPage() {
                   {/* Sample parity (18 Nov 2026): the first
                     header cell is visually blank — "Check"
                     survives for screen readers only — and a
-                    column header is the address alone; the
-                    sale line lives on the card above, not
-                    repeated here. */}
+                    column header is the card now (BUG-304):
+                    the address, the sale line and Remove,
+                    so the address appears once per column. */}
                   <th scope="col">
                     <span className="visually-hidden">Check</span>
                   </th>
                   {comparison.columns.map((card) => (
                     <th scope="col" key={card.id} data-rung={card.rung}>
-                      {card.addressLine}
+                      <CompareColumnHead card={card} onRemove={onRemove} />
                     </th>
                   ))}
                 </tr>
@@ -445,7 +459,7 @@ export default function ShortlistPage() {
             // pinned in a fixed first column. The heading
             // above ("side by side") becomes true on
             // mobile too. Below 40rem only.
-            <CompareSwipeTable comparison={comparison} />
+            <CompareSwipeTable comparison={comparison} onRemove={onRemove} />
           ) : (
             // The 40–48rem band keeps the proven block
             // stacking — one block per home, its rows
@@ -455,13 +469,33 @@ export default function ShortlistPage() {
               style={{ "--compare-columns": comparison.columns.length } as React.CSSProperties}
             >
               {comparison.columns.map((card, columnIndex) => {
-                // Item 44 (parity fix batch): the phone form
-                // carries NO sale line — the Master's stacked
-                // blocks omit it, as the wide table does; the
-                // sale line lives on the card above.
+                // BUG-304 (founder ruling, 25 Nov 2026):
+                // the stacked block's heading area is the
+                // card in kind — the address, the card's
+                // sale line and Remove stand above the
+                // block's rows, as the header cell carries
+                // them in the two table forms. A home with
+                // no recorded sale shows the address and
+                // Remove only; at rung 3 the facts line
+                // stands here too.
+                const saleLine = cardLastSaleLine(card);
                 return (
                   <div className="shortlist-compare__column" key={card.id} data-rung={card.rung}>
                     <h3 className="shortlist-compare__address">{card.addressLine}</h3>
+                    {saleLine && <p className="shortlist-compare__sale">{saleLine}</p>}
+                    {card.rung === 3 && card.factsLine && (
+                      <p className="shortlist-compare__facts">{card.factsLine}</p>
+                    )}
+                    <p className="shortlist-compare__remove">
+                      <button
+                        type="button"
+                        className="remove-btn"
+                        aria-label={`Remove ${card.addressLine}`}
+                        onClick={() => onRemove(card.id)}
+                      >
+                        Remove
+                      </button>
+                    </p>
                     <dl className="shortlist-compare__rows">
                       {comparison.rows.map((row) => (
                         <div

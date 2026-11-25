@@ -5728,7 +5728,7 @@ function section10(input: ReportInput, cert: ServedCertificate | null): ReportSe
   howToRead.push([
     boldSeg("Flood:"),
     seg(
-      " flood zones, surface-water maps and defences are three separate pictures and are never merged into a single answer. Flood boundaries follow the lie of the land and can change within a single street — always confirm the position for the building itself on the GOV.UK long-term flood risk service before you commit. Live flood warnings are fetched at the moment a check is run and are never stored.",
+      " flood zones and surface-water maps are two pictures, plus the flood-defences record, and are never merged into a single answer. Flood boundaries follow the lie of the land and can change within a single street — always confirm the position for the building itself on the GOV.UK long-term flood risk service before you commit. Live flood warnings are fetched at the moment a check is run and are never stored.",
     ),
   ]);
   howToRead.push([

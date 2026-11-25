@@ -163,11 +163,13 @@ test.describe("shortlist — smoke", () => {
         context = await launch();
         persistent = context.pages()[0] ?? (await context.newPage());
         await persistent.goto("/shortlist");
-        await expect(persistent.locator(".shortlist-card")).toHaveCount(1);
-        await expect(persistent.locator(".shortlist-card")).toContainText(
-          "19 Birkdale Rise, CM3 2JT",
-        );
-        await expect(persistent.locator(".shortlist-card")).toContainText("£588,995");
+        // BUG-304 (founder ruling, 25 Nov 2026): the tiles
+        // row is gone — the saved home's address and sale
+        // line stand in its compare column's header cell.
+        const heads = persistent.locator(".compare-table thead th[data-rung]");
+        await expect(heads).toHaveCount(1);
+        await expect(heads.first()).toContainText("19 Birkdale Rise, CM3 2JT");
+        await expect(heads.first()).toContainText("£588,995");
         await context.close();
       } finally {
         rmSync(profileDir, { recursive: true, force: true });
@@ -176,7 +178,7 @@ test.describe("shortlist — smoke", () => {
       // The second context: the fixture page's storage is
       // its own — the list does not exist there.
       await page.goto("/shortlist");
-      await expect(page.locator(".shortlist-card")).toHaveCount(0);
+      await expect(page.locator(".compare-table")).toHaveCount(0);
       await expect(page.locator(".shortlist-empty")).toBeVisible();
     },
   );
@@ -200,28 +202,32 @@ test.describe("shortlist — regression", () => {
   );
 
   test(
-    "remove a home: the card goes, and the removal persists across a reload",
+    "remove a home: the column goes, and the removal persists across a reload",
     { tag: "@regression" },
     async ({ page }) => {
       await seedShortlist(page, [BIRKDALE_CARD, EXETER_CARD]);
       await page.goto("/shortlist");
-      await expect(page.locator(".shortlist-card")).toHaveCount(2);
+      // BUG-304 (founder ruling, 25 Nov 2026): the tiles
+      // row is gone — the saved homes stand as the compare
+      // table's header columns.
+      const heads = page.locator(".compare-table thead th[data-rung]");
+      await expect(heads).toHaveCount(2);
       // Sample parity (18 Nov 2026): a saved state carries
       // the lead's one sentence, whatever the count.
       await expect(page.locator(".shortlist-lead")).toHaveText(
         "Nothing about which homes you are considering is stored on any server.",
       );
-      // A rung-1 card carries no facts line and no report
+      // A rung-1 header carries no facts line and no report
       // link (17 Nov 2026 ruling) — Remove is its only action.
-      const firstCard = page.locator(".shortlist-card").first();
-      await expect(firstCard.locator(".shortlist-card__facts")).toHaveCount(0);
-      await expect(firstCard.locator(".report-btn")).toHaveCount(0);
-      await expect(firstCard.getByRole("button", { name: /Remove / })).toHaveCount(1);
+      const firstHead = heads.first();
+      await expect(firstHead.locator(".compare-table__facts")).toHaveCount(0);
+      await expect(firstHead.locator(".report-btn")).toHaveCount(0);
+      await expect(firstHead.getByRole("button", { name: /Remove / })).toHaveCount(1);
       await page.getByRole("button", { name: "Remove 19 Birkdale Rise, CM3 2JT" }).click();
-      await expect(page.locator(".shortlist-card")).toHaveCount(1);
-      await expect(page.locator(".shortlist-card")).toContainText("6 Exeter Road, E16 1GN");
+      await expect(heads).toHaveCount(1);
+      await expect(heads.first()).toContainText("6 Exeter Road, E16 1GN");
       await page.reload();
-      await expect(page.locator(".shortlist-card")).toHaveCount(1);
+      await expect(heads).toHaveCount(1);
       await expect(page.locator(".shortlist-count")).toHaveText("1");
     },
   );
@@ -259,15 +265,17 @@ test.describe("shortlist — regression", () => {
 
       const compare = page.locator(".shortlist-compare");
       // Sample parity (views 15–16; 18 Nov 2026): the saved
-      // state carries the lead as the sample's one sentence,
-      // no search card, and the three-across cards run at
-      // the frame's full width, past the 820px column.
+      // state carries the lead as the sample's one sentence
+      // and no search card; BUG-304 (founder ruling,
+      // 25 Nov 2026) retires the three-across cards — the
+      // comparison itself, now the page's only grid, runs
+      // at the frame's full width, past the 820px column.
       await expect(page.locator(".shortlist-lead")).toHaveText(
         "Nothing about which homes you are considering is stored on any server.",
       );
       await expect(page.locator(".shortlist-search-card")).toHaveCount(0);
-      const cardsBox = await page.locator(".shortlist-cards--three").boundingBox();
-      expect(cardsBox?.width ?? 0).toBeGreaterThan(820);
+      const tableBox = await compare.locator(".compare-table").boundingBox();
+      expect(tableBox?.width ?? 0).toBeGreaterThan(820);
       // D70 D17: on a wide screen the comparison is the
       // design's shared-label table — the first column names
       // each check once, one column per home. (The phone
@@ -275,12 +283,15 @@ test.describe("shortlist — regression", () => {
       await expect(compare.locator(".compare-table thead th")).toHaveCount(4);
       // The first header cell is visually blank (its
       // "Check" is screen-reader text), and a column header
-      // is the address alone — no sale line under it (the
-      // cards above keep theirs).
+      // is the card (BUG-304) — the address, the sale line
+      // and Remove stand in it, so the address appears
+      // once per column.
       await expect(
         compare.locator(".compare-table thead th").first().locator(".visually-hidden"),
       ).toHaveText("Check");
-      await expect(compare.locator(".compare-table thead")).not.toContainText("£");
+      await expect(compare.locator(".compare-table thead")).toContainText("£588,995");
+      await expect(compare.locator(".compare-table thead")).toContainText("£270,000");
+      await expect(compare.locator(".compare-table thead")).toContainText("£420,000");
       // The row order is the D75 pill priority: Flood leads.
       await expect(compare.locator(".compare-table tbody tr").first()).toHaveAttribute(
         "data-compare-row",
@@ -386,7 +397,7 @@ test.describe("shortlist — regression", () => {
       await full.getByRole("link", { name: "See your shortlist" }).click();
       await page.waitForURL(/\/shortlist$/);
       await page.getByRole("button", { name: "Remove 6 Exeter Road, E16 1GN" }).click();
-      await expect(page.locator(".shortlist-card")).toHaveCount(2);
+      await expect(page.locator(".compare-table thead th[data-rung]")).toHaveCount(2);
       await reachResults(page, "KT17 1FH", "Flat 4, Minerva House, 12 Ceres Crescent");
       await page.getByRole("button", { name: "Shortlist this home" }).first().click();
       await expect(
@@ -394,8 +405,10 @@ test.describe("shortlist — regression", () => {
       ).toBeVisible();
       await expect(page.locator(".shortlist-count")).toHaveText("3");
       await page.goto("/shortlist");
-      await expect(page.locator(".shortlist-card")).toHaveCount(3);
-      await expect(page.locator(".shortlist-card").nth(2)).toContainText("Minerva House");
+      await expect(page.locator(".compare-table thead th[data-rung]")).toHaveCount(3);
+      await expect(page.locator(".compare-table thead th[data-rung]").nth(2)).toContainText(
+        "Minerva House",
+      );
     },
   );
 
@@ -405,7 +418,7 @@ test.describe("shortlist — regression", () => {
     async ({ page }) => {
       await seedShortlist(page, [BIRKDALE_CARD]);
       await page.goto("/shortlist");
-      await expect(page.locator(".shortlist-card")).toHaveCount(1);
+      await expect(page.locator(".compare-table thead th[data-rung]")).toHaveCount(1);
 
       const compare = page.locator(".shortlist-compare");
       await expect(compare.locator("h2")).toHaveText("The facts for this home");
@@ -454,17 +467,23 @@ test.describe("shortlist — regression", () => {
       await expect(page.locator("[data-shortlist-toggle]")).toHaveCount(0);
 
       await page.goto("/shortlist");
-      const areaCard = page.locator('.shortlist-card[data-rung="3"]');
-      await expect(areaCard).toHaveCount(1);
-      await expect(areaCard).toContainText("Wider area — E16, not this exact home");
-      // The rung-3 card KEEPS its facts line — its named
+      // BUG-304 (founder ruling, 25 Nov 2026): the tiles
+      // row is gone — the wider-area card stands as the
+      // compare table's rung-3 header column.
+      const areaHead = page.locator('.compare-table thead th[data-rung="3"]');
+      await expect(areaHead).toHaveCount(1);
+      await expect(areaHead).toContainText("Wider area — E16, not this exact home");
+      // The rung-3 header KEEPS its facts line — its named
       // states explain missing data rather than duplicating
-      // the table (the rung-1 cards dropped theirs).
-      await expect(areaCard.locator(".shortlist-card__facts")).toContainText(
+      // the table (the rung-1 headers carry the sale line
+      // instead).
+      await expect(areaHead.locator(".compare-table__facts")).toContainText(
         "sold prices need an exact postcode",
       );
-      await expect(areaCard).toContainText("crime counts need an exact postcode");
-      await expect(page.locator(".shortlist-card")).toHaveCount(3);
+      await expect(areaHead.locator(".compare-table__facts")).toContainText(
+        "crime counts need an exact postcode",
+      );
+      await expect(page.locator(".compare-table thead th[data-rung]")).toHaveCount(3);
     },
   );
 
@@ -484,7 +503,7 @@ test.describe("shortlist — regression", () => {
       await expect(page.locator(".shortlist-unavailable")).toContainText(
         "not allowing storage right now",
       );
-      await expect(page.locator(".shortlist-card")).toHaveCount(0);
+      await expect(page.locator(".compare-table")).toHaveCount(0);
 
       // And in place of the add control on a results page —
       // inside the buy bar since M7.6 moved the control.

@@ -139,4 +139,10 @@ describe("free page — the gift state (BUG-223, approved Screen B)", () => {
     expect(render(false)).not.toContain("results-gift-strip");
     expect(render(false)).toContain(REPORT_PRICE_LABEL);
   });
+
+  it("the free page closes with the check-another box (founder addition, 25 Nov 2026)", () => {
+    const html = render(false);
+    expect(html).toContain("Done with this home? Check another one");
+    expect(html).toContain("report-check-again");
+  });
 });

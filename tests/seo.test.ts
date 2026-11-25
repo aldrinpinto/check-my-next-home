@@ -221,10 +221,13 @@ describe("locked SEO wording set (M6.10, D38)", () => {
     // pair joins the set with the building-safety check
     // page, created to carry the report block's full
     // explanation.
+    // M10.4 (25 Nov 2026): the /refunds and /about-the-data
+    // pairs join the set with the step's two new pages.
     expect(Object.keys(PAGE_SEO).sort()).toEqual(
       [
         "/",
         "/about",
+        "/about-the-data",
         "/check/air-quality",
         "/check/broadband",
         "/check/building-safety",
@@ -248,6 +251,7 @@ describe("locked SEO wording set (M6.10, D38)", () => {
         "/how-we-check",
         "/contact",
         "/privacy",
+        "/refunds",
         "/sample-report",
         "/terms",
       ].sort(),

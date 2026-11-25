@@ -20,7 +20,8 @@ import {
 // rows aligned by construction (one <tr> per fact), the
 // foot buttons in card order, and the desktop parity
 // pins (blank first header cell, "Reports" row header,
-// no sale line) — and the whole form is phone-only, the
+// the header carrying the card's sale line and Remove —
+// BUG-304) — and the whole form is phone-only, the
 // desktop table and its rules untouched.
 
 // ------------------------------------------------------------------
@@ -32,7 +33,7 @@ function cell(text: string): ShortlistCell {
   return { kind: "line", text };
 }
 
-function makeCard(id: string): ShortlistCard {
+function makeCard(id: string, lastSale: ShortlistCard["lastSale"] = null): ShortlistCard {
   const comparison = Object.fromEntries(
     COMPARISON_ROWS.map((row) => [row.key, cell(`${id} ${row.key}`)]),
   ) as ShortlistCard["comparison"];
@@ -43,7 +44,7 @@ function makeCard(id: string): ShortlistCard {
     rung: 1,
     scopeLabel: `${id} address`,
     addressLine: `${id} address`,
-    lastSale: null,
+    lastSale,
     factsLine: null,
     comparison,
     savedAt: "2026-11-17T08:00:00.000Z",
@@ -106,7 +107,9 @@ describe("the phone swipe table (option 1)", () => {
   const island = read("components/ShortlistPage.tsx");
   const css = read("app/globals.css");
   const comparison = buildComparison([makeCard("home-a"), makeCard("home-b")]);
-  const markup = renderToStaticMarkup(createElement(CompareSwipeTable, { comparison }));
+  const markup = renderToStaticMarkup(
+    createElement(CompareSwipeTable, { comparison, onRemove: () => {} }),
+  );
 
   it("renders one table in a scroller, one column per saved home", () => {
     expect(markup).toContain('class="compare-table__scroller"');
@@ -148,17 +151,42 @@ describe("the phone swipe table (option 1)", () => {
     // screen-reader-only "Reports" label, as the sample's
     // table does.
     expect(markup).toContain('<span class="visually-hidden">Reports</span>');
-    // No sale line anywhere in the comparison — the sale
-    // line lives on the card above, not repeated here.
-    expect(island).not.toContain("compare-table__sale");
-    expect(markup).not.toContain("£425,000");
+    // BUG-304 (founder ruling, 25 Nov 2026): the header
+    // cell IS the card — the sale line and Remove live
+    // in it, so the address appears once per column. The
+    // fixture cards carry no sale, so their headers show
+    // the address and Remove only — no invented line.
+    expect(island).toContain("compare-table__sale");
+    expect(markup).toContain("Remove home-a address");
+    expect(markup).toContain("Remove home-b address");
     const head = markup.match(/<thead>([\s\S]*?)<\/thead>/)?.[1] ?? "";
     expect(head).not.toContain("£");
   });
 
+  it("carries the sale line in the header where the home has one (BUG-304)", () => {
+    const saleCard = makeCard("home-sale", {
+      price: 588995,
+      date: "2023-06-15",
+      typeLabel: "Detached",
+      tenureLabel: "Freehold",
+    });
+    const saleComparison = buildComparison([saleCard, makeCard("home-b")]);
+    const saleMarkup = renderToStaticMarkup(
+      createElement(CompareSwipeTable, { comparison: saleComparison, onRemove: () => {} }),
+    );
+    const head = saleMarkup.match(/<thead>([\s\S]*?)<\/thead>/)?.[1] ?? "";
+    expect(head).toContain("£588,995");
+    expect(head).toContain("Last sale, Jun 2023");
+    expect(head).toContain("Detached, freehold");
+    // The no-sale column shows the address and Remove
+    // only — no invented "No sale filed" line.
+    expect(head).toContain("home-b address");
+    expect(head).not.toContain("No sale");
+  });
+
   it("is phone-only: the form switches below 40rem, the rules live in that media block", () => {
     expect(island).toContain('matchMedia("(max-width: 40rem)")');
-    expect(island).toContain("<CompareSwipeTable comparison={comparison} />");
+    expect(island).toContain("<CompareSwipeTable comparison={comparison} onRemove={onRemove} />");
     const blocks = mediaBlocks(css, "@media (max-width: 40rem)");
     const swipe = blocks.filter((block) => block.includes(".compare-table__scroller"));
     expect(swipe).toHaveLength(1);

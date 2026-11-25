@@ -92,6 +92,10 @@ const FOOTER_GROUPS: readonly FooterGroup[] = [
       // the Final Sample Master's footer is conformed in the
       // same build.
       { label: "Terms of service", href: "/terms" },
+      // M10.4 — Refunds and About the data join the Legal
+      // group with the step's two new pages (25 Nov 2026).
+      { label: "Refunds", href: "/refunds" },
+      { label: "About the data", href: "/about-the-data" },
     ],
   },
 ] as const;

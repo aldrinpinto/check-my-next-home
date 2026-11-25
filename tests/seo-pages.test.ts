@@ -57,6 +57,10 @@ const INDEXABLE_ROUTES: Record<string, () => Promise<MetadataModule>> = {
   // M9.4 — the Terms page joins the indexable set with
   // its own locked pair, in the Privacy page's pattern.
   "/terms": () => import("../app/terms/page"),
+  // M10.4 — the Refunds and About the data pages join
+  // the indexable set with their own locked pairs.
+  "/refunds": () => import("../app/refunds/page"),
+  "/about-the-data": () => import("../app/about-the-data/page"),
 };
 
 // M8.8 — the sample report stands apart from the
