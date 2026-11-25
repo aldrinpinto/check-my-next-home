@@ -334,7 +334,9 @@ export function createDistrictCache(db: AddressQueryable): DistrictCache {
 // section's per-layer coverage lines are this build's
 // additions, so an entry written before it lacks them
 // and degrades to a recompute rather than serving their
-// absence as current (the D29 presence rule).
+// absence as current (the D29 presence rule). The
+// district section's basis line likewise carries this
+// build's Census wording (BUG-360).
 function shapeOk(bundle: unknown, outward: string): bundle is DistrictBundle {
   if (typeof bundle !== "object" || bundle === null) return false;
   const b = bundle as { kind?: unknown; outward?: unknown };
@@ -354,7 +356,19 @@ function shapeOk(bundle: unknown, outward: string): bundle is DistrictBundle {
   // rebuild rather than serve an undefined coverage.
   const sold = (sections as { soldPrices?: unknown }).soldPrices;
   if (typeof sold !== "object" || sold === null) return false;
-  return typeof (sold as { postcodesCovered?: unknown }).postcodesCovered === "number";
+  if (typeof (sold as { postcodesCovered?: unknown }).postcodesCovered !== "number") return false;
+  // BUG-360: the district section's basis line names
+  // Census 2021, reached via the Postcode Directory's
+  // postcode-to-area mapping; an entry filed before the
+  // wording change carries the old Directory-only line
+  // and shape-disagrees, so the next serve rebuilds and
+  // the new wording surfaces. A null line (no stamp)
+  // still passes — the current builder writes only null
+  // or the new wording, so no entry can disagree forever.
+  const district = (sections as { district?: unknown }).district;
+  if (typeof district !== "object" || district === null) return false;
+  const line = (district as { sourceLine?: unknown }).sourceLine;
+  return line === null || (typeof line === "string" && line.includes("postcode-to-area mapping"));
 }
 
 // The form stored in the entry: the filed bundle with

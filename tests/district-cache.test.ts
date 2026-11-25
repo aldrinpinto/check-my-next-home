@@ -296,6 +296,92 @@ describe("district cache — serve, invalidate, degrade", () => {
     expect(calls.soldFacts).toBe(1);
   });
 
+  it("an entry filed before the BUG-360 wording rebuilds — the old Directory-only basis line shape-disagrees", async () => {
+    const db = new FakeDb();
+    succeedAll(db);
+    const cache = createDistrictCache(db);
+    const { source, calls } = fakeSource();
+    await buildDistrictBundleCached("ZZ9", source, cache);
+    expect(calls.soldFacts).toBe(1);
+    // Re-file the stored entry with the old basis line —
+    // the head stamp's Directory-only line, as every
+    // entry filed before BUG-360 carries it — and serve
+    // again: the entry must fall and the build must run.
+    const version = await cache.versionFor("ZZ9");
+    const stored = [...db.entries.values()][0]?.bundle as {
+      sections: { district: { sourceLine: string | null } };
+    };
+    await cache.writeEntry("ZZ9", version!, {
+      ...stored,
+      sections: {
+        ...stored.sections,
+        district: {
+          ...stored.sections.district,
+          sourceLine: "ONS Postcode Directory — data to 1 November 2024",
+        },
+      },
+    });
+    const rebuilt = await buildDistrictBundleCached("ZZ9", source, cache);
+    expect(calls.soldFacts).toBe(2);
+    // And the rebuild serves the new wording, not the old.
+    expect(rebuilt.kind).toBe("district");
+    if (rebuilt.kind !== "district") return;
+    expect(rebuilt.sections.district.sourceLine).toContain("postcode-to-area mapping");
+  });
+
+  it("an entry carrying the new Census wording still serves from the entry (BUG-360)", async () => {
+    const db = new FakeDb();
+    succeedAll(db);
+    const cache = createDistrictCache(db);
+    const { source, calls } = fakeSource();
+    await buildDistrictBundleCached("ZZ9", source, cache);
+    expect(calls.soldFacts).toBe(1);
+    // Re-file the entry with the new wording spelled out —
+    // the line the current builder writes — and serve
+    // again: no rebuild.
+    const version = await cache.versionFor("ZZ9");
+    const stored = [...db.entries.values()][0]?.bundle as {
+      sections: { district: { sourceLine: string | null } };
+    };
+    await cache.writeEntry("ZZ9", version!, {
+      ...stored,
+      sections: {
+        ...stored.sections,
+        district: {
+          ...stored.sections.district,
+          sourceLine:
+            "Census 2021, via the Office for National Statistics's postcode-to-area mapping — data to 1 November 2024",
+        },
+      },
+    });
+    await buildDistrictBundleCached("ZZ9", source, cache);
+    expect(calls.soldFacts).toBe(1);
+  });
+
+  it("an entry with no district basis line at all still serves from the entry (BUG-360)", async () => {
+    const db = new FakeDb();
+    succeedAll(db);
+    const cache = createDistrictCache(db);
+    const { source, calls } = fakeSource();
+    await buildDistrictBundleCached("ZZ9", source, cache);
+    expect(calls.soldFacts).toBe(1);
+    // A district with no stamp files a null basis line;
+    // that entry must still serve, not rebuild forever.
+    const version = await cache.versionFor("ZZ9");
+    const stored = [...db.entries.values()][0]?.bundle as {
+      sections: { district: { sourceLine: string | null } };
+    };
+    await cache.writeEntry("ZZ9", version!, {
+      ...stored,
+      sections: {
+        ...stored.sections,
+        district: { ...stored.sections.district, sourceLine: null },
+      },
+    });
+    await buildDistrictBundleCached("ZZ9", source, cache);
+    expect(calls.soldFacts).toBe(1);
+  });
+
   it("with the cache table gone, the build serves exactly as the plain builder does", async () => {
     const db = new FakeDb();
     succeedAll(db);
