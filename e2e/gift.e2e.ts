@@ -214,6 +214,81 @@ test.describe("Check Together claim flow — regression", () => {
   );
 
   test(
+    "(k) BUG-346 — a rate-limited claim attempt is answered, not swallowed",
+    { tag: "@regression" },
+    async ({ page }) => {
+      // Deterministic by construction: the flag is the
+      // answer the route gives a refused attempt, so the
+      // test loads the flag directly instead of tripping
+      // the limiter (the limiter counts per caller IP
+      // across the whole run, and tripping it here would
+      // poison the claim tests that follow).
+      await page.goto(`/gift/${ISSUED_ONE}?error=rate-limited`);
+      await expect(page.locator(".gift-alert")).toHaveText(
+        "Too many attempts — please try again in a moment.",
+      );
+      // The form stands, empty, ready for the retry.
+      await expect(page.getByLabel("Your email address")).toBeVisible();
+      await expect(page.getByLabel("Your email address")).toHaveValue("");
+      await expect(page.getByRole("button", { name: "Claim my free report" })).toBeVisible();
+    },
+  );
+
+  test(
+    "(l) BUG-347/BUG-348 — the gift payment page carries the pill beside the banner, and its consent starts unticked",
+    { tag: "@regression" },
+    async ({ page }) => {
+      // The visit holds the seeded CLAIMED gift, set
+      // straight into the cookie — no claim POST, so
+      // the run's claim attempts stay clear of the
+      // rate limiter, and the claim flow itself is
+      // already proven by the happy-path test above.
+      await page
+        .context()
+        .addCookies([{ name: "cmnh-gift", value: CLAIMED, domain: "127.0.0.1", path: "/" }]);
+      await page.goto("/report?postcode=CM3+2JT&home=19%7C%7CBIRKDALE+RISE");
+      const payment = page.locator(".report-payment");
+      // BUG-347: the founder-chosen pill stands beside
+      // the banner — before it in the page, never in
+      // place of it.
+      await expect(payment.locator(".report-payment__gift-pill")).toHaveText(
+        "Your full report is free",
+      );
+      await expect(payment.locator(".report-payment__gift")).toHaveText(
+        "Your free report gift has been applied — there's nothing to pay for this report.",
+      );
+      // The bound email stands pre-filled.
+      await expect(page.locator("#payment-email")).toHaveValue("gift.claimant@example.co.uk");
+      // BUG-348: the consent starts UNTICKED, and the
+      // button wears its disabled dress until the
+      // claimant ticks it.
+      await expect(page.locator("#payment-consent")).not.toBeChecked();
+      await expect(page.locator(".report-payment__pay")).toHaveAttribute("aria-disabled", "true");
+      await expect(page.locator(".report-payment__pay")).toHaveText("Get my free report");
+      // An unticked attempt is answered under the tick
+      // line (BUG-132, same as the paid form).
+      await page.locator(".report-payment__pay").click({ force: true });
+      await expect(page.locator(".report-payment__consent-error")).toContainText(
+        "Tick this box to continue",
+      );
+      // The tick clears the error and enables the
+      // button; the click places the gift order and
+      // lands on the preparing page — the fulfilment
+      // worker does not run in the harness, so the
+      // report stays preparing.
+      await page.locator("#payment-consent").check();
+      await expect(page.locator(".report-payment__consent-error")).toHaveCount(0);
+      await expect(page.locator(".report-payment__pay")).not.toHaveAttribute(
+        "aria-disabled",
+        "true",
+      );
+      await page.locator(".report-payment__pay").click();
+      await page.waitForURL("**/report/success?order=**");
+      await expect(page.locator("h1")).toHaveText("Your report is being prepared");
+    },
+  );
+
+  test(
     "a made-up link, the sample's mock slug, and bare /gift all serve the plain not-recognised page (view 27)",
     { tag: "@regression" },
     async ({ page }) => {

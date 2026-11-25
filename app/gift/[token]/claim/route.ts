@@ -31,6 +31,11 @@
 //                       (Text 3's guard screen, or the
 //                       closed state's own screen).
 //
+// A rate-limited attempt (BUG-346) is answered, not
+// swallowed: back with ?error=rate-limited, and the
+// claim form carries the plain line. The limit itself
+// (10/min per caller) is unchanged.
+//
 // A malformed address is refused before any decision:
 // back with ?error=email, nothing written to the store.
 // The address just typed rides the one-shot entry
@@ -144,8 +149,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
 
   const caller =
     request.headers.get("cf-connecting-ip") ?? request.headers.get("x-forwarded-for") ?? "unknown";
+  // BUG-346: a rate-limited attempt is answered, not
+  // swallowed — back with ?error=rate-limited, so the
+  // claim form carries the plain line and the visitor
+  // knows the click was heard. The limit itself is
+  // unchanged (10/min per caller).
   if (!rateLimitOk(`gift-claim:${caller}`, RATE_LIMIT, RATE_WINDOW_MS)) {
-    return back(token);
+    return back(token, "?error=rate-limited");
   }
 
   let email = "";

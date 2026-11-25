@@ -1,5 +1,10 @@
 import { canonicalEmail, isEmailShape, normaliseEmail, type GiftGoneReason } from "./gift";
-import { BUY_BAR_MYSTERY_EYEBROW, BUY_BAR_MYSTERY_LINE, GIFT_REPORT_BUTTON_LABEL } from "./results";
+import {
+  BUY_BAR_MYSTERY_EYEBROW,
+  BUY_BAR_MYSTERY_LINE,
+  GIFT_PILL_LABEL,
+  GIFT_REPORT_BUTTON_LABEL,
+} from "./results";
 import { REPORT_DOOR_CONTENTS_HEADING, type ReportDoorIdentity } from "./report-door";
 import { REPORT_PRICE_LABEL } from "./site";
 
@@ -134,15 +139,20 @@ export interface ReportPaymentView {
   paidPayLabel: string;
   closingLine: string;
   // BUG-223: the visit's claimed gift — the email the
-  // gift is bound to, and the gift-applied line. Both
-  // null on the ordinary paid page. The component
+  // gift is bound to, and the gift-applied line. All
+  // three null on the ordinary paid page. The component
   // pre-fills the email with giftEmail and shows
   // giftLine; the gift applies while the entered email
   // still matches it — editing away reverts the page
   // to its paid form, because the gift is tied to that
   // email (Sample 22's promise) and no other.
+  // BUG-347: giftPill carries the founder-chosen pill
+  // "Your full report is free" (GIFT_PILL_LABEL, the
+  // free-page header pill) — the payment page renders
+  // it alongside the banner. Null on the paid page.
   giftEmail: string | null;
   giftLine: string | null;
+  giftPill: string | null;
 }
 
 // BUG-174 (founder, 23 Nov 2026): the page's lede —
@@ -455,6 +465,7 @@ export function buildReportPaymentView(
     closingLine: PAYMENT_CLOSING_LINE,
     giftEmail: null as string | null,
     giftLine: null as string | null,
+    giftPill: null as string | null,
   };
   // The gift variant: the button and the consent's
   // lead speak of the free report, never of paying —
@@ -470,6 +481,7 @@ export function buildReportPaymentView(
         closingLine: "",
         giftEmail: gift.email,
         giftLine: PAYMENT_GIFT_LINE,
+        giftPill: GIFT_PILL_LABEL,
       }
     : {};
   const view = { ...base, ...gifted };

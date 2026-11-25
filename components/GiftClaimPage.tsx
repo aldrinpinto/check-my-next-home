@@ -32,6 +32,7 @@ import {
   GIFT_PENDING_RESENT_LINE,
   GIFT_PENDING_SUCCESS_BODY,
   GIFT_PENDING_SUCCESS_HEADING,
+  GIFT_RATE_LIMITED_LINE,
   GIFT_SAME_EMAIL_BODY,
   GIFT_SAME_EMAIL_HEADING,
   GIFT_SEARCH_LINE,
@@ -365,6 +366,7 @@ export function GiftClaimCard({
   emailError = false,
   entryEmail,
   sendFailed = false,
+  rateLimited = false,
 }: {
   token: string;
   variant: GiftClaimVariant;
@@ -379,6 +381,8 @@ export function GiftClaimCard({
   emailError?: boolean;
   entryEmail?: string;
   sendFailed?: boolean;
+  // BUG-346: the rate-limit line (?error=rate-limited).
+  rateLimited?: boolean;
 }) {
   const copy = CLAIM_VARIANTS[variant];
   // BUG-271: the pending success state — the screen
@@ -448,6 +452,11 @@ export function GiftClaimCard({
       {sendFailed && (
         <p className="gift-alert" role="alert">
           {GIFT_SEND_FAILED_LINE}
+        </p>
+      )}
+      {rateLimited && (
+        <p className="gift-alert" role="alert">
+          {GIFT_RATE_LIMITED_LINE}
         </p>
       )}
       {/* noValidate: the flow's own shape check is the

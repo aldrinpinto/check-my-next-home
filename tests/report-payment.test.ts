@@ -43,6 +43,7 @@ import { GIFT_APPLIED_BANNER_LINE } from "../lib/report-success";
 import {
   BUY_BAR_MYSTERY_EYEBROW,
   BUY_BAR_MYSTERY_LINE,
+  GIFT_PILL_LABEL,
   GIFT_REPORT_BUTTON_LABEL,
 } from "../lib/results";
 import { TERMS_CARDS } from "../lib/site-pages";
@@ -592,11 +593,11 @@ describe("no interim screen between Pay and the success page (BUG-217)", () => {
 // Screen C, DRAFT lines 6–7, verbatim). A visit
 // holding a claimed, unspent gift sees no card form
 // and no price: the gift banner, the bound email
-// pre-filled, the consent tick standing ticked, and
-// the "Get my free report" button. The order starts
-// only when the claimant clicks that button — the
-// tick alone never places it (the start effect stays
-// gated on the button for a gift holder).
+// pre-filled, the consent starting unticked
+// (BUG-348), and the "Get my free report" button.
+// The order starts only when the claimant clicks that
+// button — the tick alone never places it (the start
+// effect stays gated on the button for a gift holder).
 describe("payment page — the gift variant (BUG-223, approved Screen C)", () => {
   function renderGift(identity: ReportDoorIdentity = HOME): string {
     return renderToStaticMarkup(
@@ -630,6 +631,11 @@ describe("payment page — the gift variant (BUG-223, approved Screen C)", () =>
     expect(view.cardTitle).toBe("Card payment");
     expect(view.giftEmail).toBe(GIFT_FRIEND);
     expect(view.giftLine).toBe(PAYMENT_GIFT_LINE);
+    // BUG-347: the view carries the founder-chosen
+    // pill — the payment page renders it beside the
+    // banner, never in place of it.
+    expect(view.giftPill).toBe(GIFT_PILL_LABEL);
+    expect(view.giftPill).toBe("Your full report is free");
     // The heading, contents card and tease are the paid
     // page's own and stand unchanged.
     expect(view.heading).toBe("The detailed report for 19 Birkdale Rise");
@@ -648,20 +654,30 @@ describe("payment page — the gift variant (BUG-223, approved Screen C)", () =>
     const view = buildReportPaymentView(HOME);
     expect(view.giftEmail).toBeNull();
     expect(view.giftLine).toBeNull();
+    expect(view.giftPill).toBeNull();
     expect(view.payLabel).toBe("Pay £4.99");
     expect(view.closingLine).toBe(PAYMENT_CLOSING_LINE);
     expect(view.cardTitle).toBe("Card payment");
   });
 
-  it("renders the gift step: banner, pre-filled email, ticked consent, gift button — no card form, no price", () => {
+  it("renders the gift step: pill beside the banner, pre-filled email, unticked consent, gift button — no card form, no price", () => {
     const html = renderGift();
     // The server renderer escapes the apostrophe.
     expect(html).toContain(PAYMENT_GIFT_LINE.replaceAll("'", "&#x27;"));
+    // BUG-347: the founder-chosen pill stands beside
+    // the banner — before it in the page, never in
+    // place of it.
+    expect(html).toContain(GIFT_PILL_LABEL);
+    expect(html.indexOf(GIFT_PILL_LABEL)).toBeLessThan(
+      html.indexOf(PAYMENT_GIFT_LINE.replaceAll("'", "&#x27;")),
+    );
     expect(html).toContain(`value="${GIFT_FRIEND}"`);
-    // The consent tick stands ticked on arrival
-    // (Screen C as drawn).
+    // BUG-348: the consent starts UNTICKED — the
+    // claimant ticks it actively, and the button wears
+    // its disabled dress until then.
     expect(html).toContain('id="payment-consent"');
-    expect(html).toContain('checked=""');
+    expect(html).not.toContain('checked=""');
+    expect(html).toContain('aria-disabled="true"');
     expect(html).toContain("By ordering, you agree to our ");
     expect(html).toContain(`<a href="${PAYMENT_TERMS_HREF}">${PAYMENT_TERMS_LINK_LABEL}</a>.`);
     expect(html).toContain("Get my free report");
@@ -752,9 +768,11 @@ describe("payment page — the gift follows the field's value (BUG-334)", () => 
     expect(escape.slice(0, 600)).toContain("setEmailUnlocked(true);");
     expect(escape.slice(0, 600)).toContain("emailRef.current?.focus();");
     expect(escape.slice(0, 600)).not.toContain("setConsentAt(null)");
-    // The revive: the onChange handler re-ticks and
-    // re-locks when the value returns to the bound
-    // email after leaving it.
+    // The revive: the onChange handler re-locks
+    // when the value returns to the bound email
+    // after leaving it. (BUG-348: the tick does
+    // not come back with it — the form is restored
+    // as it arrived, unticked.)
     expect(source).toContain("const nowMatching = giftEmailMatches(view.giftEmail, next);");
     expect(source).toContain("if (view.giftEmail !== null && nowMatching && !wasMatching) {");
     expect(source).toContain("setEmailUnlocked(false);");

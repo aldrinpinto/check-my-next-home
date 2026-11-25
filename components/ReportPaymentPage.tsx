@@ -108,15 +108,18 @@ import { AmexMark, DiscoverMark, MastercardMark, RevolutMark, VisaMark } from ".
 // its "Card payment" title with no "Powered by
 // Stripe" (BUG-333: the panel head is the paid page's
 // own, never "Detailed report" twice). The consent
-// tick stands TICKED on arrival for a gift holder —
-// Screen C draws it ticked, and the founder approved
-// the screen as drawn — but the order still starts
-// only when the claimant clicks "Get my free report".
+// starts UNTICKED for a gift holder, exactly as for a
+// payer (BUG-348 — the old pre-tick, Screen C as
+// drawn, is gone: a consent the claimant never
+// actively gives is no consent) — and the order still
+// starts only when the claimant clicks "Get my free
+// report".
 // The gift applies while the entered email still
 // matches the bound email — editing away from it
 // reverts the page to its paid form and clears the
-// tick in the same keystroke, so a pre-ticked consent
-// can never cover a paid order; re-entering the bound
+// tick in the same keystroke, so a consent given for
+// the gift can never cover a paid order; re-entering
+// the bound
 // email revives the gift form on the same page load
 // (BUG-334). The mystery tease stands for a gift
 // holder too: Screen C draws it, and the founder
@@ -128,7 +131,7 @@ import { AmexMark, DiscoverMark, MastercardMark, RevolutMark, VisaMark } from ".
 // visit-time gift state never outlives the server's
 // answer — if the intent answers as a payment for a
 // gift visit, the page reconciles to the paid form,
-// clears the pre-ticked consent, and says the gift is
+// clears the consent, and says the gift is
 // no longer available.
 
 // The provider library's promises, one per publishable
@@ -347,15 +350,17 @@ export default function ReportPaymentPage({
   // unticked. The timestamp is captured at the tick
   // itself — it is the consent's own time, carried into
   // the payment's metadata, not a time invented later.
-  // BUG-223: for a gift holder the tick stands ticked
-  // on arrival (approved Screen C, as drawn) — the
-  // order still starts only when the claimant clicks
-  // "Get my free report", so the tick alone never
-  // places the order (BUG-335: the paid flow starts
-  // only on the Pay click, never on the tick).
-  const [consentAt, setConsentAt] = useState<string | null>(
-    view.giftEmail !== null ? new Date().toISOString() : null,
-  );
+  // BUG-348: the consent starts UNCHECKED for a gift
+  // holder exactly as for a payer — the claimant ticks
+  // it actively, and the button stays in its disabled
+  // dress until then. The old pre-tick (BUG-223's
+  // Screen C as drawn, consent set on arrival) is
+  // gone: a consent the claimant never actively gives
+  // is no consent. The order still starts only when
+  // the claimant clicks "Get my free report" (BUG-335:
+  // the paid flow starts only on the Pay click, never
+  // on the tick), so the tick alone never places it.
+  const [consentAt, setConsentAt] = useState<string | null>(null);
   const [started, setStarted] = useState<StartedPayment | null>(null);
   // The start-click count: every Pay click that
   // reaches for a payment counts, including retries
@@ -571,8 +576,8 @@ export default function ReportPaymentPage({
           // page reconciles to the paid form — the gift
           // line goes, the card methods and the
           // "Powered by Stripe" line show, and the
-          // pre-ticked consent is cleared so the
-          // buyer ticks knowingly for £4.99, with a
+          // consent is cleared so the buyer ticks
+          // knowingly for £4.99, with a
           // plain line saying the gift is gone. The
           // follow-up names the one that happened
           // where the answer carried the reason
@@ -706,11 +711,18 @@ export default function ReportPaymentPage({
       {/* BUG-223: the gift-applied line stands first for
           a gift holder — before any card field or price
           — so the gift is visible the moment the page
-          opens, not only after the intent answers. */}
+          opens, not only after the intent answers.
+          BUG-347: the founder-chosen pill stands with
+          it — the same "Your full report is free" the
+          free-page header carries, alongside the
+          banner, never in place of it. */}
       {giftActive && view.giftLine && (
-        <p className="report-payment__gift" role="status">
-          {view.giftLine}
-        </p>
+        <>
+          {view.giftPill && <p className="report-payment__gift-pill">{view.giftPill}</p>}
+          <p className="report-payment__gift" role="status">
+            {view.giftLine}
+          </p>
+        </>
       )}
 
       {/* Sample 2 "Checkout alongside" (founder,
@@ -844,23 +856,27 @@ export default function ReportPaymentPage({
                     setEmail(next);
                     setEmailError(null);
                     setNotice(null);
-                    // BUG-223: the tick stands ticked on
-                    // arrival for a gift holder — and the
-                    // moment the email leaves the bound
-                    // address, the tick clears in the same
-                    // keystroke, so a pre-ticked consent
-                    // can never cover a paid order.
+                    // BUG-223: the moment the email leaves
+                    // the bound address, the tick clears
+                    // in the same keystroke, so a consent
+                    // given for the gift can never cover
+                    // a paid order. (An effect could not
+                    // do this: the Pay click handler would
+                    // still see the tick standing in the
+                    // same commit.)
                     if (view.giftEmail !== null && !nowMatching) {
                       setConsentAt(null);
                     }
                     // BUG-334: the value returning to
                     // the bound email revives the gift
                     // form on the same page load — the
-                    // tick stands ticked again as on
-                    // arrival, and the field locks again
-                    // to the claimant address.
+                    // field locks again to the claimant
+                    // address. The tick does NOT come
+                    // back with it (BUG-348): the gift
+                    // form is restored as it arrived,
+                    // unticked, and the claimant ticks
+                    // actively.
                     if (view.giftEmail !== null && nowMatching && !wasMatching) {
-                      if (consentAt === null) setConsentAt(new Date().toISOString());
                       setEmailUnlocked(false);
                     }
                   }}

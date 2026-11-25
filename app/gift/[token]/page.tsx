@@ -95,6 +95,7 @@ export default async function GiftClaimRoute({
     changeEmail: flags["change-email"] === "1",
     sendFailed: flags.sendfailed === "1",
     emailError: flags.error === "email",
+    rateLimited: flags.error === "rate-limited",
     entryEmail,
   });
 
@@ -112,6 +113,7 @@ export default async function GiftClaimRoute({
           emailError={view.emailError}
           entryEmail={view.entryEmail}
           sendFailed={view.sendFailed}
+          rateLimited={view.rateLimited}
         />
       )}
     </GiftPageShell>

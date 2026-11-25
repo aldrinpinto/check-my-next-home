@@ -128,6 +128,34 @@ describe("the send-failure state (view 19) — the typed entry stands too (BUG-0
   });
 });
 
+describe("the rate-limit state (BUG-346) — the attempt was heard, try again in a moment", () => {
+  it("stands the rate-limit line over the claim form, the field empty", () => {
+    const html = text(
+      renderToStaticMarkup(
+        createElement(GiftClaimCard, { token: GIFT_TOKEN, variant: "claim", rateLimited: true }),
+      ),
+    );
+    expect(html).toContain("Too many attempts — please try again in a moment.");
+    expect(html).toContain('role="alert"');
+    expect(html).toContain('name="email"');
+    expect(html).toContain("Claim my free report");
+    expect(html).not.toContain('value="');
+  });
+
+  it("names no limit size or window, and carries no other state's words", () => {
+    const html = text(
+      renderToStaticMarkup(
+        createElement(GiftClaimCard, { token: GIFT_TOKEN, variant: "claim", rateLimited: true }),
+      ),
+    );
+    expect(html).not.toContain("10 per minute");
+    expect(html).not.toContain("10/minute");
+    expect(html).not.toContain("We couldn't send the confirmation email just now");
+    expect(html).not.toContain("Enter an email address, like you@example.co.uk");
+    expect(html).not.toContain("This gift is for someone else");
+  });
+});
+
 describe("the same-email refusal (view 23 — Text 4 over the form)", () => {
   const html = text(
     renderToStaticMarkup(

@@ -4330,6 +4330,24 @@ a.picker__row {
   font-weight: 600;
 }
 
+/* BUG-347: the founder-chosen pill beside the gift
+   banner — the same "Your full report is free" the
+   free-page header carries, in the header pill's own
+   dress (brass-pale, fully rounded, 900 weight). A
+   label, not a button: no pointer, no tap target. */
+.report-payment__gift-pill {
+  display: inline-flex;
+  align-items: center;
+  margin: 0 0 0.75rem;
+  padding: 9px 13px;
+  border-radius: 999px;
+  background: var(--cmnh-brass-pale);
+  color: var(--cmnh-ink);
+  font-size: 0.85rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
 /* BUG-287: the locked-field form — the note naming
    whose gift it is, and the quiet escape link that
    abandons the gift for this order. */

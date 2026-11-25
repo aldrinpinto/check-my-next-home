@@ -346,6 +346,10 @@ export type GiftClaimPageView =
       emailError?: boolean;
       entryEmail?: string;
       sendFailed?: boolean;
+      // BUG-346: the claim form with the rate-limit
+      // line (?error=rate-limited) — the attempt was
+      // refused for trying too often.
+      rateLimited?: boolean;
     }
   | { kind: "closed"; variant: "used" | "expired" | "not-recognised" | "voided" };
 
@@ -370,6 +374,10 @@ export interface GiftClaimFlags {
   // ?sendfailed=1 — the send just failed; the claim form
   // again, with the failure line.
   sendFailed?: boolean;
+  // ?error=rate-limited — BUG-346: the attempt was
+  // refused for trying too often; the claim form with
+  // the rate-limit line.
+  rateLimited?: boolean;
   // ?error=email — the submitted address failed the
   // shape check; the claim form with its inline error.
   emailError?: boolean;
@@ -417,6 +425,10 @@ export function giftClaimPageView(
   if (flags.emailError) {
     return { kind: "card", variant: "claim", emailError: true, entryEmail: flags.entryEmail };
   }
+  // BUG-346: the rate-limit refusal serves the claim
+  // form with its own line — the click was heard, and
+  // the visitor knows to try again in a moment.
+  if (flags.rateLimited) return { kind: "card", variant: "claim", rateLimited: true };
   return { kind: "card", variant: "claim" };
 }
 
@@ -618,6 +630,11 @@ export const GIFT_PENDING_CHANGE_LABEL = "Wrong email? Change it";
 // View 19 — the send-failure line over the claim form.
 export const GIFT_SEND_FAILED_LINE =
   "We couldn't send the confirmation email just now — nothing has been claimed. Check the address and try again.";
+
+// BUG-346 — the rate-limit line over the claim form:
+// the attempt was heard but refused for trying too
+// often. It names no limit size or window.
+export const GIFT_RATE_LIMITED_LINE = "Too many attempts — please try again in a moment.";
 
 // View 18 — the email-format error, inline under the
 // claim form's field.

@@ -37,6 +37,7 @@ import {
   GIFT_PENDING_RESENT_LINE,
   GIFT_PENDING_SUCCESS_BODY,
   GIFT_PENDING_SUCCESS_HEADING,
+  GIFT_RATE_LIMITED_LINE,
   GIFT_SAME_EMAIL_BODY,
   GIFT_SAME_EMAIL_HEADING,
   GIFT_SEARCH_LINE,
@@ -154,6 +155,10 @@ describe("the eleven states' copy, verbatim from the samples", () => {
     expect(GIFT_SEND_FAILED_LINE).toBe(
       "We couldn't send the confirmation email just now — nothing has been claimed. Check the address and try again.",
     );
+    // BUG-346 — the rate-limit line: the attempt was
+    // heard but refused for trying too often. It names
+    // no limit size or window.
+    expect(GIFT_RATE_LIMITED_LINE).toBe("Too many attempts — please try again in a moment.");
     // View 20 — the confirmation-pending screen.
     expect(GIFT_PENDING_HEADING).toBe("Check your email to finish claiming");
     expect(GIFT_PENDING_BODY).toBe(
@@ -267,6 +272,13 @@ describe("the claim page's view selection", () => {
     expect(giftClaimPageView(issuedGift(), GIFT_NOW, { sent: true })).toEqual({
       kind: "card",
       variant: "claim",
+    });
+    // BUG-346: ?error=rate-limited serves the claim form
+    // with its own line — the click was heard.
+    expect(giftClaimPageView(issuedGift(), GIFT_NOW, { rateLimited: true })).toEqual({
+      kind: "card",
+      variant: "claim",
+      rateLimited: true,
     });
     // A flag never outranks the record: refused on an
     // expired gift still serves Text 1; sent on a bound
