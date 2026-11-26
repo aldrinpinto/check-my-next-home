@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 
+import PostcodeBox from "../../components/PostcodeBox";
 import SampleReportBody from "../../components/SampleReportBody";
 import { getSampleReportView } from "../../lib/server/sample-report";
 import { getSampleReportBody } from "../../lib/server/sample-report-html";
@@ -49,17 +50,41 @@ export const metadata: Metadata = pageMetadata({
 // the page serves it verbatim inside the same shell
 // instead of re-rendering the whole document per hit.
 // The layout, header, footer and head still render per
-// hit, exactly as today — so the served document is
+// hit, exactly as today — so the served body is
 // identical either way, and the visual guard photographs
-// the same page.
+// the same page. BUG-364: the check-another-home box is
+// the one exception — it is rendered live by the page,
+// after the body, in both branches, because a box baked
+// into static HTML never hydrates and searches nothing.
 export const dynamic = "force-dynamic";
+
+// BUG-364: the check-another-home box, rendered live by
+// the page in both branches — ReportPage's exact markup
+// (components/ReportPage.tsx), so the box reads and
+// behaves exactly as the bought report's own. It cannot
+// live in the baked body: static HTML injected verbatim
+// never hydrates, and a baked PostcodeBox searches
+// nothing. The box stands after the body fragment —
+// below the document and the PDF download line — inside
+// the same .site-pages__inner column, in both branches.
+function CheckAnotherHomeBox() {
+  return (
+    <section className="report-door__card report-check-again" aria-label="Check another home">
+      <h2>Done with this home? Check another one</h2>
+      <PostcodeBox bare />
+    </section>
+  );
+}
 
 export default async function SampleReportPage() {
   const body = await getSampleReportBody();
   if (body !== null) {
     return (
       <main className="site-pages">
-        <div className="site-pages__inner" dangerouslySetInnerHTML={{ __html: body }} />
+        <div className="site-pages__inner">
+          <div dangerouslySetInnerHTML={{ __html: body }} />
+          <CheckAnotherHomeBox />
+        </div>
       </main>
     );
   }
@@ -67,7 +92,8 @@ export default async function SampleReportPage() {
   return (
     <main className="site-pages">
       <div className="site-pages__inner">
-        <SampleReportBody view={view} />
+        <SampleReportBody view={view} forPdf />
+        <CheckAnotherHomeBox />
       </div>
     </main>
   );

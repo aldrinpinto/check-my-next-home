@@ -601,4 +601,23 @@ test.describe("suggestions dropdown — regression", () => {
       await expect(panel.locator(":scope > :last-child")).toHaveClass(/postio-row/);
     },
   );
+
+  test(
+    "BUG-364: the sample report's check-another-home box suggests on typing",
+    { tag: "@regression" },
+    async ({ page }) => {
+      // The box used to sit inside the baked static body,
+      // where it never hydrated — typing searched nothing
+      // and no panel ever appeared. It now renders live,
+      // after the body, so typing suggests as the landing
+      // page's box does. (The e2e harness sets
+      // SAMPLE_REPORT_NOW, so this exercises the live
+      // branch with the live box.)
+      await page.goto("/sample-report");
+      const box = page.locator(".report-check-again #postcode");
+      await box.fill("Exi");
+      const panel = page.locator(".report-check-again #postcode-suggestions");
+      await expect(panel).toBeVisible();
+    },
+  );
 });

@@ -19,14 +19,20 @@ import { input } from "./fixtures/report-inputs";
 // BUG-219 — the sample report's pre-rendered body.
 //
 // What is pinned here:
-//   (1) the served page is byte-identical whether the body
-//       comes from the bake or the live render — that is
-//       the whole point of the bake, and what keeps the
+//   (1) the baked body is byte-identical to the live body
+//       rendered in the same forPdf form — that is the
+//       whole point of the bake, and what keeps the
 //       visual guard's baselines true without recapture;
-//   (2) the seam's two bypasses: the SAMPLE_REPORT_NOW pin
+//   (2) BUG-364: the baked body carries no
+//       check-another-home box — the box is interactive
+//       and a baked copy never hydrates — while the
+//       default live body still carries it (the page
+//       renders the live box itself, after the body, in
+//       both branches);
+//   (3) the seam's two bypasses: the SAMPLE_REPORT_NOW pin
 //       reads nothing even with a bake file standing, and
 //       an absent bake file falls back to the live render;
-//   (3) a standing bake file is served verbatim.
+//   (4) a standing bake file is served verbatim.
 //
 // The fixture view is the anonymised Birkdale-shaped view
 // tests/sample-report.test.ts builds (the same identity,
@@ -61,38 +67,27 @@ function anonymisedFixtureView() {
 }
 
 describe("the baked sample body (BUG-219)", () => {
-  it("the served page is byte-identical whether the body comes from the bake or the live render", () => {
+  it("the baked body matches the live body in the same forPdf form, and carries no box", () => {
     const view = anonymisedFixtureView();
     const baked = renderSampleReportBody(view);
-    // The page's shell, both ways: the live branch renders
-    // the fragment as JSX; the baked branch injects the
-    // pre-rendered string.
-    const live = renderToStaticMarkup(
-      createElement(
-        "main",
-        { className: "site-pages" },
-        createElement(
-          "div",
-          { className: "site-pages__inner" },
-          createElement(SampleReportBody, { view }),
-        ),
-      ),
+    // The live body in the same forPdf form: the page's
+    // live branch renders this exact fragment, then the
+    // live box after it.
+    const liveForPdf = renderToStaticMarkup(
+      createElement(SampleReportBody, { view, forPdf: true }),
     );
-    const served = renderToStaticMarkup(
-      createElement(
-        "main",
-        { className: "site-pages" },
-        createElement("div", {
-          className: "site-pages__inner",
-          dangerouslySetInnerHTML: { __html: baked },
-        }),
-      ),
-    );
-    expect(served).toBe(live);
+    expect(baked).toBe(liveForPdf);
+    // BUG-364: no box in the baked body — a baked
+    // PostcodeBox never hydrates and searches nothing.
+    expect(baked).not.toContain("Done with this home?");
     // The body itself carries the sample's furniture.
     expect(baked).toContain("This is a sample report");
     expect(baked).toContain("Download this sample report as a PDF");
     expect(baked).toContain("12 Willow Close");
+    // The default live body still carries the box — the
+    // ReportPage wiring it comes from is unchanged.
+    const liveDefault = renderToStaticMarkup(createElement(SampleReportBody, { view }));
+    expect(liveDefault).toContain("Done with this home?");
   });
 });
 

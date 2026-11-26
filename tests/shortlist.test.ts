@@ -445,7 +445,7 @@ describe("the comparison's construction", () => {
       "Air quality",
       "Nearest primary",
       "Nearest secondary",
-      "Grammar school nearby",
+      "Selective schools",
       "Hospital with A&E",
       "GP",
       "Nearest vet",
@@ -562,6 +562,37 @@ describe("card assembly", () => {
     expect(card?.comparison.councilTax).toEqual({
       kind: "line",
       text: "Band D averages £2,280.36 a year",
+    });
+  });
+
+  it("assembles the grammar row as a distance cell where a selective school files (BUG-365)", () => {
+    // A nearby carrying only the secondary category, with
+    // a selective school in range: the grammar cell is
+    // the nearest selective as a distance cell — name and
+    // miles, the table's school band colours it at
+    // display — not the composed sentence.
+    const selectiveNearby = nearbyWith([
+      category({
+        category: "schools-secondary",
+        places: [
+          { latitude: 51.7, longitude: 0.6, name: "The Boswells School", miles: 1.1, detail: null },
+        ],
+        countWithin: 1,
+        nearestSelective: { name: "King Edward VI Grammar School", miles: 6.1 },
+        nearestSelectiveLine:
+          "The nearest selective secondary school is King Edward VI Grammar School — selective means admission by entrance test",
+      }),
+    ]);
+    const card = buildShortlistCard({
+      resolution: birkdale,
+      nearby: selectiveNearby,
+      sold: birkdaleSold,
+      short: shortWith(TAX_SERVED),
+    });
+    expect(card?.comparison.grammar).toEqual({
+      kind: "distance",
+      name: "King Edward VI Grammar School",
+      miles: 6.1,
     });
   });
 
@@ -1002,6 +1033,39 @@ describe("BUG-309: the staleness test for a saved snapshot", () => {
     expect(isStaleShortlistCard(card)).toBe(true);
   });
 
+  it("an air line in the figures-only text with a band is stale (BUG-361)", () => {
+    const card = currentRung1Card();
+    expect(
+      isStaleShortlistCard({
+        ...card,
+        comparison: {
+          ...card.comparison,
+          air: {
+            kind: "line",
+            text: "NO2 8.15 µg/m³ a year · PM2.5 7.12 µg/m³ · PM10 12.55 µg/m³",
+            band: "green",
+          },
+        },
+      }),
+    ).toBe(true);
+  });
+
+  it("a bandless figures-only air line is not stale — no band to derive a verdict from (BUG-361)", () => {
+    const card = currentRung1Card();
+    expect(
+      isStaleShortlistCard({
+        ...card,
+        comparison: {
+          ...card.comparison,
+          air: {
+            kind: "line",
+            text: "NO2 8.15 µg/m³ a year · PM2.5 7.12 µg/m³ · PM10 12.55 µg/m³",
+          },
+        },
+      }),
+    ).toBe(false);
+  });
+
   it("a grammar line in the old lowercase form is stale", () => {
     const card = currentRung1Card();
     expect(
@@ -1012,6 +1076,22 @@ describe("BUG-309: the staleness test for a saved snapshot", () => {
           grammar: {
             kind: "line",
             text: "the nearest selective secondary school is Grammar School — selective means admission by entrance test",
+          },
+        },
+      }),
+    ).toBe(true);
+  });
+
+  it("a grammar line in the capitalised selective sentence is stale (BUG-365)", () => {
+    const card = currentRung1Card();
+    expect(
+      isStaleShortlistCard({
+        ...card,
+        comparison: {
+          ...card.comparison,
+          grammar: {
+            kind: "line",
+            text: "The nearest selective secondary school is Grammar School — selective means admission by entrance test",
           },
         },
       }),
@@ -1061,6 +1141,10 @@ describe("the comparison's colour coding (BUG-163)", () => {
     expect(comparisonCellBand("ae", "hospital", distance(5.9))).toBe("orange");
     // Nursery by the school band, past two miles: red.
     expect(comparisonCellBand("nursery", "school", distance(2.4))).toBe("red");
+    // Grammar by the school band (BUG-365): 0.4 mi is
+    // inside the green mile, 6.1 mi past two miles is red.
+    expect(comparisonCellBand("grammar", "school", distance(0.4))).toBe("green");
+    expect(comparisonCellBand("grammar", "school", distance(6.1))).toBe("red");
   });
 
   it("leaves the never-coloured facts plain", () => {
@@ -1071,8 +1155,11 @@ describe("the comparison's colour coding (BUG-163)", () => {
     expect(
       comparisonCellBand("councilTax", null, cell("Band D averages £2,280.36 a year")),
     ).toBeNull();
-    // A family-less distance row never colours.
-    expect(comparisonCellBand("grammar", null, distance(0.4))).toBeNull();
+    // A family-less distance cell never colours (no row
+    // in the table is family-less and distance-bearing
+    // since BUG-365 gave grammar the school family — the
+    // pin stays at the function level, on flood's key).
+    expect(comparisonCellBand("flood", null, distance(0.4))).toBeNull();
     // A legacy pointer never colours.
     expect(comparisonCellBand("flood", null, { kind: "pointer" })).toBeNull();
   });
@@ -1206,7 +1293,7 @@ describe("the Air quality row (BUG-164)", () => {
     });
     expect(card?.comparison.air).toEqual({
       kind: "line",
-      text: "NO2 45.20 µg/m³ a year · PM2.5 12.00 µg/m³ · PM10 20.00 µg/m³",
+      text: "Above a UK legal limit · NO2 45.20 µg/m³ a year · PM2.5 12.00 µg/m³ · PM10 20.00 µg/m³",
       band: "red",
     });
   });
@@ -1222,7 +1309,7 @@ describe("the Air quality row (BUG-164)", () => {
     });
     expect(card?.comparison.air).toEqual({
       kind: "line",
-      text: "NO2 8.00 µg/m³ a year · PM2.5 4.00 µg/m³ · PM10 12.00 µg/m³",
+      text: "Well within UK legal limits · NO2 8.00 µg/m³ a year · PM2.5 4.00 µg/m³ · PM10 12.00 µg/m³",
       band: "green",
     });
   });
@@ -1243,7 +1330,7 @@ describe("the Air quality row (BUG-164)", () => {
     });
     expect(card?.comparison.air).toEqual({
       kind: "line",
-      text: "NO2 8.15 µg/m³ a year · PM2.5 7.12 µg/m³ · PM10 12.55 µg/m³",
+      text: "Well within UK legal limits · NO2 8.15 µg/m³ a year · PM2.5 7.12 µg/m³ · PM10 12.55 µg/m³",
       band: "green",
     });
   });
@@ -1259,7 +1346,7 @@ describe("the Air quality row (BUG-164)", () => {
     });
     expect(card?.comparison.air).toEqual({
       kind: "line",
-      text: "NO2 25.00 µg/m³ a year · PM2.5 12.00 µg/m³ · PM10 22.00 µg/m³",
+      text: "Within UK legal limits · NO2 25.00 µg/m³ a year · PM2.5 12.00 µg/m³ · PM10 22.00 µg/m³",
       band: "orange",
     });
   });
@@ -1275,7 +1362,7 @@ describe("the Air quality row (BUG-164)", () => {
     });
     expect(half?.comparison.air).toEqual({
       kind: "line",
-      text: "NO2 20.00 µg/m³ a year · PM2.5 4.00 µg/m³ · PM10 12.00 µg/m³",
+      text: "Within UK legal limits · NO2 20.00 µg/m³ a year · PM2.5 4.00 µg/m³ · PM10 12.00 µg/m³",
       band: "orange",
     });
     const atLimit = cardWithAir({
@@ -1288,7 +1375,7 @@ describe("the Air quality row (BUG-164)", () => {
     });
     expect(atLimit?.comparison.air).toEqual({
       kind: "line",
-      text: "NO2 40.00 µg/m³ a year · PM2.5 20.00 µg/m³ · PM10 40.00 µg/m³",
+      text: "Within UK legal limits · NO2 40.00 µg/m³ a year · PM2.5 20.00 µg/m³ · PM10 40.00 µg/m³",
       band: "orange",
     });
   });

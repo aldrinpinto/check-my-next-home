@@ -393,6 +393,9 @@ p {
   background: var(--cmnh-white);
   border-bottom: 1px solid var(--cmnh-brass-pale);
   box-shadow: 0 1px 5px rgba(30, 64, 44, 0.08);
+  /* BUG-363 (26 Nov 2026): the anchor for the phone
+     menu's dropdown — no visual change on its own. */
+  position: relative;
 }
 
 .site-header__inner {
@@ -457,17 +460,66 @@ p {
   gap: var(--space-2) 1.375rem;
 }
 
-/* BUG-250 (24 Nov 2026): at phone width the five nav
-   items wrapped 4 + 1, "Contact" alone on a second line,
-   left-aligned. The nav takes the full row and its items
-   centre, so no item stands orphaned. */
+/* BUG-363 (26 Nov 2026, founder ruling): at phone width
+   the nav no longer wraps 4 + 1 — it collapses behind a
+   hamburger. This supersedes BUG-250's centred wrap: the
+   list is hidden until the button opens it as a full-width
+   dropdown under the header. The button and its badge
+   cluster are hidden above this breakpoint, so the desktop
+   nav is exactly as before. The toggle is a full tap
+   target (the kit's 2.75rem) and inherits the one pinned
+   :focus-visible style; the open list keeps the nav's own
+   link styling, stacked. */
+.site-nav__toggle {
+  display: none;
+}
+
+.site-nav__mobile {
+  display: none;
+}
+
 @media (max-width: 30rem) {
   .site-nav {
-    margin-left: 0;
-    width: 100%;
+    margin-left: auto;
+    width: auto;
   }
-  .site-nav__list {
+
+  .site-nav__mobile {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .site-nav__toggle {
+    display: inline-flex;
+    align-items: center;
     justify-content: center;
+    width: var(--tap-target);
+    height: var(--tap-target);
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--cmnh-forest);
+    cursor: pointer;
+  }
+
+  .site-nav__list {
+    display: none;
+  }
+
+  .site-nav__list--open {
+    display: flex;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 30;
+    flex-direction: column;
+    gap: 0;
+    padding: var(--space-2) var(--space-4) var(--space-3);
+    background: var(--cmnh-white);
+    border-bottom: 1px solid var(--cmnh-brass-pale);
+    box-shadow: 0 8px 16px rgba(30, 64, 44, 0.12);
   }
 }
 
@@ -655,6 +707,15 @@ p {
   .site-footer__nav {
     flex-direction: column;
     width: 100%;
+  }
+
+  /* BUG-362 (26 Nov 2026): the group's 10rem flex basis
+     is a min width on desktop but a min height once the
+     nav stacks — every group stood 160px tall with mostly
+     empty space. At phone width the group sizes to its
+     content; the desktop rule above is untouched. */
+  .site-footer__group {
+    flex: none;
   }
 }
 
@@ -2952,10 +3013,37 @@ button.postio-row:hover {
 /* BUG-250 (24 Nov 2026): at phone width the five pills
    wrapped 2 + 2 + 1, the lone fifth pill left-aligned on
    its own row. Centred below 40rem, the rows balance;
-   the desktop row stays left-aligned. */
+   the desktop row stays left-aligned.
+   BUG-369 (26 Nov 2026): the stacked rows grew the strip
+   to ~200px tall on a phone, so below 40rem the strip is
+   one horizontally scrollable row instead — the standard
+   chip-row pattern. The pills keep their full width
+   (flex-shrink: 0) and the row stays one row tall;
+   nothing is hidden, every pill is reached by swiping.
+   justify-content is `safe center`, not plain `center`:
+   a plain centred row that overflows clips its left edge
+   out of scroll reach; `safe center` centres the row
+   when it fits and falls back to start-aligned when it
+   overflows, so the first pill is always reachable.
+   A browser without `safe` drops the declaration and
+   falls back to start alignment — the row stays fully
+   scrollable, just left-aligned. */
 @media (max-width: 40rem) {
   .results-strip {
-    justify-content: center;
+    justify-content: safe center;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+  .results-strip > .pill {
+    flex-shrink: 0;
+  }
+  .results-strip::-webkit-scrollbar {
+    height: 4px;
+  }
+  .results-strip::-webkit-scrollbar-thumb {
+    background: var(--colour-band-line);
+    border-radius: 999px;
   }
 }
 
@@ -3281,6 +3369,27 @@ a.trunc-row:hover {
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+/* BUG-371 (26 Nov 2026): at phone width the two head buttons
+   stack vertically, each full width. The saved label
+   ("Shortlisted — tap to remove") is longer than "Shortlist
+   this home", so the wrapping row dropped the report button
+   below on tap — a layout shift on every save. Stacked, the
+   row is stable in both states and the buttons' text stays
+   centred. Desktop stays side by side. */
+@media (max-width: 40rem) {
+  .results-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+  }
+  .results-actions .shortlist-btn,
+  .results-actions .report-btn {
+    width: 100%;
+    justify-content: center;
+  }
 }
 
 /* The checking screen's slim eyebrow (item 2): the only
@@ -3900,6 +4009,22 @@ a.picker__row {
   align-items: center;
 }
 
+/* BUG-371 (26 Nov 2026): the same stack as the head actions —
+   the buy bar carries the same two controls and the same wrap
+   risk when the saved label grows. */
+@media (max-width: 40rem) {
+  .buy-bar__actions {
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+  }
+  .buy-bar__actions .shortlist-btn,
+  .buy-bar__actions .report-btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
 /* The mystery tease inside the buy bar (D21 as amended):
    the eyebrow in small caps over the band, the line in
    the serif face — the payment page strip's form, in the
@@ -4132,18 +4257,39 @@ a.picker__row {
   gap: 0.5rem;
 }
 
+.report-payment__methods > li {
+  margin: 0;
+  padding: 0;
+}
+
 .report-payment__method {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
+  width: 100%;
   border: 1px solid #e3dcc4;
   border-radius: 8px;
   background: var(--cmnh-white);
   padding: 0.625rem 0.875rem;
+  font: inherit;
   font-size: 0.9375rem;
   font-weight: 600;
+  text-align: left;
   color: var(--cmnh-forest-deep);
+  cursor: pointer;
+}
+
+/* BUG-367: the rows are buttons on the start path, so
+   they read as tappable — a darker border on hover,
+   and a visible focus ring for keyboard buyers. */
+.report-payment__method:hover {
+  border-color: var(--cmnh-forest-deep);
+}
+
+.report-payment__method:focus-visible {
+  outline: 2px solid var(--cmnh-forest-deep);
+  outline-offset: 2px;
 }
 
 /* The accepted-brand marks on the method rows

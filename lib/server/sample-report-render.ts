@@ -21,5 +21,10 @@ import SampleReportBody from "../../components/SampleReportBody";
 import type { ReportView } from "../report";
 
 export function renderSampleReportBody(view: ReportView): string {
-  return renderToStaticMarkup(createElement(SampleReportBody, { view }));
+  // BUG-364: the baked body renders forPdf, so the
+  // check-another-home box is left out of the static
+  // HTML — a baked PostcodeBox never hydrates and its
+  // field searches nothing. The page renders the live
+  // box itself, after the body, in both branches.
+  return renderToStaticMarkup(createElement(SampleReportBody, { view, forPdf: true }));
 }

@@ -100,14 +100,25 @@ describe("BUG-250 polish — CSS pins (app/globals.css)", () => {
     expect(css).toMatch(/\.source-strip__logos\s*\{[^}]*justify-content:\s*center;[^}]*\}/);
   });
 
-  it("item 21: the header nav centres at phone width", () => {
-    expect(css).toMatch(/\.site-nav__list\s*\{[^}]*justify-content:\s*center;[^}]*\}/);
-    expect(css).toContain(".site-nav {");
-    expect(css).toContain("width: 100%;");
+  it("item 21 (BUG-363): the header nav collapses behind a hamburger at phone width — the BUG-250 centred wrap is retired", () => {
+    // BUG-363 (founder ruling, 26 Nov 2026) supersedes
+    // BUG-250's centred 4 + 1 wrap: below 30rem the list
+    // is hidden until the button opens it as a dropdown.
+    // No centred-wrap rule survives on the list.
+    expect(css).not.toMatch(/\.site-nav__list\s*\{[^}]*justify-content:\s*center;[^}]*\}/);
+    expect(css).toContain(".site-nav__toggle {");
+    expect(css).toContain(".site-nav__list--open {");
+    expect(css).toMatch(/\.site-nav__list--open\s*\{[^}]*position:\s*absolute;[^}]*\}/);
+    expect(css).toMatch(/\.site-nav__list--open\s*\{[^}]*top:\s*100%;[^}]*\}/);
   });
 
   it("item 22: the free-page pills centre their wrapped rows at phone width", () => {
-    expect(css).toMatch(/\.results-strip\s*\{[^}]*justify-content:\s*center;[^}]*\}/);
+    // BUG-369 (26 Nov 2026): the strip is one scrollable
+    // row below 40rem now, so the centring is `safe
+    // center` — plain `center` would clip the left edge
+    // of an overflowing row out of scroll reach. The row
+    // still centres whenever it fits.
+    expect(css).toMatch(/\.results-strip\s*\{[^}]*justify-content:\s*safe center;[^}]*\}/);
   });
 });
 

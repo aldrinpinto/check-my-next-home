@@ -13,6 +13,7 @@ import {
   liveStartedPayment,
   paymentElementKey,
   paymentGiftLockedNote,
+  paymentMethodOrderFor,
   PAYMENT_CARD_LOAD_FAILED_LINE,
   PAYMENT_CONSENT_ERROR_LINE,
   PAYMENT_DECLINED_FALLBACK_LINE,
@@ -24,6 +25,7 @@ import {
   paymentGiftGoneLine,
   type ReportPaymentView,
   type StartedPayment,
+  type PreferredPaymentMethod,
 } from "../lib/report-payment";
 import { fireJourneyEvent } from "./JourneyBeacon";
 import { AmexMark, DiscoverMark, MastercardMark, RevolutMark, VisaMark } from "./PaymentBrandMarks";
@@ -57,8 +59,13 @@ import { AmexMark, DiscoverMark, MastercardMark, RevolutMark, VisaMark } from ".
 // the checkout card from the start; only the Pay
 // button waits for the tick and a shape-valid email.
 // BUG-335 (25 Nov 2026): the paid flow starts ONLY on
-// the Pay button click, never on the consent tick —
-// the tick authorises, the button pays. Clicking Pay
+// a start click, never on the consent tick —
+// the tick authorises, the click pays. BUG-367
+// (26 Nov 2026): the click is the Pay button's OR
+// either method row's — both run the same
+// onStartClick path (email + consent validation
+// included), the row recording its method so the
+// element lists it first. Clicking Pay — or a row —
 // with the tick standing and a shape-valid email
 // starts a payment on the server (POST
 // /api/payments/intent — the server re-resolves the
@@ -155,6 +162,7 @@ function PaySection({
   payLabel,
   consented,
   orderRef,
+  preferredMethod,
   onPaid,
   onDeclined,
 }: {
@@ -166,6 +174,11 @@ function PaySection({
   // disagree about what the order is.
   payLabel: string;
   consented: boolean;
+  // BUG-367: the method the buyer tapped on the
+  // method rows, or null where no row was tapped
+  // (Pay itself carries no preference) — handed
+  // down so the element lists it first.
+  preferredMethod: PreferredPaymentMethod | null;
   // The started payment's own id — the order's
   // reference (M9.7): the confirm call's return_url
   // names it, so a payment that leaves the page (the
@@ -182,6 +195,21 @@ function PaySection({
 }) {
   const stripe = useStripe();
   const elements = useElements();
+  // BUG-367: the element's own options — the tapped
+  // method stands first in its list (paymentMethodOrder
+  // is a Payment Element option, not an Elements
+  // option, per the installed provider types:
+  // StripePaymentElementOptions carries it,
+  // StripeElementsOptionsClientSecret does not). No
+  // tap means the provider's default order
+  // (paymentMethodOrderFor returns undefined, never
+  // an invented one). Memoised on the preference so
+  // the element is not handed a new options object
+  // on every render.
+  const paymentElementOptions = useMemo(
+    () => ({ paymentMethodOrder: paymentMethodOrderFor(preferredMethod) }),
+    [preferredMethod],
+  );
   // BUG-341: the ONE source of truth for card-field
   // errors — updated on every change event from the
   // provider's element, and read by both the field
@@ -256,6 +284,7 @@ function PaySection({
   return (
     <form ref={formRef} onSubmit={onSubmit} noValidate>
       <PaymentElement
+        options={paymentElementOptions}
         onChange={(event) => {
           // BUG-341: the change event carries no error
           // — only empty, complete, collapsed and value
@@ -362,6 +391,14 @@ export default function ReportPaymentPage({
   // on the tick), so the tick alone never places it.
   const [consentAt, setConsentAt] = useState<string | null>(null);
   const [started, setStarted] = useState<StartedPayment | null>(null);
+  // BUG-367: the method the buyer tapped on the
+  // method rows, or null where no row was tapped
+  // (Pay itself carries no preference). Recorded
+  // only once a start passes validation, in
+  // onStartClick below — a failed tap records
+  // nothing — and read by the element's options, so
+  // the tapped method stands first in its list.
+  const [preferredMethod, setPreferredMethod] = useState<PreferredPaymentMethod | null>(null);
   // The start-click count: every Pay click that
   // reaches for a payment counts, including retries
   // after a failed start or a decline.
@@ -589,6 +626,7 @@ export default function ReportPaymentPage({
           // tick and next Pay click start a fresh one.
           setGiftLost(true);
           setConsentAt(null);
+          setPreferredMethod(null);
           setNotice(paymentGiftGoneLine(data.giftGoneReason));
           return;
         }
@@ -656,7 +694,7 @@ export default function ReportPaymentPage({
     emailRef.current?.focus();
   }
 
-  function onStartClick() {
+  function onStartClick(preferred?: PreferredPaymentMethod) {
     // BUG-328: BOTH checks are evaluated before any
     // return — a missing email AND a missing tick are
     // named together, on the first click. BUG-327: a
@@ -699,7 +737,13 @@ export default function ReportPaymentPage({
     // for a buyer whose card panel has not mounted
     // yet — and the retry when a start has failed or
     // a card has been declined (a fresh payment per
-    // attempt, startPayment above).
+    // attempt, startPayment above). BUG-367: a method
+    // row's tap arrives here too, with its method —
+    // recorded only now, once the start has passed
+    // validation, so a failed tap records nothing;
+    // Pay itself passes none, clearing any stale
+    // preference from an earlier tap.
+    setPreferredMethod(preferred ?? null);
     void startPayment();
   }
 
@@ -1013,6 +1057,7 @@ export default function ReportPaymentPage({
                         payLabel={payLabel}
                         consented={consentAt !== null}
                         orderRef={activeIntent.intentId || null}
+                        preferredMethod={preferredMethod}
                         onPaid={() => {
                           // The success surface reads the
                           // fulfilment claim server-side; the
@@ -1034,16 +1079,20 @@ export default function ReportPaymentPage({
                 ) : (
                   <>
                     {/* Sample 2: the payment methods are
-                        visible from the start — these rows
-                        are the page's own static list, not
-                        the provider's element (the element
-                        still mounts only once a payment has
-                        started, below). The accepted-brand
-                        marks stand on the rows from the
-                        start too (founder, 25 Nov 2026):
-                        the four card brands on the Card
-                        row, the Revolut mark on the
-                        Revolut Pay row — components/
+                        visible from the start — BUG-367
+                        (26 Nov 2026, founder ruling):
+                        the rows are buttons on the same
+                        start path as Pay, not the page's
+                        old static list — tapping one
+                        starts the payment and mounts
+                        the element with that method
+                        first (onStartClick, above).
+                        The accepted-brand marks stand
+                        on the rows from the start too
+                        (founder, 25 Nov 2026): the four
+                        card brands on the Card row, the
+                        Revolut mark on the Revolut Pay
+                        row — components/
                         PaymentBrandMarks.tsx. */}
                     {/* BUG-223: no payment-method rows for a
                         gift holder — a free order has no
@@ -1051,20 +1100,32 @@ export default function ReportPaymentPage({
                         draws no card panel). */}
                     {!giftActive && (
                       <ul className="report-payment__methods" aria-label="Payment methods">
-                        <li className="report-payment__method">
-                          <span className="report-payment__method-label">Card</span>
-                          <span className="report-payment__method-marks" aria-hidden="true">
-                            <VisaMark />
-                            <MastercardMark />
-                            <AmexMark />
-                            <DiscoverMark />
-                          </span>
+                        <li>
+                          <button
+                            type="button"
+                            className="report-payment__method"
+                            onClick={() => onStartClick("card")}
+                          >
+                            <span className="report-payment__method-label">Card</span>
+                            <span className="report-payment__method-marks" aria-hidden="true">
+                              <VisaMark />
+                              <MastercardMark />
+                              <AmexMark />
+                              <DiscoverMark />
+                            </span>
+                          </button>
                         </li>
-                        <li className="report-payment__method">
-                          <span className="report-payment__method-label">Revolut Pay</span>
-                          <span className="report-payment__method-marks" aria-hidden="true">
-                            <RevolutMark />
-                          </span>
+                        <li>
+                          <button
+                            type="button"
+                            className="report-payment__method"
+                            onClick={() => onStartClick("revolut_pay")}
+                          >
+                            <span className="report-payment__method-label">Revolut Pay</span>
+                            <span className="report-payment__method-marks" aria-hidden="true">
+                              <RevolutMark />
+                            </span>
+                          </button>
                         </li>
                       </ul>
                     )}
@@ -1084,7 +1145,7 @@ export default function ReportPaymentPage({
                     <button
                       type="button"
                       className="btn btn--brass report-payment__pay"
-                      onClick={onStartClick}
+                      onClick={() => onStartClick()}
                       aria-disabled={consentAt === null || undefined}
                     >
                       {payLabel}

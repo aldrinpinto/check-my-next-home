@@ -349,6 +349,17 @@ export function dedupeAddressParts(rows: LoadedAddressParts[]): LoadedAddressPar
   });
 }
 
+// BUG-370 (26 Nov 2026): filed parts can carry a stray leading
+// comma — 68,290 picking rows file a paon like ", OTTAWA TOWER,
+// MURRELL CLOSE" — and the composed label then carries a double
+// comma ("Flat 5, , Ottawa Tower, ..."). Collapse every double
+// comma into one after composing, so the H1 reads "Flat 5,
+// Ottawa Tower, ...". The founder's rule: collapse the double
+// comma, don't trim the parts.
+function collapseDoubleCommas(label: string): string {
+  return label.replace(/,(?:\s*,)+/g, ",");
+}
+
 function toResolved(parts: LoadedAddressParts): ResolvedAddress {
   const paon = displayText(parts.paon ?? "");
   const street = parts.street ? displayText(parts.street) : null;
@@ -370,7 +381,7 @@ function toResolved(parts: LoadedAddressParts): ResolvedAddress {
   // ("148 ATLANTIC REACH") must not have it appended
   // again — the street appears once, never doubled.
   if (street && label !== "" && normText(label).endsWith(normText(street))) {
-    return { ...parts, label };
+    return { ...parts, label: collapseDoubleCommas(label) };
   }
   if (street) {
     // BUG-308: the street follows with a space where the
@@ -383,7 +394,7 @@ function toResolved(parts: LoadedAddressParts): ResolvedAddress {
     const separator = parts.saon || /^[0-9]/.test(paon) || /[0-9]$/.test(paon) ? " " : ", ";
     label = label === "" ? street : `${label}${separator}${street}`;
   }
-  return { ...parts, label };
+  return { ...parts, label: collapseDoubleCommas(label) };
 }
 
 // The display label for any filed address parts — the same

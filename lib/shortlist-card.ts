@@ -270,7 +270,10 @@ function crimeCell(crime: ShortCrime): ShortlistCell {
 // within them at half or more, red over any of them —
 // a served set always carries a band now, never plain;
 // an unfiled section carries its own named line — the
-// table's existing not-served treatment. Where no area
+// table's existing not-served treatment. BUG-361
+// (founder ruling, 26 Nov 2026): the verdict words
+// lead the figures now, so the row reads like the other
+// rows instead of bare figures under a colour. Where no area
 // bundle reaches assembly (an older caller), the cell
 // falls back to the short projection's headline line,
 // plain: the projection carries no values to compose
@@ -281,9 +284,25 @@ function airCell(input: ShortlistCardInput): ShortlistCell {
     const air = area.sections.air;
     if (air.state === "served" && air.no2 !== null && air.pm25 !== null && air.pm10 !== null) {
       const band = airPillBand(air);
+      const figures = `NO2 ${air.no2.toFixed(2)} µg/m³ a year · PM2.5 ${air.pm25.toFixed(2)} µg/m³ · PM10 ${air.pm10.toFixed(2)} µg/m³`;
+      // BUG-361: the verdict words travel with the
+      // figures, as on the results pill (lib/results.ts)
+      // and the other rows — the band alone left the row
+      // reading as bare figures. The three strings are
+      // the pill's own, mirrored here; a bandless set
+      // (unreachable on this branch) keeps the figures
+      // alone rather than guessing a verdict.
+      const verdict =
+        band === "red"
+          ? "Above a UK legal limit"
+          : band === "orange"
+            ? "Within UK legal limits"
+            : band === "green"
+              ? "Well within UK legal limits"
+              : null;
       return {
         kind: "line",
-        text: `NO2 ${air.no2.toFixed(2)} µg/m³ a year · PM2.5 ${air.pm25.toFixed(2)} µg/m³ · PM10 ${air.pm10.toFixed(2)} µg/m³`,
+        text: verdict === null ? figures : `${verdict} · ${figures}`,
         ...(band ? { band } : {}),
       };
     }
@@ -340,10 +359,25 @@ function rung1Card(input: ShortlistCardInput): ShortlistCard | null {
       : { kind: "line", text: tax.line ?? NOT_COVERED_LINE };
 
   const secondary = categoryOf(nearby, "schools-secondary");
-  const grammarCell: ShortlistCell = {
-    kind: "line",
-    text: secondary?.nearestSelectiveLine ?? secondary?.line ?? NOT_COVERED_LINE,
-  };
+  // BUG-365 (founder ruling, 26 Nov 2026): the grammar
+  // row takes the distance verdict like its neighbours —
+  // the nearest selective school as a distance cell, so
+  // the table colours its miles on the school bands
+  // through the row's family (lib/shortlist.ts). The
+  // Master's compare row (Samples 15/16) draws plain
+  // miles with no pill and no "selective means admission
+  // by entrance test" sentence anywhere in the row — the
+  // founder's ruling is the verdict, and the Master
+  // conform follows with the parent. Where no selective
+  // school files, the category's own line stands, as
+  // before.
+  const selective = secondary?.nearestSelective ?? null;
+  const grammarCell: ShortlistCell = selective
+    ? { kind: "distance", name: selective.name, miles: selective.miles }
+    : {
+        kind: "line",
+        text: secondary?.nearestSelectiveLine ?? secondary?.line ?? NOT_COVERED_LINE,
+      };
 
   const comparison: Record<ComparisonRowKey, ShortlistCell> = {
     primary: distanceCell(categoryOf(nearby, "schools-primary")),

@@ -167,6 +167,84 @@ describe("parseEpcAddressLines — the witnessed shapes", () => {
   });
 });
 
+describe("parseEpcAddressLines — BUG-372 (the Flat 5 leading comma)", () => {
+  it("S3b: flat + building + street on line 1, town on line 2, post town empty", () => {
+    expect(
+      parseEpcAddressLines(
+        cert("Flat 5, Ottawa Tower, Murrell Close", "Birmingham", "", "", "B5 7LZ"),
+      ),
+    ).toEqual({
+      parts: {
+        postcode: "B5 7LZ",
+        paon: "OTTAWA TOWER",
+        saon: "FLAT 5",
+        street: "MURRELL CLOSE",
+        town: "BIRMINGHAM",
+      },
+    });
+  });
+
+  it("strips the leading comma alone — no second comma, no split", () => {
+    expect(
+      parseEpcAddressLines(cert("Flat 5, Ottawa Tower", "Murrell Close", "", "", "B5 7LZ")),
+    ).toEqual({
+      parts: {
+        postcode: "B5 7LZ",
+        paon: "OTTAWA TOWER",
+        saon: "FLAT 5",
+        street: "MURRELL CLOSE",
+        town: null,
+      },
+    });
+  });
+
+  it("a clean line without the stray comma parses exactly the same", () => {
+    expect(
+      parseEpcAddressLines(
+        cert("Flat 5 Ottawa Tower, Murrell Close", "Birmingham", "", "", "B5 7LZ"),
+      ),
+    ).toEqual({
+      parts: {
+        postcode: "B5 7LZ",
+        paon: "OTTAWA TOWER",
+        saon: "FLAT 5",
+        street: "MURRELL CLOSE",
+        town: "BIRMINGHAM",
+      },
+    });
+  });
+
+  it("a number tail does not split — it is a PAON number, not a street", () => {
+    expect(
+      parseEpcAddressLines(cert("Flat 8, Juno House, 16", "Ceres Crescent", "", "", "KT17 1FH")),
+    ).toEqual({
+      parts: {
+        postcode: "KT17 1FH",
+        paon: "JUNO HOUSE, 16",
+        saon: "FLAT 8",
+        street: "CERES CRESCENT",
+        town: null,
+      },
+    });
+  });
+
+  it("a filed post town keeps line 2 as the street — no split", () => {
+    expect(
+      parseEpcAddressLines(
+        cert("Flat 1, Block A, Building B", "High Street", "", "Birmingham", "B5 7LZ"),
+      ),
+    ).toEqual({
+      parts: {
+        postcode: "B5 7LZ",
+        paon: "BLOCK A, BUILDING B",
+        saon: "FLAT 1",
+        street: "HIGH STREET",
+        town: "BIRMINGHAM",
+      },
+    });
+  });
+});
+
 describe("parseEpcAddressLines — ambiguity files nothing", () => {
   it("refuses a flat designator with no anchor", () => {
     expect(parseEpcAddressLines(cert("Flat 4"))).toEqual({ refusal: "no-anchor" });

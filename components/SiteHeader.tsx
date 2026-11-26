@@ -1,7 +1,14 @@
 import Link from "next/link";
 
 import { SITE_NAME, SITE_TAGLINE } from "../lib/site";
-import ShortlistCountBadge from "./ShortlistCountBadge";
+import SiteNav from "./SiteNav";
+
+// BUG-363 (26 Nov 2026, founder ruling): the nav is now
+// the SiteNav island — a hamburger below 30rem, the
+// desktop row above it. This supersedes BUG-250's
+// centred 4 + 1 wrap. PRIMARY_NAV stays exported here:
+// tests/look-feel-kit.test.ts pins the set from this
+// module, and the island takes it as a prop.
 
 // M7.1 — the header shell, built once for every page. White
 // header: the Roof-Tick mark (the finalised Logo 1, served from
@@ -58,23 +65,7 @@ export default function SiteHeader({ shortlistCount }: { shortlistCount?: number
             <span className="brand__tagline">{SITE_TAGLINE}</span>
           </span>
         </Link>
-        <nav className="site-nav" aria-label="Primary">
-          <ul className="site-nav__list">
-            {PRIMARY_NAV.map((item) => (
-              <li key={item.href}>
-                <Link className="site-nav__link" href={item.href}>
-                  {item.label}
-                  {item.label === "Shortlist" &&
-                    (shortlistCount !== undefined ? (
-                      <span className="shortlist-count">{shortlistCount}</span>
-                    ) : (
-                      <ShortlistCountBadge />
-                    ))}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </nav>
+        <SiteNav items={PRIMARY_NAV} shortlistCount={shortlistCount} />
       </div>
     </header>
   );

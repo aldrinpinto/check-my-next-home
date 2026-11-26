@@ -53,8 +53,9 @@ import { expect, test } from "./fixtures";
 // surface, re-asserted after layout-changing interactions
 // (each tab opened; the add control tapped at a full
 // shortlist). F2 — tap targets measured by bounding box
-// over the block set as it now stands: the header's five
-// nav links, the postcode input and its submit, the
+// over the block set as it now stands: the header's
+// hamburger button, and its five nav links once the menu
+// is open (BUG-363), the postcode input and its submit, the
 // home-list rows, the four tabs,
 // the buy bar's report and shortlist pills, the
 // shortlist cards' Remove buttons and the comparison
@@ -231,7 +232,7 @@ test.describe("phone-first — 360×740 (T-WEB-01)", () => {
   test.use({ viewport: PHONE });
 
   test(
-    "the landing: nothing scrolls sideways, the header wraps with all five nav links tappable, the postcode input is 16px (F2/F3/F6)",
+    "the landing: nothing scrolls sideways, the header nav sits behind a hamburger with all five links tappable once open, the postcode input is 16px (F2/F3/F6)",
     { tag: "@regression" },
     async ({ page }) => {
       await page.goto("/");
@@ -241,23 +242,36 @@ test.describe("phone-first — 360×740 (T-WEB-01)", () => {
       await expectNoSidewaysScroll(page);
       await expectNoTable(page);
 
-      // F6: the shell asserted once, here — the nav wraps
-      // (the five links cannot share one row at 360px) and
+      // F6: the shell asserted once, here — below 30rem the
+      // nav is a hamburger (BUG-363): the button is a
+      // full-height target inside the viewport, the five
+      // links are hidden until it opens, and once open
       // every link is a full-height target inside the
-      // viewport.
+      // viewport in a single column. Escape closes the
+      // menu and returns focus to the button.
+      const toggle = page.getByRole("button", { name: "Menu" });
+      await expect(toggle).toBeVisible();
+      await expect(toggle).toHaveAttribute("aria-expanded", "false");
+      await expectTapTarget(toggle, "the hamburger button");
+      await expectInsideViewport(toggle, PHONE.width, "the hamburger button");
       const links = page.locator(".site-nav__link");
       await expect(links).toHaveCount(5);
-      const tops: number[] = [];
+      for (const link of await links.all()) {
+        await expect(link).toBeHidden();
+      }
+      await toggle.click();
+      await expect(toggle).toHaveAttribute("aria-expanded", "true");
+      await expect(toggle).toHaveAccessibleName("Close menu");
       for (const link of await links.all()) {
         await expectTapTarget(link, "a header nav link");
         await expectInsideViewport(link, PHONE.width, "a header nav link");
-        const box = await link.boundingBox();
-        tops.push(box!.y);
       }
-      expect(
-        Math.max(...tops) - Math.min(...tops),
-        "the nav wraps to more than one row",
-      ).toBeGreaterThanOrEqual(40);
+      await page.keyboard.press("Escape");
+      await expect(toggle).toHaveAttribute("aria-expanded", "false");
+      await expect(toggle).toBeFocused();
+      for (const link of await links.all()) {
+        await expect(link).toBeHidden();
+      }
 
       // F3 + F2 on the journey's first screen: the input
       // computes to 16px (no iOS focus-zoom) and both

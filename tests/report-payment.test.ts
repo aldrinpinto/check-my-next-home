@@ -37,6 +37,7 @@ import {
   PAYMENT_TERMS_LINE_LEAD,
   PAYMENT_TERMS_LINK_LABEL,
   paymentGiftGoneLine,
+  paymentMethodOrderFor,
   type StartedPayment,
 } from "../lib/report-payment";
 import { GIFT_APPLIED_BANNER_LINE } from "../lib/report-success";
@@ -727,8 +728,13 @@ describe("payment page — the start handler's errors (BUG-327, BUG-328)", () =>
     // error, sets the consent error where the tick is
     // missing, and returns once on the joint check —
     // never an email return before the consent check.
+    // BUG-367: the handler takes the tapped method as
+    // its optional parameter — the anchor is the new
+    // signature, the checks it pins are unchanged.
     const source = readFileSync(join(process.cwd(), "components/ReportPaymentPage.tsx"), "utf8");
-    const startClick = source.slice(source.indexOf("function onStartClick()"));
+    const startClick = source.slice(
+      source.indexOf("function onStartClick(preferred?: PreferredPaymentMethod) {"),
+    );
     expect(startClick).toContain("const emailErr = emailErrorFor(email);");
     expect(startClick).toContain("if (consentAt === null) {");
     expect(startClick).toContain("if (emailErr || consentAt === null) {");
@@ -783,7 +789,7 @@ describe("payment page — the gift follows the field's value (BUG-334)", () => 
 // the Pay button click, never on the consent tick;
 // and a gift visit whose intent answers as a payment
 // reconciles to the paid form.
-describe("payment page — the paid flow starts on the Pay click only (BUG-335, BUG-325)", () => {
+describe("payment page — the paid flow starts on the Pay click or a method-row tap (BUG-335, BUG-325, BUG-367)", () => {
   const ROOT = process.cwd();
   const read = (path: string) => readFileSync(join(ROOT, path), "utf8");
 
@@ -1014,5 +1020,89 @@ describe("payment page — the generic visit renders no checkout (BUG-329)", () 
     // still answers it, untouched by this stack.
     const intent = readFileSync(join(process.cwd(), "app/api/payments/intent/route.ts"), "utf8");
     expect(intent).toContain('"home-not-found"');
+  });
+});
+
+// BUG-367 — the method rows open the card form: the
+// founder's report (26 Nov 2026, from his mobile
+// screenshot of the live payment page) — the "Card"
+// and "Revolut Pay" rows did nothing when tapped.
+// They were the page's own static list, never wired
+// to anything, while the card fields mount only once
+// a payment has started. The fix makes both rows
+// buttons on the same start path as Pay (its
+// onStartClick validation included), recording the
+// tapped method so the provider's element lists it
+// first. The gift holder's variant is untouched —
+// Screen C draws no method rows at all (BUG-223),
+// and the rows stand only on the paid path.
+describe("payment page — the method rows open the card form (BUG-367)", () => {
+  it("the preferred method orders the element's list, tapped first — and no preference means the provider's default order", () => {
+    expect(paymentMethodOrderFor("card")).toEqual(["card", "revolut_pay"]);
+    expect(paymentMethodOrderFor("revolut_pay")).toEqual(["revolut_pay", "card"]);
+    expect(paymentMethodOrderFor(null)).toBeUndefined();
+  });
+
+  it("renders the two method rows as buttons, Card first then Revolut Pay — not plain list items", () => {
+    const html = renderPaid();
+    const buttons = html.match(/<button[^>]*class="report-payment__method"[^>]*>/g) ?? [];
+    expect(buttons).toHaveLength(2);
+    for (const button of buttons) expect(button).toContain('type="button"');
+    const cardAt = html.indexOf(">Card</span>");
+    const revolutAt = html.indexOf(">Revolut Pay</span>");
+    expect(cardAt).toBeGreaterThan(html.indexOf("report-payment__methods"));
+    expect(revolutAt).toBeGreaterThan(cardAt);
+    // The rows are buttons, not the old static list
+    // items: no <li> carries the row class.
+    expect(html).not.toContain('<li class="report-payment__method">');
+  });
+
+  it("the rows run Pay's start path with the tapped method, and the element lists it first (source pin)", () => {
+    const source = readFileSync(join(process.cwd(), "components/ReportPaymentPage.tsx"), "utf8");
+    // Each row hands its method to the one start
+    // handler — the same validation Pay runs (email
+    // + consent, BUG-327/BUG-328) gates the start.
+    expect(source).toContain('onClick={() => onStartClick("card")}');
+    expect(source).toContain('onClick={() => onStartClick("revolut_pay")}');
+    // The handler records the preference once the
+    // start passes validation, and Pay itself — no
+    // method tapped — records none: the Pay button
+    // calls the handler with no argument, never the
+    // raw click event (which would land as the
+    // preference).
+    expect(source).toContain("function onStartClick(preferred?: PreferredPaymentMethod) {");
+    expect(source).toContain("onClick={() => onStartClick()}");
+    const handler = source.slice(source.indexOf("function onStartClick("));
+    const recordAt = handler.indexOf("setPreferredMethod(preferred ?? null);");
+    const startAt = handler.indexOf("void startPayment();");
+    expect(recordAt).toBeGreaterThan(-1);
+    expect(startAt).toBeGreaterThan(recordAt);
+    // The preference reaches the element: the parent
+    // hands it to PaySection, whose Payment Element
+    // carries it as its paymentMethodOrder — the
+    // tapped method first. (The brief's "<Elements>
+    // options" placement is wrong against the
+    // installed provider types: paymentMethodOrder
+    // is a Payment Element option —
+    // StripePaymentElementOptions carries it,
+    // StripeElementsOptionsClientSecret does not —
+    // so it stands on the PaymentElement, never on
+    // <Elements>.)
+    expect(source).toContain("preferredMethod={preferredMethod}");
+    expect(source).toContain("paymentMethodOrder: paymentMethodOrderFor(preferredMethod)");
+    expect(source).toContain("options={paymentElementOptions}");
+  });
+
+  it("the gift variant still draws no method rows — the gift holder's behaviour is untouched", () => {
+    const html = renderToStaticMarkup(
+      createElement(ReportPaymentPage, {
+        view: buildReportPaymentView(HOME, { email: GIFT_FRIEND }),
+        publishableKey: null,
+        postcode: HOME.postcode,
+        homeKey: HOME.homeKey,
+      }),
+    );
+    expect(html).not.toContain("report-payment__methods");
+    expect(html).not.toContain("report-payment__method");
   });
 });

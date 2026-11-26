@@ -149,8 +149,12 @@ export type ComparisonRowKey =
 // distance-colour family for the row's miles figure
 // (lib/results.ts's thresholds); rows without a family
 // never carry a distance cell in a form that colours
-// (grammar's, flood's, crime's and air quality's cells
-// are lines; council tax is a line).
+// (flood's, crime's and air quality's cells are lines;
+// council tax is a line). BUG-365: grammar takes the
+// school family — its cell is a distance cell where a
+// selective school files, so the row colours on the
+// school bands exactly as the primary and secondary
+// rows do.
 export const COMPARISON_ROWS: {
   key: ComparisonRowKey;
   label: string;
@@ -161,7 +165,7 @@ export const COMPARISON_ROWS: {
   { key: "air", label: "Air quality", family: null },
   { key: "primary", label: "Nearest primary", family: "school" },
   { key: "secondary", label: "Nearest secondary", family: "school" },
-  { key: "grammar", label: "Grammar school nearby", family: null },
+  { key: "grammar", label: "Selective schools", family: "school" },
   { key: "ae", label: "Hospital with A&E", family: "hospital" },
   { key: "gp", label: "GP", family: "everyday" },
   { key: "vet", label: "Nearest vet", family: "everyday" },
@@ -407,8 +411,18 @@ export function comparisonCellBand(
 //     were never stored, and neither was the zone label;
 //   - no air cell at all: saved before the row existed
 //     (BUG-164);
+//   - an air line in the figures-only text with a band:
+//     saved before BUG-361 put the verdict words ahead
+//     of the figures — the band is the verdict, so a
+//     fresh derivation restores the words;
 //   - a grammar line in the old lowercase form: saved
 //     before BUG-313 capitalised the composed line;
+//   - a grammar line in the capitalised selective
+//     sentence: saved before BUG-365 put the distance
+//     pill on the row — current assembly never produces
+//     that sentence as a line cell (a selective school
+//     files as a distance cell; no selective school files
+//     as the category's own line).
 //   - rung 3 only: the BUG-301 signature — the nearby
 //     reason repeated on the seven governed rows.
 // Deliberately NOT markers: a plain-line crime cell
@@ -416,17 +430,23 @@ export function comparisonCellBand(
 // calibration pair is missing) and a missing price line
 // (a home with no recorded sale legitimately has none) —
 // a refresh the other markers trigger restores the price
-// line where one serves.
+// line where one serves. A bandless figures-only air line
+// is not a marker either (BUG-361): the snapshot carries
+// no band to derive a verdict from, and no threshold is
+// ever faked on the raw figures.
 export function isStaleShortlistCard(card: ShortlistCard): boolean {
   const comparison = card.comparison;
   if (COMPARISON_ROWS.some((row) => comparison[row.key]?.kind === "pointer")) return true;
   const flood = comparison.flood;
   if (flood?.kind === "line" && LEGACY_FLOOD_CELL_TEXT.test(flood.text)) return true;
   if (comparison.air === undefined) return true;
+  const air = comparison.air;
+  if (air?.kind === "line" && air.band !== undefined && air.text.startsWith("NO2 ")) return true;
   const grammar = comparison.grammar;
   if (
     grammar?.kind === "line" &&
-    grammar.text.startsWith("the nearest selective secondary school is ")
+    (grammar.text.startsWith("the nearest selective secondary school is ") ||
+      grammar.text.startsWith("The nearest selective secondary school is "))
   ) {
     return true;
   }

@@ -274,6 +274,9 @@ function parsed(paon, saon, street, town, postcode) {
 //   S2  "49" / "George Heard Crescent"         number alone, street on line 2
 //   S3  "Flat 8 Juno House" / "16, Ceres Crescent"
 //                                              flat + building, street number on line 2
+//   S3b "Flat 5, Ottawa Tower, Murrell Close" / "Birmingham"
+//                                              flat + building + street, town on line 2
+//                                              (BUG-372 — post town empty)
 //   S4  "Flat 4" / "12 Ceres Crescent"         flat alone, number + street on line 2
 //   S5  "Minerva House, 12 Ceres Crescent"     named building, PAON form
 //   S6  "Rose Cottage" / "Church Lane"         named home, street on line 2
@@ -305,7 +308,12 @@ export function parseEpcAddressLines({ line1, line2, line3, postTown, postcode }
   if (flat !== null) {
     const designator = flat[1].toUpperCase() === "UNIT" ? "UNIT" : "FLAT";
     const saon = `${designator} ${flat[2].toUpperCase()}`;
-    const rest = first.slice(flat[0].length).trim().replace(/,$/, "");
+    // BUG-372: the register leaves the comma after the flat
+    // designator in place ("Flat 5, Ottawa Tower ..."), so
+    // `rest` starts with one. Strip it, mirroring the
+    // trailing-comma strip — a leading comma would
+    // otherwise file as the paon's first character.
+    const rest = first.slice(flat[0].length).trim().replace(/^,/, "").trim().replace(/,$/, "");
     if (second === "") return refusal("no-anchor");
     if (rest !== "") {
       // S3: the building is named on line 1; line 2 must
@@ -315,7 +323,28 @@ export function parseEpcAddressLines({ line1, line2, line3, postTown, postcode }
         return parsed(`${rest}, ${anchored.number}`, saon, anchored.street, town, pc);
       }
       const street = bareStreet(second);
-      if (street !== null) return parsed(rest, saon, street, town, pc);
+      if (street !== null) {
+        // BUG-372: the register sometimes carries the
+        // street on line 1 after the building ("Flat 5,
+        // Ottawa Tower, Murrell Close") and the town on
+        // line 2, leaving post town empty. The part after
+        // the last comma in `rest` is then the street,
+        // and the bare line 2 is the town. Guarded two
+        // ways: the tail must itself be a bare street (a
+        // number tail is a PAON number, not a street),
+        // and the register's post town must be empty
+        // (when it is filed, line 2 is the street and
+        // `rest` keeps its comma, as before).
+        const comma = rest.lastIndexOf(",");
+        if (comma !== -1 && town === "") {
+          const building = rest.slice(0, comma).trim();
+          const tail = rest.slice(comma + 1).trim();
+          if (building !== "" && bareStreet(tail) !== null) {
+            return parsed(building, saon, tail, street, pc);
+          }
+        }
+        return parsed(rest, saon, street, town, pc);
+      }
       return refusal("no-anchor");
     }
     // S4: the flat stands alone on line 1; line 2 must

@@ -374,6 +374,68 @@ describe("canonicalHomeKey + dedupeAddressParts — BUG-308", () => {
   });
 });
 
+// BUG-370 (26 Nov 2026): the live H1 for Flat 5, Ottawa Tower,
+// Murrell Close, Birmingham B5 7LZ read "Flat 5, , Ottawa
+// Tower, ..." — the picking index files a dirty twin for the
+// flat whose paon carries a leading comma (", OTTAWA TOWER,
+// MURRELL CLOSE", street BIRMINGHAM, town empty). 68,290 rows
+// file a paon starting with ", ". The founder's rule: after
+// the label is composed, collapse every double comma into one
+// (", ," reads ", "). Clean labels are untouched.
+// NOTE: "Murrell Close Birmingham" still carries no comma
+// before Birmingham — the dirty row's street IS "BIRMINGHAM"
+// and its town is empty, so the town never joins with a
+// comma. That last piece needs the dirty rows cleaned at
+// source, not this collapse.
+describe("label double-comma collapse — BUG-370", () => {
+  function parts(partial: Partial<LoadedAddressParts>): LoadedAddressParts {
+    return {
+      postcode: "B5 7LZ",
+      paon: null,
+      saon: null,
+      street: "MURRELL CLOSE",
+      locality: null,
+      town: "BIRMINGHAM",
+      ...partial,
+    };
+  }
+
+  it("the Flat 5 dirty parts compose with a single comma", () => {
+    const label = labelForAddressParts(
+      parts({ paon: ", OTTAWA TOWER, MURRELL CLOSE", saon: "FLAT 5", street: "BIRMINGHAM" }),
+    );
+    expect(label).toBe("Flat 5, Ottawa Tower, Murrell Close Birmingham");
+    expect(label).not.toContain(", ,");
+  });
+
+  it("the Flat 5 clean parts compose exactly as before", () => {
+    expect(
+      labelForAddressParts(
+        parts({ paon: "OTTAWA TOWER", saon: "FLAT 5", street: "MURRELL CLOSE" }),
+      ),
+    ).toBe("Flat 5, Ottawa Tower Murrell Close");
+  });
+
+  it("every double comma in a label collapses, even with no space between", () => {
+    // A paon carrying its own ", ," and a trailing comma that
+    // meets the street's separator with no space.
+    expect(
+      labelForAddressParts(parts({ paon: ", HOUSE, , LANE", saon: "FLAT 1", street: "ROAD" })),
+    ).toBe("Flat 1, House, Lane Road");
+    expect(labelForAddressParts(parts({ paon: "ROSE COTTAGE,", street: "HIGH STREET" }))).toBe(
+      "Rose Cottage, High Street",
+    );
+  });
+
+  it("clean labels with single commas are untouched", () => {
+    expect(
+      labelForAddressParts(
+        parts({ paon: "MINERVA HOUSE, 12", saon: "FLAT 4", street: "CERES CRESCENT" }),
+      ),
+    ).toBe("Flat 4, Minerva House, 12 Ceres Crescent");
+  });
+});
+
 // ------------------------------------------------------------------
 // Resolution — the step's own checks
 // ------------------------------------------------------------------

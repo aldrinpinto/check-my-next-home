@@ -544,6 +544,25 @@ export interface StartedPayment {
   intentId: string;
 }
 
+// BUG-367 — the payment method the buyer tapped on
+// the method rows ("card" for the Card row,
+// "revolut_pay" for the Revolut Pay row), or null
+// where no row was tapped (Pay itself carries no
+// preference). The provider's element lists the
+// preferred method first; the other stands second,
+// so tapping a row opens the form with that method
+// on top instead of the provider's default order.
+// No preference means the provider's default order
+// (undefined), never an invented one.
+export type PreferredPaymentMethod = "card" | "revolut_pay";
+
+export function paymentMethodOrderFor(
+  preferred: PreferredPaymentMethod | null,
+): string[] | undefined {
+  if (preferred === null) return undefined;
+  return preferred === "card" ? ["card", "revolut_pay"] : ["revolut_pay", "card"];
+}
+
 // The key the card element initialises from: the
 // started payment's own lane key where the intent
 // answer carried one, else the page's key (the default
