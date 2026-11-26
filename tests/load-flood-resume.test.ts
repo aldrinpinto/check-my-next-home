@@ -28,6 +28,11 @@ import {
 } from "../loaders/flood-stream.mjs";
 import { createFloodResume, validateCheckpoint } from "../loaders/flood-resume.mjs";
 import { beginFiling, checkGolden, readFixture } from "../loaders/load-flood-zones.mjs";
+import { beginFiling as beginRiversSeaFiling } from "../loaders/load-flood-rivers-sea.mjs";
+import { beginFiling as beginSurfaceWaterFiling } from "../loaders/load-flood-surface-water.mjs";
+import { beginFiling as beginRiversSeaClimateFiling } from "../loaders/load-flood-rivers-sea-climate.mjs";
+import { beginFiling as beginSurfaceWaterClimateFiling } from "../loaders/load-flood-surface-water-climate.mjs";
+import { createDefencesFiler } from "../loaders/load-flood-defences.mjs";
 
 const FIXTURE_DIR = join(process.cwd(), "tests/fixtures/flood-zones");
 const EDITION = "2026-10-21";
@@ -115,6 +120,11 @@ function createFakeDb() {
   const stage: FakeStageRow[] = [];
   const layers: FakeStageRow[] = [];
   const statements: string[] = [];
+  // Every query the flow issues, with its params — the
+  // BUG-374 staging-shape test reads the SQL text itself,
+  // so a mismatch the row handlers would silently absorb
+  // is still caught.
+  const calls: { sql: string; params: unknown[] }[] = [];
   // Every seq ever inserted as a NEW staged row (re-staged
   // no-ops are not recorded): the distinct set proves the
   // read staged every seq exactly once.
@@ -124,11 +134,13 @@ function createFakeDb() {
     stage,
     layers,
     statements,
+    calls,
     insertedSeqs,
     connect: async () => {},
     end: async () => {},
     query: async (sql: string, params: unknown[] = []) => {
       statements.push(sql);
+      calls.push({ sql, params });
       if (sql === "BEGIN" || sql === "COMMIT" || sql === "ROLLBACK") return { rows: [] };
       // The DELETE must match before the SELECT below: its
       // text contains the SELECT's FROM ... WHERE fragment.
@@ -166,7 +178,10 @@ function createFakeDb() {
         });
         return { rows: [] };
       }
-      if (sql.includes("INSERT INTO flood_stage")) {
+      if (
+        sql.includes("INSERT INTO flood_stage") ||
+        sql.includes("INSERT INTO flood_climate_stage")
+      ) {
         const tupleCount = (sql.match(/ST_GeomFromText\(/g) || []).length;
         for (let t = 0; t < tupleCount; t += 1) {
           const base = t * 8;
@@ -185,6 +200,13 @@ function createFakeDb() {
             insertedSeqs.push(row.seq);
           }
         }
+        return { rows: [], rowCount: tupleCount };
+      }
+      // The defences staging INSERT (BUG-374): the BUG-374
+      // test reads the recorded SQL + params itself, so this
+      // handler only has to accept the statement.
+      if (sql.includes("INSERT INTO flood_defences_stage")) {
+        const tupleCount = (sql.match(/\(\$/g) || []).length;
         return { rows: [], rowCount: tupleCount };
       }
       if (
@@ -595,4 +617,143 @@ describe("fixture-mode resume end to end (BUG-366)", () => {
       );
     },
   );
+});
+
+// --- staging INSERT shape (BUG-374) ------------------------------------
+// CI #366 died on the defences staging INSERT: 15 target columns
+// but 14 placeholders per tuple (stride 14) while 15 params were
+// pushed per row — "INSERT has more target columns than
+// expressions". The fake database's row handlers trusted the
+// stride, so the mismatch shipped silently. These tests read the
+// recorded SQL text and params themselves and assert the counts
+// agree, for every flood staging INSERT, so the class cannot
+// recur unnoticed.
+
+// Split the VALUES list into its top-level tuples, honouring the
+// nested ST_GeomFromText(...) parens inside the OGC tuples.
+function valuesTuples(sql: string): string[] {
+  const valuesAt = sql.indexOf("VALUES");
+  const onConflictAt = sql.indexOf("ON CONFLICT");
+  const valuesPart = sql.slice(
+    valuesAt + "VALUES".length,
+    onConflictAt === -1 ? undefined : onConflictAt,
+  );
+  const tuples: string[] = [];
+  let depth = 0;
+  let current = "";
+  for (const ch of valuesPart) {
+    if (ch === "(") {
+      depth += 1;
+      if (depth === 1) {
+        current = "";
+        continue;
+      }
+    }
+    if (ch === ")") {
+      depth -= 1;
+      if (depth === 0) {
+        tuples.push(current);
+        continue;
+      }
+    }
+    if (depth >= 1) current += ch;
+  }
+  return tuples;
+}
+
+// One staging INSERT, fully reconciled: every tuple carries
+// exactly one placeholder per target column, the stride from one
+// tuple to the next is the column count, and the params array
+// holds exactly tuples x columns values.
+function assertStagingInsertShape(call: { sql: string; params: unknown[] }, table: string) {
+  const { sql, params } = call;
+  const colsMatch = /INSERT INTO \S+ \(([^)]+)\)/.exec(sql);
+  expect(colsMatch, `${table}: no target-column list in the staging INSERT`).not.toBeNull();
+  const columns = colsMatch![1]
+    .split(",")
+    .map((c) => c.trim())
+    .filter(Boolean);
+  const tuples = valuesTuples(sql);
+  // More than one tuple: a stride error hides in a single row.
+  expect(tuples.length, `${table}: expected a multi-row flush`).toBeGreaterThan(1);
+  for (const [t, tuple] of tuples.entries()) {
+    const placeholders = (tuple.match(/\$\d+/g) || []).length;
+    expect(
+      placeholders,
+      `${table} tuple ${t}: ${placeholders} placeholders for ${columns.length} target columns`,
+    ).toBe(columns.length);
+    const first = parseInt((tuple.match(/\$\d+/) || ["$0"])[0].slice(1), 10);
+    expect(first, `${table} tuple ${t}: stride is not the column count`).toBe(
+      t * columns.length + 1,
+    );
+  }
+  expect(
+    params.length,
+    `${table}: ${params.length} params for ${tuples.length} tuples x ${columns.length} columns`,
+  ).toBe(tuples.length * columns.length);
+}
+
+describe("staging INSERTs — placeholder count matches the target columns (BUG-374)", () => {
+  const ogcFilers = [
+    ["flood zones", "flood_stage", beginFiling],
+    ["flood rivers and sea", "flood_stage", beginRiversSeaFiling],
+    ["flood surface water", "flood_stage", beginSurfaceWaterFiling],
+    ["flood rivers and sea climate", "flood_climate_stage", beginRiversSeaClimateFiling],
+    ["flood surface water climate", "flood_climate_stage", beginSurfaceWaterClimateFiling],
+  ] as const;
+
+  it.each(ogcFilers)("%s stages with a matching INSERT", async (_label, table, begin) => {
+    const db = createFakeDb();
+    const { progress } = collect();
+    const filer = await begin(progress, { client: db as never });
+    // 26 items: the filer flushes at 25, so the recorded
+    // INSERT is a genuine multi-row flush.
+    const items = Array.from({ length: 26 }, (_, i) => ({
+      polygons: [
+        [
+          [
+            [0, 0],
+            [0.01, 0],
+            [0.01, 0.01],
+            [0, 0],
+          ],
+        ],
+      ],
+      label: i % 2 === 0 ? "FZ2" : "FZ3",
+      detail: "river · test",
+    }));
+    await filer.stageItems(items, EDITION);
+    const call = db.calls.find((c) => c.sql.includes(`INSERT INTO ${table}`));
+    expect(call, `no staging INSERT recorded for ${table}`).toBeDefined();
+    assertStagingInsertShape(call!, table);
+  });
+
+  it("flood defences stages with a matching INSERT", async () => {
+    const db = createFakeDb();
+    // No progress logger: the filer's options type the logger
+    // as null by default, and the flush under test logs nothing.
+    const filer = await createDefencesFiler(db as never, EDITION);
+    // 101 rows: the filer flushes at 100, so the recorded
+    // INSERT is a genuine multi-row flush.
+    for (let i = 0; i < 101; i += 1) {
+      await filer.addRow({
+        assetId: `A${i}`,
+        assetName: `Defence ${i}`,
+        assetSubType: "wall",
+        protectionType: "fluvial",
+        assetMaintainer: "Environment Agency",
+        assetOperator: "Environment Agency",
+        currentCondition: "2",
+        designSop: "100",
+        designSopDqf: "high",
+        currentSop: "75",
+        waterCourseName: "Test Brook",
+        lastInspectionDate: "2024-01-01",
+        wkt: "LINESTRING (0 0, 1 1)",
+      });
+    }
+    const call = db.calls.find((c) => c.sql.includes("INSERT INTO flood_defences_stage"));
+    expect(call, "no staging INSERT recorded for flood_defences_stage").toBeDefined();
+    assertStagingInsertShape(call!, "flood_defences_stage");
+  });
 });

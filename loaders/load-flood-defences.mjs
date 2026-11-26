@@ -611,9 +611,9 @@ export async function createDefencesFiler(
     const values = [];
     const params = [];
     pending.forEach((row, i) => {
-      const base = i * 14;
+      const base = i * 15;
       values.push(
-        `($${base + 1},$${base + 2},$${base + 3},$${base + 4},$${base + 5},$${base + 6},$${base + 7},$${base + 8},$${base + 9},$${base + 10},$${base + 11},$${base + 12},$${base + 13},$${base + 14})`,
+        `($${base + 1},$${base + 2},$${base + 3},$${base + 4},$${base + 5},$${base + 6},$${base + 7},$${base + 8},$${base + 9},$${base + 10},$${base + 11},$${base + 12},$${base + 13},$${base + 14},$${base + 15})`,
       );
       params.push(
         DEFENCES_LAYER_TYPE,
